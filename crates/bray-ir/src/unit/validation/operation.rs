@@ -23,6 +23,21 @@ pub(super) fn validate_operation(
     id: MirOperationId,
     operation: &MirOperation,
 ) -> Result<(), MirUnitBuildError> {
+    if let Some(execution) = operation.cleanup_execution() {
+        if !matches!(
+            operation.kind(),
+            MirOperationKind::Finalize(_)
+                | MirOperationKind::Destroy(_)
+                | MirOperationKind::Abandon { .. }
+                | MirOperationKind::Cleanup { .. }
+                | MirOperationKind::DestructorRemainder { .. }
+        ) {
+            return Err(MirUnitBuildError::InvalidCleanupExecution(id));
+        }
+
+        super::core::validate_frame_execution(unit, execution)?;
+    }
+
     validate_operation_result(unit, id, operation)?;
     validate_operation_block(block_kind, id, operation.kind())?;
 

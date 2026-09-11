@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use bray_binder::SymbolQueryProvider;
 use bray_codegen::{
     CodegenCallSite, CodegenHelperMapping, CodegenInstance, CodegenOperationMapping,
     CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget, CodegenTypeMapping, CodegenUnit,
@@ -9,7 +10,7 @@ use bray_ir::{
     MirAsyncOperation, MirCallTarget, MirFrameInitializer, MirHelperReference, MirOperationId,
     MirOperationKind, MirUnit, MirUnitId, MirUnitKey,
 };
-use bray_symbols::TypeId;
+use bray_symbols::{CallableContractsQuery, SymbolQueryRequest, TypeId};
 
 use super::super::super::CodegenPreparationError;
 use super::super::super::Compilation;
@@ -476,11 +477,29 @@ impl Compilation {
             let mir = self.codegen_mir_for_plan(&source, unit, None, cancellation)?;
 
             return if matches!(reference, MirHelperReference::Destroy(_)) {
+                let binding_context = self.binding_context(cancellation)?;
+
+                let contract = binding_context
+                    .resolve_symbol_query(SymbolQueryRequest::<CallableContractsQuery>::new(
+                        callable.instance().definition().callable_symbol(),
+                    ))
+                    .map_err(crate::compilation::binder::binding_query_error)?;
+
+                if contract.diagnostics().has_errors() {
+                    return Err(CodegenPreparationError::Diagnostics(
+                        contract.diagnostics().clone(),
+                    ));
+                }
+
                 bray_lowering::specialize_destruction_body(
                     &context,
                     mir,
                     instance.template().clone(),
                     ty,
+                    contract
+                        .value()
+                        .invocation_behavior()
+                        .execution_requirements(),
                 )
             } else {
                 bray_lowering::specialize_destructor_body(mir, instance.template().clone())

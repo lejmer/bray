@@ -331,6 +331,9 @@ pub(crate) const fn mir_unit_failure(error: &MirUnitBuildError) -> DiagnosticMir
         MirUnitBuildError::OperationResultTypeMismatch(identity) => {
             mir_operation_failure(Kind::OperationResultTypeMismatch, *identity)
         }
+        MirUnitBuildError::InvalidCleanupExecution(identity) => {
+            mir_operation_failure(Kind::InvalidCleanupExecution, *identity)
+        }
         MirUnitBuildError::InvalidAggregateOperation(identity) => {
             mir_operation_failure(Kind::InvalidAggregateOperation, *identity)
         }

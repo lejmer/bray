@@ -80,6 +80,12 @@ pub fn specialize_lifecycle_execution<C: SyntheticLoweringContext + ?Sized>(
                 *ty,
                 place.clone(),
                 operation.source().clone(),
+                operation.cleanup_execution().cloned().ok_or_else(|| {
+                    failure(
+                        operation.source(),
+                        MirUnitBuildError::InvalidCleanupExecution(*operation_id),
+                    )
+                })?,
             ));
         }
     }
@@ -109,23 +115,19 @@ pub fn specialize_lifecycle_execution<C: SyntheticLoweringContext + ?Sized>(
         .take_frame_descriptor()
         .ok_or_else(|| failure(source, MirUnitBuildError::ProtectedFrameMismatch))?;
 
-    let initial = &descriptor.states()[0];
-
-    if descriptor.states().iter().any(|state| {
-        state.affinity() != initial.affinity()
-            || state.lane_requirements() != initial.lane_requirements()
-    }) {
-        return Err(failure(source, MirUnitBuildError::ProtectedFrameMismatch).into());
-    }
-
     // Existing resumptions keep their IDs. New states inherit the checked frame execution context.
     let mut states = descriptor.states().to_vec();
 
     let lowerer = crate::synthetic::SyntheticLowerer::new(context);
 
-    for (block, operation, role, concrete, place, source) in actions {
+    for (block, operation, role, concrete, place, source, execution) in actions {
+        let storage_count = builder.storage_ids().len();
         let next = lowerer.next_lifecycle_state(&builder, &source)?;
         let state = MirFrameStateId::new(next.raw().max(first_new_state));
+
+        builder
+            .set_cleanup_execution(operation, None)
+            .map_err(|cause| failure(&source, cause))?;
 
         expand_action(
             context,
@@ -135,21 +137,26 @@ pub fn specialize_lifecycle_execution<C: SyntheticLoweringContext + ?Sized>(
             (role, concrete, place),
             state,
         )?;
-    }
 
-    for (state, resume) in builder.suspension_states() {
-        if state.raw() < first_new_state {
-            continue;
-        }
+        // Retain this action's generated slots with its checked lexical dependencies. Some
+        // slots hold conditional values whose existing guards still govern initialization.
+        let execution = bray_ir::MirFrameExecutionState::new(
+            execution.lane_requirements().iter().copied(),
+            execution
+                .retained_storages()
+                .iter()
+                .copied()
+                .chain(builder.storage_ids().skip(storage_count)),
+        )
+        .with_affinity(execution.affinity());
 
-        states.push(
-            MirFrameState::new(
-                state,
-                resume,
-                initial.lane_requirements().iter().copied(),
-                [],
-            )
-            .with_affinity(initial.affinity()),
+        states.extend(
+            builder
+                .suspension_states()
+                .filter(|(generated, _)| generated.raw() >= state.raw())
+                .map(|(generated, resume)| {
+                    MirFrameState::new(generated, resume, execution.clone())
+                }),
         );
     }
 

@@ -49,6 +49,7 @@ impl Compilation {
             if instance.mir().frame_descriptor().is_some_and(|frame| {
                 frame.states().iter().any(|state| {
                     state
+                        .execution()
                         .lane_requirements()
                         .contains(&ExecutionLaneRequirement::MainThread)
                 })

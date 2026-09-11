@@ -169,6 +169,7 @@ pub fn encode_executable_template<C: ExecutableTemplateEncodeContext>(
         });
 
         encoder.operation(operation.kind())?;
+        encoder.cleanup_execution(operation.cleanup_execution());
     }
 
     for block in unit.blocks() {
@@ -193,6 +194,21 @@ pub(super) fn encode_projection_for_test<C: ExecutableTemplateEncodeContext>(
     encoder.projection_kind(projection)?;
 
     Ok(encoder.wire.into_bytes())
+}
+
+#[cfg(test)]
+pub(super) fn encode_cleanup_execution_for_test<C: ExecutableTemplateEncodeContext>(
+    execution: Option<&bray_ir::MirFrameExecutionState>,
+    context: &mut C,
+) -> Vec<u8> {
+    let mut encoder = Encoder {
+        wire: WireEncoder::new(),
+        context,
+    };
+
+    encoder.cleanup_execution(execution);
+
+    encoder.wire.into_bytes()
 }
 
 #[cfg(test)]
@@ -1206,22 +1222,33 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             self.wire.write_u32(state.state().raw());
             self.wire.write_u32(state.entry().slot());
 
-            self.wire.write_u32(state.affinity().code());
-
-            write_count(&mut self.wire, state.lane_requirements().len());
-
-            for requirement in state.lane_requirements() {
-                self.execution_lane(*requirement);
-            }
-
-            write_count(&mut self.wire, state.initialized_storages().len());
-
-            for storage in state.initialized_storages() {
-                self.wire.write_u32(storage.slot());
-            }
+            self.frame_execution(state.execution());
         }
 
         Ok(())
+    }
+
+    fn cleanup_execution(&mut self, execution: Option<&bray_ir::MirFrameExecutionState>) {
+        self.wire.write_u32(u32::from(execution.is_some()));
+
+        if let Some(execution) = execution {
+            self.frame_execution(execution);
+        }
+    }
+
+    fn frame_execution(&mut self, execution: &bray_ir::MirFrameExecutionState) {
+        self.wire.write_u32(execution.affinity().code());
+        write_count(&mut self.wire, execution.lane_requirements().len());
+
+        for requirement in execution.lane_requirements() {
+            self.execution_lane(*requirement);
+        }
+
+        write_count(&mut self.wire, execution.retained_storages().len());
+
+        for storage in execution.retained_storages() {
+            self.wire.write_u32(storage.slot());
+        }
     }
 
     fn immediate(&mut self, value: MirImmediateValue) {

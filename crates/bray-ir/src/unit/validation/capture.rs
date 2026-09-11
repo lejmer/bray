@@ -175,7 +175,11 @@ mod tests {
             None
         };
 
-        let mut states = vec![MirFrameState::new(MirFrameStateId::new(0), body, [], [])];
+        let mut states = vec![MirFrameState::new(
+            MirFrameStateId::new(0),
+            body,
+            crate::MirFrameExecutionState::new([], []),
+        )];
 
         for block in [body, interior, quiescence, destruction, resumed] {
             let terminator = match (block, scenario) {
@@ -240,7 +244,11 @@ mod tests {
             scenario,
             Scenario::QuiescenceSuspends | Scenario::DestructionSuspends
         ) {
-            states.push(MirFrameState::new(MirFrameStateId::new(1), resumed, [], []));
+            states.push(MirFrameState::new(
+                MirFrameStateId::new(1),
+                resumed,
+                crate::MirFrameExecutionState::new([], []),
+            ));
         }
 
         builder.set_frame_descriptor(

@@ -163,7 +163,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             .map_err(invalid)?;
 
         self.lower_task_observation_cleanup(&mut builder, cancelled, &source, task.clone())?;
-        self.attach_frame_descriptor(&mut builder, entry, task, result, cancelled, &source)?;
+        self.attach_frame_descriptor(&mut builder, entry, task, result, cancelled, &[], &source)?;
 
         builder.finish(entry).map_err(invalid)
     }

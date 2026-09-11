@@ -503,6 +503,8 @@ pub enum DiagnosticMirUnitBuildFailureKind {
     OperationResultTypeMismatch,
     /// An aggregate operation violates its type contract.
     InvalidAggregateOperation,
+    /// A lifecycle cleanup execution context is missing or attached to an invalid operation.
+    InvalidCleanupExecution,
     /// A memory operation violates its storage contract.
     InvalidMemoryOperation,
     /// An anonymous-callable operation violates its callable contract.
@@ -582,6 +584,7 @@ impl DiagnosticMirUnitBuildFailureKind {
             Self::MissingOperationResult => "executable_code_missing_instruction_value",
             Self::UnexpectedOperationResult => "executable_code_unexpected_value",
             Self::OperationResultTypeMismatch => "executable_code_value_type_mismatch",
+            Self::InvalidCleanupExecution => "executable_code_invalid_cleanup_execution",
             Self::InvalidAggregateOperation => "executable_code_aggregate_value_mismatch",
             Self::InvalidMemoryOperation => "executable_code_value_access_mismatch",
             Self::InvalidAnonymousCallable => "executable_code_invalid_anonymous_callable",

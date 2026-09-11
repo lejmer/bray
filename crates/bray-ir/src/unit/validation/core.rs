@@ -190,10 +190,23 @@ fn validate_frame_descriptor(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
             return Err(MirUnitBuildError::InvalidFrameStateEntry(state.entry()));
         }
 
-        for storage in state.initialized_storages() {
-            if storage.unit() != unit.unit() || unit.storage(*storage).is_none() {
-                return Err(MirUnitBuildError::MissingStorage(*storage));
-            }
+        validate_frame_execution(unit, state.execution())?;
+    }
+
+    Ok(())
+}
+
+pub(super) fn validate_frame_execution(
+    unit: &MirUnit,
+    execution: &crate::MirFrameExecutionState,
+) -> Result<(), MirUnitBuildError> {
+    for storage in execution.retained_storages() {
+        if storage.unit() != unit.unit() {
+            return Err(MirUnitBuildError::ForeignStorage(*storage));
+        }
+
+        if unit.storage(*storage).is_none() {
+            return Err(MirUnitBuildError::MissingStorage(*storage));
         }
     }
 

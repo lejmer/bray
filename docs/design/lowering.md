@@ -410,9 +410,14 @@ cancellation behavior, result propagation, affinity requirements, dependency con
 It emits explicit MIR frame, state, suspend, resume, task, cancellation, completion, and destruction operations. These
 operations use typed runtime roles rather than source-level runtime or standard-library names.
 
-Each resumable frame state retains its checked initialized storage, execution-lane requirements, dependency contract,
-and deferred callable set. Suspension names both the private registration and wake roles needed to resume that exact
-state.
+Each resumable frame state retains its checked storage dependencies, thread affinity, and execution-lane requirements.
+Retention keeps storage available across suspension. It does not assert that a value is initialized: ownership guards
+continue to govern conditional values, including cleanup reports.
+
+Template cleanup operations retain the checked execution context at their source location. Concrete specialization
+uses that context for any suspension it introduces and adds storage allocated by that cleanup expansion. An absent
+context differs from a checked context with no retained dependencies. Specialization must not substitute the initial
+frame state's context. Suspension names both the private registration and wake roles needed to resume that exact state.
 
 Lowering derives portable runtime requirements and protected-frame contracts from checked lowering inputs. MIR refers to
 closed runtime roles without selecting a runtime artifact or target-specific binary symbol. Product formation resolves

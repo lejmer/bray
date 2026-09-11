@@ -5,7 +5,7 @@ use bray_ir::{
     MirRunResultVariants, MirRuntimeReference, MirSourceAnchor, MirTaskTerminalState,
     MirTerminatorKind, MirUnitBuildError, MirUnitBuilder,
 };
-use bray_runtime_interface::{ProtectedAsyncFrameId, RuntimeAbiRole};
+use bray_runtime_interface::{ExecutionLaneRequirement, ProtectedAsyncFrameId, RuntimeAbiRole};
 use bray_symbols::TypeId;
 
 use super::super::{SyntheticLowerer, SyntheticLoweringContext, SyntheticLoweringError};
@@ -230,6 +230,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         frame: ProtectedAsyncFrameId,
         entry: MirBlockId,
         receiver: MirPlace,
+        lane_requirements: &[ExecutionLaneRequirement],
         source: &MirSourceAnchor,
     ) -> Result<(), C::Error> {
         if builder.protected_frame() != Some(frame) {
@@ -274,7 +275,15 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             .set_terminator(completed, source.clone(), MirTerminatorKind::Return(None))
             .map_err(|cause| self.mir_error(source, cause))?;
 
-        self.attach_frame_descriptor(builder, entry, receiver, result, captures, source)
+        self.attach_frame_descriptor(
+            builder,
+            entry,
+            receiver,
+            result,
+            captures,
+            lane_requirements,
+            source,
+        )
     }
 
     pub(super) fn await_lifecycle_result(

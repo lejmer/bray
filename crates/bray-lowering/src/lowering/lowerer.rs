@@ -130,15 +130,12 @@ impl<'unit> Lowerer<'unit> {
         }
 
         if self.input.unit_kind().protected_frame().is_some() {
-            self.frame_states.push(
-                MirFrameState::new(
-                    MirFrameStateId::new(0),
-                    entry,
-                    self.execution_lane_requirements(),
-                    [],
-                )
-                .with_affinity(self.frame_affinity()),
-            );
+            self.frame_states.push(MirFrameState::new(
+                MirFrameStateId::new(0),
+                entry,
+                bray_ir::MirFrameExecutionState::new(self.execution_lane_requirements(), [])
+                    .with_affinity(self.frame_affinity()),
+            ));
         }
 
         let completion = match root {

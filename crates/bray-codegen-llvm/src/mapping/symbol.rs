@@ -1035,7 +1035,12 @@ mod tests {
             panic!("test protected-frame terminator must validate");
         };
 
-        let state = MirFrameState::new(MirFrameStateId::new(0), entry, [], []);
+        let state = MirFrameState::new(
+            MirFrameStateId::new(0),
+            entry,
+            bray_ir::MirFrameExecutionState::new([], []),
+        );
+
         let version = RuntimeAbiVersion::CURRENT;
 
         let Ok(descriptor) = MirFrameDescriptor::try_new(

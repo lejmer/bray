@@ -163,11 +163,7 @@ impl InspectionMirUnit {
                     .map(|state| InspectionMirFrameState {
                         id: state.state().raw(),
                         entry: state.entry().slot(),
-                        initialized_storages: state
-                            .initialized_storages()
-                            .iter()
-                            .map(|storage| storage.slot())
-                            .collect(),
+                        execution: inspection_frame_execution(state.execution()),
                     })
                     .collect();
 
@@ -278,7 +274,36 @@ pub(crate) struct InspectionMirFrame {
 pub(crate) struct InspectionMirFrameState {
     pub(crate) id: u32,
     pub(crate) entry: u32,
-    pub(crate) initialized_storages: Vec<u32>,
+    pub(crate) execution: InspectionMirFrameExecution,
+}
+
+#[derive(Serialize)]
+pub(crate) struct InspectionMirFrameExecution {
+    pub(crate) affinity: u32,
+    pub(crate) lane_requirements: Vec<&'static str>,
+    pub(crate) retained_storages: Vec<u32>,
+}
+
+fn inspection_frame_execution(
+    execution: &bray_ir::MirFrameExecutionState,
+) -> InspectionMirFrameExecution {
+    InspectionMirFrameExecution {
+        affinity: execution.affinity().code(),
+        lane_requirements: execution
+            .lane_requirements()
+            .iter()
+            .map(|lane| match lane {
+                bray_runtime_interface::ExecutionLaneRequirement::Blocking => "blocking",
+                bray_runtime_interface::ExecutionLaneRequirement::Compute => "compute",
+                bray_runtime_interface::ExecutionLaneRequirement::MainThread => "main_thread",
+            })
+            .collect(),
+        retained_storages: execution
+            .retained_storages()
+            .iter()
+            .map(|storage| storage.slot())
+            .collect(),
+    }
 }
 
 #[derive(Serialize)]
@@ -315,6 +340,7 @@ pub(crate) struct InspectionMirBlock {
 
 #[derive(Serialize)]
 pub(crate) struct InspectionMirOperation {
+    pub(crate) cleanup_execution: Option<InspectionMirFrameExecution>,
     pub(crate) id: u32,
     pub(crate) operation_kind: &'static str,
     pub(crate) result: Option<u32>,
@@ -584,6 +610,9 @@ fn inspection_operation(
     let operation_kind = operation_parts(operation.kind(), &mut parts, &context)?;
 
     Ok(InspectionMirOperation {
+        cleanup_execution: operation
+            .cleanup_execution()
+            .map(inspection_frame_execution),
         id,
         operation_kind,
         result: operation.result().map(|result| result.slot()),

@@ -2,7 +2,6 @@ use bray_bound_tree::{
     AsyncSuspensionKind, AsyncTaskOperationKind, BoundAwaitExpression, BoundCallResult,
     BoundDependencySubject, BoundExpressionId,
 };
-use bray_compiler_known::ImplementationHook;
 use bray_ir::{
     MirAsyncOperation, MirBlockId, MirBlockKind, MirCall, MirCallArgument, MirEdge,
     MirFrameInitializer, MirFrameReference, MirFrameState, MirFrameStateId, MirOperand,
@@ -88,17 +87,17 @@ impl Lowerer<'_> {
             },
         )?;
 
-        let initialized_storages = self.retained_storages(suspension.retained_subjects())?;
+        let retained_storages = self.retained_storages(suspension.retained_subjects())?;
 
-        self.frame_states.push(
-            MirFrameState::new(
-                state,
-                resume,
+        self.frame_states.push(MirFrameState::new(
+            state,
+            resume,
+            bray_ir::MirFrameExecutionState::new(
                 self.execution_lane_requirements(),
-                initialized_storages,
+                retained_storages,
             )
             .with_affinity(self.frame_affinity()),
-        );
+        ));
 
         let result = self.unary_representation_type(
             bray_compiler_known::RepresentationRole::RunResult,
@@ -328,29 +327,10 @@ impl Lowerer<'_> {
     }
 
     pub(super) fn execution_lane_requirements(&self) -> Vec<ExecutionLaneRequirement> {
-        self.input
-            .body_behavior()
-            .execution_requirements()
-            .iter()
-            .filter_map(|requirement| {
-                match self
-                    .input
-                    .available_compiler_known_symbols()
-                    .symbol_implementation(requirement.declaration())
-                {
-                    Some(ImplementationHook::BlockingExecution) => {
-                        Some(ExecutionLaneRequirement::Blocking)
-                    }
-                    Some(ImplementationHook::ComputeExecution) => {
-                        Some(ExecutionLaneRequirement::Compute)
-                    }
-                    Some(ImplementationHook::MainThreadExecution) => {
-                        Some(ExecutionLaneRequirement::MainThread)
-                    }
-                    _ => None,
-                }
-            })
-            .collect()
+        crate::execution::execution_lane_requirements(
+            self.input.available_compiler_known_symbols(),
+            self.input.body_behavior().execution_requirements(),
+        )
     }
 
     pub(super) fn next_frame_state(&self) -> Result<MirFrameStateId, LoweringError> {
@@ -410,9 +390,6 @@ impl Lowerer<'_> {
             std::iter::once(state.guard.storage())
                 .chain(state.parts.iter().map(|part| part.guard.storage()))
         }));
-
-        storages.sort_unstable();
-        storages.dedup();
 
         Ok(storages)
     }

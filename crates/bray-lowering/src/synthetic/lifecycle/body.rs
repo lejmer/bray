@@ -206,6 +206,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 frame,
                 entry,
                 MirPlace::new(storage, [], pointer),
+                &[],
                 &source,
             )?;
         }

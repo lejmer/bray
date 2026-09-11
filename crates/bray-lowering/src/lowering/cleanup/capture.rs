@@ -106,14 +106,14 @@ impl Lowerer<'_> {
             if phases.includes_cancellation()
                 && role != MirGeneratedLifecycleRole::Abandon(MirAbandonmentAction::Destroy)
             {
-                self.push_operation(
+                self.push_cleanup_operation(
                     block,
                     Self::retained_source(source),
                     MirOperationKind::Cleanup {
                         phase: MirCleanupPhase::TaskCancellation,
                         place: Self::retained_place(place),
                     },
-                    None,
+                    [place.storage()],
                 )?;
 
                 block = self.check_cleanup_action_outcome(block, source)?;

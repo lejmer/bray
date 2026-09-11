@@ -60,11 +60,13 @@ impl Lowerer<'_> {
                     )
             )
         {
-            self.push_operation(
+            let retained = [place.storage()];
+
+            self.push_cleanup_operation(
                 block,
                 Self::retained_source(source),
                 MirOperationKind::DestructorRemainder { role, place },
-                None,
+                retained,
             )?;
 
             return Ok((self.check_cleanup_action_outcome(block, source)?, value));
@@ -91,8 +93,9 @@ impl Lowerer<'_> {
         if execution == Some(CallableExecution::Synchronous)
             || (execution.is_none() && self.builder.protected_frame().is_none())
         {
+            let retained = [place.storage()];
             let operation = cleanup_operation(role, place)?;
-            self.push_operation(block, Self::retained_source(source), operation, None)?;
+            self.push_cleanup_operation(block, Self::retained_source(source), operation, retained)?;
 
             return Ok((self.check_cleanup_action_outcome(block, source)?, value));
         }
@@ -135,8 +138,11 @@ impl Lowerer<'_> {
                 self.set_storage_initialized(block, source, &place, false)?;
             }
 
+            let retained =
+                std::iter::once(place.storage()).chain(pending.as_ref().map(MirPlace::storage));
+
             let operation = cleanup_operation(role, place)?;
-            self.push_operation(block, Self::retained_source(source), operation, None)?;
+            self.push_cleanup_operation(block, Self::retained_source(source), operation, retained)?;
 
             self.check_cleanup_action_outcome(block, source)?
         } else {

@@ -552,6 +552,7 @@ fn translate_state_callback(
 
         let lane_requirements =
             state
+                .execution()
                 .lane_requirements()
                 .iter()
                 .fold(0_u64, |requirements, lane| {
@@ -564,12 +565,13 @@ fn translate_state_callback(
                 });
 
         let affinity = if state
+            .execution()
             .lane_requirements()
             .contains(&bray_runtime_interface::ExecutionLaneRequirement::MainThread)
         {
             bray_runtime_interface::ProtectedFrameAffinity::MainThread.code()
         } else {
-            state.affinity().code()
+            state.execution().affinity().code()
         };
 
         builder.position_at_end(block);

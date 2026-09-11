@@ -157,7 +157,13 @@ pub fn decode_executable_template(
         let result = read_optional(&mut decoder.reader, read_u32)?;
         let kind = decoder.operation()?;
 
-        operations.push(OperationRecord { result, kind });
+        let cleanup_execution = decoder.cleanup_execution()?;
+
+        operations.push(OperationRecord {
+            result,
+            kind,
+            cleanup_execution,
+        });
     }
 
     let mut terminators = decoder.items(block_count)?;
@@ -299,6 +305,7 @@ enum ValueRecordOrigin {
 }
 
 struct OperationRecord {
+    cleanup_execution: Option<bray_ir::MirFrameExecutionState>,
     result: Option<u32>,
     kind: MirOperationKind,
 }
@@ -447,6 +454,11 @@ fn push_operation(
 
     let commit = builder
         .push_operation(owner, source, record.kind.clone(), result_type)
+        .map_err(ExecutableTemplateDecodeError::InvalidMir)?;
+
+    // Reconstruction retains decoded execution context independently of the wire records.
+    builder
+        .set_cleanup_execution(commit.operation(), record.cleanup_execution.clone())
         .map_err(ExecutableTemplateDecodeError::InvalidMir)?;
 
     require_slot(commit.operation().slot(), operation)?;
@@ -2075,6 +2087,40 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
         }
     }
 
+    fn cleanup_execution(
+        &mut self,
+    ) -> Result<Option<bray_ir::MirFrameExecutionState>, ExecutableTemplateDecodeError> {
+        match read_u32(&mut self.reader)? {
+            0 => Ok(None),
+            1 => self.frame_execution().map(Some),
+            _ => Err(ExecutableTemplateDecodeError::Malformed),
+        }
+    }
+
+    fn frame_execution(
+        &mut self,
+    ) -> Result<bray_ir::MirFrameExecutionState, ExecutableTemplateDecodeError> {
+        let affinity =
+            bray_runtime_interface::ProtectedFrameAffinity::from_code(read_u32(&mut self.reader)?)
+                .ok_or(ExecutableTemplateDecodeError::Malformed)?;
+
+        let lane_count = self.count()?;
+        let mut lanes = self.items(lane_count)?;
+
+        for _ in 0..lane_count {
+            lanes.push(self.execution_lane()?);
+        }
+
+        let storage_count = self.count()?;
+        let mut storages = self.items(storage_count)?;
+
+        for _ in 0..storage_count {
+            storages.push(self.storage_id()?);
+        }
+
+        Ok(bray_ir::MirFrameExecutionState::new(lanes, storages).with_affinity(affinity))
+    }
+
     fn frame_descriptor(
         &mut self,
     ) -> Result<Option<MirFrameDescriptor>, ExecutableTemplateDecodeError> {
@@ -2118,28 +2164,9 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                     let state = bray_ir::MirFrameStateId::new(read_u32(&mut self.reader)?);
                     let entry = self.block_id()?;
 
-                    let affinity = bray_runtime_interface::ProtectedFrameAffinity::from_code(
-                        read_u32(&mut self.reader)?,
-                    )
-                    .ok_or(ExecutableTemplateDecodeError::Malformed)?;
+                    let execution = self.frame_execution()?;
 
-                    let lane_count = self.count()?;
-                    let mut lanes = self.items(lane_count)?;
-
-                    for _ in 0..lane_count {
-                        lanes.push(self.execution_lane()?);
-                    }
-
-                    let storage_count = self.count()?;
-                    let mut storages = self.items(storage_count)?;
-
-                    for _ in 0..storage_count {
-                        storages.push(self.storage_id()?);
-                    }
-
-                    states.push(
-                        MirFrameState::new(state, entry, lanes, storages).with_affinity(affinity),
-                    );
+                    states.push(MirFrameState::new(state, entry, execution));
                 }
 
                 MirFrameDescriptor::try_new(frame, abi_version, frame_abi, result_type, states)
@@ -2853,6 +2880,162 @@ mod tests {
         CheckedMemoryOperationKind, InlineAssemblyOperand, InlineAssemblyOperandKind,
         MAX_INLINE_ASSEMBLY_OPERANDS, MemoryAddressKind, MemoryOrder,
     };
+
+    #[test]
+    fn reconstructed_operations_retain_checked_execution_context() {
+        let unit = bray_ir::MirUnitId::new(1);
+        let owner = bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(7));
+
+        let key = bray_ir::MirImportedExecutableKey::new(
+            owner.into(),
+            bray_ir::MirExecutableTemplateId::new(0),
+        );
+
+        let source = bray_ir::MirSourceAnchor::imported_executable(key);
+
+        let target = bray_ir::MirTargetContract::new(
+            bray_target::NativeTarget::X86_64LinuxGnu.profile(),
+            bray_runtime_interface::RuntimeAbiVersion::CURRENT,
+        );
+
+        let values = bray_symbols::SemanticValueStore::try_new().unwrap();
+
+        let ty = values
+            .intern_type(bray_symbols::TypeData::tuple([]))
+            .unwrap();
+
+        let mut builder = bray_ir::MirUnitBuilder::for_imported_executable(
+            unit,
+            key,
+            bray_ir::MirUnitKind::Synchronous,
+            target,
+        );
+
+        let entry = builder
+            .push_block(source.clone(), bray_ir::MirBlockKind::Ordinary)
+            .unwrap();
+
+        let storage = builder
+            .push_storage(source.clone(), bray_ir::MirStorageKind::Temporary, ty)
+            .unwrap();
+
+        let place = bray_ir::MirPlace::new(storage, [], ty);
+
+        let records = [
+            None,
+            Some(bray_ir::MirFrameExecutionState::new([], [])),
+            Some(
+                bray_ir::MirFrameExecutionState::new(
+                    [bray_runtime_interface::ExecutionLaneRequirement::Blocking],
+                    [storage],
+                )
+                .with_affinity(bray_runtime_interface::ProtectedFrameAffinity::OriginThread),
+            ),
+        ]
+        .into_iter()
+        .map(|cleanup_execution| super::OperationRecord {
+            cleanup_execution,
+            result: None,
+            kind: bray_ir::MirOperationKind::Destroy(place.clone()),
+        })
+        .collect::<Vec<_>>();
+
+        for index in 0..records.len() {
+            super::push_operation(
+                &mut builder,
+                source.clone(),
+                &[entry],
+                &[0, 0, 0],
+                &records,
+                index,
+                None,
+            )
+            .unwrap();
+        }
+
+        builder
+            .set_terminator(entry, source, bray_ir::MirTerminatorKind::Return(None))
+            .unwrap();
+
+        let reconstructed = builder.finish(entry).unwrap();
+
+        for (operation, record) in reconstructed.operations().iter().zip(&records) {
+            assert_eq!(
+                operation.cleanup_execution(),
+                record.cleanup_execution.as_ref()
+            );
+        }
+    }
+
+    #[test]
+    fn cleanup_execution_preserves_absence_checked_empty_and_retained_context() {
+        let mut symbols = ProjectionSymbols(
+            bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(7)).into(),
+        );
+
+        let unit = bray_ir::MirUnitId::new(1);
+        let retained = bray_ir::MirStorageId::from_slot(unit, 3);
+
+        let populated = bray_ir::MirFrameExecutionState::new(
+            [bray_runtime_interface::ExecutionLaneRequirement::Blocking],
+            [retained],
+        )
+        .with_affinity(bray_runtime_interface::ProtectedFrameAffinity::OriginThread);
+
+        let mut encodings = Vec::new();
+
+        for execution in [
+            None,
+            Some(bray_ir::MirFrameExecutionState::new([], [])),
+            Some(populated),
+        ] {
+            let bytes = super::super::encoding::encode_cleanup_execution_for_test(
+                execution.as_ref(),
+                &mut symbols,
+            );
+
+            assert_eq!(
+                decode_test_item(&bytes, &symbols, |decoder| decoder.cleanup_execution()),
+                Ok(execution)
+            );
+
+            for length in 0..bytes.len() {
+                assert!(
+                    decode_test_item(&bytes[..length], &symbols, |decoder| decoder
+                        .cleanup_execution())
+                    .is_err()
+                );
+            }
+
+            encodings.push(bytes);
+        }
+
+        assert_ne!(encodings[0], encodings[1]);
+
+        let mut excessive_lanes = encodings[2].clone();
+        excessive_lanes[8..12].copy_from_slice(&u32::MAX.to_le_bytes());
+
+        assert!(
+            decode_test_item(&excessive_lanes, &symbols, |decoder| decoder
+                .cleanup_execution())
+            .is_err()
+        );
+
+        let mut excessive_storages = encodings[2].clone();
+        excessive_storages[16..20].copy_from_slice(&u32::MAX.to_le_bytes());
+
+        assert!(
+            decode_test_item(&excessive_storages, &symbols, |decoder| decoder
+                .cleanup_execution())
+            .is_err()
+        );
+
+        assert_eq!(
+            decode_test_item(&2_u32.to_le_bytes(), &symbols, |decoder| decoder
+                .cleanup_execution()),
+            Err(ExecutableTemplateDecodeError::Malformed)
+        );
+    }
 
     #[test]
     fn frame_entry_selection_survives_executable_encoding() {

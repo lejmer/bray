@@ -43,11 +43,14 @@ impl Lowerer<'_> {
         let result_type = self.expression_type(expression)?;
         let unit = self.unit_operand(result_type);
 
-        self.push_operation(
+        let retained = std::iter::once(destination.storage())
+            .chain(replacement.as_ref().map(MirPlace::storage));
+
+        self.push_cleanup_operation(
             block,
             source.clone(),
             MirOperationKind::Destroy(destination.clone()),
-            None,
+            retained,
         )?;
 
         let (completed, result) =

@@ -1767,7 +1767,7 @@ mod tests {
                 .count()
         );
 
-        assert!(!frame.states()[1].initialized_storages().is_empty());
+        assert!(!frame.states()[1].execution().retained_storages().is_empty());
 
         assert!(mir.operations().iter().any(|operation| matches!(
             operation.kind(),
@@ -2039,7 +2039,7 @@ async func partial(pos values: [[Guard; 2]; 2], pos index: usize, pos pending: F
             assert!(
                 guards
                     .iter()
-                    .all(|(guard, _)| state.initialized_storages().contains(guard)),
+                    .all(|(guard, _)| state.execution().retained_storages().contains(guard)),
                 "all entry-initialized flags must survive suspension: {frame:?}"
             );
         }
@@ -2116,7 +2116,7 @@ async func partial(pos values: [[Guard; 2]; 2], pos index: usize, pos pending: F
                 frame
                     .states()
                     .iter()
-                    .any(|state| state.initialized_storages().contains(&counter)),
+                    .any(|state| state.execution().retained_storages().contains(&counter)),
                 "cleanup counter {counter:?} must survive suspension"
             );
         }
@@ -2140,12 +2140,9 @@ async func partial(pos values: [[Guard; 2]; 2], pos index: usize, pos pending: F
             .frame_descriptor()
             .unwrap_or_else(|| panic!("async callable must publish a frame descriptor"));
 
-        assert!(
-            frame
-                .states()
-                .iter()
-                .all(|state| { state.lane_requirements() == [ExecutionLaneRequirement::Blocking] })
-        );
+        assert!(frame.states().iter().all(|state| {
+            state.execution().lane_requirements() == [ExecutionLaneRequirement::Blocking]
+        }));
     }
 
     #[test]

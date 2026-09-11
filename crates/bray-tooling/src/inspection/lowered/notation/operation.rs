@@ -26,11 +26,22 @@ pub(super) fn render(
         })
         .unwrap_or_default();
 
+    let execution = operation
+        .cleanup_execution
+        .as_ref()
+        .map(|execution| {
+            format!(
+                " cleanup_execution {{{}}}",
+                super::support::frame_execution_text(execution)
+            )
+        })
+        .unwrap_or_default();
+
     let source = source_annotation(&operation.source, block_source, include_source);
 
     let _ = writeln!(
         output,
-        "        {prefix}{};{source}",
+        "        {prefix}{}{execution};{source}",
         operation_text(operation),
     );
 }
@@ -508,6 +519,7 @@ mod tests {
         operands: Vec<InspectionMirNamedOperand>,
     ) -> InspectionMirOperation {
         InspectionMirOperation {
+            cleanup_execution: None,
             id: 0,
             operation_kind,
             result: None,

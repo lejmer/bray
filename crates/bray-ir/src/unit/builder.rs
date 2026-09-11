@@ -95,6 +95,21 @@ impl MirUnitBuilder {
         self.frame_descriptor.take()
     }
 
+    /// Sets checked execution context for a lifecycle operation.
+    /// None clears the context. Present empty requirements represent a checked empty context.
+    pub fn set_cleanup_execution(
+        &mut self,
+        operation: MirOperationId,
+        execution: Option<crate::MirFrameExecutionState>,
+    ) -> Result<(), MirUnitBuildError> {
+        let index = self.operation_index(operation)?;
+        let existing = &mut self.operations[index];
+
+        existing.set_cleanup_execution(execution);
+
+        Ok(())
+    }
+
     /// Replaces a resultless operation without changing its identity or position in its block.
     /// A newly declared result receives a fresh value identity.
     pub fn replace_effect(
@@ -103,14 +118,8 @@ impl MirUnitBuilder {
         kind: MirOperationKind,
         result_type: Option<TypeId>,
     ) -> Result<MirOperationCommit, MirUnitBuildError> {
-        if operation.unit() != self.unit {
-            return Err(MirUnitBuildError::ForeignOperation(operation));
-        }
-
-        let existing = operation
-            .to_index()
-            .and_then(|index| self.operations.get_mut(index))
-            .ok_or(MirUnitBuildError::MissingOperation(operation))?;
+        let index = self.operation_index(operation)?;
+        let existing = &mut self.operations[index];
 
         if existing.result().is_some() {
             return Err(MirUnitBuildError::UnexpectedOperationResult(operation));
@@ -133,7 +142,7 @@ impl MirUnitBuilder {
         };
 
         // Replacing an operation preserves the original template's source correlation.
-        *existing = MirOperation::new(existing.source().clone(), kind, result);
+        existing.replace(kind, result);
 
         Ok(MirOperationCommit::new(operation, result))
     }
@@ -146,6 +155,16 @@ impl MirUnitBuilder {
     /// Returns the protected frame owned by the body under construction.
     pub const fn protected_frame(&self) -> Option<bray_runtime_interface::ProtectedAsyncFrameId> {
         self.kind.protected_frame()
+    }
+
+    /// Iterates committed storage identities in allocation order.
+    pub fn storage_ids(&self) -> impl ExactSizeIterator<Item = MirStorageId> + '_ {
+        self.storages.iter().enumerate().map(|(index, _)| {
+            // Storage insertion checks that every allocated slot fits the compact identity.
+            let slot = index as u32;
+
+            MirStorageId::from_slot(self.unit, slot)
+        })
     }
 
     /// Returns a fresh suspension identity after all descriptor and committed suspension states.
@@ -584,6 +603,17 @@ impl MirUnitBuilder {
         Ok(())
     }
 
+    fn operation_index(&self, operation: MirOperationId) -> Result<usize, MirUnitBuildError> {
+        if operation.unit() != self.unit {
+            return Err(MirUnitBuildError::ForeignOperation(operation));
+        }
+
+        operation
+            .to_index()
+            .filter(|index| *index < self.operations.len())
+            .ok_or(MirUnitBuildError::MissingOperation(operation))
+    }
+
     fn block_index(&self, block: MirBlockId) -> Result<usize, MirUnitBuildError> {
         if block.unit() != self.unit {
             return Err(MirUnitBuildError::ForeignBlock {
@@ -628,6 +658,158 @@ mod tests {
     };
 
     #[test]
+    fn cleanup_execution_survives_reopening_and_effect_replacement() {
+        let bound = test_bound_unit(19);
+        let source = MirSourceAnchor::from(bound.key().source());
+        let mut builder = unit_builder(&bound, MirUnitKind::Synchronous);
+        let entry = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
+        let ty = crate::test_support::test_type();
+        let storage = push_storage(&mut builder, source.clone(), ty);
+        let place = MirPlace::new(storage, [], ty);
+
+        let operation = builder
+            .push_operation(
+                entry,
+                source.clone(),
+                MirOperationKind::Destroy(place.clone()),
+                None,
+            )
+            .unwrap()
+            .operation();
+
+        let execution = crate::MirFrameExecutionState::new([], [storage, storage])
+            .with_affinity(bray_runtime_interface::ProtectedFrameAffinity::OriginThread);
+
+        let foreign = crate::MirOperationId::from_slot(crate::MirUnitId::new(u32::MAX), 0);
+        let missing = crate::MirOperationId::from_slot(operation.unit(), u32::MAX);
+
+        assert_eq!(
+            builder.set_cleanup_execution(foreign, None),
+            Err(MirUnitBuildError::ForeignOperation(foreign))
+        );
+
+        assert_eq!(
+            builder.set_cleanup_execution(missing, None),
+            Err(MirUnitBuildError::MissingOperation(missing))
+        );
+
+        assert_eq!(builder.storage_ids().collect::<Vec<_>>(), [storage]);
+
+        builder
+            .set_cleanup_execution(operation, Some(execution.clone()))
+            .unwrap();
+
+        set_terminator(&mut builder, entry, source, MirTerminatorKind::Return(None));
+
+        let original = builder.finish(entry).unwrap();
+        let mut builder = MirUnitBuilder::from_unit(original.clone());
+
+        builder
+            .replace_effect(operation, MirOperationKind::Finalize(place), None)
+            .unwrap();
+
+        let updated = builder.finish(entry).unwrap();
+        let effect = updated.operation(operation).unwrap();
+
+        assert_eq!(effect.cleanup_execution(), Some(&execution));
+
+        assert_eq!(
+            effect.source(),
+            original.operation(operation).unwrap().source()
+        );
+
+        assert_eq!(updated.block(entry).unwrap().operations(), [operation]);
+        assert_eq!(execution.retained_storages(), [storage]);
+
+        let mut builder = MirUnitBuilder::from_unit(updated);
+
+        builder
+            .set_cleanup_execution(operation, Some(crate::MirFrameExecutionState::new([], [])))
+            .unwrap();
+
+        let checked_empty = builder.finish(entry).unwrap();
+
+        assert_eq!(
+            checked_empty
+                .operation(operation)
+                .unwrap()
+                .cleanup_execution(),
+            Some(&crate::MirFrameExecutionState::new([], []))
+        );
+
+        let mut builder = MirUnitBuilder::from_unit(checked_empty);
+
+        builder.set_cleanup_execution(operation, None).unwrap();
+
+        assert_eq!(
+            builder
+                .finish(entry)
+                .unwrap()
+                .operation(operation)
+                .unwrap()
+                .cleanup_execution(),
+            None
+        );
+    }
+
+    #[test]
+    fn cleanup_execution_rejects_invalid_operations_and_retained_storage() {
+        for invalid_kind in [false, true] {
+            let bound = test_bound_unit(19);
+            let source = MirSourceAnchor::from(bound.key().source());
+            let mut builder = unit_builder(&bound, MirUnitKind::Synchronous);
+            let entry = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
+            let ty = crate::test_support::test_type();
+            let storage = push_storage(&mut builder, source.clone(), ty);
+            let place = MirPlace::new(storage, [], ty);
+
+            let kind = if invalid_kind {
+                MirOperationKind::Store {
+                    kind: crate::MirStoreKind::Initialize,
+                    destination: place,
+                    value: MirOperand::Immediate {
+                        value: MirImmediateValue::Unit,
+                        ty,
+                    },
+                }
+            } else {
+                MirOperationKind::Destroy(place)
+            };
+
+            let operation = builder
+                .push_operation(entry, source.clone(), kind, None)
+                .unwrap()
+                .operation();
+
+            let foreign_storage =
+                crate::MirStorageId::from_slot(crate::MirUnitId::new(u32::MAX), 0);
+
+            let retained = if invalid_kind {
+                storage
+            } else {
+                foreign_storage
+            };
+
+            builder
+                .set_cleanup_execution(
+                    operation,
+                    Some(crate::MirFrameExecutionState::new([], [retained])),
+                )
+                .unwrap();
+
+            set_terminator(&mut builder, entry, source, MirTerminatorKind::Return(None));
+
+            let expected = if invalid_kind {
+                MirUnitBuildError::InvalidCleanupExecution(operation)
+            } else {
+                MirUnitBuildError::ForeignStorage(foreign_storage)
+            };
+
+            assert_eq!(builder.finish(entry), Err(expected));
+        }
+    }
+
+    #[test]
     fn fresh_frame_states_include_descriptor_only_states_and_committed_suspensions() {
         let bound = test_bound_unit(19);
         let source = MirSourceAnchor::from(bound.key().source());
@@ -648,9 +830,21 @@ mod tests {
             ProtectedFrameAbiVersions::uniform(abi),
             ty,
             [
-                MirFrameState::new(MirFrameStateId::new(0), entry, [], []),
-                MirFrameState::new(MirFrameStateId::new(1), resume, [], [storage]),
-                MirFrameState::new(MirFrameStateId::new(2), later, [], [storage]),
+                MirFrameState::new(
+                    MirFrameStateId::new(0),
+                    entry,
+                    crate::MirFrameExecutionState::new([], []),
+                ),
+                MirFrameState::new(
+                    MirFrameStateId::new(1),
+                    resume,
+                    crate::MirFrameExecutionState::new([], [storage]),
+                ),
+                MirFrameState::new(
+                    MirFrameStateId::new(2),
+                    later,
+                    crate::MirFrameExecutionState::new([], [storage]),
+                ),
             ],
         )
         .unwrap();
@@ -1848,8 +2042,16 @@ mod tests {
                             ProtectedFrameAbiVersions::uniform(abi),
                             ty,
                             [
-                                MirFrameState::new(MirFrameStateId::new(0), entry, [], []),
-                                MirFrameState::new(MirFrameStateId::new(1), resume, [], []),
+                                MirFrameState::new(
+                                    MirFrameStateId::new(0),
+                                    entry,
+                                    crate::MirFrameExecutionState::new([], []),
+                                ),
+                                MirFrameState::new(
+                                    MirFrameStateId::new(1),
+                                    resume,
+                                    crate::MirFrameExecutionState::new([], []),
+                                ),
                             ],
                         )
                         .unwrap(),
@@ -1945,7 +2147,11 @@ mod tests {
         entry: crate::MirBlockId,
         result_type: bray_symbols::TypeId,
     ) -> MirFrameDescriptor {
-        let state = MirFrameState::new(MirFrameStateId::new(0), entry, [], []);
+        let state = MirFrameState::new(
+            MirFrameStateId::new(0),
+            entry,
+            crate::MirFrameExecutionState::new([], []),
+        );
 
         let abi = RuntimeAbiVersion::new(1, 0);
 

@@ -3,12 +3,18 @@ use bray_ir::{
     MirFrameState, MirFrameStateId, MirOperationKind, MirPlace, MirRuntimeReference,
     MirSourceAnchor, MirTaskTerminalState, MirTerminatorKind, MirUnitBuilder,
 };
-use bray_runtime_interface::{ProtectedFrameAbiVersions, ProtectedFrameAffinity};
+use bray_runtime_interface::{
+    ExecutionLaneRequirement, ProtectedFrameAbiVersions, ProtectedFrameAffinity,
+};
 use bray_symbols::TypeId;
 
 use super::{SyntheticLowerer, SyntheticLoweringContext, SyntheticLoweringError};
 
 impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the descriptor combines its receiver, entry points, and checked execution lanes"
+    )]
     pub(super) fn attach_frame_descriptor(
         &self,
         builder: &mut MirUnitBuilder,
@@ -16,6 +22,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         receiver: MirPlace,
         completion: TypeId,
         inactive_cleanup: MirBlockId,
+        lane_requirements: &[ExecutionLaneRequirement],
         source: &MirSourceAnchor,
     ) -> Result<(), C::Error> {
         let frame = builder.protected_frame().ok_or_else(|| {
@@ -41,10 +48,17 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         entries.push((MirFrameStateId::new(0), entry));
         entries.sort_unstable_by_key(|(state, _)| *state);
 
-        let states = entries.into_iter().map(|(state, entry)| {
-            MirFrameState::new(state, entry, [], [receiver.storage()])
-                .with_affinity(ProtectedFrameAffinity::OriginThread)
-        });
+        // This unit owns one generated cleanup body. Keep its conditional outcome slots and
+        // traversal counters with the receiver across nested cleanup suspensions.
+        let execution = bray_ir::MirFrameExecutionState::new(
+            lane_requirements.iter().copied(),
+            builder.storage_ids(),
+        )
+        .with_affinity(ProtectedFrameAffinity::OriginThread);
+
+        let states = entries
+            .into_iter()
+            .map(|(state, entry)| MirFrameState::new(state, entry, execution.clone()));
 
         let abi = builder.target().runtime_abi();
 

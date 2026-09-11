@@ -4327,8 +4327,9 @@ public func invoke<T>(pos value: T)
                     {{
                     }}
                 }}
-                async func dispose<T>(pos value: T)
+                async func dispose<T>(pos value: T) -> i32
                 {{
+                    return 7;
                 }}
                 async func main()
                 {{
@@ -4365,6 +4366,56 @@ public func invoke<T>(pos value: T)
                 assert_eq!(frame.states().len() > 1, asynchronous);
                 assert!(frame.inactive_cleanup().is_some());
 
+                let pending = mir
+                    .storages_with_ids()
+                    .find_map(|(id, storage)| {
+                        (matches!(storage.kind(), bray_ir::MirStorageKind::Temporary)
+                            && storage.ty() == frame.result_type())
+                        .then_some(id)
+                    })
+                    .expect("generic return must retain its value during cleanup");
+
+                if asynchronous {
+                    assert_cleanup_storage_retained(mir, pending);
+
+                    let mut counters = 0;
+
+                    for instance in plan
+                        .units()
+                        .iter()
+                        .flat_map(bray_codegen::CodegenUnit::instances)
+                    {
+                        let generated = instance.mir();
+
+                        if !matches!(
+                            instance.key().template(),
+                            bray_ir::MirUnitKey::GeneratedLifecycle(_)
+                        ) || generated.frame_descriptor().is_none()
+                        {
+                            continue;
+                        }
+
+                        for operation in generated.operations() {
+                            if let bray_ir::MirOperationKind::Binary {
+                                operator: bray_ir::MirBinaryOperator::Subtract,
+                                left: bray_ir::MirOperand::Copy(counter),
+                                ..
+                            } = operation.kind()
+                            {
+                                assert_cleanup_storage_retained(generated, counter.storage());
+                                counters += 1;
+                            }
+                        }
+                    }
+
+                    if ty.starts_with('[') {
+                        assert!(
+                            counters > 0,
+                            "generated array cleanup must retain traversal counters"
+                        );
+                    }
+                }
+
                 assert!(
                     generated_artifacts(&backend, &plan)
                         .iter()
@@ -4372,6 +4423,95 @@ public func invoke<T>(pos value: T)
                 );
             }
         }
+    }
+
+    #[test]
+    fn generic_partial_array_cleanup_retains_loop_counters() {
+        let source = r#"
+            module app;
+            struct Guard
+            {
+                async finalize() {}
+                destruct() {}
+            }
+            async func take<T>(pos value: T) {}
+            async func partial<T>(pos values: [[T; 2]; 2], pos index: usize) -> i32
+            {
+                await take<T>(values[index][0]);
+                return 7;
+            }
+            async func main()
+            {
+                await partial<Guard>([[Guard {}, Guard {}], [Guard {}, Guard {}]], 1);
+            }
+        "#;
+
+        let (backend, plan) = runtime_native_plan(source);
+
+        let retains_nested_counters = plan
+            .units()
+            .iter()
+            .flat_map(bray_codegen::CodegenUnit::instances)
+            .filter(|instance| {
+                matches!(instance.key().template(), bray_ir::MirUnitKey::Bound(_))
+                    && !instance.key().specialization().arguments().is_empty()
+            })
+            .any(|instance| {
+                let mir = instance.mir();
+
+                let counters = mir
+                    .operations()
+                    .iter()
+                    .filter_map(|operation| match operation.kind() {
+                        bray_ir::MirOperationKind::Binary {
+                            operator: bray_ir::MirBinaryOperator::Subtract,
+                            left: bray_ir::MirOperand::Copy(counter),
+                            ..
+                        } => Some(counter.storage()),
+                        _ => None,
+                    })
+                    .collect::<std::collections::BTreeSet<_>>();
+
+                mir.frame_descriptor()
+                    .unwrap()
+                    .states()
+                    .iter()
+                    .any(|state| {
+                        state.state().raw() != 0
+                            && state
+                                .execution()
+                                .retained_storages()
+                                .iter()
+                                .filter(|storage| counters.contains(storage))
+                                .count()
+                                >= 2
+                    })
+            });
+
+        assert!(
+            retains_nested_counters,
+            "nested cleanup must retain both active array counters at suspension"
+        );
+
+        assert!(
+            generated_artifacts(&backend, &plan)
+                .iter()
+                .all(|artifact| !artifact.is_empty())
+        );
+    }
+
+    fn assert_cleanup_storage_retained(mir: &bray_ir::MirUnit, storage: bray_ir::MirStorageId) {
+        assert!(
+            mir.frame_descriptor()
+                .unwrap()
+                .states()
+                .iter()
+                .any(|state| {
+                    state.state().raw() != 0
+                        && state.execution().retained_storages().contains(&storage)
+                }),
+            "cleanup storage {storage:?} must survive a specialized suspension"
+        );
     }
 
     #[test]
@@ -4476,6 +4616,38 @@ public func invoke<T>(pos value: T)
                 "specialized {owner_kind}<{completion}> must not allocate a lifecycle wrapper"
             );
 
+                let resolved_values = mir
+                    .operations()
+                    .iter()
+                    .filter_map(|operation| match operation.kind() {
+                        bray_ir::MirOperationKind::Async(
+                            bray_ir::MirAsyncOperation::ResolveAwaitedFrame { .. }
+                            | bray_ir::MirAsyncOperation::ResolveTask { .. }
+                            | bray_ir::MirAsyncOperation::BorrowTaskCompletion { .. },
+                        ) => operation.result(),
+                        _ => None,
+                    })
+                    .collect::<std::collections::BTreeSet<_>>();
+
+                assert!(!resolved_values.is_empty());
+
+                let mut retained_results = 0;
+
+                for operation in mir.operations() {
+                    if let bray_ir::MirOperationKind::Store {
+                        destination,
+                        value: bray_ir::MirOperand::Value(value),
+                        ..
+                    } = operation.kind()
+                        && resolved_values.contains(value)
+                    {
+                        assert_cleanup_storage_retained(mir, destination.storage());
+                        retained_results += 1;
+                    }
+                }
+
+                assert_eq!(retained_results, resolved_values.len());
+
                 let frame = mir.frame_descriptor().unwrap();
 
                 for block in mir.blocks() {
@@ -4485,6 +4657,26 @@ public func invoke<T>(pos value: T)
                         ..
                     } = block.terminator().kind()
                     {
+                        if let bray_ir::MirTerminatorKind::Suspend {
+                            kind: bray_ir::MirSuspensionKind::TaskCompletion,
+                            payload: Some(bray_ir::MirOperand::Copy(task)),
+                            ..
+                        } = block.terminator().kind()
+                        {
+                            let state = frame
+                                .states()
+                                .iter()
+                                .find(|state| state.state() == *resume_state)
+                                .unwrap();
+
+                            assert!(
+                                state
+                                    .execution()
+                                    .retained_storages()
+                                    .contains(&task.storage())
+                            );
+                        }
+
                         assert!(
                             frame
                                 .states()
@@ -4709,6 +4901,7 @@ public func invoke<T>(pos value: T)
             mut flag: i32;
 
             destruct()
+                requires(blocking_execution())
             {
                 self.flag = 7;
             }
@@ -4722,6 +4915,7 @@ public func invoke<T>(pos value: T)
         }
 
         async func main()
+            requires(blocking_execution())
         {
             let owner = Owner
             {
@@ -4734,6 +4928,47 @@ public func invoke<T>(pos value: T)
         "#;
 
         let (backend, plan) = runtime_native_plan(source);
+
+        let adapted = plan
+            .units()
+            .iter()
+            .flat_map(bray_codegen::CodegenUnit::mir_units)
+            .filter(|mir| {
+                matches!(mir.key(), bray_ir::MirUnitKey::GeneratedLifecycle(key)
+                if key.role() == bray_ir::MirGeneratedLifecycleRole::Destroy)
+                    && mir.frame_descriptor().is_some()
+            })
+            .collect::<Vec<_>>();
+
+        assert!(!adapted.is_empty());
+
+        for mir in adapted {
+            let receiver = mir
+                .storages_with_ids()
+                .find_map(|(id, storage)| {
+                    matches!(storage.kind(), bray_ir::MirStorageKind::Parameter(0)).then_some(id)
+                })
+                .unwrap();
+
+            let frame = mir.frame_descriptor().unwrap();
+
+            assert!(frame.states().len() > 1);
+            assert!(frame.states().iter().any(|state| state.state().raw() == 0));
+
+            for state in frame.states() {
+                assert_eq!(
+                    state.execution().lane_requirements(),
+                    [bray_runtime_interface::ExecutionLaneRequirement::Blocking]
+                );
+
+                assert_eq!(
+                    state.execution().affinity(),
+                    bray_runtime_interface::ProtectedFrameAffinity::OriginThread
+                );
+
+                assert!(state.execution().retained_storages().contains(&receiver));
+            }
+        }
 
         assert!(
             generated_artifacts(&backend, &plan)

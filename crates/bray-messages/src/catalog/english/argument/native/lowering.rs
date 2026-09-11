@@ -267,6 +267,9 @@ fn format_english_mir_unit_failure(
         Failure::OperationResultTypeMismatch => {
             "generating type-correct executable code for the highlighted declaration"
         }
+        Failure::InvalidCleanupExecution => {
+            "preserving the checked execution context required by lifecycle cleanup"
+        }
         Failure::InvalidAggregateOperation => {
             "generating a valid aggregate value for the highlighted declaration"
         }

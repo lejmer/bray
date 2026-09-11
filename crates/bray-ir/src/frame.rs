@@ -48,30 +48,70 @@ pub enum MirFrameReference {
 
 pub use bray_runtime_interface::NativeFrameEntry as MirFrameEntry;
 
-/// Checked lane, affinity, and storage state for one protected-frame state.
+/// Checked execution requirements and storage retained across a protected-frame suspension.
+/// Retained storage can contain conditionally initialized values governed by ownership guards.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct MirFrameExecutionState {
+    affinity: ProtectedFrameAffinity,
+    lane_requirements: Arc<[ExecutionLaneRequirement]>,
+    retained_storages: Arc<[MirStorageId]>,
+}
+
+impl MirFrameExecutionState {
+    /// Creates movable execution state with normalized lane and storage requirements.
+    pub fn new(
+        lane_requirements: impl IntoIterator<Item = ExecutionLaneRequirement>,
+        retained_storages: impl IntoIterator<Item = MirStorageId>,
+    ) -> Self {
+        Self {
+            affinity: ProtectedFrameAffinity::Movable,
+            lane_requirements: sorted_unique_shared_slice(lane_requirements),
+            retained_storages: sorted_unique_shared_slice(retained_storages),
+        }
+    }
+
+    /// Retains the exact thread affinity required by this execution state.
+    pub const fn with_affinity(mut self, affinity: ProtectedFrameAffinity) -> Self {
+        self.affinity = affinity;
+
+        self
+    }
+
+    /// Returns the checked thread affinity.
+    pub const fn affinity(&self) -> ProtectedFrameAffinity {
+        self.affinity
+    }
+
+    /// Returns checked execution-lane requirements in sorted order.
+    pub fn lane_requirements(&self) -> &[ExecutionLaneRequirement] {
+        &self.lane_requirements
+    }
+
+    /// Returns storage retained across suspension, including guarded conditional values.
+    pub fn retained_storages(&self) -> &[MirStorageId] {
+        &self.retained_storages
+    }
+}
+
+/// One protected-frame entry and its checked execution state.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct MirFrameState {
     state: MirFrameStateId,
     entry: MirBlockId,
-    affinity: ProtectedFrameAffinity,
-    lane_requirements: Arc<[ExecutionLaneRequirement]>,
-    initialized_storages: Arc<[MirStorageId]>,
+    execution: MirFrameExecutionState,
 }
 
 impl MirFrameState {
     /// Creates state-indexed frame state.
-    pub fn new(
+    pub const fn new(
         state: MirFrameStateId,
         entry: MirBlockId,
-        lane_requirements: impl IntoIterator<Item = ExecutionLaneRequirement>,
-        initialized_storages: impl IntoIterator<Item = MirStorageId>,
+        execution: MirFrameExecutionState,
     ) -> Self {
         Self {
             state,
             entry,
-            affinity: ProtectedFrameAffinity::Movable,
-            lane_requirements: sorted_unique_shared_slice(lane_requirements),
-            initialized_storages: sorted_unique_shared_slice(initialized_storages),
+            execution,
         }
     }
 
@@ -85,26 +125,9 @@ impl MirFrameState {
         self.entry
     }
 
-    /// Retains the exact thread-affinity required by this frame state.
-    pub const fn with_affinity(mut self, affinity: ProtectedFrameAffinity) -> Self {
-        self.affinity = affinity;
-
-        self
-    }
-
-    /// Returns the checked thread-affinity for this frame state.
-    pub const fn affinity(&self) -> ProtectedFrameAffinity {
-        self.affinity
-    }
-
-    /// Returns checked execution-lane requirements in canonical order.
-    pub fn lane_requirements(&self) -> &[ExecutionLaneRequirement] {
-        &self.lane_requirements
-    }
-
-    /// Returns storages known to be initialized when this state is entered.
-    pub fn initialized_storages(&self) -> &[MirStorageId] {
-        &self.initialized_storages
+    /// Returns the checked execution and retention requirements at this entry.
+    pub const fn execution(&self) -> &MirFrameExecutionState {
+        &self.execution
     }
 }
 
@@ -291,7 +314,11 @@ mod tests {
                 abi,
                 ProtectedFrameAbiVersions::uniform(abi),
                 crate::test_support::test_type(),
-                [MirFrameState::new(MirFrameStateId::new(0), body, [], [])],
+                [MirFrameState::new(
+                    MirFrameStateId::new(0),
+                    body,
+                    crate::MirFrameExecutionState::new([], []),
+                )],
             )
             .unwrap()
             .with_inactive_cleanup(cleanup);
@@ -342,14 +369,22 @@ mod tests {
             Err(MirFrameDescriptorBuildError::MissingState)
         );
 
-        let state = MirFrameState::new(MirFrameStateId::new(0), entry, [], []);
+        let state = MirFrameState::new(
+            MirFrameStateId::new(0),
+            entry,
+            crate::MirFrameExecutionState::new([], []),
+        );
 
         assert_eq!(
             MirFrameDescriptor::try_new(frame, abi, frame_abi, result_type, [state.clone(), state]),
             Err(MirFrameDescriptorBuildError::DuplicateStateOrEntry)
         );
 
-        let non_contiguous = MirFrameState::new(MirFrameStateId::new(1), entry, [], []);
+        let non_contiguous = MirFrameState::new(
+            MirFrameStateId::new(1),
+            entry,
+            crate::MirFrameExecutionState::new([], []),
+        );
 
         assert_eq!(
             MirFrameDescriptor::try_new(frame, abi, frame_abi, result_type, [non_contiguous]),

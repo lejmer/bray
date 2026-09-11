@@ -30,6 +30,8 @@ pub enum MirUnitBuildError {
     MissingOperationResult(MirOperationId),
     /// An operation that writes through storage also declares a result value.
     UnexpectedOperationResult(MirOperationId),
+    /// Checked cleanup execution context is missing or invalid for an operation.
+    InvalidCleanupExecution(MirOperationId),
     /// An operation result has a type inconsistent with its operation payload.
     OperationResultTypeMismatch(MirOperationId),
     /// An aggregate operation has an invalid operand shape.

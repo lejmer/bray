@@ -142,17 +142,10 @@ impl Lowerer<'_> {
         state: bray_ir::MirFrameStateId,
         resume: MirBlockId,
     ) -> Result<(), LoweringError> {
-        let mut storages =
-            self.retained_storages(self.input.lowering_plans().frame_dependencies())?;
+        let execution = self.cleanup_execution([])?;
 
-        storages.extend(self.cleanup_retained_storages.iter().copied());
-        storages.sort_unstable();
-        storages.dedup();
-
-        self.frame_states.push(
-            MirFrameState::new(state, resume, self.execution_lane_requirements(), storages)
-                .with_affinity(self.frame_affinity()),
-        );
+        self.frame_states
+            .push(MirFrameState::new(state, resume, execution));
 
         Ok(())
     }

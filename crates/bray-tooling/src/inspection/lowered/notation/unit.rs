@@ -39,17 +39,12 @@ pub(crate) fn render_unit(unit: &InspectionMirUnit, include_source: bool) -> Str
         }
 
         for state in &frame.states {
-            let storages = state
-                .initialized_storages
-                .iter()
-                .map(|storage| format!("slot{storage}"))
-                .collect::<Vec<_>>()
-                .join(", ");
+            let execution = super::support::frame_execution_text(&state.execution);
 
             let _ = writeln!(
                 output,
-                "        state {} -> bb{} live [{}];",
-                state.id, state.entry, storages
+                "        state {} -> bb{} {execution};",
+                state.id, state.entry
             );
         }
 

@@ -58,6 +58,15 @@ impl CleanupOutcome {
         Ok(outcome)
     }
 
+    /// Keeps the conditional report slot with the flags that govern its ownership.
+    pub(crate) fn retained_storages(&self) -> [bray_ir::MirStorageId; 3] {
+        [
+            self.panicked.storage(),
+            self.cancelled.storage(),
+            self.report.storage(),
+        ]
+    }
+
     pub(crate) fn report(&self) -> MirOperand {
         // The move operand owns its path while this builder retains the storage identity.
         MirOperand::Move(self.report.clone())

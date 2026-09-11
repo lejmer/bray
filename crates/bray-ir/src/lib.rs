@@ -33,8 +33,8 @@ pub use control::{
     MirTerminator, MirTerminatorKind,
 };
 pub use frame::{
-    MirFrameDescriptor, MirFrameDescriptorBuildError, MirFrameEntry, MirFrameReference,
-    MirFrameState, MirFrameStorageSource,
+    MirFrameDescriptor, MirFrameDescriptorBuildError, MirFrameEntry, MirFrameExecutionState,
+    MirFrameReference, MirFrameState, MirFrameStorageSource,
 };
 pub use helper::{MirHelperReference, MirStandardLibraryHelper};
 pub use id::{MirBlockId, MirFrameStateId, MirOperationId, MirStorageId, MirUnitId, MirValueId};

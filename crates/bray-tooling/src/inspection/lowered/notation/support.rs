@@ -352,3 +352,21 @@ pub(super) fn value_type(unit: &InspectionMirUnit, value: u32) -> Option<&str> {
         .find(|candidate| candidate.id == value)
         .map(|value| value.r#type.text())
 }
+
+pub(super) fn frame_execution_text(
+    execution: &super::super::model::InspectionMirFrameExecution,
+) -> String {
+    let retained = execution
+        .retained_storages
+        .iter()
+        .map(|storage| format!("slot{storage}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let lanes = execution.lane_requirements.join(", ");
+
+    format!(
+        "affinity {} lanes [{lanes}] retained [{retained}]",
+        execution.affinity
+    )
+}

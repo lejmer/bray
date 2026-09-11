@@ -4,7 +4,7 @@ use bray_ir::{
     MirOperationKind, MirPlace, MirProjectionKind, MirStorageKind, MirTaskTerminalState,
     MirTerminatorKind, MirUnit, MirUnitBuilder, MirUnitKey, MirUnitKind,
 };
-use bray_symbols::{BorrowKind, CallableExecution, TypeData, TypeId};
+use bray_symbols::{BorrowKind, CallableExecution, CallableExecutionRequirement, TypeData, TypeId};
 
 use crate::{SyntheticLoweringContext, SyntheticLoweringError};
 
@@ -14,6 +14,7 @@ pub fn specialize_destruction_body<C: SyntheticLoweringContext + ?Sized>(
     unit: MirUnit,
     key: MirUnitKey,
     ty: TypeId,
+    requirements: &[CallableExecutionRequirement],
 ) -> Result<MirUnit, C::Error> {
     if !matches!(&key, MirUnitKey::GeneratedLifecycle(key) if key.role() == MirGeneratedLifecycleRole::Destroy)
         || unit.kind().protected_frame().is_some()
@@ -78,6 +79,19 @@ pub fn specialize_destruction_body<C: SyntheticLoweringContext + ?Sized>(
         })
         .collect::<Vec<_>>();
 
+    let cleanup_contexts = if asynchronous {
+        unit.operations_with_ids()
+            .filter_map(|(id, operation)| {
+                operation
+                    .cleanup_execution()
+                    .cloned()
+                    .map(|execution| (id, execution))
+            })
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+
     let mut builder = MirUnitBuilder::for_specialization(
         unit,
         key,
@@ -124,6 +138,40 @@ pub fn specialize_destruction_body<C: SyntheticLoweringContext + ?Sized>(
         .map_err(invalid)?;
 
     if let Some(frame) = frame {
+        let lane_requirements = crate::execution::execution_lane_requirements(
+            context.compiler_known_symbols(),
+            requirements,
+        );
+
+        // The borrowed adapter receiver remains live on its originating thread until the
+        // complete destruction finishes, including suspensions introduced in the remainder.
+        for (operation, execution) in cleanup_contexts {
+            let affinity = match execution.affinity() {
+                bray_runtime_interface::ProtectedFrameAffinity::Movable => {
+                    bray_runtime_interface::ProtectedFrameAffinity::OriginThread
+                }
+                affinity => affinity,
+            };
+
+            let execution = bray_ir::MirFrameExecutionState::new(
+                execution
+                    .lane_requirements()
+                    .iter()
+                    .copied()
+                    .chain(lane_requirements.iter().copied()),
+                execution
+                    .retained_storages()
+                    .iter()
+                    .copied()
+                    .chain([parameter]),
+            )
+            .with_affinity(affinity);
+
+            builder
+                .set_cleanup_execution(operation, Some(execution))
+                .map_err(invalid)?;
+        }
+
         let completion = context.representation_type(RepresentationRole::Unit)?;
 
         for (block, terminator) in exits {
@@ -136,6 +184,7 @@ pub fn specialize_destruction_body<C: SyntheticLoweringContext + ?Sized>(
             frame,
             entry,
             MirPlace::new(parameter, [], pointer),
+            &lane_requirements,
             &source,
         )?;
     }

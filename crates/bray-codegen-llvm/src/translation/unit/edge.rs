@@ -108,8 +108,16 @@ mod tests {
                     ProtectedFrameAbiVersions::uniform(abi),
                     ty,
                     [
-                        MirFrameState::new(MirFrameStateId::new(0), body, [], []),
-                        MirFrameState::new(MirFrameStateId::new(1), resumed, [], []),
+                        MirFrameState::new(
+                            MirFrameStateId::new(0),
+                            body,
+                            bray_ir::MirFrameExecutionState::new([], []),
+                        ),
+                        MirFrameState::new(
+                            MirFrameStateId::new(1),
+                            resumed,
+                            bray_ir::MirFrameExecutionState::new([], []),
+                        ),
                     ],
                 )
                 .unwrap()
