@@ -50,15 +50,8 @@ pub enum SchedulerError {
     TaskNotRunning(TaskId),
     /// The task is no longer registered with this scheduler.
     UnknownTask(TaskId),
-    /// A wake named a state absent from the task's protected-frame descriptor.
+    /// Dispatch selected a state absent from the task's protected-frame descriptor.
     UnknownFrameState(ProtectedFrameStateId),
-    /// A queued or running task was woken for a different suspension state.
-    ConflictingWakeState {
-        /// State already retained by the scheduler.
-        retained: ProtectedFrameStateId,
-        /// State supplied by the conflicting wake.
-        requested: ProtectedFrameStateId,
-    },
     /// Checked requirements could not select a compatible runtime lane.
     LaneSelection(ExecutionLaneSelectionError),
     /// Cancellation-wake identities were exhausted.

@@ -223,7 +223,6 @@ impl Scheduler {
                     &self.data,
                     &mut state,
                     task,
-                    initial_state,
                     crate::TaskWakeCause::Explicit,
                 )
                 .and_then(|_| wake());
@@ -516,7 +515,7 @@ mod tests {
         assert_eq!(scheduler.lock_state().unwrap().queues.len(), 1);
 
         with_allocation_failure(|| {
-            first.wake_handle().wake(initial).unwrap();
+            first.wake_handle().wake().unwrap();
 
             let ready = scheduler
                 .take_ready(first.lane(initial).unwrap())
@@ -544,14 +543,14 @@ mod tests {
         // Queue admission covers both the initial main-thread state and the later movable state.
         // Exercise the scheduler's running-wake protocol independently of frame execution.
         with_allocation_failure(|| {
-            second.wake_handle().wake(initial).unwrap();
+            second.wake_handle().wake().unwrap();
 
             let ready = scheduler
                 .take_ready(second.lane(initial).unwrap())
                 .unwrap()
                 .unwrap();
 
-            second.wake_handle().wake(resumed).unwrap();
+            second.wake_handle().wake().unwrap();
             ready.suspend(FrameSuspension::new(resumed)).unwrap();
 
             let ready = scheduler

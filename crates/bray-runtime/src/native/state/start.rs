@@ -449,7 +449,7 @@ mod tests {
                 with_allocation_failure(|| {
                     let task = reservation.install(abi);
                     let wake = task.registration().wake_handle();
-                    wake.wake(state).unwrap();
+                    wake.wake().unwrap();
                     let ready = runtime.scheduler.take_ready(lane).unwrap().unwrap();
                     task.task.resume().unwrap();
                     ready.complete().unwrap();

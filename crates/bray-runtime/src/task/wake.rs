@@ -1,8 +1,6 @@
 use std::sync::{Arc, Mutex, OnceLock};
 
-use bray_runtime_model::ProtectedFrameStateId;
-
-use crate::{JoinWake, SchedulerError, TaskId, TaskStartError, TaskWakeHandle};
+use crate::{JoinWake, TaskId, TaskStartError, TaskWakeHandle};
 
 pub(crate) enum JoinNotification {
     Callback(Arc<dyn JoinWake>),
@@ -41,7 +39,7 @@ impl JoinWake for JoinNotification {
 /// One admission-owned wake record that rejects notifications from a replaced wait source.
 pub(crate) struct TaskWaitWake<S> {
     wake: OnceLock<TaskWakeHandle>,
-    target: Mutex<Option<(S, ProtectedFrameStateId)>>,
+    target: Mutex<Option<S>>,
 }
 
 impl<S: Copy + Eq> TaskWaitWake<S> {
@@ -67,11 +65,18 @@ impl<S: Copy + Eq> TaskWaitWake<S> {
             .unwrap_or_else(|| unreachable!("a wait record must bind before it is armed"))
     }
 
-    pub(crate) fn arm(&self, source: S, state: ProtectedFrameStateId) {
+    pub(crate) fn arm(&self, source: S) {
         *self
             .target
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some((source, state));
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(source);
+    }
+
+    pub(crate) fn is_armed(&self) -> bool {
+        self.target
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .is_some()
     }
 
     pub(crate) fn clear(&self) {
@@ -81,30 +86,18 @@ impl<S: Copy + Eq> TaskWaitWake<S> {
             .take();
     }
 
-    pub(crate) fn disarm(&self) -> Result<(), SchedulerError> {
-        let mut target = self
-            .target
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-
-        if let Some((_, state)) = target.take() {
-            self.bound_wake().withdraw_pending_wake(state)?;
-        }
-
-        Ok(())
-    }
     pub(crate) fn notify(&self, source: S) {
-        // Selection and queue publication must stay together so a delayed notification cannot
-        // publish an old state after this record has been armed for a replacement wait source.
+        // Serialize source selection with rearming. Already published notifications remain
+        // advisory and can only request another readiness check for the current wait.
         let target = self
             .target
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-        if let Some((expected, state)) = *target
+        if let Some(expected) = *target
             && expected == source
         {
-            let _ = self.bound_wake().wake(state);
+            let _ = self.bound_wake().wake();
         }
     }
 }
@@ -149,7 +142,7 @@ mod tests {
         let initial = ProtectedFrameStateId::new(0);
         let resumed = ProtectedFrameStateId::new(1);
 
-        wake.arm(first_child.id(), initial);
+        wake.arm(first_child.id());
         wake.wake(first_child.id());
 
         let ready = scheduler
@@ -159,11 +152,20 @@ mod tests {
 
         // A duplicate may arrive after dequeue but before the native driver enters the frame.
         wake.wake(first_child.id());
-        wake.disarm().unwrap();
+        wake.clear();
         wake.wake(first_child.id());
 
-        wake.arm(next_child.id(), resumed);
+        wake.arm(next_child.id());
         wake.wake(first_child.id());
+        ready.suspend(FrameSuspension::new(resumed)).unwrap();
+
+        // A notification published before withdrawal may request one extra readiness check.
+        let ready = scheduler
+            .take_ready(registration.lane(resumed).unwrap())
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(ready.state(), resumed);
         ready.suspend(FrameSuspension::new(resumed)).unwrap();
 
         assert!(
@@ -181,7 +183,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(ready.state(), resumed);
-        wake.disarm().unwrap();
+        wake.clear();
         wake.wake(first_child.id());
         wake.wake(next_child.id());
         ready.complete().unwrap();

@@ -175,8 +175,8 @@ macro_rules! runtime_role_catalog {
                 effects: [RegisterContinuation]
             }
             Wake {
-                "Wake a suspended task.", "wake",
-                native: (WAKE_SYMBOL = "bray_runtime_wake", [U64, U32] -> U32),
+                "Request another dispatch of a run.", "wake",
+                native: (WAKE_SYMBOL = "bray_runtime_wake", [U64] -> U32),
                 call_hook: (),
                 compiler: Bray [] -> Void,
                 owner: Scheduler, availability: All, bootstrap: (), host_control: false,

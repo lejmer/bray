@@ -364,16 +364,16 @@ impl RuntimeConformance for BrayRuntime {
         let first_wake = first_registration.wake_handle();
 
         let first_queued = first_wake
-            .wake(ProtectedFrameStateId::new(0))
+            .wake()
             .unwrap_or_else(|error| panic!("first task must wake: {error:?}"));
 
         let duplicate_coalesced = !first_wake
-            .wake(ProtectedFrameStateId::new(0))
+            .wake()
             .unwrap_or_else(|error| panic!("duplicate wake must coalesce: {error:?}"));
 
         second_registration
             .wake_handle()
-            .wake(ProtectedFrameStateId::new(0))
+            .wake()
             .unwrap_or_else(|error| panic!("second task must wake: {error:?}"));
 
         self.record_cost(|costs| costs.scheduler_dispatches += 1);

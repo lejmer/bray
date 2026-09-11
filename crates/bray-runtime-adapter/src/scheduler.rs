@@ -166,11 +166,8 @@ native_adapter! {
 }
 
 native_adapter! {
-    pub extern "C" fn bray_runtime_wake(
-        task: NativeTaskHandle,
-        state: u32,
-    ) -> NativeRuntimeStatus {
-        implementation::bray_runtime_wake(task, state)
+    pub extern "C" fn bray_runtime_wake(task: NativeTaskHandle) -> NativeRuntimeStatus {
+        implementation::bray_runtime_wake(task)
     }
 }
 

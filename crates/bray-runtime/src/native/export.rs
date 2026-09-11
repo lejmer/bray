@@ -351,12 +351,9 @@ native_export! {
 }
 
 native_export! {
-    pub extern "C" fn bray_runtime_wake(
-        task: NativeTaskHandle,
-        state: u32,
-    ) -> NativeRuntimeStatus {
+    pub extern "C" fn bray_runtime_wake(task: NativeTaskHandle) -> NativeRuntimeStatus {
         contain_status(|| {
-            with_runtime(|runtime| runtime.wake(task, state))
+            with_runtime(|runtime| runtime.wake(task))
                 .unwrap_or_else(|status| status)
         })
     }
@@ -2723,10 +2720,7 @@ mod tests {
             let task = NativeTaskHandle::new(raw)
                 .unwrap_or_else(|| panic!("test root task must be nonzero"));
 
-            assert_eq!(
-                super::bray_runtime_wake(task, 1),
-                NativeRuntimeStatus::SUCCESS
-            );
+            assert_eq!(super::bray_runtime_wake(task), NativeRuntimeStatus::SUCCESS);
 
             return NativeFrameProgress::new(NativeFrameProgressKind::SUSPENDED, 1, 0);
         }
@@ -2747,10 +2741,7 @@ mod tests {
             let task = NativeTaskHandle::new(raw)
                 .unwrap_or_else(|| panic!("test root task must be nonzero"));
 
-            assert_eq!(
-                super::bray_runtime_wake(task, 1),
-                NativeRuntimeStatus::SUCCESS
-            );
+            assert_eq!(super::bray_runtime_wake(task), NativeRuntimeStatus::SUCCESS);
 
             return NativeFrameProgress::new(NativeFrameProgressKind::SUSPENDED, 1, 0);
         }

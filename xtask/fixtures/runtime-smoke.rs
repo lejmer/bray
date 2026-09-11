@@ -129,10 +129,7 @@ struct InactiveFrame {
 }
 
 unsafe extern "C" {
-    safe fn bray_runtime_initialization(
-        worker_capacity: usize,
-        timer_capacity: usize,
-    ) -> Status;
+    safe fn bray_runtime_initialization(worker_capacity: usize, timer_capacity: usize) -> Status;
     safe fn bray_runtime_root_execution(
         frame: InactiveFrame,
         configuration: Configuration,
@@ -153,14 +150,17 @@ unsafe extern "C" {
     ) -> usize;
     safe fn bray_runtime_panic_reporting(payload: usize) -> Status;
     safe fn bray_runtime_panic_report_destruction(payload: usize) -> Status;
-    safe fn bray_runtime_entry_failure_resolution(identity: &[u8; 32], source: &SourceAnchor, value: usize, broadcast: usize, lifecycle: usize) -> Status;
-    safe fn bray_runtime_wake(task: TaskHandle, state: u32) -> Status;
+    safe fn bray_runtime_entry_failure_resolution(
+        identity: &[u8; 32],
+        source: &SourceAnchor,
+        value: usize,
+        broadcast: usize,
+        lifecycle: usize,
+    ) -> Status;
+    safe fn bray_runtime_wake(task: TaskHandle) -> Status;
     safe fn bray_runtime_main_thread_lane_startup(configuration: Configuration) -> Status;
     safe fn bray_runtime_task_allocation() -> TaskAllocation;
-    safe fn bray_runtime_task_start(
-        task: TaskHandle,
-        frame: InactiveFrame,
-    ) -> Status;
+    safe fn bray_runtime_task_start(task: TaskHandle, frame: InactiveFrame) -> Status;
     safe fn bray_runtime_main_thread_lane_drive() -> Status;
     safe fn bray_runtime_structured_shutdown() -> Status;
 }
@@ -199,10 +199,7 @@ extern "C-unwind" fn cancel_frame(_: usize) -> FrameProgress {
 
 extern "C-unwind" fn suspend_and_wake(_: usize) -> FrameProgress {
     if RESUMES.fetch_add(1, Ordering::Relaxed) == 0 {
-        assert!(
-            bray_runtime_wake(TaskHandle(ROOT.load(Ordering::Relaxed)), 1)
-                == Status::SUCCESS
-        );
+        assert!(bray_runtime_wake(TaskHandle(ROOT.load(Ordering::Relaxed))) == Status::SUCCESS);
 
         return FrameProgress {
             kind: FrameProgressKind(0),
@@ -225,10 +222,7 @@ extern "C-unwind" fn suspend(_: usize) -> FrameProgress {
 extern "C-unwind" fn suspend_then_fail(_: usize) -> FrameProgress {
     if FAILURE_RESUMES.fetch_add(1, Ordering::Relaxed) == 0 {
         assert!(
-            bray_runtime_wake(
-                TaskHandle(FAILURE_ROOT.load(Ordering::Relaxed)),
-                1,
-            ) == Status::SUCCESS
+            bray_runtime_wake(TaskHandle(FAILURE_ROOT.load(Ordering::Relaxed))) == Status::SUCCESS
         );
 
         return FrameProgress {
@@ -289,11 +283,18 @@ thread_local! {
 fn transfer_frame(frame: ProtectedFrame) -> InactiveFrame {
     PENDING_FRAME.with(|pending| assert!(pending.replace(Some(frame)).is_none()));
 
-    InactiveFrame { context: 0, move_before_start }
+    InactiveFrame {
+        context: 0,
+        move_before_start,
+    }
 }
 
 extern "C" fn move_before_start(_: usize) -> ProtectedFrame {
-    PENDING_FRAME.with(|pending| pending.take().expect("the runtime consumes each fixture frame during its startup call"))
+    PENDING_FRAME.with(|pending| {
+        pending
+            .take()
+            .expect("the runtime consumes each fixture frame during its startup call")
+    })
 }
 
 extern "C-unwind" fn record_failure_action(_: usize) {
@@ -369,12 +370,7 @@ fn main() {
     assert!(bray_runtime_root_completion_resolution(root) == Status::SUCCESS);
     assert!(bray_runtime_structured_shutdown() == Status::SUCCESS);
 
-    let root = start_root(protected_frame(
-        9,
-        panic_frame,
-        cancel_frame,
-        ignore_action,
-    ));
+    let root = start_root(protected_frame(9, panic_frame, cancel_frame, ignore_action));
 
     let outcome = bray_runtime_root_terminal_observation(root);
 
@@ -423,16 +419,20 @@ fn main() {
     assert!(
         bray_runtime_entry_failure_resolution(
             &[42; 32],
-            &SourceAnchor { present: 0, source: 0, start: 0, end: 0, version: 0 },
+            &SourceAnchor {
+                present: 0,
+                source: 0,
+                start: 0,
+                end: 0,
+                version: 0
+            },
             0,
             0,
             0,
         ) == Status::SUCCESS
     );
 
-    assert!(
-        bray_runtime_initialization(8, 8) == Status::SUCCESS
-    );
+    assert!(bray_runtime_initialization(8, 8) == Status::SUCCESS);
 
     assert!(
         bray_runtime_main_thread_lane_startup(Configuration {
@@ -448,11 +448,11 @@ fn main() {
     let task = TaskHandle(allocation.task);
 
     let frame = transfer_frame(protected_frame(
-            11,
-            resume_frame,
-            cancel_frame,
-            ignore_action,
-        ));
+        11,
+        resume_frame,
+        cancel_frame,
+        ignore_action,
+    ));
 
     assert!(bray_runtime_task_start(task, frame) == Status::SUCCESS);
     assert!(bray_runtime_main_thread_lane_drive() == Status::SUCCESS);

@@ -123,7 +123,7 @@ mod tests {
 
             scope.spawn(move || {
                 ready_to_wake.recv_timeout(Duration::from_secs(5)).unwrap();
-                wake.wake(ProtectedFrameStateId::new(0)).unwrap();
+                wake.wake().unwrap();
             });
 
             let ready = scheduler

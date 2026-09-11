@@ -410,12 +410,12 @@ impl ProtectedFrame for TestFrame {
         };
 
         if frame.wake_on_suspension
-            && let FrameProgress::Suspended(suspension) = &progress
+            && matches!(progress, FrameProgress::Suspended(_))
         {
             current_task_execution_context()
                 .unwrap_or_else(|| panic!("self-waking frame must have a task context"))
                 .wake_handle()
-                .wake(suspension.state())
+                .wake()
                 .unwrap_or_else(|error| panic!("self-waking frame must wake: {error:?}"));
         }
 

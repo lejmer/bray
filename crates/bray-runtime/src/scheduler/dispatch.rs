@@ -130,11 +130,7 @@ fn scheduled_task_snapshot(
             ScheduledTaskState::Queued,
             queued.map(|queued| queued.cause),
         ),
-        DispatchState::Running { state, pending } => (
-            state,
-            ScheduledTaskState::Running,
-            pending.map(|pending| pending.cause),
-        ),
+        DispatchState::Running { state, pending } => (state, ScheduledTaskState::Running, pending),
     };
 
     let lane = select_task_lane(scheduler, &task.descriptor, task.origin, state)?;
