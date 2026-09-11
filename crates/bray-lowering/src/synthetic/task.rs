@@ -27,7 +27,7 @@ pub fn lower_task_observation<C: SyntheticLoweringContext + ?Sized>(
     task: TypeId,
     target: &MirTargetContract,
 ) -> Result<MirUnit, C::Error> {
-    SyntheticLowerer { context }.lower_task_observation(unit, definition, method, task, target)
+    SyntheticLowerer::new(context).lower_task_observation(unit, definition, method, task, target)
 }
 
 impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {

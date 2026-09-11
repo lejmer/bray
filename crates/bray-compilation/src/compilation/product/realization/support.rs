@@ -978,16 +978,16 @@ mod tests {
 
     #[test]
     fn generated_destruction_composes_parts_in_reverse_order() {
-        let compilation = compilation("module app; func main() {}");
+        let compilation =
+            compilation("module app; struct Leaf { finalize() {} destruct() {} } func main() {}");
+
         let target = codegen_target(&compilation);
 
         let values = compilation
             .semantic_value_store()
             .expect("semantic values must resolve");
 
-        let leaf = values
-            .intern_type(TypeData::tuple([]))
-            .expect("leaf type must intern");
+        let leaf = source_structure_type(&compilation);
 
         let aggregate = values
             .intern_type(TypeData::tuple([leaf, leaf]))
@@ -1121,16 +1121,16 @@ mod tests {
 
     #[test]
     fn nullable_lifecycle_resolves_only_the_present_payload() {
-        let compilation = compilation("module app; func main() {}");
+        let compilation =
+            compilation("module app; struct Leaf { finalize() {} destruct() {} } func main() {}");
+
         let target = codegen_target(&compilation);
 
         let values = compilation
             .semantic_value_store()
             .expect("semantic values must resolve");
 
-        let payload = values
-            .intern_type(TypeData::tuple([]))
-            .expect("payload type must intern");
+        let payload = source_structure_type(&compilation);
 
         let nullable = values
             .intern_type(TypeData::Nullable(payload))
@@ -1189,9 +1189,15 @@ mod tests {
             .semantic_value_store()
             .expect("semantic values must resolve");
 
-        let payload = values
-            .intern_type(TypeData::tuple([]))
-            .expect("payload type must intern");
+        let unit = compilation
+            .compiler_known_type(RepresentationRole::Unit)
+            .unwrap();
+
+        let payload = compilation
+            .available_compiler_known_symbols()
+            .unary_representation_type(values, RepresentationRole::Task, unit)
+            .unwrap()
+            .unwrap();
 
         let nullable = values
             .intern_type(TypeData::Nullable(payload))
@@ -1250,9 +1256,10 @@ mod tests {
     fn union_lifecycle_resolves_only_the_active_variant_payload() {
         let compilation = compilation(concat!(
             "module app;\n",
+            "struct Leaf { finalize() {} destruct() {} }\n",
             "union Choice\n",
             "{\n",
-            "    Value(value: i32);\n",
+            "    Value(value: Leaf);\n",
             "    Empty;\n",
             "}\n",
             "func main() {}\n",
@@ -1829,6 +1836,72 @@ mod tests {
     }
 
     #[test]
+    fn recursive_owner_payload_cleanup_retains_a_lifecycle_boundary() {
+        use bray_ir::{
+            MirAbandonmentAction, MirAsyncOperation, MirFrameInitializer, MirGeneratedLifecycleRole,
+        };
+
+        for (owner, role) in [
+            (
+                "Task",
+                MirGeneratedLifecycleRole::Abandon(MirAbandonmentAction::Quiesce),
+            ),
+            ("Future", MirGeneratedLifecycleRole::Destroy),
+        ] {
+            let compilation = compilation(&format!(
+                "module app; struct Node {{ next: {owner}<Node>?; }}"
+            ));
+
+            let target = codegen_target(&compilation);
+            let symbols = compilation.symbol_graph().unwrap();
+
+            let node = symbols
+                .structures()
+                .iter()
+                .find(|symbol| symbol.origin() == SymbolOrigin::Source)
+                .unwrap();
+
+            let ty = named_type(
+                compilation.semantic_value_store().unwrap(),
+                NamedTypeSymbolId::Struct(node.id()),
+            )
+            .unwrap();
+
+            let generated = generated_lifecycle(&compilation, &target, role.reference(ty), 91);
+
+            assert!(generated.frame_descriptor().is_some(), "{owner}: {role:?}");
+
+            let boundaries = generated
+                .operations()
+                .iter()
+                .filter_map(|operation| match operation.kind() {
+                    MirOperationKind::Async(MirAsyncOperation::CreateFrame {
+                        initializer: MirFrameInitializer::Lifecycle { ty, .. },
+                        ..
+                    }) => Some(
+                        compilation
+                            .semantic_value_store()
+                            .unwrap()
+                            .type_data(*ty)
+                            .unwrap(),
+                    ),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+
+            assert!(
+                boundaries.iter().any(|data| match data.as_ref() {
+                    TypeData::Named { definition, .. } =>
+                        *definition == NamedTypeSymbolId::Struct(node.id()),
+                    TypeData::Nullable(_) => true,
+                    _ => false,
+                }),
+                "{owner}: {role:?}: recursive cleanup must retain a body boundary: {boundaries:?}"
+            );
+        }
+    }
+
+    #[test]
     fn finalizer_incidents_quiesce_returned_owners_before_transfer() {
         use bray_ir::{
             MirAbandonmentAction, MirAsyncOperation, MirFrameInitializer,
@@ -1843,6 +1916,12 @@ mod tests {
             ("bool", "true", false),
             ("Task<unit>", "work().start()", true),
             ("Future<unit>", "work()", true),
+            ("[Future<unit>; 2]", "[work(), work()]", true),
+            (
+                "[[Future<unit>; 2]; 2]",
+                "[[work(), work()], [work(), work()]]",
+                true,
+            ),
         ] {
             let mode = if error == "Task<unit>" { "async " } else { "" };
 
@@ -1951,6 +2030,19 @@ mod tests {
 
             assert!(matches!(transfer, MirOperand::Move(_)));
 
+            assert!(
+                !generated.operations().iter().any(|operation| matches!(
+                    operation.kind(),
+                    MirOperationKind::Async(MirAsyncOperation::CreateFrame {
+                        initializer: MirFrameInitializer::Lifecycle {
+                            role: MirGeneratedLifecycleRole::Abandon(MirAbandonmentAction::Quiesce),
+                            ty, ..
+                        }, ..
+                    }) if *ty == error_type
+                )),
+                "{error}: represented error owners must quiesce within the finalizer's continuation"
+            );
+
             let quiescence = generated
                 .blocks_with_ids()
                 .find_map(|(id, block)| {
@@ -1971,7 +2063,7 @@ mod tests {
                                         entry: bray_ir::MirFrameEntry::CaptureQuiescence,
                                         ..
                                     },
-                                ) => error == "Future<unit>",
+                                ) => error.contains("Future<unit>"),
                                 _ => false,
                             },
                         )
@@ -2809,6 +2901,22 @@ mod tests {
                 &CancellationToken::new(),
             )
             .expect("generated lifecycle MIR must realize")
+    }
+
+    fn source_structure_type(compilation: &Compilation) -> TypeId {
+        let symbols = compilation.symbol_graph().unwrap();
+
+        let structure = symbols
+            .structures()
+            .iter()
+            .find(|symbol| symbol.origin() == SymbolOrigin::Source)
+            .unwrap();
+
+        named_type(
+            compilation.semantic_value_store().unwrap(),
+            NamedTypeSymbolId::Struct(structure.id()),
+        )
+        .unwrap()
     }
 
     fn source_union_type(compilation: &Compilation) -> TypeId {

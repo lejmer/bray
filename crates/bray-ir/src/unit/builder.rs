@@ -148,6 +148,26 @@ impl MirUnitBuilder {
         self.kind.protected_frame()
     }
 
+    /// Returns a fresh suspension identity after all descriptor and committed suspension states.
+    /// State zero remains reserved for initial frame entry.
+    pub fn next_frame_state(&self) -> Result<crate::MirFrameStateId, MirUnitBuildError> {
+        let descriptor_states = self
+            .frame_descriptor
+            .iter()
+            .flat_map(|descriptor| descriptor.states())
+            .map(|state| state.state());
+
+        let next = descriptor_states
+            .chain(self.suspension_states().map(|(state, _)| state))
+            .map(|state| state.raw())
+            .max()
+            .unwrap_or(0)
+            .checked_add(1)
+            .ok_or(MirUnitBuildError::IdentityCapacityExceeded)?;
+
+        Ok(crate::MirFrameStateId::new(next))
+    }
+
     /// Enumerates committed suspension state identities and their resumption blocks.
     pub fn suspension_states(
         &self,
@@ -606,6 +626,71 @@ mod tests {
         MirProjection, MirProjectionKind, MirRuntimeReference, MirSourceAnchor, MirStorageKind,
         MirTerminatorKind, MirUnitBuildError, MirUnitKind,
     };
+
+    #[test]
+    fn fresh_frame_states_include_descriptor_only_states_and_committed_suspensions() {
+        let bound = test_bound_unit(19);
+        let source = MirSourceAnchor::from(bound.key().source());
+        let frame = ProtectedAsyncFrameId::new([7; 32]);
+        let mut builder = unit_builder(&bound, MirUnitKind::ProtectedAsyncFrame(frame));
+        let entry = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
+        let resume = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
+        let later = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
+        let ty = crate::test_support::test_type();
+        let storage = push_storage(&mut builder, source.clone(), ty);
+        let abi = builder.target().runtime_abi();
+
+        assert_eq!(builder.next_frame_state(), Ok(MirFrameStateId::new(1)));
+
+        let descriptor = MirFrameDescriptor::try_new(
+            frame,
+            abi,
+            ProtectedFrameAbiVersions::uniform(abi),
+            ty,
+            [
+                MirFrameState::new(MirFrameStateId::new(0), entry, [], []),
+                MirFrameState::new(MirFrameStateId::new(1), resume, [], [storage]),
+                MirFrameState::new(MirFrameStateId::new(2), later, [], [storage]),
+            ],
+        )
+        .unwrap();
+
+        builder.set_frame_descriptor(descriptor.clone()).unwrap();
+
+        assert_eq!(builder.suspension_states().count(), 0);
+        assert_eq!(builder.next_frame_state(), Ok(MirFrameStateId::new(3)));
+
+        for (state, expected) in [
+            (1, Ok(MirFrameStateId::new(3))),
+            (3, Ok(MirFrameStateId::new(4))),
+            (u32::MAX, Err(MirUnitBuildError::IdentityCapacityExceeded)),
+        ] {
+            builder
+                .set_terminator(
+                    entry,
+                    source.clone(),
+                    MirTerminatorKind::Suspend {
+                        kind: crate::MirSuspensionKind::Awaited,
+                        payload: None,
+                        resume_state: MirFrameStateId::new(state),
+                        resume: MirEdge::new(resume, []),
+                        cancellation: None,
+                        registration: MirRuntimeReference::new(
+                            RuntimeAbiRole::SuspensionRegistration,
+                            abi,
+                        ),
+                        wake: MirRuntimeReference::new(RuntimeAbiRole::Wake, abi),
+                    },
+                )
+                .unwrap();
+
+            assert_eq!(builder.next_frame_state(), expected);
+
+            builder.take_terminator(entry).unwrap();
+        }
+
+        assert_eq!(builder.take_frame_descriptor(), Some(descriptor));
+    }
 
     #[test]
     fn reopening_templates_preserves_identities_and_validates_replacements() {

@@ -17,6 +17,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         place: MirPlace,
         element: bray_symbols::TypeId,
         length: bray_symbols::ConstantTermId,
+        outcome: &crate::cleanup_outcome::CleanupOutcome,
     ) -> Result<bray_ir::MirBlockId, C::Error> {
         let length = self.context.array_length(length)?;
 
@@ -43,8 +44,6 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 .map_err(SyntheticLoweringError::SemanticValue)
         };
 
-        let outcome = self.cleanup_outcome(builder, block, source)?;
-
         let cleanup = crate::cleanup_loop::ReverseCleanupLoop::new(
             builder,
             block,
@@ -68,14 +67,14 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             .flatten()
         {
             completed =
-                self.resolve_lifecycle_action(builder, completed, source, operation, &outcome)?;
+                self.resolve_lifecycle_action(builder, completed, source, operation, outcome)?;
         }
 
         cleanup
             .close(builder, completed, source, None)
             .map_err(|cause| self.mir_error(source, cause))?;
 
-        self.finish_cleanup_outcome(builder, cleanup.continuation, source, &outcome)
+        Ok(cleanup.continuation)
     }
 
     pub(super) fn lifecycle_children(&self, place: MirPlace) -> Result<Vec<MirPlace>, C::Error> {

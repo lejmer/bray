@@ -131,7 +131,7 @@ pub fn specialize_destruction_body<C: SyntheticLoweringContext + ?Sized>(
                 .map_err(invalid)?;
         }
 
-        crate::synthetic::SyntheticLowerer { context }.attach_lifecycle_frame(
+        crate::synthetic::SyntheticLowerer::new(context).attach_lifecycle_frame(
             &mut builder,
             frame,
             entry,

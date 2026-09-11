@@ -82,9 +82,18 @@ pub trait SyntheticLoweringContext {
 
 pub(crate) struct SyntheticLowerer<'context, C: SyntheticLoweringContext + ?Sized> {
     pub(crate) context: &'context C,
+    pub(in crate::synthetic) lifecycle_expansion:
+        Option<&'context super::lifecycle::LifecycleExpansion<'context>>,
 }
 
-impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
+impl<'context, C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'context, C> {
+    pub(crate) fn new(context: &'context C) -> Self {
+        Self {
+            context,
+            lifecycle_expansion: None,
+        }
+    }
+
     pub(crate) fn run_result(
         &self,
         completion: TypeId,

@@ -93,6 +93,17 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             None => {}
         }
 
+        if let Some(completed) = self.expand_structural_lifecycle_action(
+            builder,
+            block,
+            source,
+            role,
+            place.clone(),
+            outcome,
+        )? {
+            return Ok(completed);
+        }
+
         let (block, rejected, value) =
             self.create_lifecycle_frame(builder, block, source, role, place.clone())?;
 
@@ -293,15 +304,9 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         builder: &MirUnitBuilder,
         source: &MirSourceAnchor,
     ) -> Result<MirFrameStateId, C::Error> {
-        let next = builder
-            .suspension_states()
-            .map(|(state, _)| state.raw())
-            .max()
-            .unwrap_or(0)
-            .checked_add(1)
-            .ok_or_else(|| self.mir_error(source, MirUnitBuildError::IdentityCapacityExceeded))?;
-
-        Ok(MirFrameStateId::new(next))
+        builder
+            .next_frame_state()
+            .map_err(|cause| self.mir_error(source, cause))
     }
 
     pub(in crate::synthetic) fn lifecycle_resolution_block(

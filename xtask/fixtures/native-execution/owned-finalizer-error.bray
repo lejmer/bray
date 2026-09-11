@@ -12,6 +12,7 @@ func record(pos trace: &std.atomic.Atomic<usize>, pos value: usize)
 struct Capture
 {
     trace: &std.atomic.Atomic<usize>;
+    digit: usize;
 
     finalize()
     {
@@ -20,7 +21,7 @@ struct Capture
 
     destruct()
     {
-        record(self.trace, 3);
+        record(self.trace, self.digit);
     }
 }
 
@@ -29,10 +30,21 @@ async func inactive(pos capture: Capture)
     panic("inactive error payload entered its body");
 }
 
+func pending(pos trace: &std.atomic.Atomic<usize>, pos digit: usize) -> Future<unit>
+{
+    return inactive(
+        Capture
+        {
+            trace = trace,
+            digit = digit
+        }
+    );
+}
+
 struct Failure
 {
     trace: &std.atomic.Atomic<usize>;
-    pending: Future<unit>;
+    pending: [[Future<unit>; 2]; 2];
 
     finalize()
     {
@@ -55,12 +67,10 @@ struct Resource
             Failure
             {
                 trace = self.trace,
-                pending = inactive(
-                    Capture
-                    {
-                        trace = self.trace
-                    }
-                ),
+                pending = [
+                    [pending(self.trace, 3), pending(self.trace, 4)],
+                    [pending(self.trace, 5), pending(self.trace, 6)],
+                ],
             }
         );
     }
@@ -92,7 +102,7 @@ async func main() -> i32
         assert(trace.load(order = std.atomic.LoadOrder.Acquire) == 1);
     }
 
-    assert(trace.load(order = std.atomic.LoadOrder.Acquire) == 123);
+    assert(trace.load(order = std.atomic.LoadOrder.Acquire) == 126543);
 
     return 0;
 }

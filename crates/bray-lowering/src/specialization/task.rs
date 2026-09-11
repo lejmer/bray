@@ -25,7 +25,7 @@ pub(super) fn expand_task_cleanup<C: SyntheticLoweringContext + ?Sized>(
 
     let invalid = |cause| failure(source, cause);
     let task = retain_owner(context, builder, location, source, place)?;
-    let lowerer = crate::synthetic::SyntheticLowerer { context };
+    let lowerer = crate::synthetic::SyntheticLowerer::new(context);
     let outcome = lowerer.cleanup_outcome(builder, block, source)?;
 
     // The template already owns the cleanup shield. Its owner pointer survives this suspension.

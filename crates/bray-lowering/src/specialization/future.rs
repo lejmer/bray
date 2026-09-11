@@ -70,7 +70,7 @@ pub(super) fn expand_future_cleanup<C: SyntheticLoweringContext + ?Sized>(
     )
     .map_err(invalid)?;
 
-    let lowerer = crate::synthetic::SyntheticLowerer { context };
+    let lowerer = crate::synthetic::SyntheticLowerer::new(context);
 
     let (result, variants) = lowerer.run_result(completion)?;
 

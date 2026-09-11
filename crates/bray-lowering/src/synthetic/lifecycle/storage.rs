@@ -156,15 +156,16 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             return Ok(None);
         };
 
-        if let Some(element) = self
+        if self
             .context
             .raw_buffer_element(*definition, *substitution)?
+            .is_some()
         {
             let role = bray_ir::MirGeneratedLifecycleRole::from_reference(reference)
                 .ok_or_else(|| SyntheticLoweringError::MissingHelper(reference.clone()))?;
 
             return self
-                .push_buffer_lifecycle(builder, block, source, role, place.clone(), element)
+                .push_represented_lifecycle_operations(builder, block, source, role, place.clone())
                 .map(Some);
         }
 
@@ -353,9 +354,9 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         place: MirPlace,
         storage: TypeId,
         target: TypeId,
+        outcome: &crate::cleanup_outcome::CleanupOutcome,
     ) -> Result<bray_ir::MirBlockId, C::Error> {
         let storage_place = place.project(MirProjectionKind::OwnedStorage, storage);
-        let outcome = self.cleanup_outcome(builder, block, source)?;
 
         let kind = builder
             .block_kind(block)
@@ -372,7 +373,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             storage_place.clone(),
             storage,
             target,
-            &outcome,
+            outcome,
             after_target,
         )?;
 
@@ -397,7 +398,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             }
         };
 
-        let block = self.resolve_lifecycle_action(builder, block, source, operation, &outcome)?;
+        let block = self.resolve_lifecycle_action(builder, block, source, operation, outcome)?;
 
         builder
             .set_terminator(
@@ -441,6 +442,6 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 .map_err(|cause| self.mir_error(source, cause))?;
         }
 
-        self.finish_cleanup_outcome(builder, block, source, &outcome)
+        Ok(block)
     }
 }

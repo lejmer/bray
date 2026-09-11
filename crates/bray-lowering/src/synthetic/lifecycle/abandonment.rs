@@ -98,11 +98,13 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             substitution,
         } = data.as_ref()
         {
-            if let Some(element) = self
+            if self
                 .context
                 .raw_buffer_element(*definition, *substitution)?
+                .is_some()
             {
-                return self.push_buffer_lifecycle(builder, block, source, role, place, element);
+                return self
+                    .push_represented_lifecycle_operations(builder, block, source, role, place);
             }
 
             match self.context.representation_role(*definition) {

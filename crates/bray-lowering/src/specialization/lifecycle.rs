@@ -100,6 +100,11 @@ pub fn specialize_lifecycle_execution<C: SyntheticLoweringContext + ?Sized>(
     let mut builder = MirUnitBuilder::from_unit(unit);
     let source = &actions[0].5;
 
+    let first_new_state = builder
+        .next_frame_state()
+        .map_err(|cause| failure(source, cause))?
+        .raw();
+
     let descriptor = builder
         .take_frame_descriptor()
         .ok_or_else(|| failure(source, MirUnitBuildError::ProtectedFrameMismatch))?;
@@ -116,10 +121,7 @@ pub fn specialize_lifecycle_execution<C: SyntheticLoweringContext + ?Sized>(
     // Existing resumptions keep their IDs. New states inherit the checked frame execution context.
     let mut states = descriptor.states().to_vec();
 
-    let first_new_state = u32::try_from(states.len())
-        .map_err(|_| failure(source, MirUnitBuildError::IdentityCapacityExceeded))?;
-
-    let lowerer = crate::synthetic::SyntheticLowerer { context };
+    let lowerer = crate::synthetic::SyntheticLowerer::new(context);
 
     for (block, operation, role, concrete, place, source) in actions {
         let next = lowerer.next_lifecycle_state(&builder, &source)?;

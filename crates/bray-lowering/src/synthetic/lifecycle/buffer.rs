@@ -14,6 +14,10 @@ use crate::operand::integer_constant;
 
 impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
     /// Resolves initialized elements of the shared pointer/capacity/initialized-count buffer layout.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "buffer traversal retains its element type and caller cleanup outcome"
+    )]
     pub(super) fn push_buffer_lifecycle(
         &self,
         builder: &mut MirUnitBuilder,
@@ -22,6 +26,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         role: MirGeneratedLifecycleRole,
         place: MirPlace,
         element: TypeId,
+        outcome: &crate::cleanup_outcome::CleanupOutcome,
     ) -> Result<MirBlockId, C::Error> {
         let destroys = match role {
             MirGeneratedLifecycleRole::Destroy
@@ -116,8 +121,6 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         let one = integer_constant(values, usize_type, 1)
             .map_err(SyntheticLoweringError::SemanticValue)?;
 
-        let outcome = self.cleanup_outcome(builder, block, source)?;
-
         let cleanup =
             ReverseCleanupLoop::new(builder, block, source, length, boolean, [zero, one], None)
                 .map_err(invalid)?;
@@ -156,7 +159,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             .flatten()
         {
             completed =
-                self.resolve_lifecycle_action(builder, completed, source, operation, &outcome)?;
+                self.resolve_lifecycle_action(builder, completed, source, operation, outcome)?;
         }
 
         cleanup
@@ -170,19 +173,15 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 source,
                 place,
                 element,
-                &outcome,
+                outcome,
             )?
         } else {
             cleanup.continuation
         };
 
-        self.finish_cleanup_outcome(builder, completed, source, &outcome)
+        Ok(completed)
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "buffer release retains the owning cleanup outcome until allocation release completes"
-    )]
     fn release_buffer_storage(
         &self,
         builder: &mut MirUnitBuilder,

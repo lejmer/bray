@@ -66,7 +66,7 @@ pub fn lower_heap_storage<C: SyntheticLoweringContext + ?Sized>(
     context: &C,
     input: HeapStorageLoweringInput,
 ) -> Result<MirUnit, C::Error> {
-    SyntheticLowerer { context }.lower_heap_storage(input)
+    SyntheticLowerer::new(context).lower_heap_storage(input)
 }
 
 impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {

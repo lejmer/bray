@@ -4310,6 +4310,10 @@ public func invoke<T>(pos value: T)
         for (ty, value) in [
             ("Guard", "Guard {}"),
             ("[Guard; 2]", "[Guard {}, Guard {}]"),
+            (
+                "[[Guard; 2]; 2]",
+                "[[Guard {}, Guard {}], [Guard {}, Guard {}]]",
+            ),
         ] {
             for asynchronous in [false, true] {
                 let execution = if asynchronous { "async" } else { "" };

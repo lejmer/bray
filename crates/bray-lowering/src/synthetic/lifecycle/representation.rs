@@ -130,11 +130,57 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         role: bray_ir::MirGeneratedLifecycleRole,
         place: MirPlace,
     ) -> Result<bray_ir::MirBlockId, C::Error> {
+        if self.context.cleanup_type_execution(place.ty())?.cleanup()
+            == bray_bound_tree::AsyncStorageCleanupRequirement::None
+        {
+            return Ok(block);
+        }
+
+        let outcome = self.cleanup_outcome(builder, block, source)?;
+
+        let expansion = super::expansion::LifecycleExpansion {
+            parent: self.lifecycle_expansion,
+            role,
+            ty: place.ty(),
+        };
+
+        let lowerer = SyntheticLowerer {
+            context: self.context,
+            lifecycle_expansion: Some(&expansion),
+        };
+
+        let completed =
+            lowerer.expand_represented_lifecycle(builder, block, source, role, place, &outcome)?;
+
+        self.finish_cleanup_outcome(builder, completed, source, &outcome)
+    }
+
+    pub(super) fn expand_represented_lifecycle(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: bray_ir::MirBlockId,
+        source: &MirSourceAnchor,
+        role: bray_ir::MirGeneratedLifecycleRole,
+        place: MirPlace,
+        outcome: &crate::cleanup_outcome::CleanupOutcome,
+    ) -> Result<bray_ir::MirBlockId, C::Error> {
         let values = self.context.semantic_values();
 
         let data = values
             .type_data(place.ty())
             .map_err(SyntheticLoweringError::SemanticValue)?;
+
+        if let TypeData::Named {
+            definition,
+            substitution,
+        } = data.as_ref()
+            && let Some(element) = self
+                .context
+                .raw_buffer_element(*definition, *substitution)?
+        {
+            return self
+                .push_buffer_lifecycle(builder, block, source, role, place, element, outcome);
+        }
 
         match data.as_ref() {
             TypeData::Named {
@@ -148,18 +194,20 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 place,
                 *union,
                 *substitution,
+                outcome,
             ),
-            TypeData::Nullable(target) => self
-                .push_nullable_lifecycle_operations(builder, block, source, role, place, *target),
-            TypeData::Array { element, length } => {
-                self.push_array_lifecycle(builder, block, source, role, place, *element, *length)
-            }
+            TypeData::Nullable(target) => self.push_nullable_lifecycle_operations(
+                builder, block, source, role, place, *target, outcome,
+            ),
+            TypeData::Array { element, length } => self.push_array_lifecycle(
+                builder, block, source, role, place, *element, *length, outcome,
+            ),
             TypeData::Generator(element) => {
-                self.push_buffer_lifecycle(builder, block, source, role, place, *element)
+                self.push_buffer_lifecycle(builder, block, source, role, place, *element, outcome)
             }
             TypeData::OwnedIndirection { storage, target } => self
                 .push_owned_indirection_lifecycle_operations(
-                    builder, block, source, role, place, *storage, *target,
+                    builder, block, source, role, place, *storage, *target, outcome,
                 ),
             TypeData::Error
             | TypeData::TypeParameter(_)
@@ -173,7 +221,9 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             TypeData::Named { .. } | TypeData::Tuple(_) => {
                 let children = self.lifecycle_children(place)?;
 
-                self.push_child_lifecycle_operations(builder, block, source, role, children)
+                self.push_child_lifecycle_operations(
+                    builder, block, source, role, children, outcome,
+                )
             }
             TypeData::Borrow { .. } | TypeData::Callable(_) => {
                 Err(SyntheticLoweringError::UnexpectedLifecycleType {
@@ -185,6 +235,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         }
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "represented traversal retains its destination, cleanup role and caller outcome"
+    )]
     pub(super) fn push_nullable_lifecycle_operations(
         &self,
         builder: &mut MirUnitBuilder,
@@ -193,6 +247,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         role: bray_ir::MirGeneratedLifecycleRole,
         place: MirPlace,
         target: TypeId,
+        outcome: &crate::cleanup_outcome::CleanupOutcome,
     ) -> Result<bray_ir::MirBlockId, C::Error> {
         let kind = lifecycle_operation_block_kind(role, builder)?;
 
@@ -224,7 +279,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         let child = place.project(MirProjectionKind::NullableValue, target);
 
         let present =
-            self.push_child_lifecycle_operations(builder, present, source, role, [child])?;
+            self.push_child_lifecycle_operations(builder, present, source, role, [child], outcome)?;
 
         for branch in [present, absent] {
             builder
@@ -252,6 +307,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         place: MirPlace,
         union: bray_symbols::UnionSymbolId,
         substitution: GenericSubstitutionId,
+        outcome: &crate::cleanup_outcome::CleanupOutcome,
     ) -> Result<bray_ir::MirBlockId, C::Error> {
         let kind = lifecycle_operation_block_kind(role, builder)?;
 
@@ -312,8 +368,9 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 })
                 .collect::<Result<Vec<_>, C::Error>>()?;
 
-            let matched =
-                self.push_child_lifecycle_operations(builder, matched, source, role, children)?;
+            let matched = self.push_child_lifecycle_operations(
+                builder, matched, source, role, children, outcome,
+            )?;
 
             builder
                 .set_terminator(
@@ -346,18 +403,21 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         source: &MirSourceAnchor,
         role: bray_ir::MirGeneratedLifecycleRole,
         children: impl IntoIterator<Item = MirPlace, IntoIter: DoubleEndedIterator>,
+        outcome: &crate::cleanup_outcome::CleanupOutcome,
     ) -> Result<bray_ir::MirBlockId, C::Error> {
-        let mut operations = Vec::new();
+        let mut block = block;
 
         for child in children.into_iter().rev() {
-            operations.extend(
-                child_lifecycle_operations(role, child)?
-                    .into_iter()
-                    .flatten(),
-            );
+            for operation in child_lifecycle_operations(role, child)?
+                .into_iter()
+                .flatten()
+            {
+                block =
+                    self.resolve_lifecycle_action(builder, block, source, operation, outcome)?;
+            }
         }
 
-        self.resolve_lifecycle_sequence(builder, block, source, operations)
+        Ok(block)
     }
 }
 

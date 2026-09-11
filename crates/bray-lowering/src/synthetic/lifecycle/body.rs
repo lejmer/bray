@@ -16,7 +16,7 @@ pub fn lower_lifecycle<C: SyntheticLoweringContext + ?Sized>(
     unit: MirUnitId,
     target: &MirTargetContract,
 ) -> Result<MirUnit, C::Error> {
-    SyntheticLowerer { context }.lower_lifecycle(key, reference, unit, target)
+    SyntheticLowerer::new(context).lower_lifecycle(key, reference, unit, target)
 }
 
 impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
@@ -331,15 +331,22 @@ mod tests {
                 TypeData::Tuple(_) | TypeData::Nullable(_) | TypeData::Array { .. }
             ));
 
-            Ok(bray_bound_tree::StorageCleanupType::new(
-                ty,
-                bray_bound_tree::AsyncStorageCleanupRequirement::None,
+            let requirement = match self.0.type_data(ty).unwrap().as_ref() {
+                TypeData::Tuple(elements) if elements.is_empty() => {
+                    bray_bound_tree::AsyncStorageCleanupRequirement::None
+                }
+                _ => bray_bound_tree::AsyncStorageCleanupRequirement::Cleanup(
+                    bray_bound_tree::AsyncCleanupPhases::Lifecycle,
+                ),
+            };
+
+            Ok(
+                bray_bound_tree::StorageCleanupType::new(ty, requirement).with_execution(
+                    Some(CallableExecution::Synchronous),
+                    Some(CallableExecution::Synchronous),
+                    Some(CallableExecution::Synchronous),
+                ),
             )
-            .with_execution(
-                Some(CallableExecution::Synchronous),
-                Some(CallableExecution::Synchronous),
-                Some(CallableExecution::Synchronous),
-            ))
         }
 
         fn lifecycle_callable(
@@ -431,6 +438,25 @@ mod tests {
     }
 
     #[test]
+    fn inert_represented_cleanup_does_not_acquire_an_outcome() {
+        let context = TupleContext(SemanticValueStore::try_new().unwrap());
+        let leaf = context.0.intern_type(TypeData::tuple([])).unwrap();
+        let role = MirGeneratedLifecycleRole::Destroy;
+
+        let mir = lower_lifecycle(
+            &context,
+            MirUnitKey::GeneratedLifecycle(MirGeneratedLifecycleKey::new(role, [10; 32])),
+            &role.reference(leaf),
+            MirUnitId::new(10),
+            &bray_testing::test_mir_target(),
+        )
+        .unwrap();
+
+        assert!(mir.operations().is_empty());
+        assert!(mir.frame_descriptor().is_none());
+    }
+
+    #[test]
     fn array_lifecycle_body_size_is_independent_of_length() {
         let context = TupleContext(SemanticValueStore::try_new().unwrap());
         let leaf = context.0.intern_type(TypeData::tuple([])).unwrap();
@@ -505,7 +531,7 @@ mod tests {
     #[test]
     fn specialized_frame_errors_preserve_source_instead_of_panicking() {
         let context = TupleContext(SemanticValueStore::try_new().unwrap());
-        let lowerer = crate::synthetic::SyntheticLowerer { context: &context };
+        let lowerer = crate::synthetic::SyntheticLowerer::new(&context);
 
         let source =
             bray_ir::MirSourceAnchor::from(bray_testing::test_bound_unit(27).key().source());
