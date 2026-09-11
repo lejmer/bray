@@ -556,6 +556,7 @@ pub(crate) fn frame_operation_type<'context>(
 
     if uses_microsoft_x64_abi(target) {
         return match operation {
+            ProtectedFrameOperation::MetadataDescription => pointer.fn_type(&[], false),
             ProtectedFrameOperation::MoveBeforeStart => {
                 unreachable!("move-before-start uses indirect results on every native ABI")
             }
@@ -581,6 +582,7 @@ pub(crate) fn frame_operation_type<'context>(
     }
 
     match operation {
+        ProtectedFrameOperation::MetadataDescription => pointer.fn_type(&[], false),
         ProtectedFrameOperation::MoveBeforeStart => {
             unreachable!("move-before-start uses indirect results on every native ABI")
         }
@@ -745,6 +747,26 @@ mod tests {
                 RuntimeAbiRole::FrameResume
             )),
         );
+    }
+
+    #[test]
+    fn metadata_description_returns_a_direct_pointer_without_context_on_every_target() {
+        let context = Context::create();
+
+        for native in bray_target::NativeTarget::ALL {
+            let target = bray_codegen::CodegenTarget::for_native(native);
+            let operation = ProtectedFrameOperation::MetadataDescription;
+            let signature = super::frame_operation_type(&context, &target, operation);
+
+            assert_eq!(signature.count_param_types(), 0);
+
+            assert_eq!(
+                signature.get_return_type(),
+                Some(context.ptr_type(inkwell::AddressSpace::default()).into())
+            );
+
+            assert!(!super::frame_result_is_indirect(&target, operation));
+        }
     }
 
     #[test]

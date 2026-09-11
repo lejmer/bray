@@ -9,7 +9,7 @@ use bray_codegen::{
     CodegenTarget, CodegenUnit,
 };
 use bray_ir::{MirUnitKey, MirUnitKind};
-use bray_runtime_interface::{BinarySymbolName, ExecutableHostContract, ProtectedFrameOperation};
+use bray_runtime_interface::{BinarySymbolName, ExecutableHostContract};
 use bray_symbols::{AnySymbolId, CallableAbi, PackageIdentity, SymbolKey, SymbolKeyData};
 
 use super::super::super::CodegenPreparationError;
@@ -74,6 +74,7 @@ impl Compilation {
         product: &bray_symbols::ProductIdentity,
         unit: &CodegenUnit,
         operations: &[CodegenOperationMapping],
+        static_storages: &[bray_codegen::CodegenStaticStorageMapping],
         executable_host: Option<&ExecutableHostContract>,
         platform_overrides: &BTreeSet<bray_runtime_interface::PlatformServiceRole>,
         target: &CodegenTarget,
@@ -246,41 +247,25 @@ impl Compilation {
             ));
         }
 
-        for instance in unit.instances() {
-            let Some(frame) = instance.protected_frame_identity() else {
-                continue;
+        let local_frames: BTreeSet<_> = unit
+            .instances()
+            .iter()
+            .filter_map(bray_codegen::CodegenInstance::protected_frame_identity)
+            .collect();
+
+        for (frame, operation) in
+            bray_codegen::demanded_frame_operations(unit, operations, static_storages)
+        {
+            let linkage = if local_frames.contains(&frame) {
+                CodegenLinkage::Internal
+            } else {
+                CodegenLinkage::Import
             };
 
-            for operation in ProtectedFrameOperation::ALL {
-                symbols.push(CodegenSymbolMapping::new(
-                    CodegenSymbolKey::ProtectedFrame { frame, operation },
-                    generated_frame_symbol_name(target, frame, operation)?,
-                    CodegenLinkage::Internal,
-                    void_signature(CallableAbi::Bray),
-                ));
-            }
-        }
-
-        for (frame, operation) in operations.iter().flat_map(|mapping| {
-            mapping.helpers().iter().filter_map(|helper| {
-                let Some(CodegenSymbolKey::ProtectedFrame { frame, operation }) = helper.symbol()
-                else {
-                    return None;
-                };
-
-                Some((*frame, *operation))
-            })
-        }) {
-            let key = CodegenSymbolKey::ProtectedFrame { frame, operation };
-
-            if symbols.iter().any(|symbol| symbol.key() == &key) {
-                continue;
-            }
-
             symbols.push(CodegenSymbolMapping::new(
-                key,
+                CodegenSymbolKey::ProtectedFrame { frame, operation },
                 generated_frame_symbol_name(target, frame, operation)?,
-                CodegenLinkage::Import,
+                linkage,
                 void_signature(CallableAbi::Bray),
             ));
         }

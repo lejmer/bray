@@ -644,21 +644,11 @@ mod tests {
         NativeStaticFinalizerStatus::SUCCESS
     }
 
-    extern "C-unwind" fn resolve_success(
-        _: usize,
-        _: usize,
-        _: &mut NativeBrayCallOutcome,
-    ) -> NativeStaticFinalizerStatus {
-        NativeStaticFinalizerStatus::SUCCESS
-    }
-
     const fn finalizer(start: NativeStaticFinalizerStartCallback) -> NativeStaticFinalizer {
         NativeStaticFinalizer::new(
             NativeCleanupExecution::SYNCHRONOUS,
-            0,
-            1,
+            None,
             start,
-            resolve_success,
             crate::test_support::panic_callbacks(unexpected_panic, unexpected_panic),
         )
     }

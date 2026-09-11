@@ -24,10 +24,8 @@ pub(super) struct StaticLifecycleCallbacks<'context> {
 #[derive(Clone, Copy)]
 pub(super) struct StaticFinalizerCallbacks<'context> {
     pub(super) execution: u64,
-    pub(super) result_size: u64,
-    pub(super) result_alignment: u64,
+    pub(super) metadata: Option<FunctionValue<'context>>,
     pub(super) start: FunctionValue<'context>,
-    pub(super) resolve: FunctionValue<'context>,
     pub(super) panics: inkwell::values::StructValue<'context>,
 }
 
@@ -60,7 +58,7 @@ pub(super) fn declare_thread_static_registration<'context>(
             pointer.into(),
             static_identity_type(context).into(),
             pointer.into(),
-            static_finalizer_type(context, pointer, usize).into(),
+            static_finalizer_type(context, pointer).into(),
             pointer.into(),
             pointer.into(),
         ],
@@ -75,7 +73,7 @@ pub(super) fn declare_thread_static_registration<'context>(
             .as_global_value()
             .as_pointer_value()
             .into(),
-        static_finalizer_value(context, callbacks.finalizer, pointer, usize).into(),
+        static_finalizer_value(context, callbacks.finalizer, pointer).into(),
         callbacks
             .destroy
             .as_global_value()
@@ -158,7 +156,7 @@ pub(super) fn declare_static_host_entry<'context>(
             .as_global_value()
             .as_pointer_value()
             .into(),
-        static_finalizer_value(context, callbacks.finalizer, pointer, usize).into(),
+        static_finalizer_value(context, callbacks.finalizer, pointer).into(),
         callbacks
             .destroy
             .as_global_value()
@@ -532,7 +530,7 @@ fn static_host_entry_type<'context>(
             pointer.into(),
             pointer.into(),
             pointer.into(),
-            static_finalizer_type(context, pointer, usize).into(),
+            static_finalizer_type(context, pointer).into(),
             pointer.into(),
             pointer.into(),
             pointer.into(),
@@ -545,14 +543,11 @@ fn static_host_entry_type<'context>(
 fn static_finalizer_type<'context>(
     context: &'context inkwell::context::Context,
     pointer: PointerType<'context>,
-    usize: IntType<'context>,
 ) -> StructType<'context> {
     context.struct_type(
         &[
             context.i32_type().into(),
             context.i32_type().into(),
-            usize.into(),
-            usize.into(),
             pointer.into(),
             pointer.into(),
             super::super::boundary::panic_report_callbacks_type(context).into(),
@@ -565,22 +560,21 @@ fn static_finalizer_value<'context>(
     context: &'context inkwell::context::Context,
     finalizer: StaticFinalizerCallbacks<'context>,
     pointer: PointerType<'context>,
-    usize: IntType<'context>,
 ) -> inkwell::values::StructValue<'context> {
-    static_finalizer_type(context, pointer, usize).const_named_struct(&[
+    static_finalizer_type(context, pointer).const_named_struct(&[
         context
             .i32_type()
             .const_int(finalizer.execution, false)
             .into(),
         context.i32_type().const_zero().into(),
-        usize.const_int(finalizer.result_size, false).into(),
-        usize.const_int(finalizer.result_alignment, false).into(),
-        finalizer.start.as_global_value().as_pointer_value().into(),
         finalizer
-            .resolve
-            .as_global_value()
-            .as_pointer_value()
+            .metadata
+            .map_or_else(
+                || pointer.const_null(),
+                |metadata| metadata.as_global_value().as_pointer_value(),
+            )
             .into(),
+        finalizer.start.as_global_value().as_pointer_value().into(),
         finalizer.panics.into(),
     ])
 }
@@ -600,13 +594,12 @@ mod tests {
         let ty = super::static_finalizer_type(
             &context,
             context.ptr_type(inkwell::AddressSpace::default()),
-            word,
         );
 
+        assert_eq!(data.offset_of_element(&ty, 2), Some(8));
+        assert_eq!(data.offset_of_element(&ty, 3), Some(8 + bytes));
         assert_eq!(data.offset_of_element(&ty, 4), Some(8 + 2 * bytes));
-        assert_eq!(data.offset_of_element(&ty, 5), Some(8 + 3 * bytes));
-        assert_eq!(data.offset_of_element(&ty, 6), Some(8 + 4 * bytes));
-        assert_eq!(data.get_store_size(&ty), 8 + 8 * bytes);
+        assert_eq!(data.get_store_size(&ty), 8 + 6 * bytes);
     }
 }
 

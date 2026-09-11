@@ -2,7 +2,6 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use bray_ir::MirSourceAnchor;
-use bray_runtime_interface::ProtectedFrameOperation;
 use bray_symbols::{CallableAbi, ConstantTermId, ConstantValueData, ConstantValueId, TypeId};
 
 use crate::{
@@ -290,30 +289,12 @@ impl CodegenMappings {
             return Err(CodegenMappingsBuildError::RuntimeSymbolCoverageMismatch);
         }
 
-        let expected_frame_operations: BTreeSet<_> = unit
-            .instances()
-            .iter()
-            .filter_map(crate::CodegenInstance::protected_frame_identity)
-            .flat_map(|frame| {
-                ProtectedFrameOperation::ALL
-                    .into_iter()
-                    .map(move |operation| (frame, operation))
-            })
-            .collect();
-
-        let actual_frame_operations: BTreeSet<_> = symbols
-            .iter()
-            .filter_map(|symbol| match symbol.key() {
-                CodegenSymbolKey::ProtectedFrame { frame, operation } => Some((*frame, *operation)),
-                CodegenSymbolKey::CleanupFrameConstructor(_)
-                | CodegenSymbolKey::Instance(_)
-                | CodegenSymbolKey::Runtime(_) => None,
-            })
-            .collect();
-
-        if actual_frame_operations != expected_frame_operations {
-            return Err(CodegenMappingsBuildError::FrameSymbolCoverageMismatch);
-        }
+        super::frame_demand::validate_frame_operations(
+            unit,
+            &operations,
+            &static_storages,
+            &symbols,
+        )?;
 
         validate_type_coverage(unit, &types, &instance_types, &symbols, &constants)?;
 

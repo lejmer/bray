@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bray_runtime_interface::BinarySymbolName;
+use bray_runtime_interface::{BinarySymbolName, ProtectedAsyncFrameId};
 use bray_symbols::{CallableExecution, ConstantValueId, StaticStorageDuration, SymbolKey};
 
 use crate::{CodegenImplementationWitness, CodegenInstanceKey, CodegenSpecialization};
@@ -151,22 +151,27 @@ pub struct CodegenStaticStorageMapping {
 /// One nontrivial static finalizer and its closed completion contract.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CodegenStaticFinalization {
-    execution: CallableExecution,
     instance: CodegenInstanceKey,
+    frame: Option<ProtectedAsyncFrameId>,
 }
 
 impl CodegenStaticFinalization {
     /// Creates one closed finalizer mapping.
-    pub const fn new(execution: CallableExecution, instance: CodegenInstanceKey) -> Self {
-        Self {
-            execution,
-            instance,
-        }
+    pub const fn new(instance: CodegenInstanceKey, frame: Option<ProtectedAsyncFrameId>) -> Self {
+        Self { instance, frame }
     }
 
     /// Returns whether finalization executes immediately or through a protected frame.
     pub const fn execution(&self) -> CallableExecution {
-        self.execution
+        match self.frame {
+            Some(_) => CallableExecution::Asynchronous,
+            None => CallableExecution::Synchronous,
+        }
+    }
+
+    /// Returns the finalizer's protected frame identity for admission before entry.
+    pub const fn frame(&self) -> Option<ProtectedAsyncFrameId> {
+        self.frame
     }
 
     /// Returns the generated static-finalizer instance.

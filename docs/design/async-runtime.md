@@ -145,7 +145,10 @@ Frame metadata contains:
 - source-correlated suspension and retained-value information,
 - execution requirements and affinity runtime properties.
 
-Published metadata is immutable and target-specific where layout requires it.
+Published metadata is immutable and target-specific where layout requires it. A no-argument metadata operation returns
+its module-lifetime address before frame construction. Frame constructors and this operation share one metadata constant.
+Host finalizer descriptors reference this operation for the actual async finalizer frame, so admission can inspect its
+layout and execution requirements before invoking the static entry that constructs it.
 
 ---
 

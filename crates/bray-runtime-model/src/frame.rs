@@ -91,6 +91,8 @@ impl ProtectedFrameAffinity {
 /// Compiler-emitted operation available for one protected frame.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum ProtectedFrameOperation {
+    /// Returns immutable admission metadata without constructing a frame.
+    MetadataDescription,
     /// Moves an inactive frame into runtime-owned storage.
     MoveBeforeStart,
     /// Describes one resumable state to the runtime.
@@ -111,7 +113,8 @@ pub enum ProtectedFrameOperation {
 
 impl ProtectedFrameOperation {
     /// Every compiler-emitted protected-frame operation in stable order.
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
+        Self::MetadataDescription,
         Self::MoveBeforeStart,
         Self::StateDescription,
         Self::Resume,
@@ -125,6 +128,7 @@ impl ProtectedFrameOperation {
     /// Returns this compiler-generated operation's stable machine-readable name.
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::MetadataDescription => "metadata_description",
             Self::MoveBeforeStart => "move_before_start",
             Self::StateDescription => "state_description",
             Self::Resume => "resume",
@@ -140,6 +144,7 @@ impl ProtectedFrameOperation {
 /// Binary symbol table for compiler-emitted protected-frame operations.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ProtectedFrameOperations {
+    metadata_description: BinarySymbolName,
     move_before_start: BinarySymbolName,
     state_description: BinarySymbolName,
     resume: BinarySymbolName,
@@ -157,6 +162,7 @@ impl ProtectedFrameOperations {
         reason = "each protected-frame operation has one required typed symbol"
     )]
     pub const fn new(
+        metadata_description: BinarySymbolName,
         move_before_start: BinarySymbolName,
         state_description: BinarySymbolName,
         resume: BinarySymbolName,
@@ -167,6 +173,7 @@ impl ProtectedFrameOperations {
         destruction: BinarySymbolName,
     ) -> Self {
         Self {
+            metadata_description,
             move_before_start,
             state_description,
             resume,
@@ -181,6 +188,7 @@ impl ProtectedFrameOperations {
     /// Returns the binary symbol implementing one protected-frame operation.
     pub const fn symbol(&self, operation: ProtectedFrameOperation) -> &BinarySymbolName {
         match operation {
+            ProtectedFrameOperation::MetadataDescription => &self.metadata_description,
             ProtectedFrameOperation::MoveBeforeStart => &self.move_before_start,
             ProtectedFrameOperation::StateDescription => &self.state_description,
             ProtectedFrameOperation::Resume => &self.resume,
@@ -645,6 +653,7 @@ mod tests {
 
     fn test_operations() -> ProtectedFrameOperations {
         ProtectedFrameOperations::new(
+            symbol("__bray_test_metadata"),
             symbol("__bray_test_move"),
             symbol("__bray_test_state"),
             symbol("__bray_test_resume"),

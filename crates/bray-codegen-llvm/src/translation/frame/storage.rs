@@ -4,8 +4,8 @@ use bray_runtime_interface::RuntimeAbiRole;
 use inkwell::AddressSpace;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
-use inkwell::module::{Linkage, Module};
-use inkwell::values::{PointerValue, StructValue};
+use inkwell::module::Module;
+use inkwell::values::PointerValue;
 
 /// Reserves aligned context bytes and cleanup machinery before captures transfer.
 pub(super) fn allocate<'context>(
@@ -13,23 +13,14 @@ pub(super) fn allocate<'context>(
     context: &'context Context,
     builder: &Builder<'context>,
     target: &CodegenTarget,
-    metadata: StructValue<'context>,
+    metadata: PointerValue<'context>,
     source: MirFrameStorageSource,
 ) -> Result<PointerValue<'context>, CodegenFailure> {
-    let retained = module.add_global(metadata.get_type(), None, "frame.metadata");
-    retained.set_initializer(&metadata);
-    retained.set_constant(true);
-    retained.set_linkage(Linkage::Private);
-
     let admission =
         crate::native::declare_runtime_function(module, context, target, source.runtime_role())?;
 
     let address = builder
-        .build_call(
-            admission,
-            &[retained.as_pointer_value().into()],
-            "frame.admission",
-        )
+        .build_call(admission, &[metadata.into()], "frame.admission")
         .map_err(CodegenFailure::backend_library)?
         .try_as_basic_value()
         .basic()
@@ -98,10 +89,20 @@ mod tests {
             let pointer = context.ptr_type(AddressSpace::default());
             let create = module.add_function("create", pointer.fn_type(&[], false), None);
             builder.position_at_end(context.append_basic_block(create, "entry"));
-            let metadata = crate::native::frame_metadata_type(&context, &target).const_zero();
+            let value = crate::native::frame_metadata_type(&context, &target).const_zero();
+            let metadata = module.add_global(value.get_type(), None, "frame.metadata");
+            metadata.set_initializer(&value);
+            metadata.set_constant(true);
 
-            let storage =
-                super::allocate(&module, &context, &builder, &target, metadata, source).unwrap();
+            let storage = super::allocate(
+                &module,
+                &context,
+                &builder,
+                &target,
+                metadata.as_pointer_value(),
+                source,
+            )
+            .unwrap();
 
             builder.build_return(Some(&storage)).unwrap();
 

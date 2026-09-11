@@ -142,6 +142,7 @@ impl Compilation {
             product,
             unit,
             &operations,
+            &static_storages,
             executable_host,
             platform_overrides,
             target,
@@ -309,12 +310,17 @@ impl Compilation {
                     defines_storage,
                     realization.initial_value,
                     realization.relocations,
-                    realization.finalization.map(|finalization| {
-                        CodegenStaticFinalization::new(
-                            finalization.execution,
-                            finalization.instance.key().clone(),
-                        )
-                    }),
+                    realization
+                        .finalization
+                        .map(|finalization| {
+                            self.static_finalization_mapping(
+                                finalization,
+                                realization.ty,
+                                target,
+                                reachability,
+                            )
+                        })
+                        .transpose()?,
                     realization.destroy.map(|destroy| destroy.key().clone()),
                 ));
             }
@@ -564,5 +570,47 @@ impl Compilation {
         }
 
         Ok(relocations.into_values().collect())
+    }
+}
+
+impl Compilation {
+    fn static_finalization_mapping(
+        &self,
+        finalization: ConcreteStaticFinalization,
+        ty: TypeId,
+        target: &CodegenTarget,
+        reachability: &ConcreteCodegenReachability,
+    ) -> Result<CodegenStaticFinalization, CodegenPreparationError> {
+        let key = finalization.instance.key();
+
+        let frame = match finalization.execution {
+            CallableExecution::Synchronous => None,
+            CallableExecution::Asynchronous => {
+                // Static entry constructs the finalizer's frame. Only that frame owns execution metadata.
+                let frame = self.concrete_codegen_lifecycle(
+                    bray_ir::MirHelperReference::Finalize(ty),
+                    target,
+                )?;
+
+                let frame_key = frame.key();
+
+                let instance = reachability.graph().instance(frame_key).ok_or_else(|| {
+                    ProductQueryFailure::missing(
+                        ProductQueryContext::Instance(frame_key.clone()),
+                        ProductDataKind::ConcreteInstance,
+                    )
+                })?;
+
+                Some(instance.protected_frame_identity().ok_or_else(|| {
+                    ProductQueryFailure::missing(
+                        ProductQueryContext::Instance(frame_key.clone()),
+                        ProductDataKind::ProtectedFrameIdentity,
+                    )
+                })?)
+            }
+        };
+
+        // The mapping retains the shared immutable instance key independently of the realization.
+        Ok(CodegenStaticFinalization::new(key.clone(), frame))
     }
 }

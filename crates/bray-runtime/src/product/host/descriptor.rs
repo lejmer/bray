@@ -26,14 +26,13 @@ pub(super) fn read_statics(
         let finalizer = entry.finalizer();
         let execution = finalizer.execution();
 
-        let valid_result_layout = finalizer.result_alignment().is_power_of_two()
-            && (execution != NativeCleanupExecution::NONE
-                || (finalizer.result_size() == 0 && finalizer.result_alignment() == 1));
+        let valid_metadata =
+            finalizer.metadata().is_some() == (execution == NativeCleanupExecution::ASYNCHRONOUS);
 
         if entry.abi_version() != PRODUCT_HOST_ABI_VERSION
             || !entry.duration().is_known()
             || !execution.is_known()
-            || !valid_result_layout
+            || !valid_metadata
             || entry.dependency_count() > MAXIMUM_STATIC_ENTRIES
         {
             return Err(NativeProductHostStatus::INVALID_ARGUMENT);

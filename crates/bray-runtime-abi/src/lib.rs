@@ -21,7 +21,9 @@ pub use cleanup::{
     NativeCleanupExecution, NativeTaskTerminalCleanup, NativeValueCleanup,
     NativeValueCleanupCallback,
 };
-pub use frame::{NativeFrameEntry, NativeFrameMetadata, NativeFrameMetadataProvider};
+pub use frame::{
+    NativeFrameEntry, NativeFrameMetadata, NativeFrameMetadataCallback, NativeFrameMetadataProvider,
+};
 pub use platform::{
     NativePlatformEnvironmentEntry, NativePlatformEnvironmentList, NativePlatformFileMetadata,
     NativePlatformFileOptions, NativePlatformPath, NativePlatformSpanList, NativePlatformStatus,
@@ -34,10 +36,9 @@ pub use product::{
     NativeProductHostObservation, NativeProductHostOperation, NativeProductHostState,
     NativeProductHostStatus, NativeProductIdentity, NativeStaticAccessCallback,
     NativeStaticCleanupCallback, NativeStaticDuration, NativeStaticFinalizer,
-    NativeStaticFinalizerResolveCallback, NativeStaticFinalizerStartCallback,
-    NativeStaticFinalizerStatus, NativeStaticHostEntry, NativeStaticIdentity,
-    NativeStaticTransitionCallback, NativeThreadStaticCleanupRegistration, NativeTypeIdentity,
-    PRODUCT_HOST_ABI_VERSION,
+    NativeStaticFinalizerStartCallback, NativeStaticFinalizerStatus, NativeStaticHostEntry,
+    NativeStaticIdentity, NativeStaticTransitionCallback, NativeThreadStaticCleanupRegistration,
+    NativeTypeIdentity, PRODUCT_HOST_ABI_VERSION,
 };
 pub use run_result::{NativeRunResultLayout, NativeRunResultTransferCallback};
 pub use runtime::{

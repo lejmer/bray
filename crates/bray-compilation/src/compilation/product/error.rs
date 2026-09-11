@@ -180,6 +180,8 @@ pub(crate) enum ProductDataKind {
     SymbolKey,
     /// A concrete code generation instance.
     ConcreteInstance,
+    /// The protected frame identity of an asynchronous code generation instance.
+    ProtectedFrameIdentity,
     /// A semantic callable instance retained by one concrete code generation instance.
     CallableInstance,
     /// A concrete anonymous-callable instance.

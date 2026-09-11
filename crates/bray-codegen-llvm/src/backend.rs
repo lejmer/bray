@@ -406,6 +406,11 @@ fn runtime_metadata(request: CodegenRequest<'_>) -> Result<CodegenRuntimeMetadat
                 frame_symbol(
                     request,
                     frame,
+                    bray_runtime_interface::ProtectedFrameOperation::MetadataDescription,
+                )?,
+                frame_symbol(
+                    request,
+                    frame,
                     bray_runtime_interface::ProtectedFrameOperation::MoveBeforeStart,
                 )?,
                 frame_symbol(

@@ -1,5 +1,6 @@
 use bray_codegen::{
     CodegenFailure, CodegenMappings, CodegenResultMapping, CodegenStaticStorageMapping,
+    CodegenSymbolKey,
 };
 use inkwell::AddressSpace;
 use inkwell::module::Module;
@@ -31,15 +32,30 @@ pub(super) fn declare_static_finalizer<'context>(
         }
     };
 
-    let resolve = declare_static_finalizer_resolver(module, mapping, types)?;
+    let metadata = finalization
+        .and_then(|finalization| finalization.frame())
+        .map(|frame| {
+            let key = CodegenSymbolKey::ProtectedFrame {
+                frame,
+                operation: bray_runtime_interface::ProtectedFrameOperation::MetadataDescription,
+            };
+
+            let symbol = mappings
+                .symbol(&key)
+                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+            module
+                .get_function(symbol.name().as_str())
+                .ok_or(CodegenFailure::GeneratedModuleInvariant)
+        })
+        .transpose()?;
+
     let start = declare_static_finalizer_start(module, mappings, mapping, storage, types)?;
 
     Ok(StaticFinalizerCallbacks {
         execution: u64::from(execution.code()),
-        result_size: 0,
-        result_alignment: 1,
+        metadata,
         start,
-        resolve,
         panics: panic_report_callbacks(module, types)?,
     })
 }
@@ -149,50 +165,6 @@ fn declare_static_finalizer_start<'context>(
                 .map_err(CodegenFailure::backend_library)?;
         }
     }
-
-    builder
-        .build_return(Some(&context.i32_type().const_zero()))
-        .map_err(CodegenFailure::backend_library)?;
-
-    Ok(callback)
-}
-
-fn declare_static_finalizer_resolver<'context>(
-    module: &Module<'context>,
-    mapping: &CodegenStaticStorageMapping,
-    types: &mut LlvmTypeMappings<'context, '_>,
-) -> Result<FunctionValue<'context>, CodegenFailure> {
-    let name = format!("{}.resolve", mapping.finalize_name());
-
-    if let Some(callback) = module.get_function(&name) {
-        return Ok(callback);
-    }
-
-    let context = types.context();
-    let usize = crate::native::pointer_integer_type(context, types.target());
-
-    let callback = declare_generated_callback(
-        module,
-        &name,
-        "static.finalize.resolve",
-        context.i32_type().fn_type(
-            &[
-                usize.into(),
-                usize.into(),
-                context.ptr_type(AddressSpace::default()).into(),
-            ],
-            false,
-        ),
-        types,
-    );
-
-    let builder = context.create_builder();
-
-    let entry = callback
-        .get_first_basic_block()
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-    builder.position_at_end(entry);
 
     builder
         .build_return(Some(&context.i32_type().const_zero()))

@@ -9,9 +9,9 @@ use bray_ir::{MirFrameStorageSource, MirStorageId, MirStorageKind};
 use bray_runtime_interface::ProtectedFrameOperation;
 use inkwell::AddressSpace;
 use inkwell::context::Context;
-use inkwell::module::Module;
+use inkwell::module::{Linkage, Module};
 use inkwell::types::StructType;
-use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue};
+use inkwell::values::{BasicValueEnum, FunctionValue, GlobalValue, PointerValue};
 
 use super::{cleanup::translate_action_callbacks, support::frame_storage_field_index};
 
@@ -29,6 +29,13 @@ pub(crate) fn translate_protected_instance<'context, 'request>(
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
     let context_type = frame_context_type(context, instance, types)?;
+    let value = frame_metadata(module, request, instance, context_type, types)?;
+    let metadata = module.add_global(value.get_type(), None, "frame.metadata");
+    metadata.set_initializer(&value);
+    metadata.set_constant(true);
+    metadata.set_linkage(Linkage::Private);
+
+    translate_metadata_provider(module, request, instance, metadata, context)?;
 
     for storage in [
         MirFrameStorageSource::Fresh,
@@ -42,11 +49,19 @@ pub(crate) fn translate_protected_instance<'context, 'request>(
             ))
             .is_some()
         {
-            translate_constructor(module, request, instance, context_type, storage, types)?;
+            translate_constructor(
+                module,
+                request,
+                instance,
+                context_type,
+                storage,
+                metadata,
+                types,
+            )?;
         }
     }
 
-    translate_frame_adapter(module, request, instance, context_type, types)?;
+    translate_frame_adapter(module, request, instance, context_type, metadata, types)?;
     translate_state_callback(context, module, request, instance)?;
     translate_cancellation_entry(module, request, instance, context_type, types)?;
     translate_action_callbacks(module, request, instance, context_type, types)?;
@@ -87,6 +102,30 @@ pub(crate) fn translate_protected_instance<'context, 'request>(
     Ok(())
 }
 
+fn translate_metadata_provider<'context>(
+    module: &Module<'context>,
+    request: CodegenRequest<'_>,
+    instance: &CodegenInstance,
+    metadata: GlobalValue<'context>,
+    context: &'context Context,
+) -> Result<(), CodegenFailure> {
+    let function = frame_operation_function(
+        module,
+        request,
+        instance,
+        ProtectedFrameOperation::MetadataDescription,
+    )?;
+
+    let builder = context.create_builder();
+    builder.position_at_end(context.append_basic_block(function, "frame.metadata"));
+
+    builder
+        .build_return(Some(&metadata.as_pointer_value()))
+        .map_err(CodegenFailure::backend_library)?;
+
+    Ok(())
+}
+
 fn frame_context_type<'context>(
     context: &'context Context,
     instance: &CodegenInstance,
@@ -116,6 +155,7 @@ fn translate_constructor<'context>(
     instance: &CodegenInstance,
     context_type: StructType<'context>,
     storage_source: MirFrameStorageSource,
+    metadata: GlobalValue<'context>,
     types: &mut LlvmTypeMappings<'context, '_>,
 ) -> Result<(), CodegenFailure> {
     let symbol = request
@@ -135,14 +175,12 @@ fn translate_constructor<'context>(
     let block = context.append_basic_block(function, "frame.create");
     builder.position_at_end(block);
 
-    let metadata = frame_metadata(module, request, instance, context_type, types)?;
-
     let storage = super::storage::allocate(
         module,
         context,
         &builder,
         request.target(),
-        metadata,
+        metadata.as_pointer_value(),
         storage_source,
     )?;
 
@@ -400,6 +438,7 @@ fn translate_frame_adapter<'context>(
     request: CodegenRequest<'_>,
     instance: &CodegenInstance,
     context_type: StructType<'context>,
+    metadata: GlobalValue<'context>,
     types: &mut LlvmTypeMappings<'context, '_>,
 ) -> Result<(), CodegenFailure> {
     let function = frame_operation_function(
@@ -431,7 +470,9 @@ fn translate_frame_adapter<'context>(
 
     let [resume, cancel, broadcast, resolve, move_completion, destroy] = callbacks;
 
-    let metadata = frame_metadata(module, request, instance, context_type, types)?;
+    let metadata = metadata
+        .get_initializer()
+        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
     let fields: [BasicValueEnum<'context>; 8] = [
         function

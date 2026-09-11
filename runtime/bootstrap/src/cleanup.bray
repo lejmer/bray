@@ -64,10 +64,8 @@ internal struct StaticFinalizer
 {
     execution: u32;
     reserved: u32;
-    result_size: usize;
-    result_alignment: usize;
+    metadata: RawPointer<u8>;
     start: RawPointer<u8>;
-    resolve: RawPointer<u8>;
     panics: PanicReportCallbacks;
 }
 
@@ -218,14 +216,9 @@ trusted internal func register_thread_cleanup(pos registration: RawPointer<u8>) 
         || std.memory.is_null<u8>(registration_value.finalizer.panics.destroy)
         || registration_value.finalizer.reserved != 0
         || registration_value.finalizer.execution > FINALIZER_SYNCHRONOUS
-        || registration_value.finalizer.execution == FINALIZER_NONE
-            && (registration_value.finalizer.result_size != 0 || registration_value.finalizer.result_alignment != 1)
+        || !std.memory.is_null<u8>(registration_value.finalizer.metadata)
         || registration_value.finalizer.execution == FINALIZER_SYNCHRONOUS
-            && (
-                std.memory.is_null<u8>(registration_value.finalizer.start)
-                    || std.memory.is_null<u8>(registration_value.finalizer.resolve)
-                    || !is_power_of_two(registration_value.finalizer.result_alignment)
-            )
+            && std.memory.is_null<u8>(registration_value.finalizer.start)
     {
         return STATUS_INVALID_ARGUMENT;
     }
@@ -269,11 +262,6 @@ trusted internal func register_thread_cleanup(pos registration: RawPointer<u8>) 
     );
 
     return STATUS_SUCCESS;
-}
-
-internal func is_power_of_two(pos value: usize) -> bool
-{
-    return value != 0 && value & (value - ONE_USIZE) == 0;
 }
 
 trusted internal func invoke_static_transition(pos pointer: RawPointer<u8>)

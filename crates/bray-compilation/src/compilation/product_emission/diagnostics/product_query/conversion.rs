@@ -590,6 +590,7 @@ const fn product_data_kind(kind: ProductDataKind) -> &'static str {
         ProductDataKind::SourceSnapshot => "source_snapshot",
         ProductDataKind::SymbolKey => "symbol_key",
         ProductDataKind::ConcreteInstance => "concrete_instance",
+        ProductDataKind::ProtectedFrameIdentity => "protected_frame_identity",
         ProductDataKind::CallableInstance => "callable_instance",
         ProductDataKind::AnonymousCallableInstance => "anonymous_callable_instance",
         ProductDataKind::BoundHelperInstance => "bound_helper_instance",

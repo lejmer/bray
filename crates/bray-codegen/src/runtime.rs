@@ -295,6 +295,7 @@ mod tests {
             frame,
             ProtectedFrameAbiVersions::uniform(bray_runtime_interface::RuntimeAbiVersion::CURRENT),
             ProtectedFrameOperations::new(
+                binary_symbol_name("frame_metadata"),
                 binary_symbol_name("different_move"),
                 binary_symbol_name("frame_state"),
                 binary_symbol_name("frame_resume"),
@@ -370,6 +371,7 @@ mod tests {
 
     fn frame_operation_names() -> ProtectedFrameOperations {
         ProtectedFrameOperations::new(
+            binary_symbol_name("frame_metadata"),
             binary_symbol_name("frame_move_before_start"),
             binary_symbol_name("frame_state"),
             binary_symbol_name("frame_resume"),

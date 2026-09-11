@@ -2,4 +2,4 @@ mod entry;
 mod metadata;
 
 pub use entry::NativeFrameEntry;
-pub use metadata::{NativeFrameMetadata, NativeFrameMetadataProvider};
+pub use metadata::{NativeFrameMetadata, NativeFrameMetadataCallback, NativeFrameMetadataProvider};

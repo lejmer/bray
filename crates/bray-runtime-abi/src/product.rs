@@ -1,5 +1,6 @@
 use super::cleanup::NativeCleanupExecution;
 use super::runtime::{NativeBrayCallOutcome, NativeRuntimeStatus, NativeSourceAnchor};
+use crate::NativeFrameMetadataCallback;
 
 /// Version of the native product-host descriptor and static-entry records.
 pub const PRODUCT_HOST_ABI_VERSION: u32 = 1;
@@ -305,11 +306,7 @@ impl NativeCleanupIncident {
     }
 }
 
-/// Compiler-generated callback consuming one completed finalizer result.
-pub type NativeStaticFinalizerResolveCallback =
-    extern "C-unwind" fn(usize, usize, &mut NativeBrayCallOutcome) -> NativeStaticFinalizerStatus;
-
-/// Outcome of consuming one completed static finalizer result.
+/// Outcome of starting static finalization.
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct NativeStaticFinalizerStatus(u32);
@@ -337,10 +334,8 @@ impl NativeStaticFinalizerStatus {
 pub struct NativeStaticFinalizer {
     execution: NativeCleanupExecution,
     reserved: u32,
-    result_size: usize,
-    result_alignment: usize,
+    metadata: Option<NativeFrameMetadataCallback>,
     start: NativeStaticFinalizerStartCallback,
-    resolve: NativeStaticFinalizerResolveCallback,
     panics: NativePanicReportCallbacks,
 }
 
@@ -348,19 +343,15 @@ impl NativeStaticFinalizer {
     /// Creates one immutable compiler-generated finalizer contract.
     pub const fn new(
         execution: NativeCleanupExecution,
-        result_size: usize,
-        result_alignment: usize,
+        metadata: Option<NativeFrameMetadataCallback>,
         start: NativeStaticFinalizerStartCallback,
-        resolve: NativeStaticFinalizerResolveCallback,
         panics: NativePanicReportCallbacks,
     ) -> Self {
         Self {
             execution,
             reserved: 0,
-            result_size,
-            result_alignment,
+            metadata,
             start,
-            resolve,
             panics,
         }
     }
@@ -370,24 +361,14 @@ impl NativeStaticFinalizer {
         self.execution
     }
 
-    /// Returns the completed result size in bytes.
-    pub const fn result_size(self) -> usize {
-        self.result_size
-    }
-
-    /// Returns the completed result alignment in bytes.
-    pub const fn result_alignment(self) -> usize {
-        self.result_alignment
+    /// Returns pre-entry metadata for asynchronous finalization, or none for other modes.
+    pub const fn metadata(self) -> Option<NativeFrameMetadataCallback> {
+        self.metadata
     }
 
     /// Returns the callback starting finalization.
     pub const fn start(self) -> NativeStaticFinalizerStartCallback {
         self.start
-    }
-
-    /// Returns the callback consuming the completed result.
-    pub const fn resolve(self) -> NativeStaticFinalizerResolveCallback {
-        self.resolve
     }
 
     /// Returns ownership operations for panics produced by this static owner's cleanup.
@@ -784,10 +765,10 @@ mod tests {
         );
 
         assert_eq!(offset_of!(NativePanicReportCallbacks, suppress), 3 * word);
-        assert_eq!(offset_of!(NativeStaticFinalizer, start), 8 + 2 * word);
-        assert_eq!(offset_of!(NativeStaticFinalizer, resolve), 8 + 3 * word);
-        assert_eq!(offset_of!(NativeStaticFinalizer, panics), 8 + 4 * word);
-        assert_eq!(size_of::<NativeStaticFinalizer>(), 8 + 8 * word);
+        assert_eq!(offset_of!(NativeStaticFinalizer, metadata), 8);
+        assert_eq!(offset_of!(NativeStaticFinalizer, start), 8 + word);
+        assert_eq!(offset_of!(NativeStaticFinalizer, panics), 8 + 2 * word);
+        assert_eq!(size_of::<NativeStaticFinalizer>(), 8 + 6 * word);
         assert_eq!(offset_of!(NativeCleanupIncident, payload), 0);
         assert_eq!(offset_of!(NativeCleanupIncident, type_identity), word);
 

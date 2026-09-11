@@ -4,6 +4,10 @@ use crate::NativeFrameStateCallback;
 /// The defining native product retains the metadata for the lifetime of every admitted owner.
 pub type NativeFrameMetadataProvider = extern "C" fn(usize) -> Option<&'static NativeFrameMetadata>;
 
+/// Returns immutable pre-entry metadata for one compiler-generated frame.
+/// The defining native product retains it for the lifetime of every admitted owner.
+pub type NativeFrameMetadataCallback = extern "C" fn() -> Option<&'static NativeFrameMetadata>;
+
 /// Immutable layout and scheduling metadata, available before a frame owns its captures.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]

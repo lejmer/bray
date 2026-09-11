@@ -84,14 +84,14 @@ fn run_asynchronous_finalizer(finalizer: NativeStaticFinalizer) -> Vec<OwnedClea
 
     match result {
         Ok(NativeStaticFinalizerStatus::SUCCESS) => {
-            crate::native::run_static_finalizer(frame, finalizer.resolve(), finalizer.panics())
+            crate::native::run_static_finalizer(frame, finalizer.panics())
         }
         Ok(_) => vec![OwnedCleanupIncident::runtime_failure()],
         Err(payload) => vec![OwnedCleanupIncident::host(payload)],
     }
 }
 
-pub(crate) fn finish_finalizer_callback(
+fn finish_finalizer_callback(
     result: std::thread::Result<NativeStaticFinalizerStatus>,
     outcome: NativeBrayCallOutcome,
     incident: NativeCleanupIncident,
@@ -223,14 +223,6 @@ mod tests {
         NativeStaticFinalizerStatus::SUCCESS
     }
 
-    extern "C-unwind" fn resolve(
-        _: usize,
-        _: usize,
-        _: &mut NativeBrayCallOutcome,
-    ) -> NativeStaticFinalizerStatus {
-        panic!("synchronous finalization does not invoke a frame resolver");
-    }
-
     extern "C-unwind" fn destroy() -> NativeBrayCallOutcome {
         transfer(9);
 
@@ -245,10 +237,8 @@ mod tests {
     fn static_cleanup_merges_transferred_errors_and_callback_failures_in_encounter_order() {
         let finalizer = NativeStaticFinalizer::new(
             NativeCleanupExecution::SYNCHRONOUS,
-            0,
-            1,
+            None,
             finalize,
-            resolve,
             crate::test_support::panic_callbacks(report, destroy_report),
         );
 
