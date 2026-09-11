@@ -1683,16 +1683,15 @@ mod tests {
 
         assert_eq!(CLEANED.load(Ordering::SeqCst), 1);
 
-        assert!(matches!(
-            acquire(&DESCRIPTOR),
-            Err(NativeRuntimeStatus::INVALID_ARGUMENT)
-        ));
+        let derived =
+            crate::test_support::with_allocation_failure(|| acquire(&DESCRIPTOR).unwrap());
 
         let cleanup_retention = RETAINED.with(|slot| slot.borrow_mut().take().unwrap());
         let cloned = crate::test_support::with_allocation_failure(|| cleanup_retention.clone());
 
         drop(entry_retention);
         drop(cleanup_retention);
+        drop(derived);
 
         let pending = control(
             &DESCRIPTOR,

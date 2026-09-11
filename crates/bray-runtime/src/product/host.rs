@@ -1,4 +1,5 @@
 mod attachment;
+mod capacity;
 mod cleanup;
 mod descriptor;
 mod entry;
@@ -8,6 +9,7 @@ mod operations;
 mod retention;
 mod thread;
 
+pub(crate) use capacity::{cleanup_capacity_admission, cleanup_capacity_discharge};
 pub(crate) use entry::ProductEntry;
 pub(super) use model::host_status;
 pub(in crate::product) use model::initialize_thread_static_registry;

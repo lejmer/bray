@@ -590,21 +590,21 @@ macro_rules! runtime_role_catalog {
             }
             CleanupCapacityAdmission {
                 "Secure a complete generated cleanup bundle before owner construction.", "cleanup_capacity_admission",
-                native: (CLEANUP_CAPACITY_ADMISSION_SYMBOL = "bray_runtime_cleanup_capacity_admission", [Usize, Pointer] -> U32),
+                native: (CLEANUP_CAPACITY_ADMISSION_SYMBOL = "bray_runtime_cleanup_capacity_admission", [Pointer, Usize, Pointer] -> U32),
                 call_hook: (),
-                compiler: C [Usize, Pointer] -> U32,
-                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
+                compiler: C [Pointer, Usize, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: (), host_control: false,
                 capabilities: [],
-                effects: [CreateFrame]
+                effects: [ControlProductHost]
             }
             CleanupCapacityDischarge {
                 "Retire a generated cleanup capacity credit after ownership is resolved.", "cleanup_capacity_discharge",
-                native: (CLEANUP_CAPACITY_DISCHARGE_SYMBOL = "bray_runtime_cleanup_capacity_discharge", [Pointer] -> U32),
+                native: (CLEANUP_CAPACITY_DISCHARGE_SYMBOL = "bray_runtime_cleanup_capacity_discharge", [Pointer, Pointer] -> U32),
                 call_hook: (),
-                compiler: C [Pointer] -> U32,
-                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
+                compiler: C [Pointer, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: (), host_control: false,
                 capabilities: [],
-                effects: [DestroyFrame]
+                effects: [ControlProductHost]
             }
             FrameStorageActivation {
                 "Activate reserved generated cleanup storage without allocating.", "frame_storage_activation",

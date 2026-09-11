@@ -116,7 +116,7 @@ impl NativeProviderRetirement {
         (callbacks.acquire)(self.context, destination)
     }
 
-    /// Closes acquisition and begins teardown once retained references have drained.
+    /// Requests teardown once existing references and references derived from them have drained.
     pub fn begin(&self) -> NativeRuntimeStatus {
         let Some(callbacks) = self.callbacks.filter(|_| self.context != 0) else {
             return NativeRuntimeStatus::INVALID_ARGUMENT;

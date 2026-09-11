@@ -127,3 +127,22 @@ native_adapter! {
         bray_runtime::native::implementation::bray_runtime_cleanup_capacity_domain_formation(destination)
     }
 }
+
+native_adapter! {
+    pub extern "C" fn bray_runtime_cleanup_capacity_admission(
+        product: &NativeProductHostDescriptor,
+        count: usize,
+        metadata: Option<bray_runtime_abi::NativeCleanupCapacityMetadataProvider>,
+    ) -> NativeRuntimeStatus {
+        implementation::bray_runtime_cleanup_capacity_admission(product, count, metadata)
+    }
+}
+
+native_adapter! {
+    pub extern "C" fn bray_runtime_cleanup_capacity_discharge(
+        product: &NativeProductHostDescriptor,
+        metadata: &bray_runtime_abi::NativeCleanupCapacityMetadata,
+    ) -> NativeRuntimeStatus {
+        implementation::bray_runtime_cleanup_capacity_discharge(product, metadata)
+    }
+}

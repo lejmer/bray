@@ -21,7 +21,7 @@ thread_local! {
 
 pub(super) struct ProductHost {
     pub(super) identity: NativeProductIdentity,
-    pub(super) capacity: bray_runtime_abi::NativeCleanupCapacityBinding,
+    pub(super) capacity: Option<triomphe::Arc<bray_runtime_abi::NativeCleanupCapacityBinding>>,
     pub(super) execution: Option<crate::product::RetainedProductExecution>,
     pub(super) cleanup_driver: Option<Box<dyn crate::product::ProductCleanup>>,
     pub(super) state: NativeProductHostState,

@@ -7,23 +7,6 @@ use bray_runtime_abi::{
 };
 
 native_adapter! {
-    pub extern "C" fn bray_runtime_cleanup_capacity_admission(
-        count: usize,
-        metadata: Option<bray_runtime_abi::NativeFrameMetadataProvider>,
-    ) -> NativeRuntimeStatus {
-        implementation::bray_runtime_cleanup_capacity_admission(count, metadata)
-    }
-}
-
-native_adapter! {
-    pub extern "C" fn bray_runtime_cleanup_capacity_discharge(
-        metadata: Option<&bray_runtime_abi::NativeFrameMetadata>,
-    ) -> NativeRuntimeStatus {
-        implementation::bray_runtime_cleanup_capacity_discharge(metadata)
-    }
-}
-
-native_adapter! {
     pub extern "C" fn bray_runtime_frame_storage_activation(
         metadata: Option<&bray_runtime_abi::NativeFrameMetadata>,
     ) -> usize {

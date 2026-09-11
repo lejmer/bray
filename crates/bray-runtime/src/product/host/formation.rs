@@ -21,14 +21,15 @@ pub(super) fn ensure_formed(
         .map_err(|_| unformed(NativeProductHostStatus::RUNTIME_FAILURE))?;
 
     if let Some(host) = hosts.get(&product) {
-        if host.capacity.is_empty() && host.state != NativeProductHostState::RETIRING {
+        if host.capacity.is_none() && host.state != NativeProductHostState::RETIRING {
             return Err(host.observation(super::operations::status_for_state(host)));
         }
 
         return match capacity {
             Some(capacity)
-                if !host.capacity.is_empty()
-                    && (!capacity.is_valid() || !host.capacity.same_domain(capacity)) =>
+                if host.capacity.as_ref().is_some_and(|existing| {
+                    !capacity.is_valid() || !existing.same_domain(capacity)
+                }) =>
             {
                 Err(host.observation(NativeProductHostStatus::INVALID_ARGUMENT))
             }
@@ -44,7 +45,8 @@ pub(super) fn ensure_formed(
         .ok_or_else(|| unformed(NativeProductHostStatus::INVALID_ARGUMENT))?;
 
     // The host owns its service reference independently of the caller.
-    let capacity = capacity.clone();
+    let capacity = crate::allocation::allocate_shared(capacity.clone())
+        .map_err(|_| unformed(NativeProductHostStatus::ALLOCATION_FAILURE))?;
 
     let (statics, thread_statics) = read_statics(descriptor).map_err(unformed)?;
 
@@ -88,7 +90,7 @@ pub(super) fn ensure_formed(
 
     let host = ProductHost {
         identity: descriptor.identity(),
-        capacity,
+        capacity: Some(capacity),
         // Keep a losing insertion releasable after the registry lock is dropped.
         execution: execution.clone(),
         cleanup_driver,
@@ -127,7 +129,12 @@ fn insert_host(product: usize, host: ProductHost) -> Result<bool, NativeProductH
         .map_err(|_| NativeProductHostStatus::RUNTIME_FAILURE)?;
 
     if let Some(existing) = hosts.get(&product) {
-        return if existing.capacity.same_domain(&host.capacity) {
+        return if existing
+            .capacity
+            .as_ref()
+            .zip(host.capacity.as_ref())
+            .is_some_and(|(existing, candidate)| existing.same_domain(candidate))
+        {
             Ok(false)
         } else {
             Err(NativeProductHostStatus::INVALID_ARGUMENT)

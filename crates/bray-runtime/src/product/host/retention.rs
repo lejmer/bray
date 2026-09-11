@@ -23,7 +23,9 @@ pub(crate) fn retain_provider(
 
     if !matches!(
         host.state,
-        NativeProductHostState::OPEN | NativeProductHostState::CLOSING
+        NativeProductHostState::OPEN
+            | NativeProductHostState::CLOSING
+            | NativeProductHostState::RETIRING
     ) {
         return NativeRuntimeStatus::INVALID_ARGUMENT;
     }
@@ -33,7 +35,7 @@ pub(crate) fn retain_provider(
         || host.thread_attachments != 0
         || (host.state == NativeProductHostState::CLOSING && host.cleanup_running);
 
-    if !held {
+    if !held && host.state != NativeProductHostState::RETIRING {
         return NativeRuntimeStatus::INVALID_ARGUMENT;
     }
 
@@ -63,10 +65,7 @@ pub(super) extern "C" fn teardown_product(product: usize) -> NativeRuntimeStatus
 
             host.cleanup_running = true;
 
-            let capacity = std::mem::replace(
-                &mut host.capacity,
-                bray_runtime_abi::NativeCleanupCapacityBinding::empty(),
-            );
+            let capacity = host.capacity.take();
 
             (host.execution.take(), capacity)
         };

@@ -112,10 +112,12 @@ extern "C" fn acquire(
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-    let Some(provider) = entries
-        .get_mut(&context)
-        .filter(|provider| provider.registered && !provider.requested)
-    else {
+    let Some(provider) = entries.get_mut(&context).filter(|provider| {
+        provider.registered
+            && !provider.running
+            && provider.outcome.is_none()
+            && (!provider.requested || provider.references > 0)
+    }) else {
         return NativeRuntimeStatus::INVALID_ARGUMENT;
     };
 
@@ -181,6 +183,8 @@ extern "C" fn release(context: usize) {
     }
 }
 
+// Retirement permits extending existing ownership, but reaching zero starts teardown
+// atomically with release and permanently closes acquisition.
 extern "C" fn begin(context: usize) -> NativeRuntimeStatus {
     let action = {
         let mut entries = providers()
@@ -346,14 +350,15 @@ mod tests {
 
             assert_eq!(registration.observe().references(), 2);
             assert_eq!(registration.begin(), NativeRuntimeStatus::SUCCESS);
-            let mut rejected = NativeProviderRetention::empty();
+            let mut extended = NativeProviderRetention::empty();
 
             assert_eq!(
-                registration.acquire(&mut rejected),
-                NativeRuntimeStatus::INVALID_ARGUMENT
+                crate::test_support::with_allocation_failure(|| registration.acquire(&mut extended)),
+                NativeRuntimeStatus::SUCCESS
             );
 
-            assert!(rejected.is_empty());
+            assert_eq!(registration.observe().references(), 3);
+            drop(extended);
             drop(retained);
             assert_eq!(registration.observe().references(), 1);
             assert_eq!(TEARDOWNS.load(Ordering::Relaxed), ordinal);
@@ -361,9 +366,20 @@ mod tests {
             let worker = std::thread::spawn(move || drop(cloned));
             ENTERED.get().unwrap().wait();
             let running = registration.observe();
+            let mut rejected = NativeProviderRetention::empty();
+            let during_teardown = registration.acquire(&mut rejected);
             RETURN.get().unwrap().wait();
             worker.join().unwrap();
 
+            assert_eq!(during_teardown, NativeRuntimeStatus::INVALID_ARGUMENT);
+            assert!(rejected.is_empty());
+
+            assert_eq!(
+                registration.acquire(&mut rejected),
+                NativeRuntimeStatus::INVALID_ARGUMENT
+            );
+
+            assert!(rejected.is_empty());
             assert_eq!(running.references(), 0);
             assert!(!running.is_complete());
             let finished = registration.observe();
