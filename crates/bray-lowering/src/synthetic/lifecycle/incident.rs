@@ -16,9 +16,11 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         builder: &mut MirUnitBuilder,
         block: MirBlockId,
         source: &MirSourceAnchor,
-        result: MirOperand,
+        result: (bray_ir::MirOperationId, MirOperand),
         outcome: &CleanupOutcome,
     ) -> Result<MirBlockId, C::Error> {
+        let (invocation, result) = result;
+
         let invalid = |cause| self.mir_error(source, cause);
         let ty = builder.operand_type(&result).map_err(invalid)?;
         let unit = self.context.representation_type(RepresentationRole::Unit)?;
@@ -114,6 +116,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             failed,
             source,
             MirOperationKind::Async(MirAsyncOperation::TransferCleanupIncident {
+                invocation,
                 incident: MirOperand::Move(payload),
                 runtime: MirRuntimeReference::new(
                     RuntimeAbiRole::CleanupIncidentTransfer,

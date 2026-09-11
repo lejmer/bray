@@ -171,6 +171,8 @@ pub enum MirAsyncOperation {
     },
     /// Transfer ownership of a cleanup incident.
     TransferCleanupIncident {
+        /// The lifecycle call or callable frame creation whose Error is being transferred.
+        invocation: crate::MirOperationId,
         /// Incident value being transferred.
         incident: MirOperand,
         /// Selected private transfer ABI role.

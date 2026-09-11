@@ -308,7 +308,10 @@ pub(super) fn missing_or_foreign_block(unit: &MirUnit, block: MirBlockId) -> Mir
     }
 }
 
-fn missing_or_foreign_operation(unit: &MirUnit, operation: MirOperationId) -> MirUnitBuildError {
+pub(super) fn missing_or_foreign_operation(
+    unit: &MirUnit,
+    operation: MirOperationId,
+) -> MirUnitBuildError {
     if operation.unit() == unit.unit() {
         MirUnitBuildError::MissingOperation(operation)
     } else {

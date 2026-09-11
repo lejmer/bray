@@ -2237,10 +2237,8 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.wire.write_bytes(&frame.digest());
                 self.runtime_reference(*runtime);
             }
-            Operation::TransferCleanupIncident { incident, runtime } => {
-                self.wire.write_u32(12);
-                self.operand(incident)?;
-                self.runtime_reference(*runtime);
+            Operation::TransferCleanupIncident { .. } => {
+                return Err(ExecutableTemplateEncodeError::InvalidUnitKind);
             }
             Operation::DestroyTerminalTask { task, completion } => {
                 self.wire.write_u32(13);

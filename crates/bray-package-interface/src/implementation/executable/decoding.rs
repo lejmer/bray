@@ -1832,10 +1832,6 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 frame: self.frame_id()?,
                 runtime: self.runtime_reference()?,
             }),
-            12 => Ok(Operation::TransferCleanupIncident {
-                incident: self.operand()?,
-                runtime: self.runtime_reference()?,
-            }),
             13 => Ok(Operation::DestroyTerminalTask {
                 task: self.operand()?,
                 completion: if read_bool(&mut self.reader)? {

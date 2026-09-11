@@ -583,7 +583,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             | MirAsyncOperation::ExecuteLifecycleResolution { runtime, .. } => {
                 self.invoke_runtime(*runtime, &[])
             }
-            MirAsyncOperation::TransferCleanupIncident { incident, runtime } => {
+            MirAsyncOperation::TransferCleanupIncident {
+                invocation: _,
+                incident,
+                runtime,
+            } => {
                 self.transfer_cleanup_incident(operation_id, incident, *runtime)?;
 
                 Ok(None)

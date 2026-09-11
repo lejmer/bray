@@ -196,7 +196,7 @@ impl Lowerer<'_> {
         let report_type =
             self.representation_type(bray_compiler_known::RepresentationRole::PanicReport)?;
 
-        let (created, rejected, future) = crate::frame_creation::create_frame(
+        let (created, rejected, future, _) = crate::frame_creation::create_frame(
             &mut self.builder,
             block,
             &source,

@@ -13,7 +13,7 @@ use crate::{
     MirUnitBuildError, MirValueId,
 };
 
-use super::core::{validate_frame_state, validate_runtime_role};
+use super::core::{missing_or_foreign_operation, validate_frame_state, validate_runtime_role};
 use super::host::validate_host_operation;
 
 pub(super) fn validate_operation(
@@ -900,7 +900,34 @@ fn validate_async_operation(
             validate_current_frame(unit, *frame)?;
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::FrameLifecycleResolution)?;
         }
-        MirAsyncOperation::TransferCleanupIncident { incident, runtime } => {
+        MirAsyncOperation::TransferCleanupIncident {
+            invocation,
+            incident,
+            runtime,
+        } => {
+            let producer = unit
+                .operation(*invocation)
+                .ok_or_else(|| missing_or_foreign_operation(unit, *invocation))?;
+
+            let call = match producer.kind() {
+                MirOperationKind::Call(call) => call,
+                MirOperationKind::Async(MirAsyncOperation::CreateFrame {
+                    initializer: crate::MirFrameInitializer::Callable(call),
+                    ..
+                }) => call,
+                _ => return Err(MirUnitBuildError::InvalidCall(*invocation)),
+            };
+
+            if !matches!(call.target(), MirCallTarget::Direct(_)) {
+                return Err(MirUnitBuildError::InvalidCall(*invocation));
+            }
+
+            if !matches!(unit.key(), crate::MirUnitKey::GeneratedLifecycle(key)
+                if matches!(key.role(), crate::MirGeneratedLifecycleRole::Finalize | crate::MirGeneratedLifecycleRole::StaticFinalize))
+            {
+                return Err(MirUnitBuildError::InvalidCall(operation_id));
+            }
+
             validate_operand(unit, incident, block, Some(operation_id))?;
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::CleanupIncidentTransfer)?;
         }

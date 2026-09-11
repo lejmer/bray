@@ -65,7 +65,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     builder,
                     completed,
                     source,
-                    MirOperand::Move(result),
+                    (operation.operation(), MirOperand::Move(result)),
                     &outcome,
                 )?;
 
@@ -84,7 +84,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     .context
                     .representation_type(RepresentationRole::ScalarBool)?;
 
-                let (block, rejected, future) = crate::frame_creation::create_frame(
+                let (block, rejected, future, invocation) = crate::frame_creation::create_frame(
                     builder,
                     block,
                     source,
@@ -135,7 +135,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     builder,
                     completed,
                     source,
-                    MirOperand::Move(result),
+                    (invocation, MirOperand::Move(result)),
                     &outcome,
                 )?;
 

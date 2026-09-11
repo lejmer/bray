@@ -13,7 +13,7 @@ pub(crate) fn create_frame(
     initializer: MirFrameInitializer,
     storage_source: bray_ir::MirFrameStorageSource,
     boolean: TypeId,
-) -> Result<(MirBlockId, MirBlockId, MirPlace), MirUnitBuildError> {
+) -> Result<(MirBlockId, MirBlockId, MirPlace, bray_ir::MirOperationId), MirUnitBuildError> {
     let future = initializer
         .future_type()
         .ok_or(MirUnitBuildError::ProtectedFrameMismatch)?;
@@ -52,7 +52,7 @@ pub(crate) fn create_frame(
         },
     )?;
 
-    Ok((created, rejected, destination))
+    Ok((created, rejected, destination, operation.operation()))
 }
 
 /// Builds the language panic associated with failed protected-frame allocation.

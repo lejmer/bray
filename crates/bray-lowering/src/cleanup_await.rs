@@ -87,6 +87,7 @@ pub(crate) fn create_lifecycle_frame(
         bray_ir::MirFrameStorageSource::Fresh,
         boolean,
     )
+    .map(|(created, rejected, destination, _)| (created, rejected, destination))
 }
 
 /// The owner whose terminal outcome is awaited by a cleanup continuation.

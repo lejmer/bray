@@ -1518,7 +1518,12 @@ fn async_operation(
 
             "execute_lifecycle_resolution"
         }
-        MirAsyncOperation::TransferCleanupIncident { incident, runtime } => {
+        MirAsyncOperation::TransferCleanupIncident {
+            invocation,
+            incident,
+            runtime,
+        } => {
+            parts.attribute("invocation", invocation.slot());
             runtime_reference("runtime", *runtime, parts);
             parts.operand("incident", incident, context)?;
 

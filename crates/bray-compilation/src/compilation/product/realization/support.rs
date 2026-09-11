@@ -2014,14 +2014,18 @@ mod tests {
                 "{error}"
             );
 
-            let (transfer_block, transfer) = generated
+            let (transfer_block, transfer_operation, transfer, invocation) = generated
                 .blocks_with_ids()
                 .find_map(|(id, block)| {
                     block.operations().iter().find_map(|operation| {
                         match generated.operation(*operation).unwrap().kind() {
                             MirOperationKind::Async(
-                                MirAsyncOperation::TransferCleanupIncident { incident, .. },
-                            ) => Some((id, incident)),
+                                MirAsyncOperation::TransferCleanupIncident {
+                                    incident,
+                                    invocation,
+                                    ..
+                                },
+                            ) => Some((id, *operation, incident, *invocation)),
                             _ => None,
                         }
                     })
@@ -2029,6 +2033,42 @@ mod tests {
                 .expect("finalizer error must transfer to an owned incident");
 
             assert!(matches!(transfer, MirOperand::Move(_)));
+
+            let call = match generated.operation(invocation).unwrap().kind() {
+                MirOperationKind::Call(call) if mode.is_empty() => call,
+                MirOperationKind::Async(MirAsyncOperation::CreateFrame {
+                    initializer: MirFrameInitializer::Callable(call),
+                    ..
+                }) if !mode.is_empty() => call,
+                other => panic!("unexpected finalizer invocation: {other:?}"),
+            };
+
+            assert!(matches!(call.target(), bray_ir::MirCallTarget::Direct(_)));
+            assert_eq!(generated.operand_type(transfer).unwrap(), error_type);
+
+            let mut invalid_transfer = generated
+                .operation(transfer_operation)
+                .unwrap()
+                .kind()
+                .clone();
+
+            let MirOperationKind::Async(MirAsyncOperation::TransferCleanupIncident {
+                invocation,
+                ..
+            }) = &mut invalid_transfer
+            else {
+                unreachable!()
+            };
+
+            *invocation = transfer_operation;
+            let mut invalid = bray_ir::MirUnitBuilder::from_unit(generated.clone());
+
+            invalid
+                .replace_effect(transfer_operation, invalid_transfer, None)
+                .unwrap();
+
+            assert!(matches!(invalid.finish(generated.entry()),
+                Err(bray_ir::MirUnitBuildError::InvalidCall(id)) if id == transfer_operation));
 
             assert!(
                 !generated.operations().iter().any(|operation| matches!(
