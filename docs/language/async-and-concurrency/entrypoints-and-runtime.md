@@ -39,8 +39,9 @@ The root task remains on the distinguished main-thread lane for its lifetime. Th
 child tasks can execute on other compatible lanes, including in parallel.
 
 An executable product selects exactly one conforming async runtime implementation and runtime ABI version when it
-contains an async entrypoint or reachable task start. Libraries do not select runtimes and do not expose runtime
-implementation types in public signatures.
+contains an async entrypoint, reachable task start, or reachable host-driven asynchronous cleanup. Libraries do not select
+runtimes and do not expose runtime implementation types in public signatures. Synchronous root observation, completion
+resolution and cleanup-incident reporting alone do not require an async runtime.
 
 The runtime selection declares which execution requirements it can provide. Product validation checks every reachable
 deferred requirement carried by public compiled interfaces and selected implementations before emission. Runtime

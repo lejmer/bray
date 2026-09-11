@@ -208,6 +208,9 @@ Activation removes available storage and records a spent logical credit. Whole-o
 before releasing unused reservation storage. New owner admission supplies its required capacity. Activated storage has
 separate ownership and is not reclaimed by credit discharge. This accounting preserves capacity for other live owners.
 
+Reserved storage becomes active through the [consuming transfer contract](cleanup-storage-and-reports.md#consuming-reserved-frame-storage).
+The active frame becomes its sole release owner, while rejected activation preserves the reservation.
+
 An activation remains alive while a child or result path borrows its storage. Successful result transfer and remaining
 cleanup must complete before reclamation. Notifications retain run wake storage rather than frame memory. Independent
 run results and incident payloads remain in their terminal, report or host owner after execution ends. Reusing a reservation
@@ -226,7 +229,8 @@ A separate start or host entry remains an admission boundary.
 Providers exchanging ordinary owned values use the same validated
 [admission-domain binding](cleanup-storage-and-reports.md#shared-admission-domain-binding) for construction, activation
 and discharge. Provider retention alone does not route reservations. Host formation establishes this binding before
-accepting transferable ownership, including ownership of concrete generic instantiations.
+accepting transferable ownership, including ownership of concrete generic instantiations. The required provider set and
+formation order follow [provider dependencies and formation](cleanup-storage-and-reports.md#provider-dependencies-and-formation).
 
 Use the existing product dependency and unload-quiescence contract to retain code, descriptors and release callbacks.
 Release storage through its owning provider. Frame identity and descriptor equivalence permit pooling only within a shared,

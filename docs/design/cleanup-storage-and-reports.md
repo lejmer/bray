@@ -52,6 +52,29 @@ Provider formation establishes the binding before initialization can publish rel
 concrete shape may occur during its first fallible owner admission, before that obligation is established. Mandatory
 activation and discharge use existing domain and shape registration without allocating or growing routing metadata.
 
+## Provider dependencies and formation
+
+Code realized into one final product shares that product's admission-domain binding. This includes imported MIR and
+static-library contributions under the language's [product-instance rules](../language/modules-and-packages/library-and-executable-products.md#library-products).
+Archive packaging does not create a separate product instance. Precompiled native contributions must preserve their
+association with the consuming product's binding. Resolving native symbols alone does not establish that association.
+
+A separately formed provider declares its required provider dependencies and service requirements in product metadata.
+Before initialization or entry can invoke a provider, the host validates and binds the transitive set of required
+providers to the same resident services. The set comes from demanded code, static materialization and cleanup, not every
+available package. A newly loaded provider establishes the same contract before its entries become available.
+
+Reuse existing product dependency analysis and lifecycle ordering. Closed initialization or cleanup dependency cycles
+are rejected under the existing language rules. Binding does not introduce a second dependency planner or a runtime
+mechanism for resolving such cycles. A foreign host must complete provider formation before invoking its Bray exports.
+
+Formation validates required service components across the dependency set before publishing bindings, then establishes
+all required bindings before materialization or callbacks can depend on them. Binding itself invokes no application
+initializer. Static materialization retains its existing timing, and explicit lazy initialization such as `Once` runs
+only when requested by source. No entry becomes available through a failed formation. Failure resolves any state already
+initialized by that attempt in dependency order while retaining the services and providers needed for cleanup. Existing
+independently live providers remain live. Published bindings remain fixed until unload, including after failure.
+
 ## Resident execution routing
 
 Providers bind generated runtime calls to the same resident implementation through fixed, typed native service tables.
@@ -79,6 +102,40 @@ bound service table to the resident implementation's active thread-local context
 separate scheduler handle. Every operation that reads runtime thread-local state follows this route, including cancellation,
 incident transfer, product execution acquisition, thread identity and attachments, synchronous root callbacks, and panic
 and output handling. Routing only task start and polling would split one execution across different runtime states.
+
+### Establishing services before bound calls
+
+A small explicit set of host operations establishes resident services and obtains their validated tables before a product
+binding exists. These calls select the resident implementation directly. Ordinary generated runtime calls use the
+product's published binding. Whether a startup operation runs before binding is a property of that invocation, not a
+blanket exemption for every call to the same operation.
+
+Initial product control selects services from its supplied binding and validates the required host or execution component
+before provider initialization. Later control without a supplied binding uses the published binding. An invalid supplied
+binding is rejected even when a cached binding exists. A supplied binding cannot change a published domain. No path
+silently falls back to a different resident implementation or an image-local runtime.
+
+The typed service tables define one callback inventory shared by native dispatch and compiler service-demand analysis.
+Synchronous root observation, completion resolution and incident reporting belong to host services. Execution services
+are required only by reachable execution or cleanup that needs them. Sharing host services does not combine independent
+schedulers or their limits. Ordinary calls and moves neither repeat provider formation nor acquire per-value domain flags.
+
+### Consuming reserved frame storage
+
+Activation validates the reservation identity, concrete layout and provider compatibility before changing ownership.
+A successful activation transfers backing storage, its release responsibility and provider retention together to one
+active-frame owner. The reservation becomes empty and can no longer release that storage. Rejection leaves the original
+reservation unchanged. Validation of malformed requests does not introduce a new allocation or admission failure during
+mandatory cleanup of a valid admitted owner.
+
+Reservation identity distinguishes allocation lifetimes even when an address is reused. Identity exhaustion fails at
+fallible admission before accepting an obligation. A stale reservation cannot activate or release a later allocation.
+These identities belong to runtime storage owners, not ordinary source values. Existing frame claims and generated frame
+release operate on the transferred owner without installing a second independently armed storage-release path.
+
+Final release waits for all frame and result borrows, releases backing through its owning provider, and only then releases
+provider retention. Release callbacks and provider destruction execute outside registry locks. Logical-credit discharge
+remains separate from physical release and cannot reclaim backing transferred to a frame or retained outcome.
 
 ## Admission and outgoing incidents
 

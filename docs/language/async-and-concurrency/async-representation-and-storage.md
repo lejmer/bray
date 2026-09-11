@@ -81,6 +81,11 @@ Capacity can be supplied by existing frame storage, co-allocated backing storage
 Cleanup steps with disjoint storage lifetimes can reuse capacity. Recursive and erased representations retain enough
 capacity for each live obligation rather than relying on a fixed global allowance.
 
+Using secured capacity for an activation preserves exactly one owner of its storage and release obligation. Rejected
+activation leaves the previous owner and its capacity intact. Storage and provider dependencies remain valid until all
+users of that storage have finished. Ending the original ownership obligation cannot release storage still owned by an
+activation or retained outcome, and reuse of an address does not make a stale storage identity valid again.
+
 Allocations and external operations performed by application finalizers follow their ordinary failure semantics.
 Their failures are handled by the [abnormal-exit cleanup rules](../lifecycle/scope-exits-panics-and-cancellation.md).
 
