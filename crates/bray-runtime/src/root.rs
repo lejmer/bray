@@ -5,7 +5,7 @@ use bray_runtime_model::ProtectedFrameStateId;
 
 use crate::context::{with_run_cancellation_context, with_task_execution_context};
 use crate::{
-    CancellationContext, CleanupIncidentOrigin, CleanupIncidentProducer, CleanupReportSink,
+    CancellationContext, CleanupIncidentProducer, CleanupReportSink,
     ExecutionLane, ExecutionLanePlacement, ExecutionWorkload, ProtectedFrame, ReadyTask,
     RunOutcome, Scheduler, SchedulerError, TaskControlBlock, TaskExecutionContext, TaskId,
     TaskObservationError, TaskResumeError, TaskResumeStatus, TaskStartError, TaskStartFailure,
@@ -217,7 +217,7 @@ where
             let status = with_task_execution_context(context, || root.resume())?;
 
             match status {
-                TaskResumeStatus::Suspended(suspension) => ready.suspend(suspension)?,
+                TaskResumeStatus::Suspended(_, execution) => ready.suspend(execution)?,
                 TaskResumeStatus::Terminal(_) => {
                     ready.complete()?;
                     drop(registration);
@@ -229,13 +229,13 @@ where
     })();
 
     if result.is_err() {
-        let state = root.state_id_for_reporting();
+        let origin = root.execution_origin();
         let panic = root.resolve_runtime_failure();
 
         if let Some(panic) = panic {
             cleanup_reports.transfer(
                 CleanupIncidentProducer::Task(root.id()),
-                CleanupIncidentOrigin::new(root.descriptor().frame(), state),
+                origin,
                 panic,
             );
         }
@@ -539,7 +539,7 @@ mod tests {
                 let status = with_task_execution_context(context, || child.resume())?;
 
                 match status {
-                    TaskResumeStatus::Suspended(suspension) => ready.suspend(suspension)?,
+                    TaskResumeStatus::Suspended(_, execution) => ready.suspend(execution)?,
                     TaskResumeStatus::Terminal(_) => ready.complete()?,
                 }
 

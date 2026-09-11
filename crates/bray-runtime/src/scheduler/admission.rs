@@ -155,6 +155,14 @@ impl Scheduler {
         let descriptor = &storage.descriptor;
         select_task_lane(&self.data, descriptor, origin, initial_state)?;
 
+        let execution = crate::FrameExecutionState::new(
+            descriptor.frame(),
+            descriptor
+                .state(initial_state)
+                .ok_or(SchedulerError::UnknownFrameState(initial_state))?
+                .clone(),
+        );
+
         assert!(
             storage.cancellation_wake.is_some(),
             "registration storage must install once"
@@ -205,6 +213,7 @@ impl Scheduler {
                 RegisteredTask {
                     admission,
                     descriptor: descriptor.clone(),
+                    execution,
                     origin,
                     cancellation: storage.cancellation.clone(),
                     dispatch: DispatchState::Idle(initial_state),
@@ -346,7 +355,7 @@ mod tests {
 
     use super::Scheduler;
     use crate::test_support::{TestFrame, register_task, with_allocation_failure};
-    use crate::{FrameSuspension, SchedulerError, SchedulerLimits, TaskControlBlock};
+    use crate::{FrameExecutionState, SchedulerError, SchedulerLimits, TaskControlBlock};
 
     #[test]
     fn failed_initial_wake_returns_all_registration_storage_for_retry() {
@@ -551,7 +560,13 @@ mod tests {
                 .unwrap();
 
             second.wake_handle().wake().unwrap();
-            ready.suspend(FrameSuspension::new(resumed)).unwrap();
+
+            ready
+                .suspend(FrameExecutionState::new(
+                    second_task.descriptor().frame(),
+                    second_task.descriptor().state(resumed).unwrap().clone(),
+                ))
+                .unwrap();
 
             let ready = scheduler
                 .take_ready(second.lane(resumed).unwrap())

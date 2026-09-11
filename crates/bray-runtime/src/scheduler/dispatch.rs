@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bray_platform::{MonotonicClock, MonotonicDeadline, MonotonicInstant, RuntimeThreadId};
-use bray_runtime_model::{ProtectedFrameDescriptor, ProtectedFrameStateId};
+use bray_runtime_model::{ProtectedFrameDescriptor, ProtectedFrameStateDescriptor, ProtectedFrameStateId};
 
 use crate::lane::select_execution_lane;
 use crate::{
@@ -23,9 +23,17 @@ pub(super) fn select_task_lane(
         return Err(SchedulerError::UnknownFrameState(state_id));
     };
 
+    select_state_lane(scheduler, frame_state, origin)
+}
+
+pub(super) fn select_state_lane(
+    scheduler: &SchedulerData,
+    descriptor: &ProtectedFrameStateDescriptor,
+    origin: RuntimeThreadId,
+) -> Result<ExecutionLane, SchedulerError> {
     select_execution_lane(
-        frame_state.lane_requirements(),
-        frame_state.affinity(),
+        descriptor.lane_requirements(),
+        descriptor.affinity(),
         &scheduler.capabilities,
         origin,
         scheduler.main_thread,
@@ -56,7 +64,8 @@ pub(super) fn pop_ready(
 
         return Some(ReadyTask {
             task: queued.task,
-            state: queued.state,
+            // Dispatch owns the shared descriptor while registration retains current execution.
+            execution: task.execution.clone(),
             lane,
             wake_cause: queued.cause,
             queue_latency: queued
@@ -122,30 +131,24 @@ fn scheduled_task_snapshot(
     task: &RegisteredTask,
     queued: Option<QueuedObservation>,
 ) -> Result<ScheduledTaskSnapshot, SchedulerError> {
-    let (state, dispatch, wake_cause) = match task.dispatch {
-        DispatchState::Terminal(state) => (state, ScheduledTaskState::Terminal, None),
-        DispatchState::Idle(state) => (state, ScheduledTaskState::Idle, None),
-        DispatchState::Queued(state) => (
-            state,
+    let (dispatch, wake_cause) = match task.dispatch {
+        DispatchState::Terminal(_) => (ScheduledTaskState::Terminal, None),
+        DispatchState::Idle(_) => (ScheduledTaskState::Idle, None),
+        DispatchState::Queued(_) => (
             ScheduledTaskState::Queued,
             queued.map(|queued| queued.cause),
         ),
-        DispatchState::Running { state, pending } => (state, ScheduledTaskState::Running, pending),
+        DispatchState::Running { pending, .. } => (ScheduledTaskState::Running, pending),
     };
 
-    let lane = select_task_lane(scheduler, &task.descriptor, task.origin, state)?;
-
-    let Some(frame_state) = task.descriptor.state(state) else {
-        return Err(SchedulerError::UnknownFrameState(state));
-    };
+    let lane = select_state_lane(scheduler, task.execution.descriptor(), task.origin)?;
 
     Ok(ScheduledTaskSnapshot::new(
         task_id,
-        state,
+        // Observation owns a shared snapshot independent of later dispatch transitions.
+        task.execution.clone(),
         dispatch,
         lane,
-        frame_state.affinity(),
-        Arc::from(frame_state.lane_requirements()),
         task.wake_count,
         wake_cause,
         queued.and_then(|queued| queued.age),

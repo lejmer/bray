@@ -67,10 +67,10 @@ impl NativeRuntime {
             };
 
             if !event_ready || !started.continuation.is_ready() {
-                let suspension = crate::FrameSuspension::new(ready.state());
+                let execution = ready.execution_state().clone();
 
                 return ready
-                    .suspend(suspension)
+                    .suspend(execution)
                     .map_or(NativeRuntimeStatus::RUNTIME_FAILURE, |()| {
                         NativeRuntimeStatus::SUCCESS
                     });
@@ -118,11 +118,11 @@ impl NativeRuntime {
         };
 
         match status {
-            TaskResumeStatus::Suspended(suspension) => {
+            TaskResumeStatus::Suspended(suspension, execution) => {
                 let kind = suspension.kind();
 
                 if kind == FrameSuspensionKind::TaskEvent {
-                    return self.suspend_on_task_event(ready, &started, suspension);
+                    return self.suspend_on_task_event(ready, &started, suspension, execution);
                 }
 
                 let child = match kind {
@@ -154,7 +154,7 @@ impl NativeRuntime {
                     }
                 }
 
-                if ready.suspend(suspension).is_err() {
+                if ready.suspend(execution).is_err() {
                     return NativeRuntimeStatus::RUNTIME_FAILURE;
                 }
 
@@ -180,6 +180,7 @@ impl NativeRuntime {
         ready: crate::ReadyTask,
         started: &StartedTask,
         suspension: crate::FrameSuspension,
+        execution: crate::FrameExecutionState,
     ) -> NativeRuntimeStatus {
         let Some(identity) = suspension.payload() else {
             return NativeRuntimeStatus::RUNTIME_FAILURE;
@@ -195,7 +196,7 @@ impl NativeRuntime {
             return NativeRuntimeStatus::RUNTIME_FAILURE;
         }
 
-        if ready.suspend(suspension).is_err() {
+        if ready.suspend(execution).is_err() {
             started.event_wait.disarm();
 
             return NativeRuntimeStatus::RUNTIME_FAILURE;

@@ -7,11 +7,14 @@ use bray_runtime_model::{ProtectedFrameDescriptor, ProtectedFrameStateId, Runtim
 
 use crate::cancellation::CancellationWakeRegistration;
 use crate::{
-    CancellationContext, ExecutionLane, FrameSuspension, SchedulerSnapshot, TaskId, TaskWakeCause,
+    CancellationContext, ExecutionLane, FrameExecutionState, SchedulerSnapshot, TaskId,
+    TaskWakeCause,
 };
 
 use super::contract::{SchedulerError, SchedulerLimits};
-use super::dispatch::{pop_ready, queue_instant, scheduler_snapshot, select_task_lane};
+use super::dispatch::{
+    pop_ready, queue_instant, scheduler_snapshot, select_state_lane, select_task_lane,
+};
 use super::ready::{QueuedTask, ReadyQueue, ReadySlotId, ReadySlots};
 
 /// Target-independent scheduler policy and ready-queue storage.
@@ -47,6 +50,7 @@ pub(super) struct SchedulerState {
 pub(super) struct RegisteredTask {
     pub(super) admission: crate::task::TaskAdmissionKind,
     pub(super) descriptor: ProtectedFrameDescriptor,
+    pub(super) execution: FrameExecutionState,
     pub(super) origin: RuntimeThreadId,
     pub(super) cancellation: CancellationContext,
     pub(super) dispatch: DispatchState,
@@ -432,7 +436,7 @@ fn wake_cancelled_task(scheduler: &Weak<SchedulerData>, task_id: TaskId) {
 #[derive(Debug)]
 pub struct ReadyTask {
     pub(super) task: TaskId,
-    pub(super) state: ProtectedFrameStateId,
+    pub(super) execution: FrameExecutionState,
     pub(super) lane: ExecutionLane,
     pub(super) wake_cause: TaskWakeCause,
     pub(super) queue_latency: Option<Duration>,
@@ -458,11 +462,11 @@ impl ReadyTask {
             .get_mut(&self.task)
             .ok_or(SchedulerError::UnknownTask(self.task))?;
 
-        if !matches!(task.dispatch, DispatchState::Running { state, .. } if state == self.state) {
+        if !matches!(task.dispatch, DispatchState::Running { state, .. } if state == self.state()) {
             return Err(SchedulerError::TaskNotRunning(self.task));
         }
 
-        task.dispatch = DispatchState::Terminal(self.state);
+        task.dispatch = DispatchState::Terminal(self.state());
         self.released = true;
 
         Ok(())
@@ -475,7 +479,12 @@ impl ReadyTask {
 
     /// Returns the protected-frame state selected for resumption.
     pub const fn state(&self) -> ProtectedFrameStateId {
-        self.state
+        self.execution.state()
+    }
+
+    /// Returns the active frame identity and checked execution metadata for this dispatch.
+    pub const fn execution_state(&self) -> &FrameExecutionState {
+        &self.execution
     }
 
     /// Returns the exact compatible lane that produced this dispatch.
@@ -494,7 +503,7 @@ impl ReadyTask {
     }
 
     /// Releases this dispatch at the frame's newly suspended state.
-    pub fn suspend(mut self, suspension: FrameSuspension) -> Result<(), SchedulerError> {
+    pub fn suspend(mut self, execution: FrameExecutionState) -> Result<(), SchedulerError> {
         let Some(scheduler) = self.scheduler.upgrade() else {
             return Err(SchedulerError::UnknownTask(self.task));
         };
@@ -504,13 +513,7 @@ impl ReadyTask {
             .lock()
             .map_err(|_| SchedulerError::SynchronizationPoisoned)?;
 
-        let changed = release_dispatch(
-            &scheduler,
-            &mut state,
-            self.task,
-            self.state,
-            suspension.state(),
-        )?;
+        let changed = release_dispatch(&scheduler, &mut state, self.task, self.state(), execution)?;
 
         self.released = true;
 
@@ -538,9 +541,13 @@ impl Drop for ReadyTask {
             return;
         };
 
-        let Ok(changed) =
-            release_dispatch(&scheduler, &mut state, self.task, self.state, self.state)
-        else {
+        let Ok(changed) = release_dispatch(
+            &scheduler,
+            &mut state,
+            self.task,
+            self.state(),
+            self.execution.clone(),
+        ) else {
             return;
         };
 
@@ -557,7 +564,7 @@ fn release_dispatch(
     state: &mut SchedulerState,
     task_id: TaskId,
     running_state: ProtectedFrameStateId,
-    suspended_state: ProtectedFrameStateId,
+    execution: FrameExecutionState,
 ) -> Result<bool, SchedulerError> {
     let Some(task) = state.tasks.get(&task_id) else {
         return Err(SchedulerError::UnknownTask(task_id));
@@ -575,7 +582,13 @@ fn release_dispatch(
         return Ok(false);
     }
 
-    let lane = select_task_lane(scheduler, &task.descriptor, task.origin, suspended_state)?;
+    let lane = select_state_lane(scheduler, execution.descriptor(), task.origin)?;
+
+    if !task.ready_lanes.contains(&lane) {
+        return Err(SchedulerError::MissingReadyQueue(lane));
+    }
+
+    let suspended_state = execution.state();
 
     let next = pending.or_else(|| {
         task.cancellation
@@ -607,12 +620,14 @@ fn release_dispatch(
             return Err(SchedulerError::UnknownTask(task_id));
         };
 
+        task.execution = execution;
         task.dispatch = DispatchState::Queued(suspended_state);
     } else {
         let Some(task) = state.tasks.get_mut(&task_id) else {
             return Err(SchedulerError::UnknownTask(task_id));
         };
 
+        task.execution = execution;
         task.dispatch = DispatchState::Idle(suspended_state);
     }
 
@@ -655,7 +670,7 @@ pub(super) fn enqueue_task(
         DispatchState::Idle(state) => state,
     };
 
-    let lane = select_task_lane(scheduler, &task.descriptor, task.origin, state_id)?;
+    let lane = select_state_lane(scheduler, task.execution.descriptor(), task.origin)?;
 
     let ready_slot = task.ready_slot;
 
@@ -697,8 +712,8 @@ mod tests {
     use super::{Scheduler, SchedulerError, SchedulerLimits};
     use crate::test_support::{TestFrame, register_task};
     use crate::{
-        ExecutionLane, ExecutionLanePlacement, ExecutionWorkload, FrameSuspension, FrameSuspensionKind,
-        ScheduledTaskState, TaskControlBlock, TaskResumeStatus, TaskWakeCause,
+        ExecutionLane, ExecutionLanePlacement, ExecutionWorkload, FrameExecutionState,
+        FrameSuspensionKind, ScheduledTaskState, TaskControlBlock, TaskResumeStatus, TaskWakeCause,
     };
 
     #[test]
@@ -942,7 +957,7 @@ mod tests {
 
         assert_eq!(dispatch.task(), yielding.id());
 
-        let TaskResumeStatus::Suspended(suspension) = yielding
+        let TaskResumeStatus::Suspended(suspension, execution) = yielding
             .resume()
             .unwrap_or_else(|error| panic!("yielding task must suspend: {error:?}"))
         else {
@@ -952,7 +967,7 @@ mod tests {
         assert_eq!(suspension.kind(), FrameSuspensionKind::Yield);
 
         dispatch
-            .suspend(suspension)
+            .suspend(execution)
             .unwrap_or_else(|error| panic!("yielding task must retain its state: {error:?}"));
 
         yielding_registration
@@ -1047,7 +1062,13 @@ mod tests {
             .unwrap_or_else(|error| panic!("stale wake must coalesce: {error:?}"));
 
         ready
-            .suspend(FrameSuspension::new(ProtectedFrameStateId::new(1)))
+            .suspend(FrameExecutionState::new(
+                task.descriptor().frame(),
+                task.descriptor()
+                    .state(ProtectedFrameStateId::new(1))
+                    .unwrap()
+                    .clone(),
+            ))
             .unwrap();
 
         let pending = scheduler
@@ -1056,6 +1077,105 @@ mod tests {
             .unwrap_or_else(|| panic!("next state must be ready"));
 
         assert_eq!(pending.state(), ProtectedFrameStateId::new(1));
+    }
+
+    #[test]
+    fn child_execution_uses_admitted_lanes_and_rejection_preserves_current_state() {
+        use bray_runtime_model::{
+            ProtectedAsyncFrameId, ProtectedFrameAffinity, ProtectedFrameStateDescriptor,
+        };
+
+        let runtime = RuntimeThreadScope::enter().unwrap();
+        let thread = runtime.runtime().id();
+
+        let scheduler = Scheduler::new(
+            [
+                RuntimeCapability::CooperativeExecution,
+                RuntimeCapability::MigratableLanes,
+                RuntimeCapability::MainThreadLane,
+            ],
+            thread,
+            SchedulerLimits::new(nonzero(2), nonzero(1)),
+        );
+
+        let task = TaskControlBlock::start(TestFrame::completing(1)).unwrap();
+        let registration = register_task(&scheduler, &task, thread);
+
+        // Another task owns a main-thread queue, but this task has not admitted that lane.
+        let other = TaskControlBlock::start(TestFrame::main_thread_then_movable(2)).unwrap();
+        let _other_registration = register_task(&scheduler, &other, thread);
+
+        let child = FrameExecutionState::new(
+            ProtectedAsyncFrameId::new([91; 32]),
+            ProtectedFrameStateDescriptor::new(
+                ProtectedFrameStateId::new(42),
+                [],
+                [],
+                [],
+                ProtectedFrameAffinity::Movable,
+            ),
+        );
+
+        assert!(task.descriptor().state(child.state()).is_none());
+        let wake = registration.wake_handle();
+        wake.wake().unwrap();
+        let ready = scheduler.take_ready(cooperative_lane()).unwrap().unwrap();
+        wake.wake().unwrap();
+        crate::test_support::with_allocation_failure(|| ready.suspend(child.clone())).unwrap();
+
+        let ready = scheduler.take_ready(cooperative_lane()).unwrap().unwrap();
+        assert_eq!(ready.execution_state(), &child);
+        assert_eq!(ready.state(), child.state());
+        let snapshot = scheduler.snapshot().unwrap();
+
+        let observed = snapshot
+            .tasks()
+            .iter()
+            .find(|entry| entry.task() == task.id())
+            .unwrap();
+
+        assert_eq!(observed.execution(), &child);
+        assert_eq!(observed.lane(), cooperative_lane());
+
+        let disallowed = FrameExecutionState::new(
+            child.frame(),
+            ProtectedFrameStateDescriptor::new(
+                ProtectedFrameStateId::new(43),
+                [],
+                [],
+                [],
+                ProtectedFrameAffinity::MainThread,
+            ),
+        );
+
+        let main_lane = ExecutionLane::new(
+            ExecutionLanePlacement::MainThread(thread),
+            ExecutionWorkload::Cooperative,
+        );
+
+        assert!(
+            scheduler
+                .lock_state()
+                .unwrap()
+                .queues
+                .contains_key(&main_lane)
+        );
+
+        wake.wake().unwrap();
+
+        assert!(matches!(ready.suspend(disallowed),
+            Err(SchedulerError::MissingReadyQueue(lane)) if lane == main_lane));
+
+        // Failed publication drops the dispatch with its original execution and pending wake.
+        assert!(scheduler.take_ready(main_lane).unwrap().is_none());
+        let ready = scheduler.take_ready(cooperative_lane()).unwrap().unwrap();
+        assert_eq!(ready.execution_state(), &child);
+        ready.suspend(child.clone()).unwrap();
+        assert!(scheduler.take_ready(cooperative_lane()).unwrap().is_none());
+        wake.wake().unwrap();
+        let ready = scheduler.take_ready(cooperative_lane()).unwrap().unwrap();
+        assert_eq!(ready.execution_state(), &child);
+        ready.complete().unwrap();
     }
 
     #[test]

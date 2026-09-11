@@ -6,6 +6,38 @@ use bray_runtime_model::{
     ProtectedFrameDescriptor, ProtectedFrameStateDescriptor, ProtectedFrameStateId,
 };
 
+/// Identity and checked execution metadata for one active frame-local state.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct FrameExecutionState {
+    frame: bray_runtime_model::ProtectedAsyncFrameId,
+    descriptor: ProtectedFrameStateDescriptor,
+}
+
+impl FrameExecutionState {
+    /// Associates a checked local state with its owning activation's frame.
+    pub const fn new(
+        frame: bray_runtime_model::ProtectedAsyncFrameId,
+        descriptor: ProtectedFrameStateDescriptor,
+    ) -> Self {
+        Self { frame, descriptor }
+    }
+
+    /// Returns the active activation's frame identity.
+    pub const fn frame(&self) -> bray_runtime_model::ProtectedAsyncFrameId {
+        self.frame
+    }
+
+    /// Returns the state identity local to the active frame.
+    pub const fn state(&self) -> ProtectedFrameStateId {
+        self.descriptor.state()
+    }
+
+    /// Returns the checked metadata for the active state.
+    pub const fn descriptor(&self) -> &ProtectedFrameStateDescriptor {
+        &self.descriptor
+    }
+}
+
 /// Runtime state supplied to one protected-frame resume operation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FrameContext {
@@ -205,6 +237,20 @@ pub trait ProtectedFrame: 'static {
     /// Returns the immutable compiler-generated descriptor.
     fn descriptor(&self) -> &ProtectedFrameDescriptor;
 
+    /// Resolves a local state against the currently active activation.
+    ///
+    /// The returned requirements must include constraints from retained parent activations.
+    /// Returns `None` when the state is invalid. Implementations must not allocate during
+    /// this observation because a suspension can occur during admitted cleanup.
+    fn execution_state(&self, state: ProtectedFrameStateId) -> Option<FrameExecutionState> {
+        let descriptor = self.descriptor();
+
+        descriptor
+            .state(state)
+            .cloned()
+            .map(|state| FrameExecutionState::new(descriptor.frame(), state))
+    }
+
     /// Enters or resumes the pinned frame.
     fn resume(self: Pin<&mut Self>, context: FrameContext) -> FrameProgress<Self::Output>;
 
@@ -273,13 +319,6 @@ where
     F: ?Sized + ProtectedFrame,
 {
     frame.resume(context)
-}
-
-pub(crate) fn suspension_state(
-    descriptor: &ProtectedFrameDescriptor,
-    suspension: FrameSuspension,
-) -> Option<&ProtectedFrameStateDescriptor> {
-    descriptor.state(suspension.state())
 }
 
 #[cfg(test)]

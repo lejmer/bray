@@ -117,7 +117,7 @@ mod tests {
 
     use super::TaskWaitWake;
     use crate::test_support::{TestFrame, register_task};
-    use crate::{FrameSuspension, JoinWake, Scheduler, SchedulerLimits, TaskControlBlock};
+    use crate::{JoinWake, Scheduler, SchedulerLimits, TaskControlBlock};
 
     #[test]
     fn delayed_notifications_cannot_wake_a_replacement_childs_continuation() {
@@ -141,6 +141,7 @@ mod tests {
         crate::test_support::with_allocation_failure(|| wake.bind(registration.wake_handle()));
         let initial = ProtectedFrameStateId::new(0);
         let resumed = ProtectedFrameStateId::new(1);
+        let execution = crate::FrameExecutionState::new(parent.descriptor().frame(), parent.descriptor().state(resumed).unwrap().clone());
 
         wake.arm(first_child.id());
         wake.wake(first_child.id());
@@ -157,7 +158,7 @@ mod tests {
 
         wake.arm(next_child.id());
         wake.wake(first_child.id());
-        ready.suspend(FrameSuspension::new(resumed)).unwrap();
+        ready.suspend(execution.clone()).unwrap();
 
         // A notification published before withdrawal may request one extra readiness check.
         let ready = scheduler
@@ -166,7 +167,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(ready.state(), resumed);
-        ready.suspend(FrameSuspension::new(resumed)).unwrap();
+        ready.suspend(execution.clone()).unwrap();
 
         assert!(
             scheduler

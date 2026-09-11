@@ -417,7 +417,8 @@ continue to govern conditional values, including cleanup reports.
 Template cleanup operations retain the checked execution context at their source location. Concrete specialization
 uses that context for any suspension it introduces and adds storage allocated by that cleanup expansion. An absent
 context differs from a checked context with no retained dependencies. Specialization must not substitute the initial
-frame state's context. Suspension names both the private registration and wake roles needed to resume that exact state.
+frame state's context. Suspension names the private registration and wake roles. Wakes request another run dispatch,
+while the driver retains the exact continuation and checks its readiness.
 
 Lowering derives portable runtime requirements and protected-frame contracts from checked lowering inputs. MIR refers to
 closed runtime roles without selecting a runtime artifact or target-specific binary symbol. Product formation resolves

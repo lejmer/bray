@@ -6,7 +6,7 @@ use bray_runtime_abi::{
     NativeWakeCallback,
 };
 
-use crate::{CleanupIncidentOrigin, CleanupIncidentProducer, TaskObservationError};
+use crate::{CleanupIncidentProducer, TaskObservationError};
 
 use super::super::binding::{current_native_task, runtime_failure, task_outcome};
 use super::super::core::{NativeRuntime, NativeTaskSlot, StartedTask, TerminalOutcome};
@@ -200,10 +200,7 @@ impl NativeRuntime {
             Some(outcome) => task_outcome(outcome, &task.terminal).unwrap_or_else(|panic| {
                 self.cleanup_reports.transfer_owned(
                     CleanupIncidentProducer::Task(task.task.id()),
-                    CleanupIncidentOrigin::new(
-                        task.task.descriptor().frame(),
-                        task.task.state_id_for_reporting(),
-                    ),
+                    task.task.execution_origin(),
                     crate::incident::OwnedCleanupIncident::host(Box::new(panic)),
                 );
 
@@ -241,10 +238,7 @@ impl NativeRuntime {
 
         let producer = CleanupIncidentProducer::Task(task.task.id());
 
-        let origin = CleanupIncidentOrigin::new(
-            task.task.descriptor().frame(),
-            task.task.state_id_for_reporting(),
-        );
+        let origin = task.task.execution_origin();
 
         for incident in task.terminal.take_cleanup_incidents().into_iter().rev() {
             self.cleanup_reports

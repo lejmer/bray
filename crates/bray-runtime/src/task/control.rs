@@ -9,11 +9,11 @@ use triomphe::Arc as TaskArc;
 use bray_runtime_model::{ProtectedFrameDescriptor, ProtectedFrameStateId};
 
 use crate::context::{TaskOutput, current_task_output, current_task_start_site};
-use crate::frame::suspension_state;
 use crate::root::is_propagated_cancellation;
 use crate::{
-    CancellationContext, FrameContext, FrameExit, FrameProgress, FrameSuspension, ProtectedFrame,
-    RunOutcome, RunOutcomeKind, RuntimePanic, SendableProtectedFrame, TaskSnapshot, TaskStartSite,
+    CancellationContext, FrameContext, FrameExecutionState, FrameExit, FrameProgress,
+    FrameSuspension, ProtectedFrame, RunOutcome, RunOutcomeKind, RuntimePanic,
+    SendableProtectedFrame, TaskSnapshot, TaskStartSite,
 };
 
 static NEXT_TASK_ID: AtomicU64 = AtomicU64::new(1);
@@ -71,10 +71,10 @@ pub enum TaskFailureKind {
 }
 
 /// Result of one successful task resume.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum TaskResumeStatus {
     /// The frame suspended in one checked state.
-    Suspended(FrameSuspension),
+    Suspended(FrameSuspension, FrameExecutionState),
     /// The task published one terminal outcome.
     Terminal(RunOutcomeKind),
 }
@@ -119,6 +119,15 @@ impl<T, F: ?Sized + ProtectedFrame<Output = T>> TaskControlBlock<T, F> {
         let join_waiters = crate::allocation::allocate_shared(JoinWaitState::new())
             .map_err(|_| TaskStartError::AllocationFailed)?;
 
+        // Checked frame descriptors always contain the entry state.
+        let execution = FrameExecutionState::new(
+            descriptor.frame(),
+            descriptor
+                .state(ProtectedFrameStateId::new(0))
+                .expect("checked frame descriptor must contain state zero")
+                .clone(),
+        );
+
         Ok(Self {
             id: next_task_id()?,
             start_site: None,
@@ -126,7 +135,7 @@ impl<T, F: ?Sized + ProtectedFrame<Output = T>> TaskControlBlock<T, F> {
             data: Mutex::new(TaskData {
                 frame: None,
                 state: TaskState::Ready,
-                frame_state: ProtectedFrameStateId::new(0),
+                execution,
                 outcome: None,
             }),
             join_waiters,
@@ -187,7 +196,7 @@ where
 {
     frame: Option<Pin<Box<F>>>,
     state: TaskState,
-    frame_state: ProtectedFrameStateId,
+    execution: FrameExecutionState,
     outcome: Option<RunOutcome<T>>,
 }
 
@@ -236,7 +245,7 @@ where
         self.id
     }
 
-    /// Returns the immutable compiler-generated frame descriptor.
+    /// Returns the immutable root frame descriptor used to admit this task.
     pub const fn descriptor(&self) -> &ProtectedFrameDescriptor {
         &self.descriptor
     }
@@ -264,7 +273,7 @@ where
             self.start_site,
             self.descriptor.clone(),
             data.state,
-            data.frame_state,
+            data.execution.clone(),
             self.cancellation.observation(),
             self.join_waiters.len(),
             unobserved_outcome,
@@ -319,17 +328,31 @@ where
 
         let context = FrameContext::new(self.cancellation_observable());
 
-        let progress = match catch_unwind(AssertUnwindSafe(|| frame.as_mut().resume(context))) {
-            Ok(progress) => progress,
+        let (progress, execution) = match catch_unwind(AssertUnwindSafe(|| {
+            let progress = frame.as_mut().resume(context);
+
+            let execution = match &progress {
+                FrameProgress::Suspended(suspension) => frame.execution_state(suspension.state()),
+                _ => None,
+            };
+
+            (progress, execution)
+        })) {
+            Ok(result) => result,
             Err(payload) if is_propagated_cancellation(payload.as_ref()) => {
-                FrameProgress::Cancelled
+                (FrameProgress::Cancelled, None)
             }
-            Err(payload) => FrameProgress::Panicked(RuntimePanic::from_payload(payload)),
+            Err(payload) => (
+                FrameProgress::Panicked(RuntimePanic::from_payload(payload)),
+                None,
+            ),
         };
 
         let failure = match &progress {
             FrameProgress::Suspended(suspension)
-                if suspension_state(&self.descriptor, *suspension).is_none() =>
+                if execution
+                    .as_ref()
+                    .is_none_or(|execution| execution.state() != suspension.state()) =>
             {
                 Some(TaskFailureKind::UnknownSuspensionState(suspension.state()))
             }
@@ -350,6 +373,8 @@ where
         }
 
         if let FrameProgress::Suspended(suspension) = progress {
+            let execution = execution.expect("suspended execution metadata was validated");
+
             let mut data = self
                 .data
                 .lock()
@@ -357,9 +382,11 @@ where
 
             data.frame = Some(frame);
             data.state = TaskState::Suspended(suspension.state());
-            data.frame_state = suspension.state();
 
-            return Ok(TaskResumeStatus::Suspended(suspension));
+            // The task and its returned suspension each retain the immutable active state.
+            data.execution = execution.clone();
+
+            return Ok(TaskResumeStatus::Suspended(suspension, execution));
         }
 
         let outcome = finish_frame(frame.as_mut(), progress);
@@ -489,21 +516,13 @@ where
         waiters.wake_all(self.id);
     }
 
-    pub(crate) fn state_id_for_reporting(&self) -> ProtectedFrameStateId {
+    pub(crate) fn execution_origin(&self) -> crate::CleanupIncidentOrigin {
         let data = self
             .data
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-        match data.state {
-            TaskState::Suspended(state) => state,
-            TaskState::Ready
-            | TaskState::Running
-            | TaskState::Completed
-            | TaskState::Cancelled
-            | TaskState::Panicked
-            | TaskState::Failed(_) => ProtectedFrameStateId::new(0),
-        }
+        crate::CleanupIncidentOrigin::new(data.execution.frame(), data.execution.state())
     }
 
     fn lock_data(&self) -> Result<MutexGuard<'_, TaskData<T, F>>, TaskResumeError> {
@@ -745,7 +764,7 @@ mod tests {
 
         assert_eq!(start_site.parent(), parent.id());
         assert_eq!(start_site.state(), ProtectedFrameStateId::new(0));
-        assert_eq!(snapshot.frame_state(), ProtectedFrameStateId::new(1));
+        assert_eq!(snapshot.execution().state(), ProtectedFrameStateId::new(1));
 
         assert_eq!(
             snapshot.state(),
@@ -773,12 +792,12 @@ mod tests {
 
         assert_eq!(task.state(), Ok(TaskState::Ready));
 
-        assert_eq!(
+        assert!(matches!(
             task.resume(),
-            Ok(TaskResumeStatus::Suspended(crate::FrameSuspension::new(
-                bray_runtime_model::ProtectedFrameStateId::new(1)
-            )))
-        );
+            Ok(TaskResumeStatus::Suspended(suspension, execution))
+                if suspension.state() == bray_runtime_model::ProtectedFrameStateId::new(1)
+                    && execution.state() == suspension.state()
+        ));
 
         assert_eq!(
             task.state(),
@@ -818,7 +837,10 @@ mod tests {
         })
         .unwrap_or_else(|error| panic!("tracked task must start: {error:?}"));
 
-        assert!(matches!(task.resume(), Ok(TaskResumeStatus::Suspended(_))));
+        assert!(matches!(
+            task.resume(),
+            Ok(TaskResumeStatus::Suspended(_, _))
+        ));
 
         let observer = task.register_join_waiter(Arc::new(|| {})).unwrap();
         let owner = task.register_owner_waiter(Arc::new(|| {})).unwrap();
@@ -1056,6 +1078,98 @@ mod tests {
 
         assert!(panic.primary_is::<&'static str>());
         assert_eq!(panic.suppressed_count(), 0);
+    }
+
+    #[test]
+    fn suspended_execution_retains_active_frame_identity_and_validates_local_state() {
+        for (returned_state, panics) in [(9, false), (8, false), (9, true)] {
+            let execution = crate::FrameExecutionState::new(
+                bray_runtime_model::ProtectedAsyncFrameId::new([42; 32]),
+                bray_runtime_model::ProtectedFrameStateDescriptor::new(
+                    ProtectedFrameStateId::new(returned_state),
+                    [],
+                    [],
+                    [],
+                    bray_runtime_model::ProtectedFrameAffinity::OriginThread,
+                ),
+            );
+
+            let frame = ActiveStateFrame {
+                inner: TestFrame::invalid_suspension(),
+                execution: execution.clone(),
+                panics,
+            };
+
+            let task = TaskControlBlock::start(frame).unwrap();
+            let root = task.descriptor().frame();
+
+            assert!(
+                task.descriptor()
+                    .state(ProtectedFrameStateId::new(9))
+                    .is_none()
+            );
+
+            let resumed = task.resume();
+
+            if panics {
+                assert!(matches!(
+                    resumed,
+                    Ok(TaskResumeStatus::Terminal(crate::RunOutcomeKind::Panicked))
+                ));
+            } else if returned_state == 9 {
+                assert!(
+                    matches!(resumed, Ok(TaskResumeStatus::Suspended(_, active)) if active == execution)
+                );
+
+                let snapshot = task.snapshot().unwrap();
+                assert_eq!(snapshot.descriptor().frame(), root);
+                assert_eq!(snapshot.execution(), &execution);
+
+                assert_eq!(
+                    task.execution_origin(),
+                    crate::CleanupIncidentOrigin::new(execution.frame(), execution.state())
+                );
+            } else {
+                assert_eq!(
+                    resumed,
+                    Err(TaskResumeError::UnknownSuspensionState(
+                        ProtectedFrameStateId::new(9)
+                    ))
+                );
+            }
+        }
+    }
+
+    struct ActiveStateFrame {
+        inner: TestFrame,
+        execution: crate::FrameExecutionState,
+        panics: bool,
+    }
+
+    impl ProtectedFrame for ActiveStateFrame {
+        type Output = i32;
+
+        fn descriptor(&self) -> &bray_runtime_model::ProtectedFrameDescriptor {
+            self.inner.descriptor()
+        }
+
+        fn execution_state(&self, _: ProtectedFrameStateId) -> Option<crate::FrameExecutionState> {
+            assert!(!self.panics, "execution metadata callback failed");
+
+            Some(self.execution.clone())
+        }
+
+        fn resume(self: Pin<&mut Self>, context: FrameContext) -> FrameProgress<i32> {
+            Pin::new(&mut self.get_mut().inner).resume(context)
+        }
+
+        fn broadcast_tasks(self: Pin<&mut Self>) {
+            Pin::new(&mut self.get_mut().inner).broadcast_tasks();
+        }
+
+        fn resolve_lifecycle(self: Pin<&mut Self>, exit: FrameExit) {
+            Pin::new(&mut self.get_mut().inner).resolve_lifecycle(exit);
+        }
     }
 
     #[test]

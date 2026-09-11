@@ -113,7 +113,7 @@ mod tests {
 
     use super::EventWait;
     use crate::test_support::{TestFrame, register_task, with_allocation_failure};
-    use crate::{FrameSuspension, RuntimeEvent, Scheduler, SchedulerLimits, TaskControlBlock};
+    use crate::{RuntimeEvent, Scheduler, SchedulerLimits, TaskControlBlock};
 
     #[test]
     fn admitted_event_storage_rearms_without_allocation_and_rejects_old_notifications() {
@@ -138,6 +138,7 @@ mod tests {
         let replacement = RuntimeEvent::new();
         let initial = ProtectedFrameStateId::new(0);
         let resumed = ProtectedFrameStateId::new(1);
+        let execution = crate::FrameExecutionState::new(task.descriptor().frame(), task.descriptor().state(resumed).unwrap().clone());
         let observed = event.observation().unwrap().0;
 
         with_allocation_failure(|| {
@@ -158,7 +159,7 @@ mod tests {
             wait.register(&replacement, 2).unwrap();
             assert!(!wait.is_ready().unwrap());
             wait.wake.notify((1, observed));
-            ready.suspend(FrameSuspension::new(resumed)).unwrap();
+            ready.suspend(execution.clone()).unwrap();
 
             // A selected old notification requests a check without completing this wait.
             let ready = scheduler
@@ -167,7 +168,7 @@ mod tests {
                 .unwrap();
 
             assert!(!wait.is_ready().unwrap());
-            ready.suspend(FrameSuspension::new(resumed)).unwrap();
+            ready.suspend(execution.clone()).unwrap();
 
             assert!(
                 scheduler
@@ -192,7 +193,7 @@ mod tests {
             wait.register(&replacement, 2).unwrap();
             assert!(!wait.is_ready().unwrap());
             wait.wake.notify((2, observed));
-            ready.suspend(FrameSuspension::new(resumed)).unwrap();
+            ready.suspend(execution.clone()).unwrap();
 
             assert!(
                 scheduler
