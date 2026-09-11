@@ -11,9 +11,15 @@ use super::super::frame::{NativeFrameTransfer, NativeTerminalState};
 use super::NativeActivation;
 
 pub(in crate::native) struct NativeRun {
-    descriptor: ProtectedFrameDescriptor,
+    pub(super) descriptor: ProtectedFrameDescriptor,
     pub(super) terminal: Arc<NativeTerminalState>,
-    current: Mutex<Option<Box<NativeActivation>>>,
+    state: Mutex<NativeRunState>,
+}
+
+#[derive(Default)]
+pub(super) struct NativeRunState {
+    pub(super) current: Option<Box<NativeActivation>>,
+    pub(super) sequence: Option<Box<super::NativeStaticSequence>>,
 }
 
 impl NativeRun {
@@ -24,29 +30,45 @@ impl NativeRun {
         Self {
             descriptor,
             terminal,
-            current: Mutex::new(None),
+            state: Mutex::new(NativeRunState::default()),
         }
     }
 
     pub(in crate::native) fn install_root(&self, activation: Box<NativeActivation>) {
-        let mut current = self.lock_current();
+        let mut state = self.lock_state();
+        let current = &mut state.current;
 
         // Admission installs one root before the scheduler can dispatch its task.
         assert!(current.is_none(), "native run root must install once");
         *current = Some(activation);
     }
 
-    pub(super) fn lock_current(&self) -> MutexGuard<'_, Option<Box<NativeActivation>>> {
-        self.current
+    pub(super) fn lock_state(&self) -> MutexGuard<'_, NativeRunState> {
+        self.state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     pub(super) fn execution(&self) -> Result<FrameExecutionState, NativeRuntimeStatus> {
-        self.lock_current()
-            .as_ref()
-            .ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?
-            .execution_state()
+        let state = self.lock_state();
+
+        if let Some(current) = &state.current {
+            return current.execution_state();
+        }
+
+        if state.sequence.is_some() {
+            let callback = self
+                .descriptor
+                .state(ProtectedFrameStateId::new(0))
+                .ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?;
+
+            return Ok(FrameExecutionState::new(
+                self.descriptor.frame(),
+                callback.clone(),
+            ));
+        }
+
+        Err(NativeRuntimeStatus::INVALID_ARGUMENT)
     }
 
     pub(in crate::native) fn compose(&self, transfer: NativeFrameTransfer) -> NativeRuntimeStatus {
@@ -113,7 +135,8 @@ impl NativeRun {
 
         // Metadata callbacks above may reenter. Recheck the slot before consuming the claim.
         {
-            let current = self.lock_current();
+            let state = self.lock_state();
+            let current = &state.current;
 
             if current
                 .as_ref()
@@ -126,7 +149,8 @@ impl NativeRun {
         let mut child = install(transfer.take());
         child.retain_parent_execution(&execution);
 
-        self.lock_current()
+        self.lock_state()
+            .current
             .as_mut()
             .expect("dispatch retains the active parent")
             .child = Some(child);
@@ -135,7 +159,8 @@ impl NativeRun {
     }
 
     pub(in crate::native) fn request_child_cancellation(&self) -> NativeRuntimeStatus {
-        let mut current = self.lock_current();
+        let mut state = self.lock_state();
+        let current = &mut state.current;
 
         let Some(child) = current.as_mut().and_then(|current| current.child.as_mut()) else {
             return NativeRuntimeStatus::UNKNOWN_TASK;
@@ -167,7 +192,7 @@ impl ProtectedFrame for Arc<NativeRun> {
     fn broadcast_tasks(self: Pin<&mut Self>) {}
 
     fn resolve_lifecycle(self: Pin<&mut Self>, _exit: FrameExit) {
-        let current = self.lock_current().take();
+        let current = self.lock_state().current.take();
         NativeRun::release_chain(current, &self.terminal);
     }
 }
@@ -175,9 +200,10 @@ impl ProtectedFrame for Arc<NativeRun> {
 impl Drop for NativeRun {
     fn drop(&mut self) {
         let current = self
-            .current
+            .state
             .get_mut()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .current
             .take();
 
         NativeRun::release_chain(current, &self.terminal);

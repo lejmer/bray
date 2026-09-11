@@ -48,10 +48,18 @@ pub(super) fn lane_allows(current: ExecutionLane, required: ExecutionLane) -> bo
 
 impl NativeRun {
     pub(super) fn drive(&self) -> FrameProgress<usize> {
-        for _ in 0..TRANSITION_BUDGET {
+        for transition in 0..=TRANSITION_BUDGET {
             let execution = match self.execution() {
                 Ok(execution) => execution,
-                Err(_) => return FrameProgress::RuntimeFailure,
+                Err(_) => {
+                    if self.fail_static_activation(
+                        crate::incident::OwnedCleanupIncident::runtime_failure(),
+                    ) {
+                        continue;
+                    }
+
+                    return FrameProgress::RuntimeFailure;
+                }
             };
 
             let Some(current_lane) = current_task_execution_lane() else {
@@ -60,10 +68,18 @@ impl NativeRun {
 
             let lane = match execution_lane(&execution) {
                 Ok(lane) => lane,
-                Err(_) => return FrameProgress::RuntimeFailure,
+                Err(_) => {
+                    if self.fail_static_activation(
+                        crate::incident::OwnedCleanupIncident::runtime_failure(),
+                    ) {
+                        continue;
+                    }
+
+                    return FrameProgress::RuntimeFailure;
+                }
             };
 
-            if !lane_allows(current_lane, lane) {
+            if transition == TRANSITION_BUDGET || !lane_allows(current_lane, lane) {
                 return FrameProgress::Suspended(FrameSuspension::yielding(execution.state()));
             }
 
@@ -72,6 +88,7 @@ impl NativeRun {
             }
         }
 
+        // A recovery on the last transition still owns the remaining host cleanup phases.
         match self.execution() {
             Ok(execution) if execution_lane(&execution).is_ok() => {
                 FrameProgress::Suspended(FrameSuspension::yielding(execution.state()))
@@ -81,8 +98,13 @@ impl NativeRun {
     }
 
     fn step(&self) -> Option<FrameProgress<usize>> {
+        if self.lock_state().current.is_none() {
+            return self.step_sequence();
+        }
+
         let (mut frame, terminal, requested) = {
-            let mut current = self.lock_current();
+            let mut state = self.lock_state();
+            let current = &mut state.current;
 
             let Some(current) = current.as_mut() else {
                 return Some(FrameProgress::RuntimeFailure);
@@ -114,7 +136,8 @@ impl NativeRun {
         };
 
         {
-            let mut current = self.lock_current();
+            let mut state = self.lock_state();
+            let current = &mut state.current;
 
             // The exclusive dispatch keeps the activation installed throughout its callback.
             let current = current.as_mut().expect("dispatch retains the active frame");
@@ -131,25 +154,49 @@ impl NativeRun {
                             .and_then(|execution| execution_lane(&execution))
                             .is_err()
                         {
-                            Some(FrameProgress::RuntimeFailure)
+                            self.fail_static_or_return(FrameProgress::RuntimeFailure)
                         } else {
                             Some(FrameProgress::Suspended(suspension))
                         }
                     }
                     // Let the task's existing validation preserve the exact unknown local state.
-                    Err(_) => Some(FrameProgress::Suspended(suspension)),
+                    Err(_) => self.fail_static_or_return(FrameProgress::Suspended(suspension)),
                 }
             }
-            FrameProgress::RuntimeFailure => Some(FrameProgress::RuntimeFailure),
+            FrameProgress::RuntimeFailure if self.lock_state().sequence.is_none() => {
+                Some(FrameProgress::RuntimeFailure)
+            }
             progress => match self.finish_activation(progress) {
                 Ok(progress) => progress,
-                Err(panic) => Some(FrameProgress::Panicked(panic)),
+                Err(panic) => {
+                    if self.lock_state().sequence.is_some() {
+                        self.fail_static_activation(crate::incident::OwnedCleanupIncident::host(
+                            Box::new(panic),
+                        ));
+
+                        None
+                    } else {
+                        Some(FrameProgress::Panicked(panic))
+                    }
+                }
             },
         }
     }
 
+    fn fail_static_or_return(
+        &self,
+        progress: FrameProgress<usize>,
+    ) -> Option<FrameProgress<usize>> {
+        if self.fail_static_activation(crate::incident::OwnedCleanupIncident::runtime_failure()) {
+            None
+        } else {
+            Some(progress)
+        }
+    }
+
     fn suspend_activation(&self, suspension: FrameSuspension) -> Result<bool, NativeRuntimeStatus> {
-        let mut current = self.lock_current();
+        let mut state = self.lock_state();
+        let current = &mut state.current;
 
         let active = current
             .as_mut()
@@ -186,7 +233,8 @@ impl NativeRun {
         progress: FrameProgress<usize>,
     ) -> Result<Option<FrameProgress<usize>>, RuntimePanic> {
         let (mut frame, child, terminal) = {
-            let mut current = self.lock_current();
+            let mut state = self.lock_state();
+            let current = &mut state.current;
 
             let active = current
                 .as_mut()
@@ -214,12 +262,25 @@ impl NativeRun {
             destroy_frame(frame.take(), outcome)
         });
 
-        let is_root = self
-            .lock_current()
-            .as_ref()
-            .is_some_and(|active| active.parent.is_none());
+        let (is_root, is_sequence) = {
+            let state = self.lock_state();
+
+            (
+                state
+                    .current
+                    .as_ref()
+                    .is_some_and(|active| active.parent.is_none()),
+                state.sequence.is_some(),
+            )
+        };
 
         if is_root {
+            if is_sequence {
+                self.finish_static_activation(outcome, &terminal);
+
+                return Ok(None);
+            }
+
             return Ok(Some(match outcome {
                 RunOutcome::Completed(value) => FrameProgress::Completed(value),
                 RunOutcome::Cancelled => FrameProgress::Cancelled,
@@ -228,7 +289,8 @@ impl NativeRun {
         }
 
         let outcome = super::super::state::task_outcome(outcome, &terminal)?;
-        let mut current = self.lock_current();
+        let mut state = self.lock_state();
+        let current = &mut state.current;
 
         let mut child = current
             .take()
@@ -245,7 +307,7 @@ impl NativeRun {
         // Incidents follow the immediate continuation so an enclosing catch can retain them.
         let parent_terminal = Arc::clone(&parent.terminal);
         *current = Some(parent);
-        drop(current);
+        drop(state);
         Self::retain_incidents(&terminal, &parent_terminal);
 
         Ok(None)
@@ -290,7 +352,7 @@ impl NativeRun {
         }
     }
 
-    fn retain_incidents(
+    pub(super) fn retain_incidents(
         terminal: &Arc<super::super::frame::NativeTerminalState>,
         parent: &Arc<super::super::frame::NativeTerminalState>,
     ) {

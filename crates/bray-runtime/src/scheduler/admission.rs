@@ -37,6 +37,16 @@ impl TaskRegistrationStorage {
             return Ok(());
         }
 
+        // Validate capabilities now. The actual origin is chosen only when the run binds.
+        for state in self.descriptor.states() {
+            select_task_lane(
+                &scheduler.data,
+                &self.descriptor,
+                scheduler.data.main_thread,
+                state.state(),
+            )?;
+        }
+
         let mut state = scheduler.lock_state()?;
 
         let pending_tasks = state

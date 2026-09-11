@@ -19,6 +19,32 @@ struct TaskStart<'runtime> {
 }
 
 impl<'runtime> TaskStart<'runtime> {
+    fn publish(
+        &mut self,
+        install: impl FnOnce() -> Result<Arc<StartedTask>, NativeRuntimeStatus>,
+    ) -> NativeRuntimeStatus {
+        let mut tasks = self
+            .runtime
+            .tasks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        if !matches!(tasks.get(&self.handle), Some(NativeTaskSlot::Starting(_))) {
+            return NativeRuntimeStatus::UNKNOWN_TASK;
+        }
+
+        // Binding may wake workers, which must observe the fully installed task through this table.
+        let task = match install() {
+            Ok(task) => task,
+            Err(status) => return status,
+        };
+
+        tasks.insert(self.handle, NativeTaskSlot::Started(task));
+        self.committed = true;
+
+        NativeRuntimeStatus::SUCCESS
+    }
+
     fn claim(runtime: &'runtime NativeRuntime, handle: NativeTaskHandle) -> Option<Self> {
         let mut tasks = runtime
             .tasks
@@ -68,6 +94,32 @@ impl Drop for TaskStart<'_> {
 }
 
 impl NativeRuntime {
+    pub(in crate::native) fn start_run(
+        &self,
+        handle: NativeTaskHandle,
+        mut reservation: NativeRunReservation,
+    ) -> NativeRuntimeStatus {
+        let Some(mut start) = TaskStart::claim(self, handle) else {
+            return NativeRuntimeStatus::UNKNOWN_TASK;
+        };
+
+        reservation.task.admission = start.admission;
+        let run = Arc::clone(reservation.run());
+
+        let status = start.publish(|| {
+            reservation.bind(self, true)?;
+
+            Ok(reservation.install())
+        });
+
+        if !status.is_success() {
+            self.retain_failed_run(handle, run);
+            start.committed = true;
+        }
+
+        status
+    }
+
     pub(in crate::native) fn start(
         &self,
         handle: NativeTaskHandle,
@@ -92,29 +144,15 @@ impl NativeRuntime {
             Err(status) => return status,
         };
 
-        let mut tasks = self
-            .tasks
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let admission = start.admission;
 
-        if !matches!(tasks.get(&handle), Some(NativeTaskSlot::Starting(_))) {
-            return NativeRuntimeStatus::UNKNOWN_TASK;
-        }
+        start.publish(|| {
+            let reservation = claim.reservation();
+            reservation.run.task.admission = admission;
+            reservation.run.bind(self, true)?;
 
-        let reservation = claim.reservation();
-        reservation.run.task.admission = start.admission;
-
-        // Workers acquire this table before obtaining executable state. Register and wake while
-        // retaining the table so ownership publication is the only step after successful binding.
-        if let Err(status) = reservation.run.bind(self, true) {
-            return status;
-        }
-
-        tasks.insert(handle, NativeTaskSlot::Started(claim.install(frame.take())));
-
-        start.committed = true;
-
-        NativeRuntimeStatus::SUCCESS
+            Ok(claim.install(frame.take()))
+        })
     }
 }
 
@@ -180,7 +218,20 @@ pub(in crate::native) struct NativeRunReservation {
 }
 
 impl NativeRunReservation {
-    fn prepare(
+    pub(in crate::native) fn reserve(
+        &mut self,
+        scheduler: &crate::Scheduler,
+    ) -> Result<(), NativeRuntimeStatus> {
+        self.registration_storage
+            .reserve(scheduler)
+            .map_err(super::binding::scheduler_status)
+    }
+
+    pub(in crate::native) fn run(&self) -> &Arc<NativeRun> {
+        &self.task.run
+    }
+
+    pub(in crate::native) fn prepare(
         descriptor: ProtectedFrameDescriptor,
         terminal: Arc<super::super::frame::NativeTerminalState>,
         admission: crate::task::TaskAdmissionKind,

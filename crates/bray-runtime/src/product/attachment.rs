@@ -4,8 +4,7 @@ use std::collections::HashMap;
 use bray_runtime_abi::{NativeProductHostObservation, NativeProductHostStatus};
 
 use super::host::{
-    acquire_thread_attachment, discard_thread_attachment, drain_product_thread_statics,
-    initialize_thread_static_registry, mark_thread_attachment_acquired, observation_with_status,
+    drain_product_thread_statics, initialize_thread_static_registry, observation_with_status,
     prepare_thread_attachment,
 };
 
@@ -33,7 +32,7 @@ pub(super) fn attach_current_thread(product: usize) -> NativeProductHostObservat
     // registry first so it remains alive until that scope has finished during native thread exit.
     initialize_thread_static_registry();
 
-    let inserted = FOREIGN_ATTACHMENTS.with(|attachments| {
+    let result = FOREIGN_ATTACHMENTS.with(|attachments| {
         let mut attachments = attachments.borrow_mut();
 
         if let Some(depth) = attachments.products.get_mut(&product) {
@@ -43,7 +42,7 @@ pub(super) fn attach_current_thread(product: usize) -> NativeProductHostObservat
 
             *depth = next;
 
-            return Ok(false);
+            return Ok(());
         }
 
         crate::allocation::reserve_map_entries(&mut attachments.products, 1)
@@ -59,38 +58,18 @@ pub(super) fn attach_current_thread(product: usize) -> NativeProductHostObservat
 
         attachments.products.insert(product, 1);
 
-        Ok(true)
+        Ok(())
     });
 
-    let inserted = match inserted {
-        Ok(inserted) => inserted,
-        Err(status) => return observation_with_status(product, status),
-    };
-
-    if !inserted {
-        return observation_with_status(product, NativeProductHostStatus::SUCCESS);
+    if let Err(status) = result {
+        return observation_with_status(product, status);
     }
 
-    let already_acquired = match prepare_thread_attachment(product) {
-        Ok(acquired) => acquired,
-        Err(status) => {
-            rollback(product);
+    // Nested attachment must also finish admission if a metadata callback reenters here.
+    if let Err(status) = prepare_thread_attachment(product) {
+        rollback(product);
 
-            return observation_with_status(product, status);
-        }
-    };
-
-    if !already_acquired {
-        let observation = acquire_thread_attachment(product, false);
-
-        if observation.status() != NativeProductHostStatus::SUCCESS {
-            discard_thread_attachment(product);
-            rollback(product);
-
-            return observation;
-        }
-
-        mark_thread_attachment_acquired(product);
+        return observation_with_status(product, status);
     }
 
     observation_with_status(product, NativeProductHostStatus::SUCCESS)
@@ -143,7 +122,13 @@ fn rollback(product: usize) {
     let scope = FOREIGN_ATTACHMENTS.with(|attachments| {
         let mut attachments = attachments.borrow_mut();
 
-        attachments.products.remove(&product);
+        if let Some(depth) = attachments.products.get_mut(&product) {
+            *depth -= 1;
+
+            if *depth == 0 {
+                attachments.products.remove(&product);
+            }
+        }
 
         attachments
             .products

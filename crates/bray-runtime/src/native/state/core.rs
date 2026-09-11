@@ -363,6 +363,10 @@ pub(in crate::native) enum NativeTaskSlot {
     Allocated(crate::task::TaskAdmissionKind),
     Starting(crate::task::TaskAdmissionKind),
     Started(triomphe::Arc<StartedTask>),
+    FailedRun {
+        admission: crate::task::TaskAdmissionKind,
+        _run: triomphe::Arc<super::super::run::NativeRun>,
+    },
     Terminal {
         outcome: TerminalOutcome,
         _task: triomphe::Arc<StartedTask>,
@@ -372,7 +376,11 @@ pub(in crate::native) enum NativeTaskSlot {
 impl NativeTaskSlot {
     pub(in crate::native) fn admission(&self) -> crate::task::TaskAdmissionKind {
         match self {
-            Self::Allocated(kind) | Self::Starting(kind) => *kind,
+            Self::Allocated(kind)
+            | Self::Starting(kind)
+            | Self::FailedRun {
+                admission: kind, ..
+            } => *kind,
             Self::Started(task) | Self::Terminal { _task: task, .. } => task.admission,
         }
     }

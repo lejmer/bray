@@ -42,12 +42,20 @@ pub(super) fn ensure_formed(
         return Err(unformed(NativeProductHostStatus::RUNTIME_FAILURE));
     }
 
+    let cleanup_driver = execution
+        .as_ref()
+        .map(|owner| owner.admit_cleanup(&statics))
+        .transpose()
+        .map_err(|status| unformed(host_status(status)))?
+        .flatten();
+
     let initialized_statics = statics.len();
 
     let host = ProductHost {
         identity: descriptor.identity(),
         // Keep a losing insertion releasable after the registry lock is dropped.
         execution: execution.clone(),
+        cleanup_driver,
         state: NativeProductHostState::OPEN,
         active_entries: 0,
         external_roots: 0,

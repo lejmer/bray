@@ -88,6 +88,7 @@ impl NativeRuntime {
             | Some(NativeTaskSlot::Allocated(_) | NativeTaskSlot::Starting(_)) => {
                 NativeRuntimeStatus::PENDING
             }
+            Some(NativeTaskSlot::FailedRun { .. }) => NativeRuntimeStatus::RUNTIME_FAILURE,
             None => NativeRuntimeStatus::UNKNOWN_TASK,
         }
     }
@@ -165,6 +166,9 @@ impl NativeRuntime {
                             runtime_failure(NativeRuntimeStatus::INVALID_ARGUMENT)
                         }
                     };
+                }
+                Some(NativeTaskSlot::FailedRun { .. }) => {
+                    return runtime_failure(NativeRuntimeStatus::RUNTIME_FAILURE);
                 }
                 Some(NativeTaskSlot::Allocated(_) | NativeTaskSlot::Starting(_)) | None => {
                     return runtime_failure(NativeRuntimeStatus::UNKNOWN_TASK);

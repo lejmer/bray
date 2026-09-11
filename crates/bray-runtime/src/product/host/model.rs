@@ -22,6 +22,7 @@ thread_local! {
 pub(super) struct ProductHost {
     pub(super) identity: NativeProductIdentity,
     pub(super) execution: Option<crate::product::RetainedProductExecution>,
+    pub(super) cleanup_driver: Option<Box<dyn crate::product::ProductCleanup>>,
     pub(super) state: NativeProductHostState,
     pub(super) active_entries: usize,
     pub(super) external_roots: usize,
@@ -73,6 +74,7 @@ impl ProductHost {
 pub(super) struct PendingCleanup {
     pub(super) product: usize,
     pub(super) execution: Option<crate::product::RetainedProductExecution>,
+    pub(super) cleanup_driver: Option<Box<dyn crate::product::ProductCleanup>>,
     pub(super) statics: Vec<StaticCleanup>,
     pub(super) thread: bray_platform::RuntimeThreadReservation,
 }

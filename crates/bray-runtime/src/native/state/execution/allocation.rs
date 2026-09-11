@@ -3,7 +3,7 @@ use std::sync::atomic::Ordering;
 use bray_runtime_abi::{NativeRuntimeStatus, NativeTaskAllocation, NativeTaskHandle};
 
 use super::super::binding::CleanupWorkloadScope;
-use super::super::core::{NativeRuntime, NativeTaskSlot};
+use super::super::core::{NativeRuntime, NativeRuntimeCore, NativeTaskSlot};
 
 impl NativeRuntime {
     pub(in crate::native) fn with_cleanup_driving<T>(&self, callback: impl FnOnce() -> T) -> T {
@@ -39,8 +39,56 @@ impl NativeRuntime {
             self.allocate_continuation()
         }
     }
+}
 
-    fn allocate_kind(
+impl NativeRuntimeCore {
+    pub(in crate::native) fn retain_failed_run(
+        &self,
+        handle: NativeTaskHandle,
+        run: triomphe::Arc<crate::native::run::NativeRun>,
+    ) {
+        let mut tasks = self
+            .tasks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        // Only the owning cleanup driver can release this admitted, unpublished slot.
+        let slot = tasks
+            .get_mut(&handle)
+            .expect("admitted host run retains its native slot");
+
+        if matches!(
+            slot,
+            NativeTaskSlot::Allocated(_) | NativeTaskSlot::Starting(_)
+        ) {
+            *slot = NativeTaskSlot::FailedRun {
+                admission: slot.admission(),
+                _run: run,
+            };
+        }
+    }
+
+    pub(in crate::native) fn release_task_reservation(&self, handle: NativeTaskHandle) {
+        let mut tasks = self
+            .tasks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        if !matches!(tasks.get(&handle), Some(NativeTaskSlot::Allocated(_))) {
+            return;
+        }
+
+        let removed = tasks.remove(&handle);
+
+        if let Some(slot) = &removed {
+            self.release_admission(slot);
+        }
+
+        drop(tasks);
+        drop(removed);
+    }
+
+    pub(in crate::native) fn allocate_kind(
         &self,
         kind: crate::task::TaskAdmissionKind,
         cleanup_admitted: bool,

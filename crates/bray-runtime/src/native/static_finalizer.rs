@@ -1,3 +1,4 @@
+#[cfg(test)]
 pub(crate) fn run_static_finalizer(
     frame: bray_runtime_abi::NativeInactiveFrame,
     panics: bray_runtime_abi::NativePanicReportCallbacks,

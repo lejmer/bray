@@ -1,6 +1,6 @@
 use bray_runtime_abi::NativeProductHostObservation;
 
-use super::super::cleanup::StaticCleanup;
+use super::attachment::ThreadProductAttachment;
 
 use super::model::{THREAD_STATICS, product_hosts};
 use super::operations::{release_thread_attachment, report_incidents};
@@ -15,18 +15,13 @@ pub(super) extern "C-unwind" fn drain_thread_statics() {
 
     products.sort_unstable_by_key(|attachment| (attachment.product_identity, attachment.product));
 
-    for attachment in &mut products {
-        attachment.entries.sort_unstable_by_key(|entry| entry.order);
-        run_product_thread_cleanups(attachment.product, std::mem::take(&mut attachment.entries));
-    }
+    products.retain_mut(|attachment| run_product_thread_cleanups(attachment).is_ok());
 
     products.sort_unstable_by_key(|attachment| attachment.product);
 
     // Keep every product attachment alive until all exact-thread finalizers have run.
     for attachment in products {
-        if attachment.acquired {
-            let _ = release_thread_attachment(attachment.product, attachment.worker);
-        }
+        let _ = release_thread_attachment(attachment.product, attachment.worker);
     }
 }
 
@@ -34,20 +29,18 @@ pub(crate) fn drain_product_thread_statics(product: usize) -> Option<NativeProdu
     let mut attachment =
         THREAD_STATICS.with(|registry| registry.borrow_mut().remove_product(product))?;
 
-    attachment.entries.sort_unstable_by_key(|entry| entry.order);
-    run_product_thread_cleanups(product, attachment.entries);
-
-    if attachment.acquired {
-        return Some(release_thread_attachment(product, attachment.worker));
+    if let Err(observation) = run_product_thread_cleanups(&mut attachment) {
+        return Some(observation);
     }
 
-    None
+    Some(release_thread_attachment(product, attachment.worker))
 }
 
-fn run_product_thread_cleanups(product: usize, entries: Vec<StaticCleanup>) {
-    let Some(owner) = entries.first().copied() else {
-        return;
-    };
+fn run_product_thread_cleanups(
+    attachment: &mut ThreadProductAttachment,
+) -> Result<(), NativeProductHostObservation> {
+    let product = attachment.product;
+    attachment.entries.sort_unstable_by_key(|entry| entry.order);
 
     // Keep execution alive while callbacks run outside the registry lock.
     let execution = product_hosts()
@@ -57,28 +50,28 @@ fn run_product_thread_cleanups(product: usize, entries: Vec<StaticCleanup>) {
 
     let execution = execution.as_ref().map(|owner| owner.as_ref().as_ref());
 
-    let mut cleanup = || {
-        for entry in &entries {
-            let count = entry.report(execution);
+    let result = super::cleanup::run_cleanup_batch(
+        product,
+        std::mem::take(&mut attachment.entries),
+        attachment.cleanup_driver.take(),
+        execution,
+        report_incidents,
+    );
 
-            report_incidents(product, entry.identity, count);
-        }
-    };
+    if let Err(status) = result {
+        let Ok(mut hosts) = product_hosts().lock() else {
+            return Err(NativeProductHostObservation::invalid());
+        };
 
-    let runtime_incidents = match execution {
-        Some(execution) => execution.with_cleanup(&mut cleanup),
-        None => {
-            cleanup();
+        let Some(host) = hosts.get_mut(&product) else {
+            return Err(NativeProductHostObservation::invalid());
+        };
 
-            Vec::new()
-        }
-    };
+        // Keep the failed attachment obligation until mandatory execution can be resolved.
+        host.state = bray_runtime_abi::NativeProductHostState::FAILED;
 
-    let count = runtime_incidents.len();
-
-    for incident in runtime_incidents {
-        let _ = incident.report();
+        return Err(host.observation(super::model::host_status(status)));
     }
 
-    report_incidents(product, owner.identity, count);
+    Ok(())
 }

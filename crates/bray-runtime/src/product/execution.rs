@@ -1,6 +1,6 @@
 use std::cell::Cell;
 
-use bray_runtime_abi::{NativeRuntimeStatus, NativeStaticFinalizer};
+use bray_runtime_abi::{NativeRuntimeStatus, NativeStaticIdentity};
 
 use crate::incident::OwnedCleanupIncident;
 
@@ -8,15 +8,27 @@ pub(crate) type RetainedProductExecution = triomphe::Arc<Box<dyn ProductExecutio
 pub(crate) type RetainProductExecution =
     fn() -> Result<RetainedProductExecution, NativeRuntimeStatus>;
 
+pub(crate) trait ProductCleanup: Send {
+    fn run(
+        self: Box<Self>,
+        product: usize,
+        entries: Vec<super::cleanup::StaticCleanup>,
+        completed: fn(usize, NativeStaticIdentity, usize),
+    ) -> Result<(), NativeRuntimeStatus>;
+}
+
 /// Execution owned by an already initialized scheduler, retained through product retirement.
 pub(crate) trait ProductExecution: Send + Sync {
+    fn admit_cleanup(
+        &self,
+        entries: &[super::cleanup::StaticCleanup],
+    ) -> Result<Option<Box<dyn ProductCleanup>>, NativeRuntimeStatus>;
     fn owns_current_worker(&self) -> bool;
     fn admit_worker_cleanup(&self, product: usize) -> Result<(), NativeRuntimeStatus>;
     fn detach_workers(&self, product: usize);
     fn release(&self);
     /// Invokes the callback exactly once with this owner's cleanup execution bound.
     fn with_cleanup(&self, callback: &mut dyn FnMut()) -> Vec<OwnedCleanupIncident>;
-    fn run_finalizer(&self, finalizer: NativeStaticFinalizer) -> Vec<OwnedCleanupIncident>;
 }
 
 thread_local! {

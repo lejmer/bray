@@ -3,6 +3,10 @@ mod cleanup;
 mod execution;
 mod host;
 
+pub(crate) use cleanup::{
+    StaticCleanup, run_static_destroy, run_static_transition, run_synchronous_finalizer,
+};
+
 #[cfg(test)]
 pub(crate) use cleanup::empty_native_incident;
 pub(crate) use host::{
@@ -11,6 +15,6 @@ pub(crate) use host::{
 };
 
 pub(crate) use execution::{
-    ProductExecution, RetainedProductExecution, replace_execution_factory, retain_execution,
-    with_execution_factory,
+    ProductCleanup, ProductExecution, RetainedProductExecution, replace_execution_factory,
+    retain_execution, with_execution_factory,
 };

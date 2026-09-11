@@ -51,8 +51,15 @@ impl NativeActivation {
     }
 
     pub(super) fn retain_parent_execution(&mut self, execution: &FrameExecutionState) {
-        for (retained, requirement) in self.retained_lanes.iter_mut().zip(ExecutionLaneRequirement::ALL) {
-            *retained = execution.descriptor().lane_requirements().contains(&requirement);
+        for (retained, requirement) in self
+            .retained_lanes
+            .iter_mut()
+            .zip(ExecutionLaneRequirement::ALL)
+        {
+            *retained = execution
+                .descriptor()
+                .lane_requirements()
+                .contains(&requirement);
         }
 
         self.retained_affinity = execution.descriptor().affinity();
@@ -63,13 +70,32 @@ impl NativeActivation {
         descriptor: &ProtectedFrameDescriptor,
         parent: &FrameExecutionState,
     ) -> Result<FrameExecutionState, NativeRuntimeStatus> {
-        let lanes = ExecutionLaneRequirement::ALL.map(|requirement| parent.descriptor().lane_requirements().contains(&requirement));
+        let lanes = ExecutionLaneRequirement::ALL.map(|requirement| {
+            parent
+                .descriptor()
+                .lane_requirements()
+                .contains(&requirement)
+        });
 
-        Self::compose_execution(descriptor, ProtectedFrameStateId::new(0), lanes, parent.descriptor().affinity(), bray_platform::current_runtime_thread().map(|thread| thread.id()), parent.origin())
+        Self::compose_execution(
+            descriptor,
+            ProtectedFrameStateId::new(0),
+            lanes,
+            parent.descriptor().affinity(),
+            bray_platform::current_runtime_thread().map(|thread| thread.id()),
+            parent.origin(),
+        )
     }
 
     pub(super) fn execution_state(&self) -> Result<FrameExecutionState, NativeRuntimeStatus> {
-        Self::compose_execution(&self.descriptor, self.state, self.retained_lanes, self.retained_affinity, self.origin, self.retained_origin)
+        Self::compose_execution(
+            &self.descriptor,
+            self.state,
+            self.retained_lanes,
+            self.retained_affinity,
+            self.origin,
+            self.retained_origin,
+        )
     }
 
     fn compose_execution(
@@ -80,12 +106,15 @@ impl NativeActivation {
         origin: Option<bray_platform::RuntimeThreadId>,
         retained_origin: Option<bray_platform::RuntimeThreadId>,
     ) -> Result<FrameExecutionState, NativeRuntimeStatus> {
-        let local = descriptor.state(state)
+        let local = descriptor
+            .state(state)
             .ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?;
 
         if local.affinity() == ProtectedFrameAffinity::OriginThread
             && retained_affinity == ProtectedFrameAffinity::OriginThread
-            && origin.zip(retained_origin).is_some_and(|(own, parent)| own != parent)
+            && origin
+                .zip(retained_origin)
+                .is_some_and(|(own, parent)| own != parent)
         {
             return Err(NativeRuntimeStatus::INVALID_ARGUMENT);
         }
@@ -100,23 +129,33 @@ impl NativeActivation {
             ProtectedFrameAffinity::Movable
         };
 
-        let lanes = ExecutionLaneRequirement::ALL.into_iter().zip(retained_lanes)
+        let lanes = ExecutionLaneRequirement::ALL
+            .into_iter()
+            .zip(retained_lanes)
             .filter_map(|(requirement, retained)| {
-                (retained || local.lane_requirements().contains(&requirement)
+                (retained
+                    || local.lane_requirements().contains(&requirement)
                     || (requirement == ExecutionLaneRequirement::MainThread
                         && affinities.contains(&ProtectedFrameAffinity::MainThread)))
-                    .then_some(requirement)
+                .then_some(requirement)
             });
 
         // Retained constraints have fixed size. Local storage and dependency tables stay shared.
         let state = local.clone().with_execution_requirements(lanes, affinity);
 
         let execution = FrameExecutionState::new(descriptor.frame(), state);
-        let origin = if retained_affinity == ProtectedFrameAffinity::OriginThread { retained_origin.or(origin) } else { origin };
 
-        Ok(match origin.filter(|_| affinity == ProtectedFrameAffinity::OriginThread) {
-            Some(origin) => execution.with_origin(origin),
-            None => execution,
-        })
+        let origin = if retained_affinity == ProtectedFrameAffinity::OriginThread {
+            retained_origin.or(origin)
+        } else {
+            origin
+        };
+
+        Ok(
+            match origin.filter(|_| affinity == ProtectedFrameAffinity::OriginThread) {
+                Some(origin) => execution.with_origin(origin),
+                None => execution,
+            },
+        )
     }
 }

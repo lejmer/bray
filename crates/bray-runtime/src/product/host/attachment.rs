@@ -7,9 +7,9 @@ pub(super) struct ThreadProductAttachment {
     pub(super) product: usize,
     pub(super) product_identity: NativeProductIdentity,
     pub(super) identity: u64,
-    pub(super) acquired: bool,
     pub(super) worker: bool,
     pub(super) entries: Vec<StaticCleanup>,
+    pub(super) cleanup_driver: Option<Box<dyn crate::product::ProductCleanup>>,
 }
 
 pub(super) struct ThreadStaticRegistry {
@@ -63,13 +63,42 @@ impl ThreadStaticRegistry {
     }
 }
 
+/// Holds provider lifetime while metadata callbacks execute outside registry locks.
+struct AttachmentAdmission(Option<usize>);
+
+impl Drop for AttachmentAdmission {
+    fn drop(&mut self) {
+        if let Some(product) = self.0 {
+            super::operations::release_admission_entry(product);
+        }
+    }
+}
+
 /// Prepares ownership outside the thread registry, then publishes it with a fresh identity.
 pub(super) fn ensure_attachment(product: usize, worker: bool) -> Result<(), NativeRuntimeStatus> {
     if THREAD_STATICS.with(|registry| registry.borrow_mut().attachment(product).is_some()) {
         return Ok(());
     }
 
-    let (product_identity, count) = {
+    {
+        let mut hosts = product_hosts()
+            .lock()
+            .map_err(|_| NativeRuntimeStatus::RUNTIME_FAILURE)?;
+
+        let host = hosts
+            .get_mut(&product)
+            .ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?;
+
+        let status = super::operations::acquire(&mut host.active_entries, host.state);
+
+        if status != bray_runtime_abi::NativeProductHostStatus::SUCCESS {
+            return Err(super::model::runtime_status(status));
+        }
+    }
+
+    let mut admission = AttachmentAdmission(Some(product));
+
+    let (product_identity, mut entries, execution) = {
         let hosts = product_hosts()
             .lock()
             .map_err(|_| NativeRuntimeStatus::RUNTIME_FAILURE)?;
@@ -78,20 +107,26 @@ pub(super) fn ensure_attachment(product: usize, worker: bool) -> Result<(), Nati
             .get(&product)
             .ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?;
 
-        if host.state != NativeProductHostState::OPEN {
-            return Err(NativeRuntimeStatus::INVALID_ARGUMENT);
-        }
+        let mut entries = Vec::new();
 
-        (host.identity, host.thread_statics.len())
+        crate::allocation::reserve_vec_entries(&mut entries, host.thread_statics.len())
+            .map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)?;
+
+        entries.extend_from_slice(&host.thread_statics);
+
+        // The temporary entry prevents retirement while callbacks run without the host lock.
+        (host.identity, entries, host.execution.clone())
     };
 
-    let mut entries = Vec::new();
+    let mut cleanup_driver = execution
+        .as_ref()
+        .map(|owner| owner.admit_cleanup(&entries))
+        .transpose()?
+        .flatten();
 
-    crate::allocation::reserve_vec_entries(&mut entries, count)
-        .map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)?;
+    entries.clear();
 
-    // A competing reentrant admission can win while ownership is being prepared.
-    // Keep the losing resources outside the registry borrow until it has been released.
+    // Losing resources drop after the TLS borrow and before the temporary entry releases.
     THREAD_STATICS.with(|registry| {
         let mut registry = registry.borrow_mut();
 
@@ -111,42 +146,52 @@ pub(super) fn ensure_attachment(product: usize, worker: bool) -> Result<(), Nati
 
         registry.ensure_exit_callback()?;
 
+        let mut hosts = product_hosts()
+            .lock()
+            .map_err(|_| NativeRuntimeStatus::RUNTIME_FAILURE)?;
+
+        let host = hosts
+            .get_mut(&product)
+            .ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?;
+
+        // A close during metadata preparation wins before any static ownership is accepted.
+        if host.state != NativeProductHostState::OPEN {
+            return Err(NativeRuntimeStatus::INVALID_ARGUMENT);
+        }
+
+        let attachments = host
+            .thread_attachments
+            .checked_add(1)
+            .ok_or(NativeRuntimeStatus::RUNTIME_FAILURE)?;
+
+        let workers = host
+            .worker_attachments
+            .checked_add(usize::from(worker))
+            .ok_or(NativeRuntimeStatus::RUNTIME_FAILURE)?;
+
         if worker {
-            admit_worker_cleanup(product)?;
+            // Admission is serialized with closure before it broadcasts worker requests.
+            host.execution
+                .as_ref()
+                .ok_or(NativeRuntimeStatus::NOT_INITIALIZED)?
+                .admit_worker_cleanup(product)?;
         }
 
         registry.products.push(ThreadProductAttachment {
             product,
             product_identity,
             identity,
-            acquired: false,
             worker,
             entries: std::mem::take(&mut entries),
+            cleanup_driver: cleanup_driver.take(),
         });
 
         registry.next_identity = next_identity;
+        host.thread_attachments = attachments;
+        host.worker_attachments = workers;
+        host.active_entries -= 1;
+        admission.0 = None;
 
         Ok(())
     })
-}
-
-fn admit_worker_cleanup(product: usize) -> Result<(), NativeRuntimeStatus> {
-    let hosts = product_hosts()
-        .lock()
-        .map_err(|_| NativeRuntimeStatus::RUNTIME_FAILURE)?;
-
-    let host = hosts
-        .get(&product)
-        .ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?;
-
-    if host.state != NativeProductHostState::OPEN {
-        return Err(NativeRuntimeStatus::INVALID_ARGUMENT);
-    }
-
-    // Serialize admission with closure's transition before it broadcasts worker requests.
-    // Worker controls never invoke cleanup while holding their request lock.
-    host.execution
-        .as_ref()
-        .ok_or(NativeRuntimeStatus::NOT_INITIALIZED)?
-        .admit_worker_cleanup(product)
 }
