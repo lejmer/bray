@@ -218,7 +218,8 @@ impl MirOperationKind {
                 crate::MirHostOperation::MaterializeStatic { place } => {
                     visit_place_operands(place, &mut visit);
                 }
-                crate::MirHostOperation::SelectTestEntry { .. }
+                crate::MirHostOperation::BeginExecution { .. }
+                | crate::MirHostOperation::SelectTestEntry { .. }
                 | crate::MirHostOperation::ExecuteRoot { .. }
                 | crate::MirHostOperation::ObserveRootTerminal { .. }
                 | crate::MirHostOperation::ResolveRootTerminal { .. }

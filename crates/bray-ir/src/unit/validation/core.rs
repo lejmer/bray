@@ -50,6 +50,26 @@ fn validate_host_sequence(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
         return Err(MirUnitBuildError::InvalidHostSequence);
     }
 
+    let preceding = if host
+        .requirements()
+        .requires_role(bray_runtime_interface::RuntimeAbiRole::ProductHostControl)
+        && host
+            .requirements()
+            .requires_role(bray_runtime_interface::RuntimeAbiRole::MainThreadLaneStartup)
+    {
+        let Some((
+            crate::MirOperationKind::Host(crate::MirHostOperation::BeginExecution { .. }),
+            rest,
+        )) = preceding.split_first()
+        else {
+            return Err(MirUnitBuildError::InvalidHostSequence);
+        };
+
+        rest
+    } else {
+        preceding
+    };
+
     let materialized = preceding.partition_point(|operation| {
         matches!(
             operation,

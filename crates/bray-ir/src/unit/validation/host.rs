@@ -15,6 +15,21 @@ pub(super) fn validate_host_operation(
     };
 
     match host_operation {
+        MirHostOperation::BeginExecution { startup, control } => {
+            if !host
+                .requirements()
+                .requires_role(RuntimeAbiRole::ProductHostControl)
+                || !host
+                    .requirements()
+                    .requires_role(RuntimeAbiRole::MainThreadLaneStartup)
+            {
+                return Err(MirUnitBuildError::InvalidHostOperation(operation));
+            }
+
+            validate_runtime_role(unit, *startup, RuntimeAbiRole::MainThreadLaneStartup)?;
+
+            validate_runtime_role(unit, *control, RuntimeAbiRole::ProductHostControl)
+        }
         MirHostOperation::MaterializeStatic { place } => {
             if !matches!(
                 unit.storage(place.storage()).map(crate::MirStorage::kind),

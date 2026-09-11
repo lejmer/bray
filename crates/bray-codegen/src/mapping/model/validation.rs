@@ -418,6 +418,9 @@ fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRunt
         MirOperationKind::Async(MirAsyncOperation::StartTask {
             allocation, start, ..
         }) => [Some(*allocation), Some(*start), None],
+        MirOperationKind::Host(MirHostOperation::BeginExecution { startup, control }) => {
+            [Some(*startup), Some(*control), None]
+        }
         MirOperationKind::Host(MirHostOperation::ExecuteRoot { runtime, .. }) => [
             Some(*runtime),
             Some(MirRuntimeReference::new(

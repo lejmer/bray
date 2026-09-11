@@ -1566,6 +1566,12 @@ fn runtime_reference(role: &str, runtime: MirRuntimeReference, parts: &mut Opera
 
 fn host_operation(operation: &MirHostOperation, parts: &mut OperationParts) -> &'static str {
     match operation {
+        MirHostOperation::BeginExecution { startup, control } => {
+            runtime_reference("startup", *startup, parts);
+            runtime_reference("control", *control, parts);
+
+            "begin_execution"
+        }
         MirHostOperation::MaterializeStatic { place } => {
             parts.attribute("storage", place.storage().slot());
 

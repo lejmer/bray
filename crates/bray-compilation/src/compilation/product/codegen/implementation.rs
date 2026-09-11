@@ -203,6 +203,7 @@ impl Compilation {
                     &units,
                     &mappings,
                     &host_statics,
+                    host.as_ref(),
                     &target,
                 )
             },
@@ -1688,6 +1689,32 @@ mod tests {
             panic!("async executable host must retain a protected root frame");
         };
 
+        let product_host = plan
+            .product_host()
+            .expect("native root must retain its provider even without statics");
+
+        assert!(product_host.statics().is_empty());
+
+        let entry_unit = plan
+            .units()
+            .iter()
+            .flat_map(|unit| unit.instances())
+            .find(|instance| {
+                matches!(
+                    instance.mir().kind(),
+                    bray_ir::MirUnitKind::ExecutableHost(_)
+                )
+            })
+            .expect("host MIR must exist");
+
+        let entry = entry_unit.mir().block(entry_unit.mir().entry()).unwrap();
+        let first = entry_unit.mir().operation(entry.operations()[0]).unwrap();
+
+        assert!(matches!(
+            first.kind(),
+            bray_ir::MirOperationKind::Host(bray_ir::MirHostOperation::BeginExecution { .. })
+        ));
+
         assert_eq!(host.entries()[0].result(), ExecutableEntryResult::I32);
 
         let frame_unit = plan
@@ -1717,6 +1744,8 @@ mod tests {
         assert_eq!(host.entries()[0].root_frame_adapter(), adapter);
 
         for role in [
+            RuntimeAbiRole::MainThreadLaneStartup,
+            RuntimeAbiRole::ProductHostControl,
             RuntimeAbiRole::RootExecution,
             RuntimeAbiRole::RootCancellationRequest,
             RuntimeAbiRole::RootTerminalObservation,
@@ -1870,7 +1899,10 @@ mod tests {
             .expect_err("compile-only requests must reject explicitly supplied linking");
 
         assert!(
-            matches!(error.kind(), crate::ProductEmissionErrorKind::UnexpectedLinker),
+            matches!(
+                error.kind(),
+                crate::ProductEmissionErrorKind::UnexpectedLinker
+            ),
             "builder composition must preserve codegen and linking: {error:?}",
         );
 
@@ -1881,10 +1913,12 @@ mod tests {
             )
             .expect("compile-only emission must consume specialized cleanup MIR");
 
-        assert!(matches!(
+        assert!(
+            matches!(outcome.status(), bray_emitter::EmissionStatus::Complete),
+            "status: {:?}, diagnostics: {:?}",
             outcome.status(),
-            bray_emitter::EmissionStatus::Complete
-        ), "status: {:?}, diagnostics: {:?}", outcome.status(), outcome.diagnostics());
+            outcome.diagnostics()
+        );
 
         assert!(!outcome.artifacts().artifacts().is_empty());
 
@@ -2284,6 +2318,14 @@ mod tests {
             let host = plan
                 .executable_host()
                 .unwrap_or_else(|| panic!("executable must own a host"));
+
+            assert!(
+                !host
+                    .requirements()
+                    .requires_role(RuntimeAbiRole::MainThreadLaneStartup)
+            );
+
+            assert!(plan.product_host().is_none());
 
             assert_eq!(host.entries()[0].root(), RootExecution::Synchronous);
 

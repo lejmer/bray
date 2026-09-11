@@ -25,9 +25,15 @@ impl Compilation {
         units: &[CodegenUnit],
         mappings: &[CodegenMappings],
         entries: &[super::super::realization::ProductStaticHostEntry],
+        host: Option<&ExecutableHostContract>,
         target: &CodegenTarget,
     ) -> Result<Option<CodegenProductHostMapping>, NativeProductPlanningError> {
-        if entries.is_empty() {
+        if entries.is_empty()
+            && !host.is_some_and(|host| {
+                host.requirements()
+                    .requires_role(RuntimeAbiRole::ProductHostControl)
+            })
+        {
             return Ok(None);
         }
 
@@ -282,6 +288,13 @@ impl Compilation {
                 RuntimeAbiRole::PanicReporting,
                 RuntimeAbiRole::EntryFailureResolution,
                 RuntimeAbiRole::StructuredShutdown,
+            ]);
+        }
+
+        if has_async_entries {
+            runtime_roles.extend([
+                RuntimeAbiRole::ProductHostControl,
+                RuntimeAbiRole::MainThreadLaneStartup,
             ]);
         }
 

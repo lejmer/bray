@@ -85,6 +85,24 @@ pub fn lower_executable_host(
 
     let entry = builder.push_block(source.clone(), MirBlockKind::Ordinary)?;
 
+    if contract
+        .requirements()
+        .requires_role(RuntimeAbiRole::ProductHostControl)
+        && contract
+            .requirements()
+            .requires_role(RuntimeAbiRole::MainThreadLaneStartup)
+    {
+        builder.push_operation(
+            entry,
+            source.clone(),
+            MirOperationKind::Host(MirHostOperation::BeginExecution {
+                startup: runtime_reference(RuntimeAbiRole::MainThreadLaneStartup, runtime_abi),
+                control: runtime_reference(RuntimeAbiRole::ProductHostControl, runtime_abi),
+            }),
+            None,
+        )?;
+    }
+
     for static_instance in statics.into_iter().rev() {
         let storage = builder.push_storage(
             source.clone(),
@@ -331,6 +349,126 @@ mod tests {
                 ..
             }))
         ));
+    }
+
+    #[test]
+    fn provider_host_admission_is_required_before_root_execution() {
+        use bray_runtime_interface::{
+            BinarySymbolName, ExecutableHostContractBuilder, RuntimeContract, RuntimeRequirements,
+            RuntimeRoleBinding,
+        };
+
+        let base = test_async_executable_host_contract();
+        let required = base.requirements();
+        let runtime = base.runtime().unwrap();
+
+        let control = RuntimeRoleBinding::new(
+            RuntimeAbiRole::ProductHostControl,
+            BinarySymbolName::try_new("test_product_control").unwrap(),
+            RuntimeRoleImplementation::BrayRuntime,
+        );
+
+        let runtime = RuntimeContract::try_new(
+            runtime.identity().clone(),
+            runtime.artifact().clone(),
+            runtime.abi_version(),
+            runtime.frame_abi(),
+            runtime.target().clone(),
+            runtime.panic_abi().clone(),
+            runtime.capabilities().iter().copied(),
+            runtime.role_bindings().iter().cloned().chain([control]),
+        )
+        .unwrap();
+
+        let requirements = RuntimeRequirements::new(
+            required.runtime().cloned(),
+            required.abi_version(),
+            required.frame_abi(),
+            required.target().clone(),
+            required.panic_abi().clone(),
+            required
+                .roles()
+                .iter()
+                .copied()
+                .chain([RuntimeAbiRole::ProductHostControl]),
+            required.capabilities().iter().copied(),
+            [],
+        );
+
+        let mut contract = ExecutableHostContractBuilder::new(
+            base.product().clone(),
+            base.native_entry().clone(),
+            base.entries()[0].clone(),
+            requirements,
+        );
+
+        contract.select_runtime(runtime);
+
+        for role in RuntimeAbiRole::ALL {
+            if let Some(binding) = base.role_binding(role) {
+                if binding.implementation() != RuntimeRoleImplementation::BrayRuntime {
+                    contract.push_role_binding(binding.clone());
+                }
+            }
+        }
+
+        let host = contract.finish().unwrap();
+
+        let unit = super::lower_executable_host(ExecutableHostLoweringInput::new(
+            MirUnitId::new(94),
+            [bray_testing::test_bound_unit(94).key().clone()],
+            host.clone(),
+            test_mir_target(),
+        ))
+        .unwrap();
+
+        let operations = unit
+            .operations()
+            .iter()
+            .map(|operation| operation.kind().clone())
+            .collect::<Vec<_>>();
+
+        assert!(matches!(
+            operations[0],
+            MirOperationKind::Host(MirHostOperation::BeginExecution { .. })
+        ));
+
+        for reordered in [false, true] {
+            let mut operations = operations.clone();
+
+            if reordered {
+                operations.swap(0, 1);
+            } else {
+                operations.remove(0);
+            }
+
+            let source = MirSourceAnchor::executable_host(host.product().clone());
+
+            let mut builder = MirUnitBuilder::for_executable_host(
+                MirUnitId::new(94),
+                host.clone(),
+                test_mir_target(),
+            );
+
+            let entry = builder
+                .push_block(source.clone(), MirBlockKind::Ordinary)
+                .unwrap();
+
+            for operation in operations {
+                builder
+                    .push_operation(entry, source.clone(), operation, None)
+                    .unwrap();
+            }
+
+            builder
+                .set_terminator(entry, source, MirTerminatorKind::Return(None))
+                .unwrap();
+
+            assert_eq!(
+                builder.finish(entry),
+                Err(MirUnitBuildError::InvalidHostSequence)
+            );
+        }
     }
 
     #[test]

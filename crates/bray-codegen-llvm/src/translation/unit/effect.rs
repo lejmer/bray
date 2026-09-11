@@ -2,6 +2,7 @@ mod body;
 mod host;
 mod incident;
 mod performance;
+mod product;
 mod result;
 mod run_result;
 mod synchronous;
