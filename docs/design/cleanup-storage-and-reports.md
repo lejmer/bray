@@ -89,6 +89,14 @@ A protected `PanicReport` is a movable owned header containing its primary cause
 head/tail ownership for suppressed entries. The primary header lives in the report value's destination storage. It does
 not require a separately allocated primary node. No link points back into this movable header.
 
+A report leaving a mandatory action can also own that action's empty, detached outgoing record. Binding transfers the
+record and spends the action's credit once. If the report already carries a child's record, the enclosing action leaves
+its own record unused. Structural forwarding moves this ownership with the header. When the primary becomes a suppressed
+entry, suppression takes the detached record, moves only the primary data into it and splices the separately owned chain.
+The record never contains another complete report. Report destruction releases an unused detached record, while its
+original owner's discharge cannot reclaim it. Ordinary catches and allocation-failure construction do not acquire a new
+record. Record backing and message backing retain their own provider dependencies through their final release callbacks.
+
 The message representation distinguishes immutable retained bytes from owned backing with its release operation. Retained
 provider bytes keep the provider alive. Owned backing transfers exactly once and is released by its owning provider.
 Acquiring a provider dependency uses already available ownership state and cannot allocate during construction or transfer.
