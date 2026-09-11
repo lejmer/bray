@@ -18,6 +18,17 @@ use crate::{
     TaskControlBlock, TaskRegistration, current_task_execution_context,
 };
 
+pub(crate) fn cleanup_capacity_binding() -> bray_runtime_abi::NativeCleanupCapacityBinding {
+    let mut binding = bray_runtime_abi::NativeCleanupCapacityBinding::empty();
+
+    assert!(
+        crate::native::implementation::bray_runtime_cleanup_capacity_domain_formation(&mut binding)
+            .is_success()
+    );
+
+    binding
+}
+
 thread_local! {
     static FAIL_ALLOCATION_AFTER: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
 }

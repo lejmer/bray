@@ -418,9 +418,18 @@ fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRunt
         MirOperationKind::Async(MirAsyncOperation::StartTask {
             allocation, start, ..
         }) => [Some(*allocation), Some(*start), None, None],
-        MirOperationKind::Host(MirHostOperation::BeginExecution { startup, control }) => {
-            [Some(*startup), Some(*control), None, None]
-        }
+        MirOperationKind::Host(MirHostOperation::BeginExecution { startup, control }) => [
+            *startup,
+            Some(*control),
+            Some(MirRuntimeReference::new(
+                bray_runtime_interface::RuntimeAbiRole::CleanupCapacityDomainFormation,
+                control.abi_version(),
+            )),
+            Some(MirRuntimeReference::new(
+                bray_runtime_interface::RuntimeAbiRole::CleanupCapacityDomainRelease,
+                control.abi_version(),
+            )),
+        ],
         MirOperationKind::Host(MirHostOperation::ExecuteRoot { runtime, .. }) => [
             Some(*runtime),
             Some(MirRuntimeReference::new(

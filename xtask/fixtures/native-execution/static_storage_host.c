@@ -3,6 +3,8 @@
 
 #include "static_storage_host.h"
 
+static CleanupCapacityBinding capacity = {0};
+
 #if defined(_WIN32)
 #include <windows.h>
 typedef HMODULE native_library;
@@ -145,7 +147,7 @@ static uintptr_t find_product_value_address(
 
 static int run_thread_check(thread_context *context)
 {
-    ProductHostObservation attached = context->control(PRODUCT_HOST_ATTACH_CURRENT_THREAD);
+    ProductHostObservation attached = context->control(PRODUCT_HOST_ATTACH_CURRENT_THREAD, &capacity);
 
     if (!observation_is(attached, 0, 1))
         return 1;
@@ -160,7 +162,7 @@ static int run_thread_check(thread_context *context)
     if (*(int32_t *)first != 42 || *(int32_t *)cleanup != 192837465)
         return 3;
 
-    ProductHostObservation detached = context->control(PRODUCT_HOST_DETACH_CURRENT_THREAD);
+    ProductHostObservation detached = context->control(PRODUCT_HOST_DETACH_CURRENT_THREAD, &capacity);
 
     if (!observation_is(detached, 0, 1) || detached.cleanup_incidents != 0)
         return 4;
@@ -190,7 +192,7 @@ static int check_thread_static(
     static_access async_access
 )
 {
-    ProductHostObservation attached = control(PRODUCT_HOST_ATTACH_CURRENT_THREAD);
+    ProductHostObservation attached = control(PRODUCT_HOST_ATTACH_CURRENT_THREAD, &capacity);
 
     if (!observation_is(attached, 0, 1))
         return 20;
@@ -232,10 +234,10 @@ static int check_thread_static(
     if (context.result != 0 || *(int32_t *)first != 99)
         return 24 + context.result;
 
-    if (!observation_is(control(PRODUCT_HOST_DETACH_CURRENT_THREAD), 0, 1))
+    if (!observation_is(control(PRODUCT_HOST_DETACH_CURRENT_THREAD, &capacity), 0, 1))
         return 30;
 
-    if (!observation_is(control(PRODUCT_HOST_ATTACH_CURRENT_THREAD), 0, 1))
+    if (!observation_is(control(PRODUCT_HOST_ATTACH_CURRENT_THREAD, &capacity), 0, 1))
         return 31;
 
     uintptr_t reattached = access();
@@ -243,7 +245,7 @@ static int check_thread_static(
     if (reattached == 0 || *(int32_t *)reattached != 42)
         return 32;
 
-    if (!observation_is(control(PRODUCT_HOST_DETACH_CURRENT_THREAD), 0, 1))
+    if (!observation_is(control(PRODUCT_HOST_DETACH_CURRENT_THREAD, &capacity), 0, 1))
         return 33;
 
     return 0;
@@ -263,8 +265,8 @@ static int check_product_scoped_thread_statics(
         return 34;
 
     if (
-        !observation_is(first_control(PRODUCT_HOST_ATTACH_CURRENT_THREAD), 0, 1) ||
-        !observation_is(second_control(PRODUCT_HOST_ATTACH_CURRENT_THREAD), 0, 1)
+        !observation_is(first_control(PRODUCT_HOST_ATTACH_CURRENT_THREAD, &capacity), 0, 1) ||
+        !observation_is(second_control(PRODUCT_HOST_ATTACH_CURRENT_THREAD, &capacity), 0, 1)
     )
         return 35;
 
@@ -277,13 +279,13 @@ static int check_product_scoped_thread_statics(
     *(int32_t *)first = 71;
     *(int32_t *)second = 72;
 
-    if (!observation_is(first_control(PRODUCT_HOST_DETACH_CURRENT_THREAD), 0, 1))
+    if (!observation_is(first_control(PRODUCT_HOST_DETACH_CURRENT_THREAD, &capacity), 0, 1))
         return 37;
 
     if (first_access() != 0 || second_access() != second || *(int32_t *)second != 72)
         return 38;
 
-    if (!observation_is(second_control(PRODUCT_HOST_DETACH_CURRENT_THREAD), 0, 1))
+    if (!observation_is(second_control(PRODUCT_HOST_DETACH_CURRENT_THREAD, &capacity), 0, 1))
         return 39;
 
     return 0;
@@ -296,7 +298,7 @@ static int exercise_host(
     uintptr_t *representative_address
 )
 {
-    ProductHostObservation formed = control(PRODUCT_HOST_FORM);
+    ProductHostObservation formed = control(PRODUCT_HOST_FORM, &capacity);
 
     if (!observation_is(formed, 0, 1) || descriptor->abi_version != 1)
         return 40;
@@ -404,22 +406,22 @@ static int exercise_host(
     if (thread_result != 0)
         return thread_result;
 
-    if (!observation_is(control(PRODUCT_HOST_ACQUIRE_ENTRY), 0, 1))
+    if (!observation_is(control(PRODUCT_HOST_ACQUIRE_ENTRY, &capacity), 0, 1))
         return 50;
 
-    if (!observation_is(control(PRODUCT_HOST_ACQUIRE_EXTERNAL), 0, 1))
+    if (!observation_is(control(PRODUCT_HOST_ACQUIRE_EXTERNAL, &capacity), 0, 1))
         return 51;
 
-    if (!observation_is(control(PRODUCT_HOST_CLOSE), 1, 2))
+    if (!observation_is(control(PRODUCT_HOST_CLOSE, &capacity), 1, 2))
         return 52;
 
-    if (control(PRODUCT_HOST_ACQUIRE_ENTRY).status != 2)
+    if (control(PRODUCT_HOST_ACQUIRE_ENTRY, &capacity).status != 2)
         return 53;
 
-    if (!observation_is(control(PRODUCT_HOST_RELEASE_ENTRY), 1, 2))
+    if (!observation_is(control(PRODUCT_HOST_RELEASE_ENTRY, &capacity), 1, 2))
         return 54;
 
-    ProductHostObservation closed = control(PRODUCT_HOST_RELEASE_EXTERNAL);
+    ProductHostObservation closed = control(PRODUCT_HOST_RELEASE_EXTERNAL, &capacity);
 
     if (
         !observation_is(closed, 4, 3) ||
@@ -448,7 +450,7 @@ static int exercise_host(
     if (cleaned_probe != 0)
         return 74;
 
-    ProductHostObservation formed_again = control(PRODUCT_HOST_FORM);
+    ProductHostObservation formed_again = control(PRODUCT_HOST_FORM, &capacity);
 
     if (
         !observation_is(formed_again, 4, 3) ||
@@ -482,6 +484,9 @@ int main(int argument_count, char **arguments)
     if (argument_count != 6)
         return 60;
 
+    if (bray_runtime_cleanup_capacity_domain_formation(&capacity) != 0)
+        return 76;
+
     native_library first_library = open_library(arguments[1]);
     native_library second_library = open_library(arguments[2]);
 
@@ -512,7 +517,7 @@ int main(int argument_count, char **arguments)
     )
         return 68;
 
-    if (!observation_is(second_control(PRODUCT_HOST_FORM), 0, 1))
+    if (!observation_is(second_control(PRODUCT_HOST_FORM, &capacity), 0, 1))
         return 63;
 
     int scoped_thread_result = check_product_scoped_thread_statics(
@@ -538,7 +543,7 @@ int main(int argument_count, char **arguments)
     if (first_result != 0)
         return first_result;
 
-    ProductHostObservation second_open = second_control(PRODUCT_HOST_OBSERVE);
+    ProductHostObservation second_open = second_control(PRODUCT_HOST_OBSERVE, &capacity);
 
     if (
         !observation_is(second_open, 0, 1) ||
@@ -565,7 +570,7 @@ int main(int argument_count, char **arguments)
     )
         return 65;
 
-    ProductHostObservation second_closed = second_control(PRODUCT_HOST_CLOSE);
+    ProductHostObservation second_closed = second_control(PRODUCT_HOST_CLOSE, &capacity);
 
     if (
         !observation_is(second_closed, 4, 3) ||
@@ -573,6 +578,8 @@ int main(int argument_count, char **arguments)
         second_closed.cleanup_incidents != 1
     )
         return 66;
+
+    bray_runtime_cleanup_capacity_domain_release(&capacity);
 
     if (close_library(first_library) != 0 || close_library(second_library) != 0)
         return 67;

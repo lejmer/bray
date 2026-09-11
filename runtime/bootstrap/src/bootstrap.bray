@@ -307,6 +307,7 @@ extern trusted internal func substrate_shutdown() -> u32
 extern trusted internal func substrate_product_host_control(
     pos descriptor: RawPointer<u8>,
     pos operation: u32,
+    pos capacity: RawPointer<u8>,
 ) -> ProductHostObservation
     uses(foreign_call);
 
@@ -314,10 +315,11 @@ extern trusted internal func substrate_product_host_control(
 trusted internal func product_host_control(
     pos descriptor: RawPointer<u8>,
     pos operation: u32,
+    pos capacity: RawPointer<u8>,
 ) -> ProductHostObservation
     uses(foreign_call)
 {
-    return trusted substrate_product_host_control(descriptor, operation = operation);
+    return trusted substrate_product_host_control(descriptor, operation = operation, capacity = capacity);
 }
 
 @link(name = "bray_runtime_host", kind = system)

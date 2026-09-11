@@ -21,6 +21,7 @@ mod task_outcome;
 mod value_cleanup;
 mod workers;
 
+pub(crate) use export::contain_status;
 pub(crate) use frame::inactive_frame_output;
 pub(crate) use incident::with_cleanup_incident_owner;
 pub(crate) use state::thread_attachment_status;

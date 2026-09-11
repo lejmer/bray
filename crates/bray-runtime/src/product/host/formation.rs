@@ -8,6 +8,7 @@ use super::model::{ProductHost, host_status, product_hosts, product_key};
 
 pub(super) fn ensure_formed(
     descriptor: &NativeProductHostDescriptor,
+    capacity: Option<&bray_runtime_abi::NativeCleanupCapacityBinding>,
     retain: impl FnOnce() -> Result<
         Option<crate::product::RetainedProductExecution>,
         bray_runtime_abi::NativeRuntimeStatus,
@@ -19,14 +20,48 @@ pub(super) fn ensure_formed(
         .lock()
         .map_err(|_| unformed(NativeProductHostStatus::RUNTIME_FAILURE))?;
 
-    if hosts.contains_key(&product) {
-        return Ok(());
+    if let Some(host) = hosts.get(&product) {
+        if host.capacity.is_empty() && host.state != NativeProductHostState::RETIRING {
+            return Err(host.observation(super::operations::status_for_state(host)));
+        }
+
+        return match capacity {
+            Some(capacity)
+                if !host.capacity.is_empty()
+                    && (!capacity.is_valid() || !host.capacity.same_domain(capacity)) =>
+            {
+                Err(host.observation(NativeProductHostStatus::INVALID_ARGUMENT))
+            }
+            _ => Ok(()),
+        };
     }
 
     // Descriptor callbacks and execution retention must not hold the shared host registry.
     drop(hosts);
 
+    let capacity = capacity
+        .filter(|capacity| capacity.is_valid())
+        .ok_or_else(|| unformed(NativeProductHostStatus::INVALID_ARGUMENT))?;
+
+    // The host owns its service reference independently of the caller.
+    let capacity = capacity.clone();
+
     let (statics, thread_statics) = read_statics(descriptor).map_err(unformed)?;
+
+    let mut registration = bray_runtime_abi::NativeProviderRetirement::empty();
+
+    let status = capacity.register_provider(
+        product,
+        super::retention::teardown_product,
+        &mut registration,
+    );
+
+    if status != bray_runtime_abi::NativeRuntimeStatus::SUCCESS {
+        return Err(unformed(host_status(status)));
+    }
+
+    let retirement = crate::allocation::allocate_shared(registration)
+        .map_err(|_| unformed(NativeProductHostStatus::ALLOCATION_FAILURE))?;
 
     let cleanup_thread = bray_platform::RuntimeThreadReservation::reserve()
         .map_err(|error| unformed(host_status(crate::native::thread_attachment_status(error))))?;
@@ -53,13 +88,14 @@ pub(super) fn ensure_formed(
 
     let host = ProductHost {
         identity: descriptor.identity(),
+        capacity,
         // Keep a losing insertion releasable after the registry lock is dropped.
         execution: execution.clone(),
         cleanup_driver,
         state: NativeProductHostState::OPEN,
         active_entries: 0,
         external_roots: 0,
-        retirement_roots: 0,
+        retirement: Some(retirement),
         thread_attachments: 0,
         worker_attachments: 0,
         initialized_statics,
@@ -90,8 +126,12 @@ fn insert_host(product: usize, host: ProductHost) -> Result<bool, NativeProductH
         .lock()
         .map_err(|_| NativeProductHostStatus::RUNTIME_FAILURE)?;
 
-    if hosts.contains_key(&product) {
-        return Ok(false);
+    if let Some(existing) = hosts.get(&product) {
+        return if existing.capacity.same_domain(&host.capacity) {
+            Ok(false)
+        } else {
+            Err(NativeProductHostStatus::INVALID_ARGUMENT)
+        };
     }
 
     crate::allocation::reserve_map_entries(&mut hosts, 1)

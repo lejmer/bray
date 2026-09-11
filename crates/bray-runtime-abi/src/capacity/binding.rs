@@ -1,6 +1,8 @@
 use std::num::NonZeroUsize;
 
-use crate::{NativeCleanupStorage, NativeProviderRetention, NativeRuntimeStatus};
+use crate::{
+    NativeCleanupStorage, NativeProviderRetention, NativeProviderRetirement, NativeRuntimeStatus,
+};
 
 /// Supplies one action descriptor by ordinal during admission only.
 pub type NativeCleanupCapacityMetadataProvider =
@@ -61,6 +63,12 @@ pub struct NativeCleanupCapacityCallbacks {
         &mut NativeCleanupStorage,
     ) -> NativeRuntimeStatus,
     discharge: extern "C" fn(usize, &NativeCleanupCapacityMetadata) -> NativeRuntimeStatus,
+    register_provider: extern "C" fn(
+        usize,
+        usize,
+        extern "C" fn(usize) -> NativeRuntimeStatus,
+        &mut NativeProviderRetirement,
+    ) -> NativeRuntimeStatus,
 }
 
 impl NativeCleanupCapacityCallbacks {
@@ -78,6 +86,12 @@ impl NativeCleanupCapacityCallbacks {
             &mut NativeCleanupStorage,
         ) -> NativeRuntimeStatus,
         discharge: extern "C" fn(usize, &NativeCleanupCapacityMetadata) -> NativeRuntimeStatus,
+        register_provider: extern "C" fn(
+            usize,
+            usize,
+            extern "C" fn(usize) -> NativeRuntimeStatus,
+            &mut NativeProviderRetirement,
+        ) -> NativeRuntimeStatus,
     ) -> Self {
         Self {
             version: 1,
@@ -85,6 +99,7 @@ impl NativeCleanupCapacityCallbacks {
             admit,
             activate,
             discharge,
+            register_provider,
         }
     }
 }
@@ -178,6 +193,24 @@ impl NativeCleanupCapacityBinding {
         (callbacks.activate)(self.context, metadata, destination)
     }
 
+    /// Registers provider teardown with the resident service before references escape.
+    pub fn register_provider(
+        &self,
+        provider_context: usize,
+        teardown: extern "C" fn(usize) -> NativeRuntimeStatus,
+        destination: &mut NativeProviderRetirement,
+    ) -> NativeRuntimeStatus {
+        let Some(callbacks) = self.callbacks.filter(|_| self.is_valid()) else {
+            return NativeRuntimeStatus::INVALID_ARGUMENT;
+        };
+
+        if !destination.is_empty() {
+            return NativeRuntimeStatus::INVALID_ARGUMENT;
+        }
+
+        (callbacks.register_provider)(self.context, provider_context, teardown, destination)
+    }
+
     /// Discharges one owner's unused allowance for the action.
     pub fn discharge(&self, metadata: &NativeCleanupCapacityMetadata) -> NativeRuntimeStatus {
         let Some(callbacks) = self.callbacks.filter(|_| self.is_valid()) else {
@@ -205,12 +238,13 @@ mod tests {
             prepare: 32,
         });
 
-        assert_abi_layout!(NativeCleanupCapacityCallbacks, size: 8 + 3 * word, align: word, fields: {
+        assert_abi_layout!(NativeCleanupCapacityCallbacks, size: 8 + 4 * word, align: word, fields: {
             version: 0,
             reserved: 4,
             admit: 8,
             activate: 8 + word,
             discharge: 8 + 2 * word,
+            register_provider: 8 + 3 * word,
         });
 
         assert_abi_layout!(NativeCleanupCapacityBinding, size: 4 * word, align: word, fields: {

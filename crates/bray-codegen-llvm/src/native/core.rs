@@ -715,7 +715,7 @@ mod tests {
             .expect("product host role has a native declaration");
 
             assert_eq!(function.get_type().get_return_type(), None, "{native:?}");
-            assert_eq!(function.count_params(), 3, "{native:?}");
+            assert_eq!(function.count_params(), 4, "{native:?}");
 
             assert!(
                 function

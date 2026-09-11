@@ -88,15 +88,15 @@ pub fn lower_executable_host(
     if contract
         .requirements()
         .requires_role(RuntimeAbiRole::ProductHostControl)
-        && contract
-            .requirements()
-            .requires_role(RuntimeAbiRole::MainThreadLaneStartup)
     {
         builder.push_operation(
             entry,
             source.clone(),
             MirOperationKind::Host(MirHostOperation::BeginExecution {
-                startup: runtime_reference(RuntimeAbiRole::MainThreadLaneStartup, runtime_abi),
+                startup: contract
+                    .requirements()
+                    .requires_role(RuntimeAbiRole::MainThreadLaneStartup)
+                    .then(|| runtime_reference(RuntimeAbiRole::MainThreadLaneStartup, runtime_abi)),
                 control: runtime_reference(RuntimeAbiRole::ProductHostControl, runtime_abi),
             }),
             None,

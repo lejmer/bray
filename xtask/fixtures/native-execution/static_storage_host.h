@@ -19,6 +19,20 @@ enum product_host_operation
     PRODUCT_HOST_DETACH_CURRENT_THREAD = 10,
 };
 
-typedef ProductHostObservation (*product_host_control)(uint32_t operation);
+typedef struct
+{
+    uintptr_t context;
+    const void *callbacks;
+    uintptr_t retention_context;
+    const void *retention_callbacks;
+} CleanupCapacityBinding;
+
+extern uint32_t bray_runtime_cleanup_capacity_domain_formation(CleanupCapacityBinding *binding);
+extern void bray_runtime_cleanup_capacity_domain_release(CleanupCapacityBinding *binding);
+
+typedef ProductHostObservation (*product_host_control)(
+    uint32_t operation,
+    const CleanupCapacityBinding *capacity
+);
 
 #endif

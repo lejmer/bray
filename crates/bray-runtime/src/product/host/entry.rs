@@ -56,7 +56,10 @@ mod tests {
 
         let product = super::super::model::product_key(&DESCRIPTOR);
         assert!(super::ProductEntry::acquire(product).is_err());
-        let control = |operation| super::super::operations::control(&DESCRIPTOR, operation);
+        let capacity = crate::test_support::cleanup_capacity_binding();
+
+        let control =
+            |operation| super::super::operations::control(&DESCRIPTOR, operation, Some(&capacity));
 
         assert_eq!(
             control(NativeProductHostOperation::FORM).state(),

@@ -14,7 +14,7 @@ use crate::native::export::contain_status;
 // Handles route calls to explicitly formed services. This registry selects no default domain.
 static SERVICES: OnceLock<Mutex<HashMap<usize, Service>>> = OnceLock::new();
 static OPERATIONS: NativeCleanupCapacityCallbacks =
-    NativeCleanupCapacityCallbacks::new(admit, activate, discharge);
+    NativeCleanupCapacityCallbacks::new(admit, activate, discharge, register_provider);
 static RETENTION: NativeProviderRetentionCallbacks =
     NativeProviderRetentionCallbacks::new(retain, release);
 
@@ -29,8 +29,9 @@ fn services() -> &'static Mutex<HashMap<usize, Service>> {
 
 /// Creates one host-owned service before providers exchange ownership through its binding.
 ///
-/// The host must keep this runtime image loaded until every binding and active service call
-/// has ended. Product closure does not release that independent image obligation.
+/// The host must keep this runtime image loaded until every binding, provider registration,
+/// retained provider reference, and active service call has ended. Product closure does not
+/// release that independent image obligation.
 pub extern "C" fn bray_runtime_cleanup_capacity_domain_formation(
     destination: &mut NativeCleanupCapacityBinding,
 ) -> NativeRuntimeStatus {
@@ -151,6 +152,20 @@ fn admit_bundle(
     }
 
     domain.admit(prepared)
+}
+
+extern "C" fn register_provider(
+    context: usize,
+    provider: usize,
+    teardown: extern "C" fn(usize) -> NativeRuntimeStatus,
+    destination: &mut bray_runtime_abi::NativeProviderRetirement,
+) -> NativeRuntimeStatus {
+    contain_status(|| {
+        domain(context)
+            .and_then(|domain| super::retirement::register(domain, provider, teardown, destination))
+            .err()
+            .unwrap_or(NativeRuntimeStatus::SUCCESS)
+    })
 }
 
 extern "C" fn activate(

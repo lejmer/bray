@@ -32,8 +32,9 @@ native_export! {
     pub extern "C" fn bray_runtime_product_host_control(
         descriptor: &NativeProductHostDescriptor,
         operation: NativeProductHostOperation,
+        capacity: Option<&bray_runtime_abi::NativeCleanupCapacityBinding>,
     ) -> NativeProductHostObservation {
-        catch_unwind(AssertUnwindSafe(|| crate::product::control(descriptor, operation)))
+        catch_unwind(AssertUnwindSafe(|| crate::product::control(descriptor, operation, capacity)))
             .unwrap_or_else(|_| NativeProductHostObservation::new(
                 bray_runtime_abi::NativeProductHostStatus::RUNTIME_FAILURE,
                 bray_runtime_abi::NativeProductHostState::FAILED,
@@ -529,7 +530,7 @@ native_export! {
     }
 }
 
-pub(super) fn contain_status(
+pub(crate) fn contain_status(
     callback: impl FnOnce() -> NativeRuntimeStatus,
 ) -> NativeRuntimeStatus {
     catch_unwind(AssertUnwindSafe(callback)).unwrap_or(NativeRuntimeStatus::PANICKED)

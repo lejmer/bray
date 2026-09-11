@@ -53,9 +53,6 @@ fn validate_host_sequence(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
     let preceding = if host
         .requirements()
         .requires_role(bray_runtime_interface::RuntimeAbiRole::ProductHostControl)
-        && host
-            .requirements()
-            .requires_role(bray_runtime_interface::RuntimeAbiRole::MainThreadLaneStartup)
     {
         let Some((
             crate::MirOperationKind::Host(crate::MirHostOperation::BeginExecution { .. }),

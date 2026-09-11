@@ -190,9 +190,9 @@ pub enum MirAsyncOperation {
 /// Explicit compiler-generated product-host operation.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum MirHostOperation {
-    /// Starts the runtime and admits the product execution before static materialization.
+    /// Admits product execution and starts a scheduler only when the host requires it.
     BeginExecution {
-        startup: MirRuntimeReference,
+        startup: Option<MirRuntimeReference>,
         control: MirRuntimeReference,
     },
     /// Materialize one demanded static before executing source entry code.

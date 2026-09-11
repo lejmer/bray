@@ -153,7 +153,7 @@ fn audit_library_host(root: &Path, target: NativeTarget, runtime: &Path) -> Resu
     std::fs::copy(&first_library, &second_copy)
         .map_err(|error| format!("could not copy second static-host library: {error}"))?;
 
-    let harness = compile_host(root, target, loaded.path())?;
+    let harness = compile_host(root, target, runtime, loaded.path())?;
     let mut command = Command::new(&harness);
 
     command.args([&first_copy, &second_copy]);
@@ -200,7 +200,12 @@ fn build_library(
     crate::command::require_success(command, "building the native static-host library").map(|_| ())
 }
 
-fn compile_host(root: &Path, target: NativeTarget, output: &Path) -> Result<PathBuf, String> {
+fn compile_host(
+    root: &Path,
+    target: NativeTarget,
+    runtime: &Path,
+    output: &Path,
+) -> Result<PathBuf, String> {
     let compiler = llvm_tool(
         root,
         bray_diagnostics::DiagnosticLlvmToolRole::CompilerDriver,
@@ -232,6 +237,8 @@ fn compile_host(root: &Path, target: NativeTarget, output: &Path) -> Result<Path
     ) {
         command.arg("-pthread");
     }
+
+    link_host_runtime(&mut command, runtime)?;
 
     crate::command::require_success(command, "compiling the native static-host harness")?;
 
@@ -266,22 +273,7 @@ fn compile_archive_host(
         .arg(root.join(STATIC_STORAGE_ARCHIVE_HOST))
         .arg(archive);
 
-    for runtime_archive in runtime_archives(runtime)? {
-        command.arg(runtime_archive);
-    }
-
-    for requirement in runtime_native_links(runtime)? {
-        match requirement.kind() {
-            bray_symbols::NativeLinkKind::Framework => {
-                command.arg("-framework").arg(requirement.name());
-            }
-            bray_symbols::NativeLinkKind::Dynamic
-            | bray_symbols::NativeLinkKind::Static
-            | bray_symbols::NativeLinkKind::System => {
-                command.arg(format!("-l{}", requirement.name()));
-            }
-        }
-    }
+    link_host_runtime(&mut command, runtime)?;
 
     command.arg("-o").arg(&executable);
 
@@ -300,6 +292,27 @@ fn compile_archive_host(
     crate::command::require_success(command, "linking the native static-archive host")?;
 
     Ok(executable)
+}
+
+fn link_host_runtime(command: &mut Command, runtime: &Path) -> Result<(), String> {
+    for runtime_archive in runtime_archives(runtime)? {
+        command.arg(runtime_archive);
+    }
+
+    for requirement in runtime_native_links(runtime)? {
+        match requirement.kind() {
+            bray_symbols::NativeLinkKind::Framework => {
+                command.arg("-framework").arg(requirement.name());
+            }
+            bray_symbols::NativeLinkKind::Dynamic
+            | bray_symbols::NativeLinkKind::Static
+            | bray_symbols::NativeLinkKind::System => {
+                command.arg(format!("-l{}", requirement.name()));
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn runtime_archives(runtime: &Path) -> Result<Vec<PathBuf>, String> {

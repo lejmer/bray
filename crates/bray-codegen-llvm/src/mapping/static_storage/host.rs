@@ -362,7 +362,7 @@ pub(super) fn declare_product_host<'context>(
     builder.position_at_end(entry);
 
     let operation = control
-        .get_last_param()
+        .get_nth_param(u32::from(result.is_some()))
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
     let mut arguments = Vec::new();
@@ -378,6 +378,13 @@ pub(super) fn declare_product_host<'context>(
 
     arguments.push(descriptor.as_pointer_value().into());
     arguments.push(operation.into());
+
+    arguments.push(
+        control
+            .get_last_param()
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?
+            .into(),
+    );
 
     let call = builder
         .build_call(runtime, &arguments, "product.host.observation")

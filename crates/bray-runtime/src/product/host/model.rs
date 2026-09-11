@@ -21,12 +21,13 @@ thread_local! {
 
 pub(super) struct ProductHost {
     pub(super) identity: NativeProductIdentity,
+    pub(super) capacity: bray_runtime_abi::NativeCleanupCapacityBinding,
     pub(super) execution: Option<crate::product::RetainedProductExecution>,
     pub(super) cleanup_driver: Option<Box<dyn crate::product::ProductCleanup>>,
     pub(super) state: NativeProductHostState,
     pub(super) active_entries: usize,
     pub(super) external_roots: usize,
-    pub(super) retirement_roots: usize,
+    pub(super) retirement: Option<triomphe::Arc<bray_runtime_abi::NativeProviderRetirement>>,
     pub(super) thread_attachments: usize,
     pub(super) worker_attachments: usize,
     pub(super) initialized_statics: usize,
@@ -50,7 +51,9 @@ impl ProductHost {
             self.state,
             self.active_entries,
             self.external_roots,
-            self.retirement_roots,
+            self.retirement
+                .as_ref()
+                .map_or(0, |registration| registration.observe().references()),
             self.thread_attachments,
             self.initialized_statics,
             self.cleaned_statics,

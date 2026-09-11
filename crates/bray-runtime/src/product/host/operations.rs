@@ -17,13 +17,20 @@ use super::model::{
 pub(crate) fn control(
     descriptor: &NativeProductHostDescriptor,
     operation: NativeProductHostOperation,
+    capacity: Option<&bray_runtime_abi::NativeCleanupCapacityBinding>,
 ) -> NativeProductHostObservation {
-    control_with_execution(descriptor, operation, crate::product::retain_execution)
+    control_with_execution(
+        descriptor,
+        operation,
+        capacity,
+        crate::product::retain_execution,
+    )
 }
 
 pub(crate) fn control_with_execution(
     descriptor: &NativeProductHostDescriptor,
     operation: NativeProductHostOperation,
+    capacity: Option<&bray_runtime_abi::NativeCleanupCapacityBinding>,
     retain: fn() -> Result<Option<crate::product::RetainedProductExecution>, NativeRuntimeStatus>,
 ) -> NativeProductHostObservation {
     if !operation.is_known() {
@@ -32,10 +39,19 @@ pub(crate) fn control_with_execution(
 
     let product = product_key(descriptor);
 
-    if let Err(status) = ensure_formed(descriptor, retain) {
+    if let Err(status) = ensure_formed(descriptor, capacity, retain) {
         return status;
     }
 
+    let observation = control_formed(product, operation);
+
+    super::retention::observe_retirement(product).unwrap_or(observation)
+}
+
+fn control_formed(
+    product: usize,
+    operation: NativeProductHostOperation,
+) -> NativeProductHostObservation {
     if operation == NativeProductHostOperation::ATTACH_CURRENT_THREAD {
         return super::super::attachment::attach_current_thread(product);
     }
@@ -82,7 +98,7 @@ pub(crate) fn thread_attachment_identity(descriptor: &'static NativeProductHostD
         return 0;
     }
 
-    if ensure_formed(descriptor, crate::product::retain_execution).is_err() {
+    if ensure_formed(descriptor, None, crate::product::retain_execution).is_err() {
         return 0;
     }
 
@@ -130,9 +146,11 @@ pub(crate) fn register_thread_static(
         return NativeRuntimeStatus::NOT_INITIALIZED;
     }
 
-    if let Err(observation) =
-        ensure_formed(registration.product(), crate::product::retain_execution)
-    {
+    if let Err(observation) = ensure_formed(
+        registration.product(),
+        None,
+        crate::product::retain_execution,
+    ) {
         return runtime_status(observation.status());
     }
 
@@ -485,7 +503,7 @@ fn finish_cleanup(mut cleanup: PendingCleanup) -> NativeProductHostObservation {
     host.state = NativeProductHostState::RETIRING;
     drop(hosts);
 
-    super::retention::finish_retirement(product)
+    super::retention::begin_retirement(product)
 }
 
 fn static_entry(product: usize, identity: NativeStaticIdentity) -> Option<StaticCleanup> {
@@ -785,7 +803,71 @@ mod tests {
     }
 
     #[test]
+    fn product_formation_requires_one_valid_capacity_domain() {
+        let capacity = crate::test_support::cleanup_capacity_binding();
+        let other = crate::test_support::cleanup_capacity_binding();
+
+        let descriptor = NativeProductHostDescriptor::new(
+            NativeProductIdentity::new([221; 32]),
+            delayed_entry,
+            0,
+        );
+
+        assert_eq!(
+            super::control(&descriptor, NativeProductHostOperation::FORM, None).status(),
+            NativeProductHostStatus::INVALID_ARGUMENT
+        );
+
+        assert_eq!(
+            super::control(
+                &descriptor,
+                NativeProductHostOperation::FORM,
+                Some(&bray_runtime_abi::NativeCleanupCapacityBinding::empty())
+            )
+            .status(),
+            NativeProductHostStatus::INVALID_ARGUMENT
+        );
+
+        assert_eq!(
+            super::control(
+                &descriptor,
+                NativeProductHostOperation::FORM,
+                Some(&capacity)
+            )
+            .status(),
+            NativeProductHostStatus::SUCCESS
+        );
+
+        assert_eq!(
+            super::control(
+                &descriptor,
+                NativeProductHostOperation::OBSERVE,
+                Some(&other)
+            )
+            .status(),
+            NativeProductHostStatus::INVALID_ARGUMENT
+        );
+
+        assert_eq!(
+            super::control(&descriptor, NativeProductHostOperation::OBSERVE, None).state(),
+            NativeProductHostState::OPEN
+        );
+
+        assert_eq!(
+            super::control(
+                &descriptor,
+                NativeProductHostOperation::CLOSE,
+                Some(&capacity)
+            )
+            .state(),
+            NativeProductHostState::CLOSED
+        );
+    }
+
+    #[test]
     fn admitted_product_cleanup_attaches_a_foreign_thread_and_drains_it_before_closure_returns() {
+        let capacity = crate::test_support::cleanup_capacity_binding();
+
         extern "C-unwind" fn thread_exit() {
             append_thread_cleanup(3);
         }
@@ -828,7 +910,12 @@ mod tests {
         ));
 
         assert_eq!(
-            control(descriptor, NativeProductHostOperation::FORM).status(),
+            control(
+                descriptor,
+                NativeProductHostOperation::FORM,
+                Some(&capacity)
+            )
+            .status(),
             NativeProductHostStatus::SUCCESS
         );
 
@@ -837,7 +924,7 @@ mod tests {
             THREAD_CLEANUP_ORDER.set(0);
 
             let closed = crate::test_support::with_allocation_failure(|| {
-                control(descriptor, NativeProductHostOperation::CLOSE)
+                control(descriptor, NativeProductHostOperation::CLOSE, None)
             });
 
             assert_eq!(closed.state(), NativeProductHostState::CLOSED);
@@ -847,7 +934,7 @@ mod tests {
             assert!(bray_platform::current_runtime_thread().is_none());
 
             assert_eq!(
-                control(descriptor, NativeProductHostOperation::CLOSE).state(),
+                control(descriptor, NativeProductHostOperation::CLOSE, None).state(),
                 NativeProductHostState::CLOSED
             );
 
@@ -859,6 +946,8 @@ mod tests {
 
     #[test]
     fn product_closure_transfers_admitted_storage_and_preserves_cleanup_order() {
+        let capacity = crate::test_support::cleanup_capacity_binding();
+
         extern "C" fn mixed_entry(index: usize) -> NativeStaticHostEntry {
             let (order, duration, start): (
                 u64,
@@ -898,7 +987,12 @@ mod tests {
         )));
 
         assert_eq!(
-            control(descriptor, NativeProductHostOperation::FORM).status(),
+            control(
+                descriptor,
+                NativeProductHostOperation::FORM,
+                Some(&capacity)
+            )
+            .status(),
             NativeProductHostStatus::SUCCESS
         );
 
@@ -931,14 +1025,17 @@ mod tests {
 
         assert_eq!(pending.statics.capacity(), capacity);
         assert_eq!(pending.statics.len(), 2);
-        let closed = super::finish_cleanup(pending);
+        let retiring = super::finish_cleanup(pending);
+        assert_eq!(retiring.state(), NativeProductHostState::RETIRING);
+
+        let closed = control(descriptor, NativeProductHostOperation::OBSERVE, None);
         assert_eq!(closed.state(), NativeProductHostState::CLOSED);
         assert_eq!(closed.cleaned_statics(), 2);
         assert_eq!(closed.cleanup_incidents(), 0);
         assert_eq!(THREAD_CLEANUP_ORDER.get(), 12);
 
         assert_eq!(
-            control(descriptor, NativeProductHostOperation::CLOSE).cleaned_statics(),
+            control(descriptor, NativeProductHostOperation::CLOSE, None).cleaned_statics(),
             2
         );
 
@@ -1025,6 +1122,7 @@ mod tests {
 
     #[test]
     fn host_formation_requires_execution_only_for_asynchronous_cleanup() {
+        let capacity = crate::test_support::cleanup_capacity_binding();
         use bray_runtime_abi::{NativeFrameMetadata, NativeRuntimeStatus};
 
         extern "C" fn metadata() -> Option<&'static NativeFrameMetadata> {
@@ -1062,7 +1160,7 @@ mod tests {
             )
         }
 
-        std::thread::spawn(|| {
+        std::thread::spawn(move || {
             assert!(crate::product::retain_execution().unwrap().is_none());
 
             static SYNCHRONOUS: NativeProductHostDescriptor = NativeProductHostDescriptor::new(
@@ -1072,7 +1170,12 @@ mod tests {
             );
 
             assert_eq!(
-                control(&SYNCHRONOUS, NativeProductHostOperation::FORM).status(),
+                control(
+                    &SYNCHRONOUS,
+                    NativeProductHostOperation::FORM,
+                    Some(&capacity)
+                )
+                .status(),
                 NativeProductHostStatus::SUCCESS
             );
 
@@ -1109,7 +1212,8 @@ mod tests {
                 );
 
                 assert_eq!(
-                    control(&SYNCHRONOUS, NativeProductHostOperation::OBSERVE).thread_attachments(),
+                    control(&SYNCHRONOUS, NativeProductHostOperation::OBSERVE, None)
+                        .thread_attachments(),
                     0
                 );
             }
@@ -1117,7 +1221,7 @@ mod tests {
             drop(scope);
 
             assert_eq!(
-                control(&SYNCHRONOUS, NativeProductHostOperation::CLOSE).state(),
+                control(&SYNCHRONOUS, NativeProductHostOperation::CLOSE, None).state(),
                 NativeProductHostState::CLOSED
             );
 
@@ -1129,7 +1233,11 @@ mod tests {
                 1,
             );
 
-            let rejected = control(&asynchronous, NativeProductHostOperation::FORM);
+            let rejected = control(
+                &asynchronous,
+                NativeProductHostOperation::FORM,
+                Some(&capacity),
+            );
 
             assert_eq!(rejected.status(), NativeProductHostStatus::RUNTIME_FAILURE);
             assert_eq!(rejected.state(), NativeProductHostState::UNFORMED);
@@ -1141,6 +1249,8 @@ mod tests {
 
     #[test]
     fn product_formation_allocation_failure_preserves_existing_host_and_retry() {
+        let capacity = crate::test_support::cleanup_capacity_binding();
+
         assert!(
             crate::native::implementation::bray_runtime_substrate_initialization(4, 1).is_success()
         );
@@ -1158,14 +1268,14 @@ mod tests {
         )));
 
         assert_eq!(
-            control(existing, NativeProductHostOperation::FORM).status(),
+            control(existing, NativeProductHostOperation::FORM, Some(&capacity)).status(),
             NativeProductHostStatus::SUCCESS
         );
 
         // Entry storage, dependency scratch, final metadata and three execution-owner allocations.
         for successful in 0..6 {
             let failed = crate::test_support::with_allocation_failure_after(successful, || {
-                control(candidate, NativeProductHostOperation::FORM)
+                control(candidate, NativeProductHostOperation::FORM, Some(&capacity))
             });
 
             assert_eq!(failed.status(), NativeProductHostStatus::ALLOCATION_FAILURE);
@@ -1180,22 +1290,22 @@ mod tests {
         }
 
         assert_eq!(
-            control(existing, NativeProductHostOperation::OBSERVE).state(),
+            control(existing, NativeProductHostOperation::OBSERVE, None).state(),
             NativeProductHostState::OPEN
         );
 
         assert_eq!(
-            control(candidate, NativeProductHostOperation::FORM).status(),
+            control(candidate, NativeProductHostOperation::FORM, Some(&capacity)).status(),
             NativeProductHostStatus::SUCCESS
         );
 
         assert_eq!(
-            control(candidate, NativeProductHostOperation::CLOSE).state(),
+            control(candidate, NativeProductHostOperation::CLOSE, None).state(),
             NativeProductHostState::CLOSED
         );
 
         assert_eq!(
-            control(existing, NativeProductHostOperation::CLOSE).state(),
+            control(existing, NativeProductHostOperation::CLOSE, None).state(),
             NativeProductHostState::CLOSED
         );
 
@@ -1204,45 +1314,64 @@ mod tests {
 
     #[test]
     fn product_host_delays_cleanup_until_every_obligation_is_released() {
+        let capacity = crate::test_support::cleanup_capacity_binding();
         CLEANUPS.store(0, Ordering::SeqCst);
 
         let descriptor =
             NativeProductHostDescriptor::new(NativeProductIdentity::new([9; 32]), delayed_entry, 1);
 
         assert_eq!(
-            control(&descriptor, NativeProductHostOperation::ACQUIRE_ENTRY).status(),
+            control(
+                &descriptor,
+                NativeProductHostOperation::ACQUIRE_ENTRY,
+                Some(&capacity)
+            )
+            .status(),
             NativeProductHostStatus::SUCCESS
         );
 
         assert_eq!(
-            control(&descriptor, NativeProductHostOperation::ACQUIRE_EXTERNAL).status(),
+            control(
+                &descriptor,
+                NativeProductHostOperation::ACQUIRE_EXTERNAL,
+                None
+            )
+            .status(),
             NativeProductHostStatus::SUCCESS
         );
 
-        let closing = control(&descriptor, NativeProductHostOperation::CLOSE);
+        let closing = control(&descriptor, NativeProductHostOperation::CLOSE, None);
 
         assert_eq!(closing.state(), NativeProductHostState::CLOSING);
         assert_eq!(closing.status(), NativeProductHostStatus::PENDING);
         assert_eq!(CLEANUPS.load(Ordering::SeqCst), 0);
 
-        let pending = control(&descriptor, NativeProductHostOperation::RELEASE_ENTRY);
+        let pending = control(&descriptor, NativeProductHostOperation::RELEASE_ENTRY, None);
 
         assert_eq!(pending.state(), NativeProductHostState::CLOSING);
         assert_eq!(CLEANUPS.load(Ordering::SeqCst), 0);
 
-        let closed = control(&descriptor, NativeProductHostOperation::RELEASE_EXTERNAL);
+        let closed = control(
+            &descriptor,
+            NativeProductHostOperation::RELEASE_EXTERNAL,
+            None,
+        );
 
         assert_eq!(closed.state(), NativeProductHostState::CLOSED);
         assert_eq!(closed.status(), NativeProductHostStatus::CLOSED);
         assert_eq!(closed.cleaned_statics(), 1);
         assert_eq!(CLEANUPS.load(Ordering::SeqCst), 1);
 
-        let observed = control(&descriptor, NativeProductHostOperation::OBSERVE);
+        let observed = control(&descriptor, NativeProductHostOperation::OBSERVE, None);
 
         assert_eq!(observed.state(), NativeProductHostState::CLOSED);
         assert_eq!(CLEANUPS.load(Ordering::SeqCst), 1);
 
-        let formed_again = control(&descriptor, NativeProductHostOperation::FORM);
+        let formed_again = control(
+            &descriptor,
+            NativeProductHostOperation::FORM,
+            Some(&capacity),
+        );
 
         assert_eq!(formed_again.state(), NativeProductHostState::CLOSED);
         assert_eq!(formed_again.status(), NativeProductHostStatus::CLOSED);
@@ -1251,6 +1380,8 @@ mod tests {
 
     #[test]
     fn product_host_serializes_entry_acquisition_with_closure() {
+        let capacity = crate::test_support::cleanup_capacity_binding();
+
         let descriptor: &'static NativeProductHostDescriptor =
             Box::leak(Box::new(NativeProductHostDescriptor::new(
                 NativeProductIdentity::new([31; 32]),
@@ -1261,7 +1392,12 @@ mod tests {
         let barrier = Arc::new(Barrier::new(9));
 
         assert_eq!(
-            control(descriptor, NativeProductHostOperation::ACQUIRE_EXTERNAL).status(),
+            control(
+                descriptor,
+                NativeProductHostOperation::ACQUIRE_EXTERNAL,
+                Some(&capacity)
+            )
+            .status(),
             NativeProductHostStatus::SUCCESS
         );
 
@@ -1274,13 +1410,17 @@ mod tests {
 
                     for _ in 0..100 {
                         let acquired =
-                            control(descriptor, NativeProductHostOperation::ACQUIRE_ENTRY);
+                            control(descriptor, NativeProductHostOperation::ACQUIRE_ENTRY, None);
 
                         match acquired.status() {
                             NativeProductHostStatus::SUCCESS => {
                                 assert!(matches!(
-                                    control(descriptor, NativeProductHostOperation::RELEASE_ENTRY,)
-                                        .status(),
+                                    control(
+                                        descriptor,
+                                        NativeProductHostOperation::RELEASE_ENTRY,
+                                        None
+                                    )
+                                    .status(),
                                     NativeProductHostStatus::SUCCESS
                                         | NativeProductHostStatus::PENDING
                                 ));
@@ -1295,7 +1435,11 @@ mod tests {
 
         barrier.wait();
 
-        let closing = control(descriptor, NativeProductHostOperation::CLOSE);
+        let closing = control(
+            descriptor,
+            NativeProductHostOperation::CLOSE,
+            Some(&capacity),
+        );
 
         assert_eq!(closing.status(), NativeProductHostStatus::PENDING);
 
@@ -1305,7 +1449,11 @@ mod tests {
                 .unwrap_or_else(|error| panic!("entry worker must finish: {error:?}"));
         }
 
-        let closed = control(descriptor, NativeProductHostOperation::RELEASE_EXTERNAL);
+        let closed = control(
+            descriptor,
+            NativeProductHostOperation::RELEASE_EXTERNAL,
+            Some(&capacity),
+        );
 
         assert_eq!(closed.state(), NativeProductHostState::CLOSED);
         assert_eq!(closed.active_entries(), 0);
@@ -1313,6 +1461,8 @@ mod tests {
 
     #[test]
     fn product_cleanup_disposes_incidents_before_destroying_static_dependencies() {
+        let capacity = crate::test_support::cleanup_capacity_binding();
+
         use bray_runtime_abi::{
             NativeCleanupIncident, NativeRuntimeStatus, NativeSourceAnchor, NativeTypeIdentity,
         };
@@ -1402,7 +1552,11 @@ mod tests {
         let descriptor =
             NativeProductHostDescriptor::new(NativeProductIdentity::new([93; 32]), entry, 2);
 
-        let closed = control(&descriptor, NativeProductHostOperation::CLOSE);
+        let closed = control(
+            &descriptor,
+            NativeProductHostOperation::CLOSE,
+            Some(&capacity),
+        );
 
         assert_eq!(closed.state(), NativeProductHostState::CLOSED);
         assert_eq!(closed.status(), NativeProductHostStatus::INCIDENTS);
@@ -1415,6 +1569,7 @@ mod tests {
 
     #[test]
     fn cleanup_retention_survives_closure_and_clones_without_allocation() {
+        let capacity = crate::test_support::cleanup_capacity_binding();
         use bray_runtime_abi::{NativeProviderRetention, NativeRuntimeStatus};
         use std::cell::RefCell;
 
@@ -1477,7 +1632,12 @@ mod tests {
             NativeProductHostDescriptor::new(NativeProductIdentity::new([181; 32]), entry, 1);
 
         assert_eq!(
-            control(&DESCRIPTOR, NativeProductHostOperation::ACQUIRE_ENTRY).status(),
+            control(
+                &DESCRIPTOR,
+                NativeProductHostOperation::ACQUIRE_ENTRY,
+                Some(&capacity)
+            )
+            .status(),
             NativeProductHostStatus::SUCCESS
         );
 
@@ -1492,17 +1652,32 @@ mod tests {
         );
 
         assert_eq!(
-            control(&DESCRIPTOR, NativeProductHostOperation::OBSERVE).retirement_roots(),
+            control(
+                &DESCRIPTOR,
+                NativeProductHostOperation::OBSERVE,
+                Some(&capacity)
+            )
+            .retirement_roots(),
             1
         );
 
         assert_eq!(
-            control(&DESCRIPTOR, NativeProductHostOperation::CLOSE).state(),
+            control(
+                &DESCRIPTOR,
+                NativeProductHostOperation::CLOSE,
+                Some(&capacity)
+            )
+            .state(),
             NativeProductHostState::CLOSING
         );
 
         assert_eq!(
-            control(&DESCRIPTOR, NativeProductHostOperation::RELEASE_ENTRY).state(),
+            control(
+                &DESCRIPTOR,
+                NativeProductHostOperation::RELEASE_ENTRY,
+                Some(&capacity)
+            )
+            .state(),
             NativeProductHostState::RETIRING
         );
 
@@ -1519,14 +1694,24 @@ mod tests {
         drop(entry_retention);
         drop(cleanup_retention);
 
-        let pending = control(&DESCRIPTOR, NativeProductHostOperation::OBSERVE);
+        let pending = control(
+            &DESCRIPTOR,
+            NativeProductHostOperation::OBSERVE,
+            Some(&capacity),
+        );
+
         assert_eq!(pending.state(), NativeProductHostState::RETIRING);
         assert_eq!(pending.status(), NativeProductHostStatus::PENDING);
         assert_eq!(pending.retirement_roots(), 1);
 
         drop(cloned);
 
-        let closed = control(&DESCRIPTOR, NativeProductHostOperation::OBSERVE);
+        let closed = control(
+            &DESCRIPTOR,
+            NativeProductHostOperation::OBSERVE,
+            Some(&capacity),
+        );
+
         assert_eq!(closed.state(), NativeProductHostState::CLOSED);
         assert_eq!(closed.retirement_roots(), 0);
         assert_eq!(CLEANED.load(Ordering::SeqCst), 1);
@@ -1539,6 +1724,7 @@ mod tests {
 
     #[test]
     fn product_cleanup_reports_incidents_and_continues() {
+        let capacity = crate::test_support::cleanup_capacity_binding();
         CONTINUING_PRODUCT_CLEANUPS.store(0, Ordering::SeqCst);
         PRODUCT_DESTRUCTIONS.store(0, Ordering::SeqCst);
         PRODUCT_PHASE_ORDER.store(0, Ordering::SeqCst);
@@ -1551,7 +1737,11 @@ mod tests {
             2,
         );
 
-        let closed = control(&descriptor, NativeProductHostOperation::CLOSE);
+        let closed = control(
+            &descriptor,
+            NativeProductHostOperation::CLOSE,
+            Some(&capacity),
+        );
 
         assert_eq!(closed.state(), NativeProductHostState::CLOSED);
         assert_eq!(closed.status(), NativeProductHostStatus::INCIDENTS);
@@ -1565,6 +1755,7 @@ mod tests {
 
     #[test]
     fn thread_attachment_admission_preserves_existing_cleanup_on_failure() {
+        let capacity = crate::test_support::cleanup_capacity_binding();
         THREAD_CLEANUP_ORDER.set(0);
         let scope = bray_platform::RuntimeThreadScope::enter().unwrap();
 
@@ -1582,7 +1773,12 @@ mod tests {
 
         for descriptor in [&*first, &*second] {
             assert_eq!(
-                control(descriptor, NativeProductHostOperation::OBSERVE).state(),
+                control(
+                    descriptor,
+                    NativeProductHostOperation::OBSERVE,
+                    Some(&capacity)
+                )
+                .state(),
                 NativeProductHostState::OPEN
             );
         }
@@ -1638,7 +1834,12 @@ mod tests {
 
         for descriptor in [&*first, &*second] {
             assert_eq!(
-                control(descriptor, NativeProductHostOperation::CLOSE).state(),
+                control(
+                    descriptor,
+                    NativeProductHostOperation::CLOSE,
+                    Some(&capacity)
+                )
+                .state(),
                 NativeProductHostState::CLOSED
             );
         }
@@ -1646,6 +1847,7 @@ mod tests {
 
     #[test]
     fn thread_static_cleanup_follows_host_order_for_each_exact_attachment() {
+        let capacity = crate::test_support::cleanup_capacity_binding();
         THREAD_CLEANUP_ORDER.set(0);
 
         let first_identity = NativeStaticIdentity::new([11; 32]);
@@ -1656,6 +1858,16 @@ mod tests {
             thread_order_entry,
             2,
         )));
+
+        assert_eq!(
+            control(
+                descriptor,
+                NativeProductHostOperation::FORM,
+                Some(&capacity)
+            )
+            .status(),
+            NativeProductHostStatus::SUCCESS
+        );
 
         let first_registration = NativeThreadStaticCleanupRegistration::new(
             descriptor,
@@ -1686,7 +1898,11 @@ mod tests {
 
         assert_eq!(THREAD_CLEANUP_ORDER.get(), 12);
 
-        let observed = control(descriptor, NativeProductHostOperation::OBSERVE);
+        let observed = control(
+            descriptor,
+            NativeProductHostOperation::OBSERVE,
+            Some(&capacity),
+        );
 
         assert_eq!(observed.state(), NativeProductHostState::OPEN);
         assert_eq!(observed.thread_attachments(), 0);
@@ -1701,13 +1917,19 @@ mod tests {
         assert_eq!(THREAD_CLEANUP_ORDER.get(), 121);
 
         assert_eq!(
-            control(descriptor, NativeProductHostOperation::CLOSE).state(),
+            control(
+                descriptor,
+                NativeProductHostOperation::CLOSE,
+                Some(&capacity)
+            )
+            .state(),
             NativeProductHostState::CLOSED
         );
     }
 
     #[test]
     fn thread_static_cleanup_reports_incidents_and_continues() {
+        let capacity = crate::test_support::cleanup_capacity_binding();
         THREAD_CLEANUP_ORDER.set(0);
 
         let panicking_identity = NativeStaticIdentity::new([21; 32]);
@@ -1718,6 +1940,16 @@ mod tests {
             thread_incident_entry,
             2,
         )));
+
+        assert_eq!(
+            control(
+                descriptor,
+                NativeProductHostOperation::FORM,
+                Some(&capacity)
+            )
+            .status(),
+            NativeProductHostStatus::SUCCESS
+        );
 
         let panicking_registration = NativeThreadStaticCleanupRegistration::new(
             descriptor,
@@ -1745,7 +1977,11 @@ mod tests {
 
         drop(scope);
 
-        let observed = control(descriptor, NativeProductHostOperation::OBSERVE);
+        let observed = control(
+            descriptor,
+            NativeProductHostOperation::OBSERVE,
+            Some(&capacity),
+        );
 
         assert_eq!(THREAD_CLEANUP_ORDER.get(), 2);
         assert_eq!(observed.cleanup_incidents(), 1);
@@ -1754,6 +1990,7 @@ mod tests {
 
     #[test]
     fn thread_metadata_reentry_preserves_admission_lifetime_and_nested_depth() {
+        let capacity = crate::test_support::cleanup_capacity_binding();
         use bray_runtime_abi::NativeFrameMetadata;
 
         thread_local! {
@@ -1762,23 +1999,37 @@ mod tests {
 
         extern "C" fn metadata() -> Option<&'static NativeFrameMetadata> {
             static METADATA: NativeFrameMetadata = NativeFrameMetadata::new(
-                [160; 32], 1, 1, 1, 0, 1, crate::test_support::native_origin_frame_state);
+                [160; 32],
+                1,
+                1,
+                1,
+                0,
+                1,
+                crate::test_support::native_origin_frame_state,
+            );
 
             if let Some((mode, descriptor)) = REENTRY.take() {
-                let observed = control(descriptor, NativeProductHostOperation::OBSERVE);
+                let observed = control(descriptor, NativeProductHostOperation::OBSERVE, None);
                 assert_eq!(observed.active_entries(), 1);
                 assert_eq!(observed.thread_attachments(), 0);
 
                 if mode == 0 {
-                    let closing = control(descriptor, NativeProductHostOperation::CLOSE);
+                    let closing = control(descriptor, NativeProductHostOperation::CLOSE, None);
                     assert_eq!(closing.state(), NativeProductHostState::CLOSING);
                     assert_eq!(closing.active_entries(), 1);
                 } else {
-                    let nested = control(descriptor, NativeProductHostOperation::ATTACH_CURRENT_THREAD);
+                    let nested = control(
+                        descriptor,
+                        NativeProductHostOperation::ATTACH_CURRENT_THREAD,
+                        None,
+                    );
+
                     assert_eq!(nested.status(), NativeProductHostStatus::SUCCESS);
                     assert_eq!(nested.thread_attachments(), 1);
 
-                    if mode == 2 { return None; }
+                    if mode == 2 {
+                        return None;
+                    }
                 }
             }
 
@@ -1786,21 +2037,52 @@ mod tests {
         }
 
         extern "C" fn entry(_: usize) -> NativeStaticHostEntry {
-            NativeStaticHostEntry::new(NativeStaticDuration::EXACT_THREAD,
-                NativeStaticIdentity::new([160; 32]), 0, 1, access, detach_thread_static,
-                NativeStaticFinalizer::new(NativeCleanupExecution::ASYNCHRONOUS,
-                    Some(metadata), cleanup, crate::test_support::panic_callbacks(unexpected_panic, unexpected_panic)),
-                no_cleanup, detach_thread_static, no_dependency, 0)
+            NativeStaticHostEntry::new(
+                NativeStaticDuration::EXACT_THREAD,
+                NativeStaticIdentity::new([160; 32]),
+                0,
+                1,
+                access,
+                detach_thread_static,
+                NativeStaticFinalizer::new(
+                    NativeCleanupExecution::ASYNCHRONOUS,
+                    Some(metadata),
+                    cleanup,
+                    crate::test_support::panic_callbacks(unexpected_panic, unexpected_panic),
+                ),
+                no_cleanup,
+                detach_thread_static,
+                no_dependency,
+                0,
+            )
         }
 
         let ((), incidents) = crate::native::with_static_cleanup_runtime(|| {
             for mode in 0..3 {
                 let descriptor = Box::leak(Box::new(NativeProductHostDescriptor::new(
-                    NativeProductIdentity::new([160 + mode; 32]), entry, 1)));
+                    NativeProductIdentity::new([160 + mode; 32]),
+                    entry,
+                    1,
+                )));
 
-                assert_eq!(control(descriptor, NativeProductHostOperation::FORM).status(), NativeProductHostStatus::SUCCESS);
+                assert_eq!(
+                    control(
+                        descriptor,
+                        NativeProductHostOperation::FORM,
+                        Some(&capacity)
+                    )
+                    .status(),
+                    NativeProductHostStatus::SUCCESS
+                );
+
                 REENTRY.set(Some((mode, descriptor)));
-                let attached = control(descriptor, NativeProductHostOperation::ATTACH_CURRENT_THREAD);
+
+                let attached = control(
+                    descriptor,
+                    NativeProductHostOperation::ATTACH_CURRENT_THREAD,
+                    None,
+                );
+
                 assert_eq!(attached.active_entries(), 0);
 
                 if mode == 0 {
@@ -1811,14 +2093,38 @@ mod tests {
                 }
 
                 assert_eq!(attached.thread_attachments(), 1);
-                assert_eq!(attached.status() == NativeProductHostStatus::SUCCESS, mode == 1);
+
+                assert_eq!(
+                    attached.status() == NativeProductHostStatus::SUCCESS,
+                    mode == 1
+                );
 
                 if mode == 1 {
-                    assert_eq!(control(descriptor, NativeProductHostOperation::DETACH_CURRENT_THREAD).thread_attachments(), 1);
+                    assert_eq!(
+                        control(
+                            descriptor,
+                            NativeProductHostOperation::DETACH_CURRENT_THREAD,
+                            None
+                        )
+                        .thread_attachments(),
+                        1
+                    );
                 }
 
-                assert_eq!(control(descriptor, NativeProductHostOperation::DETACH_CURRENT_THREAD).thread_attachments(), 0);
-                assert_eq!(control(descriptor, NativeProductHostOperation::CLOSE).state(), NativeProductHostState::CLOSED);
+                assert_eq!(
+                    control(
+                        descriptor,
+                        NativeProductHostOperation::DETACH_CURRENT_THREAD,
+                        None
+                    )
+                    .thread_attachments(),
+                    0
+                );
+
+                assert_eq!(
+                    control(descriptor, NativeProductHostOperation::CLOSE, None).state(),
+                    NativeProductHostState::CLOSED
+                );
             }
         });
 
@@ -1827,6 +2133,7 @@ mod tests {
 
     #[test]
     fn foreign_attachment_failure_preserves_prepared_cleanup_and_retry_depth() {
+        let capacity = crate::test_support::cleanup_capacity_binding();
         let _scope = bray_platform::RuntimeThreadScope::enter().unwrap();
 
         let descriptor = Box::leak(Box::new(NativeProductHostDescriptor::new(
@@ -1836,7 +2143,12 @@ mod tests {
         )));
 
         assert_eq!(
-            control(descriptor, NativeProductHostOperation::FORM).status(),
+            control(
+                descriptor,
+                NativeProductHostOperation::FORM,
+                Some(&capacity)
+            )
+            .status(),
             NativeProductHostStatus::SUCCESS
         );
 
@@ -1847,6 +2159,7 @@ mod tests {
             control(
                 descriptor,
                 NativeProductHostOperation::ATTACH_CURRENT_THREAD,
+                None,
             )
         });
 
@@ -1857,7 +2170,8 @@ mod tests {
         assert_eq!(
             control(
                 descriptor,
-                NativeProductHostOperation::ATTACH_CURRENT_THREAD
+                NativeProductHostOperation::ATTACH_CURRENT_THREAD,
+                None
             )
             .status(),
             NativeProductHostStatus::SUCCESS
@@ -1867,6 +2181,7 @@ mod tests {
             control(
                 descriptor,
                 NativeProductHostOperation::ATTACH_CURRENT_THREAD,
+                None,
             )
         });
 
@@ -1876,7 +2191,8 @@ mod tests {
         assert_eq!(
             control(
                 descriptor,
-                NativeProductHostOperation::DETACH_CURRENT_THREAD
+                NativeProductHostOperation::DETACH_CURRENT_THREAD,
+                None
             )
             .thread_attachments(),
             1
@@ -1885,20 +2201,22 @@ mod tests {
         assert_eq!(
             control(
                 descriptor,
-                NativeProductHostOperation::DETACH_CURRENT_THREAD
+                NativeProductHostOperation::DETACH_CURRENT_THREAD,
+                None
             )
             .thread_attachments(),
             0
         );
 
         assert_eq!(
-            control(descriptor, NativeProductHostOperation::CLOSE).state(),
+            control(descriptor, NativeProductHostOperation::CLOSE, None).state(),
             NativeProductHostState::CLOSED
         );
     }
 
     #[test]
     fn foreign_thread_attachments_are_product_scoped() {
+        let capacity = crate::test_support::cleanup_capacity_binding();
         THREAD_CLEANUP_ORDER.set(0);
 
         let first_identity = NativeStaticIdentity::new([11; 32]);
@@ -1920,6 +2238,7 @@ mod tests {
             control(
                 first_product,
                 NativeProductHostOperation::ATTACH_CURRENT_THREAD,
+                Some(&capacity)
             )
             .status(),
             NativeProductHostStatus::SUCCESS
@@ -1929,6 +2248,7 @@ mod tests {
             control(
                 second_product,
                 NativeProductHostOperation::ATTACH_CURRENT_THREAD,
+                Some(&capacity)
             )
             .status(),
             NativeProductHostStatus::SUCCESS
@@ -1966,6 +2286,7 @@ mod tests {
             control(
                 first_product,
                 NativeProductHostOperation::DETACH_CURRENT_THREAD,
+                Some(&capacity)
             )
             .status(),
             NativeProductHostStatus::SUCCESS
@@ -1982,6 +2303,7 @@ mod tests {
             control(
                 second_product,
                 NativeProductHostOperation::DETACH_CURRENT_THREAD,
+                Some(&capacity)
             )
             .status(),
             NativeProductHostStatus::SUCCESS
@@ -1993,6 +2315,7 @@ mod tests {
             control(
                 first_product,
                 NativeProductHostOperation::ATTACH_CURRENT_THREAD,
+                Some(&capacity)
             )
             .status(),
             NativeProductHostStatus::SUCCESS
@@ -2006,24 +2329,37 @@ mod tests {
             control(
                 first_product,
                 NativeProductHostOperation::DETACH_CURRENT_THREAD,
+                Some(&capacity)
             )
             .status(),
             NativeProductHostStatus::SUCCESS
         );
 
         assert_eq!(
-            control(first_product, NativeProductHostOperation::CLOSE).state(),
+            control(
+                first_product,
+                NativeProductHostOperation::CLOSE,
+                Some(&capacity)
+            )
+            .state(),
             NativeProductHostState::CLOSED
         );
 
         assert_eq!(
-            control(second_product, NativeProductHostOperation::CLOSE).state(),
+            control(
+                second_product,
+                NativeProductHostOperation::CLOSE,
+                Some(&capacity)
+            )
+            .state(),
             NativeProductHostState::CLOSED
         );
     }
 
     #[test]
     fn foreign_thread_exit_releases_implicit_attachment() {
+        let capacity = crate::test_support::cleanup_capacity_binding();
+
         let descriptor: &'static NativeProductHostDescriptor =
             Box::leak(Box::new(NativeProductHostDescriptor::new(
                 NativeProductIdentity::new([53; 32]),
@@ -2031,11 +2367,22 @@ mod tests {
                 0,
             )));
 
+        assert_eq!(
+            control(
+                descriptor,
+                NativeProductHostOperation::FORM,
+                Some(&capacity)
+            )
+            .status(),
+            NativeProductHostStatus::SUCCESS
+        );
+
         std::thread::spawn(move || {
             assert_eq!(
                 control(
                     descriptor,
                     NativeProductHostOperation::ATTACH_CURRENT_THREAD,
+                    None
                 )
                 .status(),
                 NativeProductHostStatus::SUCCESS
@@ -2044,18 +2391,28 @@ mod tests {
         .join()
         .unwrap_or_else(|_| panic!("foreign thread exit must complete without a TLS panic"));
 
-        let observed = control(descriptor, NativeProductHostOperation::OBSERVE);
+        let observed = control(
+            descriptor,
+            NativeProductHostOperation::OBSERVE,
+            Some(&capacity),
+        );
 
         assert_eq!(observed.thread_attachments(), 0);
 
         assert_eq!(
-            control(descriptor, NativeProductHostOperation::CLOSE).state(),
+            control(
+                descriptor,
+                NativeProductHostOperation::CLOSE,
+                Some(&capacity)
+            )
+            .state(),
             NativeProductHostState::CLOSED
         );
     }
 
     #[test]
     fn finishing_root_drains_implicit_thread_statics_once() {
+        let capacity = crate::test_support::cleanup_capacity_binding();
         THREAD_CLEANUP_ORDER.set(0);
 
         let descriptor = Box::leak(Box::new(NativeProductHostDescriptor::new(
@@ -2063,6 +2420,16 @@ mod tests {
             thread_order_entry,
             2,
         )));
+
+        assert_eq!(
+            control(
+                descriptor,
+                NativeProductHostOperation::FORM,
+                Some(&capacity)
+            )
+            .status(),
+            NativeProductHostStatus::SUCCESS
+        );
 
         let scope = bray_platform::RuntimeThreadScope::enter().expect("runtime thread enters");
 
@@ -2078,11 +2445,20 @@ mod tests {
         assert!(register_thread_static(&registration).is_success());
 
         assert_eq!(
-            control(descriptor, NativeProductHostOperation::OBSERVE).thread_attachments(),
+            control(
+                descriptor,
+                NativeProductHostOperation::OBSERVE,
+                Some(&capacity)
+            )
+            .thread_attachments(),
             1
         );
 
-        let closed = control(descriptor, NativeProductHostOperation::FINISH_ROOT);
+        let closed = control(
+            descriptor,
+            NativeProductHostOperation::FINISH_ROOT,
+            Some(&capacity),
+        );
 
         assert_eq!(closed.state(), NativeProductHostState::CLOSED);
         assert_eq!(closed.status(), NativeProductHostStatus::CLOSED);
@@ -2090,7 +2466,12 @@ mod tests {
         assert_eq!(THREAD_CLEANUP_ORDER.get(), 1);
 
         assert_eq!(
-            control(descriptor, NativeProductHostOperation::FINISH_ROOT).state(),
+            control(
+                descriptor,
+                NativeProductHostOperation::FINISH_ROOT,
+                Some(&capacity)
+            )
+            .state(),
             NativeProductHostState::CLOSED
         );
 
@@ -2100,6 +2481,8 @@ mod tests {
 
     #[test]
     fn finishing_root_preserves_foreign_and_external_obligations() {
+        let capacity = crate::test_support::cleanup_capacity_binding();
+
         let descriptor = NativeProductHostDescriptor::new(
             NativeProductIdentity::new([72; 32]),
             delayed_entry,
@@ -2109,13 +2492,19 @@ mod tests {
         assert_eq!(
             control(
                 &descriptor,
-                NativeProductHostOperation::ATTACH_CURRENT_THREAD
+                NativeProductHostOperation::ATTACH_CURRENT_THREAD,
+                Some(&capacity)
             )
             .status(),
             NativeProductHostStatus::SUCCESS
         );
 
-        let rejected = control(&descriptor, NativeProductHostOperation::FINISH_ROOT);
+        let rejected = control(
+            &descriptor,
+            NativeProductHostOperation::FINISH_ROOT,
+            Some(&capacity),
+        );
+
         assert_eq!(rejected.status(), NativeProductHostStatus::INVALID_ARGUMENT);
         assert_eq!(rejected.state(), NativeProductHostState::OPEN);
         assert_eq!(rejected.thread_attachments(), 1);
@@ -2123,30 +2512,47 @@ mod tests {
         assert_eq!(
             control(
                 &descriptor,
-                NativeProductHostOperation::DETACH_CURRENT_THREAD
+                NativeProductHostOperation::DETACH_CURRENT_THREAD,
+                Some(&capacity)
             )
             .status(),
             NativeProductHostStatus::SUCCESS
         );
 
         assert_eq!(
-            control(&descriptor, NativeProductHostOperation::ACQUIRE_EXTERNAL).status(),
+            control(
+                &descriptor,
+                NativeProductHostOperation::ACQUIRE_EXTERNAL,
+                Some(&capacity)
+            )
+            .status(),
             NativeProductHostStatus::SUCCESS
         );
 
-        let pending = control(&descriptor, NativeProductHostOperation::FINISH_ROOT);
+        let pending = control(
+            &descriptor,
+            NativeProductHostOperation::FINISH_ROOT,
+            Some(&capacity),
+        );
 
         assert_eq!(pending.status(), NativeProductHostStatus::PENDING);
         assert_eq!(pending.state(), NativeProductHostState::CLOSING);
 
         assert_eq!(
-            control(&descriptor, NativeProductHostOperation::RELEASE_EXTERNAL).state(),
+            control(
+                &descriptor,
+                NativeProductHostOperation::RELEASE_EXTERNAL,
+                Some(&capacity)
+            )
+            .state(),
             NativeProductHostState::CLOSED
         );
     }
 
     #[test]
     fn foreign_attachment_retains_product_before_thread_static_access() {
+        let capacity = crate::test_support::cleanup_capacity_binding();
+
         let descriptor = NativeProductHostDescriptor::new(
             NativeProductIdentity::new([61; 32]),
             delayed_entry,
@@ -2156,12 +2562,17 @@ mod tests {
         let attached = control(
             &descriptor,
             NativeProductHostOperation::ATTACH_CURRENT_THREAD,
+            Some(&capacity),
         );
 
         assert_eq!(attached.status(), NativeProductHostStatus::SUCCESS);
         assert_eq!(attached.thread_attachments(), 1);
 
-        let closing = control(&descriptor, NativeProductHostOperation::CLOSE);
+        let closing = control(
+            &descriptor,
+            NativeProductHostOperation::CLOSE,
+            Some(&capacity),
+        );
 
         assert_eq!(closing.state(), NativeProductHostState::CLOSING);
         assert_eq!(closing.status(), NativeProductHostStatus::PENDING);
@@ -2169,6 +2580,7 @@ mod tests {
         let detached = control(
             &descriptor,
             NativeProductHostOperation::DETACH_CURRENT_THREAD,
+            Some(&capacity),
         );
 
         assert_eq!(detached.state(), NativeProductHostState::CLOSED);

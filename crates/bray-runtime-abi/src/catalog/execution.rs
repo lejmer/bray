@@ -122,7 +122,7 @@ macro_rules! runtime_role_catalog {
             }
             ProductHostControl {
                 "Control lifecycle and provider obligations for one loaded product host.", "product_host_control",
-                native: (PRODUCT_HOST_CONTROL_RUNTIME_SYMBOL = "bray_runtime_product_host_control", [Pointer, U32] -> ProductObservation),
+                native: (PRODUCT_HOST_CONTROL_RUNTIME_SYMBOL = "bray_runtime_product_host_control", [Pointer, U32, Pointer] -> ProductObservation),
                 call_hook: (),
                 compiler: Bray [] -> Void,
                 owner: Host, availability: All, bootstrap: ("product_host_control"), host_control: false,
@@ -131,7 +131,7 @@ macro_rules! runtime_role_catalog {
             }
             AsynchronousProductHostControl {
                 "Admit execution and control lifecycle for a product with asynchronous cleanup.", "asynchronous_product_host_control",
-                native: (ASYNCHRONOUS_PRODUCT_HOST_CONTROL_SYMBOL = "bray_runtime_asynchronous_product_host_control", [Pointer, U32] -> ProductObservation),
+                native: (ASYNCHRONOUS_PRODUCT_HOST_CONTROL_SYMBOL = "bray_runtime_asynchronous_product_host_control", [Pointer, U32, Pointer] -> ProductObservation),
                 call_hook: (),
                 compiler: Bray [] -> Void,
                 owner: Scheduler, availability: All, bootstrap: (), host_control: false,

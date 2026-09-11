@@ -34,20 +34,58 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
     pub(super) fn begin_product_execution(
         &mut self,
-        startup: MirRuntimeReference,
+        startup: Option<MirRuntimeReference>,
         control: MirRuntimeReference,
     ) -> Result<(), CodegenFailure> {
-        let configuration = self.host_runtime_configuration()?;
+        if let Some(startup) = startup {
+            let configuration = self.host_runtime_configuration()?;
+
+            let status = self
+                .invoke_native_runtime(startup, &[configuration.into()])?
+                .and_then(int_value)
+                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+            self.require_product_admission(status)?;
+        }
+
+        let context = self.types.context();
+        let pointer = context.ptr_type(inkwell::AddressSpace::default());
+        let usize = crate::native::pointer_integer_type(context, self.request.target());
+
+        let binding_type = context.struct_type(
+            &[usize.into(), pointer.into(), usize.into(), pointer.into()],
+            false,
+        );
+
+        let binding = llvm(self.builder.build_alloca(binding_type, "product.capacity"))?;
+        llvm(self.builder.build_store(binding, binding_type.const_zero()))?;
 
         let status = self
-            .invoke_native_runtime(startup, &[configuration.into()])?
+            .invoke_native_runtime(
+                MirRuntimeReference::new(
+                    RuntimeAbiRole::CleanupCapacityDomainFormation,
+                    control.abi_version(),
+                ),
+                &[binding.into()],
+            )?
             .and_then(int_value)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         self.require_product_admission(status)?;
 
-        let observation =
-            self.invoke_product_control(control, NativeProductHostOperation::ACQUIRE_ENTRY)?;
+        let observation = self.invoke_product_control(
+            control,
+            NativeProductHostOperation::ACQUIRE_ENTRY,
+            Some(binding),
+        )?;
+
+        self.invoke_native_runtime(
+            MirRuntimeReference::new(
+                RuntimeAbiRole::CleanupCapacityDomainRelease,
+                control.abi_version(),
+            ),
+            &[binding.into()],
+        )?;
 
         let status = int_value(extract_value(&self.builder, observation, 0)?)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
@@ -124,6 +162,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &mut self,
         runtime: MirRuntimeReference,
         operation: NativeProductHostOperation,
+        capacity: Option<inkwell::values::PointerValue<'context>>,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let descriptor = self.product_descriptor()?;
 
@@ -150,7 +189,17 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             self.request.target(),
             &key,
             function,
-            &[descriptor.into(), operation.into()],
+            &[
+                descriptor.into(),
+                operation.into(),
+                capacity
+                    .unwrap_or_else(|| {
+                        context
+                            .ptr_type(inkwell::AddressSpace::default())
+                            .const_null()
+                    })
+                    .into(),
+            ],
             "product.control",
         )?
         .ok_or(CodegenFailure::GeneratedModuleInvariant)
@@ -174,8 +223,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 bray_ir::MirOperationKind::Host(bray_ir::MirHostOperation::BeginExecution { .. })
             )
         }) {
-            let release =
-                self.invoke_product_control(runtime, NativeProductHostOperation::RELEASE_ENTRY)?;
+            let release = self.invoke_product_control(
+                runtime,
+                NativeProductHostOperation::RELEASE_ENTRY,
+                None,
+            )?;
 
             let status = int_value(extract_value(&self.builder, release, 0)?)
                 .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
@@ -195,7 +247,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         };
 
         let observation =
-            self.invoke_product_control(runtime, NativeProductHostOperation::FINISH_ROOT)?;
+            self.invoke_product_control(runtime, NativeProductHostOperation::FINISH_ROOT, None)?;
 
         let status = int_value(super::super::support::extract_value(
             &self.builder,

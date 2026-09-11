@@ -33,8 +33,9 @@ native_adapter! {
     pub extern "C" fn bray_runtime_substrate_product_host_control(
         descriptor: &NativeProductHostDescriptor,
         operation: NativeProductHostOperation,
+        capacity: Option<&bray_runtime_abi::NativeCleanupCapacityBinding>,
     ) -> NativeProductHostObservation {
-        implementation::bray_runtime_product_host_control(descriptor, operation)
+        implementation::bray_runtime_product_host_control(descriptor, operation, capacity)
     }
 }
 

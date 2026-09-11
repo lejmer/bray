@@ -288,6 +288,13 @@ impl Compilation {
             ]);
         }
 
+        if runtime_roles.contains(&RuntimeAbiRole::ProductHostControl) {
+            runtime_roles.extend([
+                RuntimeAbiRole::CleanupCapacityDomainFormation,
+                RuntimeAbiRole::CleanupCapacityDomainRelease,
+            ]);
+        }
+
         let mut capabilities: BTreeSet<_> = required_capabilities.into_iter().collect();
 
         if runtime_roles.contains(&RuntimeAbiRole::MainThreadLaneStartup) {

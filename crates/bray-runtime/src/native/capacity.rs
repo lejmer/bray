@@ -1,4 +1,5 @@
 mod domain;
+mod retirement;
 mod service;
 
 pub use service::bray_runtime_cleanup_capacity_domain_formation;

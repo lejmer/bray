@@ -12,6 +12,7 @@ mod frame;
 mod platform;
 mod process;
 mod product;
+mod provider_retirement;
 mod retention;
 mod run_result;
 mod runtime;
@@ -45,6 +46,10 @@ pub use product::{
     NativeStaticFinalizerStartCallback, NativeStaticFinalizerStatus, NativeStaticHostEntry,
     NativeStaticIdentity, NativeStaticTransitionCallback, NativeThreadStaticCleanupRegistration,
     NativeTypeIdentity, PRODUCT_HOST_ABI_VERSION,
+};
+pub use provider_retirement::{
+    NativeProviderRetirement, NativeProviderRetirementCallbacks,
+    NativeProviderRetirementObservation,
 };
 pub use retention::{NativeProviderRetention, NativeProviderRetentionCallbacks};
 pub use run_result::{NativeRunResultLayout, NativeRunResultTransferCallback};

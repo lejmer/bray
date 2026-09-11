@@ -109,12 +109,13 @@ extern "C-unwind" fn unregistered(
 
 #[test]
 fn result_admission_rolls_back_every_fallible_step_and_unused_release_unpins_product() {
+    let capacity = crate::test_support::cleanup_capacity_binding();
     assert!(initialize(NativeRuntimeConfiguration::new(1, 1)).is_success());
 
     let descriptor =
         NativeProductHostDescriptor::new(NativeProductIdentity::new([177; 32]), no_statics, 0);
 
-    let control = |operation| crate::product::control(&descriptor, operation);
+    let control = |operation| crate::product::control(&descriptor, operation, Some(&capacity));
 
     assert_eq!(
         control(NativeProductHostOperation::FORM).state(),
@@ -177,12 +178,13 @@ fn result_admission_rolls_back_every_fallible_step_and_unused_release_unpins_pro
 
 #[test]
 fn admitted_result_drives_broadcast_and_suspending_lifecycle_without_late_run_allocation() {
+    let capacity = crate::test_support::cleanup_capacity_binding();
     assert!(initialize(NativeRuntimeConfiguration::new(1, 1)).is_success());
 
     let descriptor =
         NativeProductHostDescriptor::new(NativeProductIdentity::new([178; 32]), no_statics, 0);
 
-    let control = |operation| crate::product::control(&descriptor, operation);
+    let control = |operation| crate::product::control(&descriptor, operation, Some(&capacity));
 
     assert_eq!(
         control(NativeProductHostOperation::FORM).state(),
@@ -233,6 +235,7 @@ fn admitted_result_drives_broadcast_and_suspending_lifecycle_without_late_run_al
 
 #[test]
 fn rejected_lifecycle_keeps_result_and_product_owned() {
+    let capacity = crate::test_support::cleanup_capacity_binding();
     assert!(initialize(NativeRuntimeConfiguration::new(1, 1)).is_success());
 
     let descriptors = [179, 180].map(|identity| {
@@ -248,7 +251,7 @@ fn rejected_lifecycle_keeps_result_and_product_owned() {
         .enumerate()
     {
         DESTROYED.set(0);
-        let control = |operation| crate::product::control(descriptor, operation);
+        let control = |operation| crate::product::control(descriptor, operation, Some(&capacity));
 
         assert_eq!(
             control(NativeProductHostOperation::FORM).state(),
@@ -308,6 +311,7 @@ fn rejected_lifecycle_keeps_result_and_product_owned() {
 
 #[test]
 fn admitted_cleanup_dispatches_blocking_compute_and_main_lanes_without_allocation() {
+    let capacity = crate::test_support::cleanup_capacity_binding();
     use std::sync::atomic::{AtomicUsize, Ordering};
     static SELECTED: AtomicUsize = AtomicUsize::new(0);
     static RESUMED: AtomicUsize = AtomicUsize::new(0);
@@ -398,7 +402,12 @@ fn admitted_cleanup_dispatches_blocking_compute_and_main_lanes_without_allocatio
         NativeProductHostDescriptor::new(NativeProductIdentity::new([184; 32]), no_statics, 0);
 
     assert_eq!(
-        crate::product::control(&descriptor, NativeProductHostOperation::FORM).state(),
+        crate::product::control(
+            &descriptor,
+            NativeProductHostOperation::FORM,
+            Some(&capacity)
+        )
+        .state(),
         NativeProductHostState::OPEN
     );
 
@@ -440,7 +449,12 @@ fn admitted_cleanup_dispatches_blocking_compute_and_main_lanes_without_allocatio
     }
 
     assert_eq!(
-        crate::product::control(&descriptor, NativeProductHostOperation::CLOSE).state(),
+        crate::product::control(
+            &descriptor,
+            NativeProductHostOperation::CLOSE,
+            Some(&capacity)
+        )
+        .state(),
         NativeProductHostState::CLOSED
     );
 

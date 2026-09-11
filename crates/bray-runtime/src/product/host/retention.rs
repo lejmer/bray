@@ -1,14 +1,9 @@
-use std::num::NonZeroUsize;
-
 use bray_runtime_abi::{
     NativeProductHostDescriptor, NativeProductHostObservation, NativeProductHostState,
-    NativeProviderRetention, NativeProviderRetentionCallbacks, NativeRuntimeStatus,
+    NativeProviderRetention, NativeRuntimeStatus,
 };
 
-use super::model::{product_hosts, product_key};
-
-static CALLBACKS: NativeProviderRetentionCallbacks =
-    NativeProviderRetentionCallbacks::new(retain, release);
+use super::model::{host_status, product_hosts, product_key};
 
 pub(crate) fn retain_provider(
     descriptor: &NativeProductHostDescriptor,
@@ -18,13 +13,11 @@ pub(crate) fn retain_provider(
         return NativeRuntimeStatus::INVALID_ARGUMENT;
     }
 
-    let product = product_key(descriptor);
-
-    let Ok(mut hosts) = product_hosts().lock() else {
+    let Ok(hosts) = product_hosts().lock() else {
         return NativeRuntimeStatus::RUNTIME_FAILURE;
     };
 
-    let Some(host) = hosts.get_mut(&product) else {
+    let Some(host) = hosts.get(&product_key(descriptor)) else {
         return NativeRuntimeStatus::INVALID_ARGUMENT;
     };
 
@@ -44,102 +37,155 @@ pub(crate) fn retain_provider(
         return NativeRuntimeStatus::INVALID_ARGUMENT;
     }
 
-    let Some(context) = NonZeroUsize::new(product) else {
-        return NativeRuntimeStatus::INVALID_ARGUMENT;
-    };
-
-    increment(&mut host.retirement_roots);
-    *destination = NativeProviderRetention::new(context, &CALLBACKS);
-
-    NativeRuntimeStatus::SUCCESS
+    // Resident acquisition cannot invoke providers. Holding this lock interlocks with closure.
+    host.retirement
+        .as_ref()
+        .map_or(NativeRuntimeStatus::INVALID_ARGUMENT, |registration| {
+            registration.acquire(destination)
+        })
 }
 
-extern "C" fn retain(product: usize) {
-    let mut hosts = product_hosts()
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+/// Teardown runs from resident code, which publishes completion only after this returns.
+pub(super) extern "C" fn teardown_product(product: usize) -> NativeRuntimeStatus {
+    crate::native::contain_status(|| {
+        let (execution, capacity) = {
+            let mut hosts = product_hosts()
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-    // The source reference keeps this host registered throughout cloning.
-    let host = hosts
-        .get_mut(&product)
-        .expect("live retention owns its host");
+            let Some(host) = hosts.get_mut(&product) else {
+                return NativeRuntimeStatus::INVALID_ARGUMENT;
+            };
 
-    assert!(matches!(
-        host.state,
-        NativeProductHostState::OPEN
-            | NativeProductHostState::CLOSING
-            | NativeProductHostState::RETIRING
-    ));
+            if host.state != NativeProductHostState::RETIRING || host.cleanup_running {
+                return NativeRuntimeStatus::INVALID_ARGUMENT;
+            }
 
-    assert_ne!(host.retirement_roots, 0);
-    increment(&mut host.retirement_roots);
-}
+            host.cleanup_running = true;
 
-extern "C" fn release(product: usize) {
-    {
+            let capacity = std::mem::replace(
+                &mut host.capacity,
+                bray_runtime_abi::NativeCleanupCapacityBinding::empty(),
+            );
+
+            (host.execution.take(), capacity)
+        };
+
+        if let Some(execution) = execution {
+            execution.release();
+        }
+
+        drop(capacity);
+
         let mut hosts = product_hosts()
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-        // This owner keeps the host registered and contributes one unreleased count.
+        // The outstanding registration keeps the retiring host present throughout teardown.
         let host = hosts
             .get_mut(&product)
-            .expect("live retention owns its host");
+            .expect("retiring host remains registered");
 
-        host.retirement_roots = host
-            .retirement_roots
-            .checked_sub(1)
-            .expect("each retention releases once");
-    }
+        host.cleanup_running = false;
 
-    finish_retirement(product);
+        NativeRuntimeStatus::SUCCESS
+    })
 }
 
-fn increment(count: &mut usize) {
-    *count = count
-        .checked_add(1)
-        .unwrap_or_else(|| std::process::abort());
-}
-
-/// Releases execution resources before publishing permission to unload the provider.
-pub(super) fn finish_retirement(product: usize) -> NativeProductHostObservation {
-    let execution = {
-        let mut hosts = product_hosts()
+/// Requests teardown without publishing permission to unload the callback's own image.
+pub(super) fn begin_retirement(product: usize) -> NativeProductHostObservation {
+    let registration = {
+        let hosts = product_hosts()
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-        let Some(host) = hosts.get_mut(&product) else {
+        let Some(host) = hosts.get(&product) else {
             return NativeProductHostObservation::invalid();
         };
 
-        if host.state != NativeProductHostState::RETIRING
-            || host.retirement_roots != 0
-            || host.cleanup_running
-        {
+        if host.state != NativeProductHostState::RETIRING {
             return host.observation(super::operations::status_for_state(host));
         }
 
-        host.cleanup_running = true;
-
-        // The shared execution owner keeps shutdown outside the host registry lock.
-        host.execution.clone()
+        // Share registration ownership across the unlocked resident service call.
+        host.retirement.clone()
     };
 
-    if let Some(execution) = execution {
-        execution.release();
-    }
+    let status = registration
+        .as_ref()
+        .map_or(NativeRuntimeStatus::INVALID_ARGUMENT, |registration| {
+            registration.begin()
+        });
 
     let mut hosts = product_hosts()
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-    let host = hosts
-        .get_mut(&product)
-        .expect("retiring host remains registered");
+    let Some(host) = hosts.get_mut(&product) else {
+        return NativeProductHostObservation::invalid();
+    };
 
-    assert_eq!(host.retirement_roots, 0);
-    host.cleanup_running = false;
-    host.state = NativeProductHostState::CLOSED;
+    if status != NativeRuntimeStatus::SUCCESS {
+        host.state = NativeProductHostState::FAILED;
+
+        return host.observation(host_status(status));
+    }
 
     host.observation(super::operations::status_for_state(host))
+}
+
+/// Only the explicit host-control boundary acknowledges resident completion and permits unload.
+pub(super) fn observe_retirement(product: usize) -> Option<NativeProductHostObservation> {
+    let registration = {
+        let hosts = product_hosts().lock().ok()?;
+        let host = hosts.get(&product)?;
+
+        if host.state != NativeProductHostState::RETIRING {
+            return None;
+        }
+
+        // Keep the registration live while observing outside the local host registry.
+        host.retirement.clone()?
+    };
+
+    let progress = registration.observe();
+
+    let (observation, released) = {
+        let mut hosts = product_hosts().lock().ok()?;
+        let host = hosts.get_mut(&product)?;
+
+        if host.state != NativeProductHostState::RETIRING
+            || !host
+                .retirement
+                .as_ref()
+                .is_some_and(|current| triomphe::Arc::ptr_eq(current, &registration))
+        {
+            return Some(host.observation(super::operations::status_for_state(host)));
+        }
+
+        let released = if progress.status() != NativeRuntimeStatus::SUCCESS {
+            host.state = NativeProductHostState::FAILED;
+
+            None
+        } else if progress.is_complete() {
+            host.state = NativeProductHostState::CLOSED;
+
+            host.retirement.take()
+        } else {
+            None
+        };
+
+        let status = if progress.status() == NativeRuntimeStatus::SUCCESS {
+            super::operations::status_for_state(host)
+        } else {
+            host_status(progress.status())
+        };
+
+        (host.observation(status), released)
+    };
+
+    drop(released);
+    drop(registration);
+
+    Some(observation)
 }
