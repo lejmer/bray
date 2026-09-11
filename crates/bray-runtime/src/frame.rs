@@ -1,6 +1,9 @@
 use std::any::Any;
 use std::fmt;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::pin::Pin;
+
+use crate::RunOutcome;
 
 use bray_runtime_model::{
     ProtectedFrameDescriptor, ProtectedFrameStateDescriptor, ProtectedFrameStateId,
@@ -319,6 +322,99 @@ where
     F: ?Sized + ProtectedFrame,
 {
     frame.resume(context)
+}
+
+pub(crate) fn finish_frame<T: 'static, F>(
+    mut frame: Pin<&mut F>,
+    progress: FrameProgress<T>,
+) -> RunOutcome<T>
+where
+    F: ?Sized + ProtectedFrame<Output = T>,
+{
+    let (mut outcome, mut exit) = match progress {
+        FrameProgress::Suspended(_) => {
+            unreachable!("suspended frames are not terminalized")
+        }
+        FrameProgress::Completed(value) => (RunOutcome::Completed(value), FrameExit::Completed),
+        FrameProgress::Cancelled => (RunOutcome::Cancelled, FrameExit::Cancelled),
+        FrameProgress::Panicked(panic) => (RunOutcome::Panicked(panic), FrameExit::Panicked),
+        FrameProgress::RuntimeFailure => {
+            unreachable!("failed frames are not terminalized")
+        }
+    };
+
+    if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
+        frame.as_mut().broadcast_tasks();
+    })) {
+        merge_panic(&mut outcome, payload);
+        exit = FrameExit::Panicked;
+    }
+
+    if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
+        frame.as_mut().resolve_lifecycle(exit);
+    })) {
+        merge_panic(&mut outcome, payload);
+    }
+
+    outcome
+}
+
+pub(crate) fn destroy_frame<T: 'static, F>(
+    frame: Option<Pin<Box<F>>>,
+    mut outcome: RunOutcome<T>,
+) -> RunOutcome<T>
+where
+    F: ?Sized + ProtectedFrame<Output = T>,
+{
+    if let Err(payload) = catch_unwind(AssertUnwindSafe(|| drop(frame))) {
+        merge_panic(&mut outcome, payload);
+    }
+
+    outcome
+}
+
+pub(crate) fn resolve_failed_frame<T, F>(frame: &mut Option<Pin<Box<F>>>) -> Option<RuntimePanic>
+where
+    F: ?Sized + ProtectedFrame<Output = T>,
+{
+    let mut panic = None;
+
+    if let Some(frame) = frame.as_mut() {
+        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
+            frame.as_mut().broadcast_tasks();
+        })) {
+            merge_cleanup_panic(&mut panic, payload);
+        }
+
+        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
+            frame.as_mut().resolve_lifecycle(FrameExit::RuntimeFailure);
+        })) {
+            merge_cleanup_panic(&mut panic, payload);
+        }
+    }
+
+    if let Err(payload) = catch_unwind(AssertUnwindSafe(|| drop(frame.take()))) {
+        merge_cleanup_panic(&mut panic, payload);
+    }
+
+    panic
+}
+
+fn merge_panic<T>(outcome: &mut RunOutcome<T>, payload: Box<dyn std::any::Any + Send>) {
+    match outcome {
+        RunOutcome::Panicked(panic) => panic.push_suppressed(payload),
+        RunOutcome::Completed(_) | RunOutcome::Cancelled => {
+            *outcome = RunOutcome::Panicked(RuntimePanic::from_payload(payload));
+        }
+    }
+}
+
+fn merge_cleanup_panic(panic: &mut Option<RuntimePanic>, payload: Box<dyn std::any::Any + Send>) {
+    if let Some(panic) = panic {
+        panic.push_suppressed(payload);
+    } else {
+        *panic = Some(RuntimePanic::from_payload(payload));
+    }
 }
 
 #[cfg(test)]
