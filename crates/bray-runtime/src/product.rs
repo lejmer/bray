@@ -12,7 +12,7 @@ pub(crate) use cleanup::empty_native_incident;
 pub(crate) use host::{
     ProductEntry, cleanup_capacity_admission, cleanup_capacity_discharge, control,
     control_with_execution, drain_product_thread_statics, register_thread_static, retain_provider,
-    thread_attachment_identity,
+    thread_attachment_identity, product_key,
 };
 
 pub(crate) use execution::{

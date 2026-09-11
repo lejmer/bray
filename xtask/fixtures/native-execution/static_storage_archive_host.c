@@ -1,6 +1,6 @@
 #include "static_storage_host.h"
 
-static CleanupCapacityBinding capacity = {0};
+static ProductServices capacity = {0};
 
 #ifndef BRAY_PRODUCT_HOST_CONTROL
 #error BRAY_PRODUCT_HOST_CONTROL must name the compiler-generated control symbol
@@ -8,12 +8,12 @@ static CleanupCapacityBinding capacity = {0};
 
 extern ProductHostObservation BRAY_PRODUCT_HOST_CONTROL(
     uint32_t operation,
-    const CleanupCapacityBinding *capacity
+    const ProductServices *capacity
 );
 
 int main(void)
 {
-    if (bray_runtime_cleanup_capacity_domain_formation(&capacity) != 0)
+    if (bray_runtime_product_services_formation(&capacity, bray_runtime_execution_services()) != 0)
         return 3;
 
     ProductHostObservation formed = BRAY_PRODUCT_HOST_CONTROL(PRODUCT_HOST_FORM, &capacity);
@@ -31,7 +31,7 @@ int main(void)
     )
         return 2;
 
-    bray_runtime_cleanup_capacity_domain_release(&capacity);
+    bray_runtime_product_services_release(&capacity);
 
     return 0;
 }

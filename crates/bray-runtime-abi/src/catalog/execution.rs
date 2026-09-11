@@ -570,18 +570,27 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: [CreateFrame]
             }
-            CleanupCapacityDomainFormation {
-                "Create an explicitly shared cleanup-capacity service before provider formation.", "cleanup_capacity_domain_formation",
-                native: (CLEANUP_CAPACITY_DOMAIN_FORMATION_SYMBOL = "bray_runtime_cleanup_capacity_domain_formation", [Pointer] -> U32),
+            ExecutionServices {
+                "Describe the resident execution services supplied by the scheduler.", "execution_services",
+                native: (EXECUTION_SERVICES_SYMBOL = "bray_runtime_execution_services", [] -> Pointer),
                 call_hook: (),
-                compiler: C [Pointer] -> U32,
+                compiler: C [] -> Pointer,
+                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
+                capabilities: [],
+                effects: [ControlProductHost]
+            }
+            ProductServicesFormation {
+                "Create explicitly shared product services before provider formation.", "product_services_formation",
+                native: (PRODUCT_SERVICES_FORMATION_SYMBOL = "bray_runtime_product_services_formation", [Pointer, Pointer] -> U32),
+                call_hook: (),
+                compiler: C [Pointer, Pointer] -> U32,
                 owner: Host, availability: All, bootstrap: (), host_control: false,
                 capabilities: [],
                 effects: [ControlProductHost]
             }
-            CleanupCapacityDomainRelease {
-                "Release one cleanup-capacity service binding after handing it to providers.", "cleanup_capacity_domain_release",
-                native: (CLEANUP_CAPACITY_DOMAIN_RELEASE_SYMBOL = "bray_runtime_cleanup_capacity_domain_release", [Pointer] -> Void),
+            ProductServicesRelease {
+                "Release one product services binding after handing it to providers.", "product_services_release",
+                native: (PRODUCT_SERVICES_RELEASE_SYMBOL = "bray_runtime_product_services_release", [Pointer] -> Void),
                 call_hook: (),
                 compiler: C [Pointer] -> Void,
                 owner: Host, availability: All, bootstrap: (), host_control: false,

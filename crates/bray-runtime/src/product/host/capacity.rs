@@ -1,6 +1,6 @@
 use bray_runtime_abi::{
-    NativeCleanupCapacityBinding, NativeCleanupCapacityMetadata,
-    NativeCleanupCapacityMetadataProvider, NativeProductHostDescriptor, NativeProviderRetention,
+    NativeCleanupCapacityMetadata, NativeCleanupCapacityMetadataProvider,
+    NativeProductHostDescriptor, NativeProductServices, NativeProviderRetention,
     NativeRuntimeStatus,
 };
 
@@ -23,7 +23,7 @@ pub(crate) fn cleanup_capacity_discharge(
 
 fn with_capacity(
     descriptor: &NativeProductHostDescriptor,
-    operation: impl FnOnce(&NativeCleanupCapacityBinding) -> NativeRuntimeStatus,
+    operation: impl FnOnce(&NativeProductServices) -> NativeRuntimeStatus,
 ) -> NativeRuntimeStatus {
     // Keep provider teardown behind this call, including callbacks during retirement.
     let mut retention = NativeProviderRetention::empty();

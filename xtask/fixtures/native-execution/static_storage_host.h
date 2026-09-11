@@ -25,14 +25,15 @@ typedef struct
     const void *callbacks;
     uintptr_t retention_context;
     const void *retention_callbacks;
-} CleanupCapacityBinding;
+} ProductServices;
 
-extern uint32_t bray_runtime_cleanup_capacity_domain_formation(CleanupCapacityBinding *binding);
-extern void bray_runtime_cleanup_capacity_domain_release(CleanupCapacityBinding *binding);
+extern const void *bray_runtime_execution_services(void);
+extern uint32_t bray_runtime_product_services_formation(ProductServices *binding, const void *execution);
+extern void bray_runtime_product_services_release(ProductServices *binding);
 
 typedef ProductHostObservation (*product_host_control)(
     uint32_t operation,
-    const CleanupCapacityBinding *capacity
+    const ProductServices *capacity
 );
 
 #endif

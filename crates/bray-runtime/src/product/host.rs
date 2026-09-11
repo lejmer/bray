@@ -12,6 +12,7 @@ mod thread;
 pub(crate) use capacity::{cleanup_capacity_admission, cleanup_capacity_discharge};
 pub(crate) use entry::ProductEntry;
 pub(super) use model::host_status;
+pub(crate) use model::product_key;
 pub(in crate::product) use model::initialize_thread_static_registry;
 pub(crate) use operations::{
     control, control_with_execution, register_thread_static, thread_attachment_identity,

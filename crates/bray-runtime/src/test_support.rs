@@ -18,11 +18,11 @@ use crate::{
     TaskControlBlock, TaskRegistration, current_task_execution_context,
 };
 
-pub(crate) fn cleanup_capacity_binding() -> bray_runtime_abi::NativeCleanupCapacityBinding {
-    let mut binding = bray_runtime_abi::NativeCleanupCapacityBinding::empty();
+pub(crate) fn cleanup_capacity_binding() -> bray_runtime_abi::NativeProductServices {
+    let mut binding = bray_runtime_abi::NativeProductServices::empty();
 
     assert!(
-        crate::native::implementation::bray_runtime_cleanup_capacity_domain_formation(&mut binding)
+        crate::native::implementation::bray_runtime_product_services_formation(&mut binding, None)
             .is_success()
     );
 

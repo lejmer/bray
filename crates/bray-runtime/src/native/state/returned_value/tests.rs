@@ -122,7 +122,7 @@ fn result_admission_rolls_back_every_fallible_step_and_unused_release_unpins_pro
         NativeProductHostState::OPEN
     );
 
-    let product = std::ptr::from_ref(&descriptor).addr();
+    let product = crate::product::product_key(&descriptor);
 
     with_runtime(|runtime| {
         let mut succeeded = false;
@@ -191,7 +191,7 @@ fn admitted_result_drives_broadcast_and_suspending_lifecycle_without_late_run_al
         NativeProductHostState::OPEN
     );
 
-    let product = std::ptr::from_ref(&descriptor).addr();
+    let product = crate::product::product_key(&descriptor);
     let address = crate::native::frames::bray_runtime_frame_storage_admission(Some(&METADATA));
     assert_ne!(address, 0);
     FRAME.set(address);
@@ -258,7 +258,7 @@ fn rejected_lifecycle_keeps_result_and_product_owned() {
             NativeProductHostState::OPEN
         );
 
-        let product = std::ptr::from_ref(descriptor).addr();
+        let product = crate::product::product_key(descriptor);
 
         with_runtime(|runtime| {
             let (handle, _) = runtime
@@ -429,7 +429,7 @@ fn admitted_cleanup_dispatches_blocking_compute_and_main_lanes_without_allocatio
         with_runtime(|runtime| {
             let (handle, _) = runtime
                 .admit_returned_value(
-                    std::ptr::from_ref(&descriptor).addr(),
+                    crate::product::product_key(&descriptor),
                     8,
                     8,
                     0,

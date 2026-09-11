@@ -56,7 +56,10 @@ activation and discharge use existing domain and shape registration without allo
 
 Providers bind generated runtime calls to the same resident implementation through fixed, typed native service tables.
 The host keeps those tables and their implementation image alive independently of provider retirement. Formation validates
-the required service components before provider initialization can publish owned values. Synchronous products require only
+the required service components before provider initialization can publish owned values. A provider load has one permanent
+binding and a resident-assigned identity, so unloading and reloading at the same address cannot reuse an earlier host.
+Binding survives failed formation: retry uses the same live domain, and the resident image stays loaded until the bound
+provider unloads. Synchronous products require only
 the host and capacity services. Their service tables must not retain scheduler entry points merely because asynchronous
 products use them. Runtime component selection continues to determine which native code is linked.
 

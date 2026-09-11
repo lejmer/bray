@@ -379,14 +379,15 @@ impl Compilation {
 
         if runtime_roles.contains(&RuntimeAbiRole::ProductHostControl) {
             runtime_roles.extend([
-                RuntimeAbiRole::CleanupCapacityDomainFormation,
-                RuntimeAbiRole::CleanupCapacityDomainRelease,
+                RuntimeAbiRole::ProductServicesFormation,
+                RuntimeAbiRole::ProductServicesRelease,
             ]);
         }
 
         let mut capabilities: BTreeSet<_> = required_capabilities.into_iter().collect();
 
         if runtime_roles.contains(&RuntimeAbiRole::MainThreadLaneStartup) {
+            runtime_roles.insert(RuntimeAbiRole::ExecutionServices);
             capabilities.insert(RuntimeCapability::CooperativeExecution);
             capabilities.insert(RuntimeCapability::MainThreadLane);
         }

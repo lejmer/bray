@@ -309,9 +309,14 @@ pub(super) fn declare_product_host<'context>(
                 false,
             )
             .into(),
+        usize.const_zero().into(),
+        usize.const_zero().into(),
+        pointer.const_null().into(),
+        pointer.const_null().into(),
+        pointer.const_null().into(),
     ]);
 
-    descriptor.set_constant(true);
+    descriptor.set_constant(false);
     descriptor.set_initializer(&descriptor_initializer);
     descriptor.set_linkage(Linkage::WeakODR);
 
@@ -622,6 +627,11 @@ fn product_host_descriptor_type<'context>(
             product_identity_type(context).into(),
             pointer.into(),
             usize.into(),
+            usize.into(),
+            usize.into(),
+            pointer.into(),
+            pointer.into(),
+            pointer.into(),
         ],
         false,
     )

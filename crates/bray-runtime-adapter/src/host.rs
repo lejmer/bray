@@ -33,7 +33,7 @@ native_adapter! {
     pub extern "C" fn bray_runtime_substrate_product_host_control(
         descriptor: &NativeProductHostDescriptor,
         operation: NativeProductHostOperation,
-        capacity: Option<&bray_runtime_abi::NativeCleanupCapacityBinding>,
+        capacity: Option<&bray_runtime_abi::NativeProductServices>,
     ) -> NativeProductHostObservation {
         implementation::bray_runtime_product_host_control(descriptor, operation, capacity)
     }
@@ -113,18 +113,19 @@ native_adapter! {
 }
 
 native_adapter! {
-    pub extern "C" fn bray_runtime_cleanup_capacity_domain_release(
-        binding: &mut bray_runtime_abi::NativeCleanupCapacityBinding,
+    pub extern "C" fn bray_runtime_product_services_release(
+        binding: &mut bray_runtime_abi::NativeProductServices,
     ) {
-        implementation::bray_runtime_cleanup_capacity_domain_release(binding)
+        implementation::bray_runtime_product_services_release(binding)
     }
 }
 
 native_adapter! {
-    pub extern "C" fn bray_runtime_cleanup_capacity_domain_formation(
-        destination: &mut bray_runtime_abi::NativeCleanupCapacityBinding,
+    pub extern "C" fn bray_runtime_product_services_formation(
+        destination: &mut bray_runtime_abi::NativeProductServices,
+        execution: Option<&'static bray_runtime_abi::NativeExecutionServices>,
     ) -> bray_runtime_abi::NativeRuntimeStatus {
-        bray_runtime::native::implementation::bray_runtime_cleanup_capacity_domain_formation(destination)
+        bray_runtime::native::implementation::bray_runtime_product_services_formation(destination, execution)
     }
 }
 

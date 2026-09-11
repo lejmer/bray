@@ -1,3 +1,6 @@
+use std::num::NonZeroUsize;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use bray_runtime_abi::{
     NativeCleanupExecution, NativeProductHostDescriptor, NativeProductHostObservation,
     NativeProductHostState, NativeProductHostStatus, NativeStaticIdentity,
@@ -6,15 +9,18 @@ use bray_runtime_abi::{
 use super::descriptor::read_statics;
 use super::model::{ProductHost, host_status, product_hosts, product_key};
 
+// IDs belong to this resident registry and never reuse an unloaded image's address.
+static NEXT_PRODUCT: AtomicUsize = AtomicUsize::new(2);
+
 pub(super) fn ensure_formed(
     descriptor: &NativeProductHostDescriptor,
-    capacity: Option<&bray_runtime_abi::NativeCleanupCapacityBinding>,
+    capacity: Option<&bray_runtime_abi::NativeProductServices>,
     retain: impl FnOnce() -> Result<
         Option<crate::product::RetainedProductExecution>,
         bray_runtime_abi::NativeRuntimeStatus,
     >,
 ) -> Result<(), NativeProductHostObservation> {
-    let product = product_key(descriptor);
+    let product = bind_product(descriptor, capacity).map_err(unformed)?;
 
     let hosts = product_hosts()
         .lock()
@@ -123,6 +129,39 @@ pub(super) fn ensure_formed(
     inserted.map(|_| ()).map_err(unformed)
 }
 
+fn bind_product(
+    descriptor: &NativeProductHostDescriptor,
+    services: Option<&bray_runtime_abi::NativeProductServices>,
+) -> Result<usize, NativeProductHostStatus> {
+    let Some(services) = services else {
+        return NonZeroUsize::new(product_key(descriptor))
+            .map(NonZeroUsize::get)
+            .ok_or(NativeProductHostStatus::INVALID_ARGUMENT);
+    };
+
+    if !services
+        .host()
+        .is_some_and(|host| std::ptr::eq(host, &crate::native::services::HOST_SERVICES))
+    {
+        return Err(NativeProductHostStatus::INVALID_ARGUMENT);
+    }
+
+    let candidate = match NonZeroUsize::new(product_key(descriptor)) {
+        Some(existing) => existing,
+        None => NEXT_PRODUCT
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |identity| {
+                identity.checked_add(1)
+            })
+            .ok()
+            .and_then(NonZeroUsize::new)
+            .ok_or(NativeProductHostStatus::ALLOCATION_FAILURE)?,
+    };
+
+    descriptor
+        .bind_services(services, candidate)
+        .map_err(host_status)
+}
+
 fn insert_host(product: usize, host: ProductHost) -> Result<bool, NativeProductHostStatus> {
     let mut hosts = product_hosts()
         .lock()
@@ -162,4 +201,82 @@ fn unformed(status: NativeProductHostStatus) -> NativeProductHostObservation {
         0,
         NativeStaticIdentity::new([0; 32]),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_runtime_abi::{
+        NativeHostServices, NativeProductHostDescriptor, NativeProductHostOperation,
+        NativeProductHostState, NativeProductHostStatus, NativeProductIdentity, NativeStaticHostEntry,
+    };
+
+    extern "C" fn empty(_: usize) -> NativeStaticHostEntry {
+        panic!("empty product has no static entries");
+    }
+
+    fn descriptor() -> NativeProductHostDescriptor {
+        NativeProductHostDescriptor::new(NativeProductIdentity::new([197; 32]), empty, 0)
+    }
+
+    #[test]
+    fn concurrent_publication_selects_one_resident_identity_and_rejects_rebinding() {
+        let descriptor = descriptor();
+        let services = crate::test_support::cleanup_capacity_binding();
+        let other = crate::test_support::cleanup_capacity_binding();
+        assert_eq!(super::product_key(&descriptor), 0);
+        assert!(descriptor.runtime_host().is_null());
+        assert!(descriptor.runtime_execution().is_null());
+
+        let identities = std::thread::scope(|scope| {
+            let handles = (0..8)
+                .map(|_| scope.spawn(|| super::bind_product(&descriptor, Some(&services)).unwrap()))
+                .collect::<Vec<_>>();
+
+            handles.into_iter().map(|handle| handle.join().unwrap()).collect::<Vec<_>>()
+        });
+
+        let identity = identities[0];
+        assert!(identity >= 2);
+        assert!(identities.iter().all(|candidate| *candidate == identity));
+        assert_eq!(super::product_key(&descriptor), identity);
+        assert_eq!(descriptor.runtime_host(), std::ptr::from_ref(services.host().unwrap()));
+        assert!(descriptor.runtime_execution().is_null());
+
+        crate::test_support::with_allocation_failure(|| {
+            assert_eq!(super::bind_product(&descriptor, Some(&services)), Ok(identity));
+
+            assert_eq!(
+                super::bind_product(&descriptor, Some(&other)),
+                Err(NativeProductHostStatus::INVALID_ARGUMENT)
+            );
+        });
+
+        let foreign = NativeHostServices { ..crate::native::services::HOST_SERVICES };
+        assert!(descriptor.runtime_instance(&foreign).is_none());
+        assert_eq!(super::product_key(&descriptor), identity);
+    }
+
+    #[test]
+    fn a_reloaded_descriptor_at_the_same_address_gets_a_new_host() {
+        let services = crate::test_support::cleanup_capacity_binding();
+        let mut loaded = Box::new(descriptor());
+        let address = std::ptr::from_ref(loaded.as_ref()).addr();
+
+        let control = |loaded: &NativeProductHostDescriptor, operation| {
+            super::super::operations::control(loaded, operation, Some(&services))
+        };
+
+        assert_eq!(control(&loaded, NativeProductHostOperation::FORM).state(), NativeProductHostState::OPEN);
+        let first = super::product_key(&loaded);
+        assert_eq!(control(&loaded, NativeProductHostOperation::CLOSE).state(), NativeProductHostState::CLOSED);
+
+        *loaded = descriptor();
+        assert_eq!(std::ptr::from_ref(loaded.as_ref()).addr(), address);
+        assert_eq!(super::product_key(&loaded), 0);
+        assert_eq!(control(&loaded, NativeProductHostOperation::FORM).state(), NativeProductHostState::OPEN);
+        let second = super::product_key(&loaded);
+        assert_ne!(first, second);
+        assert_eq!(super::product_hosts().lock().unwrap().get(&first).unwrap().state, NativeProductHostState::CLOSED);
+        assert_eq!(control(&loaded, NativeProductHostOperation::CLOSE).state(), NativeProductHostState::CLOSED);
+    }
 }

@@ -1,6 +1,6 @@
 use super::cleanup::NativeCleanupExecution;
 use super::runtime::{NativeBrayCallOutcome, NativeRuntimeStatus, NativeSourceAnchor};
-use crate::NativeFrameMetadataCallback;
+use crate::{NativeFrameMetadataCallback, NativeProductHostDescriptor};
 
 /// Version of the native product-host descriptor and static-entry records.
 pub const PRODUCT_HOST_ABI_VERSION: u32 = 1;
@@ -499,54 +499,6 @@ impl NativeStaticHostEntry {
     /// Returns the number of dependency identities.
     pub const fn dependency_count(self) -> usize {
         self.dependency_count
-    }
-}
-
-/// Immutable compiler-generated descriptor for one loaded product host.
-#[repr(C)]
-#[derive(Clone, Copy, Debug)]
-pub struct NativeProductHostDescriptor {
-    abi_version: u32,
-    reserved: u32,
-    identity: NativeProductIdentity,
-    static_entry: NativeStaticHostCallback,
-    static_count: usize,
-}
-
-impl NativeProductHostDescriptor {
-    /// Creates one immutable compiler-generated product-host descriptor.
-    pub const fn new(
-        identity: NativeProductIdentity,
-        static_entry: NativeStaticHostCallback,
-        static_count: usize,
-    ) -> Self {
-        Self {
-            abi_version: PRODUCT_HOST_ABI_VERSION,
-            reserved: 0,
-            identity,
-            static_entry,
-            static_count,
-        }
-    }
-
-    /// Returns the record ABI version.
-    pub const fn abi_version(self) -> u32 {
-        self.abi_version
-    }
-
-    /// Returns the loaded product identity.
-    pub const fn identity(self) -> NativeProductIdentity {
-        self.identity
-    }
-
-    /// Returns the callback selecting one ordered static entry by ordinal.
-    pub const fn static_entry(self) -> NativeStaticHostCallback {
-        self.static_entry
-    }
-
-    /// Returns the number of static entries.
-    pub const fn static_count(self) -> usize {
-        self.static_count
     }
 }
 

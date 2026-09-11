@@ -1241,6 +1241,7 @@ mod tests {
                 RuntimeAbiRole::CleanupIncidentTransfer,
                 RuntimeAbiRole::CleanupIncidentDetailReporting,
                 RuntimeAbiRole::CleanupIncidentReporting,
+                RuntimeAbiRole::ExecutionServices,
                 RuntimeAbiRole::MainThreadLaneStartup,
                 RuntimeAbiRole::MainThreadLaneDrive,
                 RuntimeAbiRole::RootTerminalObservation,

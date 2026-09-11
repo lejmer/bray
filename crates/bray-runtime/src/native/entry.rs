@@ -18,7 +18,7 @@ native_export! {
                 return bray_runtime_abi::NativeTaskAllocation::failure(NativeRuntimeStatus::INVALID_ARGUMENT);
             };
             match super::state::with_runtime(|runtime| runtime.admit_returned_value(
-                std::ptr::from_ref(product).addr(), size, alignment, error_offset, broadcast.copied(), *lifecycle,
+                crate::product::product_key(product), size, alignment, error_offset, broadcast.copied(), *lifecycle,
             )).and_then(|result| result) {
                 Ok((task, address)) => {
                     *destination = address;

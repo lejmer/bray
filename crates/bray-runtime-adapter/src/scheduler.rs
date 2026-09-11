@@ -187,7 +187,7 @@ native_adapter! {
     pub extern "C" fn bray_runtime_asynchronous_product_host_control(
         descriptor: &bray_runtime_abi::NativeProductHostDescriptor,
         operation: bray_runtime_abi::NativeProductHostOperation,
-        capacity: Option<&bray_runtime_abi::NativeCleanupCapacityBinding>,
+        capacity: Option<&bray_runtime_abi::NativeProductServices>,
     ) -> bray_runtime_abi::NativeProductHostObservation {
         implementation::bray_runtime_asynchronous_product_host_control(descriptor, operation, capacity)
     }
@@ -210,5 +210,11 @@ native_adapter! {
 native_adapter! {
     pub extern "C" fn bray_runtime_entry_result_resolution(task: u64, returned_error: u8) -> NativeRuntimeStatus {
         implementation::bray_runtime_entry_result_resolution(task, returned_error)
+    }
+}
+
+native_adapter! {
+    pub extern "C" fn bray_runtime_execution_services() -> &'static bray_runtime_abi::NativeExecutionServices {
+        implementation::bray_runtime_execution_services()
     }
 }

@@ -1,57 +1,22 @@
 use std::num::NonZeroUsize;
 
 use crate::{
-    NativeCleanupStorage, NativeProviderRetention, NativeProviderRetirement, NativeRuntimeStatus,
+    NativeCleanupCapacityMetadata, NativeCleanupCapacityMetadataProvider, NativeCleanupStorage,
+    NativeExecutionServices, NativeHostServices, NativeProviderRetention, NativeProviderRetirement,
+    NativeRuntimeStatus,
 };
 
-/// Supplies one action descriptor by ordinal during admission only.
-pub type NativeCleanupCapacityMetadataProvider =
-    extern "C" fn(usize) -> Option<&'static NativeCleanupCapacityMetadata>;
-
-/// Provider-owned description of one cleanup action's prepared storage.
-#[derive(Debug)]
-#[repr(C)]
-pub struct NativeCleanupCapacityMetadata {
-    identity: [u8; 32],
-    prepare: extern "C" fn(&mut NativeCleanupStorage) -> NativeRuntimeStatus,
-}
-
-impl NativeCleanupCapacityMetadata {
-    /// Creates a descriptor whose callback prepares backing in an empty destination.
-    ///
-    /// The callback must not unwind. Prepared storage retains its defining provider.
-    /// Admission must not retain a borrowed descriptor after its provider is released.
-    pub const fn new(
-        identity: [u8; 32],
-        prepare: extern "C" fn(&mut NativeCleanupStorage) -> NativeRuntimeStatus,
-    ) -> Self {
-        Self { identity, prepare }
-    }
-
-    /// Returns the stable action identity across providers.
-    pub const fn identity(&self) -> &[u8; 32] {
-        &self.identity
-    }
-
-    /// Prepares backing without replacing an existing owned allocation.
-    pub fn prepare(&self, destination: &mut NativeCleanupStorage) -> NativeRuntimeStatus {
-        if !destination.is_empty() {
-            return NativeRuntimeStatus::INVALID_ARGUMENT;
-        }
-
-        (self.prepare)(destination)
-    }
-}
-
-/// Resident service callbacks for one cleanup capacity domain.
+/// Resident operations and native service tables for one product admission domain.
 ///
 /// Callbacks support every thread without unwinding. The table remains resident
 /// independently of the action providers. The binding retains its service context.
 #[derive(Debug)]
 #[repr(C)]
-pub struct NativeCleanupCapacityCallbacks {
+pub struct NativeProductServiceCallbacks {
     version: u32,
     reserved: u32,
+    host: &'static NativeHostServices,
+    execution: extern "C" fn(usize) -> Option<&'static NativeExecutionServices>,
     admit: extern "C" fn(
         usize,
         usize,
@@ -71,10 +36,12 @@ pub struct NativeCleanupCapacityCallbacks {
     ) -> NativeRuntimeStatus,
 }
 
-impl NativeCleanupCapacityCallbacks {
+impl NativeProductServiceCallbacks {
     /// Creates the current service table. Admission borrows provider metadata only
     /// during the call. Activation transfers prepared backing to an empty output.
     pub const fn new(
+        host: &'static NativeHostServices,
+        execution: extern "C" fn(usize) -> Option<&'static NativeExecutionServices>,
         admit: extern "C" fn(
             usize,
             usize,
@@ -96,6 +63,8 @@ impl NativeCleanupCapacityCallbacks {
         Self {
             version: 1,
             reserved: 0,
+            host,
+            execution,
             admit,
             activate,
             discharge,
@@ -104,16 +73,16 @@ impl NativeCleanupCapacityCallbacks {
     }
 }
 
-/// Owned reference to a cleanup capacity domain and its resident service.
+/// Owned binding to resident host operations, optional execution, and cleanup capacity.
 #[derive(Debug, Clone)]
 #[repr(C)]
-pub struct NativeCleanupCapacityBinding {
+pub struct NativeProductServices {
     context: usize,
-    callbacks: Option<&'static NativeCleanupCapacityCallbacks>,
+    callbacks: Option<&'static NativeProductServiceCallbacks>,
     retention: NativeProviderRetention,
 }
 
-impl NativeCleanupCapacityBinding {
+impl NativeProductServices {
     /// Creates an initialized empty binding without acquiring a reference.
     pub const fn empty() -> Self {
         Self {
@@ -127,7 +96,7 @@ impl NativeCleanupCapacityBinding {
     /// The owner must be nonempty and belong to the supplied service context.
     pub const fn new(
         context: NonZeroUsize,
-        callbacks: &'static NativeCleanupCapacityCallbacks,
+        callbacks: &'static NativeProductServiceCallbacks,
         retention: NativeProviderRetention,
     ) -> Self {
         Self {
@@ -150,9 +119,31 @@ impl NativeCleanupCapacityBinding {
                     && !self.retention.is_empty()
                     && callbacks.version == 1
                     && callbacks.reserved == 0
+                    && callbacks.host.version == 1
+                    && callbacks.host.reserved == 0
             }
             None => false,
         }
+    }
+
+    /// Borrows the resident host table retained by this binding.
+    pub const fn host(&self) -> Option<&'static NativeHostServices> {
+        match self.callbacks {
+            Some(callbacks) if self.is_valid() => Some(callbacks.host),
+            _ => None,
+        }
+    }
+
+    /// Borrows the optional execution component selected during service formation.
+    /// The resident getter neither allocates nor calls provider code.
+    pub fn execution(&self) -> Option<&'static NativeExecutionServices> {
+        let callbacks = self.callbacks.filter(|_| self.is_valid())?;
+
+        (callbacks.execution)(self.context)
+    }
+
+    pub(crate) fn identity(&self) -> Option<(usize, *const NativeProductServiceCallbacks)> {
+        self.callbacks.filter(|_| self.is_valid()).map(|callbacks| (self.context, std::ptr::from_ref(callbacks)))
     }
 
     /// Compares domain identity without invoking either service.
@@ -223,51 +214,35 @@ impl NativeCleanupCapacityBinding {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        NativeCleanupCapacityBinding, NativeCleanupCapacityCallbacks, NativeCleanupCapacityMetadata,
-    };
+    use super::{NativeProductServiceCallbacks, NativeProductServices};
 
     fn assert_send_sync<T: Send + Sync>() {}
 
     #[test]
-    fn capacity_service_layout_preserves_resident_and_provider_ownership() {
+    fn product_service_layout_preserves_resident_ownership() {
         let word = std::mem::size_of::<usize>();
 
-        assert_eq!(
-            std::mem::size_of::<Option<super::NativeCleanupCapacityMetadataProvider>>(),
-            word
-        );
-
-        assert_eq!(
-            std::mem::align_of::<Option<super::NativeCleanupCapacityMetadataProvider>>(),
-            std::mem::align_of::<usize>()
-        );
-
-        assert_abi_layout!(NativeCleanupCapacityMetadata, size: 32 + word, align: word, fields: {
-            identity: 0,
-            prepare: 32,
-        });
-
-        assert_abi_layout!(NativeCleanupCapacityCallbacks, size: 8 + 4 * word, align: word, fields: {
+        assert_abi_layout!(NativeProductServiceCallbacks, size: 8 + 6 * word, align: word, fields: {
             version: 0,
             reserved: 4,
-            admit: 8,
-            activate: 8 + word,
-            discharge: 8 + 2 * word,
-            register_provider: 8 + 3 * word,
+            host: 8,
+            execution: 8 + word,
+            admit: 8 + 2 * word,
+            activate: 8 + 3 * word,
+            discharge: 8 + 4 * word,
+            register_provider: 8 + 5 * word,
         });
 
-        assert_abi_layout!(NativeCleanupCapacityBinding, size: 4 * word, align: word, fields: {
+        assert_abi_layout!(NativeProductServices, size: 4 * word, align: word, fields: {
             context: 0,
             callbacks: word,
             retention: 2 * word,
         });
 
-        assert_send_sync::<NativeCleanupCapacityMetadata>();
-        assert_send_sync::<NativeCleanupCapacityCallbacks>();
-        assert_send_sync::<NativeCleanupCapacityBinding>();
+        assert_send_sync::<NativeProductServiceCallbacks>();
+        assert_send_sync::<NativeProductServices>();
 
-        let empty = NativeCleanupCapacityBinding::empty();
+        let empty = NativeProductServices::empty();
         assert!(empty.is_empty());
         assert!(!empty.is_valid());
         assert!(!empty.same_domain(&empty.clone()));

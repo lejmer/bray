@@ -66,6 +66,8 @@ mod tests {
             NativeProductHostState::OPEN
         );
 
+        let product = super::super::model::product_key(&DESCRIPTOR);
+
         let first =
             crate::test_support::with_allocation_failure(|| super::ProductEntry::acquire(product))
                 .unwrap();

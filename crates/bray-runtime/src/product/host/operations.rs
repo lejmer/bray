@@ -17,7 +17,7 @@ use super::model::{
 pub(crate) fn control(
     descriptor: &NativeProductHostDescriptor,
     operation: NativeProductHostOperation,
-    capacity: Option<&bray_runtime_abi::NativeCleanupCapacityBinding>,
+    capacity: Option<&bray_runtime_abi::NativeProductServices>,
 ) -> NativeProductHostObservation {
     control_with_execution(
         descriptor,
@@ -30,19 +30,18 @@ pub(crate) fn control(
 pub(crate) fn control_with_execution(
     descriptor: &NativeProductHostDescriptor,
     operation: NativeProductHostOperation,
-    capacity: Option<&bray_runtime_abi::NativeCleanupCapacityBinding>,
+    capacity: Option<&bray_runtime_abi::NativeProductServices>,
     retain: fn() -> Result<Option<crate::product::RetainedProductExecution>, NativeRuntimeStatus>,
 ) -> NativeProductHostObservation {
     if !operation.is_known() {
         return NativeProductHostObservation::invalid();
     }
 
-    let product = product_key(descriptor);
-
     if let Err(status) = ensure_formed(descriptor, capacity, retain) {
         return status;
     }
 
+    let product = product_key(descriptor);
     let observation = control_formed(product, operation);
 
     super::retention::observe_retirement(product).unwrap_or(observation)
@@ -822,7 +821,7 @@ mod tests {
             super::control(
                 &descriptor,
                 NativeProductHostOperation::FORM,
-                Some(&bray_runtime_abi::NativeCleanupCapacityBinding::empty())
+                Some(&bray_runtime_abi::NativeProductServices::empty())
             )
             .status(),
             NativeProductHostStatus::INVALID_ARGUMENT

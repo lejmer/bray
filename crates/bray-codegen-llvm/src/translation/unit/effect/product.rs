@@ -1,5 +1,5 @@
 use super::super::core::UnitTranslator;
-use super::super::support::{extract_value, int_value, llvm};
+use super::super::support::{extract_value, int_value, llvm, pointer_value};
 use bray_codegen::CodegenFailure;
 use bray_ir::MirRuntimeReference;
 use bray_runtime_abi::NativeProductHostOperation;
@@ -52,6 +52,17 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let pointer = context.ptr_type(inkwell::AddressSpace::default());
         let usize = crate::native::pointer_integer_type(context, self.request.target());
 
+        let execution = if startup.is_some() {
+            self.invoke_native_runtime(
+                MirRuntimeReference::new(RuntimeAbiRole::ExecutionServices, control.abi_version()),
+                &[],
+            )?
+            .and_then(pointer_value)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?
+        } else {
+            pointer.const_null()
+        };
+
         let binding_type = context.struct_type(
             &[usize.into(), pointer.into(), usize.into(), pointer.into()],
             false,
@@ -63,10 +74,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let status = self
             .invoke_native_runtime(
                 MirRuntimeReference::new(
-                    RuntimeAbiRole::CleanupCapacityDomainFormation,
+                    RuntimeAbiRole::ProductServicesFormation,
                     control.abi_version(),
                 ),
-                &[binding.into()],
+                &[binding.into(), execution.into()],
             )?
             .and_then(int_value)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
@@ -81,7 +92,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         self.invoke_native_runtime(
             MirRuntimeReference::new(
-                RuntimeAbiRole::CleanupCapacityDomainRelease,
+                RuntimeAbiRole::ProductServicesRelease,
                 control.abi_version(),
             ),
             &[binding.into()],

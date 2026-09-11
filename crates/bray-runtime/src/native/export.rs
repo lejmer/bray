@@ -32,7 +32,7 @@ native_export! {
     pub extern "C" fn bray_runtime_product_host_control(
         descriptor: &NativeProductHostDescriptor,
         operation: NativeProductHostOperation,
-        capacity: Option<&bray_runtime_abi::NativeCleanupCapacityBinding>,
+        capacity: Option<&bray_runtime_abi::NativeProductServices>,
     ) -> NativeProductHostObservation {
         catch_unwind(AssertUnwindSafe(|| crate::product::control(descriptor, operation, capacity)))
             .unwrap_or_else(|_| NativeProductHostObservation::new(

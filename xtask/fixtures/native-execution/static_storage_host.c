@@ -1,9 +1,10 @@
+#include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
 
 #include "static_storage_host.h"
 
-static CleanupCapacityBinding capacity = {0};
+static ProductServices capacity = {0};
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -49,6 +50,11 @@ typedef struct
     uint8_t identity[32];
     static_host_lookup static_entry;
     size_t static_count;
+    _Atomic uintptr_t runtime_instance;
+    _Atomic uintptr_t runtime_domain;
+    _Atomic(void *) runtime_callbacks;
+    _Atomic(void *) runtime_host;
+    _Atomic(void *) runtime_execution;
 } product_host_descriptor;
 
 typedef struct
@@ -484,7 +490,7 @@ int main(int argument_count, char **arguments)
     if (argument_count != 6)
         return 60;
 
-    if (bray_runtime_cleanup_capacity_domain_formation(&capacity) != 0)
+    if (bray_runtime_product_services_formation(&capacity, bray_runtime_execution_services()) != 0)
         return 76;
 
     native_library first_library = open_library(arguments[1]);
@@ -579,7 +585,7 @@ int main(int argument_count, char **arguments)
     )
         return 66;
 
-    bray_runtime_cleanup_capacity_domain_release(&capacity);
+    bray_runtime_product_services_release(&capacity);
 
     if (close_library(first_library) != 0 || close_library(second_library) != 0)
         return 67;

@@ -21,7 +21,7 @@ thread_local! {
 
 pub(super) struct ProductHost {
     pub(super) identity: NativeProductIdentity,
-    pub(super) capacity: Option<triomphe::Arc<bray_runtime_abi::NativeCleanupCapacityBinding>>,
+    pub(super) capacity: Option<triomphe::Arc<bray_runtime_abi::NativeProductServices>>,
     pub(super) execution: Option<crate::product::RetainedProductExecution>,
     pub(super) cleanup_driver: Option<Box<dyn crate::product::ProductCleanup>>,
     pub(super) state: NativeProductHostState,
@@ -90,8 +90,10 @@ pub(in crate::product) fn initialize_thread_static_registry() {
     THREAD_STATICS.with(|_| {});
 }
 
-pub(super) fn product_key(descriptor: &NativeProductHostDescriptor) -> usize {
-    std::ptr::from_ref(descriptor) as usize
+pub(crate) fn product_key(descriptor: &NativeProductHostDescriptor) -> usize {
+    descriptor
+        .runtime_instance(&crate::native::services::HOST_SERVICES)
+        .map_or(0, std::num::NonZeroUsize::get)
 }
 
 pub(super) fn runtime_status(status: NativeProductHostStatus) -> NativeRuntimeStatus {

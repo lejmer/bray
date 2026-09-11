@@ -433,8 +433,10 @@ fn signature_passes_unsized_by_value(
         }
 }
 
-fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRuntimeReference>; 4] {
-    match operation {
+fn operation_runtime_references(
+    operation: &MirOperationKind,
+) -> impl IntoIterator<Item = Option<MirRuntimeReference>> {
+    let references = match operation {
         // Symbolic owner types may select no local allowance. Mappings supply concrete demand.
         MirOperationKind::AdmitCleanup(_) | MirOperationKind::DischargeCleanup(_) => [None; 4],
         MirOperationKind::Call(call) => match call.target() {
@@ -451,11 +453,11 @@ fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRunt
             *startup,
             Some(*control),
             Some(MirRuntimeReference::new(
-                bray_runtime_interface::RuntimeAbiRole::CleanupCapacityDomainFormation,
+                bray_runtime_interface::RuntimeAbiRole::ProductServicesFormation,
                 control.abi_version(),
             )),
             Some(MirRuntimeReference::new(
-                bray_runtime_interface::RuntimeAbiRole::CleanupCapacityDomainRelease,
+                bray_runtime_interface::RuntimeAbiRole::ProductServicesRelease,
                 control.abi_version(),
             )),
         ],
@@ -535,7 +537,20 @@ fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRunt
             | MirAsyncOperation::ComposeAwaitedFrame { .. }
             | MirAsyncOperation::DestroyTerminalTask { .. },
         ) => [None, None, None, None],
-    }
+    };
+
+    let execution = match operation {
+        MirOperationKind::Host(MirHostOperation::BeginExecution {
+            startup: Some(startup),
+            ..
+        }) => Some(MirRuntimeReference::new(
+            bray_runtime_interface::RuntimeAbiRole::ExecutionServices,
+            startup.abi_version(),
+        )),
+        _ => None,
+    };
+
+    references.into_iter().chain([execution])
 }
 
 fn terminator_runtime_references(

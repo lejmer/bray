@@ -13,17 +13,18 @@ mod panic;
 mod platform;
 mod process;
 mod product;
+mod product_host;
 mod provider_retirement;
 mod retention;
 mod run_result;
 mod runtime;
+mod services;
 mod signature;
 pub mod symbols;
 mod temporal;
 
 pub use capacity::{
-    NativeCleanupCapacityBinding, NativeCleanupCapacityCallbacks, NativeCleanupCapacityMetadata,
-    NativeCleanupCapacityMetadataProvider, NativeCleanupStorage,
+    NativeCleanupCapacityMetadata, NativeCleanupCapacityMetadataProvider, NativeCleanupStorage,
 };
 pub use cleanup::{
     NativeCleanupExecution, NativeTaskTerminalCleanup, NativeValueCleanup,
@@ -39,7 +40,7 @@ pub use platform::{
 pub use process::{NativePlatformChildRequest, NativePlatformExitStatus};
 pub use product::{
     NativeCleanupIncident, NativeCleanupIncidentDestroyCallback,
-    NativeCleanupIncidentReportCallback, NativePanicReportCallbacks, NativeProductHostDescriptor,
+    NativeCleanupIncidentReportCallback, NativePanicReportCallbacks,
     NativeProductHostObservation, NativeProductHostOperation, NativeProductHostState,
     NativeProductHostStatus, NativeProductIdentity, NativeStaticAccessCallback,
     NativeStaticCleanupCallback, NativeStaticDuration, NativeStaticFinalizer,
@@ -69,9 +70,12 @@ pub use runtime::{
     NativeWakeCallback, PERFORMANCE_INTERVAL_BEGIN_SYMBOL, PERFORMANCE_INTERVAL_END_SYMBOL,
     PERFORMANCE_OBSERVATION_HEADER, PERFORMANCE_OBSERVATION_PATH_ENVIRONMENT,
 };
+pub use services::{NativeExecutionServices, NativeHostServices, NativeProductServiceCallbacks, NativeProductServices};
 pub use temporal::{
     NativePlatformDateTime, NativePlatformTemporalObservation, NativePlatformTemporalResolution,
     NativePlatformTemporalValue,
 };
 
 pub use signature::{PlatformAbiType, PlatformAbiValue, platform_signature_matches};
+
+pub use product_host::NativeProductHostDescriptor;
