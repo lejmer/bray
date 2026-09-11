@@ -63,11 +63,9 @@ pub(super) fn signal(identity: usize) -> NativeRuntimeStatus {
         return NativeRuntimeStatus::INVALID_ARGUMENT;
     };
 
-    event
-        .close()
-        .map_or(NativeRuntimeStatus::RUNTIME_FAILURE, |_| {
-            NativeRuntimeStatus::SUCCESS
-        })
+    event.close();
+
+    NativeRuntimeStatus::SUCCESS
 }
 
 pub(super) fn destroy(owner: &Arc<NativeRuntimeCore>, identity: usize) -> NativeRuntimeStatus {

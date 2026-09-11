@@ -61,10 +61,7 @@ impl NativeRuntime {
         // Notifications request another readiness check. Only a ready wait or deliverable
         // cancellation may advance generated code. Keep registrations armed across a stale wake.
         if !task.cancellation_observable() {
-            let event_ready = match started.event_wait.is_ready() {
-                Ok(ready) => ready,
-                Err(_) => return NativeRuntimeStatus::RUNTIME_FAILURE,
-            };
+            let event_ready = started.event_wait.is_ready();
 
             if !event_ready || !started.continuation.is_ready() {
                 let execution = ready.execution_state().clone();

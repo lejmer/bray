@@ -48,7 +48,7 @@ impl EventWait {
             return Err(RuntimeEventError::AlreadyRegistered);
         }
 
-        let (generation, _) = event.observation()?;
+        let (generation, _) = event.observation();
 
         let source = (identity, generation);
         self.wake.arm(source);
@@ -77,19 +77,19 @@ impl EventWait {
         }
     }
 
-    pub(super) fn is_ready(&self) -> Result<bool, RuntimeEventError> {
+    pub(super) fn is_ready(&self) -> bool {
         let pending = self
             .pending
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
         let Some((event, observed, _)) = pending.as_ref() else {
-            return Ok(true);
+            return true;
         };
 
-        let (generation, closed) = event.observation()?;
+        let (generation, closed) = event.observation();
 
-        Ok(closed || generation != *observed)
+        closed || generation != *observed
     }
 
     pub(super) fn disarm(&self) {
@@ -118,7 +118,7 @@ mod tests {
     #[test]
     fn admitted_event_storage_rearms_without_allocation_and_rejects_old_notifications() {
         let wait = EventWait::reserve().unwrap();
-        assert!(wait.is_ready().unwrap());
+        assert!(wait.is_ready());
         let runtime = RuntimeThreadScope::enter().unwrap();
         let thread = runtime.runtime().id();
 
@@ -144,13 +144,13 @@ mod tests {
             task.descriptor().state(resumed).unwrap().clone(),
         );
 
-        let observed = event.observation().unwrap().0;
+        let observed = event.observation().0;
 
         with_allocation_failure(|| {
             wait.register(&event, 1).unwrap();
-            assert!(!wait.is_ready().unwrap());
+            assert!(!wait.is_ready());
             event.signal().unwrap();
-            assert!(wait.is_ready().unwrap());
+            assert!(wait.is_ready());
 
             let ready = scheduler
                 .take_ready(registration.lane(initial).unwrap())
@@ -160,9 +160,9 @@ mod tests {
             // A previously selected notification can arrive after dequeue and after rearming.
             wait.wake.notify((1, observed));
             wait.disarm();
-            assert!(wait.is_ready().unwrap());
+            assert!(wait.is_ready());
             wait.register(&replacement, 2).unwrap();
-            assert!(!wait.is_ready().unwrap());
+            assert!(!wait.is_ready());
             wait.wake.notify((1, observed));
             ready.suspend(execution.clone()).unwrap();
 
@@ -172,7 +172,7 @@ mod tests {
                 .unwrap()
                 .unwrap();
 
-            assert!(!wait.is_ready().unwrap());
+            assert!(!wait.is_ready());
             ready.suspend(execution.clone()).unwrap();
 
             assert!(
@@ -183,7 +183,7 @@ mod tests {
             );
 
             replacement.signal().unwrap();
-            assert!(wait.is_ready().unwrap());
+            assert!(wait.is_ready());
 
             let ready = scheduler
                 .take_ready(registration.lane(resumed).unwrap())
@@ -191,12 +191,12 @@ mod tests {
                 .unwrap();
 
             wait.disarm();
-            assert!(wait.is_ready().unwrap());
+            assert!(wait.is_ready());
 
             // Reusing the same event distinguishes its previous observed generation.
-            let replacement_observed = replacement.observation().unwrap().0;
+            let replacement_observed = replacement.observation().0;
             wait.register(&replacement, 2).unwrap();
-            assert!(!wait.is_ready().unwrap());
+            assert!(!wait.is_ready());
             wait.wake.notify((2, observed));
             ready.suspend(execution.clone()).unwrap();
 
@@ -207,8 +207,8 @@ mod tests {
                     .is_none()
             );
 
-            replacement.close().unwrap();
-            assert!(wait.is_ready().unwrap());
+            replacement.close();
+            assert!(wait.is_ready());
 
             let ready = scheduler
                 .take_ready(registration.lane(resumed).unwrap())
@@ -216,7 +216,7 @@ mod tests {
                 .unwrap();
 
             wait.disarm();
-            assert!(wait.is_ready().unwrap());
+            assert!(wait.is_ready());
             wait.wake.notify((2, replacement_observed));
 
             {

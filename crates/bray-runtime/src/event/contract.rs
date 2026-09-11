@@ -18,8 +18,6 @@ pub enum RuntimeEventError {
     AllocationFailed,
     /// The reserved wait record still belongs to an outstanding registration.
     AlreadyRegistered,
-    /// Event state was poisoned by an unexpected runtime panic.
-    SynchronizationPoisoned,
 }
 
 /// Infallible notification used when a runtime event changes or closes.
