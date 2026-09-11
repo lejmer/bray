@@ -28,9 +28,19 @@ pub fn demanded_frame_operations(
     let helpers = operations
         .iter()
         .flat_map(|mapping| mapping.helpers())
-        .filter_map(|helper| match helper.symbol()? {
-            CodegenSymbolKey::ProtectedFrame { frame, operation } => Some((*frame, *operation)),
-            _ => None,
+        .flat_map(|helper| {
+            let operation = match helper.symbol() {
+                Some(CodegenSymbolKey::ProtectedFrame { frame, operation }) => {
+                    Some((*frame, *operation))
+                }
+                _ => None,
+            };
+
+            let metadata = helper
+                .frame()
+                .map(|frame| (frame, ProtectedFrameOperation::MetadataDescription));
+
+            operation.into_iter().chain(metadata)
         });
 
     let finalizers = static_storages.iter().filter_map(|storage| {
@@ -172,6 +182,33 @@ mod tests {
 
         assert_eq!(
             validate_frame_operations(request.unit(), &[], &storages, &[]),
+            Err(CodegenMappingsBuildError::FrameSymbolCoverageMismatch)
+        );
+
+        let helper = crate::CodegenHelperMapping::new(
+            bray_ir::MirHelperReference::Destroy(ty),
+            CodegenSymbolKey::Instance(instance.key().clone()),
+        )
+        .with_frame(Some(frame));
+
+        let operations = [crate::CodegenOperationMapping::new(
+            instance.key().clone(),
+            bray_ir::MirOperationId::from_slot(instance.mir().unit(), 0),
+            [helper],
+        )];
+
+        assert_eq!(
+            demanded_frame_operations(request.unit(), &operations, &[]),
+            expected
+        );
+
+        assert_eq!(
+            validate_frame_operations(request.unit(), &operations, &[], &[symbol.clone()]),
+            Ok(())
+        );
+
+        assert_eq!(
+            validate_frame_operations(request.unit(), &operations, &[], &[]),
             Err(CodegenMappingsBuildError::FrameSymbolCoverageMismatch)
         );
 

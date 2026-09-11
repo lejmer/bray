@@ -108,10 +108,10 @@ mod tests {
         let panics = crate::test_support::panic_callbacks(release, release);
 
         let broadcast =
-            NativeValueCleanup::new(NativeCleanupExecution::SYNCHRONOUS, broadcast, panics);
+            NativeValueCleanup::new(NativeCleanupExecution::SYNCHRONOUS, None, broadcast, panics);
 
         let lifecycle =
-            NativeValueCleanup::new(NativeCleanupExecution::SYNCHRONOUS, lifecycle, panics);
+            NativeValueCleanup::new(NativeCleanupExecution::SYNCHRONOUS, None, lifecycle, panics);
 
         let ((status, incidents), runtime_incidents) =
             crate::native::with_static_cleanup_runtime(|| {
@@ -153,6 +153,7 @@ mod tests {
 
         let cleanup = NativeValueCleanup::new(
             NativeCleanupExecution::ASYNCHRONOUS,
+            None,
             unexpected,
             crate::test_support::panic_callbacks(unexpected_panic, unexpected_panic),
         );

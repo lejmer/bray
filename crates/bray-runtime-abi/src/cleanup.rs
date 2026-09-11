@@ -1,5 +1,6 @@
 use crate::{
-    NativeBrayCallOutcome, NativeInactiveFrame, NativePanicReportCallbacks, NativeRuntimeStatus,
+    NativeBrayCallOutcome, NativeFrameMetadataCallback, NativeInactiveFrame,
+    NativePanicReportCallbacks, NativeRuntimeStatus,
 };
 
 /// How a compiler-generated cleanup operation reaches completion.
@@ -39,6 +40,7 @@ pub type NativeValueCleanupCallback = extern "C-unwind" fn(
 #[derive(Clone, Copy, Debug)]
 pub struct NativeValueCleanup {
     execution: NativeCleanupExecution,
+    metadata: Option<NativeFrameMetadataCallback>,
     start: NativeValueCleanupCallback,
     panics: NativePanicReportCallbacks,
 }
@@ -100,16 +102,21 @@ mod tests {
         let callback_offset = size_of::<u32>().next_multiple_of(align_of::<usize>());
 
         assert_eq!(offset_of!(NativeValueCleanup, execution), 0);
-        assert_eq!(offset_of!(NativeValueCleanup, start), callback_offset);
+        assert_eq!(offset_of!(NativeValueCleanup, metadata), callback_offset);
 
         assert_eq!(
-            offset_of!(NativeValueCleanup, panics),
+            offset_of!(NativeValueCleanup, start),
             callback_offset + word
         );
 
         assert_eq!(
+            offset_of!(NativeValueCleanup, panics),
+            callback_offset + 2 * word
+        );
+
+        assert_eq!(
             size_of::<NativeValueCleanup>(),
-            callback_offset + word + size_of::<crate::NativePanicReportCallbacks>()
+            callback_offset + 2 * word + size_of::<crate::NativePanicReportCallbacks>()
         );
 
         assert_eq!(offset_of!(NativeTaskTerminalCleanup, value), 0);
@@ -147,10 +154,10 @@ mod tests {
             crate::NativePanicReportCallbacks::new(report, report, construct, attach);
 
         static SYNC: NativeValueCleanup =
-            NativeValueCleanup::new(NativeCleanupExecution::SYNCHRONOUS, start, PANICS);
+            NativeValueCleanup::new(NativeCleanupExecution::SYNCHRONOUS, None, start, PANICS);
 
         static ASYNC: NativeValueCleanup =
-            NativeValueCleanup::new(NativeCleanupExecution::ASYNCHRONOUS, start, PANICS);
+            NativeValueCleanup::new(NativeCleanupExecution::ASYNCHRONOUS, None, start, PANICS);
 
         assert!(
             NativeTaskTerminalCleanup::try_new(None, PANICS)
@@ -180,11 +187,13 @@ impl NativeValueCleanup {
     /// Creates a cleanup contract. The callback must implement the selected execution mode.
     pub const fn new(
         execution: NativeCleanupExecution,
+        metadata: Option<NativeFrameMetadataCallback>,
         start: NativeValueCleanupCallback,
         panics: NativePanicReportCallbacks,
     ) -> Self {
         Self {
             execution,
+            metadata,
             start,
             panics,
         }
@@ -193,6 +202,11 @@ impl NativeValueCleanup {
     /// Returns how the cleanup operation reaches completion.
     pub const fn execution(self) -> NativeCleanupExecution {
         self.execution
+    }
+
+    /// Returns pre-entry metadata for asynchronous cleanup, or none for other modes.
+    pub const fn metadata(self) -> Option<NativeFrameMetadataCallback> {
+        self.metadata
     }
 
     /// Returns the checked callback over the erased value.

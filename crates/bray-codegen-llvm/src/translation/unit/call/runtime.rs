@@ -137,7 +137,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 .into());
         };
 
-        let value = crate::mapping::value_cleanup_descriptor(self.module, symbol, self.types)?;
+        let value = crate::mapping::value_cleanup_descriptor(
+            self.module,
+            symbol,
+            helper.frame(),
+            self.request.mappings(),
+            self.types,
+        )?;
+
         let name = format!("{}.value_cleanup.descriptor", symbol.name().as_str());
 
         let descriptor = crate::mapping::publish_immutable_global(

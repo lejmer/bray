@@ -137,6 +137,7 @@ mod tests {
 
         let cleanup = NativeValueCleanup::new(
             NativeCleanupExecution::SYNCHRONOUS,
+            None,
             complete,
             crate::test_support::panic_callbacks(unexpected_panic, unexpected_panic),
         );
@@ -152,6 +153,7 @@ mod tests {
 
         let cleanup = NativeValueCleanup::new(
             NativeCleanupExecution::ASYNCHRONOUS,
+            None,
             start,
             crate::test_support::panic_callbacks(unexpected_panic, unexpected_panic),
         );
@@ -187,6 +189,7 @@ mod tests {
 
         let cleanup = NativeValueCleanup::new(
             NativeCleanupExecution::ASYNCHRONOUS,
+            None,
             fail,
             crate::test_support::panic_callbacks(unexpected_panic, release),
         );

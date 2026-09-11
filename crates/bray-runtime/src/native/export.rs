@@ -2225,8 +2225,12 @@ mod tests {
         const PANICS: bray_runtime_abi::NativePanicReportCallbacks =
             crate::test_support::panic_callbacks(report, release);
 
-        static VALUE: NativeValueCleanup =
-            NativeValueCleanup::new(NativeCleanupExecution::SYNCHRONOUS, destroy_value, PANICS);
+        static VALUE: NativeValueCleanup = NativeValueCleanup::new(
+            NativeCleanupExecution::SYNCHRONOUS,
+            None,
+            destroy_value,
+            PANICS,
+        );
 
         static CLEANUP: NativeTaskTerminalCleanup =
             match NativeTaskTerminalCleanup::try_new(Some(&VALUE), PANICS) {
@@ -2363,9 +2367,25 @@ mod tests {
         static RELEASES: AtomicUsize = AtomicUsize::new(0);
 
         extern "C-unwind" fn reentrant_destroy(_: usize) {
-            let unlocked = super::with_runtime(|runtime| runtime.tasks.try_lock().is_ok());
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
 
-            assert_eq!(unlocked, Ok(true));
+            // Workers may briefly inspect this table. A lock retained by this callback's caller
+            // cannot become available while the callback is running.
+            while !super::with_runtime(|runtime| match runtime.tasks.try_lock() {
+                Ok(_) => true,
+                Err(std::sync::TryLockError::WouldBlock) => false,
+                Err(std::sync::TryLockError::Poisoned(_)) => panic!("task table must remain valid"),
+            })
+            .unwrap()
+            {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "capture destruction must run outside the task table lock"
+                );
+
+                std::thread::yield_now();
+            }
+
             RELEASES.fetch_add(1, Ordering::Relaxed);
         }
 

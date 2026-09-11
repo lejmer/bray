@@ -244,6 +244,7 @@ impl CodegenOperationMapping {
 pub struct CodegenHelperMapping {
     reference: MirHelperReference,
     symbol: Option<CodegenSymbolKey>,
+    frame: Option<bray_runtime_interface::ProtectedAsyncFrameId>,
 }
 
 impl CodegenHelperMapping {
@@ -252,6 +253,7 @@ impl CodegenHelperMapping {
         Self {
             reference,
             symbol: Some(symbol),
+            frame: None,
         }
     }
 
@@ -260,7 +262,23 @@ impl CodegenHelperMapping {
         Self {
             reference,
             symbol: None,
+            frame: None,
         }
+    }
+
+    /// Retains the concrete frame produced by this helper's selected constructor.
+    pub const fn with_frame(
+        mut self,
+        frame: Option<bray_runtime_interface::ProtectedAsyncFrameId>,
+    ) -> Self {
+        self.frame = frame;
+
+        self
+    }
+
+    /// Returns the selected constructor's concrete protected frame identity.
+    pub const fn frame(&self) -> Option<bray_runtime_interface::ProtectedAsyncFrameId> {
+        self.frame
     }
 
     /// Returns the semantic helper role retained by MIR.

@@ -63,6 +63,7 @@ impl Compilation {
                             data.kind(),
                             operation_result_type(instance.mir(), data),
                             realization,
+                            reachability,
                             reference,
                             target,
                             cancellation,
@@ -130,6 +131,7 @@ impl Compilation {
         operation: &MirOperationKind,
         operation_result_type: Option<TypeId>,
         owner_realization: &ConcreteCodegenInstance,
+        reachability: &ConcreteCodegenReachability,
         reference: MirHelperReference,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
@@ -156,8 +158,20 @@ impl Compilation {
             target,
             cancellation,
         )? {
+            let instance = reachability
+                .graph()
+                .instance(dependency.key())
+                .ok_or_else(|| {
+                    ProductQueryFailure::missing(
+                        ProductQueryContext::Instance(dependency.key().clone()),
+                        ProductDataKind::ConcreteInstance,
+                    )
+                })?;
+
+            let frame = instance.protected_frame_identity();
+
             return dependency_symbol(owner, dependency.key(), &reference)
-                .map(|symbol| CodegenHelperMapping::new(reference, symbol));
+                .map(|symbol| CodegenHelperMapping::new(reference, symbol).with_frame(frame));
         }
 
         if matches!(reference, MirHelperReference::CreateFrame(_)) {
