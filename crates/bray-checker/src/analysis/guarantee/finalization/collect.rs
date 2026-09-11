@@ -272,6 +272,8 @@ impl CompletionCandidates {
                         (state.as_ref(), receiver)
                     {
                         domain.finalizer_completion_dependencies(state, ty, receiver, exit)?
+                    } else if matches!(receiver, CompletionReceiver::Unknown) {
+                        type_completion_dependencies(domain, ty, exit)?
                     } else {
                         None
                     };
@@ -478,8 +480,26 @@ fn type_completion_candidate(
     site: bray_bound_tree::AnyBoundNodeId,
     candidates: &mut BTreeMap<CallableProofObligation, Option<BTreeSet<CallableProofDependency>>>,
 ) -> Result<bool, CheckerInfrastructureError> {
-    let Some(finalizer) = domain.input.finalizer(ty) else {
+    let Some(dependencies) = type_completion_dependencies(domain, ty, site)? else {
         return Ok(false);
+    };
+
+    merge_candidate(
+        candidates,
+        CallableProofObligation::TypeFinalization { site, ty },
+        Some(dependencies),
+    );
+
+    Ok(true)
+}
+
+fn type_completion_dependencies(
+    domain: &GuaranteeDomain<'_>,
+    ty: bray_symbols::TypeId,
+    site: bray_bound_tree::AnyBoundNodeId,
+) -> Result<Option<BTreeSet<CallableProofDependency>>, CheckerInfrastructureError> {
+    let Some(finalizer) = domain.input.finalizer(ty) else {
+        return Ok(None);
     };
 
     let receiver = domain
@@ -501,7 +521,7 @@ fn type_completion_candidate(
         },
     )?
     else {
-        return Ok(false);
+        return Ok(None);
     };
 
     let target = CallableProofTarget::Implicit {
@@ -509,20 +529,13 @@ fn type_completion_candidate(
         callable: finalizer.callable(),
     };
 
-    let dependencies = obligations
-        .into_iter()
-        .map(|obligation| CallableProofDependency::new(target, obligation))
-        .collect();
-
-    merge_candidate(
-        candidates,
-        CallableProofObligation::TypeFinalization { site, ty },
-        Some(dependencies),
-    );
-
-    Ok(true)
+    Ok(Some(
+        obligations
+            .into_iter()
+            .map(|obligation| CallableProofDependency::new(target, obligation))
+            .collect(),
+    ))
 }
-
 fn type_synchronous_destruction<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     domain: &GuaranteeDomain<'_>,

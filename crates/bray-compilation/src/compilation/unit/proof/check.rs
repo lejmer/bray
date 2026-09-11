@@ -374,45 +374,101 @@ mod tests {
     #[test]
     fn returned_owner_construction_keeps_admission_effects_despite_completion() {
         for guarantee in ["pure", "total"] {
-            for (finalizer, accepted) in [
+            for (kind, members, constructed, completed) in [
                 (
-                    "finalize() -> Result<unit, unit> when(!self.pending) { executes(pure, total) ensures(result matches Ok(_)) } { if !self.pending { return Ok(unit); } return Error(unit); }",
-                    false,
+                    "struct",
+                    "pending: bool;",
+                    "Resource { pending = false }",
+                    "!self.pending",
                 ),
-                ("finalize() executes(pure, total) {}", true),
+                (
+                    "union",
+                    "Ready(pos value: bool); Pending;",
+                    "Ready(false)",
+                    "self matches Ready(_)",
+                ),
+                ("union", "Ready; Pending;", "Ready", "self matches Ready"),
             ] {
-                let source = format!(
-                    r#"
+                for (finalizer, accepted) in [
+                    (
+                        "finalize() -> Result<unit, unit> when(!self.pending) { executes(pure, total) ensures(result matches Ok(_)) } { if !self.pending { return Ok(unit); } return Error(unit); }",
+                        false,
+                    ),
+                    ("finalize() executes(pure, total) {}", true),
+                ] {
+                    let finalizer = finalizer.replace("!self.pending", completed);
+
+                    let source = format!(
+                        r#"
                     module app;
-                    struct Resource
+                    {kind} Resource
                     {{
-                        pending: bool;
+                        {members}
                         {finalizer}
                         destruct() executes(pure, total) {{}}
                     }}
                     func make() -> Resource executes({guarantee})
                     {{
-                        return Resource {{ pending = false }};
+                        return {constructed};
                     }}
                     "#
-                );
+                    );
 
-                let compilation = compilation(&source);
-                let diagnostics = compilation.check_diagnostics();
+                    let compilation = compilation(&source);
+                    let diagnostics = compilation.check_diagnostics();
 
-                assert_eq!(
-                    !diagnostics.has_errors(),
-                    accepted,
-                    "{source}: {diagnostics:?}"
-                );
-
-                if !accepted {
-                    assert!(
-                        diagnostics.iter().any(|diagnostic| diagnostic.kind()
-                            == DiagnosticKind::CheckingUnprovenExecutionGuarantee),
+                    assert_eq!(
+                        !diagnostics.has_errors(),
+                        accepted,
                         "{source}: {diagnostics:?}"
                     );
+
+                    if !accepted {
+                        assert!(
+                            diagnostics.iter().any(|diagnostic| diagnostic.kind()
+                                == DiagnosticKind::CheckingUnprovenExecutionGuarantee),
+                            "{source}: {diagnostics:?}"
+                        );
+                    }
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn complete_catch_owner_uses_unconditional_finalizer_evidence() {
+        let source = r#"
+            module app;
+            struct Guard { destruct() executes(pure, total) {} }
+            struct Owner
+            {
+                guard: Guard;
+                finalize() -> Result<unit, unit>
+                    executes(pure, total) ensures(result matches Ok(_))
+                { return Ok(unit); }
+            }
+            func make() -> Result<Owner, PanicReport>
+            {
+                return catch
+                {
+                    let guard = Guard {};
+                    let owner = Owner { guard = guard };
+                    yield owner;
+                };
+            }
+            "#;
+
+        for (returned, accepted) in [("return Ok(unit);", true), ("return Error(unit);", false)] {
+            let compilation = compilation(&source.replace("return Ok(unit);", returned));
+            let diagnostics = compilation.check_diagnostics();
+            assert_eq!(!diagnostics.has_errors(), accepted, "{diagnostics:?}");
+
+            if !accepted {
+                assert!(
+                    diagnostics.iter().any(|diagnostic| diagnostic.kind()
+                        == DiagnosticKind::CheckingUnprovenPostcondition),
+                    "{diagnostics:?}"
+                );
             }
         }
     }
