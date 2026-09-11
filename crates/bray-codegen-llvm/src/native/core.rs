@@ -530,6 +530,7 @@ pub(super) fn runtime_value_type<'context>(
                     usize.into(),
                     usize.into(),
                     usize.into(),
+                    usize.into(),
                     context.i8_type().array_type(32).into(),
                 ],
                 false,

@@ -3,6 +3,7 @@ mod descriptor;
 mod formation;
 mod model;
 mod operations;
+mod retention;
 mod thread;
 
 pub(super) use model::host_status;

@@ -154,6 +154,12 @@ terminal report storage through observation. Foreign and thread-entry boundaries
 lifetimes cover their recovery and transfer contracts. Admission secures persistent destinations before those boundaries
 accept obligations.
 
+Provider retirement references preserve code, immutable bytes and release callbacks independently of live-static
+dependencies. A live entry, attachment, external owner or cleanup invocation can retain its provider without allocation.
+Existing references clone without allocation, including during closure. They do not delay static cleanup. After cleanup,
+the host remains retiring until the last reference releases and runtime teardown returns. Only then may it publish the
+closed state that permits unloading. Backing release callbacks return before their provider reference is released.
+
 The runtime and bootstrap share report construction, movement, suppression and destruction semantics. Cleanup Error
 attachment consumes admitted records directly instead of constructing another allocated `PanicReportData`. Replace the
 address-returning construction and suppression contracts together with the compiler's representation and outcome lowering.

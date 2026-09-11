@@ -15,7 +15,7 @@ const USIZE: AbiField = AbiField::Scalar(RepresentationRole::ScalarUsize);
 const RUN_OUTCOME_FIELDS: &[AbiField] = &[U32, USIZE];
 const RUN_OUTCOME: AbiField = AbiField::Struct(RUN_OUTCOME_FIELDS);
 const PRODUCT_OBSERVATION_FIELDS: &[AbiField] = &[
-    U32, U32, USIZE, USIZE, USIZE, USIZE, USIZE, USIZE, U64, U64, U64, U64,
+    U32, U32, USIZE, USIZE, USIZE, USIZE, USIZE, USIZE, USIZE, U64, U64, U64, U64,
 ];
 const PRODUCT_OBSERVATION: AbiField = AbiField::Struct(PRODUCT_OBSERVATION_FIELDS);
 

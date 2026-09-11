@@ -23,6 +23,7 @@ typedef struct ProductHostObservation
     uint32_t state;
     uintptr_t active_entries;
     uintptr_t external_roots;
+    uintptr_t retirement_roots;
     uintptr_t thread_attachments;
     uintptr_t initialized_statics;
     uintptr_t cleaned_statics;

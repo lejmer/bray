@@ -43,6 +43,7 @@ native_export! {
                 0,
                 0,
                 0,
+                0,
                 bray_runtime_abi::NativeStaticIdentity::new([0; 32]),
             ))
     }

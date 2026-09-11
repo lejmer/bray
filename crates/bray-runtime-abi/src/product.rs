@@ -94,6 +94,8 @@ impl NativeProductHostState {
     pub const CLOSED: Self = Self(3);
     /// Descriptor validation or lifecycle execution failed.
     pub const FAILED: Self = Self(4);
+    /// Static cleanup finished while owned provider references still prevent unloading.
+    pub const RETIRING: Self = Self(5);
 
     /// Returns the stable integer representation.
     pub const fn code(self) -> u32 {
@@ -619,6 +621,7 @@ pub struct NativeProductHostObservation {
     state: NativeProductHostState,
     active_entries: usize,
     external_roots: usize,
+    retirement_roots: usize,
     thread_attachments: usize,
     initialized_statics: usize,
     cleaned_statics: usize,
@@ -637,6 +640,7 @@ impl NativeProductHostObservation {
         state: NativeProductHostState,
         active_entries: usize,
         external_roots: usize,
+        retirement_roots: usize,
         thread_attachments: usize,
         initialized_statics: usize,
         cleaned_statics: usize,
@@ -648,6 +652,7 @@ impl NativeProductHostObservation {
             state,
             active_entries,
             external_roots,
+            retirement_roots,
             thread_attachments,
             initialized_statics,
             cleaned_statics,
@@ -661,6 +666,7 @@ impl NativeProductHostObservation {
         Self::new(
             NativeProductHostStatus::INVALID_ARGUMENT,
             NativeProductHostState::UNFORMED,
+            0,
             0,
             0,
             0,
@@ -689,6 +695,12 @@ impl NativeProductHostObservation {
     /// Returns the number of retained external provider roots.
     pub const fn external_roots(self) -> usize {
         self.external_roots
+    }
+
+    /// Returns the number of owned references retaining provider code and immutable backing.
+    /// These references do not delay static cleanup.
+    pub const fn retirement_roots(self) -> usize {
+        self.retirement_roots
     }
 
     /// Returns the number of live exact-thread attachments.
@@ -742,6 +754,20 @@ mod tests {
             align_of::<NativeProductHostObservation>(),
             align_of::<usize>()
         );
+
+        let word = size_of::<usize>();
+
+        assert_eq!(
+            std::mem::offset_of!(NativeProductHostObservation, retirement_roots),
+            8 + 2 * word
+        );
+
+        assert_eq!(
+            std::mem::offset_of!(NativeProductHostObservation, last_incident),
+            8 + 7 * word
+        );
+
+        assert_eq!(size_of::<NativeProductHostObservation>(), 40 + 7 * word);
 
         assert_eq!(align_of::<NativeCleanupIncident>(), align_of::<usize>());
 

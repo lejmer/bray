@@ -51,6 +51,7 @@ internal struct ProductHostObservation
     state: u32;
     active_entries: usize;
     external_roots: usize;
+    retirement_roots: usize;
     thread_attachments: usize;
     initialized_statics: usize;
     cleaned_statics: usize;

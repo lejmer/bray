@@ -40,6 +40,7 @@ pub(super) fn ensure_formed(
         state: NativeProductHostState::OPEN,
         active_entries: 0,
         external_roots: 0,
+        retirement_roots: 0,
         thread_attachments: 0,
         worker_attachments: 0,
         initialized_statics,
@@ -83,6 +84,7 @@ fn unformed(status: NativeProductHostStatus) -> NativeProductHostObservation {
     NativeProductHostObservation::new(
         status,
         NativeProductHostState::UNFORMED,
+        0,
         0,
         0,
         0,

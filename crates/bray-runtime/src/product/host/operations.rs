@@ -62,6 +62,7 @@ pub(crate) fn control(
             0,
             0,
             0,
+            0,
             NativeStaticIdentity::new([0; 32]),
         ),
     }
@@ -424,11 +425,13 @@ fn release(count: &mut usize) -> NativeProductHostStatus {
     NativeProductHostStatus::SUCCESS
 }
 
-fn status_for_state(host: &ProductHost) -> NativeProductHostStatus {
+pub(super) fn status_for_state(host: &ProductHost) -> NativeProductHostStatus {
     match host.state {
         NativeProductHostState::UNFORMED => NativeProductHostStatus::INVALID_ARGUMENT,
         NativeProductHostState::OPEN => NativeProductHostStatus::SUCCESS,
-        NativeProductHostState::CLOSING => NativeProductHostStatus::PENDING,
+        NativeProductHostState::CLOSING | NativeProductHostState::RETIRING => {
+            NativeProductHostStatus::PENDING
+        }
         NativeProductHostState::CLOSED if host.cleanup_incidents == 0 => {
             NativeProductHostStatus::CLOSED
         }
@@ -515,6 +518,7 @@ fn finish_cleanup(cleanup: PendingCleanup) -> NativeProductHostObservation {
             0,
             0,
             0,
+            0,
             incident_count,
             last_incident.unwrap_or(NativeStaticIdentity::new([0; 32])),
         );
@@ -531,15 +535,11 @@ fn finish_cleanup(cleanup: PendingCleanup) -> NativeProductHostObservation {
     host.cleanup_incidents = host.cleanup_incidents.saturating_add(incident_count);
     host.last_incident = last_incident.unwrap_or(host.last_incident);
     host.cleanup_running = false;
-    host.state = NativeProductHostState::CLOSED;
+    host.state = NativeProductHostState::RETIRING;
 
-    let observation = host.observation(status_for_state(host));
-
-    // Runtime shutdown can join workers whose exit callbacks need this registry.
     drop(hosts);
-    cleanup.runtime.release();
 
-    observation
+    super::retention::finish_retirement(cleanup.product)
 }
 
 fn static_entry(product: usize, identity: NativeStaticIdentity) -> Option<ProductStatic> {
@@ -1335,6 +1335,101 @@ mod tests {
         assert_eq!(closed.last_incident(), NativeStaticIdentity::new([91; 32]));
         assert_eq!(CALLBACKS.load(Ordering::SeqCst), 2);
         assert_eq!(DEPENDENCY_DESTROYED.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn cleanup_retention_survives_closure_and_clones_without_allocation() {
+        use super::super::retention::ProviderRetention;
+        use std::cell::RefCell;
+
+        thread_local! {
+            static RETAINED: RefCell<Option<ProviderRetention>> = const { RefCell::new(None) };
+        }
+
+        static CLEANED: AtomicUsize = AtomicUsize::new(0);
+
+        extern "C-unwind" fn finish(
+            _: usize,
+            _: &mut NativeBrayCallOutcome,
+        ) -> NativeStaticFinalizerStatus {
+            CLEANED.fetch_add(1, Ordering::SeqCst);
+
+            let retained = crate::test_support::with_allocation_failure(|| {
+                ProviderRetention::acquire(&DESCRIPTOR).unwrap()
+            });
+
+            RETAINED.with(|slot| {
+                assert!(slot.borrow_mut().replace(retained).is_none());
+            });
+
+            NativeStaticFinalizerStatus::SUCCESS
+        }
+
+        extern "C" fn entry(_: usize) -> NativeStaticHostEntry {
+            NativeStaticHostEntry::new(
+                NativeStaticDuration::PRODUCT,
+                NativeStaticIdentity::new([181; 32]),
+                0,
+                1,
+                access,
+                detach_thread_static,
+                finalizer(finish),
+                no_cleanup,
+                detach_thread_static,
+                no_dependency,
+                0,
+            )
+        }
+
+        static DESCRIPTOR: NativeProductHostDescriptor =
+            NativeProductHostDescriptor::new(NativeProductIdentity::new([181; 32]), entry, 1);
+
+        assert_eq!(
+            control(&DESCRIPTOR, NativeProductHostOperation::ACQUIRE_ENTRY).status(),
+            NativeProductHostStatus::SUCCESS
+        );
+
+        let entry_retention = ProviderRetention::acquire(&DESCRIPTOR).unwrap();
+
+        assert_eq!(
+            control(&DESCRIPTOR, NativeProductHostOperation::CLOSE).state(),
+            NativeProductHostState::CLOSING
+        );
+
+        assert_eq!(
+            control(&DESCRIPTOR, NativeProductHostOperation::RELEASE_ENTRY).state(),
+            NativeProductHostState::RETIRING
+        );
+
+        assert_eq!(CLEANED.load(Ordering::SeqCst), 1);
+
+        assert!(matches!(
+            ProviderRetention::acquire(&DESCRIPTOR),
+            Err(NativeProductHostStatus::CLOSED)
+        ));
+
+        let cleanup_retention = RETAINED.with(|slot| slot.borrow_mut().take().unwrap());
+        let cloned = crate::test_support::with_allocation_failure(|| cleanup_retention.clone());
+
+        drop(entry_retention);
+        drop(cleanup_retention);
+
+        let pending = control(&DESCRIPTOR, NativeProductHostOperation::OBSERVE);
+        assert_eq!(pending.state(), NativeProductHostState::RETIRING);
+        assert_eq!(pending.status(), NativeProductHostStatus::PENDING);
+        assert_eq!(pending.retirement_roots(), 1);
+
+        drop(cloned);
+
+        let closed = control(&DESCRIPTOR, NativeProductHostOperation::OBSERVE);
+        assert_eq!(closed.state(), NativeProductHostState::CLOSED);
+        assert_eq!(closed.retirement_roots(), 0);
+        assert_eq!(CLEANED.load(Ordering::SeqCst), 1);
+
+        assert!(matches!(
+            ProviderRetention::acquire(&DESCRIPTOR),
+            Err(NativeProductHostStatus::CLOSED)
+        ));
     }
 
     #[test]
