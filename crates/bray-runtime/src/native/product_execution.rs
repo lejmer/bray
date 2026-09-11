@@ -70,7 +70,7 @@ struct NativeProductCleanup {
     handle: bray_runtime_abi::NativeTaskHandle,
     prepared: Option<(
         super::state::NativeRunReservation,
-        Box<std::mem::MaybeUninit<super::run::NativeStaticSequence>>,
+        Box<std::mem::MaybeUninit<super::run::NativeHostSequence>>,
         triomphe::Arc<super::frame::NativeTerminalState>,
     )>,
 }
@@ -80,7 +80,12 @@ impl NativeProductCleanup {
         retained: &super::state::RetainedRuntime,
         entries: &[StaticCleanup],
     ) -> Result<Box<dyn ProductCleanup>, NativeRuntimeStatus> {
-        let descriptor = cleanup_descriptor(entries)?;
+        let descriptor = super::run::cleanup_descriptor(
+            entries
+                .iter()
+                .filter_map(|entry| entry.finalizer.metadata()),
+        )?;
+
         let terminal = super::frame::NativeTerminalState::reserve()?;
 
         let mut reservation = super::state::NativeRunReservation::prepare(
@@ -91,7 +96,7 @@ impl NativeProductCleanup {
 
         reservation.reserve(&retained.core.scheduler)?;
 
-        let sequence = crate::allocation::reserve_storage::<super::run::NativeStaticSequence>()
+        let sequence = crate::allocation::reserve_storage::<super::run::NativeHostSequence>()
             .map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)?;
 
         let terminal = super::frame::NativeTerminalState::reserve()?;
@@ -136,7 +141,9 @@ impl ProductCleanup for NativeProductCleanup {
 
         reservation.run().install_sequence(Box::write(
             storage,
-            super::run::NativeStaticSequence::new(product, entries, terminal, completed),
+            super::run::NativeHostSequence::Static(super::run::NativeStaticSequence::new(
+                product, entries, terminal, completed,
+            )),
         ));
 
         let run = triomphe::Arc::clone(reservation.run());
@@ -178,85 +185,6 @@ impl ProductCleanup for NativeProductCleanup {
 
         result
     }
-}
-
-fn cleanup_descriptor(
-    entries: &[StaticCleanup],
-) -> Result<bray_runtime_model::ProtectedFrameDescriptor, NativeRuntimeStatus> {
-    use bray_runtime_model::{
-        ProtectedAsyncFrameId, ProtectedFrameAbiVersions, ProtectedFrameAffinity,
-        ProtectedFrameDescriptor, ProtectedFrameLayout, ProtectedFrameStateDescriptor,
-        ProtectedFrameStateId, RuntimeAbiVersion,
-    };
-
-    let mut states = Vec::new();
-
-    crate::allocation::reserve_vec_entries(&mut states, 1)
-        .map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)?;
-
-    states.push(ProtectedFrameStateDescriptor::new(
-        ProtectedFrameStateId::new(0),
-        [],
-        [],
-        [],
-        ProtectedFrameAffinity::OriginThread,
-    ));
-
-    for entry in entries {
-        let Some(metadata) = entry.finalizer.metadata() else {
-            continue;
-        };
-
-        let descriptor = super::frame::NativeFrame::checked_descriptor(
-            metadata().ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?,
-        )?;
-
-        for state in descriptor.states() {
-            if states.iter().any(|existing| {
-                existing.affinity() == state.affinity()
-                    && existing.lane_requirements() == state.lane_requirements()
-            }) {
-                continue;
-            }
-
-            let next =
-                u32::try_from(states.len()).map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)?;
-
-            crate::allocation::reserve_vec_entries(&mut states, 1)
-                .map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)?;
-
-            states.push(ProtectedFrameStateDescriptor::new(
-                ProtectedFrameStateId::new(next),
-                state.lane_requirements().iter().copied(),
-                [],
-                [],
-                state.affinity(),
-            ));
-        }
-    }
-
-    let alignment =
-        std::num::NonZeroUsize::new(std::mem::align_of::<triomphe::Arc<super::run::NativeRun>>())
-            .ok_or(NativeRuntimeStatus::RUNTIME_FAILURE)?;
-
-    let layout = ProtectedFrameLayout::try_new(
-        std::mem::size_of::<triomphe::Arc<super::run::NativeRun>>(),
-        alignment,
-    )
-    .map_err(|_| NativeRuntimeStatus::RUNTIME_FAILURE)?;
-
-    let version = RuntimeAbiVersion::CURRENT;
-
-    // This runtime-owned driver contract never identifies generated storage or participates in pooling.
-    ProtectedFrameDescriptor::try_new(
-        ProtectedAsyncFrameId::new(*b"bray.static.cleanup.v1\0\0\0\0\0\0\0\0\0\0"),
-        version,
-        ProtectedFrameAbiVersions::uniform(version),
-        layout,
-        layout,
-        states,
-    )
-    .map_err(|_| NativeRuntimeStatus::INVALID_ARGUMENT)
 }
 
 fn admit_execution() -> Result<Option<RetainedProductExecution>, NativeRuntimeStatus> {
@@ -353,19 +281,32 @@ mod tests {
 
         crate::native::state::with_runtime(|runtime| {
             assert_eq!(runtime.scheduler.task_count().unwrap(), 1);
-        }).unwrap();
+        })
+        .unwrap();
     }
 
     extern "C" fn metadata() -> Option<&'static bray_runtime_abi::NativeFrameMetadata> {
-        static METADATA: bray_runtime_abi::NativeFrameMetadata = bray_runtime_abi::NativeFrameMetadata::new(
-            [158; 32], 1, 1, 1, 0, 1, crate::test_support::native_origin_frame_state);
+        static METADATA: bray_runtime_abi::NativeFrameMetadata =
+            bray_runtime_abi::NativeFrameMetadata::new(
+                [158; 32],
+                1,
+                1,
+                1,
+                0,
+                1,
+                crate::test_support::native_origin_frame_state,
+            );
 
         Some(&METADATA)
     }
 
-    extern "C" fn prepare() { phase(0); }
-    extern "C-unwind" fn start(_: usize, _: &mut bray_runtime_abi::NativeBrayCallOutcome)
-        -> bray_runtime_abi::NativeStaticFinalizerStatus {
+    extern "C" fn prepare() {
+        phase(0);
+    }
+    extern "C-unwind" fn start(
+        _: usize,
+        _: &mut bray_runtime_abi::NativeBrayCallOutcome,
+    ) -> bray_runtime_abi::NativeStaticFinalizerStatus {
         phase(1);
 
         bray_runtime_abi::NativeStaticFinalizerStatus::INCIDENT
@@ -375,7 +316,9 @@ mod tests {
 
         bray_runtime_abi::NativeBrayCallOutcome::completed()
     }
-    extern "C" fn detach() { phase(3); }
+    extern "C" fn detach() {
+        phase(3);
+    }
     fn completed(_: usize, _: bray_runtime_abi::NativeStaticIdentity, count: usize) {
         assert_eq!(count, 1);
         phase(4);
@@ -386,11 +329,17 @@ mod tests {
 
     fn entry() -> crate::product::StaticCleanup {
         crate::product::StaticCleanup {
-            identity: bray_runtime_abi::NativeStaticIdentity::new([158; 32]), order: 0,
-            prepare, destroy, detach,
+            identity: bray_runtime_abi::NativeStaticIdentity::new([158; 32]),
+            order: 0,
+            prepare,
+            destroy,
+            detach,
             finalizer: bray_runtime_abi::NativeStaticFinalizer::new(
-                bray_runtime_abi::NativeCleanupExecution::ASYNCHRONOUS, Some(metadata), start,
-                crate::test_support::panic_callbacks(unexpected, unexpected)),
+                bray_runtime_abi::NativeCleanupExecution::ASYNCHRONOUS,
+                Some(metadata),
+                start,
+                crate::test_support::panic_callbacks(unexpected, unexpected),
+            ),
         }
     }
 
@@ -405,7 +354,11 @@ mod tests {
 
         let incidents = execution.with_cleanup(&mut || {
             crate::test_support::with_allocation_failure(|| {
-                driver.take().unwrap().run(0, entries.take().unwrap(), completed).unwrap();
+                driver
+                    .take()
+                    .unwrap()
+                    .run(0, entries.take().unwrap(), completed)
+                    .unwrap();
             });
         });
 
@@ -420,7 +373,12 @@ mod tests {
         let entries = vec![entry()];
         let driver = super::NativeProductCleanup::prepare(&retained, &entries).unwrap();
         assert!(super::super::state::with_runtime(|_| ()).is_err());
-        assert_eq!(driver.run(0, entries, completed), Err(bray_runtime_abi::NativeRuntimeStatus::NOT_INITIALIZED));
+
+        assert_eq!(
+            driver.run(0, entries, completed),
+            Err(bray_runtime_abi::NativeRuntimeStatus::NOT_INITIALIZED)
+        );
+
         let handle = *retained.core.tasks.lock().unwrap().keys().next().unwrap();
         retained.core.release_task_reservation(handle);
 
@@ -439,8 +397,16 @@ mod tests {
     #[test]
     fn admission_rejects_main_cleanup_in_a_domain_without_main_authority() {
         extern "C" fn main_metadata() -> Option<&'static bray_runtime_abi::NativeFrameMetadata> {
-            static METADATA: bray_runtime_abi::NativeFrameMetadata = bray_runtime_abi::NativeFrameMetadata::new(
-                [159; 32], 1, 1, 1, 0, 1, crate::test_support::native_main_frame_state);
+            static METADATA: bray_runtime_abi::NativeFrameMetadata =
+                bray_runtime_abi::NativeFrameMetadata::new(
+                    [159; 32],
+                    1,
+                    1,
+                    1,
+                    0,
+                    1,
+                    crate::test_support::native_main_frame_state,
+                );
 
             Some(&METADATA)
         }
@@ -449,11 +415,13 @@ mod tests {
         let mut entry = entry();
 
         entry.finalizer = bray_runtime_abi::NativeStaticFinalizer::new(
-            bray_runtime_abi::NativeCleanupExecution::ASYNCHRONOUS, Some(main_metadata), start,
-            crate::test_support::panic_callbacks(unexpected, unexpected));
+            bray_runtime_abi::NativeCleanupExecution::ASYNCHRONOUS,
+            Some(main_metadata),
+            start,
+            crate::test_support::panic_callbacks(unexpected, unexpected),
+        );
 
         assert!(execution.admit_cleanup(&[entry]).is_err());
         execution.release();
     }
-
 }

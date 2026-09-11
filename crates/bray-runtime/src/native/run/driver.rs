@@ -52,7 +52,7 @@ impl NativeRun {
             let execution = match self.execution() {
                 Ok(execution) => execution,
                 Err(_) => {
-                    if self.fail_static_activation(
+                    if self.fail_host_activation(
                         crate::incident::OwnedCleanupIncident::runtime_failure(),
                     ) {
                         continue;
@@ -69,7 +69,7 @@ impl NativeRun {
             let lane = match execution_lane(&execution) {
                 Ok(lane) => lane,
                 Err(_) => {
-                    if self.fail_static_activation(
+                    if self.fail_host_activation(
                         crate::incident::OwnedCleanupIncident::runtime_failure(),
                     ) {
                         continue;
@@ -154,23 +154,23 @@ impl NativeRun {
                             .and_then(|execution| execution_lane(&execution))
                             .is_err()
                         {
-                            self.fail_static_or_return(FrameProgress::RuntimeFailure)
+                            self.fail_host_or_return(FrameProgress::RuntimeFailure)
                         } else {
                             Some(FrameProgress::Suspended(suspension))
                         }
                     }
                     // Let the task's existing validation preserve the exact unknown local state.
-                    Err(_) => self.fail_static_or_return(FrameProgress::Suspended(suspension)),
+                    Err(_) => self.fail_host_or_return(FrameProgress::Suspended(suspension)),
                 }
             }
-            FrameProgress::RuntimeFailure if self.lock_state().sequence.is_none() => {
-                Some(FrameProgress::RuntimeFailure)
+            FrameProgress::RuntimeFailure => {
+                self.fail_host_or_return(FrameProgress::RuntimeFailure)
             }
             progress => match self.finish_activation(progress) {
                 Ok(progress) => progress,
                 Err(panic) => {
                     if self.lock_state().sequence.is_some() {
-                        self.fail_static_activation(crate::incident::OwnedCleanupIncident::host(
+                        self.fail_host_activation(crate::incident::OwnedCleanupIncident::host(
                             Box::new(panic),
                         ));
 
@@ -183,11 +183,8 @@ impl NativeRun {
         }
     }
 
-    fn fail_static_or_return(
-        &self,
-        progress: FrameProgress<usize>,
-    ) -> Option<FrameProgress<usize>> {
-        if self.fail_static_activation(crate::incident::OwnedCleanupIncident::runtime_failure()) {
+    fn fail_host_or_return(&self, progress: FrameProgress<usize>) -> Option<FrameProgress<usize>> {
+        if self.fail_host_activation(crate::incident::OwnedCleanupIncident::runtime_failure()) {
             None
         } else {
             Some(progress)
@@ -276,7 +273,7 @@ impl NativeRun {
 
         if is_root {
             if is_sequence {
-                self.finish_static_activation(outcome, &terminal);
+                self.finish_host_activation(outcome, &terminal);
 
                 return Ok(None);
             }

@@ -305,6 +305,7 @@ impl NativeRunReservation {
             event_wait,
             run,
             observation_claimed: AtomicBool::new(false),
+            retained_failure: AtomicBool::new(false),
             terminal,
         })
         .map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)?;

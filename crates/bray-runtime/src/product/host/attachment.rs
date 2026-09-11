@@ -63,40 +63,13 @@ impl ThreadStaticRegistry {
     }
 }
 
-/// Holds provider lifetime while metadata callbacks execute outside registry locks.
-struct AttachmentAdmission(Option<usize>);
-
-impl Drop for AttachmentAdmission {
-    fn drop(&mut self) {
-        if let Some(product) = self.0 {
-            super::operations::release_admission_entry(product);
-        }
-    }
-}
-
 /// Prepares ownership outside the thread registry, then publishes it with a fresh identity.
 pub(super) fn ensure_attachment(product: usize, worker: bool) -> Result<(), NativeRuntimeStatus> {
     if THREAD_STATICS.with(|registry| registry.borrow_mut().attachment(product).is_some()) {
         return Ok(());
     }
 
-    {
-        let mut hosts = product_hosts()
-            .lock()
-            .map_err(|_| NativeRuntimeStatus::RUNTIME_FAILURE)?;
-
-        let host = hosts
-            .get_mut(&product)
-            .ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?;
-
-        let status = super::operations::acquire(&mut host.active_entries, host.state);
-
-        if status != bray_runtime_abi::NativeProductHostStatus::SUCCESS {
-            return Err(super::model::runtime_status(status));
-        }
-    }
-
-    let mut admission = AttachmentAdmission(Some(product));
+    let mut admission = super::entry::ProductEntry::acquire(product)?;
 
     let (product_identity, mut entries, execution) = {
         let hosts = product_hosts()
@@ -190,7 +163,7 @@ pub(super) fn ensure_attachment(product: usize, worker: bool) -> Result<(), Nati
         host.thread_attachments = attachments;
         host.worker_attachments = workers;
         host.active_entries -= 1;
-        admission.0 = None;
+        admission.transfer();
 
         Ok(())
     })

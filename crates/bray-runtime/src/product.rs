@@ -10,8 +10,8 @@ pub(crate) use cleanup::{
 #[cfg(test)]
 pub(crate) use cleanup::empty_native_incident;
 pub(crate) use host::{
-    control, control_with_execution, drain_product_thread_statics, register_thread_static,
-    retain_provider, thread_attachment_identity,
+    ProductEntry, control, control_with_execution, drain_product_thread_statics,
+    register_thread_static, retain_provider, thread_attachment_identity,
 };
 
 pub(crate) use execution::{

@@ -362,6 +362,7 @@ impl RetainedRuntime {
 pub(in crate::native) enum NativeTaskSlot {
     Allocated(crate::task::TaskAdmissionKind),
     Starting(crate::task::TaskAdmissionKind),
+    ReturnedValue(super::start::NativeRunReservation),
     Started(triomphe::Arc<StartedTask>),
     FailedRun {
         admission: crate::task::TaskAdmissionKind,
@@ -381,6 +382,7 @@ impl NativeTaskSlot {
             | Self::FailedRun {
                 admission: kind, ..
             } => *kind,
+            Self::ReturnedValue(_) => crate::task::TaskAdmissionKind::Continuation,
             Self::Started(task) | Self::Terminal { _task: task, .. } => task.admission,
         }
     }
@@ -410,6 +412,7 @@ pub(in crate::native) struct StartedTask {
     pub(super) event_wait: super::event_wait::EventWait,
     pub(in crate::native) run: triomphe::Arc<super::super::run::NativeRun>,
     pub(in crate::native) observation_claimed: AtomicBool,
+    pub(in crate::native) retained_failure: AtomicBool,
     pub(in crate::native) terminal: triomphe::Arc<NativeTerminalState>,
 }
 

@@ -68,6 +68,11 @@ impl NativeRuntime {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
         match tasks.get(&task) {
+            Some(NativeTaskSlot::Terminal { _task, .. })
+                if _task.retained_failure.load(Ordering::Acquire) =>
+            {
+                NativeRuntimeStatus::RUNTIME_FAILURE
+            }
             Some(NativeTaskSlot::Terminal {
                 outcome: TerminalOutcome::Transferring | TerminalOutcome::Borrowed(_),
                 ..
@@ -85,9 +90,11 @@ impl NativeRuntime {
                 NativeRuntimeStatus::SUCCESS
             }
             Some(NativeTaskSlot::Started(_))
-            | Some(NativeTaskSlot::Allocated(_) | NativeTaskSlot::Starting(_)) => {
-                NativeRuntimeStatus::PENDING
-            }
+            | Some(
+                NativeTaskSlot::Allocated(_)
+                | NativeTaskSlot::Starting(_)
+                | NativeTaskSlot::ReturnedValue(_),
+            ) => NativeRuntimeStatus::PENDING,
             Some(NativeTaskSlot::FailedRun { .. }) => NativeRuntimeStatus::RUNTIME_FAILURE,
             None => NativeRuntimeStatus::UNKNOWN_TASK,
         }
@@ -170,7 +177,12 @@ impl NativeRuntime {
                 Some(NativeTaskSlot::FailedRun { .. }) => {
                     return runtime_failure(NativeRuntimeStatus::RUNTIME_FAILURE);
                 }
-                Some(NativeTaskSlot::Allocated(_) | NativeTaskSlot::Starting(_)) | None => {
+                Some(
+                    NativeTaskSlot::Allocated(_)
+                    | NativeTaskSlot::Starting(_)
+                    | NativeTaskSlot::ReturnedValue(_),
+                )
+                | None => {
                     return runtime_failure(NativeRuntimeStatus::UNKNOWN_TASK);
                 }
             }

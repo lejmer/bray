@@ -57,6 +57,12 @@ impl NativeRuntimeCore {
             .get_mut(&handle)
             .expect("admitted host run retains its native slot");
 
+        if let NativeTaskSlot::Started(task) | NativeTaskSlot::Terminal { _task: task, .. } = slot {
+            // Observation can fail while workers still dispatch this task. Keep its registration
+            // intact, and carry containment through the same StartedTask into terminal observation.
+            task.retained_failure.store(true, Ordering::Release);
+        }
+
         if matches!(
             slot,
             NativeTaskSlot::Allocated(_) | NativeTaskSlot::Starting(_)

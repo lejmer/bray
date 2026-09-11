@@ -5,12 +5,39 @@ use bray_runtime_abi::{NativeBrayCallOutcome, NativeCleanupExecution, NativeValu
 use crate::incident::OwnedCleanupIncident;
 
 pub(super) fn run(cleanup: NativeValueCleanup, value: usize) -> Vec<OwnedCleanupIncident> {
+    let mut incidents = Vec::new();
+
+    if let Some(frame) = start(cleanup, value, |incident| incidents.push(incident))
+        && cleanup.execution() == NativeCleanupExecution::ASYNCHRONOUS
+    {
+        incidents.extend(
+            super::state::with_runtime(|runtime| {
+                runtime.with_cleanup_driving(|| {
+                    super::static_finalizer::run_cleanup_frame(frame, cleanup.panics(), |_| {
+                        Vec::new()
+                    })
+                })
+            })
+            .unwrap_or_else(|_| vec![OwnedCleanupIncident::runtime_failure()]),
+        );
+    }
+
+    incidents
+}
+
+pub(in crate::native) fn start(
+    cleanup: NativeValueCleanup,
+    value: usize,
+    mut record: impl FnMut(OwnedCleanupIncident),
+) -> Option<bray_runtime_abi::NativeInactiveFrame> {
     if cleanup.execution() == NativeCleanupExecution::NONE {
-        return Vec::new();
+        return None;
     }
 
     if !cleanup.execution().is_known() {
-        return vec![OwnedCleanupIncident::runtime_failure()];
+        record(OwnedCleanupIncident::runtime_failure());
+
+        return None;
     }
 
     let mut frame = super::inactive_frame_output();
@@ -20,34 +47,18 @@ pub(super) fn run(cleanup: NativeValueCleanup, value: usize) -> Vec<OwnedCleanup
         (cleanup.start())(value, &mut frame, &mut outcome)
     }));
 
-    let mut incidents = OwnedCleanupIncident::boundary(outcome, cleanup.panics())
-        .into_iter()
-        .collect::<Vec<_>>();
+    if let Some(incident) = OwnedCleanupIncident::boundary(outcome, cleanup.panics()) {
+        record(incident);
+    }
 
     match result {
-        Err(payload) => incidents.push(OwnedCleanupIncident::host(payload)),
-        Ok(status) if !status.is_success() => {
-            incidents.push(OwnedCleanupIncident::runtime_failure())
-        }
-        Ok(_)
-            if outcome.is_completed()
-                && cleanup.execution() == NativeCleanupExecution::ASYNCHRONOUS =>
-        {
-            incidents.extend(
-                super::state::with_runtime(|runtime| {
-                    runtime.with_cleanup_driving(|| {
-                        super::static_finalizer::run_cleanup_frame(frame, cleanup.panics(), |_| {
-                            Vec::new()
-                        })
-                    })
-                })
-                .unwrap_or_else(|_| vec![OwnedCleanupIncident::runtime_failure()]),
-            );
-        }
+        Err(payload) => record(OwnedCleanupIncident::host(payload)),
+        Ok(status) if !status.is_success() => record(OwnedCleanupIncident::runtime_failure()),
+        Ok(_) if outcome.is_completed() => return Some(frame),
         Ok(_) => {}
     }
 
-    incidents
+    None
 }
 
 #[cfg(test)]

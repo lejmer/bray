@@ -19,7 +19,7 @@ pub(in crate::native) struct NativeRun {
 #[derive(Default)]
 pub(super) struct NativeRunState {
     pub(super) current: Option<Box<NativeActivation>>,
-    pub(super) sequence: Option<Box<super::NativeStaticSequence>>,
+    pub(super) sequence: Option<Box<super::NativeHostSequence>>,
 }
 
 impl NativeRun {
@@ -192,8 +192,10 @@ impl ProtectedFrame for Arc<NativeRun> {
     fn broadcast_tasks(self: Pin<&mut Self>) {}
 
     fn resolve_lifecycle(self: Pin<&mut Self>, _exit: FrameExit) {
-        let current = self.lock_state().current.take();
-        NativeRun::release_chain(current, &self.terminal);
+        if !self.contain_value_activation() {
+            let current = self.lock_state().current.take();
+            NativeRun::release_chain(current, &self.terminal);
+        }
     }
 }
 

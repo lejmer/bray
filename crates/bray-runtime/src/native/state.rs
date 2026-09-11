@@ -4,6 +4,7 @@ mod continuation;
 mod core;
 mod event_wait;
 mod execution;
+mod returned_value;
 mod start;
 mod transfer;
 

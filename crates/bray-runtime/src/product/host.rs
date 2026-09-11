@@ -1,12 +1,14 @@
 mod attachment;
 mod cleanup;
 mod descriptor;
+mod entry;
 mod formation;
 mod model;
 mod operations;
 mod retention;
 mod thread;
 
+pub(crate) use entry::ProductEntry;
 pub(super) use model::host_status;
 pub(in crate::product) use model::initialize_thread_static_registry;
 pub(crate) use operations::{
