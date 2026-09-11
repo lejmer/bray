@@ -15,9 +15,9 @@ storage and capabilities they use.
 Panic propagation and cancellation use ordinary lifecycle ordering after the task cancellation-broadcast phase. Cleanup
 executes in a cancellation-shielded context when it can suspend.
 
-On ordinary exit, fallible finalization returning `Result.Error` leaves its obligation unresolved. The value cannot be
-destroyed, and the program must handle, transfer, or represent the failure through an allowed source-level lifecycle
-path.
+On ordinary exit, a possibly fallible implicit finalizer must already be discharged through the
+[completion proof](finalization.md), or its obligation must transfer to another owner. The checked postconditions
+of ordinary domain operations determine which completion conditions hold and which ownership obligations remain.
 
 On panic or cancellation exit, cleanup attempts the same finalizer. If it returns `Result.Error`, the failure is
 recorded as an owned suppressed cleanup incident and graceful finalization is abandoned. The synchronous infallible

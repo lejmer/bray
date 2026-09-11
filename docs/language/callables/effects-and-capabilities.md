@@ -15,6 +15,7 @@ The caller-visible effect surface is:
 - receiver and parameter modes,
 - `requires(...)`,
 - `ensures(...)`,
+- `executes(...)` and guarded `when(...)` guarantees,
 - `with(...)`,
 - trusted `uses(...)`,
 - lifecycle contracts,
@@ -158,7 +159,7 @@ must satisfy the async computation's ownership, borrowing, capability, effect, f
 obligations.
 
 A synchronous callable can request another task's cancellation only through an owner operation whose execution contract
-permits it. it cannot drive an async cancellation computation or end an unresolved task obligation without an async
+permits it. It cannot drive an async cancellation computation or end an unresolved task obligation without an async
 execution context. It can still end its own current run through `std.run.checkpoint()`, a cancellation-aware synchronous
 operation, or `try RunResult`.
 
@@ -193,9 +194,9 @@ Callable types represent caller-visible effects through the ordinary callable ty
 - parameter and result types for task handles, async computations, storage obligations, lifecycle obligations, and
   resource ownership.
 
-Implicit panic and current-run cancellation propagation are not separate callable-type clauses. A higher-order caller
-cannot use callable assignment to promise that an ordinary runtime callable never panics or never cancels its current
-run.
+A verified `executes(total)` guarantee promises normal completion on its declared domain. Callable assignment
+preserves the evidence required by the target contract.
+See [conditional execution guarantees](../contracts-and-trust/execution-guarantees.md).
 
 Callable type assignment, trait implementation checking, dynamic dispatch, and public API compatibility preserve
 caller-visible effects.

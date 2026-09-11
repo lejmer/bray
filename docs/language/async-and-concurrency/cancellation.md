@@ -56,24 +56,23 @@ operations. Repeated requests do not interrupt a finalizer halfway through.
 
 ## Fallible finalization during abnormal exit
 
-Normal exit preserves the ordinary rule that `Result.Error` from a finalizer leaves its obligation unresolved and
-prevents destruction.
+Normal exit requires the value's [completion obligation](../lifecycle/finalization.md) to be resolved before destruction.
 
 Cancellation and panic cleanup provide the universal abandonment path:
 
 1. Attempt the ordinary finalizer in shielded cleanup.
 2. If it succeeds, continue to ordinary destruction.
-3. If it returns `Result.Error`, record the error as a suppressed cleanup incident, abandon graceful finalization, and
-   run the synchronous infallible destructor and represented-part destruction anyway.
+3. If it returns `Result.Error`, quiesce the error payload, record it as a suppressed cleanup incident, and abandon
+   graceful finalization of the original owner. Then run its destructor and represented-part destruction.
 4. If cleanup panics, the run boundary reports `RunResult.Panicked`. An already active panic is retained as the primary
    report and later cleanup panics are attached as suppressed reports.
 
 A cleanup incident is an owned, type-erased runtime record containing the finalizer error value, its concrete type
 descriptor, the finalizer and source location that produced it, and its deterministic encounter ordinal. Cleanup owns
 incidents in reverse lifecycle encounter order until the surrounding run boundary is resolved. Creating the incident is
-the language-defined explicit abandonment representation for that error payload: its graceful finalization obligation
-has already been abandoned, so the descriptor performs only synchronous infallible destruction when incident ownership
-ends.
+the language-defined explicit abandonment representation for that error payload. Quiescence resolves its child runs
+and inactive captured state before the incident is retained. Its graceful finalization obligation has been abandoned,
+so the descriptor performs synchronous destruction when incident ownership ends.
 
 If cancellation remains the terminal outcome, `RunResult.Cancelled` intentionally remains payload-free: source callers
 do not gain an unbounded union of arbitrary finalizer error types. Instead, observing or automatically resolving that

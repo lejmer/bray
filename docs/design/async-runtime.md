@@ -145,7 +145,10 @@ Frame metadata contains:
 - source-correlated suspension and retained-value information,
 - execution requirements and affinity runtime properties.
 
-Published metadata is immutable and target-specific where layout requires it.
+Published metadata is immutable and target-specific where layout requires it. A no-argument metadata operation returns
+its module-lifetime address before frame construction. Frame constructors and this operation share one metadata
+constant. Host finalizer descriptors reference this operation for the actual async finalizer frame, so admission can
+inspect its layout and execution requirements before invoking the static entry that constructs it.
 
 ---
 
@@ -267,6 +270,9 @@ No backend can infer async semantics from calls to functions named `start`, `joi
 
 ## Direct-await lowering
 
+The runtime execution, wake, cancellation, reservation and host-root design is described in
+[Composed async execution](composed-async-execution.md).
+
 Direct await consumes an inactive child frame into the current task. Lowering can embed the child frame in the parent
 frame, use a parent-owned result place, or use another representation that avoids a task boundary.
 
@@ -349,6 +355,13 @@ lifecycle entry points. An erased generic cleanup callback is insufficient.
 
 The baseline ABI supports co-allocation of the task control block and frame. Separate allocation is permitted as an
 implementation strategy but is not part of the source contract.
+
+Until publication succeeds, a caller-owned temporary retains the inactive frame. Admission failure branches into the
+caller's shielded cleanup with that temporary as an owned cleanup input, preserving capture quiescence before
+destruction. The native start boundary consumes frame ownership only when it reports successful publication.
+
+Independent-task limits govern new starts. Direct-await and cleanup continuations retain the admission of their existing
+run. A new source-level start requests independent admission even when it occurs inside a finalizer.
 
 The runtime can retain internal scheduler and wake references. Those references are not source owners, cannot detach the
 task, and cannot outlive terminal task storage except through the ABI's internal reclamation protocol.
@@ -447,8 +460,8 @@ key, load and store the current thread's opaque value, and destroy the key only 
 thread-specific storage and Windows FLS provide the required exit callback. A native shim may adapt that callback ABI,
 but it cannot own attachment state, cleanup order, panic policy, or product shutdown.
 
-Synchronous and foreign callback entries exchange a fixed outcome record. The panicked state transfers one opaque owned
-panic-report handle. The cancelled state transfers no report. A callback never uses Rust or C++ unwinding to carry a
+Synchronous and foreign callback entries exchange a tagged outcome and caller-owned report destination. A panicking
+callback moves a report into that destination before publishing the panic tag. Cancellation initializes no report. A callback never uses Rust or C++ unwinding to carry a
 Bray panic through a native frame. Cleanup callbacks use the same outcome rule, report a cleanup panic, continue the
 remaining reverse-order cleanup, and return normally to the target destructor.
 

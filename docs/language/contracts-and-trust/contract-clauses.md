@@ -1,6 +1,6 @@
 # Contract clauses
 
-Contract clauses are parenthesized comma-separated lists.
+Contract lists use parentheses and commas.
 
 ```bray
 requires(
@@ -10,6 +10,11 @@ requires(
 ```
 
 The same list form applies to `requires(...)`, `ensures(...)`, `with(...)`, and `uses(...)`.
+
+`executes(...)` lists execution-property names. A `when(condition) { ... }` group contains conditional guarantees.
+It accepts only `executes(...)`, `ensures(...)`, and
+nested `when(...)` groups. See [conditional execution guarantees](execution-guarantees.md) for entry-state semantics,
+property verification, and callable compatibility.
 
 ```bray
 ensures(

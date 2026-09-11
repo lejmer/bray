@@ -34,6 +34,28 @@ active payload destruction rules before the new active variant tag and payload b
 Assigning `none` to a nullable access path resolves the old present value according to nullable, ownership,
 finalization, and destruction rules before the access path becomes absent.
 
+## Replacement and abnormal completion
+
+Replacement establishes the destination access path once, then evaluates the new value before resolving old contents.
+The evaluated new value retains its ownership and lifecycle obligations until it is installed at the destination.
+Moves performed while evaluating that value affect which old represented parts remain initialized and require cleanup.
+
+If evaluation of the destination or new value panics or cancels, replacement does not begin. Ordinary abnormal-exit
+cleanup resolves the ownership state reached by that evaluation, including any moves already performed.
+
+Once old-value cleanup begins, replacement must restore an initialized destination before an abnormal outcome can leave
+the assignment. If that cleanup panics, resolve the remaining initialized old contents using abnormal-exit lifecycle
+rules, install the already evaluated new value, then propagate the panic. Do not repeat lifecycle operations whose
+obligations have already been resolved. Later cleanup incidents follow the ordinary suppressed-incident rules.
+
+This rule applies equally to owned destinations and destinations reached through mutable borrows, including projected
+storage. A caller that catches the panic observes the installed replacement, never destroyed or uninitialized storage.
+If propagation instead ends the destination owner's scope, ordinary scope-exit cleanup resolves the new value once.
+
+The cleanup and installation interval is cancellation-shielded. A pending cancellation does not interrupt restoration
+of the destination. Any cancellation already committed during old-value cleanup propagates only after the replacement
+is installed, subject to the ordinary rule that a cleanup panic takes precedence over cancellation.
+
 ## Navigation
 
 - [Language index](../index.md)

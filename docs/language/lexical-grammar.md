@@ -200,6 +200,7 @@ keyword =
     | "else"
     | "ensures"
     | "enter"
+    | "executes"
     | "exit"
     | "export"
     | "extern"

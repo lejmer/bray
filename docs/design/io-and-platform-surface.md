@@ -153,7 +153,7 @@ struct BufferedReader<Source>
     construct(
         pos source: Source,
         capacity: usize,
-    ) -> Result<Self, IoError>
+    ) -> Result<Self, (Source, IoError)>
         requires(capacity > 0);
 }
 
@@ -164,7 +164,7 @@ struct BufferedWriter<Sink>
     construct(
         pos sink: Sink,
         capacity: usize,
-    ) -> Result<Self, IoError>
+    ) -> Result<Self, (Sink, IoError)>
         requires(capacity > 0);
 }
 
@@ -175,7 +175,8 @@ impl BufferedReader<Source>
 
 impl BufferedWriter<Sink>
 {
-    consume func into_sink() -> Result<Sink, IoError>;
+    consume mut func into_sink() -> Result<Sink, (Self, IoError)>;
+    consume mut async func into_sink_async() -> Result<Sink, (Self, IoError)>;
 }
 
 func standard_input() -> StandardInput;
@@ -198,7 +199,9 @@ async func print_line_async(pos text: string) -> Result<unit, IoError>
 `StandardInput` implements `Reader` and `AsyncReader`. `StandardOutput` and `StandardError` implement `Writer` and
 `AsyncWriter`. These wrappers borrow product-lifetime standard streams and cannot close them. Buffered owners implement
 the matching traits of their owned source or sink. Consuming a buffered writer through `into_sink` flushes it before
-returning its sink.
+returning its sink. `into_sink_async` performs the same transfer asynchronously. A failed transfer returns the
+buffered writer alongside `IoError`, retaining its sink and remaining buffered bytes for retry. Failed buffered
+construction returns the supplied source or sink alongside `IoError`.
 
 `IoError.transferred` is the number of bytes committed before the reported failure. It is zero for operations without
 byte transfer. A caller must not retry the already transferred prefix.

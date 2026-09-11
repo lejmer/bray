@@ -38,6 +38,9 @@ Compiler libraries and installed Bray tools.
 - `bray-package-interface`
     - Deterministic encoding, bounded decoding, validation, and semantic access for compiled package interfaces.
 
+- `bray-package-interface-model`
+    - Dependency-free package-interface record categories shared by semantic records and diagnostic arguments.
+
 - `bray-project`
     - Bray workspace and package manifests, project-owned source discovery, and immutable deterministic package build
       graphs.
@@ -59,6 +62,8 @@ Compiler libraries and installed Bray tools.
 
 - `bray-lowering`
     - Transformation of bound units and their required semantic inputs into explicit backend-independent mid-level IR.
+    - MIR construction for compiler-generated bodies, including executable hosts, lifecycle helpers, and
+      compiler-provided callables.
 
 - `bray-ir`
     - Backend-independent mid-level IR, its validation, construction, and traversal APIs.
@@ -131,6 +136,7 @@ Compiler libraries and installed Bray tools.
 - `bray-compilation`
     - The demand-driven compilation context, query coordination, phase orchestration, profile collection, and top-level
       product emission.
+    - Supply resolved semantic inputs to lowering services. Do not construct MIR bodies in compilation queries.
 
 - `bray-tooling`
     - Shared diagnostic presentation, compiler inspection, source-request, and product-request tooling for command
@@ -159,7 +165,8 @@ Compiler libraries and installed Bray tools.
 Contributor-only development tools.
 
 - `rust-style`
-    - Reusable Rust source-style enforcement used by `xtask`, with no dependencies on Bray compiler crates.
+    - Project-independent Rust source-style enforcement used by `xtask`. It must remain independent and must therefore
+      never depend on any repo-specific crates.
 
 - `bray-llvm-toolchain`
     - Dependency-light provisioning and validation of the pinned LLVM development toolchain.

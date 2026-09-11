@@ -9,6 +9,7 @@ witness values, flow-sensitive contract reasoning, and trust boundaries.
 
 - [Overview](contracts-and-trust/overview.md)
 - [Contract clauses](contracts-and-trust/contract-clauses.md)
+- [Conditional execution guarantees](contracts-and-trust/execution-guarantees.md)
 - [Ordinary requirements and postconditions](contracts-and-trust/preconditions-and-postconditions.md)
 - [Trusted implementation capabilities](contracts-and-trust/trusted-implementation-capabilities.md)
 - [Trusted caller obligations](contracts-and-trust/trusted-caller-obligations.md)
