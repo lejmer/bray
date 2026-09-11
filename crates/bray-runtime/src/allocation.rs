@@ -1,6 +1,17 @@
 use std::collections::{HashMap, TryReserveError};
 use std::hash::Hash;
 
+/// Reserves uninitialized storage before publishing the obligation that owns it.
+pub(crate) fn reserve_storage<T>() -> Result<Box<std::mem::MaybeUninit<T>>, crate::TaskStartError> {
+    #[cfg(test)]
+    if crate::test_support::allocation_should_fail() {
+        return Err(crate::TaskStartError::AllocationFailed);
+    }
+
+    trybox::new(std::mem::MaybeUninit::uninit())
+        .map_err(|_| crate::TaskStartError::AllocationFailed)
+}
+
 /// Allocates shared state before publishing the obligation that owns it.
 pub(crate) fn allocate_shared<T>(value: T) -> Result<triomphe::Arc<T>, triomphe::AllocError> {
     #[cfg(test)]

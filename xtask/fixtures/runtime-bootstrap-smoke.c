@@ -17,57 +17,7 @@ typedef struct RunOutcome
     uintptr_t payload;
 } RunOutcome;
 
-typedef struct ProductHostObservation
-{
-    uint32_t status;
-    uint32_t state;
-    uintptr_t active_entries;
-    uintptr_t external_roots;
-    uintptr_t retirement_roots;
-    uintptr_t thread_attachments;
-    uintptr_t initialized_statics;
-    uintptr_t cleaned_statics;
-    uintptr_t cleanup_incidents;
-    uint8_t last_incident[32];
-} ProductHostObservation;
-
-typedef struct SourceAnchor
-{
-    uint32_t present;
-    uint32_t source;
-    uint32_t start;
-    uint32_t end;
-    uint64_t version;
-} SourceAnchor;
-
-typedef struct PanicReportCallbacks
-{
-    void* report;
-    void* destroy;
-    void* construct_cleanup;
-    void* suppress;
-} PanicReportCallbacks;
-
-typedef struct CleanupIncident
-{
-    uintptr_t payload;
-    uint8_t type_identity[32];
-    SourceAnchor source;
-    void* report;
-    void* destroy;
-    PanicReportCallbacks panics;
-} CleanupIncident;
-
-typedef struct StaticFinalizer
-{
-    uint32_t execution;
-    uint32_t reserved;
-    uintptr_t result_size;
-    uintptr_t result_alignment;
-    void* start;
-    void* resolve;
-    PanicReportCallbacks panics;
-} StaticFinalizer;
+#include "runtime-cleanup-abi.h"
 
 typedef struct CleanupRegistration
 {
@@ -370,10 +320,10 @@ static uintptr_t destroy_owned_error(uintptr_t payload)
 static PanicReportCallbacks panic_callbacks(void)
 {
     PanicReportCallbacks callbacks = {
-        (void*)&bray_runtime_panic_report_observation,
-        (void*)&bray_runtime_panic_report_destruction,
-        (void*)&bray_runtime_cleanup_incident_construction,
-        (void*)&bray_runtime_panic_report_suppression,
+        &bray_runtime_panic_report_observation,
+        &bray_runtime_panic_report_destruction,
+        &bray_runtime_cleanup_incident_construction,
+        &bray_runtime_panic_report_suppression,
     };
 
     return callbacks;
@@ -398,8 +348,8 @@ static uintptr_t owned_error_report(uint32_t identity, uint32_t report_status)
     incident.source.start = 2;
     incident.source.end = 5;
     incident.source.version = 11;
-    incident.report = (void*)&report_owned_error;
-    incident.destroy = (void*)&destroy_owned_error;
+    incident.report = &report_owned_error;
+    incident.destroy = &destroy_owned_error;
     incident.panics = panic_callbacks();
 
     return bray_runtime_cleanup_incident_construction(&incident);
@@ -458,8 +408,8 @@ static uint32_t record_cleanup(uint32_t ordinal, uintptr_t destination)
         CleanupIncident incident = {0};
 
         incident.payload = 2;
-        incident.report = (void*)&report_cleanup_incident;
-        incident.destroy = (void*)&destroy_cleanup_incident;
+        incident.report = &report_cleanup_incident;
+        incident.destroy = &destroy_cleanup_incident;
         incident.panics = panic_callbacks();
 
         *(CleanupIncident*)destination = incident;
@@ -491,32 +441,19 @@ static uint32_t third_cleanup(uintptr_t destination, uintptr_t* outcome)
     return record_cleanup(3, destination);
 }
 
-static uint32_t resolve_cleanup(uintptr_t completed, uintptr_t destination, uintptr_t* outcome)
-{
-    (void)completed;
-    (void)destination;
-
-    *outcome = 0;
-
-    return 0;
-}
-
 static uintptr_t static_cleanup(void)
 {
     return 0;
 }
 
-static CleanupRegistration cleanup_registration(uint8_t identity, void* start)
+static CleanupRegistration cleanup_registration(uint8_t identity, uint32_t (*start)(uintptr_t, uintptr_t*))
 {
     CleanupRegistration registration = {0};
 
     registration.static_identity[0] = identity;
     registration.prepare = (void*)&static_transition;
     registration.finalizer.execution = 1;
-    registration.finalizer.result_size = sizeof(CleanupIncident);
-    registration.finalizer.result_alignment = _Alignof(CleanupIncident);
     registration.finalizer.start = start;
-    registration.finalizer.resolve = (void*)&resolve_cleanup;
     registration.finalizer.panics = panic_callbacks();
     registration.destroy = (void*)&static_cleanup;
     registration.detach = (void*)&static_transition;
@@ -534,7 +471,7 @@ static int exercise_thread_attachment(void)
     if (bray_runtime_bootstrap_thread_static_probe() != 46)
         return 2;
 
-    void* starts[] = {(void*)&first_cleanup, (void*)&second_cleanup, (void*)&third_cleanup};
+    uint32_t (*starts[])(uintptr_t, uintptr_t*) = {&first_cleanup, &second_cleanup, &third_cleanup};
 
     for (uint8_t index = 0; index < 3; index += 1)
     {

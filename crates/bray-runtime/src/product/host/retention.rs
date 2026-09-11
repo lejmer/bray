@@ -103,7 +103,7 @@ fn increment(count: &mut usize) {
 
 /// Releases execution resources before publishing permission to unload the provider.
 pub(super) fn finish_retirement(product: usize) -> NativeProductHostObservation {
-    let runtime = {
+    let execution = {
         let mut hosts = product_hosts()
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -121,11 +121,13 @@ pub(super) fn finish_retirement(product: usize) -> NativeProductHostObservation 
 
         host.cleanup_running = true;
 
-        // The shared runtime token keeps shutdown outside the host registry lock.
-        host.runtime.clone()
+        // The shared execution owner keeps shutdown outside the host registry lock.
+        host.execution.clone()
     };
 
-    runtime.release();
+    if let Some(execution) = execution {
+        execution.release();
+    }
 
     let mut hosts = product_hosts()
         .lock()

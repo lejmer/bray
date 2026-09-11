@@ -198,3 +198,12 @@ native_adapter! {
         implementation::bray_runtime_compatible_lane_selection(task, state)
     }
 }
+
+native_adapter! {
+    pub extern "C" fn bray_runtime_asynchronous_product_host_control(
+        descriptor: &bray_runtime_abi::NativeProductHostDescriptor,
+        operation: bray_runtime_abi::NativeProductHostOperation,
+    ) -> bray_runtime_abi::NativeProductHostObservation {
+        implementation::bray_runtime_asynchronous_product_host_control(descriptor, operation)
+    }
+}

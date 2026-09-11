@@ -40,3 +40,5 @@ pub use super::export::{
 };
 #[cfg(feature = "test-output")]
 pub use super::host::{NativeHostCallbacks, register_host_callbacks};
+
+pub use super::product_execution::bray_runtime_asynchronous_product_host_control;

@@ -1,6 +1,6 @@
 use bray_runtime_abi::{
-    NativeProductHostDescriptor, NativeProductHostObservation, NativeProductHostState,
-    NativeProductHostStatus, NativeStaticDuration, NativeStaticIdentity,
+    NativeCleanupExecution, NativeProductHostDescriptor, NativeProductHostObservation,
+    NativeProductHostState, NativeProductHostStatus, NativeStaticDuration, NativeStaticIdentity,
 };
 
 use super::descriptor::read_statics;
@@ -8,6 +8,10 @@ use super::model::{ProductHost, host_status, product_hosts, product_key};
 
 pub(super) fn ensure_formed(
     descriptor: &NativeProductHostDescriptor,
+    retain: impl FnOnce() -> Result<
+        Option<crate::product::RetainedProductExecution>,
+        bray_runtime_abi::NativeRuntimeStatus,
+    >,
 ) -> Result<(), NativeProductHostObservation> {
     let product = product_key(descriptor);
 
@@ -19,15 +23,22 @@ pub(super) fn ensure_formed(
         return Ok(());
     }
 
-    // Descriptor callbacks and runtime creation must not hold the shared host registry.
+    // Descriptor callbacks and execution retention must not hold the shared host registry.
     drop(hosts);
     let statics = read_statics(descriptor).map_err(unformed)?;
 
     let cleanup_thread = bray_platform::RuntimeThreadReservation::reserve()
         .map_err(|error| unformed(host_status(crate::native::thread_attachment_status(error))))?;
 
-    let runtime =
-        crate::native::retain_runtime().map_err(|status| unformed(host_status(status)))?;
+    let execution = retain().map_err(|status| unformed(host_status(status)))?;
+
+    if execution.is_none()
+        && statics
+            .iter()
+            .any(|entry| entry.finalizer.execution() == NativeCleanupExecution::ASYNCHRONOUS)
+    {
+        return Err(unformed(NativeProductHostStatus::RUNTIME_FAILURE));
+    }
 
     let initialized_statics = statics
         .iter()
@@ -36,7 +47,8 @@ pub(super) fn ensure_formed(
 
     let host = ProductHost {
         identity: descriptor.identity(),
-        runtime: runtime.clone(),
+        // Keep a losing insertion releasable after the registry lock is dropped.
+        execution: execution.clone(),
         state: NativeProductHostState::OPEN,
         active_entries: 0,
         external_roots: 0,
@@ -57,7 +69,9 @@ pub(super) fn ensure_formed(
     let inserted = insert_host(product, host);
 
     if !matches!(inserted, Ok(true)) {
-        runtime.release();
+        if let Some(execution) = execution {
+            execution.release();
+        }
     }
 
     inserted.map(|_| ()).map_err(unformed)

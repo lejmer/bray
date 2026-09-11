@@ -26,12 +26,12 @@ impl NativeActivationReservation {
         let completion =
             NativeStorage::new(metadata.completion_size(), metadata.completion_alignment())?;
 
-        let frame_storage = crate::frame::reserve_frame_storage::<NativeFrame>()
+        let frame_storage = crate::allocation::reserve_storage::<NativeFrame>()
             .map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)?;
 
         let terminal = NativeTerminalState::reserve()?;
 
-        let activation_storage = crate::frame::reserve_frame_storage::<NativeActivation>()
+        let activation_storage = crate::allocation::reserve_storage::<NativeActivation>()
             .map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)?;
 
         Ok(Self {

@@ -13,21 +13,8 @@ typedef void *native_library;
 #endif
 
 typedef uintptr_t (*static_access)(void);
-typedef void (*static_cleanup)(void);
+typedef uintptr_t (*static_cleanup)(void);
 typedef void (*static_transition)(void);
-typedef uint32_t (*static_finalizer_start)(uintptr_t destination);
-typedef uint32_t (*static_finalizer_resolve)(uintptr_t completion, uintptr_t incident);
-
-typedef struct
-{
-    uint32_t execution;
-    uint32_t reserved;
-    size_t result_size;
-    size_t result_alignment;
-    static_finalizer_start start;
-    static_finalizer_resolve resolve;
-} static_finalizer;
-
 typedef struct
 {
     uint8_t bytes[32];
@@ -44,7 +31,7 @@ typedef struct static_host_entry
     uintptr_t storage;
     static_access access;
     static_transition prepare;
-    static_finalizer finalizer;
+    StaticFinalizer finalizer;
     static_cleanup destroy;
     static_transition detach;
     static_dependency dependency;
@@ -98,7 +85,7 @@ static int close_library(native_library library)
 #endif
 }
 
-static int observation_is(product_host_observation observation, uint32_t status, uint32_t state)
+static int observation_is(ProductHostObservation observation, uint32_t status, uint32_t state)
 {
     return observation.status == status && observation.state == state;
 }
@@ -158,7 +145,7 @@ static uintptr_t find_product_value_address(
 
 static int run_thread_check(thread_context *context)
 {
-    product_host_observation attached = context->control(PRODUCT_HOST_ATTACH_CURRENT_THREAD);
+    ProductHostObservation attached = context->control(PRODUCT_HOST_ATTACH_CURRENT_THREAD);
 
     if (!observation_is(attached, 0, 1))
         return 1;
@@ -173,7 +160,7 @@ static int run_thread_check(thread_context *context)
     if (*(int32_t *)first != 42 || *(int32_t *)cleanup != 192837465)
         return 3;
 
-    product_host_observation detached = context->control(PRODUCT_HOST_DETACH_CURRENT_THREAD);
+    ProductHostObservation detached = context->control(PRODUCT_HOST_DETACH_CURRENT_THREAD);
 
     if (!observation_is(detached, 0, 1) || detached.cleanup_incidents != 0)
         return 4;
@@ -203,7 +190,7 @@ static int check_thread_static(
     static_access async_access
 )
 {
-    product_host_observation attached = control(PRODUCT_HOST_ATTACH_CURRENT_THREAD);
+    ProductHostObservation attached = control(PRODUCT_HOST_ATTACH_CURRENT_THREAD);
 
     if (!observation_is(attached, 0, 1))
         return 20;
@@ -309,7 +296,7 @@ static int exercise_host(
     uintptr_t *representative_address
 )
 {
-    product_host_observation formed = control(PRODUCT_HOST_FORM);
+    ProductHostObservation formed = control(PRODUCT_HOST_FORM);
 
     if (!observation_is(formed, 0, 1) || descriptor->abi_version != 1)
         return 40;
@@ -432,14 +419,18 @@ static int exercise_host(
     if (!observation_is(control(PRODUCT_HOST_RELEASE_ENTRY), 1, 2))
         return 54;
 
-    product_host_observation closed = control(PRODUCT_HOST_RELEASE_EXTERNAL);
+    ProductHostObservation closed = control(PRODUCT_HOST_RELEASE_EXTERNAL);
 
     if (
         !observation_is(closed, 4, 3) ||
         closed.cleaned_statics != product_count ||
         closed.cleanup_incidents != 1
     )
+    {
+        fprintf(stderr, "closure status=%u state=%u cleaned=%zu expected=%zu incidents=%zu\n",
+            closed.status, closed.state, closed.cleaned_statics, product_count, closed.cleanup_incidents);
         return 55;
+    }
 
     int32_t cleaned_probe = 0;
     memcpy(&cleaned_probe, (void *)cleanup_probe, sizeof(cleaned_probe));
@@ -457,7 +448,7 @@ static int exercise_host(
     if (cleaned_probe != 0)
         return 74;
 
-    product_host_observation formed_again = control(PRODUCT_HOST_FORM);
+    ProductHostObservation formed_again = control(PRODUCT_HOST_FORM);
 
     if (
         !observation_is(formed_again, 4, 3) ||
@@ -547,7 +538,7 @@ int main(int argument_count, char **arguments)
     if (first_result != 0)
         return first_result;
 
-    product_host_observation second_open = second_control(PRODUCT_HOST_OBSERVE);
+    ProductHostObservation second_open = second_control(PRODUCT_HOST_OBSERVE);
 
     if (
         !observation_is(second_open, 0, 1) ||
@@ -574,7 +565,7 @@ int main(int argument_count, char **arguments)
     )
         return 65;
 
-    product_host_observation second_closed = second_control(PRODUCT_HOST_CLOSE);
+    ProductHostObservation second_closed = second_control(PRODUCT_HOST_CLOSE);
 
     if (
         !observation_is(second_closed, 4, 3) ||

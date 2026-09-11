@@ -13,13 +13,24 @@ use super::statics::ConcreteStaticRealization;
 use crate::fact::CancellationToken;
 
 impl Compilation {
-    fn static_cleanup_requires_main_thread(
+    fn static_cleanup_execution(
         &self,
         realization: &ConcreteStaticRealization,
         reachability: &ConcreteCodegenReachability,
-    ) -> Result<bool, CodegenPreparationError> {
+    ) -> Result<StaticCleanupExecution, CodegenPreparationError> {
         let mut pending = BTreeSet::<CodegenInstanceKey>::new();
         let mut visited = BTreeSet::new();
+
+        let execution = if realization
+            .finalization
+            .as_ref()
+            .is_some_and(|finalization| {
+                finalization.execution == bray_symbols::CallableExecution::Asynchronous
+            }) {
+            StaticCleanupExecution::Asynchronous
+        } else {
+            StaticCleanupExecution::Synchronous
+        };
 
         if let Some(finalization) = &realization.finalization {
             pending.insert(finalization.instance.key().clone());
@@ -46,15 +57,15 @@ impl Compilation {
                 .into());
             };
 
-            if instance.mir().frame_descriptor().is_some_and(|frame| {
-                frame.states().iter().any(|state| {
+            if let Some(frame) = instance.mir().frame_descriptor() {
+                if frame.states().iter().any(|state| {
                     state
                         .execution()
                         .lane_requirements()
                         .contains(&ExecutionLaneRequirement::MainThread)
-                })
-            }) {
-                return Ok(true);
+                }) {
+                    return Ok(StaticCleanupExecution::MainThread);
+                }
             }
 
             pending.extend(
@@ -65,7 +76,7 @@ impl Compilation {
             );
         }
 
-        Ok(false)
+        Ok(execution)
     }
 
     fn static_lifecycle_providers(
@@ -258,7 +269,7 @@ impl Compilation {
                 static_instance.reference.clone(),
                 static_instance.ty,
                 dependencies.remove(&key).unwrap_or_default(),
-                self.static_cleanup_requires_main_thread(static_instance, reachability)?,
+                self.static_cleanup_execution(static_instance, reachability)?,
             ));
 
             for provider in outgoing.get(&key).into_iter().flatten() {
@@ -295,12 +306,20 @@ impl Compilation {
     }
 }
 
+/// Concrete cleanup execution. A Main-thread requirement necessarily needs asynchronous execution.
+#[derive(Clone, Copy)]
+pub(super) enum StaticCleanupExecution {
+    Synchronous,
+    Asynchronous,
+    MainThread,
+}
+
 pub(in crate::compilation::product) struct ProductStaticHostEntry {
     key: CodegenStaticInstanceKey,
     reference: StaticReferenceSelection,
     ty: TypeId,
     dependencies: Vec<CodegenStaticInstanceKey>,
-    requires_main_thread_cleanup: bool,
+    execution: StaticCleanupExecution,
 }
 
 impl ProductStaticHostEntry {
@@ -309,14 +328,14 @@ impl ProductStaticHostEntry {
         reference: StaticReferenceSelection,
         ty: TypeId,
         dependencies: Vec<CodegenStaticInstanceKey>,
-        requires_main_thread_cleanup: bool,
+        execution: StaticCleanupExecution,
     ) -> Self {
         Self {
             key,
             reference,
             ty,
             dependencies,
-            requires_main_thread_cleanup,
+            execution,
         }
     }
 
@@ -328,8 +347,12 @@ impl ProductStaticHostEntry {
         &self.dependencies
     }
 
+    pub(in crate::compilation::product) const fn requires_async_cleanup(&self) -> bool {
+        !matches!(self.execution, StaticCleanupExecution::Synchronous)
+    }
+
     pub(in crate::compilation::product) const fn requires_main_thread_cleanup(&self) -> bool {
-        self.requires_main_thread_cleanup
+        matches!(self.execution, StaticCleanupExecution::MainThread)
     }
 
     pub(in crate::compilation::product) fn lowering_entry(

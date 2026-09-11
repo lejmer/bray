@@ -4,7 +4,7 @@ use std::pin::Pin;
 use bray_runtime_model::ProtectedFrameDescriptor;
 use triomphe::{Arc as TaskArc, UniqueArc};
 
-use crate::frame::reserve_frame_storage;
+use crate::allocation::reserve_storage;
 use crate::{
     CancellationContext, ErasedProtectedFrame, ErasedSendableProtectedFrame, ProtectedFrame,
     SendableProtectedFrame, TaskControlBlock, TaskStartError,
@@ -104,7 +104,7 @@ impl<T: 'static, F: ?Sized + ProtectedFrame<Output = T>> TaskControlBlock<T, F> 
         erase: impl FnOnce(Pin<Box<I>>) -> Pin<Box<F>>,
     ) -> Result<TaskArc<Self>, TaskStartFailure<I>> {
         let admission = (|| {
-            let storage = reserve_frame_storage::<I>()?;
+            let storage = reserve_storage::<I>()?;
             let task = Self::reserve_task(frame.descriptor(), parent)?;
 
             Ok((storage, task))

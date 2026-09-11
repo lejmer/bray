@@ -322,7 +322,7 @@ pub(super) fn declare_product_host<'context>(
         types.target().machine().object_format(),
     );
 
-    let role = bray_runtime_interface::RuntimeAbiRole::ProductHostControl;
+    let role = product_host.control_role();
     let runtime = crate::native::declare_runtime_function(module, context, types.target(), role)?;
     let runtime_type = runtime.get_type();
     let result = crate::native::runtime_indirect_result_type(context, types.target(), role);

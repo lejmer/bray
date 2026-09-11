@@ -198,9 +198,8 @@ impl NativeRuntime {
 
         let outcome = match outcome {
             Some(outcome) => task_outcome(outcome, &task.terminal).unwrap_or_else(|panic| {
-                self.cleanup_reports.transfer_owned(
-                    CleanupIncidentProducer::Task(task.task.id()),
-                    task.task.execution_origin(),
+                self.transfer_task_incident(
+                    &task,
                     crate::incident::OwnedCleanupIncident::host(Box::new(panic)),
                 );
 
@@ -226,14 +225,31 @@ impl NativeRuntime {
     }
 
     fn transfer_cleanup_incidents(&self, task: &StartedTask) {
-        let producer = CleanupIncidentProducer::Task(task.task.id());
-
-        let origin = task.task.execution_origin();
-
-        for incident in task.terminal.take_cleanup_incidents().into_iter().rev() {
-            self.cleanup_reports
-                .transfer_owned(producer, origin, incident);
+        for incident in task.terminal.take_cleanup_incidents() {
+            self.transfer_task_incident(task, incident);
         }
+    }
+
+    fn transfer_task_incident(
+        &self,
+        task: &StartedTask,
+        incident: crate::incident::OwnedCleanupIncident,
+    ) {
+        let incident = if task.admission == crate::task::TaskAdmissionKind::Continuation {
+            // Cleanup driving returns incidents to the owner whose obligation it settles.
+            match crate::native::incident::retain_cleanup_incident(incident) {
+                Ok(()) => return,
+                Err(incident) => incident,
+            }
+        } else {
+            incident
+        };
+
+        self.cleanup_reports.transfer_owned(
+            CleanupIncidentProducer::Task(task.task.id()),
+            task.task.execution_origin(),
+            incident,
+        );
     }
 }
 
@@ -278,10 +294,12 @@ mod tests {
         }
 
         extern "C-unwind" fn child(_: usize) -> NativeFrameProgress {
-            for ordinal in [7u32, 11] {
+            let payloads: [Box<dyn std::any::Any + Send>; 2] = [Box::new(7u32), Box::new(11u64)];
+
+            for payload in payloads {
                 assert!(
                     crate::native::incident::retain_cleanup_incident(
-                        crate::incident::OwnedCleanupIncident::host(Box::new(ordinal))
+                        crate::incident::OwnedCleanupIncident::host(payload)
                     )
                     .is_ok()
                 );
@@ -318,34 +336,81 @@ mod tests {
             .unwrap()
         }
 
-        ENTERED.store(false, Ordering::Relaxed);
-
-        assert_eq!(
-            initialize(NativeRuntimeConfiguration::new(1, 1)),
-            NativeRuntimeStatus::SUCCESS
-        );
-
-        with_runtime(|runtime| {
-            let root = runtime.allocate().task().unwrap();
+        for continuation in [false, true] {
+            ENTERED.store(false, Ordering::Relaxed);
 
             assert_eq!(
-                runtime.start(root, &mut NativeFrameTransfer::new(frame(parent))),
+                initialize(NativeRuntimeConfiguration::new(1, 1)),
                 NativeRuntimeStatus::SUCCESS
             );
 
-            assert_eq!(
-                runtime.resolve_task(root).state(),
-                NativeRunState::COMPLETED
-            );
+            with_runtime(|runtime| {
+                let allocation = if continuation {
+                    runtime.allocate_continuation()
+                } else {
+                    runtime.allocate()
+                };
 
-            assert_eq!(runtime.pending_cleanup_incidents(), 2);
-            runtime.observe(root);
-            assert_eq!(runtime.pending_cleanup_incidents(), 2);
-            assert_eq!(runtime.discard_cleanup_incidents(), 2);
-            assert_eq!(runtime.destroy_task(root), NativeRuntimeStatus::SUCCESS);
-        })
-        .unwrap();
+                let root = allocation.task().unwrap();
 
-        assert_eq!(shutdown(), NativeRuntimeStatus::SUCCESS);
+                assert_eq!(
+                    runtime.start(root, &mut NativeFrameTransfer::new(frame(parent))),
+                    NativeRuntimeStatus::SUCCESS
+                );
+
+                let ((), incidents) = crate::native::with_cleanup_incident_owner(|_| {
+                    assert_eq!(
+                        runtime.resolve_task(root).state(),
+                        NativeRunState::COMPLETED
+                    );
+
+                    assert_eq!(
+                        runtime.pending_cleanup_incidents(),
+                        if continuation { 0 } else { 2 }
+                    );
+
+                    runtime.observe(root);
+
+                    assert_eq!(
+                        runtime.pending_cleanup_incidents(),
+                        if continuation { 0 } else { 2 }
+                    );
+                });
+
+                let owned = incidents
+                    .iter()
+                    .map(|incident| incident.payload().is::<u32>())
+                    .collect::<Vec<_>>();
+
+                let mut reported = Vec::new();
+
+                runtime
+                    .cleanup_reports
+                    .drain(|incident| reported.push(incident.payload_is::<u32>()));
+
+                assert_eq!(
+                    owned,
+                    if continuation {
+                        vec![true, false]
+                    } else {
+                        vec![]
+                    }
+                );
+
+                assert_eq!(
+                    reported,
+                    if continuation {
+                        vec![]
+                    } else {
+                        vec![true, false]
+                    }
+                );
+
+                assert_eq!(runtime.destroy_task(root), NativeRuntimeStatus::SUCCESS);
+            })
+            .unwrap();
+
+            assert_eq!(shutdown(), NativeRuntimeStatus::SUCCESS);
+        }
     }
 }

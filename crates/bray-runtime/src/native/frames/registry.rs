@@ -709,7 +709,7 @@ mod tests {
             NativeRuntimeStatus::SUCCESS
         );
 
-        let retained = crate::native::retain_runtime().unwrap();
+        let retained = crate::native::state::retain_runtime().unwrap();
         assert_eq!(shutdown(), NativeRuntimeStatus::SUCCESS);
 
         assert_eq!(
@@ -728,7 +728,7 @@ mod tests {
 
         assert_eq!(shutdown(), NativeRuntimeStatus::SUCCESS);
 
-        crate::native::state::with_cleanup_runtime(Some(&retained), || {
+        crate::native::state::with_cleanup_runtime(&retained, || {
             with_allocation_failure(|| {
                 run_entry(
                     address,

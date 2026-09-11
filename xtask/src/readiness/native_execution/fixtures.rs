@@ -46,3 +46,6 @@ pub(super) const TEXT_CURSOR_FIXTURE: &str =
 pub(super) const STANDARD_MEMORY_FIXTURE: &str =
     "xtask/fixtures/native-execution/standard-memory.bray";
 pub(super) const PRODUCT_NAME: &str = "application";
+
+pub(super) const SYNC_ENTRY_ASYNC_STATIC_CLEANUP_FIXTURE: &str =
+    "xtask/fixtures/native-execution/sync-entry-async-static-cleanup.bray";

@@ -14,8 +14,7 @@ use crate::{
 
 use super::super::frame::NativeTerminalState;
 use super::core::{
-    CLEANUP_RUNTIME, CURRENT_NATIVE_TASK, NativeRuntime, RetainedRuntime, retain_runtime,
-    with_runtime,
+    CLEANUP_RUNTIME, CURRENT_NATIVE_TASK, NativeRuntime, RetainedRuntime, with_runtime,
 };
 
 pub(in crate::native) fn scheduler_status(error: crate::SchedulerError) -> NativeRuntimeStatus {
@@ -65,27 +64,14 @@ pub(in crate::native) fn current_thread_lanes(
 }
 
 pub(in crate::native) fn with_cleanup_runtime<T>(
-    retained: Option<&RetainedRuntime>,
-    callback: impl FnOnce() -> T,
-) -> Result<(T, NativeRuntimeStatus), NativeRuntimeStatus> {
-    let owned = retained.is_none().then(retain_runtime).transpose()?;
-    let _owned = owned.as_ref().map(OwnedRuntimeScope);
-
-    let retained = retained
-        .or(owned.as_ref())
-        .ok_or(NativeRuntimeStatus::RUNTIME_FAILURE)?;
-
-    let result = with_retained_runtime(retained, callback)?;
-
-    Ok((result, NativeRuntimeStatus::SUCCESS))
-}
-
-fn with_retained_runtime<T>(
     retained: &RetainedRuntime,
     callback: impl FnOnce() -> T,
 ) -> Result<T, NativeRuntimeStatus> {
     if with_runtime(|runtime| Arc::ptr_eq(&runtime.core, &retained.core)).unwrap_or(false) {
-        return with_runtime(|runtime| runtime.with_cleanup_driving(callback));
+        return crate::product::with_execution_factory(
+            super::super::product_execution::retain_current_execution,
+            || with_runtime(|runtime| runtime.with_cleanup_driving(callback)),
+        );
     }
 
     let thread = RuntimeThreadScope::enter_or_reuse().map_err(thread_attachment_status)?;
@@ -102,7 +88,12 @@ fn with_retained_runtime<T>(
         _test_isolation: None,
     };
 
-    Ok(CLEANUP_RUNTIME.set(&runtime, callback))
+    Ok(CLEANUP_RUNTIME.set(&runtime, || {
+        crate::product::with_execution_factory(
+            super::super::product_execution::retain_current_execution,
+            callback,
+        )
+    }))
 }
 
 pub(in crate::native) struct CleanupWorkloadScope<'a> {
@@ -113,14 +104,6 @@ pub(in crate::native) struct CleanupWorkloadScope<'a> {
 impl Drop for CleanupWorkloadScope<'_> {
     fn drop(&mut self) {
         self.runtime.cleanup_workloads.set(self.previous);
-    }
-}
-
-struct OwnedRuntimeScope<'a>(&'a RetainedRuntime);
-
-impl Drop for OwnedRuntimeScope<'_> {
-    fn drop(&mut self) {
-        self.0.release();
     }
 }
 
@@ -402,7 +385,7 @@ mod tests {
             .owners
             .load(std::sync::atomic::Ordering::Acquire);
 
-        with_cleanup_runtime(Some(&retained), || {
+        with_cleanup_runtime(&retained, || {
             assert_eq!(
                 initialize(NativeRuntimeConfiguration::new(4, 1)),
                 NativeRuntimeStatus::ALREADY_INITIALIZED
@@ -421,7 +404,7 @@ mod tests {
                 owners
             );
 
-            with_cleanup_runtime(Some(&previous), || {
+            with_cleanup_runtime(&previous, || {
                 with_runtime(|runtime| assert!(Arc::ptr_eq(&runtime.core, &previous.core)))
                     .unwrap();
             })
@@ -447,7 +430,7 @@ mod tests {
         let thread = bray_platform::current_runtime_thread().unwrap().id();
 
         let result = with_allocation_failure(|| {
-            with_cleanup_runtime(Some(&retained), || {
+            with_cleanup_runtime(&retained, || {
                 with_runtime(|runtime| {
                     assert!(Arc::ptr_eq(&runtime.core, &retained.core));
                     assert_eq!(runtime.thread.runtime().id(), thread);
@@ -455,14 +438,14 @@ mod tests {
                 })
                 .unwrap();
 
-                with_cleanup_runtime(Some(&retained), || 42).unwrap().0
+                with_cleanup_runtime(&retained, || 42).unwrap()
             })
         });
 
-        assert_eq!(result, Ok((42, NativeRuntimeStatus::SUCCESS)));
+        assert_eq!(result, Ok(42));
 
         let unwind = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _ = with_cleanup_runtime(Some(&retained), || panic!("restore cleanup binding"));
+            let _ = with_cleanup_runtime(&retained, || panic!("restore cleanup binding"));
         }));
 
         assert!(unwind.is_err());

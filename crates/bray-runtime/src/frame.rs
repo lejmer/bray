@@ -292,17 +292,6 @@ pub type ErasedProtectedFrame<T> = Pin<Box<dyn ProtectedFrame<Output = T> + 'sta
 pub type ErasedSendableProtectedFrame<T> =
     Pin<Box<dyn SendableProtectedFrame<Output = T> + 'static>>;
 
-pub(crate) fn reserve_frame_storage<F>()
--> Result<Box<std::mem::MaybeUninit<F>>, crate::TaskStartError> {
-    #[cfg(test)]
-    if crate::test_support::allocation_should_fail() {
-        return Err(crate::TaskStartError::AllocationFailed);
-    }
-
-    trybox::new(std::mem::MaybeUninit::uninit())
-        .map_err(|_| crate::TaskStartError::AllocationFailed)
-}
-
 /// Admits stable erased storage, returning the inactive frame on allocation failure.
 pub fn erase_protected_frame<F>(
     frame: F,
@@ -326,7 +315,7 @@ where
 fn pin_protected_frame<F: ProtectedFrame>(
     frame: F,
 ) -> Result<Pin<Box<F>>, crate::TaskStartFailure<F>> {
-    match reserve_frame_storage() {
+    match crate::allocation::reserve_storage() {
         Ok(storage) => Ok(Box::into_pin(Box::write(storage, frame))),
         Err(error) => Err(crate::TaskStartFailure::new(error, frame)),
     }

@@ -85,6 +85,7 @@ pub struct CodegenProductHostMapping {
     identity: NativeProductIdentity,
     descriptor_symbol: BinarySymbolName,
     control_symbol: BinarySymbolName,
+    control_role: bray_runtime_interface::RuntimeAbiRole,
     statics: Arc<[CodegenProductHostStatic]>,
 }
 
@@ -95,9 +96,16 @@ impl CodegenProductHostMapping {
         identity: NativeProductIdentity,
         descriptor_symbol: BinarySymbolName,
         control_symbol: BinarySymbolName,
+        control_role: bray_runtime_interface::RuntimeAbiRole,
         statics: impl IntoIterator<Item = CodegenProductHostStatic>,
     ) -> Option<Self> {
-        if descriptor_symbol == control_symbol {
+        if descriptor_symbol == control_symbol
+            || !matches!(
+                control_role,
+                bray_runtime_interface::RuntimeAbiRole::ProductHostControl
+                    | bray_runtime_interface::RuntimeAbiRole::AsynchronousProductHostControl
+            )
+        {
             return None;
         }
 
@@ -147,6 +155,7 @@ impl CodegenProductHostMapping {
             identity,
             descriptor_symbol,
             control_symbol,
+            control_role,
             statics: statics.into(),
         })
     }
@@ -169,6 +178,11 @@ impl CodegenProductHostMapping {
     /// Returns the unique control symbol.
     pub const fn control_symbol(&self) -> &BinarySymbolName {
         &self.control_symbol
+    }
+
+    /// Returns the runtime component that admits and controls this product host.
+    pub const fn control_role(&self) -> bray_runtime_interface::RuntimeAbiRole {
+        self.control_role
     }
 
     /// Returns static contributions in deterministic cleanup order.
@@ -212,6 +226,7 @@ mod tests {
             NativeProductIdentity::new([3; 32]),
             symbol("descriptor"),
             symbol("control"),
+            bray_runtime_interface::RuntimeAbiRole::ProductHostControl,
             [
                 CodegenProductHostStatic::new(
                     symbol("first"),

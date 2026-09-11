@@ -7,6 +7,7 @@ use bray_runtime_abi::{
     NativeStaticTransitionCallback, NativeTypeIdentity,
 };
 
+use super::execution::ProductExecution;
 use crate::incident::OwnedCleanupIncident;
 
 pub(super) fn run_static_cleanup(
@@ -14,13 +15,14 @@ pub(super) fn run_static_cleanup(
     finalizer: NativeStaticFinalizer,
     destroy: NativeStaticCleanupCallback,
     detach: NativeStaticTransitionCallback,
+    execution: Option<&dyn ProductExecution>,
 ) -> Vec<OwnedCleanupIncident> {
     let ((), incidents) = crate::native::with_cleanup_incident_owner(|record| {
         if let Err(payload) = catch_unwind(AssertUnwindSafe(|| prepare())) {
             record(OwnedCleanupIncident::host(payload));
         }
 
-        for incident in run_finalizer(finalizer) {
+        for incident in run_finalizer(finalizer, execution) {
             record(incident);
         }
 
@@ -47,8 +49,9 @@ pub(super) fn report_static_cleanup(
     finalizer: NativeStaticFinalizer,
     destroy: NativeStaticCleanupCallback,
     detach: NativeStaticTransitionCallback,
+    execution: Option<&dyn ProductExecution>,
 ) -> usize {
-    let incidents = run_static_cleanup(prepare, finalizer, destroy, detach);
+    let incidents = run_static_cleanup(prepare, finalizer, destroy, detach, execution);
     let count = incidents.len();
 
     for incident in incidents {
@@ -58,11 +61,17 @@ pub(super) fn report_static_cleanup(
     count
 }
 
-fn run_finalizer(finalizer: NativeStaticFinalizer) -> Vec<OwnedCleanupIncident> {
+fn run_finalizer(
+    finalizer: NativeStaticFinalizer,
+    execution: Option<&dyn ProductExecution>,
+) -> Vec<OwnedCleanupIncident> {
     match finalizer.execution() {
         NativeCleanupExecution::NONE => Vec::new(),
         NativeCleanupExecution::SYNCHRONOUS => run_synchronous_finalizer(finalizer),
-        NativeCleanupExecution::ASYNCHRONOUS => run_asynchronous_finalizer(finalizer),
+        NativeCleanupExecution::ASYNCHRONOUS => execution.map_or_else(
+            || vec![OwnedCleanupIncident::runtime_failure()],
+            |owner| owner.run_finalizer(finalizer),
+        ),
         _ => vec![OwnedCleanupIncident::runtime_failure()],
     }
 }
@@ -77,34 +86,6 @@ fn run_synchronous_finalizer(finalizer: NativeStaticFinalizer) -> Vec<OwnedClean
     }));
 
     finish_finalizer_callback(result, outcome, incident, finalizer.panics())
-}
-
-fn run_asynchronous_finalizer(finalizer: NativeStaticFinalizer) -> Vec<OwnedCleanupIncident> {
-    let mut frame = crate::native::inactive_frame_output();
-    let destination = (&raw mut frame).addr();
-    let mut outcome = NativeBrayCallOutcome::completed();
-
-    let result = catch_unwind(AssertUnwindSafe(|| {
-        (finalizer.start())(destination, &mut outcome)
-    }));
-
-    if let Some(incident) = OwnedCleanupIncident::boundary(outcome, finalizer.panics()) {
-        let mut incidents = vec![incident];
-
-        if let Err(payload) = result {
-            incidents.push(OwnedCleanupIncident::host(payload));
-        }
-
-        return incidents;
-    }
-
-    match result {
-        Ok(NativeStaticFinalizerStatus::SUCCESS) => {
-            crate::native::run_static_finalizer(frame, finalizer.panics())
-        }
-        Ok(_) => vec![OwnedCleanupIncident::runtime_failure()],
-        Err(payload) => vec![OwnedCleanupIncident::host(payload)],
-    }
 }
 
 fn finish_finalizer_callback(
@@ -258,7 +239,7 @@ mod tests {
             crate::test_support::panic_callbacks(report, destroy_report),
         );
 
-        let incidents = super::run_static_cleanup(prepare, finalizer, destroy, detach);
+        let incidents = super::run_static_cleanup(prepare, finalizer, destroy, detach, None);
 
         assert_eq!(incidents.len(), 5);
         assert!(REPORTED.with(|events| events.borrow().is_empty()));

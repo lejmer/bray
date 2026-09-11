@@ -372,7 +372,8 @@ impl Compilation {
                 bray_codegen::CodegenSymbolKey::Instance(_)
                 | bray_codegen::CodegenSymbolKey::CleanupFrameConstructor(_)
                 | bray_codegen::CodegenSymbolKey::ProtectedFrame { .. } => None,
-            });
+            })
+            .chain(product_host.map(bray_codegen::CodegenProductHostMapping::control_role));
 
         let requirements = match host {
             Some(host) if host.requirements().requires_implementation() => {
@@ -385,7 +386,6 @@ impl Compilation {
 
                 let mut roles = mapped_roles.collect::<Vec<_>>();
 
-                roles.push(bray_runtime_interface::RuntimeAbiRole::ProductHostControl);
                 roles.extend(bray_codegen::CLEANUP_RUNTIME_ROLES);
 
                 if product_host.statics().iter().any(|entry| {
@@ -5549,6 +5549,112 @@ public func invoke<T>(pos value: T)
                             || unit.external_instances().contains(dependency)))
                 );
             }
+
+            assert!(
+                generated_artifacts(&backend, &plan)
+                    .iter()
+                    .all(|artifact| !artifact.is_empty())
+            );
+        }
+    }
+
+    #[test]
+    fn synchronous_entry_starts_execution_only_for_async_static_cleanup() {
+        for asynchronous in [false, true] {
+            let qualifier = if asynchronous { "async " } else { "" };
+
+            let body = if asynchronous {
+                "await complete();"
+            } else {
+                ""
+            };
+
+            let source = format!(
+                r#"
+                module static_cleanup_admission;
+                async func complete() {{}}
+                struct Probe {{
+                    value: i32;
+                    {qualifier}finalize() {{ {body} }}
+                }}
+                static PROBE: Probe = Probe {{ value = 7 }};
+                func main() -> i32 {{ return PROBE.value - 7; }}
+            "#
+            );
+
+            let (backend, plan) = runtime_native_plan_for_sources_target(
+                &[&source],
+                ProductKind::Executable,
+                SelectedTarget::baseline(),
+                &[],
+            );
+
+            assert_eq!(
+                plan.mappings()
+                    .iter()
+                    .flat_map(|mapping| mapping.static_storages())
+                    .filter_map(|storage| storage.finalization())
+                    .any(|finalizer| finalizer.execution()
+                        == bray_symbols::CallableExecution::Asynchronous),
+                asynchronous,
+            );
+
+            let host = plan.executable_host().unwrap();
+            assert_eq!(host.entries()[0].root(), RootExecution::Synchronous);
+
+            assert_eq!(
+                host.requirements()
+                    .requires_role(RuntimeAbiRole::MainThreadLaneStartup),
+                asynchronous
+            );
+
+            assert_eq!(
+                plan.product_host().unwrap().control_role(),
+                if asynchronous {
+                    RuntimeAbiRole::AsynchronousProductHostControl
+                } else {
+                    RuntimeAbiRole::ProductHostControl
+                }
+            );
+
+            let host_mir = plan
+                .units()
+                .iter()
+                .flat_map(|unit| unit.instances())
+                .map(|instance| instance.mir())
+                .find(|mir| matches!(mir.kind(), bray_ir::MirUnitKind::ExecutableHost(_)))
+                .unwrap();
+
+            let operations = host_mir.block(host_mir.entry()).unwrap().operations();
+
+            let startup = operations.iter().position(|id| {
+                matches!(
+                    host_mir.operation(*id).unwrap().kind(),
+                    bray_ir::MirOperationKind::Host(
+                        bray_ir::MirHostOperation::BeginExecution { .. }
+                    )
+                )
+            });
+
+            let materialize = operations
+                .iter()
+                .position(|id| {
+                    matches!(
+                        host_mir.operation(*id).unwrap().kind(),
+                        bray_ir::MirOperationKind::Host(
+                            bray_ir::MirHostOperation::MaterializeStatic { .. }
+                        )
+                    )
+                })
+                .unwrap();
+
+            assert_eq!(startup.is_some(), asynchronous);
+
+            if let Some(startup) = startup {
+                assert!(startup < materialize);
+            }
+
+            assert!(plan.product_host().is_some());
 
             assert!(
                 generated_artifacts(&backend, &plan)

@@ -34,7 +34,7 @@ pub(super) struct ConcreteStaticRealization {
 }
 
 pub(super) struct ConcreteStaticFinalization {
-    execution: CallableExecution,
+    pub(super) execution: CallableExecution,
     pub(super) instance: ConcreteCodegenInstance,
 }
 

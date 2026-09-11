@@ -68,21 +68,33 @@ pub(super) fn run_cleanup_frame(
     incidents
 }
 
+#[cfg(test)]
 pub(crate) fn with_static_cleanup_runtime<T>(
     callback: impl FnOnce() -> T,
 ) -> (T, Vec<crate::incident::OwnedCleanupIncident>) {
-    with_selected_static_cleanup_runtime(None, callback)
+    struct Release(super::state::RetainedRuntime);
+
+    impl Drop for Release {
+        fn drop(&mut self) {
+            self.0.release();
+        }
+    }
+
+    let runtime = match super::state::retain_runtime() {
+        Ok(runtime) => runtime,
+        Err(bray_runtime_abi::NativeRuntimeStatus::NOT_INITIALIZED) => {
+            super::state::admit_cleanup_runtime().unwrap()
+        }
+        Err(status) => panic!("fixture execution must be admitted: {status:?}"),
+    };
+
+    let runtime = Release(runtime);
+
+    with_retained_static_cleanup_runtime(&runtime.0, callback)
 }
 
-pub(crate) fn with_retained_static_cleanup_runtime<T>(
+pub(super) fn with_retained_static_cleanup_runtime<T>(
     runtime: &super::state::RetainedRuntime,
-    callback: impl FnOnce() -> T,
-) -> (T, Vec<crate::incident::OwnedCleanupIncident>) {
-    with_selected_static_cleanup_runtime(Some(runtime), callback)
-}
-
-fn with_selected_static_cleanup_runtime<T>(
-    runtime: Option<&super::state::RetainedRuntime>,
     callback: impl FnOnce() -> T,
 ) -> (T, Vec<crate::incident::OwnedCleanupIncident>) {
     let mut callback = Some(callback);
@@ -101,7 +113,7 @@ fn with_selected_static_cleanup_runtime<T>(
     });
 
     let runtime_succeeded = match runtime {
-        Ok((reported, shutdown)) => reported && shutdown.is_success(),
+        Ok(reported) => reported,
         Err(_) => false,
     };
 

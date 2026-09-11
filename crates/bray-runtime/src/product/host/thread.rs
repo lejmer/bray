@@ -49,23 +49,35 @@ fn run_product_thread_cleanups(product: usize, entries: Vec<ThreadStaticEntry>) 
         return;
     };
 
-    let runtime = product_hosts()
+    // Keep execution alive while callbacks run outside the registry lock.
+    let execution = product_hosts()
         .lock()
         .ok()
-        .and_then(|hosts| hosts.get(&product).map(|host| host.runtime.clone()));
+        .and_then(|hosts| hosts.get(&product).and_then(|host| host.execution.clone()));
 
-    let cleanup = || {
-        for entry in entries {
-            let count =
-                report_static_cleanup(entry.prepare, entry.finalizer, entry.destroy, entry.detach);
+    let execution = execution.as_ref().map(|owner| owner.as_ref().as_ref());
+
+    let mut cleanup = || {
+        for entry in &entries {
+            let count = report_static_cleanup(
+                entry.prepare,
+                entry.finalizer,
+                entry.destroy,
+                entry.detach,
+                execution,
+            );
 
             report_incidents(product, entry.static_identity, count);
         }
     };
 
-    let (_, runtime_incidents) = match runtime.as_ref() {
-        Some(runtime) => crate::native::with_retained_static_cleanup_runtime(runtime, cleanup),
-        None => crate::native::with_static_cleanup_runtime(cleanup),
+    let runtime_incidents = match execution {
+        Some(execution) => execution.with_cleanup(&mut cleanup),
+        None => {
+            cleanup();
+
+            Vec::new()
+        }
     };
 
     let count = runtime_incidents.len();

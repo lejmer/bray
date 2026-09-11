@@ -164,7 +164,7 @@ impl NativeTaskReservation {
         // The root task and run share the activation's terminal destination.
         let terminal = Arc::clone(activation.terminal());
 
-        let run_storage = crate::frame::reserve_frame_storage::<Arc<NativeRun>>()
+        let run_storage = crate::allocation::reserve_storage::<Arc<NativeRun>>()
             .map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)?;
 
         // The run and its task share the admitted terminal destination and immutable root contract.

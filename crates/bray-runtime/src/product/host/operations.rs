@@ -17,13 +17,21 @@ pub(crate) fn control(
     descriptor: &NativeProductHostDescriptor,
     operation: NativeProductHostOperation,
 ) -> NativeProductHostObservation {
+    control_with_execution(descriptor, operation, crate::product::retain_execution)
+}
+
+pub(crate) fn control_with_execution(
+    descriptor: &NativeProductHostDescriptor,
+    operation: NativeProductHostOperation,
+    retain: fn() -> Result<Option<crate::product::RetainedProductExecution>, NativeRuntimeStatus>,
+) -> NativeProductHostObservation {
     if !operation.is_known() {
         return NativeProductHostObservation::invalid();
     }
 
     let product = product_key(descriptor);
 
-    if let Err(status) = ensure_formed(descriptor) {
+    if let Err(status) = ensure_formed(descriptor, retain) {
         return status;
     }
 
@@ -73,7 +81,7 @@ pub(crate) fn thread_attachment_identity(descriptor: &'static NativeProductHostD
         return 0;
     }
 
-    if ensure_formed(descriptor).is_err() {
+    if ensure_formed(descriptor, crate::product::retain_execution).is_err() {
         return 0;
     }
 
@@ -117,7 +125,9 @@ pub(crate) fn register_thread_static(
         return NativeRuntimeStatus::NOT_INITIALIZED;
     }
 
-    if let Err(observation) = ensure_formed(registration.product()) {
+    if let Err(observation) =
+        ensure_formed(registration.product(), crate::product::retain_execution)
+    {
         return runtime_status(observation.status());
     }
 
@@ -128,7 +138,12 @@ pub(crate) fn register_thread_static(
         return NativeRuntimeStatus::INVALID_ARGUMENT;
     };
 
-    if entry.duration != NativeStaticDuration::EXACT_THREAD {
+    let finalizer = registration.finalizer();
+
+    if entry.duration != NativeStaticDuration::EXACT_THREAD
+        || finalizer.execution() != entry.finalizer.execution()
+        || finalizer.metadata().is_some() != entry.finalizer.metadata().is_some()
+    {
         return NativeRuntimeStatus::INVALID_ARGUMENT;
     }
 
@@ -303,7 +318,7 @@ fn current_thread_is_product_worker(product: usize) -> bool {
     product_hosts()
         .lock()
         .ok()
-        .and_then(|hosts| hosts.get(&product).map(|host| host.runtime.clone()))
+        .and_then(|hosts| hosts.get(&product).and_then(|host| host.execution.clone()))
         .is_some_and(|runtime| runtime.owns_current_worker())
 }
 
@@ -377,7 +392,7 @@ fn progress_closure(product: usize) -> Option<NativeProductHostObservation> {
         } else {
             host.cleanup_blocked = true;
 
-            (Some(host.runtime.clone()), None)
+            (host.execution.clone(), None)
         }
     };
 
@@ -387,7 +402,7 @@ fn progress_closure(product: usize) -> Option<NativeProductHostObservation> {
 
     let runtime = runtime?;
 
-    runtime.detach_product_workers(product);
+    runtime.detach_workers(product);
 
     let cleanup = {
         let mut hosts = product_hosts().lock().ok()?;
@@ -459,7 +474,8 @@ fn prepare_cleanup(product: usize, host: &mut ProductHost) -> Option<PendingClea
     Some(PendingCleanup {
         thread,
         product,
-        runtime: host.runtime.clone(),
+        // Keep execution alive throughout callbacks outside the registry lock.
+        execution: host.execution.clone(),
         statics: host.take_product_cleanups(),
     })
 }
@@ -467,28 +483,40 @@ fn prepare_cleanup(product: usize, host: &mut ProductHost) -> Option<PendingClea
 fn finish_cleanup(cleanup: PendingCleanup) -> NativeProductHostObservation {
     let thread = cleanup.thread.enter_or_reuse();
 
-    let ((mut incident_count, mut last_incident), runtime_incidents) =
-        crate::native::with_retained_static_cleanup_runtime(&cleanup.runtime, || {
-            let mut count = 0usize;
-            let mut last = None;
+    let mut incident_count = 0usize;
+    let mut last_incident = None;
 
-            for entry in &cleanup.statics {
-                let reported = report_static_cleanup(
-                    entry.prepare,
-                    entry.finalizer,
-                    entry.destroy,
-                    entry.detach,
-                );
+    let execution = cleanup
+        .execution
+        .as_ref()
+        .map(|owner| owner.as_ref().as_ref());
 
-                count = count.saturating_add(reported);
+    let mut run_cleanup = || {
+        for entry in &cleanup.statics {
+            let reported = report_static_cleanup(
+                entry.prepare,
+                entry.finalizer,
+                entry.destroy,
+                entry.detach,
+                execution,
+            );
 
-                if reported != 0 {
-                    last = Some(entry.identity);
-                }
+            incident_count = incident_count.saturating_add(reported);
+
+            if reported != 0 {
+                last_incident = Some(entry.identity);
             }
+        }
+    };
 
-            (count, last)
-        });
+    let runtime_incidents = match execution {
+        Some(execution) => execution.with_cleanup(&mut run_cleanup),
+        None => {
+            run_cleanup();
+
+            Vec::new()
+        }
+    };
 
     let runtime_identity = cleanup
         .statics
@@ -508,7 +536,9 @@ fn finish_cleanup(cleanup: PendingCleanup) -> NativeProductHostObservation {
     drop(thread);
 
     let Ok(mut hosts) = product_hosts().lock().map_err(|_| ()) else {
-        cleanup.runtime.release();
+        if let Some(execution) = &cleanup.execution {
+            execution.release();
+        }
 
         return NativeProductHostObservation::new(
             NativeProductHostStatus::RUNTIME_FAILURE,
@@ -526,7 +556,10 @@ fn finish_cleanup(cleanup: PendingCleanup) -> NativeProductHostObservation {
 
     let Some(host) = hosts.get_mut(&cleanup.product) else {
         drop(hosts);
-        cleanup.runtime.release();
+
+        if let Some(execution) = &cleanup.execution {
+            execution.release();
+        }
 
         return NativeProductHostObservation::invalid();
     };
@@ -1064,6 +1097,122 @@ mod tests {
     }
 
     #[test]
+    fn host_formation_requires_execution_only_for_asynchronous_cleanup() {
+        use bray_runtime_abi::{NativeFrameMetadata, NativeRuntimeStatus};
+
+        extern "C" fn metadata() -> Option<&'static NativeFrameMetadata> {
+            static METADATA: NativeFrameMetadata = NativeFrameMetadata::new(
+                [155; 32],
+                1,
+                1,
+                1,
+                0,
+                1,
+                crate::test_support::native_movable_frame_state,
+            );
+
+            Some(&METADATA)
+        }
+
+        extern "C" fn asynchronous_entry(_: usize) -> NativeStaticHostEntry {
+            NativeStaticHostEntry::new(
+                NativeStaticDuration::PRODUCT,
+                NativeStaticIdentity::new([155; 32]),
+                0,
+                1,
+                access,
+                detach_thread_static,
+                NativeStaticFinalizer::new(
+                    NativeCleanupExecution::ASYNCHRONOUS,
+                    Some(metadata),
+                    cleanup,
+                    crate::test_support::panic_callbacks(unexpected_panic, unexpected_panic),
+                ),
+                no_cleanup,
+                detach_thread_static,
+                no_dependency,
+                0,
+            )
+        }
+
+        std::thread::spawn(|| {
+            assert!(crate::product::retain_execution().unwrap().is_none());
+
+            static SYNCHRONOUS: NativeProductHostDescriptor = NativeProductHostDescriptor::new(
+                NativeProductIdentity::new([155; 32]),
+                thread_order_entry,
+                2,
+            );
+
+            assert_eq!(
+                control(&SYNCHRONOUS, NativeProductHostOperation::FORM).status(),
+                NativeProductHostStatus::SUCCESS
+            );
+
+            assert!(crate::product::retain_execution().unwrap().is_none());
+
+            let scope = bray_platform::RuntimeThreadScope::enter().unwrap();
+
+            for finalizer in [
+                NativeStaticFinalizer::new(
+                    NativeCleanupExecution::NONE,
+                    None,
+                    first_thread_cleanup,
+                    crate::test_support::panic_callbacks(unexpected_panic, unexpected_panic),
+                ),
+                NativeStaticFinalizer::new(
+                    NativeCleanupExecution::SYNCHRONOUS,
+                    Some(metadata),
+                    first_thread_cleanup,
+                    crate::test_support::panic_callbacks(unexpected_panic, unexpected_panic),
+                ),
+            ] {
+                let registration = NativeThreadStaticCleanupRegistration::new(
+                    &SYNCHRONOUS,
+                    NativeStaticIdentity::new([11; 32]),
+                    detach_thread_static,
+                    finalizer,
+                    no_cleanup,
+                    detach_thread_static,
+                );
+
+                assert_eq!(
+                    register_thread_static(&registration),
+                    NativeRuntimeStatus::INVALID_ARGUMENT
+                );
+
+                assert_eq!(
+                    control(&SYNCHRONOUS, NativeProductHostOperation::OBSERVE).thread_attachments(),
+                    0
+                );
+            }
+
+            drop(scope);
+
+            assert_eq!(
+                control(&SYNCHRONOUS, NativeProductHostOperation::CLOSE).state(),
+                NativeProductHostState::CLOSED
+            );
+
+            assert!(crate::product::retain_execution().unwrap().is_none());
+
+            let asynchronous = NativeProductHostDescriptor::new(
+                NativeProductIdentity::new([156; 32]),
+                asynchronous_entry,
+                1,
+            );
+
+            let rejected = control(&asynchronous, NativeProductHostOperation::FORM);
+
+            assert_eq!(rejected.status(), NativeProductHostStatus::RUNTIME_FAILURE);
+            assert_eq!(rejected.state(), NativeProductHostState::UNFORMED);
+            assert!(crate::product::retain_execution().unwrap().is_none());
+        })
+        .join()
+        .unwrap();
+    }
+
+    #[test]
     fn product_formation_allocation_failure_preserves_existing_host_and_retry() {
         assert!(
             crate::native::implementation::bray_runtime_substrate_initialization(4, 1).is_success()
@@ -1086,8 +1235,8 @@ mod tests {
             NativeProductHostStatus::SUCCESS
         );
 
-        // Entry storage, dependency scratch, final metadata and the retained-runtime token.
-        for successful in 0..4 {
+        // Entry storage, dependency scratch, final metadata and three execution-owner allocations.
+        for successful in 0..6 {
             let failed = crate::test_support::with_allocation_failure_after(successful, || {
                 control(candidate, NativeProductHostOperation::FORM)
             });

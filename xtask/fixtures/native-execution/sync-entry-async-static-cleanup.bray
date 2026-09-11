@@ -1,0 +1,29 @@
+module sync_entry_async_static_cleanup;
+
+using std.task;
+
+struct Probe
+{
+    mut state: i32;
+
+    async finalize()
+    {
+        await std.task.yield_now();
+        self.state = 2;
+    }
+
+    destruct()
+    {
+        assert(self.state == 2);
+    }
+}
+
+static PROBE: Probe = Probe
+{
+    state = 1
+};
+
+func main()
+{
+    assert(PROBE.state == 1);
+}

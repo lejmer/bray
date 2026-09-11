@@ -141,5 +141,8 @@ fn admit_worker_cleanup(product: usize) -> Result<(), NativeRuntimeStatus> {
 
     // Serialize admission with closure's transition before it broadcasts worker requests.
     // Worker controls never invoke cleanup while holding their request lock.
-    host.runtime.admit_product_worker_cleanup(product)
+    host.execution
+        .as_ref()
+        .ok_or(NativeRuntimeStatus::NOT_INITIALIZED)?
+        .admit_worker_cleanup(product)
 }

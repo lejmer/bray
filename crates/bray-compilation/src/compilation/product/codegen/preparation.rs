@@ -67,13 +67,21 @@ impl Compilation {
             None => Vec::new(),
         };
 
-        let foreign_callback_roles = if kind == ProductKind::Library {
+        let mut required_runtime_roles = if kind == ProductKind::Library {
             BTreeSet::new()
         } else if let Some(reachability) = source_reachability.as_ref() {
             self.foreign_callback_runtime_roles(reachability, cancellation)?
         } else {
             BTreeSet::new()
         };
+
+        if host_statics
+            .iter()
+            .any(ProductStaticHostEntry::requires_async_cleanup)
+        {
+            required_runtime_roles
+                .insert(bray_runtime_interface::RuntimeAbiRole::MainThreadLaneStartup);
+        }
 
         let host = self.profile_native_product_operation(
             crate::profile::ProfileOperation::NativeHostPreparation,
@@ -86,7 +94,7 @@ impl Compilation {
                         .as_ref()
                         .map(ConcreteCodegenReachability::graph),
                     runtime,
-                    foreign_callback_roles,
+                    required_runtime_roles,
                     required_capabilities,
                     target,
                     cancellation,

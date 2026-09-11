@@ -128,7 +128,7 @@ mod tests {
             runtime.core.clone()
         });
 
-        super::super::binding::with_cleanup_runtime(Some(&retained), || {
+        super::super::binding::with_cleanup_runtime(&retained, || {
             assert!(!retained.owns_current_worker());
 
             assert!(triomphe::Arc::ptr_eq(
@@ -230,7 +230,7 @@ mod tests {
 
         assert!(matches!(
             crate::test_support::with_allocation_failure(super::retain_runtime),
-            Err(NativeRuntimeStatus::ALLOCATION_FAILURE)
+            Err(NativeRuntimeStatus::NOT_INITIALIZED)
         ));
 
         assert!(super::NATIVE_RUNTIME.with(|runtime| runtime.borrow().is_none()));
@@ -244,7 +244,7 @@ mod tests {
         assert!(isolation.is_some());
         assert!(super::test_runtime_isolation().is_none());
 
-        let retained = super::retain_runtime()
+        let retained = super::admit_cleanup_runtime()
             .unwrap_or_else(|status| panic!("nested runtime must initialize: {status:?}"));
 
         retained.release();
@@ -504,6 +504,10 @@ fn initialize_with_capabilities(
 
         runtime.replace(Some(native));
 
+        crate::product::replace_execution_factory(Some(
+            super::super::product_execution::retain_current_execution,
+        ));
+
         NativeRuntimeStatus::SUCCESS
     })
 }
@@ -528,6 +532,7 @@ pub(in crate::native) fn shutdown() -> NativeRuntimeStatus {
     }
 
     let runtime = NATIVE_RUNTIME.take();
+    crate::product::replace_execution_factory(None);
 
     let Some(runtime) = runtime else {
         return NativeRuntimeStatus::NOT_INITIALIZED;
@@ -538,29 +543,32 @@ pub(in crate::native) fn shutdown() -> NativeRuntimeStatus {
     NativeRuntimeStatus::SUCCESS
 }
 
-pub(crate) fn retain_runtime() -> Result<RetainedRuntime, NativeRuntimeStatus> {
-    let released = crate::allocation::allocate_shared(AtomicBool::new(false))
-        .map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)?;
-
-    if let Ok((core, main_thread)) = with_runtime(|runtime| {
+pub(in crate::native) fn retain_runtime() -> Result<RetainedRuntime, NativeRuntimeStatus> {
+    let (core, main_thread) = with_runtime(|runtime| {
+        // Retention outlives this thread-local execution binding.
         (
             Arc::clone(&runtime.core),
             runtime
                 .main_thread_lane
                 .then(|| runtime.thread.runtime().id()),
         )
-    }) {
-        if !core.retain_owner() {
-            return Err(NativeRuntimeStatus::RUNTIME_FAILURE);
-        }
+    })?;
 
-        return Ok(RetainedRuntime {
-            core,
-            main_thread,
-            released,
-        });
+    let released = crate::allocation::allocate_shared(AtomicBool::new(false))
+        .map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)?;
+
+    if !core.retain_owner() {
+        return Err(NativeRuntimeStatus::RUNTIME_FAILURE);
     }
 
+    Ok(RetainedRuntime {
+        core,
+        main_thread,
+        released,
+    })
+}
+
+pub(in crate::native) fn admit_cleanup_runtime() -> Result<RetainedRuntime, NativeRuntimeStatus> {
     let status = initialize_with_capabilities(
         NativeRuntimeConfiguration::new(usize::MAX, usize::MAX),
         [
@@ -578,21 +586,18 @@ pub(crate) fn retain_runtime() -> Result<RetainedRuntime, NativeRuntimeStatus> {
         return Err(status);
     }
 
-    let runtime = NATIVE_RUNTIME.take();
+    let retained = retain_runtime();
+    let status = shutdown();
 
-    let Some(runtime) = runtime else {
-        return Err(NativeRuntimeStatus::RUNTIME_FAILURE);
-    };
+    if !status.is_success() {
+        if let Ok(retained) = retained {
+            retained.release();
+        }
 
-    let retained = RetainedRuntime {
-        core: Arc::clone(&runtime.core),
-        main_thread: None,
-        released,
-    };
+        return Err(status);
+    }
 
-    drop(runtime);
-
-    Ok(retained)
+    retained
 }
 
 pub(in crate::native) fn run_worker(
@@ -631,70 +636,77 @@ pub(in crate::native) fn run_worker(
         current.replace(Some(RuntimeArc::clone(&runtime)));
     });
 
-    startup.finish(NativeRuntimeStatus::SUCCESS);
+    crate::product::with_execution_factory(
+        super::super::product_execution::retain_current_execution,
+        || {
+            startup.finish(NativeRuntimeStatus::SUCCESS);
 
-    let lanes = super::binding::current_thread_lanes(runtime.thread.runtime().id(), false, true);
+            let lanes =
+                super::binding::current_thread_lanes(runtime.thread.runtime().id(), false, true);
 
-    // Affined children stay on this worker even when their workload differs from its pool.
-    // Only migratable work is restricted to the pool's workload class.
-    let lanes = lanes.filter(|lane| {
-        lane.placement() != ExecutionLanePlacement::Migratable || lane.workload() == workload
-    });
+            // Affined children stay on this worker even when their workload differs from its pool.
+            // Only migratable work is restricted to the pool's workload class.
+            let lanes = lanes.filter(|lane| {
+                lane.placement() != ExecutionLanePlacement::Migratable
+                    || lane.workload() == workload
+            });
 
-    let mut accounted_as_idle = workload == ExecutionWorkload::Blocking;
+            let mut accounted_as_idle = workload == ExecutionWorkload::Blocking;
 
-    let retain_thread = || {
-        // A failed affinity query cannot authorize retiring a thread with live owners.
-        // The next scheduler wait retains the synchronization failure path.
-        runtime
-            .scheduler
-            .retains_thread(runtime.thread.runtime().id())
-            .unwrap_or(true)
-    };
+            let retain_thread = || {
+                // A failed affinity query cannot authorize retiring a thread with live owners.
+                // The next scheduler wait retains the synchronization failure path.
+                runtime
+                    .scheduler
+                    .retains_thread(runtime.thread.runtime().id())
+                    .unwrap_or(true)
+            };
 
-    while !runtime.workers.is_stopping() {
-        control.drain();
+            while !runtime.workers.is_stopping() {
+                control.drain();
 
-        let deadline =
-            bray_platform::MonotonicClock.deadline_after(std::time::Duration::from_millis(50));
+                let deadline = bray_platform::MonotonicClock
+                    .deadline_after(std::time::Duration::from_millis(50));
 
-        match runtime.scheduler.wait_ready_from(lanes.clone(), deadline) {
-            Ok(Some(ready)) => {
-                if workload == ExecutionWorkload::Blocking {
-                    runtime.workers.begin_blocking_work(&runtime.core);
-                    accounted_as_idle = false;
-                }
+                match runtime.scheduler.wait_ready_from(lanes.clone(), deadline) {
+                    Ok(Some(ready)) => {
+                        if workload == ExecutionWorkload::Blocking {
+                            runtime.workers.begin_blocking_work(&runtime.core);
+                            accounted_as_idle = false;
+                        }
 
-                let _ = runtime.drive_ready(ready);
+                        let _ = runtime.drive_ready(ready);
 
-                if workload == ExecutionWorkload::Blocking {
-                    if !runtime.workers.finish_blocking_work(retain_thread) {
-                        break;
+                        if workload == ExecutionWorkload::Blocking {
+                            if !runtime.workers.finish_blocking_work(retain_thread) {
+                                break;
+                            }
+
+                            accounted_as_idle = true;
+                        }
                     }
+                    Ok(None) => {
+                        if workload == ExecutionWorkload::Blocking
+                            && runtime
+                                .workers
+                                .try_retire_idle_blocking_worker(retain_thread)
+                        {
+                            accounted_as_idle = false;
 
-                    accounted_as_idle = true;
+                            break;
+                        }
+                    }
+                    Err(_) => break,
                 }
             }
-            Ok(None) => {
-                if workload == ExecutionWorkload::Blocking
-                    && runtime
-                        .workers
-                        .try_retire_idle_blocking_worker(retain_thread)
-                {
-                    accounted_as_idle = false;
 
-                    break;
-                }
-            }
-            Err(_) => break,
-        }
-    }
+            control.drain();
 
-    control.drain();
-
-    runtime
-        .workers
-        .retire(workload, &control, accounted_as_idle);
+            runtime
+                .workers
+                .retire(workload, &control, accounted_as_idle);
+        },
+    );
 
     NATIVE_RUNTIME.take();
 }

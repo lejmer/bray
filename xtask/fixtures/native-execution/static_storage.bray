@@ -17,7 +17,11 @@ internal struct CleanupProbe
         self.state = 123456789;
     }
 
-    destruct() {}
+    destruct()
+    {
+        assert(self.state == 123456789);
+        self.state = 0;
+    }
 }
 
 internal static CLEANUP_PROBE: CleanupProbe = CleanupProbe
@@ -36,7 +40,11 @@ internal struct AsyncCleanupProbe
         return await finish_async_cleanup();
     }
 
-    destruct() {}
+    destruct()
+    {
+        assert(self.state == 246802468);
+        self.state = 0;
+    }
 }
 
 internal static ASYNC_CLEANUP_PROBE: AsyncCleanupProbe = AsyncCleanupProbe
@@ -60,7 +68,11 @@ internal struct AsyncFailingCleanupProbe
         return await fail_async_cleanup();
     }
 
-    destruct() {}
+    destruct()
+    {
+        assert(self.state == 112358132);
+        self.state = 0;
+    }
 }
 
 internal static ASYNC_FAILING_CLEANUP_PROBE: AsyncFailingCleanupProbe = AsyncFailingCleanupProbe

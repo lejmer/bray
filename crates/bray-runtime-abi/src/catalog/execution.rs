@@ -129,6 +129,15 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: [ControlProductHost]
             }
+            AsynchronousProductHostControl {
+                "Admit execution and control lifecycle for a product with asynchronous cleanup.", "asynchronous_product_host_control",
+                native: (ASYNCHRONOUS_PRODUCT_HOST_CONTROL_SYMBOL = "bray_runtime_asynchronous_product_host_control", [Pointer, U32] -> ProductObservation),
+                call_hook: (),
+                compiler: Bray [] -> Void,
+                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
+                capabilities: [],
+                effects: [ControlProductHost, InitializeRuntime]
+            }
             ProviderRetention {
                 "Retain an already live provider in an empty caller-owned destination without allocation.", "provider_retention",
                 native: (PROVIDER_RETENTION_SYMBOL = "bray_runtime_provider_retention", [Pointer, Pointer] -> U32),

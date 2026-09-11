@@ -125,6 +125,14 @@ impl Compilation {
             identity,
             descriptor_symbol,
             control_symbol,
+            if entries
+                .iter()
+                .any(super::super::realization::ProductStaticHostEntry::requires_async_cleanup)
+            {
+                RuntimeAbiRole::AsynchronousProductHostControl
+            } else {
+                RuntimeAbiRole::ProductHostControl
+            },
             statics,
         )
         .map(Some)
@@ -300,7 +308,7 @@ impl Compilation {
 
         let mut capabilities: BTreeSet<_> = required_capabilities.into_iter().collect();
 
-        if has_async_entries {
+        if runtime_roles.contains(&RuntimeAbiRole::MainThreadLaneStartup) {
             capabilities.insert(RuntimeCapability::CooperativeExecution);
             capabilities.insert(RuntimeCapability::MainThreadLane);
         }

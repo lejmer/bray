@@ -8,6 +8,7 @@ use super::command::{CommandError, Package, RuntimeArchiveKind};
 
 const SMOKE_SOURCE: &str = include_str!("../../fixtures/runtime-smoke.rs");
 const SYNC_SMOKE_SOURCE: &str = include_str!("../../fixtures/runtime-sync-smoke.rs");
+const CLEANUP_ABI_HEADER: &str = include_str!("../../fixtures/runtime-cleanup-abi.h");
 const BOOTSTRAP_SMOKE_SOURCE: &str = include_str!("../../fixtures/runtime-bootstrap-smoke.c");
 
 pub(super) fn smoke_test(
@@ -141,6 +142,10 @@ fn compile_bootstrap_smoke(
 
     fs::write(&source, BOOTSTRAP_SMOKE_SOURCE)
         .map_err(|error| CommandError::write(&source, error))?;
+
+    let header = directory.join("runtime-cleanup-abi.h");
+
+    fs::write(&header, CLEANUP_ABI_HEADER).map_err(|error| CommandError::write(&header, error))?;
 
     let compiler =
         bray_tooling::llvm_tool_path(bray_diagnostics::DiagnosticLlvmToolRole::CompilerDriver)

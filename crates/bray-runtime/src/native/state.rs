@@ -17,4 +17,6 @@ pub(super) use binding::{scheduler_status, task_outcome};
 #[cfg(test)]
 pub(super) use core::test_runtime_isolation;
 pub(super) use core::{NativeRuntimeCore, initialize, run_worker, shutdown, with_runtime};
-pub(crate) use core::{RetainedRuntime, retain_runtime};
+pub(super) use core::{RetainedRuntime, retain_runtime};
+
+pub(super) use core::admit_cleanup_runtime;

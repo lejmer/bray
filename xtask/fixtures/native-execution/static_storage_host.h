@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "../runtime-cleanup-abi.h"
+
 enum product_host_operation
 {
     PRODUCT_HOST_FORM = 0,
@@ -17,19 +19,6 @@ enum product_host_operation
     PRODUCT_HOST_DETACH_CURRENT_THREAD = 10,
 };
 
-typedef struct
-{
-    uint32_t status;
-    uint32_t state;
-    size_t active_entries;
-    size_t external_roots;
-    size_t thread_attachments;
-    size_t initialized_statics;
-    size_t cleaned_statics;
-    size_t cleanup_incidents;
-    uint8_t last_incident[32];
-} product_host_observation;
-
-typedef product_host_observation (*product_host_control)(uint32_t operation);
+typedef ProductHostObservation (*product_host_control)(uint32_t operation);
 
 #endif
