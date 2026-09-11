@@ -69,9 +69,6 @@ impl Lowerer<'_> {
                 current,
                 bray_ir::MirGeneratorKind::General,
             ),
-            BoundStructuredExpressionKind::TypeFormConstruction => {
-                self.lower_construction(id, current)
-            }
             BoundStructuredExpressionKind::ElementIndex
             | BoundStructuredExpressionKind::SliceIndex => self.lower_index(id, current),
             BoundStructuredExpressionKind::Borrow => self.lower_borrow(id, expression, current),

@@ -161,6 +161,18 @@ impl MirPlace {
         }
     }
 
+    /// Returns a new place extending this checked path by one typed projection.
+    pub fn project(&self, kind: MirProjectionKind, ty: TypeId) -> Self {
+        // A projected place owns its path independently of the retained parent place.
+        let projections = self
+            .projections
+            .iter()
+            .cloned()
+            .chain([MirProjection::new(kind, self.ty, ty)]);
+
+        Self::new(self.storage, projections, ty)
+    }
+
     /// Returns the root storage allocation.
     pub const fn storage(&self) -> MirStorageId {
         self.storage
@@ -174,5 +186,35 @@ impl MirPlace {
     /// Returns the checked type after applying every projection.
     pub const fn ty(&self) -> TypeId {
         self.ty
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MirPlace, MirProjectionKind};
+    use crate::{MirStorageId, MirUnitId};
+    use bray_symbols::{SemanticValueStore, TypeData};
+
+    #[test]
+    fn extending_a_place_preserves_the_parent_and_each_projection_type() {
+        let values = SemanticValueStore::try_new().unwrap();
+        let leaf = values.intern_type(TypeData::tuple([])).unwrap();
+        let inner = values.intern_type(TypeData::tuple([leaf])).unwrap();
+        let outer = values.intern_type(TypeData::tuple([inner])).unwrap();
+        let storage = MirStorageId::from_slot(MirUnitId::new(4), 2);
+
+        let parent =
+            MirPlace::new(storage, [], outer).project(MirProjectionKind::TupleField(0), inner);
+
+        let child = parent.project(MirProjectionKind::TupleField(0), leaf);
+
+        assert_eq!(parent.ty(), inner);
+        assert_eq!(parent.projections().len(), 1);
+        assert_eq!(child.storage(), storage);
+        assert_eq!(child.ty(), leaf);
+        assert_eq!(child.projections().len(), 2);
+        assert_eq!(child.projections()[0], parent.projections()[0]);
+        assert_eq!(child.projections()[1].source_type(), inner);
+        assert_eq!(child.projections()[1].result_type(), leaf);
     }
 }

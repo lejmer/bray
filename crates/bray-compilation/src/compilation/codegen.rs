@@ -181,9 +181,9 @@ impl Compilation {
                 )
                 .map_err(CodegenPreparationError::InvalidHostMir)
             }
-            MirUnitKey::GeneratedLifecycle(_) => Err(CodegenPreparationError::MirUnavailable(
-                instance.template().clone(),
-            )),
+            MirUnitKey::GeneratedLifecycle(_) | MirUnitKey::CompilerProvidedCallable(_) => Err(
+                CodegenPreparationError::MirUnavailable(instance.template().clone()),
+            ),
             MirUnitKey::ImportedExecutable(key) => self
                 .imported_executable_mir(*key, mir_unit, instance.target().clone(), cancellation)?
                 .ok_or_else(|| {
@@ -426,6 +426,15 @@ pub enum CodegenPreparationError {
     InvalidRequest(CodegenRequestBuildError),
     /// A plan-named MIR unit is unavailable from this compilation.
     MirUnavailable(MirUnitKey),
+    /// A demanded declaration has neither executable code nor an imported native symbol.
+    MissingCallableImplementation {
+        /// Exact callable whose implementation is required.
+        definition: CallableDefinitionId,
+        /// Stable source-facing declaration identity retrieved on the failure path.
+        callable: Box<bray_diagnostics::DiagnosticInterfaceSymbolIdentity>,
+        /// Source declaration location, when it belongs to the current compilation.
+        source: Option<bray_source::SourceSpan>,
+    },
     /// Executable host construction requires one selected source entrypoint.
     MissingEntrypoint,
     /// A concrete instance could not be reconstructed from its exact lazy MIR result.
@@ -438,6 +447,13 @@ pub enum CodegenPreparationError {
     InvalidHostMir(MirUnitBuildError),
     /// A generated lifecycle definition did not satisfy the MIR contract.
     InvalidGeneratedLifecycleMir(MirUnitBuildError),
+    /// A compiler-provided callable body did not satisfy the MIR contract.
+    InvalidCompilerProvidedMir {
+        /// Exact declaration whose generated body was invalid.
+        definition: CallableDefinitionId,
+        /// Specific violated MIR invariant.
+        cause: MirUnitBuildError,
+    },
     /// Compilation could not construct complete realization mappings for the planned unit.
     InvalidMappings(CodegenMappingsBuildError),
     /// A MIR runtime role has no selected executable-host binding.

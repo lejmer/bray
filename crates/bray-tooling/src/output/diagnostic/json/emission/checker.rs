@@ -1,4 +1,4 @@
-use super::context::semantic_value_failure_context;
+use super::context::{push_source_span, semantic_value_failure_context};
 use super::failure::{
     DiagnosticEmissionFieldJson, count_field, count_u64_field, count_usize_field, text_field,
 };
@@ -23,7 +23,7 @@ pub(in crate::output::diagnostic::json) fn checker_failure_context(
             count_u64_field("expected_source_version", expected.raw()),
             count_u64_field("actual_source_version", actual.raw()),
         ]),
-        Failure::InvalidSourceRange { span } => push_span(&mut fields, span),
+        Failure::InvalidSourceRange { span } => push_source_span(&mut fields, span),
         Failure::SemanticQueryUnavailable { symbol, query } => {
             push_symbol(&mut fields, symbol);
             fields.push(text_field("query_kind", query));
@@ -55,7 +55,7 @@ pub(in crate::output::diagnostic::json) fn checker_failure_context(
         ),
         Failure::CheckedConstantTerms { owner, source } => {
             push_symbol(&mut fields, owner);
-            push_span(&mut fields, source);
+            push_source_span(&mut fields, source);
         }
         Failure::LiteralValue(failure) => push_literal_failure(&mut fields, failure),
         Failure::PatternInput(failure) => push_pattern_failure(&mut fields, failure),
@@ -560,14 +560,6 @@ fn push_input_mismatch(
         text_field("expected_unit_kind", expected_kind),
         count_field("actual_unit", actual_unit),
         text_field("actual_unit_kind", actual_kind),
-    ]);
-}
-
-fn push_span(fields: &mut Vec<DiagnosticEmissionFieldJson>, span: bray_source::SourceSpan) {
-    fields.extend([
-        count_field("source", span.source_id().raw()),
-        count_field("source_start", span.start().bytes()),
-        count_field("source_end", span.end().bytes()),
     ]);
 }
 

@@ -254,7 +254,7 @@ where
                         PreparedBuiltInOperator::for_expression(source.expression(), expression)
                 {
                     built_in_operators.push(operator);
-                } else {
+                } else if !matches!(expression, BoundExpression::BoxConstruction(_)) {
                     deferred.insert(source.expression());
                 }
             }

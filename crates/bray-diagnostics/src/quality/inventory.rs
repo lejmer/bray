@@ -757,6 +757,9 @@ impl DiagnosticKind {
             Self::BindingIncoherentAlternativePattern => {
                 Self::quality_source(&[], primary_components!(&[]))
             }
+            Self::BindingInvalidBoxStoragePolicy => {
+                Self::quality_source(&[TokenText], primary_components!(&[TokenText]))
+            }
             Self::BindingMalformedDirectiveArgument => Self::quality_source(
                 &[],
                 note_components!(

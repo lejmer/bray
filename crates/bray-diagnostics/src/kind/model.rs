@@ -301,6 +301,8 @@ define_diagnostic_kinds! {
     BindingInvalidModuleExportTarget,
     /// A directive argument cannot be bound because its syntax is malformed.
     BindingMalformedDirectiveArgument,
+    /// An explicit box storage policy does not contain exactly one type.
+    BindingInvalidBoxStoragePolicy,
     /// An expression's established type is incompatible with its expected type.
     CheckingIncompatibleExpressionType,
     /// An internal checker contract failed for one exact source construct.
@@ -803,6 +805,7 @@ impl DiagnosticKind {
             Self::BindingConflictingModuleExport => 6013,
             Self::BindingInvalidModuleExportTarget => 6014,
             Self::BindingMalformedDirectiveArgument => 6015,
+            Self::BindingInvalidBoxStoragePolicy => 6016,
             Self::CheckingIncompatibleExpressionType => 7001,
             Self::CheckingCompilerDefect => 7114,
             Self::CheckingCannotInferExpressionType => 7002,
@@ -1161,6 +1164,7 @@ impl DiagnosticKind {
             Self::BindingConflictingModuleExport => "binding_conflicting_module_export",
             Self::BindingInvalidModuleExportTarget => "binding_invalid_module_export_target",
             Self::BindingMalformedDirectiveArgument => "binding_malformed_directive_argument",
+            Self::BindingInvalidBoxStoragePolicy => "binding_invalid_box_storage_policy",
             Self::CheckingIncompatibleExpressionType => "checking_incompatible_expression_type",
             Self::CheckingCompilerDefect => "checking_compiler_defect",
             Self::CheckingCannotInferExpressionType => "checking_cannot_infer_expression_type",

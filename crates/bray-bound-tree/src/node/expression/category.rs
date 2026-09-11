@@ -364,8 +364,6 @@ pub enum BoundStructuredExpressionKind {
     ResultPropagation,
     /// Panic catching.
     Catch,
-    /// Construction through a type form.
-    TypeFormConstruction,
     /// Boolean conjunction folding over one iterable operand.
     BooleanAllFold,
     /// Boolean disjunction folding over one iterable operand.
@@ -471,7 +469,6 @@ impl BoundStructuredExpressionKind {
             Self::Assertion => "assertion",
             Self::ResultPropagation => "result_propagation",
             Self::Catch => "catch",
-            Self::TypeFormConstruction => "type_form_construction",
             Self::BooleanAllFold => "boolean_all_fold",
             Self::BooleanAnyFold => "boolean_any_fold",
             Self::Panic => "panic",

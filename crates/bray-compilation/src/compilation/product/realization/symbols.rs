@@ -360,7 +360,8 @@ impl Compilation {
             MirUnitKey::ExecutableHost(product) => return Ok(product.package().clone()),
             // Generated lifecycle definitions belong to the selected product package.
             MirUnitKey::GeneratedLifecycle(_) => return Ok(product_package.clone()),
-            MirUnitKey::ExternalCallable(definition) => definition.symbol(),
+            MirUnitKey::ExternalCallable(definition)
+            | MirUnitKey::CompilerProvidedCallable(definition) => definition.symbol(),
             MirUnitKey::ImportedExecutable(key) => key.owner(),
             MirUnitKey::ExternalRuntimeDefault(symbol) => *symbol,
         };
@@ -446,6 +447,7 @@ impl Compilation {
             MirUnitKey::GeneratedLifecycle(_)
             | MirUnitKey::ExecutableHost(_)
             | MirUnitKey::ExternalCallable(_)
+            | MirUnitKey::CompilerProvidedCallable(_)
             | MirUnitKey::ExternalRuntimeDefault(_) => None,
         };
 
@@ -614,6 +616,7 @@ impl Compilation {
             MirUnitKey::Bound(_)
             | MirUnitKey::ExecutableHost(_)
             | MirUnitKey::GeneratedLifecycle(_)
+            | MirUnitKey::CompilerProvidedCallable(_)
             | MirUnitKey::ExternalCallable(_) => Ok(None),
         }
     }

@@ -52,6 +52,13 @@ impl Compilation {
                             && key == host_key
                         {
                             host_mir.clone()
+                        } else if matches!(key.template(), MirUnitKey::CompilerProvidedCallable(_))
+                        {
+                            self.codegen_heap_method_mir(
+                                &realization,
+                                MirUnitId::new(0),
+                                cancellation,
+                            )?
                         } else {
                             match realization.generated_lifecycle_reference() {
                                 Some(reference) => self.codegen_generated_lifecycle_mir(

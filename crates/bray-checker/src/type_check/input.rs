@@ -57,6 +57,7 @@ impl ExpressionTypeExpectation {
 pub struct ExpressionTypeInput {
     evidence: Arc<[ExpressionTypeEvidence]>,
     expectations: Arc<[ExpressionTypeExpectation]>,
+    box_storage_policies: Arc<[(BoundExpressionId, TypeId)]>,
     iteration_sources: Arc<[SelectedIterationSource]>,
     operation_selections: Arc<[SemanticSelectionEntry]>,
     callable_result_type: Option<TypeId>,
@@ -66,6 +67,20 @@ impl ExpressionTypeInput {
     /// Creates an empty expression-typing input.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Replaces explicit storage-policy types keyed by their box construction occurrences.
+    pub fn with_box_storage_policies(
+        mut self,
+        policies: impl IntoIterator<Item = (BoundExpressionId, TypeId)>,
+    ) -> Self {
+        self.box_storage_policies = sorted_unique_shared_slice(policies);
+
+        self
+    }
+
+    pub(crate) fn box_storage_policies(&self) -> &[(BoundExpressionId, TypeId)] {
+        &self.box_storage_policies
     }
 
     /// Replaces canonical type evidence supplied by other checker services.

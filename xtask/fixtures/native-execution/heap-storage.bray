@@ -1,0 +1,214 @@
+module heap_storage;
+
+struct Counter
+{
+    mut value: i32;
+}
+
+struct Guard
+{
+    mut counter: &mut Counter;
+
+    destruct()
+    {
+        self.counter.value += 1;
+    }
+}
+
+struct Pair
+{
+    left: Guard;
+    right: Guard;
+}
+
+@layout(stable, align = 64)
+struct Aligned
+{
+    value: i32;
+}
+
+func take_guard(pos guard: Guard) {}
+
+func take_box(pos guard: box Guard) {}
+
+func take_partial(pos pair: box Pair)
+{
+    let box(Pair
+    {
+        left,..
+    }
+    ) = pair;
+
+    take_guard(left);
+}
+
+func panic_partial(pos pair: box Pair)
+{
+    let box(Pair
+    {
+        left,..
+    }
+    ) = pair;
+
+    take_guard(left);
+    panic("heap partial cleanup");
+}
+
+func observe(pos guard: &box Guard) -> i32
+{
+    match guard
+    {
+        case box(Guard
+        {
+            counter,..
+        }
+        )
+        {
+            return counter.value;
+        }
+    }
+}
+
+func increment(pos counter: &mut box Counter)
+{
+    match counter
+    {
+        case box(value) { value.value += 1; }
+    }
+}
+
+func main() -> i32
+{
+    let mut first: Counter = Counter
+    {
+        value = 0
+    };
+
+    let mut second: Counter = Counter
+    {
+        value = 0
+    };
+
+    let owned: box Guard = box(
+        Guard
+        {
+            counter = &mut first
+        }
+    );
+
+    if observe(&owned) != 0
+    {
+        return 1;
+    }
+
+    take_box(owned);
+
+    if first.value != 1
+    {
+        return 2;
+    }
+
+    let partial: box Pair = box(
+        Pair
+        {
+            left = Guard
+            {
+                counter = &mut first
+            },
+            right = Guard
+            {
+                counter = &mut second
+            },
+        }
+    );
+
+    take_partial(partial);
+
+    if first.value != 2 || second.value != 1
+    {
+        return 3;
+    }
+
+    let caught: Result<unit, PanicReport> = catch
+    {
+        let panicking: box Pair = box(
+            Pair
+            {
+                left = Guard
+                {
+                    counter = &mut first
+                },
+                right = Guard
+                {
+                    counter = &mut second
+                },
+            }
+        );
+
+        panic_partial(panicking);
+        yield unit;
+    };
+
+    let failed: bool = match consume caught
+    {
+        case Ok(_) { yield false; }
+        case Error(_) { yield true; }
+    };
+
+    if !failed || first.value != 3 || second.value != 2
+    {
+        return 4;
+    }
+
+    let scalar = box[Heap](42);
+    let box(value) = scalar;
+
+    if value != 42
+    {
+        return 5;
+    }
+
+    let empty: box unit = box(unit);
+    let box(done) = empty;
+
+    let nested = box(box(42));
+    let box(box(number)) = nested;
+
+    if number != 42
+    {
+        return 6;
+    }
+
+    let mut mutable = box(
+        Counter
+        {
+            value = 40
+        }
+    );
+
+    increment(&mut mutable);
+    increment(&mut mutable);
+
+    let box(counter) = mutable;
+
+    if counter.value != 42
+    {
+        return 7;
+    }
+
+    let aligned = box[Heap](
+        Aligned
+        {
+            value = 42
+        }
+    );
+
+    let box(payload) = aligned;
+
+    if payload.value != 42
+    {
+        return 8;
+    }
+
+    return 0;
+}

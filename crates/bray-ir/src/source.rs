@@ -1,11 +1,13 @@
 use bray_bound_tree::{BoundNodeOrigin, BoundSourceAnchor};
-use bray_symbols::ProductIdentity;
+use bray_symbols::{CallableDefinitionId, ProductIdentity};
 
 use crate::{MirHelperReference, MirImportedExecutableKey};
 
 /// Source or compiler-generated product that owns one MIR unit.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum MirSourceOrigin {
+    /// An exact callable declaration whose body is compiler-provided.
+    CompilerProvidedCallable(CallableDefinitionId),
     /// A checked source snapshot.
     Source(BoundSourceAnchor),
     /// A compiler-generated executable host.
@@ -19,6 +21,8 @@ pub enum MirSourceOrigin {
 /// Source-correlated provenance for a MIR element.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum MirSourceAnchor {
+    /// Provenance belonging to an exact compiler-provided callable body.
+    CompilerProvidedCallable(CallableDefinitionId),
     /// Source or synthesized provenance inherited from checked HIR.
     Source(BoundNodeOrigin),
     /// Provenance belonging to a compiler-generated executable host.
@@ -52,6 +56,12 @@ impl MirSourceAnchor {
 
     pub(crate) fn belongs_to(&self, owner: &MirSourceOrigin) -> bool {
         match (self, owner) {
+            (
+                Self::CompilerProvidedCallable(anchor),
+                MirSourceOrigin::CompilerProvidedCallable(owner),
+            ) => anchor == owner,
+            (Self::CompilerProvidedCallable(_), _)
+            | (_, MirSourceOrigin::CompilerProvidedCallable(_)) => false,
             (Self::Source(anchor), MirSourceOrigin::Source(owner)) => {
                 let anchor = anchor.source_anchor();
 

@@ -11,11 +11,27 @@ pub(super) fn type_templates_are_compatible(
     values: &SemanticValueStore,
     subject: TypeId,
     trait_application: TraitApplicationId,
+    fulfillment_context: Option<bray_symbols::SelfTypeContext>,
     generic_substitution: Option<GenericSubstitutionId>,
     requirement: &TypeExpressionTemplate,
     fulfillment: &TypeExpressionTemplate,
     type_bindings: &BTreeMap<TraitTypeMemberSymbolId, TypeExpressionTemplate>,
 ) -> Result<bool, FactQueryError> {
+    let normalized_fulfillment;
+
+    let fulfillment = match (fulfillment, fulfillment_context) {
+        (TypeExpressionTemplate::Resolved(ty), Some(context)) => {
+            normalized_fulfillment = TypeExpressionTemplate::Resolved(
+                values
+                    .substitute_contextual_self(*ty, context, subject)
+                    .map_err(FactQueryError::SemanticValueStore)?,
+            );
+
+            &normalized_fulfillment
+        }
+        _ => fulfillment,
+    };
+
     match requirement {
         TypeExpressionTemplate::Resolved(requirement) => {
             let requirement = substitute_requirement_type(
@@ -47,6 +63,7 @@ pub(super) fn type_templates_are_compatible(
                     values,
                     subject,
                     trait_application,
+                    fulfillment_context,
                     generic_substitution,
                     &TypeExpressionTemplate::Resolved(*requirement),
                     &TypeExpressionTemplate::Resolved(*fulfillment),
@@ -83,6 +100,7 @@ pub(super) fn type_templates_are_compatible(
                     values,
                     subject,
                     trait_application,
+                    fulfillment_context,
                     generic_substitution,
                     &TypeExpressionTemplate::Resolved(*requirement),
                     &TypeExpressionTemplate::Resolved(*fulfillment),
@@ -99,6 +117,7 @@ pub(super) fn type_templates_are_compatible(
                     values,
                     subject,
                     trait_application,
+                    fulfillment_context,
                     generic_substitution,
                     requirement,
                     fulfillment,
@@ -117,6 +136,7 @@ pub(super) fn type_templates_are_compatible(
                 values,
                 subject,
                 trait_application,
+                fulfillment_context,
                 generic_substitution,
                 requirement,
                 fulfillment,
@@ -127,6 +147,7 @@ pub(super) fn type_templates_are_compatible(
             values,
             subject,
             trait_application,
+            fulfillment_context,
             generic_substitution,
             requirement,
             fulfillment,
@@ -140,6 +161,7 @@ fn nullable_templates_are_compatible(
     values: &SemanticValueStore,
     subject: TypeId,
     trait_application: TraitApplicationId,
+    fulfillment_context: Option<bray_symbols::SelfTypeContext>,
     generic_substitution: Option<GenericSubstitutionId>,
     requirement: &TypeExpressionTemplate,
     fulfillment: &TypeExpressionTemplate,
@@ -150,6 +172,7 @@ fn nullable_templates_are_compatible(
             values,
             subject,
             trait_application,
+            fulfillment_context,
             generic_substitution,
             requirement,
             fulfillment,
@@ -168,6 +191,7 @@ fn nullable_templates_are_compatible(
                 values,
                 subject,
                 trait_application,
+                fulfillment_context,
                 generic_substitution,
                 requirement,
                 &TypeExpressionTemplate::Resolved(*fulfillment),

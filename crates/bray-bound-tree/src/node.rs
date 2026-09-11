@@ -11,8 +11,8 @@ pub use callable::{BoundCallableBody, BoundCallableBodyKind, BoundErrorCallableB
 pub use expression::{
     BoundAnonymousCallableExpression, BoundArgument, BoundAssignmentExpression,
     BoundAssignmentOperator, BoundAwaitExpression, BoundAwaitResolution, BoundBinaryExpression,
-    BoundBlockExpression, BoundCallExpression, BoundCallResolution, BoundCallResult,
-    BoundCallableTarget, BoundControlTransferExpression, BoundControlTransferKind,
+    BoundBlockExpression, BoundBoxConstructionExpression, BoundCallExpression, BoundCallResolution,
+    BoundCallResult, BoundCallableTarget, BoundControlTransferExpression, BoundControlTransferKind,
     BoundConversionExpression, BoundErrorCallExpression, BoundErrorConversionExpression,
     BoundErrorExpression, BoundExpression, BoundForExpression, BoundFutureComposition,
     BoundFutureConstruction, BoundGeneratorExpression, BoundGenericArgument, BoundIterationSource,

@@ -4,6 +4,8 @@ internal static RELEASES: core.atomic.Atomic<usize> = core.atomic.initialize<usi
 
 internal static CLEANUP_ORDER: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
 
+internal static CONSTRUCTION_OPTIONS: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
 struct Counter
 {
     mut value: i32;
@@ -40,8 +42,12 @@ struct PairStorage
 
 impl PairStorage(Storage<Pair>)
 {
-    trusted static func create(pos value: Pair) -> PairStorage
+    trusted static func create(pos value: Pair, options: usize = 7) -> Self
     {
+        let previous = core.atomic.load<usize, 1>(&CONSTRUCTION_OPTIONS);
+
+        core.atomic.store<usize, 4>(&CONSTRUCTION_OPTIONS, previous + options);
+
         let mut storage: Uninit<Pair> = core.memory.uninit<Pair>();
         let _: &mut Pair = core.memory.uninit_write<Pair>(&mut storage, value);
 
@@ -51,23 +57,23 @@ impl PairStorage(Storage<Pair>)
         };
     }
 
-    static func borrow(pos storage: &PairStorage) -> &Pair
+    static func borrow(pos storage: &Self) -> &Pair
     {
         return borrow_pair(storage);
     }
 
-    static func borrow_mut(pos storage: &mut PairStorage) -> &mut Pair
+    static func borrow_mut(pos storage: &mut Self) -> &mut Pair
     {
         return borrow_pair_mut(storage);
     }
 
-    trusted static func destroy(pos storage: &mut PairStorage)
+    trusted static func destroy(pos storage: &mut Self)
         uses(unchecked_init)
     {
         let _: Pair = trusted core.memory.move_initialized<Pair>(&mut storage.value);
     }
 
-    trusted static func release(pos storage: PairStorage)
+    trusted static func release(pos storage: Self)
     {
         let count = core.atomic.load<usize, 1>(&RELEASES);
 
@@ -569,7 +575,7 @@ func indexed<const Count: usize>(pos values: [Guard; Count],
             return 14;
         }
 
-        let owned: box[PairStorage] Pair = box(
+        let owned = box[PairStorage](
             Pair
             {
                 left = Guard
@@ -580,7 +586,8 @@ func indexed<const Count: usize>(pos values: [Guard; Count],
                 {
                     counter = &mut second
                 }
-            }
+            },
+            options = 9
         );
 
         boxed(owned);
@@ -700,6 +707,11 @@ func indexed<const Count: usize>(pos values: [Guard; Count],
             core.atomic.load<usize, 1>(&CLEANUP_ORDER) != 123
         {
             return 21;
+        }
+
+        if core.atomic.load<usize, 1>(&CONSTRUCTION_OPTIONS) != 37
+        {
+            return 22;
         }
 
         return 0;

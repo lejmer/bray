@@ -2153,6 +2153,63 @@ mod tests {
     }
 
     #[test]
+    fn implementation_self_parameter_storage_uses_the_checked_body_type() {
+        for borrow in ["&", "&mut "] {
+            let source = format!(
+                "module app; struct Holder {{ value: i32; }} trait Forward {{ static func forward(pos value: {borrow}Self) -> {borrow}Self; }} impl Holder(Forward) {{ static func forward(pos value: {borrow}Self) -> {borrow}Self {{ return value; }} }}"
+            );
+
+            let compilation = compilation(&source);
+            assert!(!compilation.check_diagnostics().has_errors(), "{source}");
+
+            let key = crate::test_support::source_trait_callable_fulfillment_body_key(
+                &compilation,
+                "forward",
+            );
+
+            let plan = compilation.storage_plan(key.clone()).unwrap();
+            let values = compilation.semantic_value_store().unwrap();
+            let mut parameters = 0;
+
+            for (identity, storage) in plan.value().identity_entries() {
+                if !matches!(storage, bray_bound_tree::StorageIdentity::Parameter(_)) {
+                    continue;
+                }
+
+                parameters += 1;
+                let ty = plan.value().storage_type(identity).unwrap();
+                let data = values.type_data(ty).unwrap();
+
+                let bray_symbols::TypeData::Borrow { target, .. } = data.as_ref() else {
+                    panic!("parameter must remain borrowed: {data:?}");
+                };
+
+                assert!(matches!(
+                    values.type_data(*target).unwrap().as_ref(),
+                    bray_symbols::TypeData::Named { .. }
+                ));
+
+                let lowered = compilation.lowered_unit(key.clone()).unwrap();
+                let mir = lowered.value().as_ref().unwrap().mir().unwrap();
+
+                assert_eq!(
+                    mir.storages()
+                        .iter()
+                        .find(|storage| matches!(
+                            storage.kind(),
+                            bray_ir::MirStorageKind::Parameter(0)
+                        ))
+                        .unwrap()
+                        .ty(),
+                    ty
+                );
+            }
+
+            assert_eq!(parameters, 1);
+        }
+    }
+
+    #[test]
     fn storage_plans_cover_receiver_predicate_and_anonymous_parameters() {
         let compilation = compilation(concat!(
             "module app;\n",
@@ -2440,22 +2497,32 @@ mod tests {
             Err(error) => panic!("declared unit keys must be available: {error:?}"),
         };
 
-        let templates = keys
-            .iter()
-            .filter(|key| key.kind() == BoundUnitKind::RuntimeDefault)
-            .map(|key| {
-                let analysis = match compilation.declared_value_type_templates(key.clone()) {
-                    Ok(analysis) => analysis,
-                    Err(error) => panic!("runtime default types must publish: {error:?}"),
-                };
+        let templates =
+            keys.iter()
+                .filter(|key| key.kind() == BoundUnitKind::RuntimeDefault)
+                .map(|key| {
+                    let analysis = match compilation.declared_value_type_templates(key.clone()) {
+                        Ok(analysis) => analysis,
+                        Err(error) => panic!("runtime default types must publish: {error:?}"),
+                    };
 
-                let [evidence] = analysis.value().evidence() else {
-                    panic!("runtime default must publish one declared type");
-                };
+                    let initializer = analysis
+                        .value()
+                        .constraints()
+                        .iter()
+                        .find(|constraint| {
+                            constraint.kind()
+                                == bray_bound_tree::DeclaredValueTypeConstraintKind::Initializer
+                        })
+                        .expect("runtime default must identify its initialized parameter");
 
-                evidence.template().clone()
-            })
-            .collect::<Vec<_>>();
+                    let evidence = analysis.value().evidence().iter().find(|evidence| {
+                    evidence.term() == initializer.right()
+                }).expect("runtime default must publish the initialized parameter's declared type");
+
+                    evidence.template().clone()
+                })
+                .collect::<Vec<_>>();
 
         assert_eq!(templates.len(), 2);
 
@@ -4314,23 +4381,18 @@ func tupled(pos flag: bool, pos pair: (Guard, Guard)) -> i32
             .tree()
             .expressions()
             .find_map(|(_, expression)| match expression {
-                BoundExpression::Structured(expression)
-                    if expression.kind()
-                        == bray_bound_tree::BoundStructuredExpressionKind::TypeFormConstruction =>
-                {
-                    Some(expression.operands())
-                }
+                BoundExpression::BoxConstruction(expression) => Some(expression.arguments()),
                 _ => None,
             })
             .unwrap();
 
-        let [operand] = operands else {
-            panic!("fixture must construct one boxed value")
+        let [operand, ..] = operands else {
+            panic!("fixture must provide a boxed value")
         };
 
         assert!(
             flow.value().operations().iter().any(|operation| {
-                operation.expression() == *operand
+                operation.expression() == operand.expression()
                     && operation.purpose() == bray_bound_tree::StorageAccessPurpose::Move
                     && operation.status() == bray_bound_tree::StorageOperationStatus::Valid
             }),
@@ -6058,7 +6120,9 @@ func convert(pos value: Value) -> i32
             DeclaredValueTypeTerm::Value(BoundReferenceTarget::Surface(symbol)) => {
                 symbol.kind() == kind
             }
-            DeclaredValueTypeTerm::Expression(_) | DeclaredValueTypeTerm::Pattern(_) => false,
+            DeclaredValueTypeTerm::Expression(_)
+            | DeclaredValueTypeTerm::Pattern(_)
+            | DeclaredValueTypeTerm::BoxStoragePolicy(_) => false,
         })
     }
 

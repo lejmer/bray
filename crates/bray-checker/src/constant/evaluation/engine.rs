@@ -573,6 +573,7 @@ where
             }
             BoundExpression::Call(_) => self.evaluate_selected_call(expression, ty),
             BoundExpression::StructConstruction(_)
+            | BoundExpression::BoxConstruction(_)
             | BoundExpression::LeadingDotVariant(_)
             | BoundExpression::UnqualifiedVariant(_) => self.evaluate_construction(expression, ty),
             BoundExpression::Block(_)
@@ -765,9 +766,6 @@ where
             }
             BoundStructuredExpressionKind::SliceIndex => {
                 self.evaluate_index(expression, structured, ty)
-            }
-            BoundStructuredExpressionKind::TypeFormConstruction => {
-                self.evaluate_construction(expression, ty)
             }
             BoundStructuredExpressionKind::ResultPropagation => {
                 Err(EvaluationFailure::invalid_expression(expression))

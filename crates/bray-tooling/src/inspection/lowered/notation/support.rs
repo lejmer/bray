@@ -316,8 +316,11 @@ pub(super) fn source_annotation(
     }
 }
 
-pub(super) fn source_text(source: &InspectionMirSource) -> String {
+pub(in crate::inspection::lowered) fn source_text(source: &InspectionMirSource) -> String {
     match source {
+        InspectionMirSource::CompilerProvidedCallable { callable } => {
+            format!("compiler-provided {}", callable.text())
+        }
         InspectionMirSource::Source { syntax, synthesis } => {
             let mut text = syntax.text();
 

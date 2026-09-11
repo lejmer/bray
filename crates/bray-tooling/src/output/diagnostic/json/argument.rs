@@ -5,7 +5,7 @@ use super::emission::{
     DiagnosticEmissionFieldJson, checker_failure_context, diagnostic_failure_context,
     fact_runtime_failure_context, foreign_query_failure_context, lowering_failure_context,
     lowering_input_failure_context, native_link_input_failure_context,
-    product_query_failure_context, semantic_value_failure_context, text_field,
+    product_query_failure_context, push_source_span, semantic_value_failure_context, text_field,
 };
 use super::{
     DiagnosticArtifactDigestJson, DiagnosticCallableOverloadProblemJson,
@@ -392,6 +392,65 @@ impl DiagnosticArgValueJson {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use bray_diagnostics::{
+        DiagnosticInterfaceDeclarationIdentity, DiagnosticInterfaceSymbolIdentity,
+        DiagnosticInterfaceSymbolKind, DiagnosticNativeProductFailureKind,
+    };
+    use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
+
+    use super::DiagnosticNativeProductFailureJson;
+
+    #[test]
+    fn missing_callable_json_preserves_the_named_identity_and_optional_source() {
+        let callable = DiagnosticInterfaceSymbolIdentity::Declaration {
+            owner: Box::new(DiagnosticInterfaceSymbolIdentity::Package("example".into())),
+            kind: DiagnosticInterfaceSymbolKind::Function,
+            identity: DiagnosticInterfaceDeclarationIdentity::Name("missing".into()),
+        };
+
+        let span = SourceSpan::new(
+            SourceId::new(2),
+            TextRange::new(TextSize::new(4), TextSize::new(18)),
+        );
+
+        for source in [None, Some(span)] {
+            let kind = DiagnosticNativeProductFailureKind::CodegenMissingCallableImplementation {
+                callable: Box::new(callable.clone()),
+                source,
+            };
+
+            let json =
+                serde_json::to_value(DiagnosticNativeProductFailureJson::from_kind(&kind)).unwrap();
+
+            assert_eq!(json["reason"], "codegen_missing_callable_implementation");
+            assert_eq!(json["context"][0]["name"], "callable");
+
+            assert_eq!(
+                json["context"][0]["value"]["kind"],
+                "interface_symbol_identity"
+            );
+
+            assert_eq!(
+                json["context"].as_array().unwrap().len(),
+                if source.is_some() { 4 } else { 1 }
+            );
+
+            if source.is_some() {
+                for (index, name, value) in [
+                    (1, "source", 2),
+                    (2, "source_start", 4),
+                    (3, "source_end", 18),
+                ] {
+                    assert_eq!(json["context"][index]["name"], name);
+                    assert_eq!(json["context"][index]["value"]["value"], value);
+                }
+            }
+        }
+    }
+}
+
 fn retained_generation_problem_json(
     problem: &bray_diagnostics::DiagnosticRetainedGenerationProblem,
 ) -> DiagnosticArgValueJson {
@@ -429,6 +488,22 @@ impl DiagnosticNativeProductFailureJson {
         use bray_diagnostics::DiagnosticNativeProductFailureKind as Kind;
 
         let context = match kind {
+            Kind::CodegenMissingCallableImplementation { callable, source } => {
+                // Serialization owns the structured identity independently of the diagnostic.
+                let mut context =
+                    diagnostic_failure_context(&[bray_diagnostics::DiagnosticFailureField::new(
+                        "callable",
+                        bray_diagnostics::DiagnosticFailureValue::InterfaceSymbolIdentity(
+                            callable.as_ref().clone(),
+                        ),
+                    )]);
+
+                if let Some(source) = source {
+                    push_source_span(&mut context, *source);
+                }
+
+                context
+            }
             Kind::EvaluationCycle(failure) | Kind::SemanticContextFailure(failure) => {
                 diagnostic_failure_context(failure.context())
             }
@@ -481,6 +556,7 @@ impl DiagnosticNativeProductFailureJson {
             | Kind::CodegenUnitMismatch(detail)
             | Kind::CodegenInvalidHostMir(detail)
             | Kind::CodegenInvalidLifecycleMir(detail)
+            | Kind::CodegenInvalidCompilerProvidedMir(detail)
             | Kind::CodegenInvalidMappings(detail)
             | Kind::CodegenMissingRuntimeRole(detail)
             | Kind::CodegenOpenConstantTerm(detail)

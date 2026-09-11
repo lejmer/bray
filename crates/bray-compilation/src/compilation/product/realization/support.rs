@@ -8,10 +8,7 @@ use bray_codegen::{
     TargetAddressSpaceKind, mapped_runtime_references,
 };
 use bray_compiler_known::RepresentationRole;
-use bray_ir::{
-    MirBlockKind, MirFrameReference, MirHelperReference, MirOperation, MirPlace, MirProjection,
-    MirProjectionKind, MirRuntimeReference, MirUnit,
-};
+use bray_ir::{MirFrameReference, MirHelperReference, MirOperation, MirRuntimeReference, MirUnit};
 use bray_runtime_interface::{BinarySymbolName, ProtectedFrameOperation, RuntimeAbiRole};
 use bray_symbols::{
     BorrowKind, CallableAbi, CallableExecution, ConstantTermData, ConstantValueKind,
@@ -465,22 +462,6 @@ pub(super) fn void_signature(abi: CallableAbi) -> CodegenCallableSignature {
     CodegenCallableSignature::new([], CodegenResultMapping::Void, abi, false)
 }
 
-pub(super) fn lifecycle_operation_block_kind(
-    role: bray_ir::MirGeneratedLifecycleRole,
-) -> Result<MirBlockKind, FactQueryError> {
-    match role {
-        bray_ir::MirGeneratedLifecycleRole::Destroy => Ok(MirBlockKind::Ordinary),
-        bray_ir::MirGeneratedLifecycleRole::Cleanup(bray_ir::MirCleanupPhase::TaskCancellation) => {
-            Ok(MirBlockKind::CleanupBroadcast)
-        }
-        bray_ir::MirGeneratedLifecycleRole::Finalize
-        | bray_ir::MirGeneratedLifecycleRole::StaticFinalize
-        | bray_ir::MirGeneratedLifecycleRole::Cleanup(
-            bray_ir::MirCleanupPhase::LifecycleResolution,
-        ) => Err(ProductQueryFailure::UnsupportedLifecycleRole { role }.into()),
-    }
-}
-
 pub(super) fn receiver_codegen_type(
     values: &SemanticValueStore,
     ty: TypeId,
@@ -504,17 +485,6 @@ pub(super) fn receiver_codegen_type(
             .map_err(FactQueryError::SemanticValueStore),
         None => Ok(ty),
     }
-}
-
-pub(super) fn projected_lifecycle_place(
-    parent: &MirPlace,
-    kind: MirProjectionKind,
-    ty: TypeId,
-) -> MirPlace {
-    let mut projections = parent.projections().to_vec();
-    projections.push(MirProjection::new(kind, parent.ty(), ty));
-
-    MirPlace::new(parent.storage(), projections, ty)
 }
 
 pub(super) fn helper_runtime_symbol(
@@ -1921,6 +1891,7 @@ mod tests {
             }
             bray_ir::MirUnitKey::ExecutableHost(_)
             | bray_ir::MirUnitKey::GeneratedLifecycle(_)
+            | bray_ir::MirUnitKey::CompilerProvidedCallable(_)
             | bray_ir::MirUnitKey::ImportedExecutable(_)
             | bray_ir::MirUnitKey::ExternalCallable(_)
             | bray_ir::MirUnitKey::ExternalRuntimeDefault(_) => {

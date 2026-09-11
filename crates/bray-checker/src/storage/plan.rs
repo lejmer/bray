@@ -323,7 +323,11 @@ where
                 let parameters = parameters.to_vec();
 
                 for parameter in parameters {
-                    let entry = {
+                    let entry = if let Some(entry) =
+                        self.entry_storage(BoundReferenceTarget::Surface(parameter.into()))?
+                    {
+                        Some(entry)
+                    } else {
                         let template = self
                             .parameter_type_templates
                             .get(&parameter)

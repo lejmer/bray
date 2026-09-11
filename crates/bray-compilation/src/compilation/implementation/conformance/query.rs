@@ -1517,6 +1517,8 @@ mod tests {
                 false,
             ),
             ("", "uses(raw_memory)", false),
+            ("uses(raw_memory)", "uses(intrinsic)", false),
+            ("uses(raw_memory)", "uses(foreign_call)", false),
         ] {
             for execution in ["", "async "] {
                 let raw = if provided.contains("raw_memory") {
@@ -1558,11 +1560,82 @@ mod tests {
                     kinds,
                     if valid {
                         vec![]
+                    } else if provided == "uses(intrinsic)" || provided == "uses(foreign_call)" {
+                        vec![
+                            DiagnosticKind::CheckingUnusedTrustedCapability,
+                            DiagnosticKind::CheckingIncompatibleTraitFulfillment,
+                        ]
                     } else {
                         vec![DiagnosticKind::CheckingIncompatibleTraitFulfillment]
                     },
                     "{source}"
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn ordinary_trait_constructors_cannot_add_policy_parameters() {
+        for name in ["Storage", "Provides"] {
+            let source = format!(
+                "module app; struct Policy {{}} \
+                 trait {name}<T> {{ trusted static func create(pos value: T) -> Self; }} \
+                 impl Policy(app.{name}<i32>) {{ \
+                 trusted static func create(pos value: i32, storage: i32 = 0) -> Self {{ loop {{}} }} }}"
+            );
+
+            let compilation = compilation(&source);
+
+            let result = compilation
+                .trait_implementation_conformance(source_implementation(&compilation))
+                .unwrap();
+
+            assert!(!result.value().is_valid());
+
+            assert!(
+                result.diagnostics().iter().any(|diagnostic| {
+                    diagnostic.kind() == DiagnosticKind::CheckingIncompatibleTraitFulfillment
+                        && diagnostic.primary_span().is_some()
+                }),
+                "{source}: {:?}",
+                result.diagnostics()
+            );
+        }
+    }
+
+    #[test]
+    fn static_fulfillments_resolve_self_in_parameters_and_results() {
+        for (required, provided, valid) in [
+            ("Self", "Self", true),
+            ("Self", "Holder", true),
+            ("&Self", "&Self", true),
+            ("&mut Self", "&mut Self", true),
+            ("Self?", "Self?", true),
+            ("Self", "i32", false),
+        ] {
+            let source = format!(
+                "module app; struct Holder {{}} \
+                 trait Provides {{ static func get(pos value: {required}) -> {required}; }} \
+                 impl Holder(Provides) {{ static func get(pos value: {provided}) -> {provided} \
+                 {{ return value; }} }}"
+            );
+
+            let compilation = compilation(&source);
+
+            let result = compilation
+                .trait_implementation_conformance(source_implementation(&compilation))
+                .expect("static Self conformance must publish");
+
+            assert_eq!(
+                result.value().is_valid(),
+                valid,
+                "{source}: {:?}",
+                result.diagnostics()
+            );
+
+            if valid {
+                let diagnostics = compilation.check_diagnostics();
+                assert!(!diagnostics.has_errors(), "{source}: {diagnostics:?}");
             }
         }
     }

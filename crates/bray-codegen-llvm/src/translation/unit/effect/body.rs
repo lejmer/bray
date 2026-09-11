@@ -307,6 +307,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             }
             MirSourceAnchor::ExecutableHost(_)
             | MirSourceAnchor::GeneratedLifecycle(_)
+            | MirSourceAnchor::CompilerProvidedCallable(_)
             | MirSourceAnchor::ImportedExecutable(_) => {
                 bray_runtime_abi::NativeSourceAnchor::unavailable()
             }

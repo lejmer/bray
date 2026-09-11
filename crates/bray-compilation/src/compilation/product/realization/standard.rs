@@ -24,15 +24,23 @@ impl Compilation {
         target: &CodegenTarget,
         cancellation: &CancellationToken,
     ) -> Result<ConcreteCodegenInstance, CodegenPreparationError> {
+        let callable = self.standard_library_helper_callable(helper, cancellation)?;
+
+        self.concrete_codegen_callable(callable, [], target, cancellation)
+    }
+
+    pub(super) fn standard_library_helper_callable(
+        &self,
+        helper: MirStandardLibraryHelper,
+        cancellation: &CancellationToken,
+    ) -> Result<CallableInstanceData, CodegenPreparationError> {
         let reference = MirHelperReference::StandardLibrary(helper);
         let key = standard_library_helper_key(helper);
 
         let key = RecognizedStandardLibraryDeclarationKey::try_new(key)
             .ok_or_else(|| missing_helper(&reference))?;
 
-        let callable = self.recognized_standard_library_callable(&key, &reference, cancellation)?;
-
-        self.concrete_codegen_callable(callable, [], target, cancellation)
+        self.recognized_standard_library_callable(&key, &reference, cancellation)
     }
 
     fn recognized_standard_library_callable(

@@ -396,9 +396,7 @@ fn construction_matches(
             | BoundExpression::MemberAccess(_)
             | BoundExpression::Call(_),
         ) => true,
-        (ConstructionTarget::TypeForm { .. }, BoundExpression::Structured(source)) => {
-            source.kind() == BoundStructuredExpressionKind::TypeFormConstruction
-        }
+        (ConstructionTarget::TypeForm { .. }, BoundExpression::BoxConstruction(_)) => true,
         _ => false,
     };
 
@@ -540,11 +538,11 @@ fn construction_source_inputs(expression: &BoundExpression) -> Vec<BoundExpressi
             .iter()
             .map(crate::BoundArgument::expression)
             .collect(),
-        BoundExpression::Structured(source)
-            if source.kind() == BoundStructuredExpressionKind::TypeFormConstruction =>
-        {
-            source.operands().to_vec()
-        }
+        BoundExpression::BoxConstruction(source) => source
+            .arguments()
+            .iter()
+            .map(crate::BoundArgument::expression)
+            .collect(),
         _ => Vec::new(),
     }
 }

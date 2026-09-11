@@ -12,6 +12,52 @@ use crate::binding::BindingResult;
 use crate::binding::name::symbol_name;
 
 impl ExpressionBinder {
+    pub(super) fn bind_box_construction<C>(
+        &mut self,
+        binder: &mut Binder<'_, C>,
+        scope: LocalScopeId,
+        syntax: &bray_syntax::TypeFormConstructionExpressionSyntax,
+    ) -> BindingResult<BoundExpressionId, C::UpstreamError>
+    where
+        C: BindingQueryContext + ?Sized,
+    {
+        let arguments = self.bind_arguments(binder, scope, &syntax.argument_list())?;
+
+        let mut recovered = syntax.is_recovered()
+            || arguments.iter().any(|argument| {
+                argument.is_recovered() || binder.expression_is_recovered(argument.expression())
+            });
+
+        let mut policies = syntax.type_form_argument_lists();
+
+        let policy = match crate::binding::type_expression::box_storage_policy(policies.next()) {
+            Ok(policy) => policy.map(|policy| {
+                bray_bound_tree::BoundTypeReference::new(
+                    bray_declarations::SyntaxAnchor::from_node(&policy),
+                    None,
+                )
+            }),
+            Err(diagnostic) => {
+                binder.add_diagnostic(diagnostic);
+                recovered = true;
+
+                None
+            }
+        };
+
+        recovered |= policies.next().is_some();
+
+        self.push(
+            binder,
+            BoundExpression::BoxConstruction(bray_bound_tree::BoundBoxConstructionExpression::new(
+                binder.source_origin(syntax),
+                policy,
+                arguments,
+                recovered,
+            )),
+        )
+    }
+
     pub(super) fn bind_struct_construction<C>(
         &mut self,
         binder: &mut Binder<'_, C>,

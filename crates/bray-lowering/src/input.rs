@@ -728,6 +728,7 @@ fn requires_semantic_selection(
         | BoundExpression::Call(_)
         | BoundExpression::Conversion(_)
         | BoundExpression::StructConstruction(_)
+        | BoundExpression::BoxConstruction(_)
         | BoundExpression::For(_)
         | BoundExpression::Generator(_)
         | BoundExpression::LeadingDotVariant(_)
@@ -744,7 +745,6 @@ fn requires_semantic_selection(
             expression.kind(),
             BoundStructuredExpressionKind::ElementIndex
                 | BoundStructuredExpressionKind::SliceIndex
-                | BoundStructuredExpressionKind::TypeFormConstruction
                 | BoundStructuredExpressionKind::BooleanAllFold
                 | BoundStructuredExpressionKind::BooleanAnyFold
                 | BoundStructuredExpressionKind::NullablePropagation

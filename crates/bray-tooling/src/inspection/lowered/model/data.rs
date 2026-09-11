@@ -201,6 +201,9 @@ impl InspectionMirUnit {
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub(crate) enum InspectionMirUnitKey {
+    CompilerProvidedCallable {
+        callable: InspectionSymbolIdentity,
+    },
     Bound {
         unit_kind: &'static str,
         owner: InspectionSymbolIdentity,
@@ -229,6 +232,9 @@ pub(crate) enum InspectionMirUnitKey {
 #[derive(Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub(crate) enum InspectionMirSource {
+    CompilerProvidedCallable {
+        callable: InspectionSymbolIdentity,
+    },
     Source {
         syntax: InspectionSyntaxAnchor,
         synthesis: Option<InspectionMirSynthesis>,
@@ -2048,6 +2054,11 @@ fn inspection_unit_key(
     sources: &InspectionSources<'_>,
 ) -> Result<InspectionMirUnitKey, MirInspectionModelError> {
     match key {
+        MirUnitKey::CompilerProvidedCallable(definition) => {
+            Ok(InspectionMirUnitKey::CompilerProvidedCallable {
+                callable: InspectionSymbolIdentity::from_symbol(symbols, definition.symbol()),
+            })
+        }
         MirUnitKey::Bound(key) => {
             let owner = symbols
                 .symbol_for_key(key.declared_owner())
@@ -2088,6 +2099,11 @@ fn inspection_source_origin(
     sources: &InspectionSources<'_>,
 ) -> Result<InspectionMirSource, MirInspectionModelError> {
     match source {
+        MirSourceOrigin::CompilerProvidedCallable(definition) => {
+            Ok(InspectionMirSource::CompilerProvidedCallable {
+                callable: InspectionSymbolIdentity::from_symbol(symbols, definition.symbol()),
+            })
+        }
         MirSourceOrigin::Source(source) => Ok(InspectionMirSource::Source {
             syntax: InspectionSyntaxAnchor::from_anchor(sources, source.syntax())?,
             synthesis: None,
@@ -2115,6 +2131,11 @@ fn inspection_source_anchor(
     sources: &InspectionSources<'_>,
 ) -> Result<InspectionMirSource, MirInspectionModelError> {
     match source {
+        MirSourceAnchor::CompilerProvidedCallable(definition) => {
+            Ok(InspectionMirSource::CompilerProvidedCallable {
+                callable: InspectionSymbolIdentity::from_symbol(symbols, definition.symbol()),
+            })
+        }
         MirSourceAnchor::Source(origin) => Ok(InspectionMirSource::Source {
             syntax: InspectionSyntaxAnchor::from_anchor(sources, origin.source_anchor().syntax())?,
             synthesis: origin

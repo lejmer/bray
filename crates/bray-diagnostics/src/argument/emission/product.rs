@@ -235,12 +235,21 @@ pub enum DiagnosticNativeProductFailureKind {
     CodegenBackendUnavailable,
     CodegenInvalidRequest(DiagnosticNativeProductFailureDetail),
     CodegenMirUnavailable(DiagnosticNativeProductFailureDetail),
+    /// A demanded callable has no executable implementation or valid native import.
+    CodegenMissingCallableImplementation {
+        /// Stable identity of the callable that could not be compiled.
+        callable: Box<crate::DiagnosticInterfaceSymbolIdentity>,
+        /// Its source declaration, when available in the current compilation.
+        source: Option<bray_source::SourceSpan>,
+    },
     CodegenMissingEntrypoint,
     CodegenInvalidInstance(DiagnosticNativeProductFailureDetail),
     CodegenInvalidUnit(DiagnosticNativeProductFailureDetail),
     CodegenUnitMismatch(DiagnosticNativeProductFailureDetail),
     CodegenInvalidHostMir(DiagnosticNativeProductFailureDetail),
     CodegenInvalidLifecycleMir(DiagnosticNativeProductFailureDetail),
+    /// The compiler could not build the body of a compiler-provided declaration.
+    CodegenInvalidCompilerProvidedMir(DiagnosticNativeProductFailureDetail),
     CodegenInvalidMappings(DiagnosticNativeProductFailureDetail),
     CodegenMissingRuntimeRole(DiagnosticNativeProductFailureDetail),
     CodegenOpenConstantTerm(DiagnosticNativeProductFailureDetail),
@@ -360,6 +369,9 @@ impl DiagnosticNativeProductFailureKind {
             }
             Self::CodegenBackendGeneratedModuleInvariantDetail(detail) => detail.reason(),
             Self::CodegenBackendUnavailable => "codegen_backend_unavailable",
+            Self::CodegenMissingCallableImplementation { .. } => {
+                "codegen_missing_callable_implementation"
+            }
             Self::CodegenInvalidRequest(detail)
             | Self::CodegenMirUnavailable(detail)
             | Self::CodegenInvalidInstance(detail)
@@ -367,6 +379,7 @@ impl DiagnosticNativeProductFailureKind {
             | Self::CodegenUnitMismatch(detail)
             | Self::CodegenInvalidHostMir(detail)
             | Self::CodegenInvalidLifecycleMir(detail)
+            | Self::CodegenInvalidCompilerProvidedMir(detail)
             | Self::CodegenInvalidMappings(detail)
             | Self::CodegenMissingRuntimeRole(detail)
             | Self::CodegenOpenConstantTerm(detail)

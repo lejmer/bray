@@ -5,54 +5,41 @@ use bray_ir::{
 };
 use bray_runtime_interface::RuntimeAbiRole;
 
-use super::super::super::super::CodegenPreparationError;
-use super::super::super::super::Compilation;
-use super::super::super::super::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
-use crate::fact::FactQueryError;
+use super::super::{SyntheticLowerer, SyntheticLoweringContext, SyntheticLoweringError};
 
-impl Compilation {
-    pub(in crate::compilation::product::realization) fn push_task_resolution(
+impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
+    pub(super) fn push_task_resolution(
         &self,
         builder: &mut MirUnitBuilder,
         block: bray_ir::MirBlockId,
         source: &MirSourceAnchor,
         task: MirPlace,
         runtime_abi: bray_runtime_interface::RuntimeAbiVersion,
-    ) -> Result<(), CodegenPreparationError> {
-        let values = self.semantic_value_store()?;
-        let symbols = self.available_compiler_known_symbols();
+    ) -> Result<(), C::Error> {
+        let values = self.context.semantic_values();
+        let symbols = self.context.compiler_known_symbols();
 
         let completion = symbols
             .unary_representation_argument(values, RepresentationRole::Task, task.ty())
-            .map_err(FactQueryError::SemanticValueStore)?
-            .ok_or_else(|| {
-                ProductQueryFailure::missing(
-                    ProductQueryContext::UnaryRepresentation {
-                        role: RepresentationRole::Task,
-                        argument: task.ty(),
-                    },
-                    ProductDataKind::ResolvedType,
-                )
+            .map_err(SyntheticLoweringError::SemanticValue)?
+            .ok_or_else(|| SyntheticLoweringError::MissingRepresentation {
+                role: RepresentationRole::Task,
+                argument: Some(task.ty()),
             })?;
 
         let result = symbols
             .unary_representation_type(values, RepresentationRole::RunResult, completion)
-            .map_err(FactQueryError::SemanticValueStore)?
-            .ok_or_else(|| {
-                ProductQueryFailure::missing(
-                    ProductQueryContext::UnaryRepresentation {
-                        role: RepresentationRole::RunResult,
-                        argument: completion,
-                    },
-                    ProductDataKind::ResolvedType,
-                )
+            .map_err(SyntheticLoweringError::SemanticValue)?
+            .ok_or_else(|| SyntheticLoweringError::MissingRepresentation {
+                role: RepresentationRole::RunResult,
+                argument: Some(completion),
             })?;
 
         let representation = symbols.run_result_representation().ok_or_else(|| {
-            ProductQueryFailure::missing(
-                ProductQueryContext::CompilerKnownRepresentation(RepresentationRole::RunResult),
-                ProductDataKind::ResultRepresentation,
-            )
+            SyntheticLoweringError::MissingRepresentation {
+                role: RepresentationRole::RunResult,
+                argument: None,
+            }
         })?;
 
         let variants = bray_ir::MirRunResultVariants::new(
@@ -72,23 +59,21 @@ impl Compilation {
                 }),
                 Some(result),
             )
-            .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
+            .map_err(|cause| self.mir_error(source, cause))?;
 
         let operation = resolved.operation();
 
-        let resolved = resolved.result().ok_or_else(|| {
-            ProductQueryFailure::missing(
-                ProductQueryContext::MirOperation {
+        let resolved =
+            resolved
+                .result()
+                .ok_or_else(|| SyntheticLoweringError::MissingOperationResult {
                     source: source.clone(),
                     operation,
-                },
-                ProductDataKind::OperationResultType,
-            )
-        })?;
+                })?;
 
         let storage = builder
             .push_storage(source.clone(), MirStorageKind::Temporary, result)
-            .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
+            .map_err(|cause| self.mir_error(source, cause))?;
 
         let place = MirPlace::new(storage, [], result);
 

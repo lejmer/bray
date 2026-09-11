@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 
 use bray_bound_tree::{
-    BoundExpression, BoundExpressionId, BoundStructuredExpressionKind, CheckedExpressionTypes,
-    ConstructionTarget, SelectedConstructionInput,
+    BoundExpression, BoundExpressionId, CheckedExpressionTypes, ConstructionTarget,
+    SelectedConstructionInput,
 };
 use bray_symbols::CallablePosition;
 
@@ -198,20 +198,15 @@ where
                 is_recovered: argument.is_recovered(),
             })
             .collect(),
-        BoundExpression::Structured(structured)
-            if structured.kind() == BoundStructuredExpressionKind::TypeFormConstruction =>
-        {
-            structured
-                .operands()
-                .iter()
-                .copied()
-                .map(|expression| SourceConstructionInput {
-                    expression,
-                    name: None,
-                    is_recovered: structured.is_recovered(),
-                })
-                .collect()
-        }
+        BoundExpression::BoxConstruction(construction) => construction
+            .arguments()
+            .iter()
+            .map(|argument| SourceConstructionInput {
+                expression: argument.expression(),
+                name: argument.name(),
+                is_recovered: argument.is_recovered(),
+            })
+            .collect(),
         BoundExpression::LeadingDotVariant(_)
         | BoundExpression::UnqualifiedVariant(_)
         | BoundExpression::MemberAccess(_) => Vec::new(),

@@ -33,6 +33,16 @@ impl Compilation {
             return Ok(None);
         };
 
+        if binding_context
+            .symbols()
+            .compiler_known_provider()
+            .heap_storage_policy()
+            == Some(*structure)
+        {
+            // Only the selected Storage<T> implementation can establish a heap handle's allocation.
+            return Ok(None);
+        }
+
         let record = binding_context
             .structure(*structure)
             .map_err(binding_query_error)?

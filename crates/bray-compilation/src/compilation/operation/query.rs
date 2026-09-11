@@ -467,11 +467,7 @@ pub(in crate::compilation) fn selection_kind(
         {
             Ok(bray_bound_tree::SelectionKind::Index)
         }
-        BoundExpression::Structured(expression)
-            if expression.kind() == BoundStructuredExpressionKind::TypeFormConstruction =>
-        {
-            Ok(bray_bound_tree::SelectionKind::Construction)
-        }
+        BoundExpression::BoxConstruction(_) => Ok(bray_bound_tree::SelectionKind::Construction),
         _ => Err(expression_contract_failure(
             unit.key(),
             expression_id,
@@ -494,7 +490,11 @@ pub(super) fn construction_operands(
             .iter()
             .map(bray_bound_tree::BoundArgument::expression)
             .collect(),
-        BoundExpression::Structured(expression) => expression.operands().to_vec(),
+        BoundExpression::BoxConstruction(expression) => expression
+            .arguments()
+            .iter()
+            .map(bray_bound_tree::BoundArgument::expression)
+            .collect(),
         BoundExpression::LeadingDotVariant(_) => Vec::new(),
         BoundExpression::UnqualifiedVariant(_) => Vec::new(),
         _ => Vec::new(),

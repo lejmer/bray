@@ -165,6 +165,20 @@ where
         replacements: &BTreeSet<BoundExpressionId>,
     ) -> Result<(), CheckerInfrastructureError> {
         validate_input(self.request, input)?;
+
+        for &(expression, policy) in input.box_storage_policies() {
+            if self
+                .types
+                .box_storage_policies
+                .get(&expression)
+                .is_some_and(|previous| *previous != policy)
+            {
+                return Err(CheckerInfrastructureError::InvalidExpressionTypeInput { expression });
+            }
+
+            self.types.box_storage_policies.insert(expression, policy);
+        }
+
         let mut applied_replacements = BTreeSet::new();
 
         for evidence in input.evidence() {
@@ -569,6 +583,7 @@ fn intrinsic_expression_type(expression: &BoundExpression) -> Option<TypeId> {
                 name.target(),
                 bray_bound_tree::BoundReferenceTarget::Surface(
                     bray_symbols::AnySymbolId::ReceiverParameter(_)
+                        | bray_symbols::AnySymbolId::CallableParameter(_)
                 )
             ) =>
         {
@@ -621,6 +636,15 @@ where
 
     for expectation in input.expectations() {
         validate_input_pair(request, expectation.expression(), expectation.ty())?;
+    }
+
+    for &(expression, policy) in input.box_storage_policies() {
+        if !matches!(request.view().expression(expression), Some(BoundExpression::BoxConstruction(construction)) if construction.policy().is_some())
+        {
+            return Err(CheckerInfrastructureError::InvalidExpressionTypeInput { expression });
+        }
+
+        validate_input_pair(request, expression, policy)?;
     }
 
     if let Some(result_type) = input.callable_result_type() {

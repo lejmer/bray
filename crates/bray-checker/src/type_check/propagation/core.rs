@@ -66,6 +66,21 @@ where
 
         propagate_control_transfer(request, expression_id, variables, regions, types, inference)?;
 
+        if let Some(BoundExpression::BoxConstruction(construction)) =
+            request.view().expression(expression_id)
+        {
+            super::box_construction::infer_box(
+                request,
+                expression_id,
+                construction,
+                variables,
+                types,
+                inference,
+            )?;
+
+            continue;
+        }
+
         if let Some(BoundExpression::Await(expression)) = request.view().expression(expression_id) {
             infer_await(
                 request,

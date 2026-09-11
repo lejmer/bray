@@ -2,6 +2,7 @@ mod aggregate;
 mod contextual_self;
 mod debug;
 mod defaults;
+mod heap;
 mod known;
 mod lifecycle;
 mod names;
@@ -15,6 +16,8 @@ mod statics;
 mod storage;
 mod support;
 mod symbols;
+mod synthetic;
+mod templates;
 mod types;
 mod value_mappings;
 

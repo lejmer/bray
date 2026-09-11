@@ -196,20 +196,35 @@ where
     let mut deferred = BTreeSet::new();
     let mut evidence = Vec::new();
     let mut expectations = Vec::new();
+    let mut box_storage_policies = Vec::new();
 
     for term in components.terms() {
         if request.is_cancelled() {
             return Ok(SessionProgress::Cancelled);
         }
 
-        let DeclaredValueTypeTerm::Expression(expression) = term else {
-            continue;
+        let expression = match term {
+            DeclaredValueTypeTerm::Expression(expression)
+            | DeclaredValueTypeTerm::BoxStoragePolicy(expression) => expression,
+            _ => continue,
         };
 
         let representative = components.representative(term);
 
         if unsupported.contains(&representative) {
             deferred.insert(expression);
+
+            continue;
+        }
+
+        if matches!(term, DeclaredValueTypeTerm::BoxStoragePolicy(_)) {
+            box_storage_policies.extend(
+                component_types
+                    .get(&representative)
+                    .into_iter()
+                    .flat_map(|types| types.iter().copied())
+                    .map(|ty| (expression, ty)),
+            );
 
             continue;
         }
@@ -229,6 +244,7 @@ where
 
     let mut input = ExpressionTypeInput::new()
         .with_evidence(evidence)
+        .with_box_storage_policies(box_storage_policies)
         .with_expectations(expectations);
 
     let mut unsupported_callable_result = false;

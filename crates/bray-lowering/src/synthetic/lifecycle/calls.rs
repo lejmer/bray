@@ -5,36 +5,31 @@ use bray_ir::{
 };
 use bray_symbols::{CallableExecution, TypeData, TypeId};
 
-use super::super::super::super::super::CodegenPreparationError;
-use super::super::super::super::super::Compilation;
-use super::super::super::super::super::{
-    ProductDataKind, ProductQueryContext, ProductQueryFailure,
-};
-use crate::fact::FactQueryError;
+use super::super::{SyntheticLowerer, SyntheticLoweringContext, SyntheticLoweringError};
 
-impl Compilation {
-    pub(in crate::compilation::product::realization) fn push_lifecycle_operation(
+impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
+    pub(super) fn push_lifecycle_operation(
         &self,
         builder: &mut MirUnitBuilder,
         block: bray_ir::MirBlockId,
         source: &MirSourceAnchor,
         operation: MirOperationKind,
-    ) -> Result<(), CodegenPreparationError> {
+    ) -> Result<(), C::Error> {
         builder
             .push_operation(block, source.clone(), operation, None)
-            .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
+            .map_err(|cause| self.mir_error(source, cause))?;
 
         Ok(())
     }
 
-    pub(in crate::compilation::product::realization) fn push_lifecycle_call(
+    pub(super) fn push_lifecycle_call(
         &self,
         builder: &mut MirUnitBuilder,
         block: bray_ir::MirBlockId,
         source: &MirSourceAnchor,
         place: MirPlace,
         callable: (MirCallableReference, TypeId, TypeId, CallableExecution),
-    ) -> Result<(), CodegenPreparationError> {
+    ) -> Result<(), C::Error> {
         let (callable, receiver, result, _) = callable;
 
         let receiver = self.lifecycle_receiver_operand(builder, block, source, place, receiver)?;
@@ -51,19 +46,19 @@ impl Compilation {
                 )),
                 Some(result),
             )
-            .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
+            .map_err(|cause| self.mir_error(source, cause))?;
 
         Ok(())
     }
 
-    pub(in crate::compilation::product::realization) fn push_static_finalizer_call(
+    pub(super) fn push_static_finalizer_call(
         &self,
         builder: &mut MirUnitBuilder,
         block: bray_ir::MirBlockId,
         source: &MirSourceAnchor,
         place: MirPlace,
         callable: (MirCallableReference, TypeId, TypeId, CallableExecution),
-    ) -> Result<bray_ir::MirValueId, CodegenPreparationError> {
+    ) -> Result<bray_ir::MirValueId, C::Error> {
         let (callable, receiver, result, execution) = callable;
 
         let receiver = self.lifecycle_receiver_operand(builder, block, source, place, receiver)?;
@@ -80,21 +75,17 @@ impl Compilation {
             ),
             CallableExecution::Asynchronous => {
                 let future = self
-                    .available_compiler_known_symbols()
+                    .context
+                    .compiler_known_symbols()
                     .unary_representation_type(
-                        self.semantic_value_store()?,
+                        self.context.semantic_values(),
                         RepresentationRole::Future,
                         result,
                     )
-                    .map_err(FactQueryError::SemanticValueStore)?
-                    .ok_or_else(|| {
-                        ProductQueryFailure::missing(
-                            ProductQueryContext::UnaryRepresentation {
-                                role: RepresentationRole::Future,
-                                argument: result,
-                            },
-                            ProductDataKind::ResolvedType,
-                        )
+                    .map_err(SyntheticLoweringError::SemanticValue)?
+                    .ok_or_else(|| SyntheticLoweringError::MissingRepresentation {
+                        role: RepresentationRole::Future,
+                        argument: Some(result),
                     })?;
 
                 let call = MirCall::protocol(
@@ -118,18 +109,15 @@ impl Compilation {
 
         let result = builder
             .push_operation(block, source.clone(), operation, Some(operation_result))
-            .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
+            .map_err(|cause| self.mir_error(source, cause))?;
 
         let operation = result.operation();
 
         result.result().ok_or_else(|| {
-            ProductQueryFailure::missing(
-                ProductQueryContext::MirOperation {
-                    source: source.clone(),
-                    operation,
-                },
-                ProductDataKind::OperationResultType,
-            )
+            SyntheticLoweringError::MissingOperationResult {
+                source: source.clone(),
+                operation,
+            }
             .into()
         })
     }
@@ -141,12 +129,12 @@ impl Compilation {
         source: &MirSourceAnchor,
         place: MirPlace,
         receiver: TypeId,
-    ) -> Result<MirOperand, CodegenPreparationError> {
-        let values = self.semantic_value_store()?;
+    ) -> Result<MirOperand, C::Error> {
+        let values = self.context.semantic_values();
 
         let receiver_data = values
             .type_data(receiver)
-            .map_err(FactQueryError::SemanticValueStore)?;
+            .map_err(SyntheticLoweringError::SemanticValue)?;
 
         match receiver_data.as_ref() {
             TypeData::Borrow { kind, .. } => {
@@ -157,18 +145,15 @@ impl Compilation {
                         MirOperationKind::Borrow { kind: *kind, place },
                         Some(receiver),
                     )
-                    .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
+                    .map_err(|cause| self.mir_error(source, cause))?;
 
                 let operation = value.operation();
 
                 let value = value.result().ok_or_else(|| {
-                    ProductQueryFailure::missing(
-                        ProductQueryContext::MirOperation {
-                            source: source.clone(),
-                            operation,
-                        },
-                        ProductDataKind::OperationResultType,
-                    )
+                    SyntheticLoweringError::MissingOperationResult {
+                        source: source.clone(),
+                        operation,
+                    }
                 })?;
 
                 Ok(MirOperand::Value(value))

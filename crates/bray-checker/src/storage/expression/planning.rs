@@ -101,6 +101,16 @@ where
 
                 self.temporary_access(id)?
             }
+            BoundExpression::BoxConstruction(construction) => {
+                for argument in construction.arguments() {
+                    self.plan_expression(
+                        argument.expression(),
+                        Some(StorageAccessPurpose::ValueTransfer),
+                    )?;
+                }
+
+                self.temporary_access(id)?
+            }
             BoundExpression::Call(call) => self.plan_call(
                 id,
                 call.callee(),
@@ -472,8 +482,7 @@ where
             }
             BoundStructuredExpressionKind::Tuple
             | BoundStructuredExpressionKind::Array
-            | BoundStructuredExpressionKind::RepeatedArray
-            | BoundStructuredExpressionKind::TypeFormConstruction => {
+            | BoundStructuredExpressionKind::RepeatedArray => {
                 for operand in operands {
                     self.plan_expression(*operand, Some(StorageAccessPurpose::ValueTransfer))?;
                 }

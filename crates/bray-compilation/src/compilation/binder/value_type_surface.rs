@@ -116,28 +116,52 @@ impl DeclaredValueTypeBinding<'_> {
         }
 
         for (parameter, ty) in callable_parameter_templates(self.context, signature)? {
+            let ty = self.callable_body_type(owner, &ty)?;
             self.add_evidence(surface_value(parameter.into()), ty);
         }
 
         if supplies_result_expectation {
-            self.callable_result = Some(self.callable_body_result(signature.result())?);
+            self.callable_result = Some(self.callable_body_type(owner, signature.result())?);
         }
 
         Ok(())
     }
 
-    fn callable_body_result(
+    fn callable_body_type(
         &mut self,
+        owner: AnySymbolId,
         result: &TypeExpressionTemplate,
     ) -> BindingQueryResult<TypeExpressionTemplate> {
         let TypeExpressionTemplate::Resolved(ty) = result else {
             return Ok(owned_template(result));
         };
 
+        if let Some(implementation) = self
+            .context
+            .symbols()
+            .containing_symbol(owner)
+            .and_then(bray_symbols::ImplementationSymbolId::try_from_any)
+        {
+            let subject = self.implementation_subject_type(implementation)?;
+
+            if let TypeExpressionTemplate::Resolved(subject) = subject {
+                return self
+                    .context
+                    .semantic_values()
+                    .substitute_contextual_self(
+                        *ty,
+                        bray_symbols::SelfTypeContext::Implementation(implementation),
+                        subject,
+                    )
+                    .map(TypeExpressionTemplate::Resolved)
+                    .map_err(super::semantic_value_binding_error);
+            }
+        }
+
         if let Some(definition) = self
             .context
             .symbols()
-            .containing_symbol(self.owner)
+            .containing_symbol(owner)
             .and_then(NamedTypeSymbolId::try_from_any)
         {
             let self_ty = contextual_self_type(
@@ -452,7 +476,7 @@ impl DeclaredValueTypeBinding<'_> {
     }
 
     fn declared_surface_value_type(
-        &self,
+        &mut self,
         declaration: AnySymbolId,
     ) -> BindingQueryResult<TypeExpressionTemplate> {
         match declaration {
@@ -470,14 +494,16 @@ impl DeclaredValueTypeBinding<'_> {
 
                 let signature = self.callable_signature(record.owner().into_any())?;
 
-                signature
+                let template = signature
                     .value()
                     .parameter_type_template(
                         parameter,
                         record.ordinal(),
                         self.context.semantic_values(),
                     )
-                    .map_err(super::callable_signature_binding_error)
+                    .map_err(super::callable_signature_binding_error)?;
+
+                self.callable_body_type(record.owner().into_any(), &template)
             }
             AnySymbolId::StructField(field) => self
                 .context
@@ -637,6 +663,7 @@ impl DeclaredValueTypeBinding<'_> {
         };
 
         let template = match symbol {
+            AnySymbolId::CallableParameter(_) => Some(self.declared_surface_value_type(symbol)?),
             AnySymbolId::Constant(_)
             | AnySymbolId::Static(_)
             | AnySymbolId::TraitConstantMember(_)

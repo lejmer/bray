@@ -614,7 +614,12 @@ impl Compilation {
                 subject_type,
             )?
         } else {
-            callable.signature
+            substitute_callable_self(
+                binding_context,
+                callable.signature,
+                SelfTypeContext::Implementation(implementation.definition()),
+                subject_type,
+            )?
         };
 
         let signature = if uses_trait_default {

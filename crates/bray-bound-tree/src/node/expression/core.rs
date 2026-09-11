@@ -34,6 +34,8 @@ pub enum BoundExpression {
     Assignment(BoundAssignmentExpression),
     /// A call with source-ordered argument inputs.
     Call(BoundCallExpression),
+    /// An owned-indirection construction preserving the policy and runtime argument names.
+    BoxConstruction(super::BoundBoxConstructionExpression),
     /// A call retained after semantic recovery.
     ErrorCall(BoundErrorCallExpression),
     /// An explicit conversion expression.
@@ -81,6 +83,7 @@ impl BoundExpression {
             Self::Binary(_) => "binary",
             Self::Assignment(_) => "assignment",
             Self::Call(_) => "call",
+            Self::BoxConstruction(_) => "box_construction",
             Self::ErrorCall(_) => "error_call",
             Self::Conversion(_) => "conversion",
             Self::ErrorConversion(_) => "error_conversion",
@@ -112,6 +115,7 @@ impl BoundExpression {
             Self::Binary(expression) => expression.origin(),
             Self::Assignment(expression) => expression.origin(),
             Self::Call(expression) => expression.origin(),
+            Self::BoxConstruction(expression) => expression.origin(),
             Self::ErrorCall(expression) => expression.origin(),
             Self::Conversion(expression) => expression.origin(),
             Self::ErrorConversion(expression) => expression.origin(),
@@ -143,6 +147,7 @@ impl BoundExpression {
             Self::Binary(expression) => expression.ty(),
             Self::Assignment(expression) => expression.ty(),
             Self::Call(expression) => expression.ty(),
+            Self::BoxConstruction(_) => None,
             Self::ErrorCall(expression) => Some(expression.ty()),
             Self::Conversion(expression) => expression.ty(),
             Self::ErrorConversion(expression) => Some(expression.ty()),
@@ -174,6 +179,7 @@ impl BoundExpression {
             Self::Binary(expression) => expression.is_recovered(),
             Self::Assignment(expression) => expression.is_recovered(),
             Self::Call(expression) => expression.is_recovered(),
+            Self::BoxConstruction(expression) => expression.is_recovered(),
             Self::ErrorCall(_) => true,
             Self::Conversion(expression) => expression.is_recovered(),
             Self::ErrorConversion(_) => true,
@@ -220,10 +226,19 @@ impl BoundExpression {
             | Self::LeadingDotVariant(_)
             | Self::UnqualifiedVariant(_)
             | Self::AnonymousCallable(_)
+            | Self::BoxConstruction(_)
             | Self::Error(_) => &[],
         };
 
-        children.iter().copied()
+        let arguments = match self {
+            Self::BoxConstruction(expression) => expression.arguments(),
+            _ => &[],
+        };
+
+        children
+            .iter()
+            .copied()
+            .chain(arguments.iter().map(super::BoundArgument::expression))
     }
 
     /// Returns direct block children in source-semantic order.

@@ -5,6 +5,8 @@ use crate::representation::{representation_type, type_representation};
 use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
 pub(super) struct ExpressionTypeDependencies {
+    pub(super) box_storage_policies:
+        std::collections::BTreeMap<bray_bound_tree::BoundExpressionId, TypeId>,
     pub(super) error: TypeId,
     pub(super) unit: TypeId,
     pub(super) never: TypeId,
@@ -38,6 +40,7 @@ impl ExpressionTypeDependencies {
         let c128 = representation_type(request, RepresentationRole::ScalarC128)?;
 
         Ok(Self {
+            box_storage_policies: std::collections::BTreeMap::new(),
             error,
             unit,
             never,
