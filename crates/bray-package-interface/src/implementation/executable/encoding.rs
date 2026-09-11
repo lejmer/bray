@@ -182,6 +182,21 @@ pub fn encode_executable_template<C: ExecutableTemplateEncodeContext>(
 }
 
 #[cfg(test)]
+pub(super) fn encode_operation_for_test<C: ExecutableTemplateEncodeContext>(
+    operation: &MirOperationKind,
+    context: &mut C,
+) -> Result<Vec<u8>, ExecutableTemplateEncodeError<C::Error>> {
+    let mut encoder = Encoder {
+        wire: WireEncoder::new(),
+        context,
+    };
+
+    encoder.operation(operation)?;
+
+    Ok(encoder.wire.into_bytes())
+}
+
+#[cfg(test)]
 pub(super) fn encode_projection_for_test<C: ExecutableTemplateEncodeContext>(
     projection: &MirProjectionKind,
     context: &mut C,
@@ -586,6 +601,14 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.ty(query.operand_type())?;
                 self.ty(query.nullable_type())?;
                 self.ty(query.result_type())?;
+            }
+            MirOperationKind::AdmitCleanup(ty) => {
+                self.wire.write_u32(24);
+                self.ty(*ty)?;
+            }
+            MirOperationKind::DischargeCleanup(ty) => {
+                self.wire.write_u32(25);
+                self.ty(*ty)?;
             }
             MirOperationKind::Host(_) => {
                 return Err(ExecutableTemplateEncodeError::InvalidUnitKind);
@@ -2088,6 +2111,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             }
             MirPanicCause::TaskAdmission => self.wire.write_u32(3),
             MirPanicCause::FrameAllocation => self.wire.write_u32(4),
+            MirPanicCause::CleanupAdmission => self.wire.write_u32(5),
         }
 
         Ok(())

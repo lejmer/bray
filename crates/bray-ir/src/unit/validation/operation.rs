@@ -51,7 +51,9 @@ pub(super) fn validate_operation(
                 return Err(MirUnitBuildError::InvalidAnonymousCallable(id));
             }
         }
-        MirOperationKind::DeclaredCallable(_) => {}
+        MirOperationKind::DeclaredCallable(_)
+        | MirOperationKind::AdmitCleanup(_)
+        | MirOperationKind::DischargeCleanup(_) => {}
         MirOperationKind::Store {
             destination, value, ..
         } => {
@@ -104,7 +106,9 @@ pub(super) fn validate_operation(
             validate_operand(unit, subject, block, Some(id))?;
         }
         MirOperationKind::PanicReport(cause) => match cause {
-            crate::MirPanicCause::TaskAdmission | crate::MirPanicCause::FrameAllocation => {}
+            crate::MirPanicCause::TaskAdmission
+            | crate::MirPanicCause::FrameAllocation
+            | crate::MirPanicCause::CleanupAdmission => {}
             crate::MirPanicCause::Message(message)
             | crate::MirPanicCause::ExplicitTestFailure(message) => {
                 validate_operand(unit, message, block, Some(id))?;
@@ -202,7 +206,9 @@ fn validate_operation_block(
                 crate::MirGeneratedLifecycleRole::Cleanup(crate::MirCleanupPhase::LifecycleResolution),
             ..
         } => block_kind == MirBlockKind::LifecycleResolution,
-        MirOperationKind::Finalize(_)
+        MirOperationKind::AdmitCleanup(_)
+        | MirOperationKind::DischargeCleanup(_)
+        | MirOperationKind::Finalize(_)
         | MirOperationKind::Destroy(_)
         | MirOperationKind::Abandon { .. }
         | MirOperationKind::DestructorRemainder { .. } => {
@@ -258,6 +264,7 @@ fn validate_operation_result(
             | MirOperationKind::Generator(MirGeneratorOperation::Finish { .. })
             | MirOperationKind::Aggregate(_)
             | MirOperationKind::Construct(_)
+            | MirOperationKind::AdmitCleanup(_)
             | MirOperationKind::Convert { .. }
             | MirOperationKind::NumericConversion { .. }
             | MirOperationKind::NullableQuery(_)
@@ -278,7 +285,8 @@ fn validate_operation_result(
 
     let rejects_result = matches!(
         operation.kind(),
-        MirOperationKind::Store { .. }
+        MirOperationKind::DischargeCleanup(_)
+            | MirOperationKind::Store { .. }
             | MirOperationKind::Generator(
                 MirGeneratorOperation::Begin { .. } | MirGeneratorOperation::Push { .. }
             )
@@ -920,12 +928,6 @@ fn validate_async_operation(
 
             if !matches!(call.target(), MirCallTarget::Direct(_)) {
                 return Err(MirUnitBuildError::InvalidCall(*invocation));
-            }
-
-            if !matches!(unit.key(), crate::MirUnitKey::GeneratedLifecycle(key)
-                if matches!(key.role(), crate::MirGeneratedLifecycleRole::Finalize | crate::MirGeneratedLifecycleRole::StaticFinalize))
-            {
-                return Err(MirUnitBuildError::InvalidCall(operation_id));
             }
 
             validate_operand(unit, incident, block, Some(operation_id))?;

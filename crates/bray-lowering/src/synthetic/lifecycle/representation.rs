@@ -133,7 +133,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         if self.context.cleanup_type_execution(place.ty())?.cleanup()
             == bray_bound_tree::AsyncStorageCleanupRequirement::None
         {
-            return Ok(block);
+            return self.discharge_represented_owner(builder, block, source, role, place.ty());
         }
 
         let outcome = self.cleanup_outcome(builder, block, source)?;
@@ -190,11 +190,13 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 .context
                 .raw_buffer_element(*definition, *substitution)?
         {
-            return self
-                .push_buffer_lifecycle(builder, block, source, role, place, element, outcome);
+            let settled =
+                self.push_buffer_lifecycle(builder, block, source, role, place, element, outcome)?;
+
+            return self.discharge_represented_owner(builder, settled, source, role, concrete);
         }
 
-        match data.as_ref() {
+        let settled = match data.as_ref() {
             TypeData::Named {
                 definition: NamedTypeSymbolId::Union(union),
                 substitution,
@@ -244,7 +246,42 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 }
                 .into())
             }
+        }?;
+
+        self.discharge_represented_owner(builder, settled, source, role, concrete)
+    }
+
+    fn discharge_represented_owner(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: bray_ir::MirBlockId,
+        source: &MirSourceAnchor,
+        role: bray_ir::MirGeneratedLifecycleRole,
+        ty: TypeId,
+    ) -> Result<bray_ir::MirBlockId, C::Error> {
+        if matches!(
+            role,
+            bray_ir::MirGeneratedLifecycleRole::Destroy
+                | bray_ir::MirGeneratedLifecycleRole::Abandon(
+                    bray_ir::MirAbandonmentAction::Destroy
+                )
+        ) && matches!(
+            self.context
+                .semantic_values()
+                .type_data(ty)
+                .map_err(SyntheticLoweringError::SemanticValue)?
+                .as_ref(),
+            TypeData::Named { .. }
+        ) {
+            self.push_lifecycle_operation(
+                builder,
+                block,
+                source,
+                MirOperationKind::DischargeCleanup(ty),
+            )?;
         }
+
+        Ok(block)
     }
 
     #[expect(

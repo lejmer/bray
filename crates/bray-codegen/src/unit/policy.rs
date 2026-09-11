@@ -286,7 +286,9 @@ const fn operation_weight(operation: &MirOperationKind) -> u64 {
         | MirOperationKind::Memory(_)
         | MirOperationKind::Text(_)
         | MirOperationKind::PanicReport(_)
-        | MirOperationKind::Cleanup { .. } => 4,
+        | MirOperationKind::Cleanup { .. }
+        | MirOperationKind::AdmitCleanup(_)
+        | MirOperationKind::DischargeCleanup(_) => 4,
         MirOperationKind::Async(_) | MirOperationKind::Host(_) => 8,
     }
 }

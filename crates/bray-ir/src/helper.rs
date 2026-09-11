@@ -259,7 +259,9 @@ impl MirOperationKind {
                     helpers.push(MirHelperReference::Cleanup { phase, ty: *error });
                 }
             }
-            Self::Store { .. }
+            Self::AdmitCleanup(_)
+            | Self::DischargeCleanup(_)
+            | Self::Store { .. }
             | Self::Borrow { .. }
             | Self::Unary { .. }
             | Self::Binary { .. }

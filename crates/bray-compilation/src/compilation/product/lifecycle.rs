@@ -298,6 +298,28 @@ impl Compilation {
             };
         }
 
+        if needs.contains(CodegenLifecycleNeeds::FINALIZE)
+            && !needs.contains(CodegenLifecycleNeeds::DESTROY)
+        {
+            let ty = self
+                .semantic_value_store()?
+                .intern_type(TypeData::Named {
+                    definition,
+                    substitution,
+                })
+                .map_err(FactQueryError::SemanticValueStore)?;
+
+            if !self
+                .cleanup_allowance_callables(ty, cancellation)?
+                .is_empty()
+            {
+                // Completion can omit the finalizer call, but settlement still retires its credit.
+                needs = needs
+                    .with(CodegenLifecycleNeeds::DESTROY)
+                    .with(CodegenLifecycleNeeds::ABANDONED_DESTRUCTION);
+            }
+        }
+
         let children = match representation.value().storage() {
             DeclaredStorageShape::Structure(members) => self
                 .template_children_codegen_lifecycle_needs(

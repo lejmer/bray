@@ -137,6 +137,8 @@ fn operation_callable_instances(
         | MirOperationKind::Memory(_)
         | MirOperationKind::Text(_)
         | MirOperationKind::PanicReport(_)
+        | MirOperationKind::AdmitCleanup(_)
+        | MirOperationKind::DischargeCleanup(_)
         | MirOperationKind::Finalize(_)
         | MirOperationKind::Destroy(_)
         | MirOperationKind::Abandon { .. }

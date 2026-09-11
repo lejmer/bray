@@ -141,6 +141,7 @@ fn collect_operation_values(operation: &MirOperationKind, demands: &mut Constant
         }
         MirOperationKind::Text(text) => collect_operands(text.operands(), demands),
         MirOperationKind::PanicReport(cause) => collect_panic_values(cause, demands),
+        MirOperationKind::AdmitCleanup(_) | MirOperationKind::DischargeCleanup(_) => {}
         MirOperationKind::Async(operation) => collect_async_values(operation, demands),
         MirOperationKind::Host(operation) => collect_host_values(operation, demands),
     }
@@ -342,7 +343,9 @@ fn collect_call_values(call: &MirCall, demands: &mut ConstantDemands) {
 
 fn collect_panic_values(cause: &MirPanicCause, demands: &mut ConstantDemands) {
     match cause {
-        MirPanicCause::TaskAdmission | MirPanicCause::FrameAllocation => {}
+        MirPanicCause::TaskAdmission
+        | MirPanicCause::FrameAllocation
+        | MirPanicCause::CleanupAdmission => {}
         MirPanicCause::Message(message) | MirPanicCause::ExplicitTestFailure(message) => {
             collect_operand_value(message, demands);
         }

@@ -693,6 +693,16 @@ fn operation_parts(
 
             "aggregate"
         }
+        MirOperationKind::AdmitCleanup(ty) => {
+            parts.r#type("owner", *ty, context)?;
+
+            "admit_cleanup"
+        }
+        MirOperationKind::DischargeCleanup(ty) => {
+            parts.r#type("owner", *ty, context)?;
+
+            "discharge_cleanup"
+        }
         MirOperationKind::Construct(construction) => {
             construction_target(construction.target(), parts, context)?;
 
@@ -776,6 +786,7 @@ fn operation_parts(
             match cause {
                 MirPanicCause::TaskAdmission => parts.attribute("cause", "task_admission"),
                 MirPanicCause::FrameAllocation => parts.attribute("cause", "frame_allocation"),
+                MirPanicCause::CleanupAdmission => parts.attribute("cause", "cleanup_admission"),
                 MirPanicCause::Message(message) => parts.operand("message", message, context)?,
                 MirPanicCause::Assertion(message) => {
                     parts.attribute("cause", "assertion");

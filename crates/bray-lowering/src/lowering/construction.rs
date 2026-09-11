@@ -33,6 +33,61 @@ impl ConstructionExit {
 }
 
 impl Lowerer<'_> {
+    pub(super) fn admit_construction_cleanup(
+        &mut self,
+        expression: BoundExpressionId,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        ty: TypeId,
+    ) -> Result<MirBlockId, LoweringError> {
+        let boolean = self.representation_type(RepresentationRole::ScalarBool)?;
+
+        let admitted = self.builder.push_operation(
+            block,
+            Self::retained_source(source),
+            bray_ir::MirOperationKind::AdmitCleanup(ty),
+            Some(boolean),
+        )?;
+
+        let condition = admitted
+            .result()
+            .ok_or(LoweringError::MissingOperationResult(expression))?;
+
+        let success = self.builder.push_block(
+            Self::retained_source(source),
+            bray_ir::MirBlockKind::Ordinary,
+        )?;
+
+        let failure = self.builder.push_block(
+            Self::retained_source(source),
+            bray_ir::MirBlockKind::Ordinary,
+        )?;
+
+        self.set_terminator(
+            block,
+            Self::retained_source(source),
+            bray_ir::MirTerminatorKind::Branch {
+                condition: MirOperand::Value(condition),
+                then_edge: bray_ir::MirEdge::new(success, []),
+                else_edge: bray_ir::MirEdge::new(failure, []),
+            },
+        )?;
+
+        let report_type = self.representation_type(RepresentationRole::PanicReport)?;
+
+        let report = self.push_panic_report(
+            expression,
+            failure,
+            source,
+            bray_ir::MirPanicCause::CleanupAdmission,
+            report_type,
+        )?;
+
+        self.finish_panic_to_active_catch(expression, failure, source, report, report_type, None)?;
+
+        Ok(success)
+    }
+
     pub(super) fn default_arguments<'a>(
         arguments: impl IntoIterator<Item = (Option<u32>, &'a MirOperand)>,
     ) -> Vec<MirOperand> {

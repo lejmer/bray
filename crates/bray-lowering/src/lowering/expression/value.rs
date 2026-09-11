@@ -164,7 +164,7 @@ impl Lowerer<'_> {
         let selection = self.selected_operation(id)?.clone();
         let mut inputs: Vec<MirConstructionInput> = Vec::new();
 
-        let target = match selection {
+        let (target, new_owner) = match selection {
             SelectedOperation::Construction(selection) => {
                 for selected in selection.inputs() {
                     let (input, ordinal, ty, value) = match *selected {
@@ -217,10 +217,21 @@ impl Lowerer<'_> {
                     inputs.push(MirConstructionInput::new(input, ordinal, value));
                 }
 
-                selection.target()
+                (selection.target(), selection.new_owner_type())
             }
             _ => return Err(LoweringError::MissingSemanticSelection(id)),
         };
+
+        if let Some(ty) = new_owner
+            && self
+                .input
+                .storage_flow()
+                .reachable_exits()
+                .iter()
+                .any(|exit| exit.exit() == id.into())
+        {
+            block = self.admit_construction_cleanup(id, block, &source, ty)?;
+        }
 
         let value = self.push_value_operation(
             id,

@@ -70,6 +70,7 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<Option<ConcreteCleanupIncident>, CodegenPreparationError> {
         let bray_ir::MirOperationKind::Async(bray_ir::MirAsyncOperation::TransferCleanupIncident {
+            invocation,
             incident,
             ..
         }) = operation.kind()
@@ -86,7 +87,7 @@ impl Compilation {
 
         let ty = self.concrete_codegen_type(ty, owner.substitution(), Some(owner), cancellation)?;
 
-        let source = self.cleanup_incident_source(operation.source(), owner, cancellation)?;
+        let source = self.cleanup_incident_source(mir, *invocation, operation.source())?;
 
         self.concrete_cleanup_incident(ty, source, target, cancellation)
             .map(Some)
@@ -94,34 +95,41 @@ impl Compilation {
 
     fn cleanup_incident_source(
         &self,
+        mir: &bray_ir::MirUnit,
+        invocation: bray_ir::MirOperationId,
         source: &MirSourceAnchor,
-        owner: &ConcreteCodegenInstance,
-        cancellation: &CancellationToken,
     ) -> Result<Option<MirSourceAnchor>, CodegenPreparationError> {
-        let MirSourceAnchor::GeneratedLifecycle(reference) = source else {
-            return Ok(Some(source.clone()));
+        let invalid = || CodegenPreparationError::InvalidSpecializedMir {
+            source: source.clone(),
+            cause: bray_ir::MirUnitBuildError::InvalidCall(invocation),
         };
 
-        let Some(ty) = reference.lifecycle_type() else {
-            return Ok(Some(source.clone()));
+        let producer = mir.operation(invocation).ok_or_else(invalid)?;
+
+        let call = match producer.kind() {
+            bray_ir::MirOperationKind::Call(call)
+            | bray_ir::MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame {
+                initializer: bray_ir::MirFrameInitializer::Callable(call),
+                ..
+            }) => call,
+            _ => return Err(invalid()),
         };
 
-        let ty = self.concrete_codegen_type(ty, owner.substitution(), Some(owner), cancellation)?;
-
-        let Some((callable, ..)) = self.lifecycle_callable(
-            ty,
-            bray_symbols::TypeAssociatedLifecycleSlot::Finalizer,
-            cancellation,
-        )?
-        else {
-            return Ok(Some(source.clone()));
+        let bray_ir::MirCallTarget::Direct(callable) = call.target() else {
+            return Err(invalid());
         };
 
-        Ok(self
-            .callable_body_key(callable.instance().definition())?
-            .map(|key| {
-                MirSourceAnchor::source(bray_bound_tree::BoundNodeOrigin::source(key.source()))
-            }))
+        Ok(Some(
+            self.callable_body_key(callable.instance().definition())?
+                .map_or_else(
+                    || source.clone(),
+                    |key| {
+                        MirSourceAnchor::source(bray_bound_tree::BoundNodeOrigin::source(
+                            key.source(),
+                        ))
+                    },
+                ),
+        ))
     }
 
     pub(super) fn concrete_cleanup_incident(

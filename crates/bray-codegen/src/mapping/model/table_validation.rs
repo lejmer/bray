@@ -110,6 +110,11 @@ pub(super) fn validate_operation_mappings(
                     (
                         (instance.key().clone(), id),
                         (
+                            matches!(
+                                operation.kind(),
+                                bray_ir::MirOperationKind::AdmitCleanup(_)
+                                    | bray_ir::MirOperationKind::DischargeCleanup(_)
+                            ),
                             operation.kind().helper_references(),
                             match operation.kind() {
                                 bray_ir::MirOperationKind::Async(
@@ -136,7 +141,9 @@ pub(super) fn validate_operation_mappings(
                     )
                 })
         })
-        .filter(|(_, (helpers, _, incident, error))| !helpers.is_empty() || *incident || *error)
+        .filter(|(_, (allowance, helpers, _, incident, error))| {
+            *allowance || !helpers.is_empty() || *incident || *error
+        })
         .collect();
 
     if mappings.len() != expected.len()
@@ -145,8 +152,9 @@ pub(super) fn validate_operation_mappings(
 
             expected
                 .get(&key)
-                .is_none_or(|(references, storage, incident, error)| {
-                    *incident != mapping.incident().is_some()
+                .is_none_or(|(allowance, references, storage, incident, error)| {
+                    *allowance != mapping.cleanup_allowance().is_some()
+                        || *incident != mapping.incident().is_some()
                         || *error != mapping.returned_error_identity().is_some()
                         || references.len() != mapping.helpers().len()
                         || references
@@ -156,6 +164,11 @@ pub(super) fn validate_operation_mappings(
                                 reference != helper.reference()
                                     || !valid_frame_storage(*storage, helper)
                             })
+                })
+                || mapping.cleanup_allowance().is_some_and(|allowance| {
+                    allowance
+                        .iter()
+                        .any(|invocation| !instances.contains(invocation))
                 })
                 || mapping.incident().is_some_and(|incident| {
                     incident

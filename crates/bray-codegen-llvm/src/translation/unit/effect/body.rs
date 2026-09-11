@@ -210,6 +210,21 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 None
             }
+            MirOperationKind::AdmitCleanup(_) | MirOperationKind::DischargeCleanup(_) => {
+                let allowance = self
+                    .request
+                    .mappings()
+                    .operation(self.instance.key(), id)
+                    .and_then(bray_codegen::CodegenOperationMapping::cleanup_allowance)
+                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+                if !allowance.is_empty() {
+                    return Err(CodegenFailure::GeneratedModuleInvariant);
+                }
+
+                matches!(operation.kind(), MirOperationKind::AdmitCleanup(_))
+                    .then(|| self.types.context().bool_type().const_int(1, false).into())
+            }
             MirOperationKind::DestructorRemainder { .. } => {
                 return Err(CodegenFailure::GeneratedModuleInvariant);
             }
@@ -240,6 +255,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let (cause, message) = match cause {
             bray_ir::MirPanicCause::TaskAdmission => (
                 bray_runtime_abi::NativePanicCause::TASK_ADMISSION,
+                crate::native::string_view_type(self.types.context(), self.request.target())
+                    .const_zero()
+                    .into(),
+            ),
+            bray_ir::MirPanicCause::CleanupAdmission => (
+                bray_runtime_abi::NativePanicCause::CLEANUP_ADMISSION,
                 crate::native::string_view_type(self.types.context(), self.request.target())
                     .const_zero()
                     .into(),

@@ -1,1 +1,2 @@
+mod capacity;
 mod queries;

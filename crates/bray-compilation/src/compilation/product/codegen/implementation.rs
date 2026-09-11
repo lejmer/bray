@@ -5032,6 +5032,106 @@ public func invoke<T>(pos value: T)
     }
 
     #[test]
+    fn destructor_allowance_discharge_follows_suspended_remainder_settlement() {
+        for body in ["", "panic(\"remainder failure\");"] {
+            let source = format!(
+                r#"
+                module app;
+                struct Leaf {{ async finalize() {{ {body} }} destruct() {{}} }}
+                struct Owner {{
+                    leaf: Leaf;
+                    mut flag: i32;
+                    destruct() {{ self.flag = 7; }}
+                }}
+                async func main() {{ let owner = Owner {{ leaf = Leaf {{}}, flag = 0 }}; }}
+            "#
+            );
+
+            let (_, plan) = runtime_native_plan(&source);
+
+            let mir = plan.units().iter().flat_map(bray_codegen::CodegenUnit::mir_units).find(|mir|
+                matches!(mir.key(), MirUnitKey::GeneratedLifecycle(key) if key.role() == bray_ir::MirGeneratedLifecycleRole::Destroy)
+                && mir.frame_descriptor().is_some()
+            ).expect("the destructor remainder must require an activation");
+
+            let discharge_blocks = mir
+                .blocks_with_ids()
+                .filter_map(|(id, block)| {
+                    block
+                        .operations()
+                        .iter()
+                        .any(|operation| {
+                            matches!(
+                                mir.operation(*operation).unwrap().kind(),
+                                MirOperationKind::DischargeCleanup(_)
+                            )
+                        })
+                        .then_some(id)
+                })
+                .collect::<Vec<_>>();
+
+            assert!(!discharge_blocks.is_empty());
+
+            for block in discharge_blocks {
+                assert!(
+                    mir.reachable_blocks([block]).iter().all(|id| !matches!(
+                        mir.block(*id).unwrap().terminator().kind(),
+                        bray_ir::MirTerminatorKind::Suspend { .. }
+                    )),
+                    "discharge must follow every remainder suspension: {body}"
+                );
+
+                assert!(
+                    mir.frame_descriptor()
+                        .unwrap()
+                        .states()
+                        .iter()
+                        .any(|state| state.state().raw() != 0
+                            && mir.reachable_blocks([state.entry()]).contains(&block)),
+                    "resumed cleanup must settle before discharge: {body}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn completed_fallible_finalizer_still_settles_its_local_allowance() {
+        let (_, plan) = runtime_native_plan(
+            r#"
+            module app;
+            struct Resource {
+                finalize() -> Result<unit, unit>
+                    executes(pure, total)
+                    ensures(result matches Ok(_))
+                { return Ok(unit); }
+            }
+            func main() { let resource = Resource {}; }
+        "#,
+        );
+
+        let mir = plan.units().iter().flat_map(bray_codegen::CodegenUnit::mir_units).find(|mir|
+            matches!(mir.key(), MirUnitKey::GeneratedLifecycle(key) if key.role() == bray_ir::MirGeneratedLifecycleRole::Destroy)
+        ).expect("completion must retain whole-owner destruction");
+
+        let reachable = mir.reachable_blocks([mir.entry()]);
+
+        assert!(
+            reachable
+                .iter()
+                .any(|id| mir
+                    .block(*id)
+                    .unwrap()
+                    .operations()
+                    .iter()
+                    .any(|operation| matches!(
+                        mir.operation(*operation).unwrap().kind(),
+                        MirOperationKind::DischargeCleanup(_)
+                    ))),
+            "a completed Result finalizer still owns its uniform allowance"
+        );
+    }
+
+    #[test]
     fn source_destructor_remainder_suspends_after_its_synchronous_body() {
         let source = r#"
         module app;
@@ -5462,6 +5562,115 @@ public func invoke<T>(pos value: T)
                     .all(|artifact| !artifact.is_empty())
             );
         }
+    }
+
+    #[test]
+    fn async_finalizer_composition_preserves_direct_invocation_and_static_wrapper() {
+        let (_, plan) = runtime_native_plan(
+            r#"
+            module app;
+            struct Resource
+            {
+                async finalize() -> Result<unit, unit> { return Error(unit); }
+            }
+            static RESOURCE: Resource = Resource {};
+            async func main()
+            {
+                let resource = Resource {};
+                panic("abnormal exit");
+            }
+            "#,
+        );
+
+        let instances = plan
+            .units()
+            .iter()
+            .flat_map(bray_codegen::CodegenUnit::instances)
+            .collect::<Vec<_>>();
+
+        let source = instances
+            .iter()
+            .find_map(|instance| {
+                if !matches!(instance.key().template(), MirUnitKey::Bound(_)) {
+                    return None;
+                }
+
+                instance
+                    .mir()
+                    .operations()
+                    .iter()
+                    .any(|operation| {
+                        matches!(
+                            operation.kind(),
+                            MirOperationKind::Async(
+                                bray_ir::MirAsyncOperation::TransferCleanupIncident { .. }
+                            )
+                        )
+                    })
+                    .then_some(instance.mir())
+            })
+            .expect("source cleanup must retain the directly awaited finalizer error");
+
+        for operation in source.operations() {
+            if let MirOperationKind::Async(bray_ir::MirAsyncOperation::TransferCleanupIncident {
+                invocation,
+                ..
+            }) = operation.kind()
+            {
+                assert!(
+                    matches!(source.operation(*invocation).unwrap().kind(),
+                        MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame {
+                            initializer: bray_ir::MirFrameInitializer::Callable(call),
+                            storage: bray_ir::MirFrameStorageSource::Fresh,
+                            ..
+                        }) if matches!(call.target(), bray_ir::MirCallTarget::Direct(_))
+                    ),
+                    "the incident must identify the declared finalizer's frame construction"
+                );
+            }
+        }
+
+        assert!(
+            !source.operations().iter().any(|operation| matches!(
+                operation.kind(),
+                MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame {
+                    initializer: bray_ir::MirFrameInitializer::Lifecycle {
+                        role: bray_ir::MirGeneratedLifecycleRole::Finalize,
+                        ..
+                    },
+                    ..
+                })
+            )),
+            "source cleanup must not allocate a generated Finalize wrapper"
+        );
+
+        let static_wrapper = instances
+            .iter()
+            .find(|instance| {
+                matches!(
+                    instance.key().template(), MirUnitKey::GeneratedLifecycle(key)
+                        if key.role() == bray_ir::MirGeneratedLifecycleRole::StaticFinalize
+                )
+            })
+            .expect("static finalization must retain its construction wrapper");
+
+        assert!(
+            static_wrapper
+                .mir()
+                .operations()
+                .iter()
+                .any(|operation| matches!(
+                    operation.kind(),
+                    MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame {
+                        initializer: bray_ir::MirFrameInitializer::Lifecycle {
+                            role: bray_ir::MirGeneratedLifecycleRole::Finalize,
+                            ..
+                        },
+                        ..
+                    })
+                )),
+            "the static wrapper must still return its generated Finalize frame"
+        );
     }
 
     #[test]

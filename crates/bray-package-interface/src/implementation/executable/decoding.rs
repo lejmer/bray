@@ -617,6 +617,8 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 place: self.place()?,
             }),
             18 => Ok(MirOperationKind::Async(self.async_operation()?)),
+            24 => Ok(MirOperationKind::AdmitCleanup(self.ty()?)),
+            25 => Ok(MirOperationKind::DischargeCleanup(self.ty()?)),
             19 => Ok(MirOperationKind::DeclaredCallable(
                 MirCallableReference::new(self.callable_instance()?, self.callable_abi()?),
             )),
@@ -1728,6 +1730,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             2 => Ok(MirPanicCause::ExplicitTestFailure(self.operand()?)),
             3 => Ok(MirPanicCause::TaskAdmission),
             4 => Ok(MirPanicCause::FrameAllocation),
+            5 => Ok(MirPanicCause::CleanupAdmission),
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
     }
@@ -2713,7 +2716,7 @@ fn decoded_inline_assembly_value_types(
 
 #[cfg(test)]
 mod tests {
-    struct ProjectionSymbols(bray_symbols::AnySymbolId);
+    struct ProjectionSymbols(bray_symbols::AnySymbolId, Option<bray_symbols::TypeId>);
 
     impl crate::InterfaceSymbolResolver for ProjectionSymbols {
         fn resolve(
@@ -2736,8 +2739,10 @@ mod tests {
     impl super::super::encoding::ExecutableTemplateEncodeContext for ProjectionSymbols {
         type Error = ();
 
-        fn type_id(&mut self, _: bray_symbols::TypeId) -> Result<crate::InterfaceTypeId, ()> {
-            Err(())
+        fn type_id(&mut self, ty: bray_symbols::TypeId) -> Result<crate::InterfaceTypeId, ()> {
+            (self.1 == Some(ty))
+                .then_some(crate::InterfaceTypeId::new(0))
+                .ok_or(())
         }
         fn constant_value_id(
             &mut self,
@@ -2806,6 +2811,12 @@ mod tests {
         let values = SemanticValueStore::try_new().unwrap();
 
         let semantics = crate::InterfaceSemantics::new()
+            .with_values(
+                [],
+                symbols.1.map(|_| crate::InterfaceType::Tuple([].into())),
+                [],
+                [],
+            )
             .intern(&values, symbols)
             .unwrap();
 
@@ -2827,11 +2838,70 @@ mod tests {
     }
 
     #[test]
+    fn cleanup_allowance_operations_round_trip_symbolic_types_and_failure_cause() {
+        let values = SemanticValueStore::try_new().unwrap();
+
+        let ty = values
+            .intern_type(bray_symbols::TypeData::tuple([]))
+            .unwrap();
+
+        let owner = bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(7));
+        let mut symbols = ProjectionSymbols(owner.into(), Some(ty));
+
+        for operation in [
+            bray_ir::MirOperationKind::AdmitCleanup(ty),
+            bray_ir::MirOperationKind::DischargeCleanup(ty),
+            bray_ir::MirOperationKind::PanicReport(bray_ir::MirPanicCause::CleanupAdmission),
+        ] {
+            let bytes = super::super::encoding::encode_operation_for_test(&operation, &mut symbols)
+                .unwrap();
+
+            let (decoded, expected) = decode_test_item(&bytes, &symbols, |decoder| {
+                let decoded_type = decoder.semantics.types()[0];
+
+                let expected = match operation {
+                    bray_ir::MirOperationKind::AdmitCleanup(_) => {
+                        bray_ir::MirOperationKind::AdmitCleanup(decoded_type)
+                    }
+                    bray_ir::MirOperationKind::DischargeCleanup(_) => {
+                        bray_ir::MirOperationKind::DischargeCleanup(decoded_type)
+                    }
+                    other => other,
+                };
+
+                Ok((decoder.operation()?, expected))
+            })
+            .unwrap();
+
+            assert_eq!(decoded, expected);
+
+            assert!(
+                decode_test_item(&bytes[..bytes.len() - 1], &symbols, |decoder| decoder
+                    .operation())
+                .is_err()
+            );
+        }
+
+        let bytes = super::super::encoding::encode_operation_for_test(
+            &bray_ir::MirOperationKind::AdmitCleanup(ty),
+            &mut symbols,
+        )
+        .unwrap();
+
+        assert_eq!(
+            decode_test_item(&bytes, &ProjectionSymbols(owner.into(), None), |decoder| {
+                decoder.operation()
+            }),
+            Err(ExecutableTemplateDecodeError::Malformed)
+        );
+    }
+
+    #[test]
     fn hidden_union_member_projections_round_trip_without_field_symbol_references() {
         let variant =
             bray_symbols::UnionVariantSymbolId::from_symbol_id(bray_symbols::SymbolId::new(7));
 
-        let mut symbols = ProjectionSymbols(variant.into());
+        let mut symbols = ProjectionSymbols(variant.into(), None);
 
         for ordinal in [0, 3, u32::MAX] {
             let projection = bray_ir::MirProjectionKind::ActiveUnionPayloadElement {
@@ -2863,6 +2933,7 @@ mod tests {
             let wrong_kind = ProjectionSymbols(
                 bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(8))
                     .into(),
+                None,
             );
 
             assert_eq!(
@@ -2967,6 +3038,7 @@ mod tests {
     fn cleanup_execution_preserves_absence_checked_empty_and_retained_context() {
         let mut symbols = ProjectionSymbols(
             bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(7)).into(),
+            None,
         );
 
         let unit = bray_ir::MirUnitId::new(1);
@@ -3037,6 +3109,7 @@ mod tests {
     fn frame_entry_selection_survives_executable_encoding() {
         let mut symbols = ProjectionSymbols(
             bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(7)).into(),
+            None,
         );
 
         let unit = bray_ir::MirUnitId::new(1);
@@ -3089,6 +3162,7 @@ mod tests {
     fn abandonment_ownership_operations_preserve_operands_and_abi_in_executable_encoding() {
         let mut symbols = ProjectionSymbols(
             bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(7)).into(),
+            None,
         );
 
         let unit = bray_ir::MirUnitId::new(1);
@@ -3142,6 +3216,7 @@ mod tests {
     fn obsolete_inactive_move_and_storage_records_are_rejected() {
         let symbols = ProjectionSymbols(
             bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(7)).into(),
+            None,
         );
 
         assert_eq!(
@@ -3161,6 +3236,7 @@ mod tests {
     fn suspension_cancellation_policy_survives_executable_encoding() {
         let mut symbols = ProjectionSymbols(
             bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(7)).into(),
+            None,
         );
 
         let unit = bray_ir::MirUnitId::new(1);

@@ -143,6 +143,7 @@ pub struct CodegenOperationMapping {
     helpers: Arc<[CodegenHelperMapping]>,
     incident: Option<crate::CodegenCleanupIncident>,
     returned_error_identity: Option<[u8; 32]>,
+    cleanup_allowance: Option<Arc<[CodegenInstanceKey]>>,
 }
 
 /// Extra realization inputs required by one MIR terminator.
@@ -196,6 +197,7 @@ impl CodegenOperationMapping {
             helpers: shared_slice(helpers),
             incident: None,
             returned_error_identity: None,
+            cleanup_allowance: None,
         }
     }
 
@@ -212,6 +214,22 @@ impl CodegenOperationMapping {
     /// Returns helper symbols in semantic execution order.
     pub fn helpers(&self) -> &[CodegenHelperMapping] {
         &self.helpers
+    }
+
+    /// Retains each local invocation's allowance in semantic order, including repeated shapes.
+    /// An empty sequence means concrete selection requires no local backing.
+    pub fn with_cleanup_allowance(
+        mut self,
+        invocations: impl IntoIterator<Item = CodegenInstanceKey>,
+    ) -> Self {
+        self.cleanup_allowance = Some(shared_slice(invocations));
+
+        self
+    }
+
+    /// Returns concrete local invocations for an admission or whole-owner discharge operation.
+    pub fn cleanup_allowance(&self) -> Option<&[CodegenInstanceKey]> {
+        self.cleanup_allowance.as_deref()
     }
 
     /// Retains the concrete ownership contract for a transferred cleanup error.

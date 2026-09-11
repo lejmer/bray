@@ -63,6 +63,15 @@ impl Compilation {
                 dependencies.extend(incident.into_dependencies());
             }
 
+            if let Some(allowance) = self.concrete_operation_cleanup_allowance(
+                owner,
+                operation.kind(),
+                target,
+                cancellation,
+            )? {
+                dependencies.extend(allowance);
+            }
+
             let result_type = operation_result_type(mir, operation);
 
             for reference in operation.kind().helper_references() {

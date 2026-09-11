@@ -203,7 +203,9 @@ impl MirOperationKind {
                 }
             }
             Self::PanicReport(cause) => match cause {
-                MirPanicCause::TaskAdmission | MirPanicCause::FrameAllocation => {}
+                MirPanicCause::TaskAdmission
+                | MirPanicCause::FrameAllocation
+                | MirPanicCause::CleanupAdmission => {}
                 MirPanicCause::Message(operand) | MirPanicCause::ExplicitTestFailure(operand) => {
                     visit_operand(operand, &mut visit);
                 }
@@ -228,7 +230,10 @@ impl MirOperationKind {
                 | crate::MirHostOperation::ReportCleanupIncidents { .. }
                 | crate::MirHostOperation::StructuredShutdown { .. } => {}
             },
-            Self::AnonymousCallable(_) | Self::DeclaredCallable(_) => {}
+            Self::AnonymousCallable(_)
+            | Self::DeclaredCallable(_)
+            | Self::AdmitCleanup(_)
+            | Self::DischargeCleanup(_) => {}
         }
     }
 }

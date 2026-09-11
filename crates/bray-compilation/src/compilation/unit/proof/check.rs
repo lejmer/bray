@@ -436,6 +436,45 @@ mod tests {
     }
 
     #[test]
+    fn owner_admission_accounts_for_a_suspending_destructor_remainder() {
+        for (leaf_contract, accepted) in [("pure, total", true), ("total", false)] {
+            let source = format!(
+                r#"
+                module app;
+                struct Owner {{
+                    leaf: Leaf;
+                    destruct() executes(total) {{}}
+                }}
+                struct Leaf {{
+                    async finalize() executes({leaf_contract}) {{}}
+                    destruct() executes(pure, total) {{}}
+                }}
+                async func make(pos leaf: Leaf) -> Owner executes(total) {{
+                    return Owner {{ leaf = leaf }};
+                }}
+            "#
+            );
+
+            let compilation = compilation(&source);
+            let diagnostics = compilation.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                accepted,
+                "{source}: {diagnostics:?}"
+            );
+
+            if !accepted {
+                assert!(
+                    diagnostics.iter().any(|diagnostic| diagnostic.kind()
+                        == DiagnosticKind::CheckingUnprovenExecutionGuarantee),
+                    "{source}: {diagnostics:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn complete_catch_owner_uses_unconditional_finalizer_evidence() {
         let source = r#"
             module app;

@@ -53,7 +53,18 @@ impl Compilation {
                 let error_identity =
                     self.concrete_operation_error_identity(realization, data, cancellation)?;
 
-                if references.is_empty() && incident.is_none() && error_identity.is_none() {
+                let allowance = self.concrete_operation_cleanup_allowance(
+                    realization,
+                    data.kind(),
+                    target,
+                    cancellation,
+                )?;
+
+                if references.is_empty()
+                    && incident.is_none()
+                    && error_identity.is_none()
+                    && allowance.is_none()
+                {
                     continue;
                 }
 
@@ -76,6 +87,13 @@ impl Compilation {
 
                 let mut mapping =
                     CodegenOperationMapping::new(instance.key().clone(), operation, helpers);
+
+                if let Some(allowance) = allowance {
+                    // The immutable mapping retains the instance keys after temporary realization.
+                    mapping = mapping.with_cleanup_allowance(
+                        allowance.iter().map(|invocation| invocation.key().clone()),
+                    );
+                }
 
                 if let Some(incident) = incident {
                     mapping = mapping.with_incident(incident.into_mapping());

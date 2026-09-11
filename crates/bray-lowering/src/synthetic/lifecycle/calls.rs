@@ -30,9 +30,25 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         place: MirPlace,
         callable: (MirCallableReference, TypeId, TypeId, CallableExecution),
     ) -> Result<bray_ir::MirBlockId, C::Error> {
+        let outcome = self.cleanup_outcome(builder, block, source)?;
+
+        let completed =
+            self.resolve_lifecycle_call(builder, block, source, place, callable, &outcome)?;
+
+        self.finish_cleanup_outcome(builder, completed, source, &outcome)
+    }
+
+    pub(super) fn resolve_lifecycle_call(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: bray_ir::MirBlockId,
+        source: &MirSourceAnchor,
+        place: MirPlace,
+        callable: (MirCallableReference, TypeId, TypeId, CallableExecution),
+        outcome: &crate::cleanup_outcome::CleanupOutcome,
+    ) -> Result<bray_ir::MirBlockId, C::Error> {
         let (_, _, result, execution) = callable;
 
-        let outcome = self.cleanup_outcome(builder, block, source)?;
         let call = self.finalizer_call(builder, block, source, place, callable)?;
 
         let completed = match execution {
@@ -66,7 +82,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     completed,
                     source,
                     (operation.operation(), MirOperand::Move(result)),
-                    &outcome,
+                    outcome,
                 )?;
 
                 builder
@@ -136,7 +152,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     completed,
                     source,
                     (invocation, MirOperand::Move(result)),
-                    &outcome,
+                    outcome,
                 )?;
 
                 builder
@@ -151,7 +167,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             }
         };
 
-        self.finish_cleanup_outcome(builder, completed, source, &outcome)
+        Ok(completed)
     }
 
     fn finalizer_call(

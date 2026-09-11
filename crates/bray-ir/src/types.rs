@@ -67,6 +67,9 @@ fn collect_operation_types(operation: &MirOperationKind, types: &mut BTreeSet<Ty
         MirOperationKind::Aggregate(aggregate) => {
             collect_operands_types(aggregate.operands(), types);
         }
+        MirOperationKind::AdmitCleanup(ty) | MirOperationKind::DischargeCleanup(ty) => {
+            types.insert(*ty);
+        }
         MirOperationKind::Construct(construction) => {
             for input in construction.inputs() {
                 collect_operand_types(input.value(), types);
@@ -457,7 +460,9 @@ fn collect_conversion_types(conversion: &SelectedConversion, types: &mut BTreeSe
 
 fn collect_panic_types(cause: &MirPanicCause, types: &mut BTreeSet<TypeId>) {
     match cause {
-        MirPanicCause::TaskAdmission | MirPanicCause::FrameAllocation => {}
+        MirPanicCause::TaskAdmission
+        | MirPanicCause::FrameAllocation
+        | MirPanicCause::CleanupAdmission => {}
         MirPanicCause::Message(message) | MirPanicCause::ExplicitTestFailure(message) => {
             collect_operand_types(message, types);
         }

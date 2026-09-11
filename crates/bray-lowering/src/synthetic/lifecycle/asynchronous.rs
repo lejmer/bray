@@ -74,6 +74,15 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 .map_err(|cause| self.mir_error(source, cause));
         }
 
+        if role == bray_ir::MirGeneratedLifecycleRole::Finalize
+            && let Some(callable) = self
+                .context
+                .lifecycle_callable(ty, bray_symbols::TypeAssociatedLifecycleSlot::Finalizer)?
+            && callable.3 == bray_symbols::CallableExecution::Asynchronous
+        {
+            return self.resolve_lifecycle_call(builder, block, source, place, callable, outcome);
+        }
+
         let owner = crate::cleanup_await::CleanupOwner::for_action(
             self.context.compiler_known_symbols(),
             self.context.semantic_values(),

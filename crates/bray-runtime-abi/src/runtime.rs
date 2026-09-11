@@ -140,6 +140,8 @@ impl NativePanicCause {
     pub const TASK_ADMISSION: Self = Self(3);
     /// Storage for an inactive protected frame could not be allocated.
     pub const FRAME_ALLOCATION: Self = Self(4);
+    /// Cleanup capacity admission failed before owner construction.
+    pub const CLEANUP_ADMISSION: Self = Self(5);
 
     /// Decodes a cause defined by the current native ABI.
     pub const fn from_code(code: u32) -> Option<Self> {
@@ -150,7 +152,7 @@ impl NativePanicCause {
 
     /// Returns whether this cause is defined by the current native ABI.
     pub const fn is_known(&self) -> bool {
-        matches!(self.0, 0..=4)
+        matches!(self.0, 0..=5)
     }
 
     /// Returns the stable native ABI code.
@@ -871,11 +873,12 @@ mod tests {
             NativePanicCause::EXPLICIT_TEST_FAILURE,
             NativePanicCause::TASK_ADMISSION,
             NativePanicCause::FRAME_ALLOCATION,
+            NativePanicCause::CLEANUP_ADMISSION,
         ] {
             assert_eq!(NativePanicCause::from_code(cause.code()), Some(cause));
         }
 
-        for code in [5, u32::MAX] {
+        for code in [6, u32::MAX] {
             assert_eq!(NativePanicCause::from_code(code), None);
         }
     }

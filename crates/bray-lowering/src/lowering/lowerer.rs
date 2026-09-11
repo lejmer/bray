@@ -54,6 +54,12 @@ pub(super) struct CatchTarget {
     pub(super) scope_depth: usize,
 }
 
+/// Tracks the consuming receiver's local credit independently of remainder initialization.
+pub(super) struct ReceiverCleanupAllowance {
+    pub(super) receiver: MirPlace,
+    pub(super) guard: MirPlace,
+}
+
 pub(super) struct Lowerer<'unit> {
     pub(super) input: LoweringInput<'unit>,
     pub(super) builder: MirUnitBuilder,
@@ -72,6 +78,7 @@ pub(super) struct Lowerer<'unit> {
     pub(super) frame_states: Vec<MirFrameState>,
     pub(super) cleanup_outcome: Option<crate::cleanup_outcome::CleanupOutcome>,
     pub(super) destructor_remainder: bool,
+    pub(super) receiver_allowance: Option<ReceiverCleanupAllowance>,
     pub(super) cleanup_retained_storages: Vec<MirStorageId>,
     pub(super) construction_temporaries: Vec<super::construction::ConstructionTemporary>,
     pub(super) cleanup_failure_targets: Option<(MirBlockId, MirBlockId, bray_symbols::TypeId)>,
@@ -105,6 +112,7 @@ impl<'unit> Lowerer<'unit> {
             frame_states: Vec::new(),
             cleanup_outcome: None,
             destructor_remainder: false,
+            receiver_allowance: None,
             cleanup_retained_storages: Vec::new(),
             construction_temporaries: Vec::new(),
             cleanup_failure_targets: None,
@@ -120,6 +128,7 @@ impl<'unit> Lowerer<'unit> {
             .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
 
         self.initialize_cleanup_guards(entry, &source)?;
+        self.initialize_receiver_allowance(entry, &source)?;
 
         if let Some((reference, ty)) = self.input.static_owner().cloned() {
             self.builder.push_storage(
@@ -224,7 +233,10 @@ impl<'unit> Lowerer<'unit> {
             self.builder.set_frame_descriptor(descriptor)?;
         }
 
-        self.builder.finish(entry).map_err(Into::into)
+        let unit = self.builder.finish(entry)?;
+
+        super::cleanup::discharge_receiver_allowance(unit, self.receiver_allowance)
+            .map_err(Into::into)
     }
 
     pub(super) fn source(&self, origin: BoundNodeOrigin) -> MirSourceAnchor {
@@ -419,6 +431,16 @@ mod tests {
             },
         );
 
+        let credit = lowerer
+            .builder
+            .push_storage(source.clone(), MirStorageKind::Local, ty)
+            .unwrap();
+
+        lowerer.receiver_allowance = Some(super::ReceiverCleanupAllowance {
+            receiver: MirPlace::new(storage, [], ty),
+            guard: MirPlace::new(credit, [], ty),
+        });
+
         let parameter = lowerer
             .builder
             .push_block_parameter(consumed, source.clone(), ty)
@@ -470,17 +492,168 @@ mod tests {
         assert!(mir.block(entry).unwrap().operations().is_empty());
         assert!(mir.block(retained).unwrap().operations().is_empty());
         let bridge = mir.block(then_edge.target()).unwrap();
-        assert_eq!(bridge.operations().len(), 1);
+        assert_eq!(bridge.operations().len(), 2);
 
-        assert!(
-            matches!(mir.operation(bridge.operations()[0]).unwrap().kind(), MirOperationKind::Store {
-            destination, value: MirOperand::Immediate { value: MirImmediateValue::Boolean(false), .. }, ..
-        } if destination.storage() == flag)
-        );
+        for (operation, expected) in bridge.operations().iter().zip([credit, flag]) {
+            assert!(
+                matches!(mir.operation(*operation).unwrap().kind(), MirOperationKind::Store {
+                destination, value: MirOperand::Immediate { value: MirImmediateValue::Boolean(false), .. }, ..
+            } if destination.storage() == expected)
+            );
+        }
 
         assert!(
             matches!(bridge.terminator().kind(), MirTerminatorKind::Goto(edge) if edge.target() == consumed && matches!(edge.arguments(), [MirOperand::Value(_)]))
         );
+
+        let mir =
+            super::super::cleanup::discharge_receiver_allowance(mir, lowerer.receiver_allowance)
+                .unwrap();
+
+        for terminal in [consumed, retained] {
+            let MirTerminatorKind::Branch {
+                condition: MirOperand::Copy(guard),
+                then_edge,
+                else_edge,
+            } = mir.block(terminal).unwrap().terminator().kind()
+            else {
+                panic!("settlement must test receiver credit ownership");
+            };
+
+            assert_eq!(guard.storage(), credit);
+            let payloads = usize::from(terminal == consumed);
+            assert_eq!(then_edge.arguments().len(), payloads);
+            assert_eq!(else_edge.arguments().len(), payloads);
+
+            assert_eq!(
+                mir.block(then_edge.target()).unwrap().parameters().len(),
+                payloads
+            );
+
+            assert_eq!(
+                mir.block(else_edge.target()).unwrap().parameters().len(),
+                payloads
+            );
+
+            let discharge = mir.block(then_edge.target()).unwrap();
+
+            assert!(matches!(
+                mir.operation(discharge.operations()[0]).unwrap().kind(),
+                MirOperationKind::DischargeCleanup(_)
+            ));
+
+            assert!(
+                mir.block(else_edge.target())
+                    .unwrap()
+                    .operations()
+                    .is_empty()
+            );
+        }
+    }
+
+    #[test]
+    fn receiver_allowance_survives_remainder_and_tracks_root_republication() {
+        let fixture = lowering_fixture(96, BoundOperator::Add);
+        let mut lowerer = super::Lowerer::new(fixture.input());
+        let source = bray_ir::MirSourceAnchor::from(fixture.unit.key().source());
+        let ty = fixture.values.intern_type(TypeData::tuple([])).unwrap();
+
+        let entry = lowerer
+            .builder
+            .push_block(source.clone(), bray_ir::MirBlockKind::Ordinary)
+            .unwrap();
+
+        let receiver = lowerer
+            .builder
+            .push_storage(source.clone(), bray_ir::MirStorageKind::Local, ty)
+            .unwrap();
+
+        let credit = lowerer
+            .builder
+            .push_storage(source.clone(), bray_ir::MirStorageKind::Local, ty)
+            .unwrap();
+
+        let destination = lowerer
+            .builder
+            .push_storage(source.clone(), bray_ir::MirStorageKind::Local, ty)
+            .unwrap();
+
+        let place = bray_ir::MirPlace::new(receiver, [], ty);
+
+        lowerer.receiver_allowance = Some(super::ReceiverCleanupAllowance {
+            receiver: place.clone(),
+            guard: bray_ir::MirPlace::new(credit, [], ty),
+        });
+
+        lowerer
+            .push_operation(
+                entry,
+                source.clone(),
+                MirOperationKind::DestructorRemainder {
+                    role: bray_ir::MirGeneratedLifecycleRole::Destroy,
+                    place: place.clone(),
+                },
+                None,
+            )
+            .unwrap();
+
+        lowerer
+            .push_operation(
+                entry,
+                source.clone(),
+                MirOperationKind::Store {
+                    kind: bray_ir::MirStoreKind::Initialize,
+                    destination: place.clone(),
+                    value: bray_ir::MirOperand::Immediate {
+                        value: bray_ir::MirImmediateValue::Unit,
+                        ty,
+                    },
+                },
+                None,
+            )
+            .unwrap();
+
+        lowerer
+            .push_operation(
+                entry,
+                source.clone(),
+                MirOperationKind::Store {
+                    kind: bray_ir::MirStoreKind::Initialize,
+                    destination: bray_ir::MirPlace::new(destination, [], ty),
+                    value: bray_ir::MirOperand::Move(place),
+                },
+                None,
+            )
+            .unwrap();
+
+        lowerer
+            .set_terminator(entry, source, MirTerminatorKind::Return(None))
+            .unwrap();
+
+        let mir = lowerer.builder.finish(entry).unwrap();
+        let operations = mir.block(entry).unwrap().operations();
+
+        assert_eq!(
+            operations.len(),
+            5,
+            "remainder must not clear the independent credit"
+        );
+
+        for (index, expected) in [(2, true), (3, false)] {
+            assert!(
+                matches!(mir.operation(operations[index]).unwrap().kind(), MirOperationKind::Store {
+                destination, value: bray_ir::MirOperand::Immediate { value: bray_ir::MirImmediateValue::Boolean(value), .. }, ..
+            } if destination.storage() == credit && *value == expected)
+            );
+        }
+
+        assert!(matches!(
+            mir.operation(operations[4]).unwrap().kind(),
+            MirOperationKind::Store {
+                value: bray_ir::MirOperand::Move(_),
+                ..
+            }
+        ));
     }
 
     #[test]

@@ -28,6 +28,8 @@ pub enum MirPanicCause {
     TaskAdmission,
     /// Storage for an inactive protected frame could not be allocated.
     FrameAllocation,
+    /// Uniform cleanup storage could not be secured before local owner construction.
+    CleanupAdmission,
 }
 
 /// Typed unary operation selected during lowering.
@@ -128,6 +130,12 @@ pub enum MirOperationKind {
     Aggregate(MirAggregate),
     /// Construct a declared or compiler-known value.
     Construct(MirConstruction),
+    /// Admit the local nominal owner's cleanup allowance, returning ScalarBool success.
+    /// Child allowances and moves do not admit again.
+    AdmitCleanup(bray_symbols::TypeId),
+    /// Discharge the local nominal owner's allowance after whole-owner destruction.
+    /// Child allowances and moves are handled by their existing owners.
+    DischargeCleanup(bray_symbols::TypeId),
     /// Apply a checked semantic conversion.
     Convert {
         /// Input value.

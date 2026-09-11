@@ -542,6 +542,8 @@ const fn mir_operation_kind(operation: &bray_ir::MirOperationKind) -> &'static s
         Operation::Binary { .. } => "binary",
         Operation::Aggregate(_) => "aggregate",
         Operation::Construct(_) => "construct",
+        Operation::AdmitCleanup(_) => "admit_cleanup",
+        Operation::DischargeCleanup(_) => "discharge_cleanup",
         Operation::Convert { .. } => "convert",
         Operation::NumericConversion { .. } => "numeric_conversion",
         Operation::NullableQuery(_) => "nullable_query",

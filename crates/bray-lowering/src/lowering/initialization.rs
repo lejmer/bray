@@ -160,7 +160,7 @@ impl Lowerer<'_> {
         kind: MirOperationKind,
         result_type: Option<TypeId>,
     ) -> Result<MirOperationCommit, MirUnitBuildError> {
-        if self.initialization_guards.is_empty() {
+        if self.initialization_guards.is_empty() && self.receiver_allowance.is_none() {
             return self
                 .builder
                 .push_operation(block, source, kind, result_type);
@@ -177,6 +177,7 @@ impl Lowerer<'_> {
         });
 
         for place in moved {
+            self.set_receiver_allowance(block, &source, &place, false)?;
             self.set_storage_initialized(block, &source, &place, false)?;
         }
 
@@ -193,6 +194,10 @@ impl Lowerer<'_> {
                 phase: MirCleanupPhase::LifecycleResolution,
                 place,
             } => {
+                if !matches!(&kind, MirOperationKind::DestructorRemainder { .. }) {
+                    self.set_receiver_allowance(block, &source, place, false)?;
+                }
+
                 self.set_storage_initialized(block, &source, place, false)?;
             }
             _ => {}
@@ -214,6 +219,7 @@ impl Lowerer<'_> {
         )?;
 
         if let Some(place) = initialized {
+            self.set_receiver_allowance(block, &source, &place, true)?;
             self.set_storage_initialized(block, &source, &place, true)?;
         }
 
@@ -273,7 +279,7 @@ impl Lowerer<'_> {
         source: MirSourceAnchor,
         mut kind: MirTerminatorKind,
     ) -> Result<(), MirUnitBuildError> {
-        if !self.initialization_guards.is_empty() {
+        if !self.initialization_guards.is_empty() || self.receiver_allowance.is_some() {
             let mut moved = Vec::new();
 
             kind.for_each_input(|operand| {
@@ -285,6 +291,7 @@ impl Lowerer<'_> {
             });
 
             for place in moved {
+                self.set_receiver_allowance(block, &source, &place, false)?;
                 self.set_storage_initialized(block, &source, &place, false)?;
             }
 
@@ -304,9 +311,10 @@ impl Lowerer<'_> {
         for argument in edge.arguments() {
             argument.for_each_operand(|operand| {
                 if let MirOperand::Move(place) = operand
-                    && self
-                        .initialization_guards
-                        .contains_key(&self.ownership_place(place).storage())
+                    && (self.receiver_allowance.is_some()
+                        || self
+                            .initialization_guards
+                            .contains_key(&self.ownership_place(place).storage()))
                     && !moved.contains(place)
                 {
                     moved.push(Self::retained_place(place));
@@ -386,6 +394,7 @@ impl Lowerer<'_> {
 
             let selected = MirPlace::new(place.storage(), projections, place.ty());
 
+            self.set_receiver_allowance(bridge, source, &selected, false)?;
             self.set_storage_initialized(bridge, source, &selected, false)?;
         }
 

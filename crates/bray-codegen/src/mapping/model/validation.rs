@@ -180,6 +180,33 @@ pub fn mapped_runtime_references(
 ) -> BTreeSet<MirRuntimeReference> {
     let mut references = demanded_runtime_references(unit);
 
+    for mapping in operations {
+        if mapping
+            .cleanup_allowance()
+            .is_none_or(<[crate::CodegenInstanceKey]>::is_empty)
+        {
+            continue;
+        }
+
+        let operation = unit
+            .instances()
+            .iter()
+            .find(|instance| instance.key() == mapping.owner())
+            .and_then(|instance| instance.mir().operation(mapping.operation()));
+
+        let role = match operation.map(bray_ir::MirOperation::kind) {
+            Some(MirOperationKind::AdmitCleanup(_)) => {
+                bray_runtime_interface::RuntimeAbiRole::CleanupCapacityAdmission
+            }
+            Some(MirOperationKind::DischargeCleanup(_)) => {
+                bray_runtime_interface::RuntimeAbiRole::CleanupCapacityDischarge
+            }
+            _ => continue,
+        };
+
+        references.insert(MirRuntimeReference::new(role, unit.target().runtime_abi()));
+    }
+
     if symbols
         .iter()
         .any(|symbol| matches!(symbol.key(), CodegenSymbolKey::CleanupFrameConstructor(_)))
@@ -408,6 +435,8 @@ fn signature_passes_unsized_by_value(
 
 fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRuntimeReference>; 4] {
     match operation {
+        // Symbolic owner types may select no local allowance. Mappings supply concrete demand.
+        MirOperationKind::AdmitCleanup(_) | MirOperationKind::DischargeCleanup(_) => [None; 4],
         MirOperationKind::Call(call) => match call.target() {
             bray_ir::MirCallTarget::Runtime(runtime) => [Some(*runtime), None, None, None],
             bray_ir::MirCallTarget::Direct(_)
@@ -544,6 +573,68 @@ mod tests {
     use crate::{
         CodegenLinkage, CodegenNativeEntryMapping, CodegenSymbolMapping, mapped_runtime_references,
     };
+
+    #[test]
+    fn cleanup_runtime_demand_uses_nonempty_concrete_allowances() {
+        let fixture = codegen_request();
+        let request = fixture.request();
+        let original = &request.unit().instances()[0];
+        let entry = original.mir().entry();
+        let mut builder = bray_ir::MirUnitBuilder::from_unit(original.mir().clone());
+        let terminal = builder.take_terminator(entry).unwrap();
+
+        let operation = builder
+            .push_operation(
+                entry,
+                terminal.source().clone(),
+                bray_ir::MirOperationKind::DischargeCleanup(bray_testing::test_mir_type()),
+                None,
+            )
+            .unwrap();
+
+        builder
+            .set_terminator(entry, terminal.source().clone(), terminal.kind().clone())
+            .unwrap();
+
+        let mir = builder.finish(entry).unwrap();
+
+        let unit = crate::CodegenUnit::try_new(
+            request.unit().key().partition_policy(),
+            request
+                .unit()
+                .key()
+                .compatibility(original.key())
+                .unwrap()
+                .clone(),
+            [mir],
+        )
+        .unwrap();
+
+        let owner = unit.instances()[0].key();
+        let base = super::demanded_runtime_references(&unit);
+
+        assert!(
+            !base
+                .iter()
+                .any(|reference| reference.role() == RuntimeAbiRole::CleanupCapacityDischarge)
+        );
+
+        for invocations in [vec![], vec![owner.clone(), owner.clone()]] {
+            let mapping =
+                crate::CodegenOperationMapping::new(owner.clone(), operation.operation(), [])
+                    .with_cleanup_allowance(invocations.clone());
+
+            assert_eq!(mapping.cleanup_allowance(), Some(invocations.as_slice()));
+            let references = mapped_runtime_references(&unit, &[mapping], &[]);
+
+            assert_eq!(
+                references
+                    .iter()
+                    .any(|reference| reference.role() == RuntimeAbiRole::CleanupCapacityDischarge),
+                !invocations.is_empty(),
+            );
+        }
+    }
 
     #[test]
     fn callback_runtime_roles_follow_explicit_native_entry() {
