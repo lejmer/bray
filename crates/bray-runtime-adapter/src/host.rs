@@ -110,3 +110,19 @@ native_adapter! {
         implementation::bray_runtime_substrate_shutdown()
     }
 }
+
+native_adapter! {
+    pub extern "C" fn bray_runtime_cleanup_capacity_domain_release(
+        binding: &mut bray_runtime_abi::NativeCleanupCapacityBinding,
+    ) {
+        implementation::bray_runtime_cleanup_capacity_domain_release(binding)
+    }
+}
+
+native_adapter! {
+    pub extern "C" fn bray_runtime_cleanup_capacity_domain_formation(
+        destination: &mut bray_runtime_abi::NativeCleanupCapacityBinding,
+    ) -> bray_runtime_abi::NativeRuntimeStatus {
+        bray_runtime::native::implementation::bray_runtime_cleanup_capacity_domain_formation(destination)
+    }
+}

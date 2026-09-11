@@ -1,6 +1,7 @@
 #[macro_use]
 mod macros;
 mod callback;
+mod capacity;
 mod entry;
 mod event;
 mod export;

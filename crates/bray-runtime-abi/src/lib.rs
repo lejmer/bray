@@ -5,6 +5,7 @@
 #[cfg(test)]
 #[macro_use]
 mod layout;
+mod capacity;
 mod catalog;
 mod cleanup;
 mod frame;
@@ -18,6 +19,10 @@ mod signature;
 pub mod symbols;
 mod temporal;
 
+pub use capacity::{
+    NativeCleanupCapacityBinding, NativeCleanupCapacityCallbacks, NativeCleanupCapacityMetadata,
+    NativeCleanupCapacityMetadataProvider, NativeCleanupStorage,
+};
 pub use cleanup::{
     NativeCleanupExecution, NativeTaskTerminalCleanup, NativeValueCleanup,
     NativeValueCleanupCallback,

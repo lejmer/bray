@@ -570,6 +570,24 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: [CreateFrame]
             }
+            CleanupCapacityDomainFormation {
+                "Create an explicitly shared cleanup-capacity service before provider formation.", "cleanup_capacity_domain_formation",
+                native: (CLEANUP_CAPACITY_DOMAIN_FORMATION_SYMBOL = "bray_runtime_cleanup_capacity_domain_formation", [Pointer] -> U32),
+                call_hook: (),
+                compiler: C [Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: (), host_control: false,
+                capabilities: [],
+                effects: [ControlProductHost]
+            }
+            CleanupCapacityDomainRelease {
+                "Release one cleanup-capacity service binding after handing it to providers.", "cleanup_capacity_domain_release",
+                native: (CLEANUP_CAPACITY_DOMAIN_RELEASE_SYMBOL = "bray_runtime_cleanup_capacity_domain_release", [Pointer] -> Void),
+                call_hook: (),
+                compiler: C [Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: (), host_control: false,
+                capabilities: [],
+                effects: [ControlProductHost]
+            }
             CleanupCapacityAdmission {
                 "Secure a complete generated cleanup bundle before owner construction.", "cleanup_capacity_admission",
                 native: (CLEANUP_CAPACITY_ADMISSION_SYMBOL = "bray_runtime_cleanup_capacity_admission", [Usize, Pointer] -> U32),
