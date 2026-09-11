@@ -7,6 +7,7 @@ mod asynchronous;
 mod atomic;
 mod behavior;
 mod body_semantics;
+mod cleanup_admission;
 mod constant;
 mod context;
 mod contract;
@@ -46,6 +47,7 @@ pub use asynchronous::{
     owned_cleanup_type_dependencies,
 };
 pub use atomic::atomic_target_representation;
+pub use cleanup_admission::prove_cleanup_admission_free;
 pub use constant::{
     ArrayLengthError, CheckedConstantTerms, CheckedConstantTermsBuildError, ConstantCallRequest,
     ConstantCallResolution, ConstantCallResolver, ConstantEvaluationInput,

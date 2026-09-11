@@ -114,7 +114,16 @@ impl Compilation {
                     .access_entries()
                     .map(|(_, access)| access.reached_type()),
             )
-            .chain(cleanup_calls.values().copied());
+            .chain(cleanup_calls.values().copied())
+            // Returned constructions may have no local storage owner, but still admit local cleanup.
+            .chain(bound.tree().expressions().filter_map(|(expression, _)| {
+                match expressions.selections().expression(expression) {
+                    Some(bray_bound_tree::SemanticSelection::Operation(
+                        bray_bound_tree::SelectedOperation::Construction(construction),
+                    )) => construction.new_owner_type(),
+                    _ => None,
+                }
+            }));
 
         let cleanup_dependencies = crate::compilation::checker::checker_result(
             match bray_checker::owned_cleanup_type_dependencies(request, cleanup_roots) {

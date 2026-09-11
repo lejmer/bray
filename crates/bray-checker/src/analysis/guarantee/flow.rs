@@ -78,36 +78,41 @@ impl GuaranteeDomain<'_> {
             return Ok(None);
         }
 
+        let Some(mut admission) = self.construction_admission_dependencies(operation.kind())?
+        else {
+            return Ok(None);
+        };
+
         let preserved = match property {
             ExecutionProperty::Pure => self.pure_operations,
             ExecutionProperty::Total => self.total_operations,
         };
 
-        if preserved.contains(&operation.id()) {
-            return Ok(Some(Vec::new()));
-        }
-
-        if let AnalysisOperationKind::Call {
+        let execution = if preserved.contains(&operation.id()) {
+            Some(Vec::new())
+        } else if let AnalysisOperationKind::Call {
             expression,
             phase: AnalysisCallPhase::Attempt,
         } = operation.kind()
         {
-            return self
-                .call_dependencies(expression, property, state)
-                .map_err(Into::into);
-        }
-
-        if let AnalysisOperationKind::ScopeExit {
+            self.call_dependencies(expression, property, state)?
+        } else if let AnalysisOperationKind::ScopeExit {
             block,
             exit,
             phase: super::super::model::AnalysisScopeExitPhase::LifecycleResolution,
             ..
         } = operation.kind()
         {
-            return self.cleanup_dependencies(block, exit, property, state);
-        }
+            self.cleanup_dependencies(block, exit, property, state)?
+        } else {
+            None
+        };
 
-        Ok(None)
+        Ok(execution.map(|execution| {
+            admission.extend(execution);
+
+            admission
+        }))
     }
 
     pub(super) fn transfer_operation(
@@ -189,6 +194,12 @@ impl GuaranteeDomain<'_> {
                         ) =>
                     {
                         self.suspension_mutations(expression)?
+                    }
+                    AnalysisOperationKind::Bound(_)
+                        if self.pure_operations.contains(&operation.id()) =>
+                    {
+                        // Admission changes runtime capacity without mutating observed program values.
+                        Some(Vec::new())
                     }
                     _ => None,
                 };

@@ -372,6 +372,52 @@ mod tests {
     use bray_diagnostics::DiagnosticKind;
 
     #[test]
+    fn returned_owner_construction_keeps_admission_effects_despite_completion() {
+        for guarantee in ["pure", "total"] {
+            for (finalizer, accepted) in [
+                (
+                    "finalize() -> Result<unit, unit> when(!self.pending) { executes(pure, total) ensures(result matches Ok(_)) } { if !self.pending { return Ok(unit); } return Error(unit); }",
+                    false,
+                ),
+                ("finalize() executes(pure, total) {}", true),
+            ] {
+                let source = format!(
+                    r#"
+                    module app;
+                    struct Resource
+                    {{
+                        pending: bool;
+                        {finalizer}
+                        destruct() executes(pure, total) {{}}
+                    }}
+                    func make() -> Resource executes({guarantee})
+                    {{
+                        return Resource {{ pending = false }};
+                    }}
+                    "#
+                );
+
+                let compilation = compilation(&source);
+                let diagnostics = compilation.check_diagnostics();
+
+                assert_eq!(
+                    !diagnostics.has_errors(),
+                    accepted,
+                    "{source}: {diagnostics:?}"
+                );
+
+                if !accepted {
+                    assert!(
+                        diagnostics.iter().any(|diagnostic| diagnostic.kind()
+                            == DiagnosticKind::CheckingUnprovenExecutionGuarantee),
+                        "{source}: {diagnostics:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn task_admission_rejection_retains_the_inactive_frame_for_caller_cleanup() {
         let compilation = compilation(
             r#"

@@ -164,13 +164,18 @@ fn finalizer_completion_evidence(
     .map_err(CheckerInfrastructureError::SemanticValueStore)
 }
 
-fn completion_evidence_with(
+#[expect(
+    clippy::too_many_arguments,
+    reason = "shared execution evidence keeps selected contracts, normalization and proof context explicit"
+)]
+pub(crate) fn execution_evidence_with(
     values: &SemanticValueStore,
     conditions: &CallableConditionSet,
     certified: Option<&[CallableProofObligation]>,
     arguments: &[ConstantTermId],
-    success: Option<UnionVariantSymbolId>,
     assumptions: &[(ConstantTermId, bool)],
+    properties: &[ExecutionProperty],
+    remaining: &mut usize,
     normalize: &mut impl FnMut(
         ConstantTermId,
         &[ConstantTermId],
@@ -195,17 +200,16 @@ fn completion_evidence_with(
             }),
     );
 
-    let mut remaining = MAX_CONDITION_STEPS;
     let mut evidence = Vec::new();
 
-    for property in [ExecutionProperty::Pure, ExecutionProperty::Total] {
+    for property in properties.iter().copied() {
         let Some(coverage) = execution_property_coverage(
             values,
             &provided,
             property,
             assumptions,
             &mut |condition| normalize(condition, arguments),
-            &mut remaining,
+            remaining,
         )?
         else {
             return Ok(None);
@@ -213,6 +217,37 @@ fn completion_evidence_with(
 
         evidence.extend(coverage.into_iter().map(CallableProofObligation::Execution));
     }
+
+    Ok(Some(evidence))
+}
+
+fn completion_evidence_with(
+    values: &SemanticValueStore,
+    conditions: &CallableConditionSet,
+    certified: Option<&[CallableProofObligation]>,
+    arguments: &[ConstantTermId],
+    success: Option<UnionVariantSymbolId>,
+    assumptions: &[(ConstantTermId, bool)],
+    normalize: &mut impl FnMut(
+        ConstantTermId,
+        &[ConstantTermId],
+    ) -> Result<Option<ConstantTermId>, SemanticValueStoreError>,
+) -> Result<Option<Vec<CallableProofObligation>>, SemanticValueStoreError> {
+    let mut remaining = MAX_CONDITION_STEPS;
+
+    let Some(mut evidence) = execution_evidence_with(
+        values,
+        conditions,
+        certified,
+        arguments,
+        assumptions,
+        &[ExecutionProperty::Pure, ExecutionProperty::Total],
+        &mut remaining,
+        normalize,
+    )?
+    else {
+        return Ok(None);
+    };
 
     let Some(success) = success else {
         return Ok(Some(evidence));

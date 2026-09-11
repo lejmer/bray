@@ -439,6 +439,16 @@ impl SelectedConstruction {
         self.result_type
     }
 
+    /// Returns the owner introduced here. Type-form calls return an already constructed owner.
+    pub const fn new_owner_type(&self) -> Option<TypeId> {
+        match self.target {
+            ConstructionTarget::Struct(_) | ConstructionTarget::UnionVariant(_) => {
+                Some(self.result_type)
+            }
+            ConstructionTarget::TypeForm { .. } => None,
+        }
+    }
+
     /// Returns supplied inputs in source order followed by defaults in declaration order.
     pub fn inputs(&self) -> &[SelectedConstructionInput] {
         &self.inputs
