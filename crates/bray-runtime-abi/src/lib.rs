@@ -9,6 +9,7 @@ mod capacity;
 mod catalog;
 mod cleanup;
 mod frame;
+mod panic;
 mod platform;
 mod process;
 mod product;
@@ -31,6 +32,7 @@ pub use cleanup::{
 pub use frame::{
     NativeFrameEntry, NativeFrameMetadata, NativeFrameMetadataCallback, NativeFrameMetadataProvider,
 };
+pub use panic::{NativePanicMessage, NativePanicPrimary};
 pub use platform::{
     NativePlatformEnvironmentEntry, NativePlatformEnvironmentList, NativePlatformFileMetadata,
     NativePlatformFileOptions, NativePlatformPath, NativePlatformSpanList, NativePlatformStatus,
