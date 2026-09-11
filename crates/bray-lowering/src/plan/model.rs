@@ -12,6 +12,8 @@ pub enum LoweringPlanKind {
     Suspension,
     /// One future or task operation.
     TaskOperation,
+    /// One old-value cleanup and replacement installation.
+    Replacement,
     /// One lexical scope exit.
     ScopeExit,
     /// One initialized storage disposition.
@@ -29,6 +31,7 @@ impl LoweringPlanKind {
             Self::Analysis => "analysis",
             Self::Suspension => "suspension",
             Self::TaskOperation => "task_operation",
+            Self::Replacement => "replacement",
             Self::ScopeExit => "scope_exit",
             Self::StorageDisposition => "storage_disposition",
             Self::CancellationPhase => "cancellation_phase",

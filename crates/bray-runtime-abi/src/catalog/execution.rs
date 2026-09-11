@@ -210,6 +210,24 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: [PropagateCancellation]
             }
+            CleanupShieldEnter {
+                "Defer cancellation delivery during current-run cleanup.", "cleanup_shield_enter",
+                native: (CLEANUP_SHIELD_ENTER_SYMBOL = "bray_runtime_cleanup_shield_enter", [] -> Void),
+                call_hook: (),
+                compiler: Bray [] -> Void,
+                owner: Cancellation, availability: All, bootstrap: (), host_control: false,
+                capabilities: [],
+                effects: []
+            }
+            CleanupShieldLeave {
+                "Restore current-run cancellation delivery after cleanup.", "cleanup_shield_leave",
+                native: (CLEANUP_SHIELD_LEAVE_SYMBOL = "bray_runtime_cleanup_shield_leave", [] -> Void),
+                call_hook: (),
+                compiler: Bray [] -> Void,
+                owner: Cancellation, availability: All, bootstrap: (), host_control: false,
+                capabilities: [],
+                effects: []
+            }
             JoinRegistration {
                 "Register one observer for a task terminal state.", "join_registration",
                 native: (JOIN_REGISTRATION_SYMBOL = "bray_runtime_join_registration", [U64, Pointer, Usize] -> RunOutcome),
@@ -335,6 +353,15 @@ macro_rules! runtime_role_catalog {
                 owner: Host, availability: All, bootstrap: ("panic_report_destruction"), host_control: false,
                 capabilities: [],
                 effects: [DestroyPanicReport]
+            }
+            PanicReportSuppression {
+                "Attach an owned cleanup incident to the primary panic report.", "panic_report_suppression",
+                native: (PANIC_REPORT_SUPPRESSION_SYMBOL = "bray_runtime_panic_report_suppression", [Usize, Usize] -> Usize),
+                call_hook: (),
+                compiler: Bray [PanicReport, PanicReport] -> PanicReport,
+                owner: Host, availability: All, bootstrap: ("panic_report_suppression"), host_control: false,
+                capabilities: [],
+                effects: [TransferCleanupIncident]
             }
             EntryFailureReporting {
                 "Report one recoverable entrypoint failure value before host resolution.", "entry_failure_reporting",

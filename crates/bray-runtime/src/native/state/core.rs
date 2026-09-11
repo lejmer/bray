@@ -35,22 +35,43 @@ pub(in crate::native) struct NativeRuntime {
     pub(in crate::native) worker: Option<Arc<super::super::workers::WorkerControl>>,
     pub(in crate::native) core: Arc<NativeRuntimeCore>,
     #[cfg(test)]
-    pub(in crate::native) _test_isolation: Option<std::sync::MutexGuard<'static, ()>>,
+    pub(in crate::native) _test_isolation: Option<TestRuntimeIsolation>,
 }
 
 #[cfg(test)]
 static NATIVE_RUNTIME_TEST_ISOLATION: Mutex<()> = Mutex::new(());
 
 #[cfg(test)]
-pub(in crate::native) fn test_runtime_isolation() -> Option<std::sync::MutexGuard<'static, ()>> {
-    if NATIVE_RUNTIME.with(|runtime| runtime.borrow().is_some()) {
+thread_local! {
+    static HOLDS_TEST_RUNTIME_ISOLATION: Cell<bool> = const { Cell::new(false) };
+}
+
+#[cfg(test)]
+pub(in crate::native) struct TestRuntimeIsolation {
+    _guard: std::sync::MutexGuard<'static, ()>,
+}
+
+#[cfg(test)]
+impl Drop for TestRuntimeIsolation {
+    fn drop(&mut self) {
+        HOLDS_TEST_RUNTIME_ISOLATION.set(false);
+    }
+}
+
+#[cfg(test)]
+pub(in crate::native) fn test_runtime_isolation() -> Option<TestRuntimeIsolation> {
+    if HOLDS_TEST_RUNTIME_ISOLATION.get()
+        || NATIVE_RUNTIME.with(|runtime| runtime.borrow().is_some())
+    {
         None
     } else {
-        Some(
-            NATIVE_RUNTIME_TEST_ISOLATION
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner),
-        )
+        let guard = NATIVE_RUNTIME_TEST_ISOLATION
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        HOLDS_TEST_RUNTIME_ISOLATION.set(true);
+
+        Some(TestRuntimeIsolation { _guard: guard })
     }
 }
 
@@ -64,6 +85,27 @@ pub(crate) struct NativeRuntimeCore {
     pub(in crate::native) task_capacity: NonZeroUsize,
     pub(in crate::native) next_task: AtomicU64,
     pub(in crate::native) cleanup_reports: CleanupReportSink,
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn callback_isolation_allows_nested_runtime_creation() {
+        let isolation = super::test_runtime_isolation();
+
+        assert!(isolation.is_some());
+        assert!(super::test_runtime_isolation().is_none());
+
+        let retained = super::retain_runtime()
+            .unwrap_or_else(|status| panic!("nested runtime must initialize: {status:?}"));
+
+        retained.release();
+        assert!(super::test_runtime_isolation().is_none());
+
+        drop(isolation);
+
+        assert!(super::test_runtime_isolation().is_some());
+    }
 }
 
 #[derive(Clone)]
@@ -223,9 +265,7 @@ fn initialize_with_capabilities(
         }
 
         #[cfg(test)]
-        let test_isolation = NATIVE_RUNTIME_TEST_ISOLATION
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let test_isolation = test_runtime_isolation();
 
         let Ok(thread) = RuntimeThreadScope::enter_or_reuse() else {
             return NativeRuntimeStatus::RUNTIME_FAILURE;
@@ -264,7 +304,7 @@ fn initialize_with_capabilities(
             worker: None,
             core,
             #[cfg(test)]
-            _test_isolation: Some(test_isolation),
+            _test_isolation: test_isolation,
         })));
 
         NativeRuntimeStatus::SUCCESS

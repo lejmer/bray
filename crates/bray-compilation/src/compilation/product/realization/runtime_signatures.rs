@@ -71,12 +71,20 @@ impl Compilation {
             CodegenResultMapping::Void
         };
 
-        Ok(CodegenCallableSignature::new(
+        let signature = CodegenCallableSignature::new(
             [CodegenParameterMapping::direct(pointer, None, [])],
             result,
             CallableAbi::Bray,
             false,
-        ))
+        );
+
+        Ok(
+            if matches!(reference, MirHelperReference::StaticFinalize(_)) {
+                signature
+            } else {
+                signature.with_panic_report_context()
+            },
+        )
     }
 }
 

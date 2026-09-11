@@ -39,6 +39,8 @@ pub use external_tool::{
     ExternalToolInvocationBuildError, ExternalToolOutput, ExternalToolProcessBudget,
     ExternalToolResponseFile, ExternalToolResponseFileBuildError,
     ExternalToolResponseFileOperation, ExternalToolStream, NativeExternalToolHost,
+    ResponseFileEncoding, ResponseFileEncodingError, encode_response_arguments,
+    response_file_reference,
 };
 pub use input::{
     LinkInput, LinkInputBuildError, LinkInputId, LinkInputKind, LinkInputMode, LinkInputProvenance,

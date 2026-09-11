@@ -294,11 +294,13 @@ fn collect_terminator_types(terminator: &MirTerminatorKind, types: &mut BTreeSet
             collect_cleanup_edge_types(edges.panicked(), types);
             collect_cleanup_edge_types(edges.cancelled(), types);
         }
-        MirTerminatorKind::CheckCallPanic {
+        MirTerminatorKind::CheckCallOutcome {
             completed,
             panicked,
+            cancelled,
         } => {
             collect_edge_types(completed, types);
+            collect_edge_types(cancelled, types);
             types.insert(panicked.report_type());
         }
         MirTerminatorKind::BeginCleanup(edge) | MirTerminatorKind::ContinueCleanup(edge) => {

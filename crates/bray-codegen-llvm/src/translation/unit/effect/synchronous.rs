@@ -126,7 +126,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let cancelled = llvm(self.builder.build_int_compare(
             IntPredicate::EQ,
             report,
-            usize.const_int(super::super::panic::CANCELLATION_OUTCOME_SENTINEL, false),
+            usize.const_int(crate::translation::CANCELLATION_OUTCOME_SENTINEL, false),
             "root.cancelled",
         ))?;
 

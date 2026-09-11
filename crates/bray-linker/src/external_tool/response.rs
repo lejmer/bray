@@ -1,13 +1,18 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+/// Quoting and text encoding accepted by the selected external tool.
 #[derive(Clone, Copy)]
-pub(crate) enum ResponseFileEncoding {
+pub enum ResponseFileEncoding {
+    /// UTF-8 text with POSIX-style argument quoting.
     Utf8,
+    /// UTF-16 little-endian text with Microsoft argument quoting and a byte-order mark.
     Utf16LittleEndian,
 }
 
-pub(crate) fn encode_response_arguments(
+/// Encodes complete arguments without splitting paths or interpreting shell syntax.
+/// Rejects non-Unicode arguments and embedded line breaks or NUL characters.
+pub fn encode_response_arguments(
     arguments: &[OsString],
     encoding: ResponseFileEncoding,
 ) -> Result<Vec<u8>, ResponseFileEncodingError> {
@@ -44,7 +49,8 @@ pub(crate) fn response_file_path(output: &Path, suffix: &str) -> PathBuf {
     path.into()
 }
 
-pub(crate) fn response_file_reference(path: &Path) -> OsString {
+/// Returns one native argument referring to the response file at `path`.
+pub fn response_file_reference(path: &Path) -> OsString {
     let mut argument = OsString::from("@");
 
     argument.push(path);
@@ -141,9 +147,12 @@ fn validate_argument(argument: &str) -> Result<(), ResponseFileEncodingError> {
     Ok(())
 }
 
+/// An argument that cannot be represented by the selected response-file format.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum ResponseFileEncodingError {
+pub enum ResponseFileEncodingError {
+    /// An argument is not valid Unicode.
     NonUnicodeArgument,
+    /// An argument contains a line break or NUL character.
     UnsupportedArgument,
 }
 

@@ -254,7 +254,10 @@ impl Compilation {
             .iter()
             .any(|entry| entry.root() == RootExecution::Synchronous)
         {
-            runtime_roles.insert(RuntimeAbiRole::PanicPropagation);
+            runtime_roles.extend([
+                RuntimeAbiRole::PanicPropagation,
+                RuntimeAbiRole::CurrentRunCancellationPropagation,
+            ]);
         }
 
         let synchronous_host_runtime = (kind == ProductKind::Test && !entries.is_empty())

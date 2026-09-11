@@ -15,6 +15,7 @@ where
         ControlFlowGraphBuildOutcome::InfrastructureFailure(error) => {
             return CheckerOutcome::InfrastructureFailure(error);
         }
+        ControlFlowGraphBuildOutcome::UpstreamFailure(error) => match error {},
     };
 
     if !graph.is_well_formed() {

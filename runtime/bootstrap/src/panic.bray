@@ -42,6 +42,7 @@ trusted internal func panic_report_construction(
     };
 
     let bytes: usize = internal bray.runtime.bootstrap.heap.allocation_bytes<PanicReportData>();
+
     let allocation: RawPointer<u8> = trusted internal bray.runtime.bootstrap.heap.allocate(
         bytes,
         align = std.memory.align_of<PanicReportData>()
@@ -66,6 +67,7 @@ trusted internal func panic_report_construction(
     trusted write_opaque<PanicReportData>(
         report,
         {
+            next_incident = none,
             cause = cause,
             source_present = source_present,
             source_identity = source_identity,
@@ -91,18 +93,32 @@ trusted internal func panic_reporting(pos payload: usize) -> u32
         return STATUS_INVALID_ARGUMENT;
     }
 
-    let report: RawPointer<PanicReportData> = trusted panic_report_from_payload(payload);
-    let value: PanicReportData = trusted read_opaque<PanicReportData>(report);
-    let report_status: u32 = trusted substrate_panic_reporting(
-        value.cause,
-        source_present = value.source_present,
-        source_identity = value.source_identity,
-        source_start = value.source_start,
-        source_end = value.source_end,
-        source_version = value.source_version,
-        message = value.message,
-        message_length = value.message_length,
-    );
+    let mut current: usize? = payload;
+    let mut report_status: u32 = STATUS_SUCCESS;
+
+    while let ?address = current
+    {
+        let report: RawPointer<PanicReportData> = trusted panic_report_from_payload(address);
+        let value: PanicReportData = trusted read_opaque<PanicReportData>(report);
+
+        let status: u32 = trusted substrate_panic_reporting(
+            value.cause,
+            source_present = value.source_present,
+            source_identity = value.source_identity,
+            source_start = value.source_start,
+            source_end = value.source_end,
+            source_version = value.source_version,
+            message = value.message,
+            message_length = value.message_length,
+        );
+
+        if report_status == STATUS_SUCCESS
+        {
+            report_status = status;
+        }
+
+        current = value.next_incident;
+    }
 
     let destruction_status: u32 = trusted destroy_panic_report(payload);
 
@@ -120,6 +136,36 @@ trusted internal func panic_report_destruction(pos payload: usize) -> u32
     return trusted destroy_panic_report(payload);
 }
 
+@abi(c)
+trusted internal func panic_report_suppression(pos primary: usize, pos incident: usize) -> usize
+    uses(intrinsic)
+{
+    if primary == 0 || incident == 0 || primary == incident
+    {
+        trusted core.target.abort();
+    }
+
+    let mut current: usize = primary;
+
+    loop
+    {
+        let report: RawPointer<PanicReportData> = trusted panic_report_from_payload(current);
+        let mut value: PanicReportData = trusted read_opaque<PanicReportData>(report);
+
+        if let ?next = value.next_incident
+        {
+            current = next;
+        }
+        else
+        {
+            value.next_incident = incident;
+            trusted write_opaque<PanicReportData>(report, value);
+
+            return primary;
+        }
+    }
+}
+
 trusted internal func destroy_panic_report(pos payload: usize) -> u32
 {
     if payload == 0
@@ -127,6 +173,18 @@ trusted internal func destroy_panic_report(pos payload: usize) -> u32
         return STATUS_INVALID_ARGUMENT;
     }
 
+    let mut current: usize? = payload;
+
+    while let ?address = current
+    {
+        current = trusted destroy_panic_incident(address);
+    }
+
+    return STATUS_SUCCESS;
+}
+
+trusted internal func destroy_panic_incident(pos payload: usize) -> usize?
+{
     let report: RawPointer<PanicReportData> = trusted panic_report_from_payload(payload);
     let value: PanicReportData = trusted read_opaque<PanicReportData>(report);
 
@@ -143,7 +201,7 @@ trusted internal func destroy_panic_report(pos payload: usize) -> u32
 
     let _: u64 = core.atomic.fetch_add<u64, 0>(&CONSUMED_REPORTS, value = 1);
 
-    return STATUS_SUCCESS;
+    return value.next_incident;
 }
 
 @link(name = "bray_runtime_callback", kind = system)

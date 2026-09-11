@@ -143,7 +143,7 @@ impl Lowerer<'_> {
                 *expression,
                 operand,
                 operand_type,
-                self.later_evaluation_may_check_call_panic(later_expressions)?,
+                self.later_evaluation_may_change_block(later_expressions)?,
             )?;
 
             arguments.push((runtime_index, operand, operand_type));
@@ -186,7 +186,7 @@ impl Lowerer<'_> {
         let result_type = self.expression_type(id)?;
         let result = kind.produces_value().then_some(result_type);
 
-        if let bray_bound_tree::CheckedMemoryOperationKind::InlineAssembly {
+        if let CheckedMemoryOperationKind::InlineAssembly {
             inputs: inputs_type,
             output: Some(output_type),
             labels: Some(_),
@@ -248,14 +248,14 @@ impl Lowerer<'_> {
 
         if matches!(
             kind,
-            bray_bound_tree::CheckedMemoryOperationKind::CatastrophicAbort
-                | bray_bound_tree::CheckedMemoryOperationKind::UnreachableTermination
-                | bray_bound_tree::CheckedMemoryOperationKind::InlineAssembly { output: None, .. }
+            CheckedMemoryOperationKind::CatastrophicAbort
+                | CheckedMemoryOperationKind::UnreachableTermination
+                | CheckedMemoryOperationKind::InlineAssembly { output: None, .. }
         ) {
             self.set_terminator(
                 current,
                 Self::retained_source(&source),
-                bray_ir::MirTerminatorKind::Unreachable,
+                MirTerminatorKind::Unreachable,
             )?;
 
             return Ok(LoweredExpression::terminated(source));
@@ -455,15 +455,16 @@ impl Lowerer<'_> {
                 [],
             );
 
-            self.push_operation(
+            let (completed, _) = self.push_checked_call(
+                expression,
                 alternate,
                 Self::retained_source(source),
-                MirOperationKind::Call(call),
-                Some(callable.result()),
+                call,
+                callable.result(),
             )?;
 
             self.set_terminator(
-                alternate,
+                completed,
                 Self::retained_source(source),
                 MirTerminatorKind::Unreachable,
             )?;

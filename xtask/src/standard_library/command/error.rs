@@ -24,6 +24,15 @@ pub(in crate::standard_library) enum BuildError {
     OsBindings(String),
     UnicodeData(String),
     NativeArchive(String),
+    ResponseFileEncoding {
+        path: PathBuf,
+        source: bray_linker::ResponseFileEncodingError,
+    },
+    ToolLaunch {
+        action: &'static str,
+        program: PathBuf,
+        source: std::io::Error,
+    },
     NativeSymbolInspection(crate::native_symbols::InspectionError),
     PlatformRoleExports {
         family: bray_runtime_interface::PlatformServiceFamily,
@@ -176,11 +185,22 @@ impl fmt::Display for BuildError {
                 "{family:?} provider role exports do not match the catalog: {error}"
             ),
             Self::NativeArchive(error) => {
-                write!(
-                    formatter,
-                    "platform ABI archive could not be built: {error}"
-                )
+                write!(formatter, "native archive could not be built: {error}")
             }
+            Self::ResponseFileEncoding { path, source } => write!(
+                formatter,
+                "could not encode response file {}: {source:?}",
+                path.display()
+            ),
+            Self::ToolLaunch {
+                action,
+                program,
+                source,
+            } => write!(
+                formatter,
+                "{action}: could not run {}: {source}",
+                program.display()
+            ),
             Self::TemporaryDirectory(error) => {
                 write!(formatter, "could not create staging directory: {error}")
             }

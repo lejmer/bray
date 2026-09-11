@@ -1,5 +1,6 @@
 use bray_bound_tree::{
-    BoundCallResult, BoundExpression, BoundExpressionId, SemanticSelection, StorageIdentity,
+    BoundCallResult, BoundExpression, BoundExpressionId, BoundOperator,
+    BoundStructuredExpressionKind, SemanticSelection, StorageIdentity,
 };
 use bray_compiler_known::ImplementationHook;
 use bray_ir::{MirOperand, MirOperationKind, MirPlace, MirStorageKind, MirStoreKind};
@@ -10,7 +11,7 @@ use super::super::super::block::LoweredExpression;
 use super::super::super::lowerer::Lowerer;
 
 impl Lowerer<'_> {
-    pub(in crate::lowering) fn later_evaluation_may_check_call_panic(
+    pub(in crate::lowering) fn later_evaluation_may_change_block(
         &self,
         expressions: impl IntoIterator<Item = BoundExpressionId>,
     ) -> Result<bool, LoweringError> {
@@ -23,6 +24,36 @@ impl Lowerer<'_> {
                 .view()
                 .expression(expression)
                 .ok_or_else(|| LoweringError::MissingBoundNode(expression.into()))?;
+
+            let changes_block = match bound {
+                BoundExpression::Binary(binary) => matches!(
+                    binary.operator(),
+                    BoundOperator::LogicalAnd | BoundOperator::LogicalOr
+                ),
+                BoundExpression::Structured(structured) => !matches!(
+                    structured.kind(),
+                    BoundStructuredExpressionKind::Unit
+                        | BoundStructuredExpressionKind::Absence
+                        | BoundStructuredExpressionKind::Tuple
+                        | BoundStructuredExpressionKind::Array
+                        | BoundStructuredExpressionKind::RepeatedArray
+                        | BoundStructuredExpressionKind::Range
+                        | BoundStructuredExpressionKind::Borrow
+                ),
+                BoundExpression::Block(_)
+                | BoundExpression::Await(_)
+                | BoundExpression::Assignment(_)
+                | BoundExpression::ControlTransfer(_)
+                | BoundExpression::For(_)
+                | BoundExpression::Match(_)
+                | BoundExpression::Generator(_) => true,
+                _ => false,
+            };
+
+            // MIR values are block-local. Earlier operands must survive every later branch, not only a checked call.
+            if changes_block {
+                return Ok(true);
+            }
 
             let may_check = match self.input.semantic_selections().expression(expression) {
                 Some(SemanticSelection::Call(selection)) => {

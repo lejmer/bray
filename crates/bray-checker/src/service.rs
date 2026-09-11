@@ -229,7 +229,7 @@ where
         selections: &CheckedSemanticSelections,
         storage: &StoragePlan,
     ) -> CheckerOutcome<CheckedRefinements, C::UpstreamError> {
-        check_refinements(request, patterns, selections, storage).with_upstream()
+        check_refinements(request, patterns, selections, storage)
     }
 }
 

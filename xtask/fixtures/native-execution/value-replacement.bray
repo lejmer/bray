@@ -1,0 +1,640 @@
+module value_replacement;
+
+static DESTRUCTIONS: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+static FINALIZATIONS: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+static INDEX_EVALUATIONS: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+struct Guard
+{
+    id: usize;
+    fail: bool = false;
+    cancel: bool = false;
+    destructor_fail: bool = false;
+
+    finalize()
+    {
+        let previous = core.atomic.load<usize, 1>(&FINALIZATIONS);
+
+        core.atomic.store<usize, 4>(&FINALIZATIONS, previous * 10 + self.id);
+
+        if self.fail
+        {
+            panic("old replacement finalizer");
+        }
+
+        if self.cancel
+        {
+            let outcome: RunResult<unit> = Cancelled;
+
+            try outcome;
+        }
+    }
+
+    destruct()
+    {
+        let previous = core.atomic.load<usize, 1>(&DESTRUCTIONS);
+
+        core.atomic.store<usize, 4>(&DESTRUCTIONS, previous * 10 + self.id);
+
+        if self.destructor_fail
+        {
+            panic("old replacement destructor");
+        }
+    }
+}
+
+struct Pair
+{
+    left: Guard;
+    right: Guard;
+}
+
+struct Slot
+{
+    mut value: Pair;
+}
+
+union Choice
+{
+    First(pos value: Guard);
+    Second(pos value: Guard);
+}
+
+struct HeapSlot
+{
+    mut value: box Guard;
+}
+
+struct IndexedGuard
+{
+    mut value: Guard;
+}
+
+impl IndexedGuard(MutableElementIndex<i32>)
+{
+    type Output = Guard;
+
+    mut func index(pos selector: &i32) -> &mut Guard
+    {
+        assert(selector == 0);
+
+        let previous = core.atomic.load<usize, 1>(&INDEX_EVALUATIONS);
+
+        core.atomic.store<usize, 4>(&INDEX_EVALUATIONS, previous + 1);
+
+        return &mut self.value;
+    }
+}
+
+func custom_indexed()
+{
+    core.atomic.store<usize, 4>(&INDEX_EVALUATIONS, 0);
+
+    let mut slot: IndexedGuard = IndexedGuard
+    {
+        value = Guard
+        {
+            id = 1,
+            fail = true
+        }
+    };
+
+    let result = catch
+    {
+        slot[0] = Guard
+        {
+            id = 2
+        };
+
+        yield unit;
+    };
+
+    assert(result matches Error(_));
+    assert(slot.value.id == 2);
+    assert(core.atomic.load<usize, 1>(&INDEX_EVALUATIONS) == 1);
+    assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 1);
+}
+
+func reset()
+{
+    core.atomic.store<usize, 4>(&DESTRUCTIONS, 0);
+    core.atomic.store<usize, 4>(&FINALIZATIONS, 0);
+}
+
+func owned()
+{
+    let mut value: Guard = Guard
+    {
+        id = 1
+    };
+
+    value = Guard
+    {
+        id = 2
+    };
+
+    assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 1);
+    assert(value.id == 2);
+}
+
+func replace_borrowed(pos slot: &mut Slot)
+{
+    slot.value = Pair
+    {
+        left = Guard
+        {
+            id = 3
+        },
+        right = Guard
+        {
+            id = 4
+        }
+    };
+}
+
+func caught_old_cleanup()
+{
+    let mut slot: Slot = Slot
+    {
+        value = Pair
+        {
+            left = Guard
+            {
+                id = 1,
+                fail = true
+            },
+            right = Guard
+            {
+                id = 2,
+                fail = true
+            }
+        }
+    };
+
+    let result: Result<unit, PanicReport> = catch
+    {
+        replace_borrowed(&mut slot);
+        yield unit;
+    };
+
+    match result
+    {
+        case Ok(_) { panic("replacement must propagate old cleanup panic"); }
+        case Error(_) {}
+    }
+
+    assert(slot.value.left.id == 3);
+    assert(slot.value.right.id == 4);
+    assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 21);
+    assert(core.atomic.load<usize, 1>(&FINALIZATIONS) == 21);
+}
+
+func rhs_failure()
+{
+    let mut value: Guard = Guard
+    {
+        id = 1
+    };
+
+    let result: Result<unit, PanicReport> = catch
+    {
+        value = panic("replacement RHS");
+        yield unit;
+    };
+
+    match result
+    {
+        case Ok(_) { panic("RHS must panic"); }
+        case Error(_) {}
+    }
+
+    assert(value.id == 1);
+    assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 0);
+}
+
+func nullable_and_union()
+{
+    let mut optional: Guard? = Guard
+    {
+        id = 1
+    };
+
+    optional = none;
+    assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 1);
+
+    optional = Guard
+    {
+        id = 2
+    };
+
+    optional = none;
+    assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 12);
+
+    let mut choice: Choice = First(
+        Guard
+        {
+            id = 3
+        }
+    );
+
+    choice = Choice.Second(
+        Guard
+        {
+            id = 4
+        }
+    );
+
+    assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 123);
+}
+
+func selected_index() -> usize
+{
+    let previous = core.atomic.fetch_add<usize, 0>(&INDEX_EVALUATIONS, value = 1);
+
+    assert(previous == 0);
+
+    return 0;
+}
+
+func indexed()
+{
+    let mut values: [Guard; 2] = [
+        Guard
+        {
+            id = 1
+        },
+        Guard
+        {
+            id = 2
+        }
+    ];
+
+    values[selected_index()] = Guard
+    {
+        id = 3
+    };
+
+    assert(core.atomic.load<usize, 1>(&INDEX_EVALUATIONS) == 1);
+    assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 1);
+    assert(values[0].id == 3);
+}
+
+func replace_heap(pos slot: &mut HeapSlot)
+{
+    slot.value = box(
+        Guard
+        {
+            id = 2
+        }
+    );
+}
+
+func heap_replacement(pos fails: bool, destructor_fails: bool = false)
+{
+    let mut slot: HeapSlot = HeapSlot
+    {
+        value = box(
+            Guard
+            {
+                id = 1,
+                fail = fails,
+                destructor_fail = destructor_fails
+            }
+        )
+    };
+
+    let result = catch
+    {
+        replace_heap(&mut slot);
+
+        yield unit;
+    };
+
+    assert((result matches Error(_)) == (fails || destructor_fails));
+    assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 1);
+
+    match slot.value
+    {
+        case box(value) { assert(value.id == 2); }
+    }
+}
+
+func partial_and_rhs_moves()
+{
+    let mut pair: Pair = Pair
+    {
+        left = Guard
+        {
+            id = 1
+        },
+        right = Guard
+        {
+            id = 2
+        }
+    };
+
+    let moved: Guard = pair.left;
+
+    pair = Pair
+    {
+        left = Guard
+        {
+            id = 3
+        },
+        right = Guard
+        {
+            id = 4
+        }
+    };
+
+    assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 2);
+    assert(moved.id == 1);
+
+    let mut value: Guard = Guard
+    {
+        id = 5
+    };
+
+    value = value;
+    assert(value.id == 5);
+    assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 2);
+}
+
+func abort_rhs(pos discarded: Guard) -> Guard
+{
+    assert(discarded.id == 2);
+    panic("evaluated RHS argument");
+}
+
+func evaluated_rhs_failure()
+{
+    let mut value: Guard = Guard
+    {
+        id = 1
+    };
+
+    let result: Result<unit, PanicReport> = catch
+    {
+        value = abort_rhs(
+            Guard
+            {
+                id = 2
+            }
+        );
+
+        yield unit;
+    };
+
+    assert(result matches Error(_));
+    assert(value.id == 1);
+    assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 2);
+}
+
+async func owned_cancellation()
+{
+    let mut value: Guard = Guard
+    {
+        id = 1,
+        cancel = true
+    };
+
+    value = Guard
+    {
+        id = 2
+    };
+
+    panic("replacement cancellation must propagate");
+}
+
+async func borrowed_task(pos slot: &mut Slot)
+{
+    replace_borrowed(slot);
+}
+
+async func borrowed_cancellation(pos panic_first: bool)
+{
+    let mut slot: Slot = Slot
+    {
+        value = Pair
+        {
+            left = Guard
+            {
+                id = 1,
+                cancel = true
+            },
+            right = Guard
+            {
+                id = 2,
+                fail = panic_first
+            }
+        }
+    };
+
+    let task = borrowed_task(&mut slot).start();
+    let result = await task.join();
+
+    if panic_first
+    {
+        assert(result matches Panicked(_));
+    }
+    else
+    {
+        assert(result matches Cancelled);
+    }
+
+    assert(slot.value.left.id == 3);
+    assert(slot.value.right.id == 4);
+    assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 21);
+}
+
+func ordinary_scope_cleanup()
+{
+    let result = catch
+    {
+        let outer = Guard
+        {
+            id = 1
+        };
+
+        if true
+        {
+            let first = Guard
+            {
+                id = 2,
+                fail = true
+            };
+
+            let second = Guard
+            {
+                id = 3
+            };
+        }
+    };
+
+    assert(result matches Error(_));
+    assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 321);
+    assert(core.atomic.load<usize, 1>(&FINALIZATIONS) == 321);
+}
+
+func pending_return(pos fail: bool) -> Guard
+{
+    let local = Guard
+    {
+        id = 1,
+        fail = fail
+    };
+
+    return Guard
+    {
+        id = 2
+    };
+}
+
+func abandoned_return()
+{
+    let result = catch
+    {
+        let value = pending_return(true);
+    };
+
+    assert(result matches Error(_));
+    assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 12);
+    assert(core.atomic.load<usize, 1>(&FINALIZATIONS) == 12);
+}
+
+func return_across_catch() -> Guard
+{
+    let outer = Guard
+    {
+        id = 1,
+        fail = true
+    };
+
+    let result = catch
+    {
+        let inner = Guard
+        {
+            id = 2
+        };
+
+        return Guard
+        {
+            id = 3
+        };
+    };
+
+    core.atomic.store<usize, 4>(&INDEX_EVALUATIONS, 1);
+
+    return Guard
+    {
+        id = 4
+    };
+}
+
+func exited_catch_does_not_handle_outer_cleanup()
+{
+    let result = catch
+    {
+        let value = return_across_catch();
+    };
+
+    assert(result matches Error(_));
+    assert(core.atomic.load<usize, 1>(&INDEX_EVALUATIONS) == 0);
+    assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 213);
+    assert(core.atomic.load<usize, 1>(&FINALIZATIONS) == 213);
+}
+
+async func main() -> i32
+{
+    reset();
+    owned();
+
+    assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 12);
+    assert(core.atomic.load<usize, 1>(&FINALIZATIONS) == 12);
+
+    reset();
+    ordinary_scope_cleanup();
+
+    reset();
+    abandoned_return();
+
+    reset();
+    exited_catch_does_not_handle_outer_cleanup();
+
+    reset();
+    caught_old_cleanup();
+
+    assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 2143);
+    assert(core.atomic.load<usize, 1>(&FINALIZATIONS) == 2143);
+
+    reset();
+    rhs_failure();
+
+    assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 1);
+
+    reset();
+    nullable_and_union();
+
+    assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 1234);
+
+    reset();
+    indexed();
+
+    assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 123);
+
+    reset();
+    custom_indexed();
+
+    assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 12);
+
+    reset();
+    heap_replacement(false);
+
+    assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 12);
+
+    reset();
+    heap_replacement(true);
+
+    assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 12);
+
+    reset();
+    heap_replacement(false, destructor_fails = true);
+
+    assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 12);
+
+    reset();
+    heap_replacement(true, destructor_fails = true);
+
+    assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 12);
+
+    reset();
+    partial_and_rhs_moves();
+
+    assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 25143);
+
+    reset();
+    evaluated_rhs_failure();
+
+    assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 21);
+
+    reset();
+
+    let task = owned_cancellation().start();
+
+    assert((await task.join()) matches Cancelled);
+    assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 12);
+
+    reset();
+    await borrowed_cancellation(false);
+
+    assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 2143);
+
+    reset();
+    await borrowed_cancellation(true);
+
+    assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 2143);
+
+    return 0;
+}

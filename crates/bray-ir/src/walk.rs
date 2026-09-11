@@ -283,7 +283,7 @@ impl MirTerminatorKind {
             }
             Self::Goto(_)
             | Self::Unreachable
-            | Self::CheckCallPanic { .. }
+            | Self::CheckCallOutcome { .. }
             | Self::BeginCleanup(_)
             | Self::ContinueCleanup(_)
             | Self::PropagateCancellation { .. }

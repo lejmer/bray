@@ -215,7 +215,7 @@ impl Lowerer<'_> {
             let lowered = self.lower_expression(*expression, current)?;
 
             let lowered = if self
-                .later_evaluation_may_check_call_panic(expressions[index + 1..].iter().copied())?
+                .later_evaluation_may_change_block(expressions[index + 1..].iter().copied())?
             {
                 self.materialize_for_later_evaluation(*expression, lowered)?
             } else {

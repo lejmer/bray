@@ -250,10 +250,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 llvm(self.builder.build_switch(tag, cancelled_route, &cases))?;
             }
-            MirTerminatorKind::CheckCallPanic {
+            MirTerminatorKind::CheckCallOutcome {
                 completed,
                 panicked,
-            } => self.translate_call_panic(completed, *panicked)?,
+                cancelled,
+            } => self.translate_call_panic(completed, *panicked, cancelled)?,
         }
 
         Ok(())

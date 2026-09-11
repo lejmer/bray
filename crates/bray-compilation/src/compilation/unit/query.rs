@@ -1838,6 +1838,288 @@ mod tests {
     }
 
     #[test]
+    fn replacement_plans_capture_old_state_after_rhs_transfers() {
+        use bray_bound_tree::{AsyncStorageCleanupRequirement, StorageReplacementState};
+
+        for (body, expected, partial) in [
+            (
+                "let mut value: Guard = Guard {}; value = Guard {};",
+                StorageReplacementState::Present,
+                false,
+            ),
+            (
+                "let mut value: Guard = Guard {}; let taken = value; value = Guard {};",
+                StorageReplacementState::Absent,
+                false,
+            ),
+            (
+                "let mut value: Guard = Guard {}; value = value;",
+                StorageReplacementState::Absent,
+                false,
+            ),
+            (
+                "let mut value: Guard = Guard {}; if flag { take(value); } value = Guard {};",
+                StorageReplacementState::Conditional,
+                false,
+            ),
+            (
+                "let mut value: Pair = Pair { left = Guard {}, right = Guard {} }; let taken = value.left; value = Pair { left = Guard {}, right = Guard {} };",
+                StorageReplacementState::Conditional,
+                true,
+            ),
+        ] {
+            let source = format!(
+                "module app; struct Guard {{ destruct() {{}} }} struct Pair {{ left: Guard; right: Guard; }} func take(pos value: Guard) {{}} func probe(pos flag: bool) {{ {body} }}"
+            );
+
+            let compilation = compilation(&source);
+
+            assert!(
+                compilation.check_diagnostics().is_empty(),
+                "{source}: {:?}",
+                compilation.check_diagnostics()
+            );
+
+            let key = source_function_body_key(&compilation, "probe");
+            let flow = compilation.storage_flow(key.clone()).unwrap();
+
+            let [decision] = flow.value().replacements() else {
+                panic!("one assignment must publish one old-state decision: {flow:?}");
+            };
+
+            assert_eq!(decision.state(), expected, "{source}");
+            let analysis = compilation.async_analysis(key.clone()).unwrap();
+
+            let [plan] = analysis.value().replacements() else {
+                panic!("one assignment must publish one cleanup plan: {analysis:?}");
+            };
+
+            assert_eq!(plan.expression(), decision.expression());
+            assert_eq!(plan.access(), decision.access());
+            assert_eq!(plan.parts().is_some(), partial, "{source}");
+
+            assert_eq!(
+                plan.cleanup() == AsyncStorageCleanupRequirement::None,
+                expected == StorageReplacementState::Absent,
+                "{source}"
+            );
+
+            let lowered = compilation.lowered_unit(key).unwrap();
+
+            assert!(
+                lowered
+                    .value()
+                    .as_ref()
+                    .and_then(|unit| unit.mir())
+                    .is_some(),
+                "{source}: {lowered:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn replacement_verification_rejects_missing_and_contradictory_cleanup() {
+        use bray_bound_tree::{
+            AsyncStorageCleanupRequirement, AsyncStorageExitRecoveryCause,
+            StorageReplacementDecision, StorageReplacementPlan, StorageReplacementState,
+        };
+
+        use bray_lowering::{LoweringPlanFailureCause, LoweringPlanKind, VerifiedLoweringPlans};
+
+        let compilation = compilation(
+            "module app; struct Guard { destruct() {} } func probe() { let mut value: Guard = Guard {}; value = Guard {}; }",
+        );
+
+        let key = source_function_body_key(&compilation, "probe");
+        let bound = compilation.bound_unit(key.clone()).unwrap();
+        let storage = compilation.storage_plan(key.clone()).unwrap();
+        let liveness = compilation.liveness(key.clone()).unwrap();
+        let flow = compilation.storage_flow(key.clone()).unwrap();
+        let dependencies = compilation.dependency_contracts(key.clone()).unwrap();
+        let selections = compilation.semantic_selections(key.clone()).unwrap();
+        let analysis = compilation.async_analysis(key).unwrap();
+
+        let verify = |flow: &bray_bound_tree::StorageFlow,
+                      analysis: &bray_bound_tree::CheckedAsync| {
+            VerifiedLoweringPlans::try_new(
+                bound.value(),
+                storage.value(),
+                liveness.value(),
+                flow,
+                dependencies.value(),
+                selections.value(),
+                compilation.available_compiler_known_symbols(),
+                analysis,
+            )
+            .map(|_| ())
+            .err()
+        };
+
+        assert_eq!(verify(flow.value(), analysis.value()), None);
+        let missing_flow = flow.value().clone().with_replacements([]).unwrap();
+        let missing_plan = analysis.value().clone().with_replacements([]).unwrap();
+
+        for failure in [
+            verify(&missing_flow, analysis.value()),
+            verify(flow.value(), &missing_plan),
+        ] {
+            let failure = failure.unwrap();
+            assert_eq!(failure.kind(), LoweringPlanKind::Replacement);
+            assert_eq!(failure.cause(), LoweringPlanFailureCause::Missing);
+        }
+
+        let plan = &analysis.value().replacements()[0];
+
+        let contradictory = StorageReplacementDecision::new(
+            plan.expression(),
+            plan.access(),
+            StorageReplacementState::Present,
+            [plan.access()],
+            false,
+        );
+
+        let contradictory = flow
+            .value()
+            .clone()
+            .with_replacements([contradictory])
+            .unwrap();
+
+        let failure = verify(&contradictory, analysis.value()).unwrap();
+
+        assert_eq!(failure.kind(), LoweringPlanKind::Replacement);
+        assert_eq!(failure.cause(), LoweringPlanFailureCause::Contradictory);
+
+        for (cleanup, cause) in [
+            (
+                AsyncStorageCleanupRequirement::None,
+                LoweringPlanFailureCause::Contradictory,
+            ),
+            (
+                AsyncStorageCleanupRequirement::Recovered(
+                    AsyncStorageExitRecoveryCause::UnavailableCleanupShape,
+                ),
+                LoweringPlanFailureCause::StorageRecovery(
+                    AsyncStorageExitRecoveryCause::UnavailableCleanupShape,
+                ),
+            ),
+        ] {
+            let malformed =
+                StorageReplacementPlan::new(plan.expression(), plan.access(), cleanup, None);
+
+            let malformed = analysis
+                .value()
+                .clone()
+                .with_replacements([malformed])
+                .unwrap();
+
+            let failure = verify(flow.value(), &malformed).unwrap();
+            assert_eq!(failure.kind(), LoweringPlanKind::Replacement);
+            assert_eq!(failure.cause(), cause);
+        }
+    }
+
+    #[test]
+    fn replacement_native_fixture_lowers_checked_cleanup_paths() {
+        let compilation = compilation(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../xtask/fixtures/native-execution/value-replacement.bray"
+        )));
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+
+        for name in [
+            "ordinary_scope_cleanup",
+            "heap_replacement",
+            "pending_return",
+            "abandoned_return",
+            "return_across_catch",
+            "exited_catch_does_not_handle_outer_cleanup",
+            "owned_cancellation",
+            "borrowed_task",
+            "borrowed_cancellation",
+            "main",
+        ] {
+            let lowered = compilation.lowered_unit(source_function_body_key(&compilation, name));
+            assert!(lowered.is_ok(), "{name}: {lowered:?}");
+            assert!(lowered.unwrap().value().is_some(), "{name}");
+        }
+    }
+
+    #[test]
+    fn replacement_lowering_covers_borrowed_projected_and_nullable_destinations() {
+        for body in [
+            "slot.value = Guard {};",
+            "let mut value: Guard? = Guard {}; value = none;",
+            "let mut values: [Guard; 2] = [Guard {}, Guard {}]; values[index()] = Guard {};",
+        ] {
+            let source = format!(
+                "module app; struct Guard {{ destruct() {{}} }} struct Slot {{ mut value: Guard; }} func index() -> usize {{ return 1; }} func probe(pos slot: &mut Slot) {{ {body} }}"
+            );
+
+            let compilation = compilation(&source);
+
+            assert!(
+                compilation.check_diagnostics().is_empty(),
+                "{source}: {:?}",
+                compilation.check_diagnostics()
+            );
+
+            let key = source_function_body_key(&compilation, "probe");
+            let lowered = compilation.lowered_unit(key).unwrap();
+
+            assert!(
+                lowered
+                    .value()
+                    .as_ref()
+                    .and_then(|unit| unit.mir())
+                    .is_some(),
+                "{source}: {lowered:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn earlier_operands_survive_later_short_circuit_and_conditional_blocks() {
+        for body in [
+            "return (value == first) == (first || second);",
+            "return compare(value == first, first && second);",
+            "let values: [bool; 2] = [value == first, first || second]; return values[0];",
+            "return (value == first) == (if first { yield second; } else { yield value; });",
+        ] {
+            let source = format!(
+                "module app; func compare(pos left: bool, pos right: bool) -> bool {{ return left == right; }} func probe(pos value: bool, pos first: bool, pos second: bool) -> bool {{ {body} }}"
+            );
+
+            let compilation = compilation(&source);
+
+            assert!(
+                compilation.check_diagnostics().is_empty(),
+                "{source}: {:?}",
+                compilation.check_diagnostics()
+            );
+
+            let key = source_function_body_key(&compilation, "probe");
+
+            let lowered = compilation
+                .lowered_unit(key)
+                .unwrap_or_else(|error| panic!("{source}: {error:?}"));
+
+            assert!(
+                lowered
+                    .value()
+                    .as_ref()
+                    .and_then(|unit| unit.mir())
+                    .is_some(),
+                "{source}: {lowered:?}"
+            );
+        }
+    }
+
+    #[test]
     fn partial_cleanup_ignores_repaired_moves_at_retained_inner_exits() {
         for repair in ["outer.inner.first = replacement;", ""] {
             let source = format!(
@@ -2160,12 +2442,10 @@ mod tests {
             );
 
             let compilation = compilation(&source);
+
             assert!(!compilation.check_diagnostics().has_errors(), "{source}");
 
-            let key = crate::test_support::source_trait_callable_fulfillment_body_key(
-                &compilation,
-                "forward",
-            );
+            let key = source_trait_callable_fulfillment_body_key(&compilation, "forward");
 
             let plan = compilation.storage_plan(key.clone()).unwrap();
             let values = compilation.semantic_value_store().unwrap();
@@ -2177,16 +2457,17 @@ mod tests {
                 }
 
                 parameters += 1;
+
                 let ty = plan.value().storage_type(identity).unwrap();
                 let data = values.type_data(ty).unwrap();
 
-                let bray_symbols::TypeData::Borrow { target, .. } = data.as_ref() else {
+                let TypeData::Borrow { target, .. } = data.as_ref() else {
                     panic!("parameter must remain borrowed: {data:?}");
                 };
 
                 assert!(matches!(
                     values.type_data(*target).unwrap().as_ref(),
-                    bray_symbols::TypeData::Named { .. }
+                    TypeData::Named { .. }
                 ));
 
                 let lowered = compilation.lowered_unit(key.clone()).unwrap();
@@ -2497,32 +2778,37 @@ mod tests {
             Err(error) => panic!("declared unit keys must be available: {error:?}"),
         };
 
-        let templates =
-            keys.iter()
-                .filter(|key| key.kind() == BoundUnitKind::RuntimeDefault)
-                .map(|key| {
-                    let analysis = match compilation.declared_value_type_templates(key.clone()) {
-                        Ok(analysis) => analysis,
-                        Err(error) => panic!("runtime default types must publish: {error:?}"),
-                    };
+        let templates = keys
+            .iter()
+            .filter(|key| key.kind() == BoundUnitKind::RuntimeDefault)
+            .map(|key| {
+                let analysis = match compilation.declared_value_type_templates(key.clone()) {
+                    Ok(analysis) => analysis,
+                    Err(error) => panic!("runtime default types must publish: {error:?}"),
+                };
 
-                    let initializer = analysis
-                        .value()
-                        .constraints()
-                        .iter()
-                        .find(|constraint| {
-                            constraint.kind()
-                                == bray_bound_tree::DeclaredValueTypeConstraintKind::Initializer
-                        })
-                        .expect("runtime default must identify its initialized parameter");
+                let initializer = analysis
+                    .value()
+                    .constraints()
+                    .iter()
+                    .find(|constraint| {
+                        constraint.kind()
+                            == bray_bound_tree::DeclaredValueTypeConstraintKind::Initializer
+                    })
+                    .expect("runtime default must identify its initialized parameter");
 
-                    let evidence = analysis.value().evidence().iter().find(|evidence| {
-                    evidence.term() == initializer.right()
-                }).expect("runtime default must publish the initialized parameter's declared type");
+                let evidence = analysis
+                    .value()
+                    .evidence()
+                    .iter()
+                    .find(|evidence| evidence.term() == initializer.right())
+                    .expect(
+                        "runtime default must publish the initialized parameter's declared type",
+                    );
 
-                    evidence.template().clone()
-                })
-                .collect::<Vec<_>>();
+                evidence.template().clone()
+            })
+            .collect::<Vec<_>>();
 
         assert_eq!(templates.len(), 2);
 
@@ -4431,8 +4717,8 @@ func tupled(pos flag: bool, pos pair: (Guard, Guard)) -> i32
         )).count();
 
         assert_eq!(
-            releases, 2,
-            "normal and panic exits must both release: {mir:?}"
+            releases, 5,
+            "normal exit, body panic/cancellation and cleanup panic/cancellation must each release: {mir:?}"
         );
 
         assert!(mir.operations().iter().any(|operation| matches!(operation.kind(),
@@ -4464,6 +4750,7 @@ func tupled(pos flag: bool, pos pair: (Guard, Guard)) -> i32
             let key = source_function_body_key(&compilation, name);
             let storage = compilation.storage_plan(key.clone()).unwrap();
             let calls = storage.value().owned_borrows().collect::<Vec<_>>();
+
             assert_eq!(calls.len(), 2, "{name}: {storage:?}");
 
             let (_, _, selected) = calls
@@ -4475,13 +4762,13 @@ func tupled(pos flag: bool, pos pair: (Guard, Guard)) -> i32
             let mir = lowered.value().as_ref().unwrap().mir().unwrap();
 
             assert!(mir.operations().iter().any(|operation| matches!(operation.kind(),
-                bray_ir::MirOperationKind::Call(call) if matches!(call.target(),
+                MirOperationKind::Call(call) if matches!(call.target(),
                     bray_ir::MirCallTarget::Direct(reference) if reference.instance() == selected.callable())
             )), "{name} must use the selected {kind:?} policy borrow: {mir:?}");
 
             if matches!(name, "observe_box" | "observe_borrowed_box") {
                 assert!(!mir.operations().iter().any(|operation| matches!(operation.kind(),
-                    bray_ir::MirOperationKind::Store { destination, .. } if !destination.projections().is_empty()
+                    MirOperationKind::Store { destination, .. } if !destination.projections().is_empty()
                 )), "observed aliases must not write back to source storage: {mir:?}");
 
                 let analysis = compilation.async_analysis(key).unwrap();

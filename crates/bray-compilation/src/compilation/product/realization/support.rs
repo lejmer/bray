@@ -1089,6 +1089,12 @@ mod tests {
             .operations()
             .iter()
             .map(|operation| operation.kind())
+            .filter(|operation| {
+                matches!(
+                    operation,
+                    MirOperationKind::Finalize(_) | MirOperationKind::Destroy(_)
+                )
+            })
             .collect::<Vec<_>>();
 
         let expected = [
@@ -1148,6 +1154,46 @@ mod tests {
         );
     }
 
+    fn reachable_cleanup_operations(
+        mir: &MirUnit,
+        entry: bray_ir::MirBlockId,
+    ) -> Vec<&MirOperationKind> {
+        let mut pending = vec![entry];
+        let mut visited = std::collections::BTreeSet::new();
+        let mut operations = std::collections::BTreeMap::new();
+
+        while let Some(id) = pending.pop() {
+            if !visited.insert(id) {
+                continue;
+            }
+
+            let block = mir.block(id).expect("cleanup block must exist");
+
+            for id in block.operations() {
+                let operation = mir
+                    .operation(*id)
+                    .expect("cleanup operation must exist")
+                    .kind();
+
+                if matches!(
+                    operation,
+                    MirOperationKind::Cleanup { .. }
+                        | MirOperationKind::Finalize(_)
+                        | MirOperationKind::Destroy(_)
+                ) {
+                    operations.insert(*id, operation);
+                }
+            }
+
+            block
+                .terminator()
+                .kind()
+                .for_each_successor(|target| pending.push(target));
+        }
+
+        operations.into_values().collect()
+    }
+
     #[test]
     fn nullable_lifecycle_resolves_only_the_present_payload() {
         let compilation = compilation("module app; func main() {}");
@@ -1186,19 +1232,14 @@ mod tests {
             })
             .expect("nullable destruction must branch on presence");
 
-        let present = generated.block(branch.0).expect("present block must exist");
-
         let absent = generated.block(branch.1).expect("absent block must exist");
 
-        assert_eq!(present.operations().len(), 2);
+        let operations = reachable_cleanup_operations(&generated, branch.0);
+        assert_eq!(operations.len(), 2);
         assert!(absent.operations().is_empty());
 
-        for (operation, expected) in present.operations().iter().zip(["finalize", "destroy"]) {
-            let operation = generated
-                .operation(*operation)
-                .expect("present lifecycle operation must exist");
-
-            let place = match (expected, operation.kind()) {
+        for (operation, expected) in operations.into_iter().zip(["finalize", "destroy"]) {
+            let place = match (expected, operation) {
                 ("finalize", MirOperationKind::Finalize(place))
                 | ("destroy", MirOperationKind::Destroy(place)) => place,
                 other => panic!("unexpected nullable lifecycle operation: {other:?}"),
@@ -1264,15 +1305,12 @@ mod tests {
             .expect("absent cleanup block must exist");
 
         assert_eq!(present.kind(), MirBlockKind::CleanupBroadcast);
-        assert_eq!(present.operations().len(), 1);
+        let operations = reachable_cleanup_operations(&generated, branch.0);
+        assert_eq!(operations.len(), 1);
         assert!(absent.operations().is_empty());
 
-        let operation = generated
-            .operation(present.operations()[0])
-            .expect("present cleanup operation must exist");
-
         assert!(matches!(
-            operation.kind(),
+            operations[0],
             MirOperationKind::Cleanup {
                 phase: MirCleanupPhase::TaskCancellation,
                 place,
@@ -1324,31 +1362,16 @@ mod tests {
 
         let payload_blocks = branches
             .into_iter()
-            .map(|(_, block)| {
-                generated
-                    .block(block)
-                    .expect("variant lifecycle block must exist")
-            })
+            .map(|(_, block)| reachable_cleanup_operations(&generated, block))
             .collect::<Vec<_>>();
 
         assert_eq!(
-            payload_blocks
-                .iter()
-                .map(|block| block.operations().len())
-                .collect::<Vec<_>>(),
+            payload_blocks.iter().map(Vec::len).collect::<Vec<_>>(),
             [2, 0]
         );
 
-        for (operation, expected) in payload_blocks[0]
-            .operations()
-            .iter()
-            .zip(["finalize", "destroy"])
-        {
-            let operation = generated
-                .operation(*operation)
-                .expect("active payload operation must exist");
-
-            let place = match (expected, operation.kind()) {
+        for (operation, expected) in payload_blocks[0].iter().zip(["finalize", "destroy"]) {
+            let place = match (expected, operation) {
                 ("finalize", MirOperationKind::Finalize(place))
                 | ("destroy", MirOperationKind::Destroy(place)) => place,
                 other => panic!("unexpected union lifecycle operation: {other:?}"),
@@ -1856,7 +1879,7 @@ mod tests {
             generated
                 .operations()
                 .iter()
-                .filter(|operation| matches!(operation.kind(), MirOperationKind::Call(_)))
+                .filter(|operation| matches!(operation.kind(), MirOperationKind::Call(call) if matches!(call.target(), MirCallTarget::Direct(_))))
                 .count(),
             3
         );

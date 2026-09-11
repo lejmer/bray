@@ -60,6 +60,9 @@ where
         ControlFlowGraphBuildOutcome::InfrastructureFailure(error) => {
             return CheckerOutcome::InfrastructureFailure(error);
         }
+        ControlFlowGraphBuildOutcome::UpstreamFailure(error) => {
+            return CheckerOutcome::UpstreamFailure(error);
+        }
     };
 
     analyze_storage_liveness_with_graph(request, selections, storage, memory, &graph)

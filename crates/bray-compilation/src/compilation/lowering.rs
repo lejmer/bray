@@ -1159,18 +1159,26 @@ mod tests {
             .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}"));
 
         let constants = lowered_mir(&lowered)
-            .blocks()
+            .operations()
             .iter()
-            .filter_map(|block| {
-                let MirTerminatorKind::BeginCleanup(cleanup) = block.terminator().kind() else {
+            .filter_map(|operation| {
+                let MirOperationKind::Store {
+                    value: MirOperand::Constant { value, ty },
+                    destination,
+                    ..
+                } = operation.kind()
+                else {
                     return None;
                 };
 
-                let [MirOperand::Constant { value, ty }] = cleanup.edge().arguments() else {
-                    return None;
-                };
-
-                Some((*value, *ty))
+                matches!(
+                    lowered_mir(&lowered)
+                        .storage(destination.storage())
+                        .unwrap()
+                        .kind(),
+                    bray_ir::MirStorageKind::Return
+                )
+                .then_some((*value, *ty))
             })
             .collect::<Vec<_>>();
 
@@ -1891,7 +1899,7 @@ struct Receiver<T>
             .collect::<Vec<_>>();
 
         assert!(
-            matches!(returns.as_slice(), [Some(MirOperand::Value(_))]),
+            matches!(returns.as_slice(), [Some(MirOperand::Move(place))] if mir.storage(place.storage()).unwrap().kind() == &bray_ir::MirStorageKind::Return),
             "cleanup continuations must preserve the single value return: {mir:?}"
         );
     }
@@ -2439,6 +2447,10 @@ func both_bounds(pos values: Values) -> i32
 
         let cleanup_storages = cleanup_places
             .iter()
+            .filter(|(storage, _)| {
+                lowered_mir(&lowered).storage(*storage).unwrap().kind()
+                    != &bray_ir::MirStorageKind::Return
+            })
             .map(|(storage, _)| *storage)
             .collect::<BTreeSet<_>>();
 
@@ -2963,7 +2975,11 @@ func main(pos value: i32?) -> i32?
             .operations()
             .iter()
             .filter_map(|operation| match operation.kind() {
-                MirOperationKind::Call(call) => Some(call.target()),
+                MirOperationKind::Call(call)
+                    if !matches!(call.target(), MirCallTarget::Runtime(_)) =>
+                {
+                    Some(call.target())
+                }
                 _ => None,
             })
             .collect::<Vec<_>>();

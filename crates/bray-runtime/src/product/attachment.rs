@@ -89,6 +89,10 @@ pub(super) fn attach_current_thread(product: usize) -> NativeProductHostObservat
     observation_with_status(product, NativeProductHostStatus::SUCCESS)
 }
 
+pub(super) fn has_foreign_attachment(product: usize) -> bool {
+    FOREIGN_ATTACHMENTS.with(|attachments| attachments.borrow().products.contains_key(&product))
+}
+
 pub(super) fn detach_current_thread(product: usize) -> NativeProductHostObservation {
     let detached = FOREIGN_ATTACHMENTS.with(|attachments| {
         let mut attachments = attachments.borrow_mut();

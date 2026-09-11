@@ -120,7 +120,8 @@ pub use storage::{
     StorageExitDecision, StorageExitPoint, StorageFlow, StorageFlowBuildError, StorageIdentity,
     StorageIdentityId, StorageOperationDecision, StorageOperationStatus, StoragePlan,
     StoragePlanBuildError, StoragePlanBuilder, StorageProjection, StorageProtocolCall,
-    StorageRelationship, StorageScopeBuildError, StorageScopeOwners, StorageSuspensionState,
+    StorageRelationship, StorageReplacementDecision, StorageReplacementPlan,
+    StorageReplacementState, StorageScopeBuildError, StorageScopeOwners, StorageSuspensionState,
     storage_identity_is_destructor_receiver, storage_identity_transfers_at_unit_exit,
 };
 pub use template::{

@@ -189,11 +189,13 @@ pub(super) fn validate_terminator(
             validate_cleanup_start(unit, block_id, edges.panicked())?;
             validate_cleanup_start(unit, block_id, edges.cancelled())?;
         }
-        MirTerminatorKind::CheckCallPanic {
+        MirTerminatorKind::CheckCallOutcome {
             completed,
             panicked,
+            cancelled,
         } => {
             validate_call_panic_check(unit, block_id, block, completed, *panicked)?;
+            validate_local_edge(unit, block_id, cancelled)?;
         }
         MirTerminatorKind::BeginCleanup(edge) => {
             if block.kind() == MirBlockKind::LifecycleResolution {
@@ -245,6 +247,7 @@ pub(super) fn validate_terminator(
                 | MirTerminatorKind::Switch { .. }
                 | MirTerminatorKind::InlineAssembly(_)
                 | MirTerminatorKind::ContinueCleanup(_)
+                | MirTerminatorKind::CheckCallOutcome { .. }
         )
     {
         return Err(MirUnitBuildError::CleanupPhaseOrderViolation(block_id));
@@ -294,12 +297,10 @@ fn validate_call_panic_edge(
         return Err(MirUnitBuildError::MissingValue(*parameter));
     };
 
-    if block.kind() != MirBlockKind::Ordinary || parameter.ty() != edge.report_type() {
+    if unit.block(source).map(MirBlock::kind) != Some(block.kind())
+        || parameter.ty() != edge.report_type()
+    {
         return Err(MirUnitBuildError::EdgeArgumentTypeMismatch(edge.target()));
-    }
-
-    if unit.block(source).map(MirBlock::kind) != Some(MirBlockKind::Ordinary) {
-        return Err(MirUnitBuildError::CleanupPhaseOrderViolation(source));
     }
 
     Ok(())
@@ -312,7 +313,7 @@ fn validate_call_panic_check(
     completed: &MirEdge,
     panicked: crate::MirCallPanicEdge,
 ) -> Result<(), MirUnitBuildError> {
-    validate_ordinary_edge(unit, source, completed)?;
+    validate_local_edge(unit, source, completed)?;
     validate_call_panic_edge(unit, source, panicked)?;
 
     let propagates_panic = block
@@ -321,6 +322,9 @@ fn validate_call_panic_check(
         .and_then(|operation| unit.operation(*operation))
         .is_some_and(|operation| match operation.kind() {
             crate::MirOperationKind::Call(call) => call.may_propagate_panic(),
+            crate::MirOperationKind::Cleanup { .. }
+            | crate::MirOperationKind::Finalize(_)
+            | crate::MirOperationKind::Destroy(_) => true,
             _ => false,
         });
 

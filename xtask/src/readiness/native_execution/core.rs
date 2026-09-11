@@ -16,6 +16,7 @@ use super::fixtures::{
     PATTERN_CONDITIONS_FIXTURE, PRODUCT_NAME, RANGE_FIXTURE, STANDARD_MEMORY_FIXTURE,
     STANDARD_RUN_SOURCE, STANDARD_TASK_SOURCE, STANDARD_TESTING_SOURCE, STANDARD_TEXT_FIXTURE,
     STARTUP_FIXTURE, SYNC_CATCH_PROPAGATION_FIXTURE, SYNC_PANIC_FIXTURE, TEXT_CURSOR_FIXTURE,
+    VALUE_REPLACEMENT_FIXTURE,
 };
 use super::hello::audit_standard_hello_world;
 use super::nullable::audit_nullable_state_queries;
@@ -116,6 +117,19 @@ pub(crate) fn audit(root: &Path) -> Result<(), String> {
             HEAP_STORAGE_FIXTURE,
             0,
             "heap storage execution",
+            &[],
+        )
+    })?;
+
+    crate::progress::run("Checking value replacement", || {
+        audit_repeatable_fixture(
+            root,
+            target,
+            &runtime,
+            "bray-native-replacement-",
+            VALUE_REPLACEMENT_FIXTURE,
+            0,
+            "value replacement",
             &[],
         )
     })?;

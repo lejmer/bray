@@ -393,10 +393,27 @@ trusted func deallocate(pos pointer: RawPointer<u8>, pos bytes: usize, pos align
 
             assert_eq!(mir.key(), instance.key().template());
 
+            for block in mir.blocks() {
+                if block.operations().iter().any(|id| {
+                    matches!(
+                        mir.operation(*id).map(|operation| operation.kind()),
+                        Some(MirOperationKind::Destroy(_) | MirOperationKind::Cleanup { .. })
+                    )
+                }) {
+                    assert!(
+                        matches!(
+                            block.terminator().kind(),
+                            MirTerminatorKind::CheckCallOutcome { .. }
+                        ),
+                        "{member} must check every cleanup operation before continuing: {block:?}"
+                    );
+                }
+            }
+
             if member == "StorageCreate" {
                 assert!(mir.blocks().iter().any(|block| matches!(
                     block.terminator().kind(),
-                    MirTerminatorKind::CheckCallPanic { .. }
+                    MirTerminatorKind::CheckCallOutcome { .. }
                 )));
 
                 assert!(mir.operations().iter().any(

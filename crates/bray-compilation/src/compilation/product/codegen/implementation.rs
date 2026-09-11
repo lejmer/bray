@@ -1421,16 +1421,18 @@ mod tests {
             .block(*alternate)
             .unwrap_or_else(|| panic!("alternate trampoline must exist"));
 
-        let [operation] = alternate.operations() else {
+        let calls = alternate
+            .operations()
+            .iter()
+            .filter_map(|id| mir.operation(*id))
+            .filter_map(|operation| match operation.kind() {
+                MirOperationKind::Call(call) => Some(call),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        let [call] = calls.as_slice() else {
             panic!("alternate trampoline must contain one callback call");
-        };
-
-        let operation = mir
-            .operation(*operation)
-            .unwrap_or_else(|| panic!("alternate callback operation must exist"));
-
-        let MirOperationKind::Call(call) = operation.kind() else {
-            panic!("alternate trampoline must call its checked label");
         };
 
         let MirCallTarget::Indirect { .. } = call.target() else {
@@ -1454,8 +1456,13 @@ mod tests {
         assert!(call.arguments().is_empty());
         assert_eq!(call.result(), BoundCallResult::Immediate(never));
 
+        let MirTerminatorKind::CheckCallOutcome { completed, .. } = alternate.terminator().kind()
+        else {
+            panic!("a nonreturning Bray callback must still forward panic and cancellation");
+        };
+
         assert!(matches!(
-            alternate.terminator().kind(),
+            mir.block(completed.target()).unwrap().terminator().kind(),
             MirTerminatorKind::Unreachable
         ));
 
@@ -3069,6 +3076,71 @@ public func invoke<T>(pos value: T)
         assert_eq!(realization.implementation_witnesses(), [witness]);
     }
 
+    #[test]
+    fn replacement_cleanup_helpers_emit_checked_outcomes() {
+        for lifecycle in ["destruct() {}", "finalize() {} destruct() {}"] {
+            let source = format!(
+                "module app; struct Resource {{ value: i32; {lifecycle} }} \
+                 func main() {{ let mut value: Resource = Resource {{ value = 1 }}; \
+                 value = Resource {{ value = 2 }}; }}"
+            );
+
+            let (backend, plan) = runtime_native_plan(&source);
+
+            for mir in plan
+                .units()
+                .iter()
+                .flat_map(bray_codegen::CodegenUnit::mir_units)
+            {
+                if !matches!(mir.key(), MirUnitKey::GeneratedLifecycle(_)) {
+                    continue;
+                }
+
+                for block in mir.blocks() {
+                    let Some(operation) =
+                        block.operations().last().and_then(|id| mir.operation(*id))
+                    else {
+                        continue;
+                    };
+
+                    if matches!(operation.kind(), bray_ir::MirOperationKind::Call(call) if call.may_propagate_panic())
+                    {
+                        assert!(matches!(
+                            block.terminator().kind(),
+                            bray_ir::MirTerminatorKind::CheckCallOutcome { .. }
+                        ));
+                    }
+                }
+            }
+
+            for symbol in plan
+                .mappings()
+                .iter()
+                .flat_map(bray_codegen::CodegenMappings::symbols)
+            {
+                if matches!(symbol.key(), bray_codegen::CodegenSymbolKey::Instance(instance)
+                    if matches!(instance.template(), MirUnitKey::GeneratedLifecycle(_)))
+                {
+                    assert!(symbol.signature().has_panic_report_context());
+                }
+            }
+
+            assert!(!generated_artifacts(&backend, &plan).is_empty());
+        }
+    }
+
+    #[test]
+    fn library_source_bodies_are_not_skipped_by_compiler_known_names() {
+        for module in ["app", "std.memory"] {
+            let source = format!("module {module}; func allocate() -> i32 {{ return 3; }}");
+
+            let (backend, plan) = runtime_native_plan_for_product(&source, ProductKind::Library);
+
+            assert!(!plan.units().is_empty());
+            assert!(!generated_artifacts(&backend, &plan).is_empty());
+        }
+    }
+
     fn runtime_native_plan(
         source: &str,
     ) -> (
@@ -3452,7 +3524,8 @@ public func invoke<T>(pos value: T)
                     }
                 ))
                 .count(),
-            product_instances
+            0,
+            "the runtime product owner must execute static callbacks"
         );
 
         assert!(
@@ -3734,7 +3807,7 @@ public func invoke<T>(pos value: T)
             "func main() {}\n",
         );
 
-        let (_, plan) = runtime_native_plan(source);
+        let (backend, plan) = runtime_native_plan(source);
 
         let mapping = plan
             .mappings()
@@ -3773,6 +3846,8 @@ public func invoke<T>(pos value: T)
                 CodegenLinkage::LinkOnce | CodegenLinkage::Import
             )
         }));
+
+        assert!(!generated_artifacts(&backend, &plan).is_empty());
     }
 
     #[test]
@@ -3839,6 +3914,17 @@ public func invoke<T>(pos value: T)
         );
 
         let (backend, plan) = runtime_native_plan(source);
+
+        assert!(
+            !plan
+                .units()
+                .iter()
+                .flat_map(bray_codegen::CodegenUnit::mir_units)
+                .any(|mir| matches!(
+                    mir.source(),
+                    bray_ir::MirSourceOrigin::GeneratedLifecycle(MirHelperReference::Finalize(_))
+                ))
+        );
 
         let finalization = plan
             .mappings()

@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 
 use bray_binder::BindingQueryContext;
+use bray_checker::CheckerRequestContext;
 use bray_codegen::CodegenTarget;
 use bray_ir::MirUnitKey;
 use bray_symbols::{
@@ -140,6 +141,18 @@ impl Compilation {
             let Some(definition) = CallableDefinitionId::try_new(symbol) else {
                 continue;
             };
+
+            // Compiler-implemented declarations publish semantic operations, not native function bodies.
+            if semantic.kind() == ProductKind::Library
+                && self.callable_body_key(definition)?.is_none()
+                && self
+                    .checker_context(cancellation)?
+                    .implementation_hook(symbol)
+                    .map_err(FactQueryError::from)?
+                    .is_some_and(|hook| hook.is_available())
+            {
+                continue;
+            }
 
             let (callable, witnesses) =
                 self.product_root_callable(symbol, definition, &binding_context, cancellation)?;

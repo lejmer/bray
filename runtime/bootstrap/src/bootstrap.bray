@@ -82,9 +82,10 @@ internal struct AttachmentState
 }
 
 @copy
-@layout(c)
+@layout(stable)
 internal struct PanicReportData
 {
+    mut next_incident: usize?;
     cause: u32;
     source_present: u32;
     source_identity: u32;

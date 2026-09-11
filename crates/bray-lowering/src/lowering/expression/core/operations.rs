@@ -10,8 +10,8 @@ use bray_compiler_known::{CompilerKnownOperationRole, RepresentationRole};
 use bray_ir::{
     MirBinaryOperator, MirBlockId, MirBlockKind, MirCall, MirCallArgument, MirCallIntrinsic,
     MirCallTarget, MirCallableReference, MirEdge, MirImmediateValue, MirOperand, MirOperationKind,
-    MirPatternPredicate, MirPlace, MirSourceAnchor, MirStorageKind, MirStoreKind,
-    MirTerminatorKind, MirUnaryOperator,
+    MirPatternPredicate, MirPlace, MirSourceAnchor, MirStorageKind, MirTerminatorKind,
+    MirUnaryOperator,
 };
 use bray_symbols::{
     BorrowKind, CallableAbi, CallableDefinitionId, CallableInstanceData, GenericOwnerId,
@@ -369,7 +369,7 @@ impl Lowerer<'_> {
             }
         };
 
-        let left = if self.later_evaluation_may_check_call_panic([*right_id])? {
+        let left = if self.later_evaluation_may_change_block([*right_id])? {
             self.materialize_typed_for_later_evaluation(*left_id, left, left_type)?
         } else {
             left
@@ -684,16 +684,7 @@ impl Lowerer<'_> {
             )?
             .0;
 
-        self.push_operation(
-            current,
-            Self::retained_source(&source),
-            MirOperationKind::Store {
-                kind: MirStoreKind::Assign,
-                destination,
-                value,
-            },
-            None,
-        )?;
+        let current = self.replace_value(id, current, &source, destination, value)?;
 
         let value = self.unit_operand(self.expression_type(id)?);
 
@@ -863,7 +854,7 @@ impl Lowerer<'_> {
                             },
                         ));
 
-                    let callee = if self.later_evaluation_may_check_call_panic(later_expressions)? {
+                    let callee = if self.later_evaluation_may_change_block(later_expressions)? {
                         self.materialize_for_later_evaluation(expression.callee(), callee)?
                     } else {
                         callee
@@ -902,7 +893,7 @@ impl Lowerer<'_> {
                         SelectedArgument::Default { .. } => None,
                     });
 
-            let lowered = if self.later_evaluation_may_check_call_panic(later_expressions)? {
+            let lowered = if self.later_evaluation_may_change_block(later_expressions)? {
                 self.materialize_typed_for_later_evaluation(
                     receiver.expression(),
                     lowered,
@@ -957,12 +948,11 @@ impl Lowerer<'_> {
                                 SelectedArgument::Default { .. } => None,
                             });
 
-                    let lowered =
-                        if self.later_evaluation_may_check_call_panic(later_expressions)? {
-                            self.materialize_for_later_evaluation(*expression, lowered)?
-                        } else {
-                            lowered
-                        };
+                    let lowered = if self.later_evaluation_may_change_block(later_expressions)? {
+                        self.materialize_for_later_evaluation(*expression, lowered)?
+                    } else {
+                        lowered
+                    };
 
                     let Some(continuation) = lowered.block else {
                         return Ok(lowered);

@@ -1777,11 +1777,13 @@ fn inspection_terminator(
 
             "forward_run_result"
         }
-        MirTerminatorKind::CheckCallPanic {
+        MirTerminatorKind::CheckCallOutcome {
             completed,
             panicked,
+            cancelled,
         } => {
             parts.edge("completed", completed, None, &context)?;
+            parts.edge("cancelled", cancelled, None, &context)?;
 
             parts.edges.push(InspectionMirEdge {
                 role: String::from("panicked"),
@@ -1792,7 +1794,7 @@ fn inspection_terminator(
 
             parts.r#type("report", panicked.report_type(), &context)?;
 
-            "check_call_panic"
+            "check_call_outcome"
         }
         MirTerminatorKind::BeginCleanup(edge) => {
             parts.cleanup_edge("cleanup", edge, &context)?;

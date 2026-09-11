@@ -38,7 +38,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     .context
                     .lifecycle_callable(*ty, TypeAssociatedLifecycleSlot::Finalizer)?
                 {
-                    self.push_lifecycle_call(builder, block, source, place, callable)?;
+                    return self.push_lifecycle_call(builder, block, source, place, callable);
                 }
             }
             MirHelperReference::Destroy(ty) => {
@@ -46,10 +46,8 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     .context
                     .lifecycle_callable(*ty, TypeAssociatedLifecycleSlot::Destructor)?
                 {
-                    self.push_lifecycle_call(builder, block, source, place, callable)?;
-
                     // The consuming destructor body resolves its checked initialized remainder.
-                    return Ok(block);
+                    return self.push_lifecycle_call(builder, block, source, place, callable);
                 }
 
                 return self.push_represented_lifecycle_operations(
@@ -80,19 +78,16 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 phase: bray_ir::MirCleanupPhase::LifecycleResolution,
                 ..
             } => {
-                self.push_lifecycle_operation(
+                // Finalization and destruction independently retain the same destination path.
+                return self.resolve_lifecycle_sequence(
                     builder,
                     block,
                     source,
-                    MirOperationKind::Finalize(place.clone()),
-                )?;
-
-                self.push_lifecycle_operation(
-                    builder,
-                    block,
-                    source,
-                    MirOperationKind::Destroy(place),
-                )?;
+                    [
+                        MirOperationKind::Finalize(place.clone()),
+                        MirOperationKind::Destroy(place),
+                    ],
+                );
             }
             MirHelperReference::AnonymousCallable(_)
             | MirHelperReference::DeclaredCallable(_)
@@ -201,9 +196,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             TypeData::Named { .. } | TypeData::Tuple(_) | TypeData::Array { .. } => {
                 let children = self.lifecycle_children(place)?;
 
-                self.push_child_lifecycle_operations(builder, block, source, role, children)?;
-
-                Ok(block)
+                self.push_child_lifecycle_operations(builder, block, source, role, children)
             }
             TypeData::Borrow { .. } | TypeData::Callable(_) => {
                 Err(SyntheticLoweringError::UnexpectedLifecycleType {
@@ -253,7 +246,8 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
         let child = place.project(MirProjectionKind::NullableValue, target);
 
-        self.push_child_lifecycle_operations(builder, present, source, role, [child])?;
+        let present =
+            self.push_child_lifecycle_operations(builder, present, source, role, [child])?;
 
         for branch in [present, absent] {
             builder
@@ -341,7 +335,8 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 })
                 .collect::<Result<Vec<_>, C::Error>>()?;
 
-            self.push_child_lifecycle_operations(builder, matched, source, role, children)?;
+            let matched =
+                self.push_child_lifecycle_operations(builder, matched, source, role, children)?;
 
             builder
                 .set_terminator(
@@ -374,34 +369,21 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         source: &MirSourceAnchor,
         role: bray_ir::MirGeneratedLifecycleRole,
         children: impl IntoIterator<Item = MirPlace, IntoIter: DoubleEndedIterator>,
-    ) -> Result<(), C::Error> {
+    ) -> Result<bray_ir::MirBlockId, C::Error> {
+        let mut operations = Vec::new();
+
         for child in children.into_iter().rev() {
             match role {
                 bray_ir::MirGeneratedLifecycleRole::Destroy => {
-                    self.push_lifecycle_operation(
-                        builder,
-                        block,
-                        source,
-                        MirOperationKind::Finalize(child.clone()),
-                    )?;
-
-                    self.push_lifecycle_operation(
-                        builder,
-                        block,
-                        source,
-                        MirOperationKind::Destroy(child),
-                    )?;
+                    // Both lifecycle stages operate on the same represented child.
+                    operations.push(MirOperationKind::Finalize(child.clone()));
+                    operations.push(MirOperationKind::Destroy(child));
                 }
                 bray_ir::MirGeneratedLifecycleRole::Cleanup(phase) => {
-                    self.push_lifecycle_operation(
-                        builder,
-                        block,
-                        source,
-                        MirOperationKind::Cleanup {
-                            phase,
-                            place: child,
-                        },
-                    )?;
+                    operations.push(MirOperationKind::Cleanup {
+                        phase,
+                        place: child,
+                    });
                 }
                 bray_ir::MirGeneratedLifecycleRole::Finalize
                 | bray_ir::MirGeneratedLifecycleRole::StaticFinalize => {
@@ -410,6 +392,6 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             }
         }
 
-        Ok(())
+        self.resolve_lifecycle_sequence(builder, block, source, operations)
     }
 }

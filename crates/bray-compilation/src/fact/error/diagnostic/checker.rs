@@ -315,6 +315,7 @@ fn diagnostic_storage_flow_failure(
         Failure::FlowConstruction(error) => DiagnosticFailure::FlowConstruction(match error {
             bray_bound_tree::StorageFlowBuildError::ForeignUnit => "foreign_unit",
             bray_bound_tree::StorageFlowBuildError::DuplicateSuspension => "duplicate_suspension",
+            bray_bound_tree::StorageFlowBuildError::DuplicateReplacement => "duplicate_replacement",
             bray_bound_tree::StorageFlowBuildError::DuplicateMemoryOperation => {
                 "duplicate_memory_operation"
             }
@@ -340,6 +341,9 @@ fn diagnostic_storage_flow_failure(
         }
         Failure::AsyncConstruction(error) => DiagnosticFailure::AsyncConstruction(match error {
             bray_bound_tree::AsyncAnalysisBuildError::ForeignUnit => "foreign_unit",
+            bray_bound_tree::AsyncAnalysisBuildError::DuplicateReplacement => {
+                "duplicate_replacement"
+            }
         }),
         Failure::MissingAwaitDependencyContract { expression } => {
             DiagnosticFailure::MissingAwaitDependencyContract {

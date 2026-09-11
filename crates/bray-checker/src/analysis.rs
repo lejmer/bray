@@ -1,6 +1,7 @@
 mod assembly;
 mod build;
 mod check;
+mod cleanup;
 mod condition;
 mod control;
 mod execution;

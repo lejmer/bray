@@ -13,7 +13,8 @@ pub use invocation::{
 };
 
 pub(crate) use invocation::is_explicit_program_path;
-pub(crate) use response::{
+pub use response::{
     ResponseFileEncoding, ResponseFileEncodingError, encode_response_arguments,
-    response_file_materialization_path, response_file_path, response_file_reference,
+    response_file_reference,
 };
+pub(crate) use response::{response_file_materialization_path, response_file_path};

@@ -6,7 +6,7 @@ use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue};
 use super::core::UnitTranslator;
 use super::support::{int_value, llvm, pointer_value};
 
-pub(super) const CANCELLATION_OUTCOME_SENTINEL: u64 = 1;
+use crate::translation::CANCELLATION_OUTCOME_SENTINEL;
 
 pub(super) fn incoming_panic_report_context<'context>(
     function: FunctionValue<'context>,
@@ -89,6 +89,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &mut self,
         completed: &MirEdge,
         panicked: bray_ir::MirCallPanicEdge,
+        cancelled_edge: &MirEdge,
     ) -> Result<(), CodegenFailure> {
         let context = self
             .pending_call_panic_report_context
@@ -134,10 +135,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         self.builder.position_at_end(propagate_cancellation);
 
-        self.translate_cancellation_propagation(bray_ir::MirRuntimeReference::new(
-            bray_runtime_interface::RuntimeAbiRole::CurrentRunCancellationPropagation,
-            self.request.unit().target().runtime_abi(),
-        ))?;
+        let (_, pending_moves) = self.take_control_source()?;
+
+        let cancellation_route =
+            self.route_edge(cancelled_edge, "call.cancelled", &pending_moves)?;
+
+        self.builder.position_at_end(propagate_cancellation);
+        llvm(self.builder.build_unconditional_branch(cancellation_route))?;
 
         self.builder.position_at_end(inspect_panic);
 
@@ -148,7 +152,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             "call.panic.pending",
         ))?;
 
-        let (source, pending_moves) = self.take_control_source()?;
+        let (source, _) = self.take_control_source()?;
 
         let completed_route = self.route_edge(completed, "call.completed", &pending_moves)?;
 

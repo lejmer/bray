@@ -49,6 +49,7 @@ pub struct VerifiedLoweringPlans<'unit> {
     task_operations: BTreeMap<BoundExpressionId, AsyncTaskOperationKind>,
     scope_exits: BTreeMap<(BoundBlockId, AnyBoundNodeId), usize>,
     lifecycle_storage: BTreeSet<StorageIdentityId>,
+    replacements: BTreeMap<BoundExpressionId, usize>,
 }
 
 impl<'unit> VerifiedLoweringPlans<'unit> {
@@ -138,6 +139,8 @@ impl<'unit> VerifiedLoweringPlans<'unit> {
         let (scope_exits, lifecycle_storage) =
             verify_scope_exits(unit, storage, flow, dependencies, analysis)?;
 
+        let replacements = super::replacement::verify_replacements(unit, storage, flow, analysis)?;
+
         // Detailed producer failures take precedence over the summary recovery bit.
         if analysis.is_recovered() {
             return Err(LoweringPlanFailure::analysis(
@@ -157,6 +160,7 @@ impl<'unit> VerifiedLoweringPlans<'unit> {
             task_operations,
             scope_exits,
             lifecycle_storage,
+            replacements,
         })
     }
 
@@ -194,6 +198,16 @@ impl<'unit> VerifiedLoweringPlans<'unit> {
         &self,
     ) -> &'unit AvailableCompilerKnownSymbols {
         self.symbols
+    }
+
+    /// Returns the verified old-value cleanup for one evaluated assignment.
+    pub fn replacement(
+        &self,
+        expression: BoundExpressionId,
+    ) -> Option<&'unit bray_bound_tree::StorageReplacementPlan> {
+        self.replacements
+            .get(&expression)
+            .and_then(|index| self.analysis.replacements().get(*index))
     }
 
     /// Returns frame dependencies after complete-plan verification.
@@ -281,18 +295,28 @@ impl<'unit> VerifiedLoweringPlans<'unit> {
     pub(crate) fn initialization_guards(
         &self,
     ) -> impl Iterator<Item = bray_bound_tree::StorageAccessId> + '_ {
-        self.analysis.scope_exits().iter().flat_map(|exit| {
-            exit.storage()
-                .iter()
-                .filter_map(|decision| match decision.disposition() {
-                    bray_bound_tree::AsyncStorageExitDisposition::Cleanup {
-                        access,
-                        guard: bray_bound_tree::AsyncCleanupGuard::Initialized,
-                        ..
-                    } => Some(access),
-                    _ => None,
-                })
-        })
+        self.analysis
+            .scope_exits()
+            .iter()
+            .flat_map(|exit| {
+                exit.storage()
+                    .iter()
+                    .filter_map(|decision| match decision.disposition() {
+                        bray_bound_tree::AsyncStorageExitDisposition::Cleanup {
+                            access, ..
+                        } => Some(access),
+                        _ => None,
+                    })
+            })
+            .chain(self.flow.replacements().iter().filter_map(|decision| {
+                if decision.state() != bray_bound_tree::StorageReplacementState::Conditional {
+                    return None;
+                }
+
+                self.storage
+                    .root_identity(decision.access())
+                    .and_then(|identity| self.storage.root_access(identity))
+            }))
     }
 
     /// Returns the checked represented-part partition borrowed from the source analysis.

@@ -127,7 +127,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         })
     }
 
-    fn invoke_helper_with_panic_report_context(
+    pub(super) fn invoke_helper_with_panic_report_context(
         &mut self,
         helper: &CodegenHelperMapping,
         arguments: &[BasicValueEnum<'context>],

@@ -434,12 +434,14 @@ pub enum MirTerminatorKind {
         /// Distinct successor edges.
         edges: MirRunResultEdges,
     },
-    /// Continue normally or transfer a panic report returned by one synchronous Bray call.
-    CheckCallPanic {
+    /// Continue after a call with distinct normal, panic, and cancellation paths.
+    CheckCallOutcome {
         /// Normal continuation after the call completed.
         completed: MirEdge,
         /// Abnormal continuation receiving the propagated panic report.
         panicked: MirCallPanicEdge,
+        /// Cancellation continuation after ownership transferred into the call.
+        cancelled: MirEdge,
     },
     /// Enter phase-one cleanup.
     BeginCleanup(MirCleanupEdge),
@@ -543,7 +545,14 @@ impl MirTerminatorKind {
                 visit(&mut edges.panicked.edge)?;
                 visit(&mut edges.cancelled.edge)?;
             }
-            Self::CheckCallPanic { completed, .. } => visit(completed)?,
+            Self::CheckCallOutcome {
+                completed,
+                cancelled,
+                ..
+            } => {
+                visit(completed)?;
+                visit(cancelled)?;
+            }
             Self::BeginCleanup(cleanup)
             | Self::ContinueCleanup(cleanup)
             | Self::Panic { cleanup, .. }
@@ -614,12 +623,14 @@ impl MirTerminatorKind {
                 visit(edges.panicked().edge().target());
                 visit(edges.cancelled().edge().target());
             }
-            Self::CheckCallPanic {
+            Self::CheckCallOutcome {
                 completed,
                 panicked,
+                cancelled,
             } => {
                 visit(completed.target());
                 visit(panicked.target());
+                visit(cancelled.target());
             }
             Self::BeginCleanup(cleanup)
             | Self::ContinueCleanup(cleanup)
@@ -674,7 +685,7 @@ impl MirTerminatorKind {
             | Self::PropagateCancellation { .. }
             | Self::Suspend { .. }
             | Self::ForwardRunResult { .. }
-            | Self::CheckCallPanic { .. }
+            | Self::CheckCallOutcome { .. }
             | Self::BeginCleanup(_)
             | Self::ContinueCleanup(_)
             | Self::Panic { .. }

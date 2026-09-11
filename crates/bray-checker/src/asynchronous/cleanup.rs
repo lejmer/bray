@@ -18,6 +18,33 @@ use crate::{
     CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
 };
 
+pub(crate) fn cleanup_scopes<C>(
+    request: CheckerUnitView<'_, C>,
+    storage: &StoragePlan,
+) -> Result<BTreeSet<bray_bound_tree::BoundBlockId>, CheckerQueryError<C::UpstreamError>>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let owners = storage_scope_owners(request).map_err(CheckerQueryError::with_upstream)?;
+    let mut resolver = CleanupShapeResolver::new(request);
+    let mut scopes = BTreeSet::new();
+
+    for (id, identity) in storage.identity_entries() {
+        let (Some(scope), Some(ty)) = (owners.scope(Some(identity)), storage.storage_type(id))
+        else {
+            continue;
+        };
+
+        let shape = resolver.resolve(ty)?;
+
+        if shape.cancellation || shape.lifecycle {
+            scopes.insert(scope);
+        }
+    }
+
+    Ok(scopes)
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(super) struct CleanupShape {
     pub(super) cancellation: bool,
@@ -317,6 +344,7 @@ pub(super) fn scope_exit_plans<C>(
         Vec<AsyncStorageRequirement>,
         Vec<StorageCleanupType>,
         Vec<AsyncScopeExitPlan>,
+        Vec<bray_bound_tree::StorageReplacementPlan>,
         DiagnosticBag,
     ),
     CheckerQueryError<C::UpstreamError>,
@@ -328,6 +356,7 @@ where
     let owners = storage_scope_owners(request).map_err(CheckerQueryError::with_upstream)?;
 
     let requirements = storage_requirements(request, storage, flow, &owners, &mut cleanup_shapes)?;
+    let replacements = super::replacement::replacement_plans(storage, flow, &mut cleanup_shapes)?;
 
     let requirements_by_identity = requirements
         .iter()
@@ -405,6 +434,7 @@ where
         requirements,
         cleanup_shapes.cleanup_types.into_values().collect(),
         plans,
+        replacements,
         cleanup_shapes.diagnostics,
     ))
 }

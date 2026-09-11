@@ -111,10 +111,35 @@ impl CancellationContext {
 
     /// Temporarily shields cleanup from observing a pending cancellation request.
     pub fn shield(&self) -> CancellationShield {
-        self.state.shields.fetch_add(1, Ordering::AcqRel);
+        self.enter_shield();
 
         CancellationShield {
             context: self.clone(),
+        }
+    }
+
+    pub(crate) fn enter_shield(&self) {
+        // Each shield needs a live call frame or owned guard, so the count cannot reach usize::MAX.
+        self.state
+            .shields
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |depth| {
+                depth.checked_add(1)
+            })
+            .expect("cancellation shield count must not overflow");
+    }
+
+    pub(crate) fn leave_shield(&self) {
+        // Only a paired generated leave or an owned CancellationShield can release a shield.
+        let previous = self
+            .state
+            .shields
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |depth| {
+                depth.checked_sub(1)
+            })
+            .expect("cancellation shield count must not underflow");
+
+        if previous == 1 {
+            notify_if_observable(&self.state);
         }
     }
 
@@ -167,16 +192,7 @@ pub struct CancellationShield {
 
 impl Drop for CancellationShield {
     fn drop(&mut self) {
-        let previous = self.context.state.shields.fetch_sub(1, Ordering::AcqRel);
-
-        debug_assert!(
-            previous != 0,
-            "cancellation shield count must not underflow"
-        );
-
-        if previous == 1 {
-            notify_if_observable(&self.context.state);
-        }
+        self.context.leave_shield();
     }
 }
 

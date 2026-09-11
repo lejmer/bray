@@ -69,6 +69,8 @@ pub(super) struct Lowerer<'unit> {
     pub(super) loop_targets: Vec<LoopTarget>,
     pub(super) catch_targets: Vec<CatchTarget>,
     pub(super) frame_states: Vec<MirFrameState>,
+    pub(super) cleanup_outcome: Option<crate::cleanup_outcome::CleanupOutcome>,
+    pub(super) cleanup_failure_targets: Option<(MirBlockId, MirBlockId, bray_symbols::TypeId)>,
 }
 
 /// Lowers one complete checked semantic unit into validated backend-independent MIR.
@@ -96,6 +98,8 @@ impl<'unit> Lowerer<'unit> {
             loop_targets: Vec::new(),
             catch_targets: Vec::new(),
             frame_states: Vec::new(),
+            cleanup_outcome: None,
+            cleanup_failure_targets: None,
         }
     }
 
