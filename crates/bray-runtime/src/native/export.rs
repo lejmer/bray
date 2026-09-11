@@ -617,8 +617,6 @@ mod tests {
 
     static PANIC_REPORTS: crate::test_support::NativeTestValues<TestPanicReport> =
         crate::test_support::NativeTestValues::new();
-    static INACTIVE_FRAMES: crate::test_support::NativeTestValues<NativeProtectedFrame> =
-        crate::test_support::NativeTestValues::new();
 
     #[test]
     fn inactive_capture_destruction_preserves_outcomes_and_releases_context_on_every_exit() {
@@ -2441,13 +2439,18 @@ mod tests {
         frame: NativeProtectedFrame,
         configuration: NativeRuntimeConfiguration,
     ) -> super::NativeRootStart {
-        bray_runtime_root_execution(inactive_test_frame(frame), configuration)
+        bray_runtime_root_execution(
+            crate::test_support::inactive_native_frame(frame),
+            configuration,
+        )
     }
 
     fn start_test_task(task: NativeTaskHandle, frame: NativeProtectedFrame) -> NativeRuntimeStatus {
         let context = frame.context();
         let destroy = frame.destroy();
-        let status = bray_runtime_task_start(task, inactive_test_frame(frame));
+
+        let status =
+            bray_runtime_task_start(task, crate::test_support::inactive_native_frame(frame));
 
         if !status.is_success() {
             destroy(context);
@@ -2467,7 +2470,9 @@ mod tests {
         let task = NativeTaskHandle::new(1).unwrap();
         let frame = protected_frame(8, resume_frame, ignore_completion_move, release);
         let context = frame.context();
-        let status = bray_runtime_task_start(task, inactive_test_frame(frame));
+
+        let status =
+            bray_runtime_task_start(task, crate::test_support::inactive_native_frame(frame));
 
         assert_eq!(status, NativeRuntimeStatus::NOT_INITIALIZED);
         assert_eq!(RELEASES.load(Ordering::Relaxed), 0);
@@ -2475,19 +2480,6 @@ mod tests {
         release(context);
 
         assert_eq!(RELEASES.load(Ordering::Relaxed), 1);
-    }
-
-    fn inactive_test_frame(frame: NativeProtectedFrame) -> NativeInactiveFrame {
-        NativeInactiveFrame::new(INACTIVE_FRAMES.insert(frame), move_test_frame)
-    }
-
-    extern "C" fn move_test_frame(
-        context: usize,
-        _: bray_runtime_abi::NativeFrameEntry,
-    ) -> NativeProtectedFrame {
-        INACTIVE_FRAMES
-            .take(context)
-            .expect("the fixture frame transfers exactly once")
     }
 
     #[test]

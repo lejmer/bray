@@ -154,6 +154,24 @@ fn native_fixture_tokens_transfer_ownership_once_without_reuse() {
     assert_eq!(values.take(0), None);
 }
 
+static INACTIVE_NATIVE_FRAMES: NativeTestValues<bray_runtime_abi::NativeProtectedFrame> =
+    NativeTestValues::new();
+
+pub(crate) fn inactive_native_frame(
+    frame: bray_runtime_abi::NativeProtectedFrame,
+) -> bray_runtime_abi::NativeInactiveFrame {
+    extern "C" fn transfer(
+        context: usize,
+        _: bray_runtime_abi::NativeFrameEntry,
+    ) -> bray_runtime_abi::NativeProtectedFrame {
+        INACTIVE_NATIVE_FRAMES
+            .take(context)
+            .expect("fixture frame transfers exactly once")
+    }
+
+    bray_runtime_abi::NativeInactiveFrame::new(INACTIVE_NATIVE_FRAMES.insert(frame), transfer)
+}
+
 pub(crate) fn register_task<T: 'static, F>(
     scheduler: &Scheduler,
     task: &TaskControlBlock<T, F>,
@@ -409,9 +427,7 @@ impl ProtectedFrame for TestFrame {
             }
         };
 
-        if frame.wake_on_suspension
-            && matches!(progress, FrameProgress::Suspended(_))
-        {
+        if frame.wake_on_suspension && matches!(progress, FrameProgress::Suspended(_)) {
             current_task_execution_context()
                 .unwrap_or_else(|| panic!("self-waking frame must have a task context"))
                 .wake_handle()

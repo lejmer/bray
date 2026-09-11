@@ -298,9 +298,6 @@ mod tests {
         assert!(super::super::state::shutdown().is_success());
     }
 
-    static FRAMES: crate::test_support::NativeTestValues<NativeProtectedFrame> =
-        crate::test_support::NativeTestValues::new();
-
     fn inactive_frame(
         affinity: NativeFrameAffinity,
         requirements: NativeLaneRequirements,
@@ -346,16 +343,7 @@ mod tests {
             ignore_action,
         );
 
-        NativeInactiveFrame::new(FRAMES.insert(frame), move_before_start)
-    }
-
-    extern "C" fn move_before_start(
-        context: usize,
-        _: bray_runtime_abi::NativeFrameEntry,
-    ) -> NativeProtectedFrame {
-        FRAMES
-            .take(context)
-            .expect("fixture frame must remain owned")
+        crate::test_support::inactive_native_frame(frame)
     }
 
     extern "C-unwind" fn resume(_: usize) -> NativeFrameProgress {
