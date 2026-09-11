@@ -31,7 +31,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         };
 
         let destination = match result_type {
-            Some(result_type) => self.allocate_temporary(result_type, "root.result.storage")?,
+            Some(result_type) => match &self.host_returned_value {
+                Some(admission) => admission.destination,
+                None => self.allocate_temporary(result_type, "root.result.storage")?,
+            },
             None => self
                 .types
                 .context()
@@ -81,36 +84,37 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let panic_report = self.allocate_panic_report_context()?;
 
+        let callback_destination_handle = callback
+            .get_first_param()
+            .and_then(int_value)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let callback_destination = llvm(
+            self.builder.build_int_to_ptr(
+                callback_destination_handle,
+                self.types
+                    .context()
+                    .ptr_type(inkwell::AddressSpace::default()),
+                "root.result.destination",
+            ),
+        )?;
+
         let result = self.invoke_function_with_panic_report_context(
             function,
             signature,
             &[],
             "root",
             Some(panic_report),
+            result_type.map(|_| callback_destination),
         )?;
-
-        let callback_destination_handle = callback
-            .get_first_param()
-            .and_then(int_value)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         match (result_type, result) {
             (Some(result_type), Some(result)) => {
-                let destination = llvm(
-                    self.builder.build_int_to_ptr(
-                        callback_destination_handle,
-                        self.types
-                            .context()
-                            .ptr_type(inkwell::AddressSpace::default()),
-                        "root.result.destination",
-                    ),
-                )?;
-
                 if result.get_type() != result_type {
                     return Err(CodegenFailure::GeneratedModuleInvariant);
                 }
 
-                llvm(self.builder.build_store(destination, result))?;
+                llvm(self.builder.build_store(callback_destination, result))?;
             }
             (None, None) => {}
             _ => return Err(CodegenFailure::GeneratedModuleInvariant),

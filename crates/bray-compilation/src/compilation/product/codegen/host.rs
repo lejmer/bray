@@ -161,36 +161,7 @@ impl Compilation {
             return Ok(None);
         }
 
-        let mut entries = Vec::with_capacity(roots.len());
-
-        for root_realization in roots {
-            let root = reachability
-                .and_then(|reachability| reachability.instance(root_realization.key()))
-                .ok_or(NativeProductPlanningError::MissingProductRoot)?;
-
-            let entry_result_type = root
-                .mir()
-                .frame_descriptor()
-                .map(bray_ir::MirFrameDescriptor::result_type);
-
-            let result =
-                self.executable_entry_result(root_realization, entry_result_type, cancellation)?;
-
-            let entry = match root.protected_frame_identity() {
-                Some(frame) => ExecutableHostEntry::asynchronous(
-                    frame,
-                    super::super::realization::generated_frame_symbol_name(
-                        target,
-                        frame,
-                        bray_runtime_interface::ProtectedFrameOperation::MoveBeforeStart,
-                    )?,
-                    result,
-                ),
-                None => ExecutableHostEntry::synchronous(result),
-            };
-
-            entries.push(entry);
-        }
+        let entries = self.executable_host_entries(roots, reachability, target, cancellation)?;
 
         if entries.is_empty() && kind != ProductKind::Test {
             return Err(NativeProductPlanningError::MissingProductRoot);
@@ -199,6 +170,10 @@ impl Compilation {
         let has_async_entries = entries
             .iter()
             .any(|entry| matches!(entry.root(), RootExecution::Asynchronous { .. }));
+
+        let has_async_results = entries
+            .iter()
+            .any(|entry| entry.returned_value_cleanup().is_some());
 
         let runtime_contract = runtime.map(RuntimeArtifact::contract);
 
@@ -299,7 +274,14 @@ impl Compilation {
             ]);
         }
 
-        if has_async_entries {
+        if has_async_results {
+            runtime_roles.extend([
+                RuntimeAbiRole::EntryResultAdmission,
+                RuntimeAbiRole::EntryResultResolution,
+            ]);
+        }
+
+        if has_async_entries || has_async_results {
             runtime_roles.extend([
                 RuntimeAbiRole::ProductHostControl,
                 RuntimeAbiRole::MainThreadLaneStartup,
@@ -387,6 +369,95 @@ impl Compilation {
             .finish()
             .map(Some)
             .map_err(NativeProductPlanningError::InvalidExecutableHost)
+    }
+
+    fn executable_host_entries(
+        &self,
+        roots: &[ConcreteCodegenInstance],
+        reachability: Option<&bray_codegen::CodegenReachability>,
+        target: &CodegenTarget,
+        cancellation: &CancellationToken,
+    ) -> Result<Vec<ExecutableHostEntry>, NativeProductPlanningError> {
+        let mut entries = Vec::with_capacity(roots.len());
+        let mut cleanup_frames = BTreeMap::new();
+
+        for root_realization in roots {
+            let root = reachability
+                .and_then(|reachability| reachability.instance(root_realization.key()))
+                .ok_or(NativeProductPlanningError::MissingProductRoot)?;
+
+            let entry_result_type = root
+                .mir()
+                .frame_descriptor()
+                .map(bray_ir::MirFrameDescriptor::result_type);
+
+            let result =
+                self.executable_entry_result(root_realization, entry_result_type, cancellation)?;
+
+            let entry = match root.protected_frame_identity() {
+                Some(frame) => ExecutableHostEntry::asynchronous(
+                    frame,
+                    super::super::realization::generated_frame_symbol_name(
+                        target,
+                        frame,
+                        bray_runtime_interface::ProtectedFrameOperation::MoveBeforeStart,
+                    )?,
+                    result,
+                ),
+                None => ExecutableHostEntry::synchronous(result),
+            };
+
+            let frame = match result {
+                ExecutableEntryResult::Fallible { error, .. } => {
+                    if let Some(frame) = cleanup_frames.get(&error) {
+                        *frame
+                    } else {
+                        let reference = bray_ir::MirHelperReference::Cleanup {
+                            phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                            ty: error,
+                        };
+
+                        let helper = self.concrete_codegen_lifecycle(reference.clone(), target)?;
+
+                        let frame =
+                            match reachability.and_then(|graph| graph.instance(helper.key())) {
+                                Some(instance) => instance.protected_frame_identity(),
+                                None => {
+                                    // Realize only this selected helper, not another reachability graph.
+                                    let mir = self.codegen_generated_lifecycle_mir(
+                                        helper.key(),
+                                        &reference,
+                                        bray_ir::MirUnitId::new(0),
+                                        cancellation,
+                                    )?;
+
+                                    let mir = self.specialize_codegen_lifecycle_mir(
+                                        &helper,
+                                        mir,
+                                        cancellation,
+                                    )?;
+
+                                    match mir.kind() {
+                                        bray_ir::MirUnitKind::ProtectedAsyncFrame(frame) => {
+                                            Some(helper.key().protected_frame_identity(*frame))
+                                        }
+                                        _ => None,
+                                    }
+                                }
+                            };
+
+                        cleanup_frames.insert(error, frame);
+
+                        frame
+                    }
+                }
+                _ => None,
+            };
+
+            entries.push(entry.with_returned_value_cleanup(frame));
+        }
+
+        Ok(entries)
     }
 
     fn executable_entry_result(

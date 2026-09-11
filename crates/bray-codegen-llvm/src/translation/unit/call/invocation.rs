@@ -21,6 +21,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             semantic_arguments,
             name,
             panic_report_context,
+            None,
         )?;
 
         if let Some(context) = panic_report_context {
@@ -45,6 +46,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             semantic_arguments,
             name,
             Some(panic_report_context),
+            None,
         )?;
 
         self.retain_checked_call_context(panic_report_context)?;
@@ -59,6 +61,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         semantic_arguments: &[BasicValueEnum<'context>],
         name: &str,
         panic_report_context: Option<PointerValue<'context>>,
+        result_destination: Option<PointerValue<'context>>,
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
         let mut arguments = Vec::new();
 
@@ -71,6 +74,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             semantic_arguments,
             &mut arguments,
             panic_report_context,
+            result_destination,
         )?;
 
         let call = llvm(self.builder.build_call(function, &arguments, name))?;
@@ -151,6 +155,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             semantic_arguments,
             &mut arguments,
             panic_report_context,
+            None,
         )?;
 
         let call =
@@ -175,12 +180,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         semantic_arguments: &[BasicValueEnum<'context>],
         arguments: &mut Vec<BasicMetadataValueEnum<'context>>,
         panic_report_context: Option<PointerValue<'context>>,
+        result_destination: Option<PointerValue<'context>>,
     ) -> Result<Option<(PointerValue<'context>, bray_symbols::TypeId)>, CodegenFailure> {
         let result_storage = match signature.result() {
             CodegenResultMapping::Indirect {
                 pointee, alignment, ..
             } => {
-                let storage = self.aligned_alloca(*pointee, alignment.get(), "call.result")?;
+                let storage = match result_destination {
+                    Some(destination) => destination,
+                    None => self.aligned_alloca(*pointee, alignment.get(), "call.result")?,
+                };
 
                 if signature.has_panic_report_context() {
                     llvm(

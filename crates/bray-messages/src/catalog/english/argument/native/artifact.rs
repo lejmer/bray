@@ -247,6 +247,9 @@ fn format_english_native_product_failure_detail(
         Kind::ExecutableHostMissingProtectedFrameAbi => {
             "the executable host lacks the required protected-frame ABI"
         }
+        Kind::ExecutableHostInvalidReturnedValueCleanup => {
+            "the executable host has an invalid returned-value cleanup contract"
+        }
         Kind::ExecutableHostMissingRole(_) => "the executable host lacks a required runtime role",
         Kind::RuntimeSelectionIncompatible(_) => {
             "the selected runtime is incompatible with the product"

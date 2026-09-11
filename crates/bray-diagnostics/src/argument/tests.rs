@@ -215,6 +215,7 @@ fn native_product_failure_keys_are_unique_and_domain_named() {
         )),
         Kind::ExecutableHostMissingMainThreadLane,
         Kind::ExecutableHostMissingProtectedFrameAbi,
+        Kind::ExecutableHostInvalidReturnedValueCleanup,
         Kind::ExecutableHostMissingRole(native_product_detail("executable_host_missing_role")),
         Kind::RuntimeSelectionIncompatible(native_product_detail(
             "runtime_selection_runtime_identity_mismatch",

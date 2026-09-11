@@ -2193,8 +2193,18 @@ mod tests {
                 assert!(ir.contains("cleanup.inactive"));
 
                 assert!(ir.lines().any(|line| line.contains("call")
-                    && line.contains("bray_runtime_entry_failure_resolution")
+                    && line.contains("bray_runtime_entry_result_admission")
                     && line.contains("value_cleanup.descriptor")));
+
+                assert!(ir.lines().any(|line| line.contains("call")
+                    && line.contains("bray_runtime_entry_failure_resolution")
+                    && line.contains("ptr null, ptr null")));
+
+                assert!(ir.lines().any(|line| line.contains("call")
+                    && line.contains("bray_runtime_entry_result_resolution")));
+
+                assert!(ir.contains("entry.result.admitted"));
+                assert!(ir.contains("entry.result.resolved"));
             }
         }
     }

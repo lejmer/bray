@@ -3,6 +3,50 @@ use bray_runtime_abi::{
     NativeValueCleanup,
 };
 
+native_export! {
+    pub extern "C" fn bray_runtime_entry_result_admission(
+        product: Option<&bray_runtime_abi::NativeProductHostDescriptor>,
+        size: usize,
+        alignment: usize,
+        error_offset: usize,
+        broadcast: Option<&NativeValueCleanup>,
+        lifecycle: Option<&NativeValueCleanup>,
+        destination: Option<&mut usize>,
+    ) -> bray_runtime_abi::NativeTaskAllocation {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let (Some(product), Some(lifecycle), Some(destination)) = (product, lifecycle, destination) else {
+                return bray_runtime_abi::NativeTaskAllocation::failure(NativeRuntimeStatus::INVALID_ARGUMENT);
+            };
+            match super::state::with_runtime(|runtime| runtime.admit_returned_value(
+                std::ptr::from_ref(product).addr(), size, alignment, error_offset, broadcast.copied(), *lifecycle,
+            )).and_then(|result| result) {
+                Ok((task, address)) => {
+                    *destination = address;
+                    bray_runtime_abi::NativeTaskAllocation::success(task)
+                }
+                Err(status) => bray_runtime_abi::NativeTaskAllocation::failure(status),
+            }
+        })).unwrap_or_else(|_| bray_runtime_abi::NativeTaskAllocation::failure(NativeRuntimeStatus::PANICKED))
+    }
+}
+
+native_export! {
+    pub extern "C" fn bray_runtime_entry_result_resolution(task: u64, returned_error: u8) -> NativeRuntimeStatus {
+        super::export::contain_status(|| {
+            if returned_error > 1 {
+                return NativeRuntimeStatus::INVALID_ARGUMENT;
+            }
+            let Some(task) = bray_runtime_abi::NativeTaskHandle::new(task) else {
+                return NativeRuntimeStatus::INVALID_ARGUMENT;
+            };
+            super::state::with_runtime(|runtime| {
+                if returned_error == 1 { runtime.resolve_returned_value(task) }
+                else { runtime.release_returned_value(task) }
+            }).unwrap_or_else(|status| status)
+        })
+    }
+}
+
 pub(super) fn resolve_failure(
     identity: NativeTypeIdentity,
     source: NativeSourceAnchor,
@@ -59,6 +103,29 @@ mod tests {
         NativeBrayCallOutcome, NativeCleanupExecution, NativeInactiveFrame, NativeRuntimeStatus,
         NativeSourceAnchor, NativeTypeIdentity, NativeValueCleanup,
     };
+
+    #[test]
+    fn entry_result_boundary_rejects_invalid_inputs_before_runtime_access() {
+        let mut destination = 71;
+
+        let allocation = super::bray_runtime_entry_result_admission(
+            None,
+            8,
+            8,
+            0,
+            None,
+            None,
+            Some(&mut destination),
+        );
+
+        assert_eq!(allocation.status(), NativeRuntimeStatus::INVALID_ARGUMENT);
+        assert_eq!(destination, 71);
+
+        assert_eq!(
+            super::bray_runtime_entry_result_resolution(1, 2),
+            NativeRuntimeStatus::INVALID_ARGUMENT
+        );
+    }
 
     #[test]
     fn entry_cleanup_continues_after_broadcast_failure_and_retains_the_panic() {

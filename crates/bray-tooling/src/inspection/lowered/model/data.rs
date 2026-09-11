@@ -1583,6 +1583,16 @@ fn host_operation(operation: &MirHostOperation, parts: &mut OperationParts) -> &
 
             "select_test_entry"
         }
+        MirHostOperation::PrepareReturnedValue {
+            entry,
+            error: _,
+            runtime,
+        } => {
+            parts.attribute("entry", entry.slot());
+            runtime_reference("runtime", *runtime, parts);
+
+            "prepare_returned_value"
+        }
         MirHostOperation::ExecuteRoot {
             entry,
             root,
@@ -1618,11 +1628,16 @@ fn host_operation(operation: &MirHostOperation, parts: &mut OperationParts) -> &
             completion,
             panic,
             entry_failure,
+            returned_value,
         } => {
             parts.attribute("entry", entry.slot());
             runtime_reference("completion", *completion, parts);
             runtime_reference("panic", *panic, parts);
             runtime_reference("entry_failure", *entry_failure, parts);
+
+            if let Some(runtime) = returned_value {
+                runtime_reference("returned_value", *runtime, parts);
+            }
 
             "resolve_root_terminal"
         }

@@ -15,6 +15,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         completion: bray_ir::MirRuntimeReference,
         panic: bray_ir::MirRuntimeReference,
         entry_failure: bray_ir::MirRuntimeReference,
+        returned_value: Option<bray_ir::MirRuntimeReference>,
     ) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
         let bray_ir::MirUnitKind::ExecutableHost(host) = self.unit.kind() else {
             return Err(CodegenFailure::GeneratedModuleInvariant);
@@ -69,44 +70,17 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     "host.succeeded",
                 ))?;
 
-                let mapping = self
-                    .type_mapping(ty)
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-                let bray_codegen::CodegenTypeKind::Union { variants, .. } = mapping.kind() else {
-                    return Err(CodegenFailure::GeneratedModuleInvariant);
-                };
-
-                let error_variant = variants
-                    .iter()
-                    .find(|variant| variant.variant() != success_variant)
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-                let [error_field] = error_variant.fields() else {
-                    return Err(CodegenFailure::GeneratedModuleInvariant);
-                };
-
-                if error_field.ty() != error_type {
-                    return Err(CodegenFailure::GeneratedModuleInvariant);
-                }
-
-                let Some(bray_ir::MirFieldReference::UnionPayload(error_field)) =
-                    error_field.reference()
-                else {
-                    return Err(CodegenFailure::GeneratedModuleInvariant);
-                };
-
+                let offset = self.entry_error_field(entry_result)?.offset_bytes();
                 let ty = self.types.map(ty)?;
-                let storage = self.allocate_temporary(ty, "entry.result")?;
 
+                let storage = match &self.host_returned_value {
+                    Some(admission) => admission.destination,
+                    None => self.allocate_temporary(ty, "entry.result")?,
+                };
+
+                // Move the observed completion into its pre-admitted owner before invoking cleanup.
                 llvm(self.builder.build_store(storage, result))?;
-
-                let error = self.union_field_pointer(
-                    storage,
-                    mapping.kind(),
-                    error_variant.variant(),
-                    error_field,
-                )?;
+                let error = self.constant_offset_pointer(storage, offset)?;
 
                 let skip_error = if let Some(completed) = completed {
                     let abnormal = llvm(self.builder.build_not(completed, "entry.abnormal"))?;
@@ -126,6 +100,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     error_type,
                     entry_failure,
                 )?;
+
+                let succeeded = match returned_value {
+                    Some(runtime) => self.resolve_returned_value(runtime, skip_error, succeeded)?,
+                    None => succeeded,
+                };
 
                 llvm(self.builder.build_select(
                     succeeded,
@@ -298,25 +277,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         error_type: bray_symbols::TypeId,
         reporter: bray_ir::MirRuntimeReference,
     ) -> Result<(), CodegenFailure> {
-        let helpers = self.operation_helpers(operation)?;
-
-        let [broadcast, lifecycle] = helpers.as_slice() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+        let helpers = if self.host_returned_value.is_some() {
+            None
+        } else {
+            Some(self.entry_cleanup_helpers(operation, error_type)?)
         };
-
-        for (helper, phase) in [
-            (broadcast, bray_ir::MirCleanupPhase::TaskCancellation),
-            (lifecycle, bray_ir::MirCleanupPhase::LifecycleResolution),
-        ] {
-            if helper.reference()
-                != &(bray_ir::MirHelperReference::Cleanup {
-                    phase,
-                    ty: error_type,
-                })
-            {
-                return Err(CodegenFailure::GeneratedModuleInvariant);
-            }
-        }
 
         let function = self
             .builder
@@ -376,8 +341,20 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 source.into(),
             );
 
-            let broadcast = self.value_cleanup_descriptor(broadcast)?;
-            let lifecycle = self.value_cleanup_descriptor(lifecycle)?;
+            let (broadcast, lifecycle) = if let Some([broadcast, lifecycle]) = &helpers {
+                (
+                    self.value_cleanup_descriptor(broadcast)?,
+                    self.value_cleanup_descriptor(lifecycle)?,
+                )
+            } else {
+                let null = self
+                    .types
+                    .context()
+                    .ptr_type(inkwell::AddressSpace::default())
+                    .const_null();
+
+                (null.into(), null.into())
+            };
 
             let address = llvm(self.builder.build_ptr_to_int(
                 error,
@@ -396,7 +373,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 ],
             )?;
         } else {
-            for helper in [broadcast, lifecycle] {
+            let helpers = helpers.ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+            for helper in &helpers {
                 if helper.symbol().is_some()
                     && self.invoke_helper(helper, &[error.into()])?.is_some()
                 {

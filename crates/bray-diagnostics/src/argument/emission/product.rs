@@ -206,6 +206,7 @@ pub enum DiagnosticNativeProductFailureKind {
     ExecutableHostIncompatibleRuntime(DiagnosticNativeProductFailureDetail),
     ExecutableHostMissingMainThreadLane,
     ExecutableHostMissingProtectedFrameAbi,
+    ExecutableHostInvalidReturnedValueCleanup,
     ExecutableHostMissingRole(DiagnosticNativeProductFailureDetail),
     RuntimeSelectionIncompatible(DiagnosticNativeProductFailureDetail),
     RuntimeSelectionMissingRoleOwner(DiagnosticNativeProductFailureDetail),
@@ -341,6 +342,9 @@ impl DiagnosticNativeProductFailureKind {
             Self::ExecutableHostMissingMainThreadLane => "executable_host_missing_main_thread_lane",
             Self::ExecutableHostMissingProtectedFrameAbi => {
                 "executable_host_missing_protected_frame_abi"
+            }
+            Self::ExecutableHostInvalidReturnedValueCleanup => {
+                "executable_host_invalid_returned_value_cleanup"
             }
             Self::RuntimeSelectionIncompatible(detail)
             | Self::RuntimeSelectionMissingRoleOwner(detail)

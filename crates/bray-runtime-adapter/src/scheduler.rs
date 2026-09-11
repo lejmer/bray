@@ -208,3 +208,23 @@ native_adapter! {
         implementation::bray_runtime_asynchronous_product_host_control(descriptor, operation)
     }
 }
+
+native_adapter! {
+    pub extern "C" fn bray_runtime_entry_result_admission(
+        product: Option<&bray_runtime_abi::NativeProductHostDescriptor>,
+        size: usize,
+        alignment: usize,
+        error_offset: usize,
+        broadcast: Option<&bray_runtime_abi::NativeValueCleanup>,
+        lifecycle: Option<&bray_runtime_abi::NativeValueCleanup>,
+        destination: Option<&mut usize>,
+    ) -> bray_runtime_abi::NativeTaskAllocation {
+        implementation::bray_runtime_entry_result_admission(product, size, alignment, error_offset, broadcast, lifecycle, destination)
+    }
+}
+
+native_adapter! {
+    pub extern "C" fn bray_runtime_entry_result_resolution(task: u64, returned_error: u8) -> NativeRuntimeStatus {
+        implementation::bray_runtime_entry_result_resolution(task, returned_error)
+    }
+}

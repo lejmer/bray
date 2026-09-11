@@ -207,6 +207,12 @@ pub enum MirHostOperation {
         /// Selected private test-entry-selection ABI role.
         runtime: MirRuntimeReference,
     },
+    /// Admit returned-result backing and asynchronous value cleanup before executing source code.
+    PrepareReturnedValue {
+        entry: ExecutableHostEntryId,
+        error: TypeId,
+        runtime: MirRuntimeReference,
+    },
     /// Establish and execute the selected source root.
     ExecuteRoot {
         /// Position of this source entry in the host contract.
@@ -231,6 +237,8 @@ pub enum MirHostOperation {
         entry: ExecutableHostEntryId,
         /// Recoverable error type whose lifecycle the host resolves after reporting.
         error: Option<TypeId>,
+        /// Consumes the pre-admitted result owner when this entry has asynchronous value cleanup.
+        returned_value: Option<MirRuntimeReference>,
         /// Selected private completion-release ABI role.
         completion: MirRuntimeReference,
         /// Selected private panic-reporting ABI role.

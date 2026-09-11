@@ -123,11 +123,20 @@ pub(super) fn validate_operation_mappings(
                                     bray_ir::MirAsyncOperation::TransferCleanupIncident { .. }
                                 )
                             ),
+                            matches!(
+                                operation.kind(),
+                                bray_ir::MirOperationKind::Host(
+                                    bray_ir::MirHostOperation::ResolveRootTerminal {
+                                        error: Some(_),
+                                        ..
+                                    }
+                                )
+                            ),
                         ),
                     )
                 })
         })
-        .filter(|(_, (helpers, _, incident))| !helpers.is_empty() || *incident)
+        .filter(|(_, (helpers, _, incident, error))| !helpers.is_empty() || *incident || *error)
         .collect();
 
     if mappings.len() != expected.len()
@@ -136,8 +145,9 @@ pub(super) fn validate_operation_mappings(
 
             expected
                 .get(&key)
-                .is_none_or(|(references, storage, incident)| {
+                .is_none_or(|(references, storage, incident, error)| {
                     *incident != mapping.incident().is_some()
+                        || *error != mapping.returned_error_identity().is_some()
                         || references.len() != mapping.helpers().len()
                         || references
                             .iter()

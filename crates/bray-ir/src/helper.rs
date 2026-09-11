@@ -246,8 +246,11 @@ impl MirOperationKind {
 
                 helpers.push(MirHelperReference::DestroyTerminalTask);
             }
-            Self::Host(crate::MirHostOperation::ResolveRootTerminal {
-                error: Some(error), ..
+            Self::Host(crate::MirHostOperation::PrepareReturnedValue { error, .. })
+            | Self::Host(crate::MirHostOperation::ResolveRootTerminal {
+                error: Some(error),
+                returned_value: None,
+                ..
             }) => {
                 for phase in [
                     MirCleanupPhase::TaskCancellation,

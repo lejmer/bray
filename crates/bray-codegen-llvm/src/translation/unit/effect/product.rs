@@ -105,21 +105,27 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         Ok(())
     }
 
-    fn invoke_product_control(
-        &mut self,
-        runtime: MirRuntimeReference,
-        operation: NativeProductHostOperation,
-    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+    pub(super) fn product_descriptor(
+        &self,
+    ) -> Result<inkwell::values::PointerValue<'context>, CodegenFailure> {
         let host = self
             .request
             .mappings()
             .product_host()
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        let descriptor = self
-            .module
+        self.module
             .get_global(host.descriptor_symbol().as_str())
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .map(|descriptor| descriptor.as_pointer_value())
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)
+    }
+
+    fn invoke_product_control(
+        &mut self,
+        runtime: MirRuntimeReference,
+        operation: NativeProductHostOperation,
+    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+        let descriptor = self.product_descriptor()?;
 
         let operation = self
             .types
@@ -144,7 +150,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             self.request.target(),
             &key,
             function,
-            &[descriptor.as_pointer_value().into(), operation.into()],
+            &[descriptor.into(), operation.into()],
             "product.control",
         )?
         .ok_or(CodegenFailure::GeneratedModuleInvariant)

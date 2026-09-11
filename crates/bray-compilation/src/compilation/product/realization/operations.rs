@@ -50,7 +50,10 @@ impl Compilation {
                     cancellation,
                 )?;
 
-                if references.is_empty() && incident.is_none() {
+                let error_identity =
+                    self.concrete_operation_error_identity(realization, data, cancellation)?;
+
+                if references.is_empty() && incident.is_none() && error_identity.is_none() {
                     continue;
                 }
 
@@ -78,9 +81,7 @@ impl Compilation {
                     mapping = mapping.with_incident(incident.into_mapping());
                 }
 
-                if let Some(identity) =
-                    self.concrete_operation_error_identity(realization, data, cancellation)?
-                {
+                if let Some(identity) = error_identity {
                     mapping = mapping.with_returned_error_identity(identity);
                 }
 

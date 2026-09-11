@@ -143,6 +143,9 @@ pub(super) fn native_product_failure_kind(
             ExecutableHostContractBuildError::MissingProtectedFrameAbi => {
                 Kind::ExecutableHostMissingProtectedFrameAbi
             }
+            ExecutableHostContractBuildError::InvalidReturnedValueCleanup => {
+                Kind::ExecutableHostInvalidReturnedValueCleanup
+            }
             ExecutableHostContractBuildError::MissingRole(role) => Kind::ExecutableHostMissingRole(
                 runtime_role_detail("executable_host_missing_role", *role),
             ),

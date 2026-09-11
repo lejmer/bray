@@ -42,3 +42,5 @@ pub use super::export::{
 pub use super::host::{NativeHostCallbacks, register_host_callbacks};
 
 pub use super::product_execution::bray_runtime_asynchronous_product_host_control;
+
+pub use super::entry::{bray_runtime_entry_result_admission, bray_runtime_entry_result_resolution};

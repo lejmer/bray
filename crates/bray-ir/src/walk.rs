@@ -220,6 +220,7 @@ impl MirOperationKind {
                 }
                 crate::MirHostOperation::BeginExecution { .. }
                 | crate::MirHostOperation::SelectTestEntry { .. }
+                | crate::MirHostOperation::PrepareReturnedValue { .. }
                 | crate::MirHostOperation::ExecuteRoot { .. }
                 | crate::MirHostOperation::ObserveRootTerminal { .. }
                 | crate::MirHostOperation::ResolveRootTerminal { .. }

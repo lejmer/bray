@@ -410,7 +410,8 @@ fn collect_async_types(operation: &MirAsyncOperation, types: &mut BTreeSet<TypeI
 
 fn collect_host_types(operation: &MirHostOperation, types: &mut BTreeSet<TypeId>) {
     match operation {
-        MirHostOperation::ResolveRootTerminal {
+        MirHostOperation::PrepareReturnedValue { error, .. }
+        | MirHostOperation::ResolveRootTerminal {
             error: Some(error), ..
         } => {
             types.insert(*error);

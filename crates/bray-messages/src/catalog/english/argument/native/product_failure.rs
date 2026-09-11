@@ -46,6 +46,7 @@ pub(super) const fn native_product_failure_is_internal(
         | Kind::ExecutableHostRuntimeOwnedBinding(_)
         | Kind::ExecutableHostIncompatibleRuntime(_)
         | Kind::ExecutableHostMissingMainThreadLane
+        | Kind::ExecutableHostInvalidReturnedValueCleanup
         | Kind::ExecutableHostMissingProtectedFrameAbi
         | Kind::ExecutableHostMissingRole(_)
         | Kind::EmissionBackendDuplicateUnit

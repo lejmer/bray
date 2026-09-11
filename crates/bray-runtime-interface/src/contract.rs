@@ -101,6 +101,7 @@ pub struct ExecutableHostEntry {
     root: RootExecution,
     root_frame_adapter: Option<BinarySymbolName>,
     result: ExecutableEntryResult,
+    returned_value_cleanup: Option<ProtectedAsyncFrameId>,
 }
 
 impl ExecutableHostEntry {
@@ -110,6 +111,7 @@ impl ExecutableHostEntry {
             root: RootExecution::Synchronous,
             root_frame_adapter: None,
             result,
+            returned_value_cleanup: None,
         }
     }
 
@@ -123,7 +125,23 @@ impl ExecutableHostEntry {
             root: RootExecution::Asynchronous { frame },
             root_frame_adapter: Some(root_frame_adapter),
             result,
+            returned_value_cleanup: None,
         }
+    }
+
+    /// Selects the concrete asynchronous lifecycle whose returned-value owner must be admitted.
+    pub const fn with_returned_value_cleanup(
+        mut self,
+        frame: Option<ProtectedAsyncFrameId>,
+    ) -> Self {
+        self.returned_value_cleanup = frame;
+
+        self
+    }
+
+    /// Returns the concrete lifecycle frame required before entry execution accepts its result.
+    pub const fn returned_value_cleanup(&self) -> Option<ProtectedAsyncFrameId> {
+        self.returned_value_cleanup
     }
 
     /// Returns how this source entry becomes a root run.
@@ -266,6 +284,27 @@ impl ExecutableHostContractBuilder {
         }
 
         for entry in &self.entries {
+            if entry.returned_value_cleanup().is_some() {
+                if !matches!(entry.result(), ExecutableEntryResult::Fallible { .. }) {
+                    return Err(ExecutableHostContractBuildError::InvalidReturnedValueCleanup);
+                }
+
+                validate_async_requirements(&self.requirements, self.runtime.as_ref())?;
+
+                for role in [
+                    RuntimeAbiRole::EntryResultAdmission,
+                    RuntimeAbiRole::EntryResultResolution,
+                    RuntimeAbiRole::ProductHostControl,
+                    RuntimeAbiRole::MainThreadLaneStartup,
+                ] {
+                    if !self.requirements.requires_role(role)
+                        || !has_role_binding(role, self.runtime.as_ref(), &host_role_bindings)
+                    {
+                        return Err(ExecutableHostContractBuildError::MissingRole(role));
+                    }
+                }
+            }
+
             validate_root_contract(
                 entry.root(),
                 &self.requirements,
@@ -390,6 +429,8 @@ pub fn selected_runtime_role_symbol(
 /// A contract violation that prevents executable-host construction.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum ExecutableHostContractBuildError {
+    /// An entry without an owned error requests returned-value cleanup admission.
+    InvalidReturnedValueCleanup,
     /// More than one binary binding was supplied for one closed ABI role.
     DuplicateRole(RuntimeAbiRole),
     /// Reachable requirements need an execution runtime but none was selected.
@@ -432,6 +473,24 @@ fn validate_root_contract(
         return Ok(());
     }
 
+    validate_async_requirements(requirements, runtime)?;
+
+    for role in [
+        RuntimeAbiRole::MainThreadLaneStartup,
+        RuntimeAbiRole::MainThreadLaneDrive,
+    ] {
+        if !has_role_binding(role, runtime, host_role_bindings) {
+            return Err(ExecutableHostContractBuildError::MissingRole(role));
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_async_requirements(
+    requirements: &RuntimeRequirements,
+    runtime: Option<&RuntimeContract>,
+) -> Result<(), ExecutableHostContractBuildError> {
     if runtime.is_none() {
         return Err(ExecutableHostContractBuildError::MissingRuntime);
     }
@@ -446,15 +505,6 @@ fn validate_root_contract(
         .is_err()
     {
         return Err(ExecutableHostContractBuildError::MissingMainThreadLaneCapability);
-    }
-
-    for role in [
-        RuntimeAbiRole::MainThreadLaneStartup,
-        RuntimeAbiRole::MainThreadLaneDrive,
-    ] {
-        if !has_role_binding(role, runtime, host_role_bindings) {
-            return Err(ExecutableHostContractBuildError::MissingRole(role));
-        }
     }
 
     Ok(())

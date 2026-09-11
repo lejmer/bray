@@ -426,6 +426,24 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: [TransferCleanupIncident]
             }
+            EntryResultAdmission {
+                "Admit entry result storage and asynchronous cleanup before invocation.", "entry_result_admission",
+                native: (ENTRY_RESULT_ADMISSION_SYMBOL = "bray_runtime_entry_result_admission", [Pointer, Usize, Usize, Usize, Pointer, Pointer, PointerUsize] -> TaskAllocation),
+                call_hook: (),
+                compiler: Bray [] -> Void,
+                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: [AllocateTask]
+            }
+            EntryResultResolution {
+                "Release admitted entry storage or resolve its returned error.", "entry_result_resolution",
+                native: (ENTRY_RESULT_RESOLUTION_SYMBOL = "bray_runtime_entry_result_resolution", [U64, U8] -> U32),
+                call_hook: (),
+                compiler: Bray [] -> Void,
+                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: [ResolveFrameLifecycle]
+            }
             EntryFailureResolution {
                 "Report an entrypoint failure and resolve its owned value before host completion.", "entry_failure_resolution",
                 native: (ENTRY_FAILURE_RESOLUTION_SYMBOL = "bray_runtime_entry_failure_resolution", [Pointer, Pointer, Usize, Pointer, Pointer] -> U32),

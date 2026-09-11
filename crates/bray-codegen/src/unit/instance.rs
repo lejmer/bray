@@ -102,6 +102,20 @@ struct CodegenInstanceData {
 pub struct CodegenInstanceKey(Arc<CodegenInstanceData>);
 
 impl CodegenInstanceKey {
+    /// Derives this instance's concrete frame identity from its lowered frame template.
+    pub fn protected_frame_identity(
+        &self,
+        template: ProtectedAsyncFrameId,
+    ) -> ProtectedAsyncFrameId {
+        let mut hasher = StableDigestHasher::new();
+
+        hasher.write(b"bray.concrete-protected-async-frame");
+        hasher.write_u32(CONCRETE_FRAME_IDENTITY_REVISION);
+        template.hash(&mut hasher);
+        self.hash(&mut hasher);
+
+        ProtectedAsyncFrameId::new(hasher.finalize())
+    }
     /// Retains exact substitutions, witnesses, and target under a specialized template identity.
     pub fn with_template(&self, template: MirUnitKey) -> Self {
         Self(Arc::new(CodegenInstanceData {
@@ -296,14 +310,7 @@ impl CodegenInstance {
             return None;
         };
 
-        let mut hasher = StableDigestHasher::new();
-
-        hasher.write(b"bray.concrete-protected-async-frame");
-        hasher.write_u32(CONCRETE_FRAME_IDENTITY_REVISION);
-        template.hash(&mut hasher);
-        self.key.hash(&mut hasher);
-
-        Some(ProtectedAsyncFrameId::new(hasher.finalize()))
+        Some(self.key.protected_frame_identity(*template))
     }
 }
 

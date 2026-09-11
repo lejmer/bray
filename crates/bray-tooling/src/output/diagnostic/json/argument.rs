@@ -615,6 +615,7 @@ impl DiagnosticNativeProductFailureJson {
             | Kind::UnitRecipeMismatch
             | Kind::ExecutableHostMissingRuntime
             | Kind::ExecutableHostMissingMainThreadLane
+            | Kind::ExecutableHostInvalidReturnedValueCleanup
             | Kind::ExecutableHostMissingProtectedFrameAbi
             | Kind::StandardLibraryUnavailable
             | Kind::EmissionBackendDuplicateUnit

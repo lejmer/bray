@@ -51,6 +51,25 @@ pub(super) fn validate_host_operation(
 
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::TestEntrySelection)
         }
+        MirHostOperation::PrepareReturnedValue {
+            entry,
+            error,
+            runtime,
+        } => {
+            let Some(contract_entry) = host.entry(*entry) else {
+                return Err(MirUnitBuildError::InvalidHostOperation(operation));
+            };
+
+            if contract_entry.returned_value_cleanup().is_none()
+                || !matches!(contract_entry.result(), bray_runtime_interface::ExecutableEntryResult::Fallible {
+                    error: expected, ..
+                } if expected == *error)
+            {
+                return Err(MirUnitBuildError::InvalidHostOperation(operation));
+            }
+
+            validate_runtime_role(unit, *runtime, RuntimeAbiRole::EntryResultAdmission)
+        }
         MirHostOperation::ExecuteRoot {
             entry,
             root,
@@ -87,6 +106,7 @@ pub(super) fn validate_host_operation(
         MirHostOperation::ResolveRootTerminal {
             entry,
             error,
+            returned_value,
             completion,
             panic,
             entry_failure,
@@ -105,6 +125,18 @@ pub(super) fn validate_host_operation(
 
             if *error != expected_error {
                 return Err(MirUnitBuildError::InvalidHostOperation(operation));
+            }
+
+            if returned_value.is_some()
+                != host
+                    .entry(*entry)
+                    .is_some_and(|entry| entry.returned_value_cleanup().is_some())
+            {
+                return Err(MirUnitBuildError::InvalidHostOperation(operation));
+            }
+
+            if let Some(runtime) = returned_value {
+                validate_runtime_role(unit, *runtime, RuntimeAbiRole::EntryResultResolution)?;
             }
 
             validate_runtime_role(unit, *completion, RuntimeAbiRole::RootCompletionResolution)?;

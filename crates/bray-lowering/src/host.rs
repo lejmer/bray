@@ -160,6 +160,25 @@ pub fn lower_executable_host(
             )?;
         }
 
+        let returned_value = contract_entry
+            .returned_value_cleanup()
+            .map(|_| runtime_reference(RuntimeAbiRole::EntryResultResolution, runtime_abi));
+
+        if returned_value.is_some() {
+            let error = entry_error.ok_or(MirUnitBuildError::InvalidHostSequence)?;
+
+            builder.push_operation(
+                entry,
+                source.clone(),
+                MirOperationKind::Host(MirHostOperation::PrepareReturnedValue {
+                    entry: entry_index,
+                    error,
+                    runtime: runtime_reference(RuntimeAbiRole::EntryResultAdmission, runtime_abi),
+                }),
+                None,
+            )?;
+        }
+
         for operation in [
             MirHostOperation::ExecuteRoot {
                 entry: entry_index,
@@ -174,6 +193,7 @@ pub fn lower_executable_host(
             MirHostOperation::ResolveRootTerminal {
                 entry: entry_index,
                 error: entry_error,
+                returned_value,
                 completion: runtime_reference(
                     RuntimeAbiRole::RootCompletionResolution,
                     runtime_abi,
@@ -536,6 +556,7 @@ mod tests {
             MirHostOperation::ResolveRootTerminal {
                 entry: ExecutableHostEntryId::new(0),
                 error: None,
+                returned_value: None,
                 completion: super::runtime_reference(
                     RuntimeAbiRole::RootCompletionResolution,
                     runtime_abi,

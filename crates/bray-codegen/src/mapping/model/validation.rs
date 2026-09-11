@@ -406,20 +406,20 @@ fn signature_passes_unsized_by_value(
         }
 }
 
-fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRuntimeReference>; 3] {
+fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRuntimeReference>; 4] {
     match operation {
         MirOperationKind::Call(call) => match call.target() {
-            bray_ir::MirCallTarget::Runtime(runtime) => [Some(*runtime), None, None],
+            bray_ir::MirCallTarget::Runtime(runtime) => [Some(*runtime), None, None, None],
             bray_ir::MirCallTarget::Direct(_)
             | bray_ir::MirCallTarget::ParameterDefault { .. }
             | bray_ir::MirCallTarget::ConstructionDefault { .. }
-            | bray_ir::MirCallTarget::Indirect { .. } => [None, None, None],
+            | bray_ir::MirCallTarget::Indirect { .. } => [None, None, None, None],
         },
         MirOperationKind::Async(MirAsyncOperation::StartTask {
             allocation, start, ..
-        }) => [Some(*allocation), Some(*start), None],
+        }) => [Some(*allocation), Some(*start), None, None],
         MirOperationKind::Host(MirHostOperation::BeginExecution { startup, control }) => {
-            [Some(*startup), Some(*control), None]
+            [Some(*startup), Some(*control), None, None]
         }
         MirOperationKind::Host(MirHostOperation::ExecuteRoot { runtime, .. }) => [
             Some(*runtime),
@@ -428,13 +428,20 @@ fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRunt
                 runtime.abi_version(),
             )),
             None,
+            None,
         ],
         MirOperationKind::Host(MirHostOperation::ResolveRootTerminal {
             completion,
             panic,
             entry_failure,
+            returned_value,
             ..
-        }) => [Some(*completion), Some(*panic), Some(*entry_failure)],
+        }) => [
+            Some(*completion),
+            Some(*panic),
+            Some(*entry_failure),
+            *returned_value,
+        ],
         MirOperationKind::Async(
             MirAsyncOperation::ResumeFrame { runtime, .. }
             | MirAsyncOperation::DestroyInactiveCaptures { runtime, .. }
@@ -450,11 +457,12 @@ fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRunt
             | MirAsyncOperation::TransferCleanupIncident { runtime, .. },
         )
         | MirOperationKind::Host(
-            MirHostOperation::SelectTestEntry { runtime, .. }
+            MirHostOperation::PrepareReturnedValue { runtime, .. }
+            | MirHostOperation::SelectTestEntry { runtime, .. }
             | MirHostOperation::ObserveRootTerminal { runtime, .. }
             | MirHostOperation::ReportCleanupIncidents { runtime }
             | MirHostOperation::StructuredShutdown { runtime },
-        ) => [Some(*runtime), None, None],
+        ) => [Some(*runtime), None, None, None],
         MirOperationKind::AnonymousCallable(_)
         | MirOperationKind::DeclaredCallable(_)
         | MirOperationKind::Store { .. }
@@ -488,7 +496,7 @@ fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRunt
             }
             | MirAsyncOperation::ComposeAwaitedFrame { .. }
             | MirAsyncOperation::DestroyTerminalTask { .. },
-        ) => [None, None, None],
+        ) => [None, None, None, None],
     }
 }
 

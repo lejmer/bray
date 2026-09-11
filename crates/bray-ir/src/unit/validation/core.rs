@@ -77,25 +77,14 @@ fn validate_host_sequence(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
         )
     });
 
-    let entries = &preceding[materialized..];
-    let operations_per_entry = if selects_entries { 4_usize } else { 3_usize };
+    let mut entries = preceding[materialized..].iter();
 
-    let entry_operation_count = operations_per_entry
-        .checked_mul(host.entries().len())
-        .ok_or(MirUnitBuildError::InvalidHostSequence)?;
-
-    if entries.len() < entry_operation_count + 2 {
-        return Err(MirUnitBuildError::InvalidHostSequence);
-    }
-
-    let (entries, cleanup) = entries.split_at(entry_operation_count);
-
-    for (expected, operations) in entries.chunks_exact(operations_per_entry).enumerate() {
-        let operations = if selects_entries {
+    for (expected, contract) in host.entries().iter().enumerate() {
+        if selects_entries {
             let Some(crate::MirOperationKind::Host(crate::MirHostOperation::SelectTestEntry {
                 entry,
                 ..
-            })) = operations.first()
+            })) = entries.next().copied()
             else {
                 return Err(MirUnitBuildError::InvalidHostSequence);
             };
@@ -103,26 +92,39 @@ fn validate_host_sequence(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
             if usize::try_from(entry.slot()) != Ok(expected) {
                 return Err(MirUnitBuildError::InvalidHostSequence);
             }
+        }
 
-            &operations[1..]
-        } else {
-            operations
-        };
+        if contract.returned_value_cleanup().is_some() {
+            let Some(crate::MirOperationKind::Host(
+                crate::MirHostOperation::PrepareReturnedValue { entry, .. },
+            )) = entries.next().copied()
+            else {
+                return Err(MirUnitBuildError::InvalidHostSequence);
+            };
+
+            if usize::try_from(entry.slot()) != Ok(expected) {
+                return Err(MirUnitBuildError::InvalidHostSequence);
+            }
+        }
 
         let [
-            crate::MirOperationKind::Host(crate::MirHostOperation::ExecuteRoot {
+            Some(crate::MirOperationKind::Host(crate::MirHostOperation::ExecuteRoot {
                 entry: executed,
                 ..
-            }),
-            crate::MirOperationKind::Host(crate::MirHostOperation::ObserveRootTerminal {
+            })),
+            Some(crate::MirOperationKind::Host(crate::MirHostOperation::ObserveRootTerminal {
                 entry: observed,
                 ..
-            }),
-            crate::MirOperationKind::Host(crate::MirHostOperation::ResolveRootTerminal {
+            })),
+            Some(crate::MirOperationKind::Host(crate::MirHostOperation::ResolveRootTerminal {
                 entry: resolved,
                 ..
-            }),
-        ] = operations
+            })),
+        ] = [
+            entries.next().copied(),
+            entries.next().copied(),
+            entries.next().copied(),
+        ]
         else {
             return Err(MirUnitBuildError::InvalidHostSequence);
         };
@@ -134,6 +136,8 @@ fn validate_host_sequence(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
             return Err(MirUnitBuildError::InvalidHostSequence);
         }
     }
+
+    let cleanup = entries.as_slice();
 
     if !matches!(
         cleanup,

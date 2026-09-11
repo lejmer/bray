@@ -29,14 +29,23 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 Ok(None)
             }
+            MirHostOperation::PrepareReturnedValue { entry, runtime, .. } => {
+                self.begin_memory_observation()?;
+                self.begin_performance_interval()?;
+                self.prepare_returned_value(operation_id, *entry, *runtime)?;
+
+                Ok(None)
+            }
             MirHostOperation::ExecuteRoot {
                 entry,
                 root,
                 execution,
                 runtime,
             } => {
-                self.begin_memory_observation()?;
-                self.begin_performance_interval()?;
+                if self.host_returned_value.is_none() {
+                    self.begin_memory_observation()?;
+                    self.begin_performance_interval()?;
+                }
 
                 if self.host_role_implementation(*runtime)?
                     == RuntimeRoleImplementation::CompilerLowering
@@ -135,6 +144,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             MirHostOperation::ResolveRootTerminal {
                 entry,
                 error: _,
+                returned_value,
                 completion,
                 panic,
                 entry_failure,
@@ -146,8 +156,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     *completion,
                     *panic,
                     *entry_failure,
+                    *returned_value,
                 )?;
 
+                let status = self.finish_returned_value_admission(status)?;
                 let status = self.finish_performance_interval_iteration(status)?;
 
                 self.host_status = Some(match self.host_status.take() {
