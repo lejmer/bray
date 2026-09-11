@@ -1,8 +1,8 @@
 use bray_bound_tree::BoundCallResult;
 use bray_ir::{
     MirBlockId, MirBlockKind, MirCall, MirCallPanicEdge, MirCallTarget, MirEdge, MirImmediateValue,
-    MirOperand, MirOperationKind, MirPlace, MirRuntimeReference, MirSourceAnchor, MirStorageKind,
-    MirStoreKind, MirTerminatorKind, MirUnitBuildError, MirUnitBuilder,
+    MirOperand, MirOperationId, MirOperationKind, MirPlace, MirRuntimeReference, MirSourceAnchor,
+    MirStorageKind, MirStoreKind, MirTerminatorKind, MirUnitBuildError, MirUnitBuilder,
 };
 use bray_runtime_interface::{RuntimeAbiRole, RuntimeAbiVersion};
 use bray_symbols::TypeId;
@@ -34,6 +34,60 @@ impl CleanupOutcome {
         unit: TypeId,
         runtime_abi: RuntimeAbiVersion,
     ) -> Result<Self, MirUnitBuildError> {
+        Self::initialize(
+            builder,
+            block,
+            None,
+            source,
+            boolean,
+            report,
+            unit,
+            runtime_abi,
+        )
+    }
+
+    /// Replaces a semantic cleanup effect with incident initialization at its original identity.
+    /// The caller clears consumed cleanup metadata before replacing the operation.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "replacement retains the source effect identity alongside the outcome contract"
+    )]
+    pub(crate) fn replace_effect(
+        builder: &mut MirUnitBuilder,
+        block: MirBlockId,
+        operation: MirOperationId,
+        source: &MirSourceAnchor,
+        boolean: TypeId,
+        report: TypeId,
+        unit: TypeId,
+        runtime_abi: RuntimeAbiVersion,
+    ) -> Result<Self, MirUnitBuildError> {
+        Self::initialize(
+            builder,
+            block,
+            Some(operation),
+            source,
+            boolean,
+            report,
+            unit,
+            runtime_abi,
+        )
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "shared initialization accepts the optional original effect and outcome contract"
+    )]
+    fn initialize(
+        builder: &mut MirUnitBuilder,
+        block: MirBlockId,
+        operation: Option<MirOperationId>,
+        source: &MirSourceAnchor,
+        boolean: TypeId,
+        report: TypeId,
+        unit: TypeId,
+        runtime_abi: RuntimeAbiVersion,
+    ) -> Result<Self, MirUnitBuildError> {
         // Every generated operation retains the same Arc-backed source provenance.
         let mut storage = |ty| {
             builder
@@ -49,9 +103,24 @@ impl CleanupOutcome {
             runtime_abi,
         };
 
-        for flag in [&outcome.panicked, &outcome.cancelled] {
-            outcome.store(builder, block, source, flag, Self::boolean(false, boolean))?;
+        let first = Self::store_operation(&outcome.panicked, Self::boolean(false, boolean));
+
+        match operation {
+            Some(operation) => {
+                builder.replace_effect(operation, first, None)?;
+            }
+            None => {
+                builder.push_operation(block, source.clone(), first, None)?;
+            }
         }
+
+        outcome.store(
+            builder,
+            block,
+            source,
+            &outcome.cancelled,
+            Self::boolean(false, boolean),
+        )?;
 
         outcome.shield(builder, block, source, RuntimeAbiRole::CleanupShieldEnter)?;
 
@@ -537,15 +606,19 @@ impl CleanupOutcome {
         builder.push_operation(
             block,
             source.clone(),
-            MirOperationKind::Store {
-                kind: MirStoreKind::Initialize,
-                destination: destination.clone(),
-                value,
-            },
+            Self::store_operation(destination, value),
             None,
         )?;
 
         Ok(())
+    }
+
+    fn store_operation(destination: &MirPlace, value: MirOperand) -> MirOperationKind {
+        MirOperationKind::Store {
+            kind: MirStoreKind::Initialize,
+            destination: destination.clone(),
+            value,
+        }
     }
 
     const fn boolean(value: bool, ty: TypeId) -> MirOperand {
@@ -566,6 +639,96 @@ mod tests {
     use bray_symbols::{SemanticValueStore, SymbolId, TypeData, UnionVariantSymbolId};
 
     use super::{CleanupCancellation, CleanupOutcome};
+
+    #[test]
+    fn replacement_initialization_preserves_effect_identity_and_continuation() {
+        let values = SemanticValueStore::try_new().unwrap();
+        let ty = values.intern_type(TypeData::tuple([])).unwrap();
+        let bound = bray_testing::test_bound_unit(916);
+        let source = MirSourceAnchor::from(bound.key().source());
+        let target = bray_testing::test_mir_target();
+        let abi = target.runtime_abi();
+
+        let mut builder =
+            MirUnitBuilder::for_bound(bound.identity(), MirUnitKind::Synchronous, target);
+
+        let entry = builder
+            .push_block(source.clone(), MirBlockKind::Ordinary)
+            .unwrap();
+
+        let continuation = builder
+            .push_block(source.clone(), MirBlockKind::Ordinary)
+            .unwrap();
+
+        let storage = builder
+            .push_storage(source.clone(), MirStorageKind::Parameter(0), ty)
+            .unwrap();
+
+        let operation = builder
+            .push_operation(
+                entry,
+                source.clone(),
+                MirOperationKind::Destroy(MirPlace::new(storage, [], ty)),
+                None,
+            )
+            .unwrap()
+            .operation();
+
+        let edge = bray_ir::MirEdge::new(continuation, []);
+
+        builder
+            .set_terminator(entry, source.clone(), MirTerminatorKind::Goto(edge.clone()))
+            .unwrap();
+
+        builder
+            .set_terminator(
+                continuation,
+                source.clone(),
+                MirTerminatorKind::Return(None),
+            )
+            .unwrap();
+
+        let outcome = CleanupOutcome::replace_effect(
+            &mut builder,
+            entry,
+            operation,
+            &source,
+            ty,
+            ty,
+            ty,
+            abi,
+        )
+        .unwrap();
+
+        let unit = builder.finish(entry).unwrap();
+        let replaced = unit.operation(operation).unwrap();
+
+        assert_eq!(unit.operations().len(), 3);
+
+        assert_eq!(
+            unit.block(entry).unwrap().operations().first(),
+            Some(&operation)
+        );
+
+        assert_eq!(replaced.source(), &source);
+
+        assert_eq!(
+            replaced.kind(),
+            &MirOperationKind::Store {
+                kind: bray_ir::MirStoreKind::Initialize,
+                destination: outcome.panicked,
+                value: MirOperand::Immediate {
+                    value: MirImmediateValue::Boolean(false),
+                    ty
+                },
+            }
+        );
+
+        assert_eq!(
+            unit.block(entry).unwrap().terminator().kind(),
+            &MirTerminatorKind::Goto(edge)
+        );
+    }
 
     #[test]
     fn requested_capture_resolution_does_not_cancel_the_owning_run() {

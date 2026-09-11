@@ -193,3 +193,21 @@ pub enum MirOperationKind {
     /// Perform a compiler-generated executable-host operation.
     Host(MirHostOperation),
 }
+
+impl MirOperationKind {
+    /// Returns the role and receiver of a direct semantic lifecycle operation.
+    /// An unresolved destructor remainder keeps its separate specialization contract.
+    pub const fn lifecycle_action(&self) -> Option<(crate::MirGeneratedLifecycleRole, &MirPlace)> {
+        match self {
+            Self::Finalize(place) => Some((crate::MirGeneratedLifecycleRole::Finalize, place)),
+            Self::Destroy(place) => Some((crate::MirGeneratedLifecycleRole::Destroy, place)),
+            Self::Abandon { action, place } => {
+                Some((crate::MirGeneratedLifecycleRole::Abandon(*action), place))
+            }
+            Self::Cleanup { phase, place } => {
+                Some((crate::MirGeneratedLifecycleRole::Cleanup(*phase), place))
+            }
+            _ => None,
+        }
+    }
+}

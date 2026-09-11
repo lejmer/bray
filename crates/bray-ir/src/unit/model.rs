@@ -25,6 +25,18 @@ pub enum MirGeneratedLifecycleRole {
 }
 
 impl MirGeneratedLifecycleRole {
+    /// Creates the direct semantic operation for this role.
+    /// Static finalization preserves a result and has no direct effect operation.
+    pub fn operation(self, place: crate::MirPlace) -> Option<crate::MirOperationKind> {
+        match self {
+            Self::Finalize => Some(crate::MirOperationKind::Finalize(place)),
+            Self::Destroy => Some(crate::MirOperationKind::Destroy(place)),
+            Self::Abandon(action) => Some(crate::MirOperationKind::Abandon { action, place }),
+            Self::Cleanup(phase) => Some(crate::MirOperationKind::Cleanup { phase, place }),
+            Self::StaticFinalize => None,
+        }
+    }
+
     /// Returns the stable inspection and diagnostic tag for this lifecycle role.
     pub const fn as_str(self) -> &'static str {
         match self {

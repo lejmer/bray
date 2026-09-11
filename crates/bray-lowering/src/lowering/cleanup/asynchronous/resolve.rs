@@ -131,23 +131,18 @@ impl Lowerer<'_> {
             self.cleanup_outcome = Some(self.create_cleanup_outcome(block, source)?);
         }
 
-        let finished = if execution.is_none() {
-            // Open templates retain the semantic action. Concrete lowering selects its execution
-            // mode after substitution, with the same guarded ownership and saved continuation value.
-            if role != MirGeneratedLifecycleRole::Abandon(bray_ir::MirAbandonmentAction::Quiesce) {
-                self.set_storage_initialized(block, source, &place, false)?;
-            }
+        // Realization selects the closed execution path while source lowering retains guards,
+        // pending values, and the exact lexical execution requirements on the semantic action.
+        if role != MirGeneratedLifecycleRole::Abandon(bray_ir::MirAbandonmentAction::Quiesce) {
+            self.set_storage_initialized(block, source, &place, false)?;
+        }
 
-            let retained =
-                std::iter::once(place.storage()).chain(pending.as_ref().map(MirPlace::storage));
+        let retained =
+            std::iter::once(place.storage()).chain(pending.as_ref().map(MirPlace::storage));
 
-            let operation = cleanup_operation(role, place)?;
-            self.push_cleanup_operation(block, Self::retained_source(source), operation, retained)?;
-
-            self.check_cleanup_action_outcome(block, source)?
-        } else {
-            self.resolve_async_cleanup(block, source, role, &place, pending.as_ref())?
-        };
+        let operation = cleanup_operation(role, place)?;
+        self.push_cleanup_operation(block, Self::retained_source(source), operation, retained)?;
+        let finished = self.check_cleanup_action_outcome(block, source)?;
 
         let finished = if own_outcome {
             self.finish_ordinary_cleanup_await(finished, source)?
@@ -179,113 +174,6 @@ impl Lowerer<'_> {
         )?;
 
         Ok((continuation, Some((value, ty))))
-    }
-
-    fn resolve_async_cleanup(
-        &mut self,
-        block: MirBlockId,
-        source: &MirSourceAnchor,
-        role: MirGeneratedLifecycleRole,
-        place: &MirPlace,
-        pending: Option<&MirPlace>,
-    ) -> Result<MirBlockId, LoweringError> {
-        let owner = crate::cleanup_await::CleanupOwner::for_action(
-            self.input.available_compiler_known_symbols(),
-            self.input.semantic_values(),
-            role,
-            place.ty(),
-        )?;
-
-        if role == MirGeneratedLifecycleRole::Abandon(bray_ir::MirAbandonmentAction::Quiesce) {
-            if let Some(crate::cleanup_await::CleanupOwner::Task { completion }) = &owner {
-                if let Some(pending) = pending {
-                    self.cleanup_retained_storages.push(pending.storage());
-                }
-
-                let finished = self.quiesce_task(block, source, place, *completion)?;
-
-                if pending.is_some() {
-                    self.cleanup_retained_storages.pop();
-                }
-
-                return Ok(finished);
-            }
-        }
-
-        let (block, rejected, awaited, completion) =
-            self.prepare_cleanup_await(block, source, role, place, owner)?;
-
-        let resolves_future = matches!(
-            &awaited,
-            crate::cleanup_await::CleanupAwait::Frame(_, bray_ir::MirFrameEntry::CaptureCleanup)
-        );
-
-        let resolves_task = matches!(&awaited, crate::cleanup_await::CleanupAwait::Task(_));
-
-        if role != MirGeneratedLifecycleRole::Abandon(bray_ir::MirAbandonmentAction::Quiesce) {
-            self.set_storage_initialized(block, source, place, false)?;
-        }
-
-        if let Some(pending) = pending {
-            self.cleanup_retained_storages.push(pending.storage());
-        }
-
-        let (block, result, variants) =
-            self.await_cleanup_frame(block, source, awaited, completion)?;
-
-        let outcome = self
-            .cleanup_outcome
-            .as_ref()
-            .ok_or(LoweringError::SemanticValueUnavailable)?;
-
-        let result_storage = result.storage();
-
-        let (completed, finished, payload) = if resolves_future || resolves_task {
-            let (completed, finished, payload) = outcome.resolve_completion(
-                &mut self.builder,
-                block,
-                source,
-                result,
-                (variants, completion),
-            )?;
-
-            (completed, finished, Some(payload))
-        } else {
-            let (completed, finished) = outcome.resolve_run_result(
-                &mut self.builder,
-                block,
-                source,
-                result,
-                (
-                    variants,
-                    crate::cleanup_outcome::CleanupCancellation::Propagate,
-                ),
-            )?;
-
-            (completed, finished, None)
-        };
-
-        if let Some(rejected) = rejected {
-            outcome.retain_allocation_failure(&mut self.builder, rejected, source, finished)?;
-        }
-
-        let completed = if let Some(payload) = payload {
-            self.resolve_cleanup_payload(completed, source, result_storage, payload)?
-        } else {
-            completed
-        };
-
-        if pending.is_some() {
-            self.cleanup_retained_storages.pop();
-        }
-
-        self.set_terminator(
-            completed,
-            Self::retained_source(source),
-            MirTerminatorKind::Goto(MirEdge::new(finished, [])),
-        )?;
-
-        Ok(finished)
     }
 
     pub(in crate::lowering::cleanup) fn resolve_cleanup_payload(
@@ -377,12 +265,15 @@ fn cleanup_operation(
     role: MirGeneratedLifecycleRole,
     place: MirPlace,
 ) -> Result<MirOperationKind, LoweringError> {
-    match role {
-        MirGeneratedLifecycleRole::Destroy => Ok(MirOperationKind::Destroy(place)),
-        MirGeneratedLifecycleRole::Cleanup(phase) => Ok(MirOperationKind::Cleanup { phase, place }),
-        MirGeneratedLifecycleRole::Abandon(action) => {
-            Ok(MirOperationKind::Abandon { action, place })
-        }
-        _ => Err(LoweringError::MissingCleanupExecution(place.storage())),
+    let storage = place.storage();
+
+    if matches!(
+        role,
+        MirGeneratedLifecycleRole::Finalize | MirGeneratedLifecycleRole::StaticFinalize
+    ) {
+        return Err(LoweringError::MissingCleanupExecution(storage));
     }
+
+    role.operation(place)
+        .ok_or(LoweringError::MissingCleanupExecution(storage))
 }

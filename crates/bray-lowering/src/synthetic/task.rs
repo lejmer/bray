@@ -213,9 +213,17 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             )
             .map_err(invalid)?;
 
+        let completion = self.task_completion_type(task.ty())?;
+
         // Result cleanup may suspend while the task allocation remains owned by this frame.
-        let block =
-            self.push_task_resolution(builder, lifecycle, source, task.clone(), &outcome)?;
+        let block = self.push_task_resolution(
+            builder,
+            lifecycle,
+            source,
+            task.clone(),
+            completion,
+            &outcome,
+        )?;
 
         builder
             .push_operation(

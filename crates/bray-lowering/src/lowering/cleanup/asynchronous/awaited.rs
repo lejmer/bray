@@ -1,109 +1,11 @@
-use bray_bound_tree::BoundFutureConstruction;
 use bray_compiler_known::RepresentationRole;
-use bray_ir::{
-    MirBlockId, MirFrameState, MirGeneratedLifecycleRole, MirOperand, MirOperationKind, MirPlace,
-    MirRunResultVariants, MirSourceAnchor, MirUnitBuildError,
-};
-use bray_symbols::{BorrowKind, TypeData, TypeId};
+use bray_ir::{MirBlockId, MirFrameState, MirPlace, MirRunResultVariants, MirSourceAnchor};
+use bray_symbols::TypeId;
 
 use crate::lowering::LoweringError;
 use crate::lowering::lowerer::Lowerer;
 
 impl Lowerer<'_> {
-    pub(super) fn prepare_cleanup_await(
-        &mut self,
-        block: MirBlockId,
-        source: &MirSourceAnchor,
-        role: MirGeneratedLifecycleRole,
-        place: &MirPlace,
-        owner: Option<crate::cleanup_await::CleanupOwner>,
-    ) -> Result<
-        (
-            MirBlockId,
-            Option<MirBlockId>,
-            crate::cleanup_await::CleanupAwait,
-            TypeId,
-        ),
-        LoweringError,
-    > {
-        let ty = place.ty();
-
-        match owner {
-            Some(crate::cleanup_await::CleanupOwner::Future { entry, completion }) => {
-                let (operand, completion) = if entry == bray_ir::MirFrameEntry::CaptureQuiescence {
-                    (
-                        MirOperand::Copy(Self::retained_place(place)),
-                        self.representation_type(RepresentationRole::Unit)?,
-                    )
-                } else {
-                    (MirOperand::Move(Self::retained_place(place)), completion)
-                };
-
-                return Ok((
-                    block,
-                    None,
-                    crate::cleanup_await::CleanupAwait::Frame(operand, entry),
-                    completion,
-                ));
-            }
-            Some(crate::cleanup_await::CleanupOwner::Task { completion }) => {
-                return Ok((
-                    block,
-                    None,
-                    crate::cleanup_await::CleanupAwait::Task(MirOperand::Copy(
-                        Self::retained_place(place),
-                    )),
-                    completion,
-                ));
-            }
-            None => {}
-        }
-
-        let receiver = self.input.semantic_values().intern_type(TypeData::Borrow {
-            kind: BorrowKind::Mutable,
-            target: ty,
-        })?;
-
-        let borrow = self.push_operation(
-            block,
-            Self::retained_source(source),
-            MirOperationKind::Borrow {
-                kind: BorrowKind::Mutable,
-                place: Self::retained_place(place),
-            },
-            Some(receiver),
-        )?;
-
-        let receiver = MirOperand::Value(borrow.result().ok_or(
-            MirUnitBuildError::MissingOperationResult(borrow.operation()),
-        )?);
-
-        let completion = self.representation_type(RepresentationRole::Unit)?;
-        let future = self.unary_representation_type(RepresentationRole::Future, completion)?;
-        let boolean = self.representation_type(RepresentationRole::ScalarBool)?;
-
-        let (block, rejected, future) = crate::cleanup_await::create_lifecycle_frame(
-            &mut self.builder,
-            block,
-            source,
-            role,
-            ty,
-            receiver,
-            BoundFutureConstruction::new(completion, future),
-            boolean,
-        )?;
-
-        Ok((
-            block,
-            Some(rejected),
-            crate::cleanup_await::CleanupAwait::Frame(
-                MirOperand::Move(future),
-                bray_ir::MirFrameEntry::Body,
-            ),
-            completion,
-        ))
-    }
-
     pub(in crate::lowering::cleanup) fn await_cleanup_frame(
         &mut self,
         block: MirBlockId,

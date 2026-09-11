@@ -95,20 +95,6 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         source: &MirSourceAnchor,
         future: MirPlace,
     ) -> Result<MirBlockId, C::Error> {
-        let outcome = self.cleanup_outcome(builder, block, source)?;
-        let finished = self.await_future_cleanup(builder, block, source, future, &outcome)?;
-
-        self.finish_cleanup_outcome(builder, finished, source, &outcome)
-    }
-
-    pub(super) fn await_future_cleanup(
-        &self,
-        builder: &mut MirUnitBuilder,
-        block: MirBlockId,
-        source: &MirSourceAnchor,
-        future: MirPlace,
-        outcome: &crate::cleanup_outcome::CleanupOutcome,
-    ) -> Result<MirBlockId, C::Error> {
         let completion = self
             .context
             .compiler_known_symbols()
@@ -123,6 +109,23 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 argument: Some(future.ty()),
             })?;
 
+        let outcome = self.cleanup_outcome(builder, block, source)?;
+
+        let finished =
+            self.await_future_cleanup(builder, block, source, future, completion, &outcome)?;
+
+        self.finish_cleanup_outcome(builder, finished, source, &outcome)
+    }
+
+    pub(super) fn await_future_cleanup(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        future: MirPlace,
+        completion: bray_symbols::TypeId,
+        outcome: &crate::cleanup_outcome::CleanupOutcome,
+    ) -> Result<MirBlockId, C::Error> {
         let (block, result, variants) = self.await_lifecycle_result(
             builder,
             block,

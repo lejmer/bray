@@ -1,6 +1,6 @@
 use bray_ir::{
-    MirAbandonmentAction, MirBlockId, MirCleanupPhase, MirGeneratedLifecycleRole, MirOperationKind,
-    MirPlace, MirSourceAnchor, MirUnitBuilder,
+    MirAbandonmentAction, MirBlockId, MirCleanupPhase, MirGeneratedLifecycleRole, MirPlace,
+    MirSourceAnchor, MirUnitBuilder,
 };
 use bray_symbols::{TypeAssociatedLifecycleSlot, TypeData, TypeId};
 
@@ -16,19 +16,24 @@ pub(in crate::synthetic) struct LifecycleExpansion<'parent> {
 
 impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
     /// Expands finite represented cleanup while retaining failures in the caller's outcome.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "structural expansion keeps concrete semantic identity separate from the original MIR place"
+    )]
     pub(super) fn expand_structural_lifecycle_action(
         &self,
         builder: &mut MirUnitBuilder,
         block: MirBlockId,
         source: &MirSourceAnchor,
         role: MirGeneratedLifecycleRole,
+        concrete: TypeId,
         place: MirPlace,
         outcome: &CleanupOutcome,
     ) -> Result<Option<MirBlockId>, C::Error> {
         let mut ancestor = self.lifecycle_expansion;
 
         while let Some(expansion) = ancestor {
-            if expansion.ty == place.ty() && expansion.role == role {
+            if expansion.ty == concrete && expansion.role == role {
                 return Ok(None);
             }
 
@@ -38,7 +43,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         let data = self
             .context
             .semantic_values()
-            .type_data(place.ty())
+            .type_data(concrete)
             .map_err(SyntheticLoweringError::SemanticValue)?;
 
         let structural = match data.as_ref() {
@@ -78,7 +83,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         };
 
         if let Some(slot) = slot
-            && self.context.lifecycle_callable(place.ty(), slot)?.is_some()
+            && self.context.lifecycle_callable(concrete, slot)?.is_some()
         {
             return Ok(None);
         }
@@ -86,7 +91,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         let expansion = LifecycleExpansion {
             parent: self.lifecycle_expansion,
             role,
-            ty: place.ty(),
+            ty: concrete,
         };
 
         let lowerer = SyntheticLowerer {
@@ -100,24 +105,29 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             }
             MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::LifecycleResolution) => {
                 // Both actions retain the same destination path. A declared finalizer remains a call.
-                let block = lowerer.resolve_lifecycle_action(
+                let block = lowerer.resolve_concrete_lifecycle_action(
                     builder,
                     block,
                     source,
-                    MirOperationKind::Finalize(place.clone()),
+                    MirGeneratedLifecycleRole::Finalize,
+                    concrete,
+                    place.clone(),
                     outcome,
                 )?;
 
-                lowerer.resolve_lifecycle_action(
+                lowerer.resolve_concrete_lifecycle_action(
                     builder,
                     block,
                     source,
-                    MirOperationKind::Destroy(place),
+                    MirGeneratedLifecycleRole::Destroy,
+                    concrete,
+                    place,
                     outcome,
                 )?
             }
-            _ => lowerer
-                .expand_represented_lifecycle(builder, block, source, role, place, outcome)?,
+            _ => lowerer.expand_represented_lifecycle(
+                builder, block, source, role, concrete, place, outcome,
+            )?,
         };
 
         Ok(Some(completed))

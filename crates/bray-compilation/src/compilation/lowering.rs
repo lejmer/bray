@@ -1866,7 +1866,12 @@ mod tests {
 
             for operation in block.operations() {
                 match mir.operation(*operation).unwrap().kind() {
-                    MirOperationKind::Async(bray_ir::MirAsyncOperation::ComposeAwaitedFrame {
+                    MirOperationKind::Finalize(_)
+                    | MirOperationKind::Cleanup {
+                        phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                        ..
+                    }
+                    | MirOperationKind::Async(bray_ir::MirAsyncOperation::ComposeAwaitedFrame {
                         ..
                     }) => {
                         panic!(
@@ -1914,6 +1919,20 @@ mod tests {
         }
 
         assert_eq!((requested, waited, resolved), (1, 1, 1));
+
+        assert!(
+            mir.operations().iter().any(|operation| {
+                matches!(
+                    operation.kind(),
+                    MirOperationKind::Finalize(_)
+                        | MirOperationKind::Cleanup {
+                            phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                            ..
+                        }
+                ) && operation.cleanup_execution().is_some()
+            }),
+            "owner finalization must remain a deferred checked action"
+        );
     }
 
     #[test]
@@ -2044,6 +2063,23 @@ async func partial(pos values: [[Guard; 2]; 2], pos index: usize, pos pending: F
             );
         }
 
+        let actions = mir
+            .operations()
+            .iter()
+            .filter_map(|operation| operation.cleanup_execution())
+            .collect::<Vec<_>>();
+
+        assert!(!actions.is_empty());
+
+        for execution in actions {
+            assert!(
+                guards
+                    .iter()
+                    .all(|(guard, _)| execution.retained_storages().contains(guard)),
+                "deferred cleanup must preserve every partial-initialization flag"
+            );
+        }
+
         assert!(
             mir.blocks()
                 .iter()
@@ -2094,7 +2130,6 @@ async func partial(pos values: [[Guard; 2]; 2], pos index: usize, pos pending: F
             .unwrap();
 
         let mir = lowered_mir(&result);
-        let frame = mir.frame_descriptor().unwrap();
 
         let counters = mir
             .operations()
@@ -2111,15 +2146,19 @@ async func partial(pos values: [[Guard; 2]; 2], pos index: usize, pos pending: F
 
         assert!(!counters.is_empty());
 
-        for counter in counters {
-            assert!(
-                frame
-                    .states()
-                    .iter()
-                    .any(|state| state.execution().retained_storages().contains(&counter)),
-                "cleanup counter {counter:?} must survive suspension"
-            );
-        }
+        assert!(
+            mir.operations()
+                .iter()
+                .filter_map(|operation| operation.cleanup_execution())
+                .any(|execution| {
+                    counters
+                        .iter()
+                        .filter(|counter| execution.retained_storages().contains(counter))
+                        .count()
+                        >= 2
+                }),
+            "nested element cleanup must retain both active loop counters"
+        );
     }
 
     #[test]
@@ -3253,131 +3292,107 @@ async func partial(pos values: [[Guard; 2]; 2], pos index: usize, pos pending: F
     }
 
     #[test]
-    fn opaque_future_cleanup_reuses_its_admitted_frame_entries() {
-        for completion in ["i32", "Future<i32>", "Guard"] {
-            let source = format!(
-                r#"
-                module app;
-                struct Guard {{ async finalize() {{}} }}
-                async func discard(pos pending: Future<{completion}>) {{}}
-            "#
-            );
+    fn opaque_owner_cleanup_retains_semantic_actions_and_execution_context() {
+        for owner in ["Future", "Task"] {
+            for completion in ["i32", "Future<i32>", "Guard"] {
+                let source = format!(
+                    r#"
+                    module app;
+                    struct Guard {{ async finalize() {{}} }}
+                    async func discard(pos pending: {owner}<{completion}>)
+                        requires(blocking_execution())
+                    {{}}
+                    "#
+                );
 
-            let compilation = compilation(&source);
+                let compilation = compilation(&source);
 
-            assert!(
-                compilation.check_diagnostics().is_empty(),
-                "{:?}",
-                compilation.check_diagnostics()
-            );
+                assert!(
+                    compilation.check_diagnostics().is_empty(),
+                    "{:?}",
+                    compilation.check_diagnostics()
+                );
 
-            let lowered = compilation
-                .lowered_unit(source_function_body_key(&compilation, "discard"))
-                .unwrap();
+                let lowered = compilation
+                    .lowered_unit(source_function_body_key(&compilation, "discard"))
+                    .unwrap();
 
-            let mir = lowered_mir(&lowered);
+                let mir = lowered_mir(&lowered);
 
-            let future = mir
-                .storages()
-                .iter()
-                .find(|storage| matches!(storage.kind(), bray_ir::MirStorageKind::Parameter(0)))
-                .unwrap()
-                .ty();
+                let pending = mir
+                    .storages_with_ids()
+                    .find_map(|(id, storage)| {
+                        matches!(storage.kind(), bray_ir::MirStorageKind::Parameter(0))
+                            .then_some(id)
+                    })
+                    .unwrap();
 
-            for expected in [
-                bray_ir::MirFrameEntry::CaptureCleanup,
-                bray_ir::MirFrameEntry::CaptureQuiescence,
-            ] {
-                assert!(mir.operations().iter().any(|operation| matches!(operation.kind(),
-                    MirOperationKind::Async(bray_ir::MirAsyncOperation::ComposeAwaitedFrame { entry, .. })
-                        if *entry == expected
-                )), "opaque Future<{completion}> cleanup must enter {expected:?} directly");
-            }
+                let frame = mir.frame_descriptor().unwrap();
+                let mut quiescence = false;
+                let mut resolution = false;
 
-            assert!(
-                !mir.operations()
-                    .iter()
-                    .any(|operation| matches!(operation.kind(),
-                        MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame {
-                            initializer: bray_ir::MirFrameInitializer::Lifecycle { ty, .. }, ..
-                        }) if *ty == future || completion != "Guard"
-                    )),
-                "opaque Future<{completion}> cleanup must not allocate a wrapper lifecycle frame"
-            );
-        }
-    }
+                for block in mir.blocks() {
+                    for operation_id in block.operations() {
+                        let operation = mir.operation(*operation_id).unwrap();
 
-    #[test]
-    fn opaque_task_cleanup_uses_its_existing_completion_storage() {
-        for completion in ["i32", "Future<i32>", "Guard"] {
-            let source = format!(
-                r#"
-                module app;
-                struct Guard {{ async finalize() {{}} }}
-                async func discard(pos pending: Task<{completion}>) {{}}
-                "#
-            );
+                        let place = match operation.kind() {
+                            MirOperationKind::Abandon {
+                                action: bray_ir::MirAbandonmentAction::Quiesce,
+                                place,
+                            } => {
+                                quiescence = true;
 
-            let compilation = compilation(&source);
+                                place
+                            }
+                            MirOperationKind::Cleanup {
+                                phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                                place,
+                            } => {
+                                resolution = true;
 
-            assert!(
-                compilation.check_diagnostics().is_empty(),
-                "{:?}",
-                compilation.check_diagnostics()
-            );
+                                place
+                            }
+                            _ => continue,
+                        };
 
-            let lowered = compilation
-                .lowered_unit(source_function_body_key(&compilation, "discard"))
-                .unwrap();
+                        assert_eq!(place.storage(), pending);
 
-            let mir = lowered_mir(&lowered);
+                        let execution = operation
+                            .cleanup_execution()
+                            .expect("deferred cleanup must retain its checked execution context");
 
-            let task = mir
-                .storages()
-                .iter()
-                .find(|storage| matches!(storage.kind(), bray_ir::MirStorageKind::Parameter(0)))
-                .unwrap()
-                .ty();
+                        assert_eq!(
+                            execution.lane_requirements(),
+                            [ExecutionLaneRequirement::Blocking]
+                        );
 
-            assert!(
-                mir.blocks().iter().any(|block| matches!(
-                    block.terminator().kind(),
-                    bray_ir::MirTerminatorKind::Suspend {
-                        kind: bray_ir::MirSuspensionKind::TaskCompletion,
-                        ..
+                        assert_eq!(
+                            execution.affinity(),
+                            frame.states()[0].execution().affinity()
+                        );
+
+                        assert!(execution.retained_storages().contains(&pending));
+                        assert_eq!(block.operations().last(), Some(operation_id));
+
+                        assert!(
+                            matches!(
+                                block.terminator().kind(),
+                                MirTerminatorKind::CheckCallOutcome {
+                                    completed: _,
+                                    panicked: _,
+                                    cancelled: _,
+                                }
+                            ),
+                            "{owner}<{completion}> cleanup must preserve all three outcome continuations"
+                        );
                     }
-                )),
-                "opaque Task<{completion}> cleanup must await its existing task directly"
-            );
+                }
 
-            assert!(
-                mir.operations().iter().any(|operation| matches!(
-                    operation.kind(),
-                    MirOperationKind::Async(
-                        bray_ir::MirAsyncOperation::BorrowTaskCompletion { .. }
-                    )
-                )),
-                "opaque Task<{completion}> quiescence must retain its completed owner"
-            );
-
-            assert!(
-                mir.operations().iter().any(|operation| matches!(
-                    operation.kind(),
-                    MirOperationKind::Async(bray_ir::MirAsyncOperation::ResolveTask { .. })
-                )),
-                "opaque Task<{completion}> resolution must transfer its completed owner"
-            );
-
-            assert!(
-                !mir.operations()
-                    .iter()
-                    .any(|operation| matches!(operation.kind(),
-                        MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame {
-                            initializer: bray_ir::MirFrameInitializer::Lifecycle { ty, .. }, ..
-                        }) if *ty == task || completion != "Guard"
-                    )),
-                "opaque Task<{completion}> cleanup must not allocate a wrapper frame"
-            );
+                assert!(
+                    quiescence && resolution,
+                    "{owner}<{completion}> must retain both cleanup phases"
+                );
+            }
         }
     }
 

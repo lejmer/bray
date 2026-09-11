@@ -19,30 +19,37 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         operation: MirOperationKind,
         outcome: &crate::cleanup_outcome::CleanupOutcome,
     ) -> Result<MirBlockId, C::Error> {
-        let (role, place) = match &operation {
-            MirOperationKind::Finalize(place) => {
-                (bray_ir::MirGeneratedLifecycleRole::Finalize, place)
-            }
-            MirOperationKind::Destroy(place) => {
-                (bray_ir::MirGeneratedLifecycleRole::Destroy, place)
-            }
-            MirOperationKind::Abandon { action, place } => {
-                (bray_ir::MirGeneratedLifecycleRole::Abandon(*action), place)
-            }
-            MirOperationKind::Cleanup { phase, place } => {
-                (bray_ir::MirGeneratedLifecycleRole::Cleanup(*phase), place)
-            }
-            _ => {
-                self.push_lifecycle_operation(builder, block, source, operation)?;
+        let Some((role, place)) = operation.lifecycle_action() else {
+            self.push_lifecycle_operation(builder, block, source, operation)?;
 
-                return outcome
-                    .check(builder, block, source)
-                    .map_err(|cause| self.mir_error(source, cause));
-            }
+            return outcome
+                .check(builder, block, source)
+                .map_err(|cause| self.mir_error(source, cause));
         };
 
-        let ty = place.ty();
+        // Recursive expansion owns the shared receiver path independently of the input operation.
+        self.resolve_concrete_lifecycle_action(
+            builder,
+            block,
+            source,
+            role,
+            place.ty(),
+            place.clone(),
+            outcome,
+        )
+    }
 
+    /// Resolves closed semantics while preserving the template's receiver representation.
+    pub(crate) fn resolve_concrete_lifecycle_action(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        role: bray_ir::MirGeneratedLifecycleRole,
+        ty: TypeId,
+        place: MirPlace,
+        outcome: &crate::cleanup_outcome::CleanupOutcome,
+    ) -> Result<MirBlockId, C::Error> {
         if role == bray_ir::MirGeneratedLifecycleRole::Finalize
             && self.context.finalization_complete(ty)?
         {
@@ -56,6 +63,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             .ok_or(SyntheticLoweringError::UnresolvedType(ty))?;
 
         if execution == bray_symbols::CallableExecution::Synchronous {
+            let operation = role
+                .operation(place)
+                .ok_or(SyntheticLoweringError::UnsupportedLifecycleRole(role))?;
+
             self.push_lifecycle_operation(builder, block, source, operation)?;
 
             return outcome
@@ -71,33 +82,34 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         )
         .map_err(SyntheticLoweringError::SemanticValue)?;
 
-        // Each composed operation owns the shared place path retained by this action.
         match owner {
-            Some(crate::cleanup_await::CleanupOwner::Future { entry, .. }) => {
+            Some(crate::cleanup_await::CleanupOwner::Future { entry, completion }) => {
                 return if entry == bray_ir::MirFrameEntry::CaptureQuiescence {
-                    self.await_future_quiescence(builder, block, source, place.clone(), outcome)
+                    self.await_future_quiescence(builder, block, source, place, outcome)
                 } else {
-                    self.await_future_cleanup(builder, block, source, place.clone(), outcome)
+                    self.await_future_cleanup(builder, block, source, place, completion, outcome)
                 };
             }
-            Some(crate::cleanup_await::CleanupOwner::Task { .. }) => {
+            Some(crate::cleanup_await::CleanupOwner::Task { completion }) => {
                 return if role
                     == bray_ir::MirGeneratedLifecycleRole::Abandon(
                         bray_ir::MirAbandonmentAction::Quiesce,
                     ) {
-                    self.await_task_quiescence(builder, block, source, place.clone(), outcome)
+                    self.await_task_quiescence(builder, block, source, place, completion, outcome)
                 } else {
-                    self.push_task_resolution(builder, block, source, place.clone(), outcome)
+                    self.push_task_resolution(builder, block, source, place, completion, outcome)
                 };
             }
             None => {}
         }
 
+        // Failed structural expansion leaves the receiver available for the generated-frame path.
         if let Some(completed) = self.expand_structural_lifecycle_action(
             builder,
             block,
             source,
             role,
+            ty,
             place.clone(),
             outcome,
         )? {
@@ -105,7 +117,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         }
 
         let (block, rejected, value) =
-            self.create_lifecycle_frame(builder, block, source, role, place.clone())?;
+            self.create_lifecycle_frame(builder, block, source, role, place)?;
 
         let completion = self.context.representation_type(RepresentationRole::Unit)?;
 

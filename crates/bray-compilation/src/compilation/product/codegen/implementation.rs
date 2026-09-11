@@ -4480,41 +4480,28 @@ public func invoke<T>(pos value: T)
                 if asynchronous {
                     assert_cleanup_storage_retained(mir, pending);
 
-                    let mut counters = 0;
-
-                    for instance in plan
-                        .units()
-                        .iter()
-                        .flat_map(bray_codegen::CodegenUnit::instances)
-                    {
-                        let generated = instance.mir();
-
-                        if !matches!(
-                            instance.key().template(),
-                            bray_ir::MirUnitKey::GeneratedLifecycle(_)
-                        ) || generated.frame_descriptor().is_none()
-                        {
-                            continue;
-                        }
-
-                        for operation in generated.operations() {
-                            if let bray_ir::MirOperationKind::Binary {
-                                operator: bray_ir::MirBinaryOperator::Subtract,
-                                left: bray_ir::MirOperand::Copy(counter),
-                                ..
-                            } = operation.kind()
-                            {
-                                assert_cleanup_storage_retained(generated, counter.storage());
-                                counters += 1;
-                            }
-                        }
-                    }
-
                     if ty.starts_with('[') {
+                        let source_counters = mir
+                            .operations()
+                            .iter()
+                            .filter_map(|operation| match operation.kind() {
+                                bray_ir::MirOperationKind::Binary {
+                                    operator: bray_ir::MirBinaryOperator::Subtract,
+                                    left: bray_ir::MirOperand::Copy(counter),
+                                    ..
+                                } => Some(counter.storage()),
+                                _ => None,
+                            })
+                            .collect::<Vec<_>>();
+
                         assert!(
-                            counters > 0,
-                            "generated array cleanup must retain traversal counters"
+                            !source_counters.is_empty(),
+                            "specialization must compose finite arrays inside the source frame"
                         );
+
+                        for counter in source_counters {
+                            assert_cleanup_storage_retained(mir, counter);
+                        }
                     }
                 }
 

@@ -77,11 +77,15 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         Ok(cleanup.continuation)
     }
 
-    pub(super) fn lifecycle_children(&self, place: MirPlace) -> Result<Vec<MirPlace>, C::Error> {
+    pub(super) fn lifecycle_children(
+        &self,
+        place: MirPlace,
+        concrete: bray_symbols::TypeId,
+    ) -> Result<Vec<MirPlace>, C::Error> {
         let values = self.context.semantic_values();
 
         let data = values
-            .type_data(place.ty())
+            .type_data(concrete)
             .map_err(SyntheticLoweringError::SemanticValue)?;
 
         let children = match data.as_ref() {
@@ -94,13 +98,13 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     .representation_role(NamedTypeSymbolId::Struct(*structure))
                     .is_some()
                 {
-                    if self.context.cleanup_type_execution(place.ty())?.cleanup()
+                    if self.context.cleanup_type_execution(concrete)?.cleanup()
                         == bray_bound_tree::AsyncStorageCleanupRequirement::None
                     {
                         return Ok(Vec::new());
                     }
 
-                    return Err(SyntheticLoweringError::UnsupportedType(place.ty()).into());
+                    return Err(SyntheticLoweringError::UnsupportedType(concrete).into());
                 }
 
                 let representation = self
@@ -110,7 +114,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 let bray_symbols::DeclaredStorageShape::Structure(members) =
                     representation.storage()
                 else {
-                    return Err(SyntheticLoweringError::UnresolvedType(place.ty()).into());
+                    return Err(SyntheticLoweringError::UnresolvedType(concrete).into());
                 };
 
                 members
@@ -121,7 +125,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
                         let projection = MirProjectionKind::TupleField(
                             u32::try_from(index)
-                                .map_err(|_| SyntheticLoweringError::LayoutOverflow(place.ty()))?,
+                                .map_err(|_| SyntheticLoweringError::LayoutOverflow(concrete))?,
                         );
 
                         Ok((projection, ty))
@@ -134,7 +138,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 .enumerate()
                 .map(|(index, ty)| {
                     let index = u32::try_from(index)
-                        .map_err(|_| SyntheticLoweringError::LayoutOverflow(place.ty()))?;
+                        .map_err(|_| SyntheticLoweringError::LayoutOverflow(concrete))?;
 
                     Ok((MirProjectionKind::TupleField(index), ty))
                 })
@@ -156,7 +160,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             | TypeData::TraitView(_)
             | TypeData::OwnedIndirection { .. }
             | TypeData::Callable(_) => {
-                return Err(SyntheticLoweringError::UnsupportedType(place.ty()).into());
+                return Err(SyntheticLoweringError::UnsupportedType(concrete).into());
             }
         };
 

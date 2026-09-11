@@ -149,25 +149,37 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             lifecycle_expansion: Some(&expansion),
         };
 
-        let completed =
-            lowerer.expand_represented_lifecycle(builder, block, source, role, place, &outcome)?;
+        let completed = lowerer.expand_represented_lifecycle(
+            builder,
+            block,
+            source,
+            role,
+            place.ty(),
+            place,
+            &outcome,
+        )?;
 
         self.finish_cleanup_outcome(builder, completed, source, &outcome)
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "structural expansion keeps concrete semantic identity separate from the original MIR place"
+    )]
     pub(super) fn expand_represented_lifecycle(
         &self,
         builder: &mut MirUnitBuilder,
         block: bray_ir::MirBlockId,
         source: &MirSourceAnchor,
         role: bray_ir::MirGeneratedLifecycleRole,
+        concrete: TypeId,
         place: MirPlace,
         outcome: &crate::cleanup_outcome::CleanupOutcome,
     ) -> Result<bray_ir::MirBlockId, C::Error> {
         let values = self.context.semantic_values();
 
         let data = values
-            .type_data(place.ty())
+            .type_data(concrete)
             .map_err(SyntheticLoweringError::SemanticValue)?;
 
         if let TypeData::Named {
@@ -216,10 +228,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             | TypeData::FlexibleArray(_)
             | TypeData::Slice(_)
             | TypeData::TraitView(_) => {
-                Err(SyntheticLoweringError::UnsupportedType(place.ty()).into())
+                Err(SyntheticLoweringError::UnsupportedType(concrete).into())
             }
             TypeData::Named { .. } | TypeData::Tuple(_) => {
-                let children = self.lifecycle_children(place)?;
+                let children = self.lifecycle_children(place, concrete)?;
 
                 self.push_child_lifecycle_operations(
                     builder, block, source, role, children, outcome,
@@ -227,7 +239,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             }
             TypeData::Borrow { .. } | TypeData::Callable(_) => {
                 Err(SyntheticLoweringError::UnexpectedLifecycleType {
-                    ty: place.ty(),
+                    ty: concrete,
                     actual: data.as_ref().clone(),
                 }
                 .into())

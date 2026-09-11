@@ -261,8 +261,16 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             MirHelperReference::Finalize(_) | MirHelperReference::StaticFinalize(_) => {
                 let outcome = self.cleanup_outcome(builder, block, source)?;
 
-                let block =
-                    self.push_task_resolution(builder, block, source, place.clone(), &outcome)?;
+                let completion = self.task_completion_type(place.ty())?;
+
+                let block = self.push_task_resolution(
+                    builder,
+                    block,
+                    source,
+                    place.clone(),
+                    completion,
+                    &outcome,
+                )?;
 
                 return self
                     .finish_cleanup_outcome(builder, block, source, &outcome)
@@ -302,8 +310,16 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             } => {
                 let outcome = self.cleanup_outcome(builder, block, source)?;
 
-                let block =
-                    self.push_task_resolution(builder, block, source, place.clone(), &outcome)?;
+                let completion = self.task_completion_type(place.ty())?;
+
+                let block = self.push_task_resolution(
+                    builder,
+                    block,
+                    source,
+                    place.clone(),
+                    completion,
+                    &outcome,
+                )?;
 
                 self.push_lifecycle_operation(
                     builder,

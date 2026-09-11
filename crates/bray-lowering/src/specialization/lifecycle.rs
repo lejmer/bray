@@ -1,11 +1,9 @@
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{
-    MirBlockId, MirBlockKind, MirCallPanicEdge, MirEdge, MirFrameDescriptor, MirFrameEntry,
-    MirFrameState, MirFrameStateId, MirGeneratedLifecycleRole, MirOperand, MirOperationId,
-    MirOperationKind, MirPatternPredicate, MirPlace, MirProjectionKind, MirRunResultVariants,
-    MirSourceAnchor, MirTerminatorKind, MirUnit, MirUnitBuildError, MirUnitBuilder,
+    MirBlockId, MirFrameDescriptor, MirFrameState, MirGeneratedLifecycleRole, MirOperationId,
+    MirPlace, MirSourceAnchor, MirTerminatorKind, MirUnit, MirUnitBuildError, MirUnitBuilder,
 };
-use bray_symbols::{BorrowKind, CallableExecution, SymbolOrdinal, TypeData, TypeId};
+use bray_symbols::{CallableExecution, TypeId};
 
 use crate::{SyntheticLoweringContext, SyntheticLoweringError};
 
@@ -30,16 +28,8 @@ pub fn specialize_lifecycle_execution<C: SyntheticLoweringContext + ?Sized>(
                 )
             })?;
 
-            let (role, place) = match operation.kind() {
-                MirOperationKind::Finalize(place) => (MirGeneratedLifecycleRole::Finalize, place),
-                MirOperationKind::Destroy(place) => (MirGeneratedLifecycleRole::Destroy, place),
-                MirOperationKind::Abandon { action, place } => {
-                    (MirGeneratedLifecycleRole::Abandon(*action), place)
-                }
-                MirOperationKind::Cleanup { phase, place } => {
-                    (MirGeneratedLifecycleRole::Cleanup(*phase), place)
-                }
-                _ => continue,
+            let Some((role, place)) = operation.kind().lifecycle_action() else {
+                continue;
             };
 
             let (ty, cleanup) = match cleanup_types.entry(place.ty()) {
@@ -102,28 +92,23 @@ pub fn specialize_lifecycle_execution<C: SyntheticLoweringContext + ?Sized>(
         cause,
     };
 
+    let source = actions[0].5.clone();
+
+    if unit.frame_descriptor().is_none() {
+        return Err(failure(&source, MirUnitBuildError::ProtectedFrameMismatch).into());
+    }
+
     let entry = unit.entry();
     let mut builder = MirUnitBuilder::from_unit(unit);
-    let source = &actions[0].5;
 
-    let first_new_state = builder
-        .next_frame_state()
-        .map_err(|cause| failure(source, cause))?
-        .raw();
-
-    let descriptor = builder
-        .take_frame_descriptor()
-        .ok_or_else(|| failure(source, MirUnitBuildError::ProtectedFrameMismatch))?;
-
-    // Existing resumptions keep their IDs. New states inherit the checked frame execution context.
-    let mut states = descriptor.states().to_vec();
+    // Keep descriptor-only state IDs visible to all nested expansion until rebuilding it.
+    let mut generated_states = Vec::new();
 
     let lowerer = crate::synthetic::SyntheticLowerer::new(context);
 
     for (block, operation, role, concrete, place, source, execution) in actions {
         let storage_count = builder.storage_ids().len();
-        let next = lowerer.next_lifecycle_state(&builder, &source)?;
-        let state = MirFrameStateId::new(next.raw().max(first_new_state));
+        let state = lowerer.next_lifecycle_state(&builder, &source)?;
 
         builder
             .set_cleanup_execution(operation, None)
@@ -135,7 +120,6 @@ pub fn specialize_lifecycle_execution<C: SyntheticLoweringContext + ?Sized>(
             (block, operation),
             &source,
             (role, concrete, place),
-            state,
         )?;
 
         // Retain this action's generated slots with its checked lexical dependencies. Some
@@ -150,7 +134,7 @@ pub fn specialize_lifecycle_execution<C: SyntheticLoweringContext + ?Sized>(
         )
         .with_affinity(execution.affinity());
 
-        states.extend(
+        generated_states.extend(
             builder
                 .suspension_states()
                 .filter(|(generated, _)| generated.raw() >= state.raw())
@@ -160,6 +144,12 @@ pub fn specialize_lifecycle_execution<C: SyntheticLoweringContext + ?Sized>(
         );
     }
 
+    let descriptor = builder
+        .take_frame_descriptor()
+        .ok_or_else(|| failure(&source, MirUnitBuildError::ProtectedFrameMismatch))?;
+
+    let mut states = descriptor.states().to_vec();
+    states.extend(generated_states);
     states.sort_unstable_by_key(MirFrameState::state);
 
     let mut updated = MirFrameDescriptor::try_new(
@@ -190,8 +180,7 @@ fn expand_action<C: SyntheticLoweringContext + ?Sized>(
     location: (MirBlockId, MirOperationId),
     source: &MirSourceAnchor,
     action: (MirGeneratedLifecycleRole, TypeId, MirPlace),
-    state: MirFrameStateId,
-) -> Result<MirBlockId, C::Error> {
+) -> Result<(), C::Error> {
     let (block, operation) = location;
 
     let (role, concrete, place) = action;
@@ -209,216 +198,30 @@ fn expand_action<C: SyntheticLoweringContext + ?Sized>(
         return Err(failure(source, MirUnitBuildError::InvalidCallPanicCheck(block)).into());
     };
 
-    let owner = crate::cleanup_await::CleanupOwner::for_action(
-        context.compiler_known_symbols(),
-        context.semantic_values(),
-        role,
-        concrete,
-    )
-    .map_err(SyntheticLoweringError::SemanticValue)?;
-
-    match owner {
-        Some(crate::cleanup_await::CleanupOwner::Future { entry, completion }) => {
-            return super::future::expand_future_cleanup(
-                context,
-                builder,
-                location,
-                source,
-                (entry, place, completion),
-                state,
-                (completed, *panicked, cancelled),
-            );
-        }
-        Some(crate::cleanup_await::CleanupOwner::Task { completion }) => {
-            return super::task::expand_task_cleanup(
-                context,
-                builder,
-                location,
-                source,
-                (role, place, completion),
-                state,
-                (completed, *panicked, cancelled),
-            );
-        }
-        None => {}
-    }
-
-    let ty = place.ty();
-
-    let receiver = context
-        .semantic_values()
-        .intern_type(TypeData::Borrow {
-            kind: BorrowKind::Mutable,
-            target: ty,
-        })
-        .map_err(SyntheticLoweringError::SemanticValue)?;
-
-    let borrow = builder
-        .replace_effect(
-            operation,
-            MirOperationKind::Borrow {
-                kind: BorrowKind::Mutable,
-                place,
-            },
-            Some(receiver),
-        )
-        .map_err(|cause| failure(source, cause))?;
-
-    let receiver = borrow
-        .result()
-        .ok_or_else(|| failure(source, MirUnitBuildError::MissingOperationResult(operation)))?;
-
-    let completion = context.representation_type(RepresentationRole::Unit)?;
-    let future = unary_type(context, RepresentationRole::Future, completion)?;
-    let result = unary_type(context, RepresentationRole::RunResult, completion)?;
-
-    let representation = context
-        .compiler_known_symbols()
-        .run_result_representation()
-        .ok_or(SyntheticLoweringError::MissingRepresentation {
-            role: RepresentationRole::RunResult,
-            argument: None,
-        })?;
-
-    let variants = MirRunResultVariants::new(
-        representation.completed_variant(),
-        representation.panicked_variant(),
-        representation.cancelled_variant(),
-    );
-
     let boolean = context.representation_type(RepresentationRole::ScalarBool)?;
+    let unit = context.representation_type(RepresentationRole::Unit)?;
 
-    let (block, rejected, future) = crate::cleanup_await::create_lifecycle_frame(
+    let outcome = crate::cleanup_outcome::CleanupOutcome::replace_effect(
         builder,
         block,
+        operation,
         source,
-        role,
-        ty,
-        MirOperand::Value(receiver),
-        bray_bound_tree::BoundFutureConstruction::new(completion, future),
         boolean,
-    )
-    .map_err(|cause| failure(source, cause))?;
-
-    let report =
-        crate::frame_creation::allocation_panic(builder, rejected, source, panicked.report_type())
-            .map_err(|cause| failure(source, cause))?;
-
-    builder
-        .set_terminator(
-            rejected,
-            source.clone(),
-            MirTerminatorKind::Goto(MirEdge::new(panicked.target(), [report])),
-        )
-        .map_err(|cause| failure(source, cause))?;
-
-    let (resume, result) = crate::cleanup_await::await_cleanup(
-        builder,
-        block,
-        source,
-        state,
-        crate::cleanup_await::CleanupAwait::Frame(MirOperand::Move(future), MirFrameEntry::Body),
-        result,
-        variants,
-    )
-    .map_err(|cause| failure(source, cause))?;
-
-    forward_outcome(
-        builder,
-        resume,
-        source,
-        result,
-        variants,
-        (completed, *panicked, cancelled),
-    )
-    .map_err(|cause| failure(source, cause))?;
-
-    Ok(resume)
-}
-
-fn forward_outcome(
-    builder: &mut MirUnitBuilder,
-    block: MirBlockId,
-    source: &MirSourceAnchor,
-    result: MirPlace,
-    variants: MirRunResultVariants,
-    edges: (&MirEdge, MirCallPanicEdge, &MirEdge),
-) -> Result<(), MirUnitBuildError> {
-    let (completed, panicked, cancelled) = edges;
-
-    let completed_bridge = builder.push_block(source.clone(), MirBlockKind::LifecycleResolution)?;
-    let failed = builder.push_block(source.clone(), MirBlockKind::LifecycleResolution)?;
-    let panic_bridge = builder.push_block(source.clone(), MirBlockKind::LifecycleResolution)?;
-
-    let cancellation_bridge =
-        builder.push_block(source.clone(), MirBlockKind::LifecycleResolution)?;
-
-    // The original continuations retain their exact ownership arguments and cleanup phases.
-    builder.set_terminator(
-        completed_bridge,
-        source.clone(),
-        MirTerminatorKind::Goto(completed.clone()),
-    )?;
-
-    builder.set_terminator(
-        cancellation_bridge,
-        source.clone(),
-        MirTerminatorKind::Goto(cancelled.clone()),
-    )?;
-
-    let report = result.project(
-        MirProjectionKind::ActiveUnionPayloadElement {
-            variant: variants.panicked(),
-            ordinal: SymbolOrdinal::new(0),
-        },
         panicked.report_type(),
-    );
-
-    builder.set_terminator(
-        panic_bridge,
-        source.clone(),
-        MirTerminatorKind::Goto(MirEdge::new(panicked.target(), [MirOperand::Move(report)])),
-    )?;
-
-    builder.set_terminator(
-        block,
-        source.clone(),
-        MirTerminatorKind::PatternBranch {
-            subject: MirOperand::Copy(result.clone()),
-            predicate: MirPatternPredicate::ActiveUnionVariant(variants.completed()),
-            matched: MirEdge::new(completed_bridge, []),
-            unmatched: MirEdge::new(failed, []),
-        },
-    )?;
-
-    builder.set_terminator(
-        failed,
-        source.clone(),
-        MirTerminatorKind::PatternBranch {
-            subject: MirOperand::Copy(result),
-            predicate: MirPatternPredicate::ActiveUnionVariant(variants.panicked()),
-            matched: MirEdge::new(panic_bridge, []),
-            unmatched: MirEdge::new(cancellation_bridge, []),
-        },
+        unit,
+        builder.target().runtime_abi(),
     )
-}
+    .map_err(|cause| failure(source, cause))?;
 
-fn unary_type<C: SyntheticLoweringContext + ?Sized>(
-    context: &C,
-    role: RepresentationRole,
-    argument: TypeId,
-) -> Result<TypeId, C::Error> {
-    context
-        .compiler_known_symbols()
-        .unary_representation_type(context.semantic_values(), role, argument)
-        .map_err(SyntheticLoweringError::SemanticValue)?
-        .ok_or_else(|| {
-            SyntheticLoweringError::MissingRepresentation {
-                role,
-                argument: Some(argument),
-            }
-            .into()
-        })
+    let lowerer = crate::synthetic::SyntheticLowerer::new(context);
+
+    let finished = lowerer.resolve_concrete_lifecycle_action(
+        builder, block, source, role, concrete, place, &outcome,
+    )?;
+
+    outcome
+        .forward(builder, finished, source, (completed, *panicked, cancelled))
+        .map_err(|cause| failure(source, cause).into())
 }
 
 pub(super) fn failure(

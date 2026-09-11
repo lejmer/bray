@@ -1,7 +1,7 @@
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{
-    MirAsyncOperation, MirEdge, MirOperand, MirOperationKind, MirPlace, MirSourceAnchor,
-    MirTerminatorKind, MirUnitBuilder,
+    MirAsyncOperation, MirEdge, MirOperand, MirOperationKind, MirPlace, MirProjectionKind,
+    MirSourceAnchor, MirStorageKind, MirStoreKind, MirTerminatorKind, MirUnitBuilder,
 };
 
 use super::super::{SyntheticLowerer, SyntheticLoweringContext, SyntheticLoweringError};
@@ -36,8 +36,11 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         source: &MirSourceAnchor,
         task: MirPlace,
     ) -> Result<bray_ir::MirBlockId, C::Error> {
+        let completion = self.task_completion_type(task.ty())?;
         let outcome = self.cleanup_outcome(builder, block, source)?;
-        let finished = self.await_task_quiescence(builder, block, source, task, &outcome)?;
+
+        let finished =
+            self.await_task_quiescence(builder, block, source, task, completion, &outcome)?;
 
         self.finish_cleanup_outcome(builder, finished, source, &outcome)
     }
@@ -48,9 +51,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         block: bray_ir::MirBlockId,
         source: &MirSourceAnchor,
         task: MirPlace,
+        completion: bray_symbols::TypeId,
         outcome: &CleanupOutcome,
     ) -> Result<bray_ir::MirBlockId, C::Error> {
-        let completion = self.task_completion_type(task.ty())?;
+        let task = self.retain_task_receiver(builder, block, source, task)?;
 
         let state = self.next_lifecycle_state(builder, source)?;
 
@@ -166,9 +170,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         block: bray_ir::MirBlockId,
         source: &MirSourceAnchor,
         task: MirPlace,
+        completion: bray_symbols::TypeId,
         outcome: &CleanupOutcome,
     ) -> Result<bray_ir::MirBlockId, C::Error> {
-        let completion = self.task_completion_type(task.ty())?;
+        let task = self.retain_task_receiver(builder, block, source, task)?;
 
         let (resumed, result_place, variants) = self.await_lifecycle_result(
             builder,
@@ -186,5 +191,48 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             (variants, completion),
             outcome,
         )
+    }
+
+    fn retain_task_receiver(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: bray_ir::MirBlockId,
+        source: &MirSourceAnchor,
+        task: MirPlace,
+    ) -> Result<MirPlace, C::Error> {
+        let ty = task.ty();
+
+        let pointer = self
+            .context
+            .semantic_values()
+            .intern_type(bray_symbols::TypeData::Borrow {
+                kind: bray_symbols::BorrowKind::Mutable,
+                target: ty,
+            })
+            .map_err(SyntheticLoweringError::SemanticValue)?;
+
+        let receiver = self.lifecycle_receiver_operand(builder, block, source, task, pointer)?;
+
+        let storage = builder
+            .push_storage(source.clone(), MirStorageKind::Temporary, pointer)
+            .map_err(|cause| self.mir_error(source, cause))?;
+
+        let place = MirPlace::new(storage, [], pointer);
+
+        // Evaluate the owner address once before suspension, then retain it through payload cleanup.
+        builder
+            .push_operation(
+                block,
+                source.clone(),
+                MirOperationKind::Store {
+                    kind: MirStoreKind::Initialize,
+                    destination: place.clone(),
+                    value: receiver,
+                },
+                None,
+            )
+            .map_err(|cause| self.mir_error(source, cause))?;
+
+        Ok(place.project(MirProjectionKind::Dereference, ty))
     }
 }
