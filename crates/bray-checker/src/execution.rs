@@ -504,7 +504,8 @@ impl ExecutionCallInput {
         &self.conditions
     }
 
-    pub(crate) fn arguments(&self) -> &[ExecutionCallArgument] {
+    /// Returns receiver-first inputs interpreted as execution-contract observations.
+    pub fn arguments(&self) -> &[ExecutionCallArgument] {
         &self.arguments
     }
 

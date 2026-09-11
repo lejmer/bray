@@ -304,6 +304,126 @@ fn combine(
     }
 }
 
+impl crate::ExecutionCallInput {
+    /// Whether selected inputs can supply execution-contract observations before querying promises.
+    pub fn supports_selected_call(
+        call: &bray_bound_tree::SelectedCall,
+        inputs: &[(
+            crate::ExecutionCallArgument,
+            Option<&bray_bound_tree::SelectedConversion>,
+        )],
+    ) -> bool {
+        matches!(
+            call.resolution().result(),
+            bray_bound_tree::BoundCallResult::Immediate(_)
+        ) && inputs.iter().all(|(_, conversion)| {
+            conversion.is_none_or(|conversion| {
+                matches!(
+                    conversion.target(),
+                    bray_bound_tree::ConversionTarget::Identity
+                )
+            })
+        }) && (matches!(
+            call.target(),
+            bray_bound_tree::BoundCallableTarget::Indirect(_)
+        ) || !call.arguments().iter().any(|argument| {
+            matches!(
+                argument,
+                bray_bound_tree::SelectedArgument::Explicit {
+                    parameter: None,
+                    ..
+                }
+            )
+        }))
+    }
+
+    /// Returns candidate contracts for a nonvariadic indirect callable, without certifying them.
+    pub fn indirect_conditions(
+        values: &SemanticValueStore,
+        ty: bray_symbols::TypeId,
+    ) -> Result<Option<CallableConditionSet>, SemanticValueStoreError> {
+        let data = values.type_data(ty)?;
+
+        let bray_symbols::TypeData::Callable(callable) = data.as_ref() else {
+            return Ok(None);
+        };
+
+        // Normalization owns an Arc-backed copy. The semantic callable type remains immutable.
+        Ok((!callable.is_variadic()).then(|| callable.conditions().clone()))
+    }
+
+    /// Interprets selected inputs as execution observations after their contracts are normalized.
+    pub fn from_selected_call(
+        values: &SemanticValueStore,
+        bound: &bray_bound_tree::BoundUnit,
+        expressions: &bray_bound_tree::CheckedExpressionSemantics,
+        call: &bray_bound_tree::SelectedCall,
+        inputs: &[(
+            crate::ExecutionCallArgument,
+            Option<&bray_bound_tree::SelectedConversion>,
+        )],
+        conditions: CallableConditionSet,
+    ) -> Result<Self, SemanticValueStoreError> {
+        let mut borrowed = std::collections::BTreeSet::new();
+        let mut arguments = Vec::with_capacity(inputs.len());
+
+        for (argument, conversion) in inputs {
+            let crate::ExecutionCallArgument::Expression(argument) = argument else {
+                arguments.push(*argument);
+                continue;
+            };
+
+            let ty = conversion
+                .map(|conversion| conversion.target_type())
+                .or_else(|| {
+                    call.receiver()
+                        .filter(|receiver| receiver.expression() == *argument)
+                        .map(|receiver| receiver.target_type())
+                })
+                .or_else(|| {
+                    expressions
+                        .types()
+                        .expression(*argument)
+                        .map(|result| result.ty())
+                });
+
+            let is_borrowed = match ty {
+                Some(ty) => matches!(
+                    &*values.type_data(ty)?,
+                    bray_symbols::TypeData::Borrow { .. }
+                ),
+                None => false,
+            } || call.receiver().is_some_and(|receiver| {
+                receiver.expression() == *argument
+                    && matches!(
+                        receiver.mode(),
+                        bray_symbols::ReceiverMode::Shared | bray_symbols::ReceiverMode::Mutable
+                    )
+            });
+
+            let mut observed = *argument;
+
+            if is_borrowed {
+                // Execution contracts observe the borrowed referent, not a materialized address.
+                // Keep this interpretation out of constant-value and exported-template evaluation.
+                if let Some(bray_bound_tree::BoundExpression::Structured(expression)) =
+                    bound.tree().expression(*argument)
+                    && expression.kind() == bray_bound_tree::BoundStructuredExpressionKind::Borrow
+                    && let [referent] = expression.operands()
+                {
+                    observed = *referent;
+                }
+
+                borrowed.insert(observed);
+            }
+
+            arguments.push(crate::ExecutionCallArgument::Expression(observed));
+        }
+
+        Ok(Self::new(conditions, arguments, borrowed))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{check_execution_guarantee_implication, contract_guard_conditions};

@@ -436,28 +436,7 @@ impl Compilation {
                 }
             }
 
-            if !matches!(
-                call.resolution().result(),
-                bray_bound_tree::BoundCallResult::Immediate(_)
-            ) || inputs.iter().any(|(_, conversion)| {
-                conversion.is_some_and(|conversion| {
-                    !matches!(
-                        conversion.target(),
-                        bray_bound_tree::ConversionTarget::Identity
-                    )
-                })
-            }) || (!matches!(
-                call.target(),
-                bray_bound_tree::BoundCallableTarget::Indirect(_)
-            ) && call.arguments().iter().any(|argument| {
-                matches!(
-                    argument,
-                    bray_bound_tree::SelectedArgument::Explicit {
-                        parameter: None,
-                        ..
-                    }
-                )
-            })) {
+            if !ExecutionCallInput::supports_selected_call(call, &inputs) {
                 continue;
             }
 
@@ -466,18 +445,11 @@ impl Compilation {
                     self.execution_callable_conditions(instance, cancellation)?
                 }
                 bray_bound_tree::BoundCallableTarget::Indirect(ty) => {
-                    let data = values.type_data(ty)?;
-
-                    let TypeData::Callable(callable) = data.as_ref() else {
+                    let Some(mut conditions) = ExecutionCallInput::indirect_conditions(values, ty)?
+                    else {
                         continue;
                     };
 
-                    if callable.is_variadic() {
-                        continue;
-                    }
-
-                    // Normalization owns an Arc-backed contract copy, leaving the callable type immutable.
-                    let mut conditions = callable.conditions().clone();
                     self.normalize_execution_conditions(&mut conditions, cancellation)?;
 
                     DiagnosticResult::without_diagnostics(conditions)
@@ -494,66 +466,26 @@ impl Compilation {
 
             let (conditions, _) = declared.into_parts();
 
-            let mut borrowed = std::collections::BTreeSet::new();
-            let mut arguments = Vec::with_capacity(inputs.len());
+            let input = ExecutionCallInput::from_selected_call(
+                values,
+                bound,
+                expressions,
+                call,
+                &inputs,
+                conditions,
+            )?;
 
-            for (argument, conversion) in &inputs {
-                let ExecutionCallArgument::Expression(argument) = argument else {
-                    arguments.push(*argument);
-                    continue;
-                };
-
-                let ty = conversion
-                    .map(|conversion| conversion.target_type())
-                    .or_else(|| {
-                        call.receiver()
-                            .filter(|receiver| receiver.expression() == *argument)
-                            .map(|receiver| receiver.target_type())
-                    })
-                    .or_else(|| {
-                        expressions
-                            .types()
-                            .expression(*argument)
-                            .map(|result| result.ty())
-                    });
-
-                let is_borrowed = match ty {
-                    Some(ty) => matches!(&*values.type_data(ty)?, TypeData::Borrow { .. }),
-                    None => false,
-                } || call.receiver().is_some_and(|receiver| {
-                    receiver.expression() == *argument
-                        && matches!(
-                            receiver.mode(),
-                            bray_symbols::ReceiverMode::Shared
-                                | bray_symbols::ReceiverMode::Mutable
-                        )
-                });
-
-                let mut observed = *argument;
-
-                if is_borrowed {
-                    // Execution contracts observe the borrowed referent, not a materialized address.
-                    // Keep this interpretation out of constant-value and exported-template evaluation.
-                    if let Some(bray_bound_tree::BoundExpression::Structured(expression)) =
-                        bound.tree().expression(*argument)
-                        && expression.kind()
-                            == bray_bound_tree::BoundStructuredExpressionKind::Borrow
-                        && let [referent] = expression.operands()
-                    {
-                        observed = *referent;
-                    }
-
-                    borrowed.insert(observed);
-                }
-
-                roots.insert(observed);
-                arguments.push(ExecutionCallArgument::Expression(observed));
-            }
-
-            calls.insert(
-                expression,
-                ExecutionCallInput::new(conditions, arguments, borrowed),
+            roots.extend(
+                input
+                    .arguments()
+                    .iter()
+                    .filter_map(|argument| match argument {
+                        ExecutionCallArgument::Expression(expression) => Some(*expression),
+                        ExecutionCallArgument::Constant(_) => None,
+                    }),
             );
+
+            calls.insert(expression, input);
         }
 
         Ok(DiagnosticResult::new(calls, diagnostics))
