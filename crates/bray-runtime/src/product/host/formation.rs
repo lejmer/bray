@@ -1,6 +1,6 @@
 use bray_runtime_abi::{
     NativeCleanupExecution, NativeProductHostDescriptor, NativeProductHostObservation,
-    NativeProductHostState, NativeProductHostStatus, NativeStaticDuration, NativeStaticIdentity,
+    NativeProductHostState, NativeProductHostStatus, NativeStaticIdentity,
 };
 
 use super::descriptor::read_statics;
@@ -25,7 +25,8 @@ pub(super) fn ensure_formed(
 
     // Descriptor callbacks and execution retention must not hold the shared host registry.
     drop(hosts);
-    let statics = read_statics(descriptor).map_err(unformed)?;
+
+    let (statics, thread_statics) = read_statics(descriptor).map_err(unformed)?;
 
     let cleanup_thread = bray_platform::RuntimeThreadReservation::reserve()
         .map_err(|error| unformed(host_status(crate::native::thread_attachment_status(error))))?;
@@ -33,17 +34,15 @@ pub(super) fn ensure_formed(
     let execution = retain().map_err(|status| unformed(host_status(status)))?;
 
     if execution.is_none()
-        && statics.iter().any(|entry| {
-            entry.cleanup.finalizer.execution() == NativeCleanupExecution::ASYNCHRONOUS
-        })
+        && statics
+            .iter()
+            .chain(&thread_statics)
+            .any(|entry| entry.finalizer.execution() == NativeCleanupExecution::ASYNCHRONOUS)
     {
         return Err(unformed(NativeProductHostStatus::RUNTIME_FAILURE));
     }
 
-    let initialized_statics = statics
-        .iter()
-        .filter(|entry| entry.duration == NativeStaticDuration::PRODUCT)
-        .count();
+    let initialized_statics = statics.len();
 
     let host = ProductHost {
         identity: descriptor.identity(),
@@ -62,6 +61,7 @@ pub(super) fn ensure_formed(
         cleanup_running: false,
         cleanup_blocked: false,
         statics,
+        thread_statics,
         cleanup_thread: Some(cleanup_thread),
     };
 

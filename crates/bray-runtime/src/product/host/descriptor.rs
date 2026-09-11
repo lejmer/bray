@@ -1,16 +1,15 @@
 use bray_runtime_abi::{
     NativeCleanupExecution, NativeProductHostDescriptor, NativeProductHostStatus,
-    NativeStaticHostEntry, NativeStaticIdentity, PRODUCT_HOST_ABI_VERSION,
+    NativeStaticDuration, NativeStaticHostEntry, NativeStaticIdentity, PRODUCT_HOST_ABI_VERSION,
 };
 
-use super::model::ProductStatic;
 use crate::product::cleanup::StaticCleanup;
 
 const MAXIMUM_STATIC_ENTRIES: usize = 1_000_000;
 
 pub(super) fn read_statics(
     descriptor: &NativeProductHostDescriptor,
-) -> Result<Vec<ProductStatic>, NativeProductHostStatus> {
+) -> Result<(Vec<StaticCleanup>, Vec<StaticCleanup>), NativeProductHostStatus> {
     if descriptor.abi_version() != PRODUCT_HOST_ABI_VERSION
         || descriptor.static_count() > MAXIMUM_STATIC_ENTRIES
     {
@@ -61,26 +60,38 @@ pub(super) fn read_statics(
         return Err(NativeProductHostStatus::INVALID_ARGUMENT);
     }
 
-    let mut statics = Vec::new();
+    let product_count = entries
+        .iter()
+        .filter(|entry| entry.duration() == NativeStaticDuration::PRODUCT)
+        .count();
 
-    crate::allocation::reserve_vec_entries(&mut statics, entries.len())
+    let mut statics = Vec::new();
+    let mut thread_statics = Vec::new();
+
+    crate::allocation::reserve_vec_entries(&mut statics, product_count)
+        .map_err(|_| NativeProductHostStatus::ALLOCATION_FAILURE)?;
+
+    crate::allocation::reserve_vec_entries(&mut thread_statics, entries.len() - product_count)
         .map_err(|_| NativeProductHostStatus::ALLOCATION_FAILURE)?;
 
     for entry in entries {
-        statics.push(ProductStatic {
-            duration: entry.duration(),
-            cleanup: StaticCleanup {
-                identity: entry.identity(),
-                order: entry.order(),
-                prepare: entry.prepare(),
-                finalizer: entry.finalizer(),
-                destroy: entry.destroy(),
-                detach: entry.detach(),
-            },
+        let destination = if entry.duration() == NativeStaticDuration::PRODUCT {
+            &mut statics
+        } else {
+            &mut thread_statics
+        };
+
+        destination.push(StaticCleanup {
+            identity: entry.identity(),
+            order: entry.order(),
+            prepare: entry.prepare(),
+            finalizer: entry.finalizer(),
+            destroy: entry.destroy(),
+            detach: entry.detach(),
         });
     }
 
-    Ok(statics)
+    Ok((statics, thread_statics))
 }
 
 fn validate_dependencies(entries: &[NativeStaticHostEntry]) -> Result<(), NativeProductHostStatus> {

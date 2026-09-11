@@ -4,8 +4,7 @@ use std::sync::{Mutex, OnceLock};
 
 use bray_runtime_abi::{
     NativeProductHostDescriptor, NativeProductHostObservation, NativeProductHostState,
-    NativeProductHostStatus, NativeProductIdentity, NativeRuntimeStatus, NativeStaticDuration,
-    NativeStaticIdentity,
+    NativeProductHostStatus, NativeProductIdentity, NativeRuntimeStatus, NativeStaticIdentity,
 };
 
 use super::attachment::ThreadStaticRegistry;
@@ -18,12 +17,6 @@ pub(super) static PRODUCT_HOSTS: OnceLock<Mutex<HashMap<usize, ProductHost>>> = 
 thread_local! {
     pub(super) static THREAD_STATICS: RefCell<ThreadStaticRegistry> =
         const { RefCell::new(ThreadStaticRegistry::new()) };
-}
-
-#[derive(Clone, Copy)]
-pub(super) struct ProductStatic {
-    pub(super) duration: NativeStaticDuration,
-    pub(super) cleanup: StaticCleanup,
 }
 
 pub(super) struct ProductHost {
@@ -41,7 +34,8 @@ pub(super) struct ProductHost {
     pub(super) last_incident: NativeStaticIdentity,
     pub(super) cleanup_running: bool,
     pub(super) cleanup_blocked: bool,
-    pub(super) statics: Vec<ProductStatic>,
+    pub(super) statics: Vec<StaticCleanup>,
+    pub(super) thread_statics: Vec<StaticCleanup>,
     pub(super) cleanup_thread: Option<bray_platform::RuntimeThreadReservation>,
 }
 
@@ -68,25 +62,18 @@ impl ProductHost {
         self.active_entries == 0 && self.external_roots == 0 && self.thread_attachments == 0
     }
 
-    pub(super) fn take_product_cleanups(&mut self) -> Vec<ProductStatic> {
-        let mut statics = std::mem::take(&mut self.statics);
-        statics.retain(|entry| entry.duration == NativeStaticDuration::PRODUCT);
-
-        statics
-    }
-
-    pub(super) fn static_entry(&self, identity: NativeStaticIdentity) -> Option<ProductStatic> {
-        self.statics
+    pub(super) fn static_entry(&self, identity: NativeStaticIdentity) -> Option<StaticCleanup> {
+        self.thread_statics
             .iter()
             .copied()
-            .find(|entry| entry.cleanup.identity == identity)
+            .find(|entry| entry.identity == identity)
     }
 }
 
 pub(super) struct PendingCleanup {
     pub(super) product: usize,
     pub(super) execution: Option<crate::product::RetainedProductExecution>,
-    pub(super) statics: Vec<ProductStatic>,
+    pub(super) statics: Vec<StaticCleanup>,
     pub(super) thread: bray_platform::RuntimeThreadReservation,
 }
 

@@ -1,16 +1,17 @@
 use bray_runtime_abi::{
     NativeProductHostDescriptor, NativeProductHostObservation, NativeProductHostOperation,
-    NativeProductHostState, NativeProductHostStatus, NativeRuntimeStatus, NativeStaticDuration,
-    NativeStaticIdentity, NativeThreadStaticCleanupRegistration,
+    NativeProductHostState, NativeProductHostStatus, NativeRuntimeStatus, NativeStaticIdentity,
+    NativeThreadStaticCleanupRegistration,
 };
 
 use super::super::cleanup::StaticCleanup;
 
+use super::attachment::ensure_attachment;
 use super::formation::ensure_formed;
 
 use super::model::{
-    PendingCleanup, ProductHost, ProductStatic, THREAD_STATICS, host_status, product_hosts,
-    product_key, runtime_status,
+    PendingCleanup, ProductHost, THREAD_STATICS, host_status, product_hosts, product_key,
+    runtime_status,
 };
 
 pub(crate) fn control(
@@ -110,10 +111,14 @@ pub(crate) fn thread_attachment_identity(descriptor: &'static NativeProductHostD
 
     let worker = current_thread_is_product_worker(product);
 
+    if ensure_attachment(product, worker).is_err() {
+        return 0;
+    }
+
     THREAD_STATICS.with(|registry| {
         registry
             .borrow_mut()
-            .attachment(product, worker)
+            .attachment(product)
             .map_or(0, |attachment| attachment.identity)
     })
 }
@@ -140,19 +145,21 @@ pub(crate) fn register_thread_static(
 
     let finalizer = registration.finalizer();
 
-    if entry.duration != NativeStaticDuration::EXACT_THREAD
-        || finalizer.execution() != entry.cleanup.finalizer.execution()
-        || finalizer.metadata().is_some() != entry.cleanup.finalizer.metadata().is_some()
+    if finalizer.execution() != entry.finalizer.execution()
+        || finalizer.metadata().is_some() != entry.finalizer.metadata().is_some()
     {
         return NativeRuntimeStatus::INVALID_ARGUMENT;
+    }
+
+    if let Err(status) = ensure_attachment(product, worker) {
+        return status;
     }
 
     THREAD_STATICS.with(|registry| {
         let mut registry = registry.borrow_mut();
 
-        let attachment = match registry.attachment(product, worker) {
-            Ok(attachment) => attachment,
-            Err(status) => return status,
+        let Some(attachment) = registry.attachment(product) else {
+            return NativeRuntimeStatus::INVALID_ARGUMENT;
         };
 
         if attachment
@@ -167,7 +174,9 @@ pub(crate) fn register_thread_static(
             let observation = acquire_thread_attachment(product, attachment.worker);
 
             if observation.status() != NativeProductHostStatus::SUCCESS {
-                registry.remove_product(product);
+                let removed = registry.remove_product(product);
+                drop(registry);
+                drop(removed);
 
                 return runtime_status(observation.status());
             }
@@ -183,7 +192,7 @@ pub(crate) fn register_thread_static(
 
         attachment.entries.push(StaticCleanup {
             identity: registration.static_identity(),
-            order: entry.cleanup.order,
+            order: entry.order,
             prepare: registration.prepare(),
             finalizer: registration.finalizer(),
             destroy: registration.destroy(),
@@ -255,13 +264,14 @@ fn close_product(product: usize) -> NativeProductHostObservation {
 pub(in crate::product) fn prepare_thread_attachment(
     product: usize,
 ) -> Result<bool, NativeProductHostStatus> {
-    THREAD_STATICS.with(|registry| {
-        let mut registry = registry.borrow_mut();
+    ensure_attachment(product, false).map_err(host_status)?;
 
+    THREAD_STATICS.with(|registry| {
         registry
-            .attachment(product, false)
+            .borrow_mut()
+            .attachment(product)
             .map(|attachment| attachment.acquired)
-            .map_err(host_status)
+            .ok_or(NativeProductHostStatus::INVALID_ARGUMENT)
     })
 }
 
@@ -295,9 +305,8 @@ pub(in crate::product) fn mark_thread_attachment_acquired(product: usize) {
 }
 
 pub(in crate::product) fn discard_thread_attachment(product: usize) {
-    THREAD_STATICS.with(|registry| {
-        registry.borrow_mut().remove_product(product);
-    });
+    let removed = THREAD_STATICS.with(|registry| registry.borrow_mut().remove_product(product));
+    drop(removed);
 }
 
 pub(in crate::product) fn observation_with_status(
@@ -476,7 +485,7 @@ fn prepare_cleanup(product: usize, host: &mut ProductHost) -> Option<PendingClea
         product,
         // Keep execution alive throughout callbacks outside the registry lock.
         execution: host.execution.clone(),
-        statics: host.take_product_cleanups(),
+        statics: std::mem::take(&mut host.statics),
     })
 }
 
@@ -493,12 +502,12 @@ fn finish_cleanup(cleanup: PendingCleanup) -> NativeProductHostObservation {
 
     let mut run_cleanup = || {
         for entry in &cleanup.statics {
-            let reported = entry.cleanup.report(execution);
+            let reported = entry.report(execution);
 
             incident_count = incident_count.saturating_add(reported);
 
             if reported != 0 {
-                last_incident = Some(entry.cleanup.identity);
+                last_incident = Some(entry.identity);
             }
         }
     };
@@ -515,9 +524,7 @@ fn finish_cleanup(cleanup: PendingCleanup) -> NativeProductHostObservation {
     let runtime_identity = cleanup
         .statics
         .first()
-        .map_or(NativeStaticIdentity::new([0; 32]), |entry| {
-            entry.cleanup.identity
-        });
+        .map_or(NativeStaticIdentity::new([0; 32]), |entry| entry.identity);
 
     incident_count = incident_count.saturating_add(runtime_incidents.len());
 
@@ -571,7 +578,7 @@ fn finish_cleanup(cleanup: PendingCleanup) -> NativeProductHostObservation {
     super::retention::finish_retirement(cleanup.product)
 }
 
-fn static_entry(product: usize, identity: NativeStaticIdentity) -> Option<ProductStatic> {
+fn static_entry(product: usize, identity: NativeStaticIdentity) -> Option<StaticCleanup> {
     let hosts = product_hosts().lock().ok()?;
     let host = hosts.get(&product)?;
 
@@ -982,6 +989,8 @@ mod tests {
             let mut hosts = super::product_hosts().lock().unwrap();
             let host = hosts.get_mut(&product).unwrap();
             host.state = NativeProductHostState::CLOSING;
+            assert_eq!(host.statics.len(), 2);
+            assert_eq!(host.thread_statics.len(), 1);
             let original = host.statics.as_ptr();
             let capacity = host.statics.capacity();
 
@@ -1069,18 +1078,18 @@ mod tests {
         let descriptor =
             NativeProductHostDescriptor::new(NativeProductIdentity::new([155; 32]), entry, 2);
 
-        let valid = super::super::descriptor::read_statics(&descriptor).unwrap();
+        let (product_statics, valid) = super::super::descriptor::read_statics(&descriptor).unwrap();
+
+        assert!(product_statics.is_empty());
 
         assert_eq!(
-            valid
-                .iter()
-                .map(|entry| entry.cleanup.order)
-                .collect::<Vec<_>>(),
+            valid.iter().map(|entry| entry.order).collect::<Vec<_>>(),
             [0, 1]
         );
 
-        assert_eq!(valid[0].cleanup.identity, NativeStaticIdentity::new([2; 32]));
-        assert_eq!(valid[1].cleanup.identity, NativeStaticIdentity::new([1; 32]));
+        assert_eq!(valid[0].identity, NativeStaticIdentity::new([2; 32]));
+
+        assert_eq!(valid[1].identity, NativeStaticIdentity::new([1; 32]));
 
         for case in 1..=6 {
             CASE.set(case);

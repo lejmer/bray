@@ -1,8 +1,6 @@
-use bray_runtime_abi::{
-    NativeProductHostState, NativeProductIdentity, NativeRuntimeStatus, NativeStaticDuration,
-};
+use bray_runtime_abi::{NativeProductHostState, NativeProductIdentity, NativeRuntimeStatus};
 
-use super::model::product_hosts;
+use super::model::{THREAD_STATICS, product_hosts};
 use crate::product::cleanup::StaticCleanup;
 
 pub(super) struct ThreadProductAttachment {
@@ -29,72 +27,10 @@ impl ThreadStaticRegistry {
         }
     }
 
-    pub(super) fn attachment(
-        &mut self,
-        product: usize,
-        worker: bool,
-    ) -> Result<&mut ThreadProductAttachment, NativeRuntimeStatus> {
-        if let Some(index) = self
-            .products
-            .iter()
-            .position(|attachment| attachment.product == product)
-        {
-            return Ok(&mut self.products[index]);
-        }
-
-        let identity = self.next_identity;
-
-        let next_identity = identity
-            .checked_add(1)
-            .filter(|_| identity != 0)
-            .ok_or(NativeRuntimeStatus::RUNTIME_FAILURE)?;
-
-        let (product_identity, count) = {
-            let hosts = product_hosts()
-                .lock()
-                .map_err(|_| NativeRuntimeStatus::RUNTIME_FAILURE)?;
-
-            let host = hosts
-                .get(&product)
-                .ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?;
-
-            (
-                host.identity,
-                host.statics
-                    .iter()
-                    .filter(|entry| entry.duration == NativeStaticDuration::EXACT_THREAD)
-                    .count(),
-            )
-        };
-
-        let mut entries = Vec::new();
-
-        crate::allocation::reserve_vec_entries(&mut entries, count)
-            .map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)?;
-
-        crate::allocation::reserve_vec_entries(&mut self.products, 1)
-            .map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)?;
-
-        self.ensure_exit_callback()?;
-
-        if worker {
-            admit_worker_cleanup(product)?;
-        }
-
-        self.products.push(ThreadProductAttachment {
-            product,
-            product_identity,
-            identity,
-            acquired: false,
-            worker,
-            entries,
-        });
-
-        self.next_identity = next_identity;
-
+    pub(super) fn attachment(&mut self, product: usize) -> Option<&mut ThreadProductAttachment> {
         self.products
-            .last_mut()
-            .ok_or(NativeRuntimeStatus::RUNTIME_FAILURE)
+            .iter_mut()
+            .find(|attachment| attachment.product == product)
     }
 
     pub(super) fn remove_product(&mut self, product: usize) -> Option<ThreadProductAttachment> {
@@ -125,6 +61,73 @@ impl ThreadStaticRegistry {
 
         Ok(())
     }
+}
+
+/// Prepares ownership outside the thread registry, then publishes it with a fresh identity.
+pub(super) fn ensure_attachment(product: usize, worker: bool) -> Result<(), NativeRuntimeStatus> {
+    if THREAD_STATICS.with(|registry| registry.borrow_mut().attachment(product).is_some()) {
+        return Ok(());
+    }
+
+    let (product_identity, count) = {
+        let hosts = product_hosts()
+            .lock()
+            .map_err(|_| NativeRuntimeStatus::RUNTIME_FAILURE)?;
+
+        let host = hosts
+            .get(&product)
+            .ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?;
+
+        if host.state != NativeProductHostState::OPEN {
+            return Err(NativeRuntimeStatus::INVALID_ARGUMENT);
+        }
+
+        (host.identity, host.thread_statics.len())
+    };
+
+    let mut entries = Vec::new();
+
+    crate::allocation::reserve_vec_entries(&mut entries, count)
+        .map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)?;
+
+    // A competing reentrant admission can win while ownership is being prepared.
+    // Keep the losing resources outside the registry borrow until it has been released.
+    THREAD_STATICS.with(|registry| {
+        let mut registry = registry.borrow_mut();
+
+        if registry.attachment(product).is_some() {
+            return Ok(());
+        }
+
+        let identity = registry.next_identity;
+
+        let next_identity = identity
+            .checked_add(1)
+            .filter(|_| identity != 0)
+            .ok_or(NativeRuntimeStatus::RUNTIME_FAILURE)?;
+
+        crate::allocation::reserve_vec_entries(&mut registry.products, 1)
+            .map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)?;
+
+        registry.ensure_exit_callback()?;
+
+        if worker {
+            admit_worker_cleanup(product)?;
+        }
+
+        registry.products.push(ThreadProductAttachment {
+            product,
+            product_identity,
+            identity,
+            acquired: false,
+            worker,
+            entries: std::mem::take(&mut entries),
+        });
+
+        registry.next_identity = next_identity;
+
+        Ok(())
+    })
 }
 
 fn admit_worker_cleanup(product: usize) -> Result<(), NativeRuntimeStatus> {
