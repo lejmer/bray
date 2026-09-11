@@ -1,97 +1,98 @@
+use std::num::NonZeroUsize;
+
 use bray_runtime_abi::{
     NativeProductHostDescriptor, NativeProductHostObservation, NativeProductHostState,
-    NativeProductHostStatus,
+    NativeProviderRetention, NativeProviderRetentionCallbacks, NativeRuntimeStatus,
 };
 
 use super::model::{product_hosts, product_key};
 
-/// Keeps provider code and backing alive independently of its static cleanup.
-pub(crate) struct ProviderRetention {
-    product: usize,
-}
+static CALLBACKS: NativeProviderRetentionCallbacks =
+    NativeProviderRetentionCallbacks::new(retain, release);
 
-impl ProviderRetention {
-    /// The caller holds a live entry, external owner, attachment, or cleanup invocation.
-    pub(crate) fn acquire(
-        descriptor: &NativeProductHostDescriptor,
-    ) -> Result<Self, NativeProductHostStatus> {
-        let product = product_key(descriptor);
-
-        let mut hosts = product_hosts()
-            .lock()
-            .map_err(|_| NativeProductHostStatus::RUNTIME_FAILURE)?;
-
-        let host = hosts
-            .get_mut(&product)
-            .ok_or(NativeProductHostStatus::INVALID_ARGUMENT)?;
-
-        if !matches!(
-            host.state,
-            NativeProductHostState::OPEN | NativeProductHostState::CLOSING
-        ) {
-            return Err(NativeProductHostStatus::CLOSED);
-        }
-
-        let held = host.active_entries != 0
-            || host.external_roots != 0
-            || host.thread_attachments != 0
-            || (host.state == NativeProductHostState::CLOSING && host.cleanup_running);
-
-        if !held {
-            return Err(NativeProductHostStatus::INVALID_ARGUMENT);
-        }
-
-        increment(&mut host.retirement_roots);
-
-        Ok(Self { product })
+pub(crate) fn retain_provider(
+    descriptor: &NativeProductHostDescriptor,
+    destination: &mut NativeProviderRetention,
+) -> NativeRuntimeStatus {
+    if !destination.is_empty() {
+        return NativeRuntimeStatus::INVALID_ARGUMENT;
     }
+
+    let product = product_key(descriptor);
+
+    let Ok(mut hosts) = product_hosts().lock() else {
+        return NativeRuntimeStatus::RUNTIME_FAILURE;
+    };
+
+    let Some(host) = hosts.get_mut(&product) else {
+        return NativeRuntimeStatus::INVALID_ARGUMENT;
+    };
+
+    if !matches!(
+        host.state,
+        NativeProductHostState::OPEN | NativeProductHostState::CLOSING
+    ) {
+        return NativeRuntimeStatus::INVALID_ARGUMENT;
+    }
+
+    let held = host.active_entries != 0
+        || host.external_roots != 0
+        || host.thread_attachments != 0
+        || (host.state == NativeProductHostState::CLOSING && host.cleanup_running);
+
+    if !held {
+        return NativeRuntimeStatus::INVALID_ARGUMENT;
+    }
+
+    let Some(context) = NonZeroUsize::new(product) else {
+        return NativeRuntimeStatus::INVALID_ARGUMENT;
+    };
+
+    increment(&mut host.retirement_roots);
+    *destination = NativeProviderRetention::new(context, &CALLBACKS);
+
+    NativeRuntimeStatus::SUCCESS
 }
 
-impl Clone for ProviderRetention {
-    fn clone(&self) -> Self {
+extern "C" fn retain(product: usize) {
+    let mut hosts = product_hosts()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+    // The source reference keeps this host registered throughout cloning.
+    let host = hosts
+        .get_mut(&product)
+        .expect("live retention owns its host");
+
+    assert!(matches!(
+        host.state,
+        NativeProductHostState::OPEN
+            | NativeProductHostState::CLOSING
+            | NativeProductHostState::RETIRING
+    ));
+
+    assert_ne!(host.retirement_roots, 0);
+    increment(&mut host.retirement_roots);
+}
+
+extern "C" fn release(product: usize) {
+    {
         let mut hosts = product_hosts()
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
+        // This owner keeps the host registered and contributes one unreleased count.
         let host = hosts
-            .get_mut(&self.product)
+            .get_mut(&product)
             .expect("live retention owns its host");
 
-        assert!(matches!(
-            host.state,
-            NativeProductHostState::OPEN
-                | NativeProductHostState::CLOSING
-                | NativeProductHostState::RETIRING
-        ));
-
-        assert_ne!(host.retirement_roots, 0);
-        increment(&mut host.retirement_roots);
-
-        Self {
-            product: self.product,
-        }
+        host.retirement_roots = host
+            .retirement_roots
+            .checked_sub(1)
+            .expect("each retention releases once");
     }
-}
 
-impl Drop for ProviderRetention {
-    fn drop(&mut self) {
-        {
-            let mut hosts = product_hosts()
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-
-            let host = hosts
-                .get_mut(&self.product)
-                .expect("live retention owns its host");
-
-            host.retirement_roots = host
-                .retirement_roots
-                .checked_sub(1)
-                .expect("each retention releases once");
-        }
-
-        finish_retirement(self.product);
-    }
+    finish_retirement(product);
 }
 
 fn increment(count: &mut usize) {

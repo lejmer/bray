@@ -50,6 +50,15 @@ native_export! {
 }
 
 native_export! {
+    pub extern "C" fn bray_runtime_provider_retention(
+        descriptor: &NativeProductHostDescriptor,
+        destination: &mut bray_runtime_abi::NativeProviderRetention,
+    ) -> NativeRuntimeStatus {
+        contain_status(|| crate::product::retain_provider(descriptor, destination))
+    }
+}
+
+native_export! {
     pub extern "C" fn bray_runtime_substrate_thread_attachment_identity(
         descriptor: &'static NativeProductHostDescriptor,
     ) -> u64 {

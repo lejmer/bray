@@ -39,6 +39,15 @@ native_adapter! {
 }
 
 native_adapter! {
+    pub extern "C" fn bray_runtime_provider_retention(
+        descriptor: &NativeProductHostDescriptor,
+        destination: &mut bray_runtime_abi::NativeProviderRetention,
+    ) -> NativeRuntimeStatus {
+        implementation::bray_runtime_provider_retention(descriptor, destination)
+    }
+}
+
+native_adapter! {
     pub extern "C" fn bray_runtime_substrate_thread_attachment_identity(
         descriptor: &'static NativeProductHostDescriptor,
     ) -> u64 {

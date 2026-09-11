@@ -11,6 +11,7 @@ mod frame;
 mod platform;
 mod process;
 mod product;
+mod retention;
 mod run_result;
 mod runtime;
 mod signature;
@@ -40,6 +41,7 @@ pub use product::{
     NativeStaticIdentity, NativeStaticTransitionCallback, NativeThreadStaticCleanupRegistration,
     NativeTypeIdentity, PRODUCT_HOST_ABI_VERSION,
 };
+pub use retention::{NativeProviderRetention, NativeProviderRetentionCallbacks};
 pub use run_result::{NativeRunResultLayout, NativeRunResultTransferCallback};
 pub use runtime::{
     MAX_PERFORMANCE_OBSERVATION_RECORDS, MEMORY_ALLOCATION_OBSERVATION_SYMBOL,

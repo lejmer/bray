@@ -1217,6 +1217,7 @@ mod tests {
                 RuntimeAbiRole::ThreadAttachmentIdentity,
                 RuntimeAbiRole::ThreadStaticCleanupRegistration,
                 RuntimeAbiRole::ProductHostControl,
+                RuntimeAbiRole::ProviderRetention,
                 RuntimeAbiRole::RootCancellationRequest,
                 RuntimeAbiRole::TaskAllocation,
                 RuntimeAbiRole::TaskStart,

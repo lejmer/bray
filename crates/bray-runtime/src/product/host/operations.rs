@@ -1339,11 +1339,28 @@ mod tests {
 
     #[test]
     fn cleanup_retention_survives_closure_and_clones_without_allocation() {
-        use super::super::retention::ProviderRetention;
+        use bray_runtime_abi::{NativeProviderRetention, NativeRuntimeStatus};
         use std::cell::RefCell;
 
+        fn acquire(
+            descriptor: &NativeProductHostDescriptor,
+        ) -> Result<NativeProviderRetention, NativeRuntimeStatus> {
+            let mut retention = NativeProviderRetention::empty();
+
+            let status = crate::native::implementation::bray_runtime_provider_retention(
+                descriptor,
+                &mut retention,
+            );
+
+            if status.is_success() {
+                Ok(retention)
+            } else {
+                Err(status)
+            }
+        }
+
         thread_local! {
-            static RETAINED: RefCell<Option<ProviderRetention>> = const { RefCell::new(None) };
+            static RETAINED: RefCell<Option<NativeProviderRetention>> = const { RefCell::new(None) };
         }
 
         static CLEANED: AtomicUsize = AtomicUsize::new(0);
@@ -1354,9 +1371,8 @@ mod tests {
         ) -> NativeStaticFinalizerStatus {
             CLEANED.fetch_add(1, Ordering::SeqCst);
 
-            let retained = crate::test_support::with_allocation_failure(|| {
-                ProviderRetention::acquire(&DESCRIPTOR).unwrap()
-            });
+            let retained =
+                crate::test_support::with_allocation_failure(|| acquire(&DESCRIPTOR).unwrap());
 
             RETAINED.with(|slot| {
                 assert!(slot.borrow_mut().replace(retained).is_none());
@@ -1389,7 +1405,20 @@ mod tests {
             NativeProductHostStatus::SUCCESS
         );
 
-        let entry_retention = ProviderRetention::acquire(&DESCRIPTOR).unwrap();
+        let mut entry_retention = acquire(&DESCRIPTOR).unwrap();
+
+        assert_eq!(
+            crate::native::implementation::bray_runtime_provider_retention(
+                &DESCRIPTOR,
+                &mut entry_retention,
+            ),
+            NativeRuntimeStatus::INVALID_ARGUMENT
+        );
+
+        assert_eq!(
+            control(&DESCRIPTOR, NativeProductHostOperation::OBSERVE).retirement_roots(),
+            1
+        );
 
         assert_eq!(
             control(&DESCRIPTOR, NativeProductHostOperation::CLOSE).state(),
@@ -1404,8 +1433,8 @@ mod tests {
         assert_eq!(CLEANED.load(Ordering::SeqCst), 1);
 
         assert!(matches!(
-            ProviderRetention::acquire(&DESCRIPTOR),
-            Err(NativeProductHostStatus::CLOSED)
+            acquire(&DESCRIPTOR),
+            Err(NativeRuntimeStatus::INVALID_ARGUMENT)
         ));
 
         let cleanup_retention = RETAINED.with(|slot| slot.borrow_mut().take().unwrap());
@@ -1427,8 +1456,8 @@ mod tests {
         assert_eq!(CLEANED.load(Ordering::SeqCst), 1);
 
         assert!(matches!(
-            ProviderRetention::acquire(&DESCRIPTOR),
-            Err(NativeProductHostStatus::CLOSED)
+            acquire(&DESCRIPTOR),
+            Err(NativeRuntimeStatus::INVALID_ARGUMENT)
         ));
     }
 

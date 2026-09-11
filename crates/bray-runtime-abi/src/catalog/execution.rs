@@ -129,6 +129,15 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: [ControlProductHost]
             }
+            ProviderRetention {
+                "Retain an already live provider in an empty caller-owned destination without allocation.", "provider_retention",
+                native: (PROVIDER_RETENTION_SYMBOL = "bray_runtime_provider_retention", [Pointer, Pointer] -> U32),
+                call_hook: (),
+                compiler: C [Pointer, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: (), host_control: false,
+                capabilities: [],
+                effects: [ControlProductHost]
+            }
             RootCancellationRequest {
                 "Request cancellation of the root run from its host.", "root_cancellation_request",
                 native: (ROOT_CANCELLATION_REQUEST_SYMBOL = "bray_runtime_root_cancellation_request", [U64] -> U32),
