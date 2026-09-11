@@ -29,9 +29,9 @@ exact-thread and product statics before releasing the loaded code and data.
 
 Before a product exposes entries or initializes state that can invoke another Bray provider, formation must establish
 compatible execution and ownership services for every required provider. Separately compiled providers must carry enough
-dependency and compatibility information to validate that requirement. Successful symbol resolution alone is insufficient.
-Code contributed by a static library follows the consuming product's contract without creating another product instance.
-Foreign hosts must establish the same conditions before calling exported Bray entries.
+dependency and compatibility information to validate that requirement. Successful symbol resolution alone is
+insufficient. Code contributed by a static library follows the consuming product's contract without creating another
+product instance. Foreign hosts must establish the same conditions before calling exported Bray entries.
 
 Incompatible services cause formation or entry admission to fail before accepting new ownership or invoking code that
 requires them. An implementation must not silently select different services to bypass the incompatibility. Ordinary

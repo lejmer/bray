@@ -8,12 +8,13 @@ boundary defined there. Ordinary synchronous calls and foreign callback roots re
 ## Run and activation ownership
 
 An independently scheduled run owns one scheduler registration, ready slot, cancellation state and dispatch authority.
-It also owns admitted event and join notification storage. Only one blocking run wait is active at a time. Event and join
-storage may remain separately reserved because their representations differ.
+It also owns admitted event and join notification storage. Only one blocking run wait is active at a time. Event and
+join storage may remain separately reserved because their representations differ.
 
-A callable activation owns its stable frame state, captures, local resume position, result storage and lifecycle progress.
-An activation has at most one directly composed child. A parent waiting for that child retains its live locals, borrows,
-continuation and storage. An activation does not acquire an independent task identity or cancellation state.
+A callable activation owns its stable frame state, captures, local resume position, result storage and lifecycle
+progress. An activation has at most one directly composed child. A parent waiting for that child retains its live
+locals, borrows, continuation and storage. An activation does not acquire an independent task identity or cancellation
+state.
 
 The run retains its current activation and root ownership. Admitted frame storage retains the parent linkage and pending
 child ownership needed for composition. Dynamic depth does not require growing a separate execution-stack vector.
@@ -21,8 +22,8 @@ Known frame layouts can use enclosing storage. Recursive or erased frames use su
 choices do not change task identity or introduce a semantic allocation requirement for known direct awaits.
 
 Only the dispatcher holding the run's exclusive dispatch claim can change its activation chain or invoke generated
-resume, move or lifecycle operations. Scheduler, registry and wait locks are released before those operations and foreign
-callbacks execute. External notifications cannot access activation memory.
+resume, move or lifecycle operations. Scheduler, registry and wait locks are released before those operations and
+foreign callbacks execute. External notifications cannot access activation memory.
 
 ## Iterative execution
 
@@ -49,8 +50,8 @@ Bray still have ordinary native call-stack nesting.
 
 ## Run-directed wakes and readiness
 
-A scheduler wake requests another dispatch of the run. It does not carry an activation pointer or select a child's resume
-state. The driver owns the current activation and checks the active wait before advancing generated control flow.
+A scheduler wake requests another dispatch of the run. It does not carry an activation pointer or select a child's
+resume state. The driver owns the current activation and checks the active wait before advancing generated control flow.
 
 The scheduler retains its exclusive-dispatch and pending-wake handshake:
 
@@ -75,10 +76,10 @@ readiness check and dispatch release remains covered by the installed registrati
 existing notification source checks, but a matching source alone does not prove readiness. In particular, cancelling and
 rearming a wait on the same event generation must not let a delayed notification complete the replacement wait.
 
-Delayed notifications retain only the run wake record and their source identity. They never retain a child-frame pointer.
-An old notification may cause an extra readiness check. It cannot resume a retired activation or manufacture a completed
-wait. Withdrawing a subscription prevents new notifications from that subscription, while already selected notifications
-may finish safely.
+Delayed notifications retain only the run wake record and their source identity. They never retain a child-frame
+pointer. An old notification may cause an extra readiness check. It cannot resume a retired activation or manufacture a
+completed wait. Withdrawing a subscription prevents new notifications from that subscription, while already selected
+notifications may finish safely.
 
 Persistent reactor or I/O subscriptions belong to the operation that created them. The run wait only observes operation
 readiness. An operation combining multiple sources owns its required admitted subscriptions and exposes one readiness
@@ -87,11 +88,12 @@ condition to the run. Composition does not introduce an allocation for each encl
 No activation generation counter is needed for advisory run wakes. Independent run identities remain non-wrapping
 admission identities. Exhaustion fails before accepting a new run. Event generation remains an event-owner contract,
 not a second activation identity. On generation exhaustion, the producer preserves its specific failure and closes the
-event to wake observers. Close requires no new generation or allocation. Runtime-internal event critical sections perform
-no allocation, invoke no callbacks or destructors, and use mutations that cannot unwind midway through an invariant.
-Under that enforced contract, event locking recovers poisoned guards with their state intact, consistently with wait-node
-locking. This is not permission to recover arbitrary corrupted event state. Source panics and callback failures execute
-outside the lock and cannot poison it. Signal or close must not silently abandon a mandatory completion notification.
+event to wake observers. Close requires no new generation or allocation. Runtime-internal event critical sections
+perform no allocation, invoke no callbacks or destructors, and use mutations that cannot unwind midway through an
+invariant. Under that enforced contract, event locking recovers poisoned guards with their state intact, consistently
+with wait-node locking. This is not permission to recover arbitrary corrupted event state. Source panics and callback
+failures execute outside the lock and cannot poison it. Signal or close must not silently abandon a mandatory completion
+notification.
 
 ## Cancellation and cleanup
 
@@ -101,13 +103,14 @@ performs phase-one cancellation broadcast before phase-two lifecycle resolution,
 through active children and owned independent runs.
 
 Cleanup shields retain the request for observation while preventing repeated delivery. A shielded cleanup wait may sleep
-until its event or child becomes ready. The scheduler must not repeatedly enqueue it just because the request flag remains
-set. A request deferred by a shield does not keep an unready run queued. Shield exit rechecks that request for delivery
-at a legal delivery point.
+until its event or child becomes ready. The scheduler must not repeatedly enqueue it just because the request flag
+remains set. A request deferred by a shield does not keep an unready run queued. Shield exit rechecks that request for
+delivery at a legal delivery point.
 
 When cancellation must drain the same independent child, retain its ownership and retarget the existing admitted wait.
 Changing cleanup progress does not require another task registration or another cancellation context. Explicit starts
-performed by application finalizer code remain new independent starts with their ordinary admission and failure behavior.
+performed by application finalizer code remain new independent starts with their ordinary admission and failure
+behavior.
 
 Structural cleanup expansion records each child's immediate-parent failure continuation. A nested failure must finish
 remaining siblings and preserve pending return values before leaving the containing cleanup boundary. Outcome collection
@@ -126,17 +129,17 @@ state ID cannot substitute for that contract. The existing compatible-lane selec
 An async executable root stays on the main-thread lane. Migratable runs can use compatible workers where their live
 state permits movement.
 
-Run admission reserves queue membership for the finite lane classes permitted by its checked execution contract, including
-cleanup and any fixed origin or main-thread identities. An erased child's requirements can restrict this admitted set but
-cannot expand it. Its invocation must satisfy the existing checked execution boundary. Composing a child cannot introduce
-a new queue allocation or an unadmitted execution capability. Independent starts remain the boundary for work
-requiring a separately selected lane.
+Run admission reserves queue membership for the finite lane classes permitted by its checked execution contract,
+including cleanup and any fixed origin or main-thread identities. An erased child's requirements can restrict this
+admitted set but cannot expand it. Its invocation must satisfy the existing checked execution boundary. Composing a
+child cannot introduce a new queue allocation or an unadmitted execution capability. Independent starts remain the
+boundary for work requiring a separately selected lane.
 
-Explicit yield returns dispatch to the scheduler and queues the same run. The driver also uses a finite transition budget
-for repeated activation entry, completion and cleanup transitions. It saves a valid continuation and requeues at a callback
-boundary when the budget expires. This scheduling yield does not deliver cancellation at a new source-level point and
-does not interrupt an indivisible synchronous operation. The budget is an internal scheduling policy, not a language or
-ABI guarantee.
+Explicit yield returns dispatch to the scheduler and queues the same run. The driver also uses a finite transition
+budget for repeated activation entry, completion and cleanup transitions. It saves a valid continuation and requeues at
+a callback boundary when the budget expires. This scheduling yield does not deliver cancellation at a new source-level
+point and does not interrupt an indivisible synchronous operation. The budget is an internal scheduling policy, not a
+language or ABI guarantee.
 
 ## Host cleanup roots and reentry
 
@@ -148,13 +151,13 @@ that obligation. Such admission retains the execution domain, scheduler and wake
 attachment, and required result and incident storage. Driver activation during mandatory cleanup only binds these
 resources. It cannot create a runtime, allocate a task registration or attach an unprepared thread.
 
-| Boundary | Admission and retained lifetime |
-|---|---|
-| Async executable root or independent start | Admit before publishing the run. Retain execution resources through terminal publication and withdrawal of waits. |
-| Product or thread-static owner | The initialization domain admits cleanup driving before publishing the initialized owner. Retain it through the domain's final cleanup, on the required thread. |
-| Host-owned returned value | Secure host cleanup capacity before the transfer that makes the host responsible. Failed admission leaves the previous owner responsible. |
-| Foreign ownership transfer | The trusted wrapper's ownership contract establishes admission before accepting the value. It retains the required provider and execution dependencies through resolution. |
-| Synchronous borrowed callback | Use the existing synchronous callback root and attachment rules. No async cleanup reservation is introduced without an ownership contract requiring it. |
+| Boundary                                   | Admission and retained lifetime                                                                                                                                            |
+|--------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Async executable root or independent start | Admit before publishing the run. Retain execution resources through terminal publication and withdrawal of waits.                                                          |
+| Product or thread-static owner             | The initialization domain admits cleanup driving before publishing the initialized owner. Retain it through the domain's final cleanup, on the required thread.            |
+| Host-owned returned value                  | Secure host cleanup capacity before the transfer that makes the host responsible. Failed admission leaves the previous owner responsible.                                  |
+| Foreign ownership transfer                 | The trusted wrapper's ownership contract establishes admission before accepting the value. It retains the required provider and execution dependencies through resolution. |
+| Synchronous borrowed callback              | Use the existing synchronous callback root and attachment rules. No async cleanup reservation is introduced without an ownership contract requiring it.                    |
 
 When an entrypoint or foreign call can return ownership requiring host-driven cleanup, establish the host reservation
 before invoking that call. Keeping an unadmitted returned value in a host temporary is insufficient, because cleaning
@@ -169,8 +172,9 @@ admitted boundaries may fail before accepting ownership. Cleanup of accepted own
 
 A foreign callback cannot recursively dispatch the activation whose native invocation is still executing. Existing
 synchronous callback roots retain their own scoped execution context. If an existing host contract requires nested async
-cleanup, that boundary uses a separately admitted driver and restores the outer context when it returns. Compatible ready
-work may progress while a nested driver waits, but the still-executing outer activation is ineligible for dispatch.
+cleanup, that boundary uses a separately admitted driver and restores the outer context when it returns. Compatible
+ready work may progress while a nested driver waits, but the still-executing outer activation is ineligible for
+dispatch.
 
 Nested entry reuses an existing exact-thread attachment according to the foreign-entry contract. Teardown retains it
 through pinned work and thread-static cleanup. Generated callbacks execute outside runtime locks. These rules prevent
@@ -188,8 +192,8 @@ The detailed ownership and native transfer contracts are defined in
 
 Each new owner whose concrete type requires runtime cleanup capacity admits a uniform local bundle before publication.
 Current-value completion evidence can skip execution but does not change that bundle. Its credits survive completion and
-later mutation until ownership ends. Only a type-universal proof removes a requirement from the bundle. This gives moves,
-returns and consuming boundaries a uniform capacity contract without a per-value capacity flag.
+later mutation until ownership ends. Only a type-universal proof removes a requirement from the bundle. This gives
+moves, returns and consuming boundaries a uniform capacity contract without a per-value capacity flag.
 
 Checking accounts for admission and discharge effects in construction and owned cleanup. Allocation, deallocation and
 synchronization contribute impurity. An uncaught admission panic prevents totality, while returning a handled admission
@@ -208,36 +212,38 @@ Activation removes available storage and records a spent logical credit. Whole-o
 before releasing unused reservation storage. New owner admission supplies its required capacity. Activated storage has
 separate ownership and is not reclaimed by credit discharge. This accounting preserves capacity for other live owners.
 
-Reserved storage becomes active through the [consuming transfer contract](cleanup-storage-and-reports.md#consuming-reserved-frame-storage).
-The active frame becomes its sole release owner, while rejected activation preserves the reservation.
+Reserved storage becomes active through the
+[consuming transfer contract](cleanup-storage-and-reports.md#consuming-reserved-frame-storage). The active frame becomes
+its sole release owner, while rejected activation preserves the reservation.
 
 An activation remains alive while a child or result path borrows its storage. Successful result transfer and remaining
 cleanup must complete before reclamation. Notifications retain run wake storage rather than frame memory. Independent
-run results and incident payloads remain in their terminal, report or host owner after execution ends. Reusing a reservation
-requires all of its actual storage users to have released it, not merely sequential execution of two phases.
+run results and incident payloads remain in their terminal, report or host owner after execution ends. Reusing a
+reservation requires all of its actual storage users to have released it, not merely sequential execution of two phases.
 
 Incident retention uses admitted backing that transfers with the owned payload into a run, panic report or host sink.
 Frame completion cannot release that backing. Direct recording and ownership transfer avoid allocating temporary result
 vectors at intermediate boundaries. Preserve encounter order and the existing payload owner. Report and destruction
 callbacks execute outside collection locks and may produce further incidents under their own admitted obligations.
 
-Inactive frames are independent of their original scheduler. Their allocation and executable-provider dependencies remain
-valid through activation, result transfer and storage release. A destination run supplies its own admitted execution
-resources and must satisfy the frame's checked requirements. An ordinary move does not perform fallible runtime rebinding.
-A separate start or host entry remains an admission boundary.
+Inactive frames are independent of their original scheduler. Their allocation and executable-provider dependencies
+remain valid through activation, result transfer and storage release. A destination run supplies its own admitted
+execution resources and must satisfy the frame's checked requirements. An ordinary move does not perform fallible
+runtime rebinding. A separate start or host entry remains an admission boundary.
 
 Providers exchanging ordinary owned values use the same validated
 [admission-domain binding](cleanup-storage-and-reports.md#shared-admission-domain-binding) for construction, activation
 and discharge. Provider retention alone does not route reservations. Host formation establishes this binding before
 accepting transferable ownership, including ownership of concrete generic instantiations. The required provider set and
-formation order follow [provider dependencies and formation](cleanup-storage-and-reports.md#provider-dependencies-and-formation).
+formation order follow
+[provider dependencies and formation](cleanup-storage-and-reports.md#provider-dependencies-and-formation).
 
 Use the existing product dependency and unload-quiescence contract to retain code, descriptors and release callbacks.
-Release storage through its owning provider. Frame identity and descriptor equivalence permit pooling only within a shared,
-validated ownership domain. They do not authorize transferring credits to an unrelated registry or freeing storage through
-a different DLL. Cross-product transfer preserves an explicit provider dependency rather than assuming identical hashes
-make providers interchangeable. Unload waits for external owners and active execution, then orders internal static
-consumers before their providers.
+Release storage through its owning provider. Frame identity and descriptor equivalence permit pooling only within a
+shared, validated ownership domain. They do not authorize transferring credits to an unrelated registry or freeing
+storage through a different DLL. Cross-product transfer preserves an explicit provider dependency rather than assuming
+identical hashes make providers interchangeable. Unload waits for external owners and active execution, then orders
+internal static consumers before their providers.
 
 ## Compiler ownership and integration
 
@@ -246,13 +252,13 @@ existing lowering lifecycle domain owns structural expansion and required storag
 guards and continuations. Specialization supplies closed substitutions and repairs descriptors. Admission requirements
 come from that same selected action and storage description rather than a parallel capacity-prediction type walk.
 
-Published compiler results remain immutable and dependency-tracked. Compute concrete frame layouts and cleanup requirements
-only when demanded, using private builders for mutable construction. Independent compilation work retains bounded parallel
-execution. This design does not introduce a global compiler planning pass, new proof service, or universal program object.
+Published compiler results remain immutable and dependency-tracked. Compute concrete frame layouts and cleanup
+requirements only when demanded, using private builders for mutable construction. Independent compilation work retains
+bounded parallel execution. This design does not introduce a global compiler planning pass, new proof service, or
+universal program object.
 
-Generated frame metadata, MIR validation, native signatures and artifact compatibility must agree on composition ownership,
-run-directed wake semantics and result transfer. Update affected contracts together and regenerate disposable artifacts
-under the repository's version-1 policy.
-Increment a version only when retaining an actual supported compatibility contract. Remove superseded internal task
-composition and all-runtime frame reservation after their owning paths are migrated. Do not retain a compatibility mode
-or a second cleanup scheduler in the completed architecture.
+Generated frame metadata, MIR validation, native signatures and artifact compatibility must agree on composition
+ownership, run-directed wake semantics and result transfer. Update affected contracts together and regenerate disposable
+artifacts under the repository's version-1 policy. Increment a version only when retaining an actual supported
+compatibility contract. Remove superseded internal task composition and all-runtime frame reservation after their owning
+paths are migrated. Do not retain a compatibility mode or a second cleanup scheduler in the completed architecture.
