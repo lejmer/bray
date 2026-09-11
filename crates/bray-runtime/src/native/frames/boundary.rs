@@ -18,7 +18,7 @@ pub extern "C" fn bray_runtime_frame_storage_activation(
     contain_address(metadata, |metadata| activate_cleanup(&metadata))
 }
 
-/// Releases a resolved context and all remaining unused task reservations.
+/// Releases a resolved context and its remaining unused activation reservations.
 pub extern "C" fn bray_runtime_frame_storage_release(context: usize) {
     release(context);
 }

@@ -194,7 +194,7 @@ pub(in crate::native) fn discharge_cleanup(
         Ok(address)
     })?;
 
-    // Releasing task reservations may drop runtime-owned state. Do it outside the registry lock.
+    // Release unused frame storage and activation capacity outside the registry lock.
     if let Some(address) = address {
         release(address);
     }

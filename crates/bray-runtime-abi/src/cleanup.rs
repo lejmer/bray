@@ -21,6 +21,11 @@ impl NativeCleanupExecution {
         matches!(self.0, 0..=2)
     }
 
+    /// Returns whether cleanup completes without creating an asynchronous frame.
+    pub const fn completes_synchronously(self) -> bool {
+        matches!(self, Self::NONE | Self::SYNCHRONOUS)
+    }
+
     /// Returns the stable integer representation.
     pub const fn code(self) -> u32 {
         self.0
@@ -72,10 +77,7 @@ impl NativeTaskTerminalCleanup {
     pub const fn is_valid(self) -> bool {
         match self.value {
             None => true,
-            Some(value) => matches!(
-                value.execution(),
-                NativeCleanupExecution::NONE | NativeCleanupExecution::SYNCHRONOUS
-            ),
+            Some(value) => value.execution().completes_synchronously(),
         }
     }
 

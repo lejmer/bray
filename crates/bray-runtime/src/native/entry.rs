@@ -1,5 +1,5 @@
 use bray_runtime_abi::{
-    NativeCleanupExecution, NativeRuntimeStatus, NativeSourceAnchor, NativeTypeIdentity,
+    NativeRuntimeStatus, NativeSourceAnchor, NativeTypeIdentity,
     NativeValueCleanup,
 };
 
@@ -55,13 +55,8 @@ pub(super) fn resolve_failure(
     lifecycle: Option<&NativeValueCleanup>,
 ) -> NativeRuntimeStatus {
     if !source.is_valid()
-        || broadcast.is_some_and(|cleanup| {
-            !matches!(
-                cleanup.execution(),
-                NativeCleanupExecution::NONE | NativeCleanupExecution::SYNCHRONOUS
-            )
-        })
-        || lifecycle.is_some_and(|cleanup| !cleanup.execution().is_known())
+        || [broadcast, lifecycle].into_iter().flatten()
+            .any(|cleanup| !cleanup.execution().completes_synchronously())
         || (value == 0 && (broadcast.is_some() || lifecycle.is_some()))
     {
         return NativeRuntimeStatus::INVALID_ARGUMENT;

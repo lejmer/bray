@@ -83,7 +83,6 @@ pub(crate) struct NativeRuntimeCore {
     pub(in crate::native) tasks: Mutex<HashMap<NativeTaskHandle, NativeTaskSlot>>,
     pub(in crate::native) task_capacity: NonZeroUsize,
     pub(in crate::native) independent_tasks: AtomicUsize,
-    pub(in crate::native) cleanup_task_capacity: AtomicUsize,
     pub(in crate::native) next_task: AtomicU64,
     pub(in crate::native) cleanup_reports: CleanupReportSink,
 }
@@ -486,7 +485,6 @@ fn initialize_with_capabilities(
             tasks: Mutex::new(HashMap::new()),
             task_capacity,
             independent_tasks: AtomicUsize::new(0),
-            cleanup_task_capacity: AtomicUsize::new(0),
             next_task: AtomicU64::new(1),
             cleanup_reports: CleanupReportSink::new(),
         });
@@ -503,10 +501,6 @@ fn initialize_with_capabilities(
             Ok(native) => native,
             Err(_) => return NativeRuntimeStatus::ALLOCATION_FAILURE,
         };
-
-        if let Err(status) = super::super::frames::register_runtime(&core) {
-            return status;
-        }
 
         if let Err(status) = core.workers.start(&core) {
             return status;

@@ -305,3 +305,144 @@ fn rejected_lifecycle_keeps_result_and_product_owned() {
 
     assert!(shutdown().is_success());
 }
+
+#[test]
+fn admitted_cleanup_dispatches_blocking_compute_and_main_lanes_without_allocation() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static SELECTED: AtomicUsize = AtomicUsize::new(0);
+    static RESUMED: AtomicUsize = AtomicUsize::new(0);
+    static RELEASED: AtomicUsize = AtomicUsize::new(0);
+
+    static METADATA: [NativeFrameMetadata; 3] = [
+        NativeFrameMetadata::new(
+            [181; 32],
+            1,
+            8,
+            8,
+            0,
+            1,
+            crate::test_support::native_blocking_frame_state,
+        ),
+        NativeFrameMetadata::new(
+            [182; 32],
+            1,
+            8,
+            8,
+            0,
+            1,
+            crate::test_support::native_compute_frame_state,
+        ),
+        NativeFrameMetadata::new(
+            [183; 32],
+            1,
+            8,
+            8,
+            0,
+            1,
+            crate::test_support::native_main_frame_state,
+        ),
+    ];
+
+    extern "C" fn metadata() -> Option<&'static NativeFrameMetadata> {
+        Some(&METADATA[SELECTED.load(Ordering::SeqCst)])
+    }
+
+    extern "C-unwind" fn start(
+        _: usize,
+        output: &mut NativeInactiveFrame,
+        _: &mut NativeBrayCallOutcome,
+    ) -> NativeRuntimeStatus {
+        *output = NativeInactiveFrame::new(FRAME.replace(0), adapter);
+
+        NativeRuntimeStatus::SUCCESS
+    }
+
+    extern "C" fn adapter(context: usize, _: NativeFrameEntry) -> NativeProtectedFrame {
+        NativeProtectedFrame::new(
+            context,
+            *metadata().unwrap(),
+            resume,
+            resume,
+            ignore,
+            resolve,
+            complete,
+            release,
+        )
+    }
+
+    extern "C-unwind" fn resume(_: usize) -> NativeFrameProgress {
+        let lane = crate::current_task_execution_context().unwrap().lane();
+
+        match SELECTED.load(Ordering::SeqCst) {
+            0 => assert_eq!(lane.workload(), crate::ExecutionWorkload::Blocking),
+            1 => assert_eq!(lane.workload(), crate::ExecutionWorkload::Compute),
+            _ => assert!(matches!(
+                lane.placement(),
+                crate::ExecutionLanePlacement::MainThread(_)
+            )),
+        }
+
+        assert_eq!(RESUMED.fetch_add(1, Ordering::SeqCst), 0);
+
+        NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0)
+    }
+
+    extern "C-unwind" fn release(context: usize) {
+        assert_eq!(RELEASED.fetch_add(1, Ordering::SeqCst), 0);
+        crate::native::frames::bray_runtime_frame_storage_release(context);
+    }
+
+    assert!(initialize(NativeRuntimeConfiguration::new(1, 1)).is_success());
+
+    let descriptor =
+        NativeProductHostDescriptor::new(NativeProductIdentity::new([184; 32]), no_statics, 0);
+
+    assert_eq!(
+        crate::product::control(&descriptor, NativeProductHostOperation::FORM).state(),
+        NativeProductHostState::OPEN
+    );
+
+    for selected in 0..3 {
+        SELECTED.store(selected, Ordering::SeqCst);
+        RESUMED.store(0, Ordering::SeqCst);
+        RELEASED.store(0, Ordering::SeqCst);
+        let frame = crate::native::frames::bray_runtime_frame_storage_admission(metadata());
+        assert_ne!(frame, 0);
+        FRAME.set(frame);
+
+        let cleanup = NativeValueCleanup::new(
+            NativeCleanupExecution::ASYNCHRONOUS,
+            Some(metadata),
+            start,
+            crate::test_support::panic_callbacks(unexpected_panic, unexpected_panic),
+        );
+
+        with_runtime(|runtime| {
+            let (handle, _) = runtime
+                .admit_returned_value(
+                    std::ptr::from_ref(&descriptor).addr(),
+                    8,
+                    8,
+                    0,
+                    None,
+                    cleanup,
+                )
+                .unwrap();
+
+            assert!(
+                with_allocation_failure(|| runtime.resolve_returned_value(handle)).is_success()
+            );
+        })
+        .unwrap();
+
+        assert_eq!(RESUMED.load(Ordering::SeqCst), 1);
+        assert_eq!(RELEASED.load(Ordering::SeqCst), 1);
+    }
+
+    assert_eq!(
+        crate::product::control(&descriptor, NativeProductHostOperation::CLOSE).state(),
+        NativeProductHostState::CLOSED
+    );
+
+    assert!(shutdown().is_success());
+}

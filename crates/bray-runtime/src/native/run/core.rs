@@ -81,7 +81,7 @@ impl NativeRun {
             Err(status) => return status,
         };
 
-        if let Some(mut claim) = claim {
+        if let Some(claim) = claim {
             // Validation borrows the shared contract while installation consumes its rollback claim.
             let descriptor = claim.reservation().descriptor().clone();
 

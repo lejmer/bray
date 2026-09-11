@@ -5,22 +5,12 @@ use bray_runtime_abi::{NativeBrayCallOutcome, NativeCleanupExecution, NativeValu
 use crate::incident::OwnedCleanupIncident;
 
 pub(super) fn run(cleanup: NativeValueCleanup, value: usize) -> Vec<OwnedCleanupIncident> {
-    let mut incidents = Vec::new();
-
-    if let Some(frame) = start(cleanup, value, |incident| incidents.push(incident))
-        && cleanup.execution() == NativeCleanupExecution::ASYNCHRONOUS
-    {
-        incidents.extend(
-            super::state::with_runtime(|runtime| {
-                runtime.with_cleanup_driving(|| {
-                    super::static_finalizer::run_cleanup_frame(frame, cleanup.panics(), |_| {
-                        Vec::new()
-                    })
-                })
-            })
-            .unwrap_or_else(|_| vec![OwnedCleanupIncident::runtime_failure()]),
-        );
+    if !cleanup.execution().completes_synchronously() {
+        return vec![OwnedCleanupIncident::runtime_failure()];
     }
+
+    let mut incidents = Vec::new();
+    let _ = start(cleanup, value, |incident| incidents.push(incident));
 
     incidents
 }
@@ -66,70 +56,15 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use bray_runtime_abi::{
-        NativeBrayCallOutcome, NativeCleanupExecution, NativeFrameExit, NativeFrameProgress,
-        NativeFrameProgressKind, NativeInactiveFrame, NativeProtectedFrame, NativeRuntimeStatus,
+        NativeBrayCallOutcome, NativeCleanupExecution, NativeInactiveFrame, NativeRuntimeStatus,
         NativeValueCleanup,
     };
 
-    static RESUMES: AtomicUsize = AtomicUsize::new(0);
-    static DESTROYS: AtomicUsize = AtomicUsize::new(0);
     static PANIC_RELEASES: AtomicUsize = AtomicUsize::new(0);
     static SYNCHRONOUS_CALLS: AtomicUsize = AtomicUsize::new(0);
 
-    extern "C-unwind" fn start(
-        value: usize,
-        frame: &mut NativeInactiveFrame,
-        _: &mut NativeBrayCallOutcome,
-    ) -> NativeRuntimeStatus {
-        *frame = NativeInactiveFrame::new(value, move_frame);
-
-        NativeRuntimeStatus::SUCCESS
-    }
-
-    extern "C" fn move_frame(
-        context: usize,
-        _: bray_runtime_abi::NativeFrameEntry,
-    ) -> NativeProtectedFrame {
-        NativeProtectedFrame::new(
-            context,
-            bray_runtime_abi::NativeFrameMetadata::new(
-                [83; 32],
-                2,
-                8,
-                8,
-                0,
-                1,
-                crate::test_support::native_origin_frame_state,
-            ),
-            resume,
-            resume,
-            ignore,
-            resolve,
-            move_completion,
-            destroy,
-        )
-    }
-
-    extern "C-unwind" fn resume(context: usize) -> NativeFrameProgress {
-        assert_eq!(context, 7);
-
-        let kind = if RESUMES.fetch_add(1, Ordering::Relaxed) == 0 {
-            NativeFrameProgressKind::YIELDED
-        } else {
-            NativeFrameProgressKind::COMPLETED
-        };
-
-        NativeFrameProgress::new(kind, 1, 0)
-    }
-
-    extern "C-unwind" fn ignore(_: usize) {}
-    extern "C-unwind" fn resolve(_: usize, _: NativeFrameExit) {}
-    extern "C-unwind" fn move_completion(_: usize, _: usize) {}
-    extern "C-unwind" fn destroy(_: usize) {
-        DESTROYS.fetch_add(1, Ordering::Relaxed);
-    }
     extern "C-unwind" fn unexpected_panic(_: usize) -> NativeRuntimeStatus {
-        panic!("cleanup must not panic")
+        panic!("cleanup must not report a panic");
     }
 
     #[test]
@@ -158,24 +93,23 @@ mod tests {
     }
 
     #[test]
-    fn asynchronous_value_cleanup_drives_suspension_before_releasing_the_frame() {
-        RESUMES.store(0, Ordering::Relaxed);
-        DESTROYS.store(0, Ordering::Relaxed);
+    fn synchronous_driver_rejects_async_cleanup_before_start() {
+        extern "C-unwind" fn rejected(
+            _: usize,
+            _: &mut NativeInactiveFrame,
+            _: &mut NativeBrayCallOutcome,
+        ) -> NativeRuntimeStatus {
+            panic!("asynchronous callback must not run");
+        }
 
         let cleanup = NativeValueCleanup::new(
             NativeCleanupExecution::ASYNCHRONOUS,
             None,
-            start,
+            rejected,
             crate::test_support::panic_callbacks(unexpected_panic, unexpected_panic),
         );
 
-        let (incidents, runtime_incidents) =
-            crate::native::with_static_cleanup_runtime(|| super::run(cleanup, 7));
-
-        assert!(incidents.is_empty());
-        assert!(runtime_incidents.is_empty());
-        assert_eq!(RESUMES.load(Ordering::Relaxed), 2);
-        assert_eq!(DESTROYS.load(Ordering::Relaxed), 1);
+        assert_eq!(super::run(cleanup, 7).len(), 1);
     }
 
     #[test]
@@ -205,7 +139,8 @@ mod tests {
             crate::test_support::panic_callbacks(unexpected_panic, release),
         );
 
-        let incidents = super::run(cleanup, 7);
+        let mut incidents = Vec::new();
+        assert!(super::start(cleanup, 7, |incident| incidents.push(incident)).is_none());
 
         assert_eq!(incidents.len(), 1);
         assert_eq!(PANIC_RELEASES.load(Ordering::Relaxed), 0);

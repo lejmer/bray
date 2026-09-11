@@ -20,7 +20,6 @@ pub(crate) struct TaskRegistrationStorage {
     cancellation_wake: Option<crate::cancellation::CancellationWakeRegistration>,
     ready_lanes: Vec<ExecutionLane>,
     reservation: Option<Weak<SchedulerData>>,
-    pub(crate) cleanup_admitted: bool,
 }
 
 impl TaskRegistrationStorage {
@@ -59,17 +58,7 @@ impl TaskRegistrationStorage {
             .checked_add(self.descriptor.states().len())
             .ok_or(SchedulerError::ReadyQueueCapacityReached)?;
 
-        let tasks = state
-            .cleanup_tasks
-            .checked_add(1)
-            .ok_or(SchedulerError::ReadyQueueCapacityReached)?;
-
-        let lanes = state
-            .cleanup_lanes
-            .checked_add(self.descriptor.states().len())
-            .ok_or(SchedulerError::ReadyQueueCapacityReached)?;
-
-        state.reserve_registration_capacity(tasks, lanes)?;
+        state.reserve_registration_capacity(1, self.descriptor.states().len())?;
         state.pending_tasks = pending_tasks;
         state.pending_lanes = pending_lanes;
         self.reservation = Some(Arc::downgrade(&scheduler.data));
@@ -116,7 +105,6 @@ impl TaskRegistrationStorage {
             cancellation_wake: Some(cancellation_wake),
             ready_lanes,
             reservation: None,
-            cleanup_admitted: false,
         })
     }
 }
@@ -137,22 +125,6 @@ impl Drop for TaskRegistrationStorage {
 }
 
 impl Scheduler {
-    /// Protects spare table and queue storage for the process's admitted cleanup tasks.
-    pub(crate) fn reserve_cleanup_capacity(
-        &self,
-        tasks: usize,
-        lanes: usize,
-    ) -> Result<(), SchedulerError> {
-        let mut state = self.lock_state()?;
-        let tasks = tasks.max(state.cleanup_tasks);
-        let lanes = lanes.max(state.cleanup_lanes);
-        state.reserve_registration_capacity(tasks, lanes)?;
-        state.cleanup_tasks = tasks;
-        state.cleanup_lanes = lanes;
-
-        Ok(())
-    }
-
     /// Registers one independent task without making it ready.
     pub fn register_task(
         &self,
@@ -273,18 +245,8 @@ impl Scheduler {
 
             state.check_task_admission(task, admission, self.data.limits.tasks().get())?;
 
-            if !storage.cleanup_admitted && storage.reservation.is_none() {
-                let tasks = state
-                    .cleanup_tasks
-                    .checked_add(1)
-                    .ok_or(SchedulerError::ReadyQueueCapacityReached)?;
-
-                let lanes = state
-                    .cleanup_lanes
-                    .checked_add(ready_lanes.len())
-                    .ok_or(SchedulerError::ReadyQueueCapacityReached)?;
-
-                state.reserve_registration_capacity(tasks, lanes)?;
+            if storage.reservation.is_none() {
+                state.reserve_registration_capacity(1, ready_lanes.len())?;
             }
 
             crate::allocation::reserve_map_entries(&mut state.tasks, 1)?;

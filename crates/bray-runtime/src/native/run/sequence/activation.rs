@@ -28,7 +28,7 @@ impl NativeRun {
             transfer.frame().metadata(),
         );
 
-        let Ok(Some(mut claim)) = claim else {
+        let Ok(Some(claim)) = claim else {
             terminal.record_cleanup_incident(OwnedCleanupIncident::runtime_failure());
             self.contain_rejected_value_frame(transfer);
 

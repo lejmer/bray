@@ -37,8 +37,6 @@ pub(super) struct SchedulerData {
 pub(super) struct SchedulerState {
     pub(super) tasks: HashMap<TaskId, RegisteredTask>,
     pub(super) independent_tasks: usize,
-    pub(super) cleanup_tasks: usize,
-    pub(super) cleanup_lanes: usize,
     pub(super) pending_tasks: usize,
     pub(super) pending_lanes: usize,
     pub(super) queues: HashMap<ExecutionLane, ReadyQueue>,

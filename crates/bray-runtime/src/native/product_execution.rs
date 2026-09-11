@@ -106,7 +106,7 @@ impl NativeProductCleanup {
 
         let allocation = retained
             .core
-            .allocate_kind(crate::task::TaskAdmissionKind::Continuation, false);
+            .allocate_kind(crate::task::TaskAdmissionKind::Continuation);
 
         let handle = allocation.task().ok_or(allocation.status())?;
 

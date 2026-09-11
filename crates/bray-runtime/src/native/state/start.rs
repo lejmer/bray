@@ -8,7 +8,7 @@ use bray_runtime_model::{ProtectedFrameDescriptor, ProtectedFrameStateId};
 use crate::{CancellationContext, ExecutionLanePlacement, TaskControlBlock};
 
 use super::super::frame::NativeFrameTransfer;
-use super::super::run::{NativeActivation, NativeActivationReservation, NativeRun};
+use super::super::run::{NativeActivationReservation, NativeRun};
 use super::core::{NativeRuntime, NativeTaskSlot, StartedTask};
 
 struct TaskStart<'runtime> {
@@ -146,84 +146,51 @@ impl NativeRuntime {
             return NativeRuntimeStatus::UNKNOWN_TASK;
         };
 
-        let mut claim = match super::super::frames::claim(
+        let claim = match super::super::frames::claim(
             frame.frame().context(),
             frame.entry(),
             frame.frame().metadata(),
         ) {
             Ok(Some(claim)) => claim,
-            Ok(None) => {
-                match NativeTaskReservation::prepare(frame.frame().metadata(), start.admission) {
-                    Ok(reservation) => super::super::frames::FrameTaskClaim::fresh(reservation),
-                    Err(status) => return status,
-                }
-            }
+            Ok(None) => match NativeActivationReservation::prepare(frame.frame().metadata()) {
+                Ok(reservation) => super::super::frames::FrameActivationClaim::fresh(reservation),
+                Err(status) => return status,
+            },
             Err(status) => return status,
         };
 
-        let admission = start.admission;
+        // The run shares the activation's immutable contract and admitted terminal destination.
+        let activation = claim.reservation();
 
-        start.publish(|| {
-            let reservation = claim.reservation();
-            reservation.run.task.admission = admission;
-            reservation.run.bind(self, true)?;
-
-            Ok(claim.install(frame.take()))
-        })
-    }
-}
-
-// Generated frame admission retains its first activation separately from run-only capacity.
-// Composition consumes the activation and releases the unused independent-run resources.
-pub(in crate::native) struct NativeTaskReservation {
-    run: NativeRunReservation,
-    activation: NativeActivationReservation,
-}
-
-impl NativeTaskReservation {
-    pub(in crate::native) fn descriptor(&self) -> &ProtectedFrameDescriptor {
-        self.activation.descriptor()
-    }
-
-    pub(in crate::native) fn admit_cleanup(&mut self) {
-        self.run.registration_storage.cleanup_admitted = true;
-    }
-
-    pub(in crate::native) fn prepare(
-        metadata: &bray_runtime_abi::NativeFrameMetadata,
-        admission: crate::task::TaskAdmissionKind,
-    ) -> Result<Self, NativeRuntimeStatus> {
-        let activation = NativeActivationReservation::prepare(metadata)?;
-
-        // The first activation and run share their immutable contract and terminal destination.
-        let run = NativeRunReservation::prepare(
+        let mut reservation = match NativeRunReservation::prepare(
             activation.descriptor().clone(),
             Arc::clone(activation.terminal()),
-            admission,
-        )?;
+            start.admission,
+        ) {
+            Ok(reservation) => reservation,
+            Err(status) => return status,
+        };
 
-        Ok(Self { run, activation })
-    }
+        if let Err(status) = reservation.reserve(&self.scheduler) {
+            return status;
+        }
 
-    pub(in crate::native) fn install(
-        self,
-        abi: bray_runtime_abi::NativeProtectedFrame,
-    ) -> Arc<StartedTask> {
-        self.run.task.run.install_root(self.activation.install(abi));
+        // Rejected run admission and activation claims drop after publication releases its lock.
+        let mut pending = Some((reservation, claim));
 
-        self.run.install()
-    }
+        start.publish(|| {
+            let (reservation, _) = pending.as_mut().expect("run admission installs once");
 
-    pub(in crate::native) fn install_activation(
-        self,
-        abi: bray_runtime_abi::NativeProtectedFrame,
-    ) -> Box<NativeActivation> {
-        assert!(
-            self.run.task.registration.is_none(),
-            "composed activation must not be registered"
-        );
+            reservation.bind(self, true)?;
 
-        self.activation.install(abi)
+            let (reservation, claim) = pending.take().expect("bound run remains owned");
+
+            reservation
+                .run()
+                .install_root(claim.install_activation(frame.take()));
+
+            Ok(reservation.install())
+        })
     }
 }
 
@@ -387,7 +354,8 @@ mod tests {
     };
     use bray_runtime_model::ProtectedFrameStateId;
 
-    use super::NativeTaskReservation;
+    use super::NativeRunReservation;
+    use crate::native::run::NativeActivationReservation;
     use crate::native::state::core::{initialize, shutdown, with_runtime};
     use crate::task::TaskAdmissionKind;
     use crate::test_support::{
@@ -406,11 +374,17 @@ mod tests {
             NativeRuntimeStatus::SUCCESS
         );
 
-        let mut reservation =
-            NativeTaskReservation::prepare(&metadata, TaskAdmissionKind::Independent).unwrap();
+        let activation = NativeActivationReservation::prepare(&metadata).unwrap();
 
-        let identity = reservation.run.task.task.id();
-        assert!(reservation.run.task.registration.is_none());
+        let mut reservation = NativeRunReservation::prepare(
+            activation.descriptor().clone(),
+            triomphe::Arc::clone(activation.terminal()),
+            TaskAdmissionKind::Independent,
+        )
+        .unwrap();
+
+        let identity = reservation.task.task.id();
+        assert!(reservation.task.registration.is_none());
         assert_eq!(shutdown(), NativeRuntimeStatus::SUCCESS);
 
         assert_eq!(
@@ -422,27 +396,21 @@ mod tests {
             assert_eq!(runtime.scheduler.task_count().unwrap(), 0);
 
             assert_eq!(
-                with_allocation_failure(|| reservation.run.bind(runtime, false)),
+                with_allocation_failure(|| reservation.reserve(&runtime.scheduler)),
                 Err(NativeRuntimeStatus::ALLOCATION_FAILURE),
             );
 
-            assert!(reservation.run.task.registration.is_none());
-            assert_eq!(reservation.run.task.task.id(), identity);
+            assert!(reservation.task.registration.is_none());
+            assert_eq!(reservation.task.task.id(), identity);
             assert_eq!(runtime.scheduler.task_count().unwrap(), 0);
 
-            // Reuse admitted scheduler slots. Per-task lane and cancellation storage already
-            // belongs to the reservation, so binding itself needs no further allocation.
-            let mut warm =
-                NativeTaskReservation::prepare(&metadata, TaskAdmissionKind::Independent).unwrap();
-
-            warm.run.bind(runtime, false).unwrap();
-            drop(warm);
-            with_allocation_failure(|| reservation.run.bind(runtime, false)).unwrap();
+            // Explicitly admit scheduler capacity before allocation-free binding.
+            reservation.reserve(&runtime.scheduler).unwrap();
+            with_allocation_failure(|| reservation.bind(runtime, false)).unwrap();
             let state = ProtectedFrameStateId::new(0);
 
             assert_eq!(
                 reservation
-                    .run
                     .task
                     .registration()
                     .lane(state)
@@ -452,7 +420,7 @@ mod tests {
             );
 
             assert_eq!(
-                with_allocation_failure(|| reservation.run.bind(runtime, false)),
+                with_allocation_failure(|| reservation.bind(runtime, false)),
                 Err(NativeRuntimeStatus::ALREADY_INITIALIZED),
             );
 
@@ -480,15 +448,21 @@ mod tests {
 
             let admitted = with_runtime(|runtime| {
                 let result = with_allocation_failure_after(allowed, || {
-                    NativeTaskReservation::prepare(&metadata, TaskAdmissionKind::Independent)
-                        .and_then(|mut reservation| {
-                            reservation.run.bind(runtime, false)?;
+                    let activation = NativeActivationReservation::prepare(&metadata)?;
 
-                            Ok(reservation)
-                        })
+                    let mut reservation = NativeRunReservation::prepare(
+                        activation.descriptor().clone(),
+                        triomphe::Arc::clone(activation.terminal()),
+                        TaskAdmissionKind::Independent,
+                    )?;
+
+                    reservation.reserve(&runtime.scheduler)?;
+                    reservation.bind(runtime, false)?;
+
+                    Ok::<_, NativeRuntimeStatus>((activation, reservation))
                 });
 
-                let reservation = match result {
+                let (activation, reservation) = match result {
                     Ok(reservation) => reservation,
                     Err(status) => {
                         assert_eq!(
@@ -505,20 +479,26 @@ mod tests {
 
                 assert_eq!(runtime.scheduler.task_count().unwrap(), 1);
                 let state = ProtectedFrameStateId::new(0);
-                let lane = reservation.run.task.registration().lane(state).unwrap();
+                let lane = reservation.task.registration().lane(state).unwrap();
                 assert!(runtime.scheduler.take_ready(lane).unwrap().is_none());
 
                 // Discarding unused capacity unregisters it without invoking frame code.
-                with_allocation_failure(|| drop(reservation));
+                with_allocation_failure(|| drop((activation, reservation)));
                 assert_eq!(runtime.scheduler.task_count().unwrap(), 0);
                 assert_eq!(RESUMES.load(Ordering::Relaxed), 0);
                 assert_eq!(RELEASES.load(Ordering::Relaxed), 0);
 
-                let mut reservation =
-                    NativeTaskReservation::prepare(&metadata, TaskAdmissionKind::Independent)
-                        .unwrap();
+                let activation = NativeActivationReservation::prepare(&metadata).unwrap();
 
-                reservation.run.bind(runtime, false).unwrap();
+                let mut reservation = NativeRunReservation::prepare(
+                    activation.descriptor().clone(),
+                    triomphe::Arc::clone(activation.terminal()),
+                    TaskAdmissionKind::Independent,
+                )
+                .unwrap();
+
+                reservation.reserve(&runtime.scheduler).unwrap();
+                reservation.bind(runtime, false).unwrap();
 
                 // The context and its callbacks first exist after all task machinery is reserved.
                 let abi = NativeProtectedFrame::new(
@@ -535,7 +515,8 @@ mod tests {
                 let handle = runtime.allocate().task().unwrap();
 
                 with_allocation_failure(|| {
-                    let task = reservation.install(abi);
+                    reservation.run().install_root(activation.install(abi));
+                    let task = reservation.install();
 
                     runtime.tasks.lock().unwrap().insert(
                         handle,
@@ -587,8 +568,7 @@ mod tests {
         RELEASES.store(0, Ordering::Relaxed);
 
         with_runtime(|runtime| {
-            let reservation =
-                NativeTaskReservation::prepare(&metadata, TaskAdmissionKind::Continuation).unwrap();
+            let reservation = NativeActivationReservation::prepare(&metadata).unwrap();
 
             let abi = NativeProtectedFrame::new(
                 77,
@@ -602,7 +582,7 @@ mod tests {
             );
 
             with_allocation_failure(|| {
-                let activation = reservation.install_activation(abi);
+                let activation = reservation.install(abi);
                 assert_eq!(runtime.scheduler.task_count().unwrap(), 0);
                 assert_eq!(RESUMES.load(Ordering::Relaxed), 0);
                 drop(activation);

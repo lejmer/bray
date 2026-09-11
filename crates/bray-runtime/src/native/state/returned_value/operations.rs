@@ -23,10 +23,7 @@ impl NativeRuntime {
             || lifecycle.execution() != NativeCleanupExecution::ASYNCHRONOUS
             || lifecycle.metadata().is_none()
             || broadcast.is_some_and(|cleanup| {
-                !matches!(
-                    cleanup.execution(),
-                    NativeCleanupExecution::NONE | NativeCleanupExecution::SYNCHRONOUS
-                ) || cleanup.metadata().is_some()
+                !cleanup.execution().completes_synchronously() || cleanup.metadata().is_some()
             })
         {
             return Err(NativeRuntimeStatus::INVALID_ARGUMENT);

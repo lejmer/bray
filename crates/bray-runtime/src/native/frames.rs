@@ -8,4 +8,6 @@ pub use boundary::{
     bray_runtime_frame_storage_release,
 };
 pub(super) use cleanup::FrameShape;
-pub(super) use registry::{FrameTaskClaim, claim, is_admitted, register_runtime};
+pub(super) use registry::{FrameActivationClaim, claim};
+#[cfg(test)]
+pub(super) use registry::is_admitted;

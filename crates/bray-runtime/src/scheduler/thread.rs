@@ -67,12 +67,11 @@ impl Scheduler {
             .count();
 
         let additional = state
-            .cleanup_lanes
-            .checked_add(state.pending_lanes)
-            .and_then(|lanes| lanes.checked_add(missing))
+            .pending_lanes
+            .checked_add(missing)
             .ok_or(SchedulerError::ReadyQueueCapacityReached)?;
 
-        // Worker headers must not consume capacity promised to already admitted cleanup roots.
+        // Worker headers must not consume capacity promised to already admitted runs.
         crate::allocation::reserve_map_entries(&mut state.queues, additional)?;
         state.reserve_ready_queues(&registration.lanes[..count])?;
         registration.count = count;
