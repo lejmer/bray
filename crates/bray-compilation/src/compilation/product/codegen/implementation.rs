@@ -1796,6 +1796,108 @@ mod tests {
     }
 
     #[test]
+    fn compile_only_emission_preserves_specialized_cleanup_mir() {
+        let source = r#"
+            module app;
+            struct Guard
+            {
+                async finalize() {}
+            }
+            async func dispose<T>(pos value: T) -> i32
+            {
+                return 7;
+            }
+            async func main()
+            {
+                await dispose<[Guard; 2]>([Guard {}, Guard {}]);
+            }
+        "#;
+
+        let (_, compilation) = codegen_compilation_for_product(source, ProductKind::Executable);
+
+        let archive = TemporaryFile::write("libbray_runtime.a", b"!<arch>\n");
+        let runtime = runtime_artifact(&compilation, archive.path());
+
+        let plan = compilation
+            .native_product_plan(
+                test_product_identity(),
+                crate::BuildConfiguration::Development,
+                Some(runtime),
+                [],
+                Some(&test_linker()),
+            )
+            .expect("generic cleanup native plan must prepare");
+
+        let profile = compilation.selected_target().target().profile().clone();
+
+        let name = bray_target::TargetOutputName::try_new(
+            bray_target::TargetOutputKind::BackendIr,
+            "",
+            ".ll",
+        )
+        .expect("backend IR output name must validate");
+
+        let outputs = bray_target::TargetOutputDescription::try_new(profile.clone(), [name])
+            .expect("backend IR outputs must validate");
+
+        let destination = tempfile::tempdir().expect("output directory must exist");
+
+        let request = bray_emitter::EmissionRequest::try_new(
+            test_product_identity(),
+            ProductKind::Executable,
+            plan.executable_host().cloned(),
+            profile.identity().clone(),
+            bray_emitter::RequestedArtifactDestination::FilesystemDirectory(
+                destination.path().into(),
+            ),
+            [bray_emitter::RequestedArtifact::new(
+                bray_emitter::ArtifactKind::BackendIr,
+                bray_emitter::ArtifactRequirement::Required,
+            )],
+            bray_emitter::ReplacementPolicy::RequireAbsent,
+        )
+        .expect("compile-only request must validate");
+
+        let linker = test_linker();
+        let linking = plan.link().expect("native plan must retain link inputs");
+
+        let composed = crate::ProductEmissionInputs::new(&outputs)
+            .with_native_codegen(&plan)
+            .with_linking(&linker, linking);
+
+        let error = compilation
+            .emit_product(request.clone(), composed)
+            .expect_err("compile-only requests must reject explicitly supplied linking");
+
+        assert!(
+            matches!(error.kind(), crate::ProductEmissionErrorKind::UnexpectedLinker),
+            "builder composition must preserve codegen and linking: {error:?}",
+        );
+
+        let outcome = compilation
+            .emit_product(
+                request.clone(),
+                crate::ProductEmissionInputs::new(&outputs).with_native_codegen(&plan),
+            )
+            .expect("compile-only emission must consume specialized cleanup MIR");
+
+        assert!(matches!(
+            outcome.status(),
+            bray_emitter::EmissionStatus::Complete
+        ), "status: {:?}, diagnostics: {:?}", outcome.status(), outcome.diagnostics());
+
+        assert!(!outcome.artifacts().artifacts().is_empty());
+
+        assert!(
+            outcome
+                .artifacts()
+                .artifacts()
+                .iter()
+                .all(|artifact| { artifact.id().kind() == bray_emitter::ArtifactKind::BackendIr })
+        );
+    }
+
+    #[test]
     fn cancelled_native_preparation_publishes_no_partial_plan() {
         let (_, compilation) = codegen_compilation_for_product_with_worker_budget(
             CONCRETE_GENERIC_SOURCE,

@@ -58,10 +58,7 @@ impl<'operation> ProductEmissionInputs<'operation> {
         target: &'operation CodegenTarget,
         options: &'operation CodegenOptions,
     ) -> Self {
-        let linking = match self.generation {
-            ProductGenerationInputs::Custom { linking, .. } => linking,
-            ProductGenerationInputs::None | ProductGenerationInputs::Native { .. } => None,
-        };
+        let linking = self.generation.linking();
 
         self.generation = ProductGenerationInputs::Custom {
             codegen: Some(ProductCodegenInputs {
@@ -82,20 +79,21 @@ impl<'operation> ProductEmissionInputs<'operation> {
         inputs: &'operation NativeProductPlan,
         linker: &'operation Linker,
     ) -> Self {
-        self.generation = ProductGenerationInputs::Native { inputs, linker };
+        self.generation = ProductGenerationInputs::Native {
+            inputs,
+            linking: match inputs.link() {
+                Some(inputs) => Some(ProductLinkingInputs { linker, inputs }),
+                None => None,
+            },
+        };
 
         self
     }
 
     /// Supplies compilation-owned native code generation without final linking.
-    pub fn with_native_codegen(mut self, inputs: &'operation NativeProductPlan) -> Self {
-        self.generation = ProductGenerationInputs::Custom {
-            codegen: Some(ProductCodegenInputs {
-                backend: inputs.backend(),
-                mappings: inputs.mappings(),
-                target: inputs.target(),
-                options: inputs.options(),
-            }),
+    pub const fn with_native_codegen(mut self, inputs: &'operation NativeProductPlan) -> Self {
+        self.generation = ProductGenerationInputs::Native {
+            inputs,
             linking: None,
         };
 
@@ -108,14 +106,19 @@ impl<'operation> ProductEmissionInputs<'operation> {
         linker: &'operation Linker,
         inputs: &'operation ProductLinkInputs,
     ) -> Self {
-        let codegen = match self.generation {
-            ProductGenerationInputs::Custom { codegen, .. } => codegen,
-            ProductGenerationInputs::None | ProductGenerationInputs::Native { .. } => None,
-        };
+        let linking = Some(ProductLinkingInputs { linker, inputs });
 
-        self.generation = ProductGenerationInputs::Custom {
-            codegen,
-            linking: Some(ProductLinkingInputs { linker, inputs }),
+        self.generation = match self.generation {
+            ProductGenerationInputs::Native { inputs, .. } => {
+                ProductGenerationInputs::Native { inputs, linking }
+            }
+            ProductGenerationInputs::Custom { codegen, .. } => {
+                ProductGenerationInputs::Custom { codegen, linking }
+            }
+            ProductGenerationInputs::None => ProductGenerationInputs::Custom {
+                codegen: None,
+                linking,
+            },
         };
 
         self
@@ -151,7 +154,7 @@ enum ProductGenerationInputs<'operation> {
     },
     Native {
         inputs: &'operation NativeProductPlan,
-        linker: &'operation Linker,
+        linking: Option<ProductLinkingInputs<'operation>>,
     },
 }
 
@@ -172,11 +175,7 @@ impl<'operation> ProductGenerationInputs<'operation> {
     const fn linking(self) -> Option<ProductLinkingInputs<'operation>> {
         match self {
             Self::None => None,
-            Self::Custom { linking, .. } => linking,
-            Self::Native { inputs, linker } => match inputs.link() {
-                Some(inputs) => Some(ProductLinkingInputs { linker, inputs }),
-                None => None,
-            },
+            Self::Custom { linking, .. } | Self::Native { linking, .. } => linking,
         }
     }
 
