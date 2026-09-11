@@ -29,9 +29,7 @@ pub use cleanup::{
     NativeCleanupExecution, NativeTaskTerminalCleanup, NativeValueCleanup,
     NativeValueCleanupCallback,
 };
-pub use frame::{
-    NativeFrameEntry, NativeFrameMetadata, NativeFrameMetadataCallback, NativeFrameMetadataProvider,
-};
+pub use frame::{NativeFrameEntry, NativeFrameMetadata, NativeFrameMetadataCallback};
 pub use panic::{NativePanicMessage, NativePanicPrimary};
 pub use platform::{
     NativePlatformEnvironmentEntry, NativePlatformEnvironmentList, NativePlatformFileMetadata,

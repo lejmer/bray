@@ -1,9 +1,5 @@
 use crate::NativeFrameStateCallback;
 
-/// Returns one immutable frame layout from a compiler-generated cleanup reservation bundle.
-/// The defining native product retains the metadata for the lifetime of every admitted owner.
-pub type NativeFrameMetadataProvider = extern "C" fn(usize) -> Option<&'static NativeFrameMetadata>;
-
 /// Returns immutable pre-entry metadata for one compiler-generated frame.
 /// The defining native product retains it for the lifetime of every admitted owner.
 pub type NativeFrameMetadataCallback = extern "C" fn() -> Option<&'static NativeFrameMetadata>;
@@ -96,19 +92,6 @@ impl NativeFrameMetadata {
 #[cfg(test)]
 mod tests {
     use super::NativeFrameMetadata;
-
-    #[test]
-    fn optional_metadata_providers_use_one_native_function_pointer() {
-        assert_eq!(
-            std::mem::size_of::<Option<super::NativeFrameMetadataProvider>>(),
-            std::mem::size_of::<usize>()
-        );
-
-        assert_eq!(
-            std::mem::align_of::<Option<super::NativeFrameMetadataProvider>>(),
-            std::mem::align_of::<usize>()
-        );
-    }
 
     #[test]
     fn frame_metadata_has_the_native_abi_layout() {

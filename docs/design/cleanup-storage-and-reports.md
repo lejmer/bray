@@ -52,6 +52,31 @@ Provider formation establishes the binding before initialization can publish rel
 concrete shape may occur during its first fallible owner admission, before that obligation is established. Mandatory
 activation and discharge use existing domain and shape registration without allocating or growing routing metadata.
 
+## Resident execution routing
+
+Providers bind generated runtime calls to the same resident implementation through fixed, typed native service tables.
+The host keeps those tables and their implementation image alive independently of provider retirement. Formation validates
+the required service components before provider initialization can publish owned values. Synchronous products require only
+the host and capacity services. Their service tables must not retain scheduler entry points merely because asynchronous
+products use them. Runtime component selection continues to determine which native code is linked.
+
+The resident implementation owns frame reservations and the run interpreter that consumes them. Prepared Rust frame,
+activation and terminal-state owners never cross the native ABI as Rust values or foreign raw object storage. Generated
+frame callbacks keep their fixed native ABI and operate on admitted context backing. Admission, activation, frame claims
+and release all return to the resident owner of that backing.
+
+An independent execution entry selects an explicit retained runtime context. Each context keeps its own scheduler, limits,
+worker pool and Main-thread authority. Entering another context scopes and restores task identity, cancellation, incident
+ownership, product execution acquisition and root/output context together. It does not inherit a different root's task or
+incident destination. Entering cleanup on an already selected context preserves the current run's ownership and lane rules.
+A context remains available through its retained cleanup owners after the initiating host stops accepting new work.
+
+While a resident run invokes a generated callback in another provider, that provider's native calls return through its
+bound service table to the resident implementation's active thread-local context. Generated frames therefore need no
+separate scheduler handle. Every operation that reads runtime thread-local state follows this route, including cancellation,
+incident transfer, product execution acquisition, thread identity and attachments, synchronous root callbacks, and panic
+and output handling. Routing only task start and polling would split one execution across different runtime states.
+
 ## Admission and outgoing incidents
 
 Each local mandatory cleanup action that can produce a retained failure has an outgoing incident record in its uniform

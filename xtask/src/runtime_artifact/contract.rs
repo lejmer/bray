@@ -227,7 +227,7 @@ fn native_callback(ty: &syn::Type) -> bool {
                 segment.ident.to_string().as_str(),
                 "NativeWakeCallback"
                     | "NativeRuntimeEventCallback"
-                    | "NativeFrameMetadataProvider"
+                    | "NativeCleanupCapacityMetadataProvider"
                     | "NativeRootConstructor"
             )
     })
@@ -330,7 +330,7 @@ mod tests {
         for name in [
             "NativeWakeCallback",
             "NativeRuntimeEventCallback",
-            "NativeFrameMetadataProvider",
+            "NativeCleanupCapacityMetadataProvider",
         ] {
             for source in [
                 format!("bray_runtime_abi::{name}"),
@@ -346,9 +346,9 @@ mod tests {
         }
 
         for source in [
-            "Option<Option<NativeFrameMetadataProvider>>",
+            "Option<Option<NativeCleanupCapacityMetadataProvider>>",
             "Option<NativeFrameMetadata>",
-            "NativeFrameMetadataProvider<u32>",
+            "NativeCleanupCapacityMetadataProvider<u32>",
         ] {
             let ty = syn::parse_str::<syn::Type>(source).unwrap();
 

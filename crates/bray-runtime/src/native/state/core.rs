@@ -90,6 +90,57 @@ pub(crate) struct NativeRuntimeCore {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn independent_formation_preserves_the_installed_execution() {
+        use std::sync::atomic::Ordering;
+
+        assert!(
+            super::initialize(bray_runtime_abi::NativeRuntimeConfiguration::new(4, 1)).is_success()
+        );
+
+        let installed =
+            super::NATIVE_RUNTIME.with(|runtime| runtime.borrow().as_ref().unwrap().clone());
+
+        let formed = super::form_runtime(
+            crate::SchedulerLimits::new(
+                std::num::NonZeroUsize::new(7).unwrap(),
+                std::num::NonZeroUsize::new(2).unwrap(),
+            ),
+            [bray_runtime_model::RuntimeCapability::CooperativeExecution],
+            false,
+            false,
+        )
+        .unwrap();
+
+        assert!(!std::sync::Arc::ptr_eq(&installed.core, &formed.core));
+        assert_eq!(installed.task_capacity.get(), 4);
+        assert_eq!(formed.task_capacity.get(), 7);
+
+        assert!(super::NATIVE_RUNTIME.with(|runtime| {
+            triomphe::Arc::ptr_eq(runtime.borrow().as_ref().unwrap(), &installed)
+        }));
+
+        let retained = crate::product::retain_execution().unwrap().unwrap();
+        assert_eq!(installed.owners.load(Ordering::Acquire), 2);
+        assert_eq!(formed.owners.load(Ordering::Acquire), 1);
+        retained.release();
+        drop(retained);
+
+        formed.core.release_owner();
+        assert_eq!(formed.owners.load(Ordering::Acquire), 0);
+        assert!(formed.workers.is_stopping());
+        assert_eq!(installed.owners.load(Ordering::Acquire), 1);
+        assert!(!installed.workers.is_stopping());
+        drop(formed);
+
+        assert!(
+            super::with_runtime(|runtime| std::sync::Arc::ptr_eq(&runtime.core, &installed.core))
+                .unwrap()
+        );
+
+        assert!(super::shutdown().is_success());
+    }
+
+    #[test]
     fn isolation_guard_can_outlive_its_thread_local_flag() {
         std::thread::spawn(|| {
             thread_local! {
@@ -459,61 +510,78 @@ fn initialize_with_capabilities(
         return NativeRuntimeStatus::ALREADY_INITIALIZED;
     }
 
+    let native = match form_runtime(
+        SchedulerLimits::new(task_capacity, timer_capacity),
+        capabilities,
+        main_thread_lane,
+        cleanup_workloads,
+    ) {
+        Ok(native) => native,
+        Err(status) => return status,
+    };
+
     NATIVE_RUNTIME.with(|runtime| {
-        #[cfg(test)]
-        let test_isolation = test_runtime_isolation();
-
-        let thread = match RuntimeThreadScope::enter_or_reuse() {
-            Ok(thread) => thread,
-            Err(error) => return super::binding::thread_attachment_status(error),
-        };
-
-        if main_thread_lane && !bray_platform::mark_current_runtime_thread_as_main() {
-            return NativeRuntimeStatus::RUNTIME_FAILURE;
-        }
-
-        let scheduler = Scheduler::new(
-            capabilities,
-            thread.runtime().id(),
-            SchedulerLimits::new(task_capacity, timer_capacity),
-        );
-
-        let core = Arc::new(NativeRuntimeCore {
-            scheduler,
-            workers: super::super::workers::WorkerPool::new(),
-            owners: AtomicUsize::new(1),
-            tasks: Mutex::new(HashMap::new()),
-            task_capacity,
-            independent_tasks: AtomicUsize::new(0),
-            next_task: AtomicU64::new(1),
-            cleanup_reports: CleanupReportSink::new(),
-        });
-
-        let native = match crate::allocation::allocate_shared(NativeRuntime {
-            thread,
-            main_thread_lane,
-            cleanup_workloads: Cell::new(cleanup_workloads),
-            worker: None,
-            core: Arc::clone(&core),
-            #[cfg(test)]
-            _test_isolation: test_isolation,
-        }) {
-            Ok(native) => native,
-            Err(_) => return NativeRuntimeStatus::ALLOCATION_FAILURE,
-        };
-
-        if let Err(status) = core.workers.start(&core) {
-            return status;
-        }
-
         runtime.replace(Some(native));
+    });
 
-        crate::product::replace_execution_factory(Some(
-            super::super::product_execution::retain_current_execution,
-        ));
+    crate::product::replace_execution_factory(Some(
+        super::super::product_execution::retain_current_execution,
+    ));
 
-        NativeRuntimeStatus::SUCCESS
-    })
+    NativeRuntimeStatus::SUCCESS
+}
+
+/// Forms a thread-owned runtime and its workers without installing a current binding.
+/// The returned owner must call `core.release_owner()` exactly once before it is dropped.
+pub(in crate::native) fn form_runtime(
+    limits: SchedulerLimits,
+    capabilities: impl IntoIterator<Item = RuntimeCapability>,
+    main_thread_lane: bool,
+    cleanup_workloads: bool,
+) -> Result<RuntimeArc<NativeRuntime>, NativeRuntimeStatus> {
+    #[cfg(test)]
+    let test_isolation = test_runtime_isolation();
+
+    let thread = match RuntimeThreadScope::enter_or_reuse() {
+        Ok(thread) => thread,
+        Err(error) => return Err(super::binding::thread_attachment_status(error)),
+    };
+
+    if main_thread_lane && !bray_platform::mark_current_runtime_thread_as_main() {
+        return Err(NativeRuntimeStatus::RUNTIME_FAILURE);
+    }
+
+    let scheduler = Scheduler::new(capabilities, thread.runtime().id(), limits);
+
+    let core = Arc::new(NativeRuntimeCore {
+        scheduler,
+        workers: super::super::workers::WorkerPool::new(),
+        owners: AtomicUsize::new(1),
+        tasks: Mutex::new(HashMap::new()),
+        task_capacity: limits.tasks(),
+        independent_tasks: AtomicUsize::new(0),
+        next_task: AtomicU64::new(1),
+        cleanup_reports: CleanupReportSink::new(),
+    });
+
+    let native = match crate::allocation::allocate_shared(NativeRuntime {
+        thread,
+        main_thread_lane,
+        cleanup_workloads: Cell::new(cleanup_workloads),
+        worker: None,
+        core: Arc::clone(&core),
+        #[cfg(test)]
+        _test_isolation: test_isolation,
+    }) {
+        Ok(native) => native,
+        Err(_) => return Err(NativeRuntimeStatus::ALLOCATION_FAILURE),
+    };
+
+    if let Err(status) = core.workers.start(&core) {
+        return Err(status);
+    }
+
+    Ok(native)
 }
 
 pub(in crate::native) fn with_runtime<T>(

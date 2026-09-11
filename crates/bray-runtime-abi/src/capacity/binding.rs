@@ -233,6 +233,16 @@ mod tests {
     fn capacity_service_layout_preserves_resident_and_provider_ownership() {
         let word = std::mem::size_of::<usize>();
 
+        assert_eq!(
+            std::mem::size_of::<Option<super::NativeCleanupCapacityMetadataProvider>>(),
+            word
+        );
+
+        assert_eq!(
+            std::mem::align_of::<Option<super::NativeCleanupCapacityMetadataProvider>>(),
+            std::mem::align_of::<usize>()
+        );
+
         assert_abi_layout!(NativeCleanupCapacityMetadata, size: 32 + word, align: word, fields: {
             identity: 0,
             prepare: 32,
