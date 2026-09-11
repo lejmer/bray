@@ -213,8 +213,11 @@ the load policy remains named and shared by both forms.
 
 `library.symbol<T>(name)` accepts an exact native symbol name and an ABI-qualified requested type. A successful lookup
 returns a `DynamicSymbol<T>` borrowed from the library owner. The symbol cannot outlive the library, and the library
-cannot be closed while a symbol borrow remains active. Consuming `library.close()` releases the module explicitly,
-while consuming `library.into_handle()` transfers its native handle and disables owner cleanup.
+cannot be closed while a symbol borrow remains active. `library.close()` borrows the owner mutably and releases the
+module. Success establishes `DynamicLibrary.complete`. An error retains any module ownership that the platform
+still holds, so the caller can retry or transfer the owner. `library.is_complete()` exposes completion to ordinary
+code through checked Boolean postconditions. Consuming `library.into_handle()` transfers its native handle and
+establishes completion for the old Bray owner.
 
 The requested type is part of the trusted lookup boundary. The loader can establish only that an address exists. It
 cannot prove a foreign function's signature, data layout, ownership, effects, or failure behavior. Safe wrappers
@@ -225,7 +228,7 @@ A callable symbol records its exact callable ABI. A data symbol records its poin
 and lifetime obligations. Converting an untyped address to either form is trusted and rejects representations the
 selected target cannot express.
 
-Closing consumes the library owner. Lookup failure does not close the library. A library with active symbol borrows
+Lookup failure retains the library owner. A library with active symbol borrows
 cannot be closed or transferred. A loaded Bray product also cannot enter cleanup while an external entry, callback,
 callable, owner, or other transitive root can reach its code or storage. A static-owned edge inside the active teardown
 set instead orders consumer cleanup before provider cleanup. After entry closure and external-root quiescence, close

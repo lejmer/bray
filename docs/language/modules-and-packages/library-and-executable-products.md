@@ -25,6 +25,24 @@ entries, then waits for in-flight entries and external roots that can reach prod
 inside the teardown set order consumer cleanup before provider cleanup and are released by that cleanup. The host cleans
 exact-thread and product statics before releasing the loaded code and data.
 
+## Product formation and provider compatibility
+
+Before a product exposes entries or initializes state that can invoke another Bray provider, formation must establish
+compatible execution and ownership services for every required provider. Separately compiled providers must carry enough
+dependency and compatibility information to validate that requirement. Successful symbol resolution alone is
+insufficient. Code contributed by a static library follows the consuming product's contract without creating another
+product instance. Foreign hosts must establish the same conditions before calling exported Bray entries.
+
+Incompatible services cause formation or entry admission to fail before accepting new ownership or invoking code that
+requires them. An implementation must not silently select different services to bypass the incompatibility. Ordinary
+ownership transfer preserves existing cleanup guarantees without introducing a new fallible compatibility negotiation.
+
+Establishing provider compatibility does not evaluate application lazy initialization or change the specified timing of
+[static materialization](../declarations/static-storage-declarations.md). Existing initialization and lifecycle
+dependency cycle rules apply. Failed formation exposes no new entry and resolves state initialized by that attempt under
+ordinary lifecycle rules. It retains required services and providers through cleanup and does not tear down
+independently live providers merely because the attempt failed.
+
 ## Executable products
 
 An executable product has exactly one resolved entry point.

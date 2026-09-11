@@ -1248,7 +1248,20 @@ callable-contract-clause =
       requires-clause
     | ensures-clause
     | with-clause
-    | uses-clause ;
+    | uses-clause
+    | executes-clause
+    | when-clause ;
+
+executes-clause =
+    "executes" "(" identifier { "," identifier } [ "," ] ")" ;
+
+when-clause =
+    "when" "(" predicate-expression ")" "{" { guarded-guarantee-clause } "}" ;
+
+guarded-guarantee-clause =
+      executes-clause
+    | ensures-clause
+    | when-clause ;
 
 requires-clause =
     "requires" "(" predicate-expression-sequence [ "," ] ")" ;

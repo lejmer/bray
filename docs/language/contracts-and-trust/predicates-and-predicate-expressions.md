@@ -13,6 +13,7 @@ Predicate expressions are used in:
 - predicate bodies,
 - `requires(...)` clauses,
 - `ensures(...)` clauses,
+- `when(...)` entry guards,
 - `with(...)` clauses,
 - trusted obligations,
 - static constraint contexts,
@@ -27,7 +28,9 @@ Predicate expressions are checked in one of these contexts:
 - value predicate context,
 - static constraint context.
 
-Value predicate context is used for value predicate bodies, `requires(...)`, `ensures(...)`, and trusted obligations.
+Value predicate context is used for value predicate bodies, `requires(...)`, `ensures(...)`, `when(...)` entry guards,
+and trusted obligations. Entry guards use the inputs described in
+[conditional execution guarantees](execution-guarantees.md#entry-and-completion).
 
 Static constraint context is used for `with(...)` clauses on generic declarations and static predicate bodies.
 

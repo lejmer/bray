@@ -244,6 +244,9 @@ See [Compiler diagnostics](diagnostics.md) for the structured producer, renderin
 - Update contract tests when intentional language behavior changes.
 - Do not add regression tests for intentional feature changes as if the old behavior were still the contract.
 - Keep fixtures small and focused.
+- Format inline source fixtures as readable source code. Use multiline raw strings with normal indentation and
+  statement layout for complete declarations or programs. Keep compact single-line strings only for short fragments
+  or tests whose subject is the exact source spelling or layout.
 - Prefer one test per semantic idea unless combining cases makes the contract clearer.
 
 ## Naming

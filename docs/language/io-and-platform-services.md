@@ -75,6 +75,11 @@ transfers directly into the caller's borrowed slice. These rules apply equally t
 Bulk staging transfers use the standard memory copy operations, while direct transfers add no intermediate allocation
 or full-payload copy.
 
+Buffered construction returns the supplied source or sink alongside `IoError` on failure. `into_sink` and
+`into_sink_async` flush before transferring the sink. On failure, they return the buffered writer alongside
+`IoError`. The returned writer retains the remaining buffered bytes and the sink's updated state, so retry continues
+after the committed prefix.
+
 Flush is an explicit operation. Successful flush means that bytes buffered by the Bray wrapper have been handed to the
 underlying stream according to that stream's contract. It does not promise physical persistence unless the specific
 resource operation also provides that guarantee.
@@ -110,12 +115,17 @@ Path value equality and ordering operate on the exact native representation thro
 They do not query the filesystem or claim that two differently represented paths identify the same object. Lexical
 normalization is explicit and produces another path value.
 
-Filesystem resources are owned values. Opening a file or directory transfers one resource obligation into the returned
-owner. Copying the owner does not duplicate the platform resource. Explicit consuming close or completion resolves the
-obligation.
+Filesystem resources are non-copyable owned values. Opening a file or directory transfers one resource obligation
+into the returned owner. `File.close` and `Directory.close`, including their asynchronous forms, borrow their owner
+mutably. Success establishes the owner's `complete` predicate. After an error, the owner retains any resource that
+the platform still holds, so the caller can retry, transfer ownership, or handle an already-completed outcome.
 
-If resource finalization can fail, normal scope exit cannot silently discard that failure. Source must use a lifecycle
-path whose contract handles or propagates the result. Abnormal exit follows the ordinary cleanup-incident rules.
+The `complete` predicate records whether the resource obligation has been resolved. A platform operation can release
+its resource while reporting an error. That error remains observable and the completed owner is safe to destroy.
+`File.is_complete()` and `Directory.is_complete()` expose this state to ordinary code. Their checked postconditions
+connect the returned Boolean to the owner's completion predicate, including after a close error.
+Operations that require an open file or directory return an error when called on a completed owner. Ordinary scope
+exit uses [completion proofs](lifecycle/finalization.md). Abnormal exit follows the cleanup-incident rules.
 
 Relative filesystem paths resolve against the process-start working-directory snapshot. Bray does not provide an
 operation that mutates a process-wide current directory. A child process can instead receive an explicit working
@@ -245,13 +255,13 @@ union ExitStatus
 
 impl ChildInput
 {
-    consume func close() -> Result<unit, std.io.IoError>
+    mut func close() -> Result<unit, std.io.IoError>
         requires(blocking_execution());
 }
 
 impl ChildOutput
 {
-    consume func close() -> Result<unit, std.io.IoError>
+    mut func close() -> Result<unit, std.io.IoError>
         requires(blocking_execution());
 }
 
@@ -287,10 +297,10 @@ impl ChildProcess
     mut func request_termination() -> Result<unit, ChildError>
         requires(blocking_execution());
 
-    consume func wait() -> Result<ExitStatus, ChildError>
+    mut func wait() -> Result<ExitStatus, ChildError>
         requires(blocking_execution());
 
-    consume func force_termination() -> Result<ExitStatus, ChildError>
+    mut func force_termination() -> Result<ExitStatus, ChildError>
         requires(blocking_execution());
 }
 ```
@@ -299,16 +309,20 @@ impl ChildProcess
 `ChildStreamPolicy.Inherit` for every standard stream. No explicit working directory means the current process's startup
 working-directory snapshot. A piped handle can be taken at most once. Inherited and null policies produce no pipe owner.
 
-`ChildInput` implements `std.io.Writer`. `ChildOutput` implements `std.io.Reader`. Consuming `close` resolves the pipe
-owner on both result variants. `request_termination` does not consume the process owner, wait, or reap. Every returning
-`wait` or `force_termination` path has reaped the child and resolved the process owner, including `Result.Error`. Normal
-scope exit rejects an unresolved `ChildProcess`, so source must choose and handle a consuming completion operation.
+`ChildInput` implements `std.io.Writer`. `ChildOutput` implements `std.io.Reader`. Their mutably borrowing `close`
+operations establish `complete` on success and preserve the platform's resource disposition on error.
+`request_termination` requests termination while retaining the process owner. Successful `wait` or `force_termination`
+reaps the child, closes retained pipes, and establishes `ChildProcess.complete`. An error retains unresolved resources
+in the borrowed owner. The caller can retry or transfer that owner. Each pipe and process owner exposes
+`is_complete()`, whose checked postconditions establish whether its completion predicate holds. This also lets
+callers handle an operation that reports an error after releasing its resources. Normal scope exit requires a
+completion proof for each retained owner.
 `ChildProcess.id()` is observational and grants no termination, waiting, raw-handle, or shared-memory authority
 independently of the owner.
 
 `spawn` does not return an error while retaining an unowned live child. If failure occurs after operating-system
 creation, it forces termination where necessary and reaps before returning. If cancellation of the calling run is
-observed during consuming `wait` or `force_termination`, the operation forces termination, reaps, and resolves retained
+observed during `wait` or `force_termination`, the operation forces termination, reaps, and resolves retained
 pipes under shielding before continuing caller cancellation. A cleanup failure becomes a cleanup incident rather than
 abandoning the child.
 

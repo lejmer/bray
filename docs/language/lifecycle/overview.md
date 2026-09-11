@@ -10,6 +10,9 @@ The lifecycle declaration kinds are:
 - `enter`,
 - `exit`.
 
+Lifecycle declarations are invoked through the language's construction, ownership, and scoped-use operations. Source
+code cannot call lifecycle functions directly as ordinary functions or methods.
+
 Constructors create fully initialized values.
 
 Finalizers complete required lifecycle obligations before ownership ends.

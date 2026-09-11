@@ -593,6 +593,12 @@ defined in `docs/design/checker.md`.
 
 Semantic checker services are responsibility modules, not a second durable tree-producing phase.
 
+Execution-proof observation and admissibility policy belong to those checker services. Compilation resolves selected
+contracts, substitutions and identities through queries without repeating the policy. Source proof dependencies are
+normalized once in compilation's proof domain for certification and export. Export retains its certified-declaration
+filtering and portable identity mapping. Candidate evidence, certified evidence and source-occurrence obligations remain
+distinct contracts rather than interchangeable representations.
+
 Checker services own:
 
 - type checking,

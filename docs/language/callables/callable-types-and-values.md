@@ -87,6 +87,10 @@ dispatch, exports, and re-exports.
 A callable assignment succeeds when the target callable type preserves every caller-visible obligation of the source
 callable.
 
+Body trust and `uses(...)` describe how the implementation is checked. Callable compatibility compares caller
+requirements and execution guarantees independently of those implementation acknowledgments. Trusted predicate
+requirements and execution-lane requirements remain part of the caller contract.
+
 Example ordinary callable type:
 
 ```bray
