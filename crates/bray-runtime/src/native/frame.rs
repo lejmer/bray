@@ -147,6 +147,31 @@ impl NativeFrame {
 }
 
 impl NativeTerminalState {
+    /// Moves completion backing or panic ownership from a finished activation into its run.
+    pub(in crate::native) fn transfer_payload(&self, destination: &Self) {
+        if std::ptr::eq(self, destination) {
+            return;
+        }
+
+        let payload = self
+            .payload
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+
+        let mut retained = destination
+            .payload
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        assert!(
+            retained.is_none(),
+            "a run receives its root terminal payload once"
+        );
+
+        *retained = payload;
+    }
+
     pub(super) fn reserve() -> Result<Arc<Self>, NativeRuntimeStatus> {
         crate::allocation::allocate_shared(Self::new())
             .map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)
@@ -591,10 +616,19 @@ mod tests {
             address
         );
 
+        let run_terminal = NativeTerminalState::reserve().unwrap();
+        crate::test_support::with_allocation_failure(|| terminal.transfer_payload(&run_terminal));
+        assert!(terminal.payload.lock().unwrap().is_none());
         drop(frame);
 
         assert_eq!(
-            terminal.payload.lock().unwrap().as_ref().unwrap().handle(),
+            run_terminal
+                .payload
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .handle(),
             address
         );
     }

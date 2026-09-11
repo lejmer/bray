@@ -530,3 +530,43 @@ extern "C-unwind" fn report_incident(
 extern "C-unwind" fn destroy_incident(_: usize) -> bray_runtime_abi::NativeBrayCallOutcome {
     bray_runtime_abi::NativeBrayCallOutcome::completed()
 }
+
+#[test]
+fn independently_admitted_run_retains_its_root_activation_panic() {
+    extern "C-unwind" fn panicked(_: usize) -> NativeFrameProgress {
+        NativeFrameProgress::new(NativeFrameProgressKind::PANICKED, 0, 42)
+    }
+
+    assert!(initialize(NativeRuntimeConfiguration::new(1, 1)).is_success());
+
+    with_runtime(|runtime| {
+        let terminal = crate::native::frame::NativeTerminalState::reserve().unwrap();
+
+        let descriptor =
+            crate::native::frame::NativeFrame::checked_descriptor(&metadata()).unwrap();
+
+        let mut reservation = crate::native::state::NativeRunReservation::prepare(
+            descriptor,
+            terminal,
+            crate::task::TaskAdmissionKind::Independent,
+        )
+        .unwrap();
+
+        reservation.reserve(&runtime.scheduler).unwrap();
+
+        let activation = super::NativeActivationReservation::prepare(&metadata())
+            .unwrap()
+            .install(frame(0, panicked, ignore));
+
+        reservation.run().install_root(activation);
+        let handle = runtime.allocate().task().unwrap();
+        assert!(runtime.start_run(handle, reservation).is_success());
+        let outcome = runtime.resolve_task(handle);
+        assert_eq!(outcome.state(), NativeRunState::PANICKED);
+        assert_eq!(outcome.payload(), 42);
+        assert!(runtime.destroy_task(handle).is_success());
+    })
+    .unwrap();
+
+    assert!(shutdown().is_success());
+}

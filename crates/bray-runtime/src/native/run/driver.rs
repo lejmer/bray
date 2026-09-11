@@ -281,6 +281,9 @@ impl NativeRun {
                 return Ok(None);
             }
 
+            terminal.transfer_payload(&self.terminal);
+            Self::retain_incidents(&terminal, &self.terminal);
+
             return Ok(Some(match outcome {
                 RunOutcome::Completed(value) => FrameProgress::Completed(value),
                 RunOutcome::Cancelled => FrameProgress::Cancelled,
