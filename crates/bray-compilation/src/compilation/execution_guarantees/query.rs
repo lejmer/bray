@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use bray_bound_tree::BoundUnitKey;
 use bray_checker::{
-    ExecutionCandidate, ExecutionCertification, ExecutionDeclaration, ExecutionProperty,
-    check_execution_candidate, declared_execution_properties,
+    ExecutionCertification, ExecutionDeclaration, ExecutionProperty, check_execution_candidate,
+    declared_execution_properties,
 };
 use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
@@ -21,8 +21,16 @@ impl Compilation {
         &self,
         anchor: SyntaxAnchor,
     ) -> Result<DiagnosticResult<ExecutionDeclaration>, FactQueryError> {
-        let node = self
-            .syntax_tree()
+        Ok(declared_execution_properties(
+            self.execution_declaration_node(anchor)?,
+        ))
+    }
+
+    pub(super) fn execution_declaration_node(
+        &self,
+        anchor: SyntaxAnchor,
+    ) -> Result<bray_syntax::SyntaxNodeView<'_>, FactQueryError> {
+        self.syntax_tree()
             .find_node(
                 anchor.source_id(),
                 anchor.syntax_kind(),
@@ -34,12 +42,11 @@ impl Compilation {
                     SemanticQueryContext::Source(anchor.source_id()),
                     SemanticQueryViolation::Missing(SemanticDataKind::Syntax),
                 )
-            })?;
-
-        Ok(declared_execution_properties(node))
+            })
+            .map_err(Into::into)
     }
 
-    /// Returns certified unconditional properties after checking all selected dependencies.
+    /// Returns certified entry-domain properties and completion predicates after checking dependencies.
     pub fn execution_properties(
         &self,
         key: BoundUnitKey,
@@ -73,7 +80,7 @@ impl Compilation {
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
-    ) -> Result<Arc<PublishedUnitResult<[ExecutionCandidate; 2]>>, FactQueryError> {
+    ) -> Result<Arc<PublishedUnitResult<bray_checker::ExecutionCandidates>>, FactQueryError> {
         // Fact keys and their immutable publications retain shared unit identities independently.
         self.unit_query(
             &self.state.execution_candidates,
@@ -98,10 +105,52 @@ impl Compilation {
 
                 let unit = checker_unit_view(bound.result().value(), &semantic_context, &context)?;
 
-                let check = |property| {
+                let mut diagnostics = DiagnosticBag::merged_all([
+                    bound.result().diagnostics(),
+                    expressions.result().diagnostics(),
+                    storage.result().diagnostics(),
+                    body.result().diagnostics(),
+                    memory.result().diagnostics(),
+                    flow.result().diagnostics(),
+                ]);
+
+                let declaration = self.execution_declaration(key.source().syntax())?;
+
+                let requirements = self.execution_condition_inputs(
+                    &key,
+                    declaration.value().requirements(),
+                    cancellation,
+                )?;
+
+                diagnostics.add_range(requirements.diagnostics().iter().cloned());
+
+                let requirements = requirements
+                    .into_parts()
+                    .0
+                    .into_iter()
+                    .map(|(condition, _)| condition)
+                    .collect::<Vec<_>>();
+
+                let contracts = self.execution_call_contracts(
+                    bound.result().value(),
+                    expressions.result().value(),
+                    cancellation,
+                )?;
+
+                diagnostics.add_range(contracts.diagnostics().iter().cloned());
+
+                let check = |property,
+                             assumptions: &[bray_checker::ExecutionCondition],
+                             postconditions: &[(
+                    bray_checker::ExecutionCondition,
+                    bray_source::SourceSpan,
+                )]| {
                     checker_result(check_execution_candidate(
                         unit,
                         property,
+                        assumptions,
+                        postconditions,
+                        contracts.value(),
                         expressions.result().value(),
                         storage.result().value(),
                         body.result().value(),
@@ -109,24 +158,82 @@ impl Compilation {
                     ))
                 };
 
-                let pure = check(ExecutionProperty::Pure)?;
-                let total = check(ExecutionProperty::Total)?;
+                let mut candidates = bray_checker::ExecutionCandidates::new();
 
-                let diagnostics = DiagnosticBag::merged_all([
-                    bound.result().diagnostics(),
-                    expressions.result().diagnostics(),
-                    storage.result().diagnostics(),
-                    body.result().diagnostics(),
-                    memory.result().diagnostics(),
-                    flow.result().diagnostics(),
-                    pure.diagnostics(),
-                    total.diagnostics(),
-                ]);
+                for property in [ExecutionProperty::Pure, ExecutionProperty::Total] {
+                    let candidate = check(Some(property), &requirements, &[])?;
+                    diagnostics.add_range(candidate.diagnostics().iter().cloned());
 
-                Ok((
-                    DiagnosticResult::new([pure.into_parts().0, total.into_parts().0], diagnostics),
-                    Box::new([]),
-                ))
+                    candidates.insert(
+                        bray_checker::ExecutionObligation::Property(property, None),
+                        candidate.into_parts().0,
+                    );
+                }
+
+                for domain in declaration.value().domains() {
+                    let guards =
+                        self.execution_condition_inputs(&key, &domain.guards, cancellation)?;
+
+                    let posts = self.execution_condition_inputs(
+                        &key,
+                        &domain.postconditions,
+                        cancellation,
+                    )?;
+
+                    diagnostics.add_range(guards.diagnostics().iter().cloned());
+                    diagnostics.add_range(posts.diagnostics().iter().cloned());
+
+                    // Each domain owns its entry assumptions while sharing immutable condition operands.
+                    let mut assumptions = requirements.clone();
+
+                    assumptions.extend(
+                        guards
+                            .into_parts()
+                            .0
+                            .into_iter()
+                            .map(|(condition, _)| condition),
+                    );
+
+                    if !domain.guards.is_empty() {
+                        for property in &domain.properties {
+                            let candidate = check(Some(property.property), &assumptions, &[])?;
+                            diagnostics.add_range(candidate.diagnostics().iter().cloned());
+
+                            candidates.insert(
+                                bray_checker::ExecutionObligation::Property(
+                                    property.property,
+                                    Some(property.source),
+                                ),
+                                candidate.into_parts().0,
+                            );
+                        }
+                    }
+
+                    for source in posts
+                        .value()
+                        .iter()
+                        .map(|(_, source)| *source)
+                        .collect::<std::collections::BTreeSet<_>>()
+                    {
+                        // Each clause proof owns shared immutable condition terms from this normalized domain.
+                        let conditions = posts
+                            .value()
+                            .iter()
+                            .filter(|(_, span)| *span == source)
+                            .cloned()
+                            .collect::<Vec<_>>();
+
+                        let candidate = check(None, &assumptions, &conditions)?;
+                        diagnostics.add_range(candidate.diagnostics().iter().cloned());
+
+                        candidates.insert(
+                            bray_checker::ExecutionObligation::Postcondition(source),
+                            candidate.into_parts().0,
+                        );
+                    }
+                }
+
+                Ok((DiagnosticResult::new(candidates, diagnostics), Box::new([])))
             },
         )
     }

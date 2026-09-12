@@ -57,9 +57,12 @@ pub use context::{
 };
 pub use diagnostic::diagnostic_type;
 pub use execution_guarantees::{
-    DeclaredExecutionProperty, ExecutionCandidate, ExecutionCertification, ExecutionDeclaration,
-    ExecutionDependency, ExecutionProofFailure, ExecutionProperty, check_execution_guarantees,
-    check_execution_proof_dependencies, declared_execution_properties,
+    DeclaredExecutionProperty, ExecutionCallEvidence, ExecutionCandidate, ExecutionCandidates,
+    ExecutionCertification, ExecutionCompletionContract, ExecutionCompletionDependency,
+    ExecutionCondition, ExecutionDeclaration, ExecutionDependency, ExecutionDomain,
+    ExecutionObligation, ExecutionPlace, ExecutionProofFailure, ExecutionProperty,
+    check_execution_guarantees, check_execution_proof_dependencies, declared_execution_properties,
+    execution_conditions,
 };
 pub use expression::{NestedCallableEvidence, check_generic_arguments};
 pub use outcome::{CheckerOutcome, ControlFlowCheckResult};

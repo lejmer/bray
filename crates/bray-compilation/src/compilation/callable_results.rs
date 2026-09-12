@@ -593,9 +593,15 @@ fn callable_results_refine_cleanup_after_resolved_branches() {
         let lowered = compilation.lowered_unit(key).unwrap();
         let mir = lowered.value().as_ref().unwrap().mir().unwrap();
 
-        assert!(mir.blocks().iter().all(|block| {
-            !matches!(block.terminator().kind(), bray_ir::MirTerminatorKind::Return(None))
-        }), "{name}");
+        assert!(
+            mir.blocks().iter().all(|block| {
+                !matches!(
+                    block.terminator().kind(),
+                    bray_ir::MirTerminatorKind::Return(None)
+                )
+            }),
+            "{name}"
+        );
     }
 }
 

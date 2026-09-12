@@ -60,6 +60,17 @@ impl Compilation {
 
             if foreign.value().is_some() && !foreign.diagnostics().has_errors() {
                 let declared = self.execution_declaration(declaration.syntax_anchor())?;
+
+                // TODO(BRA-500): Preserve checked guard domains and provenance on opaque foreign assertions.
+                if declared
+                    .value()
+                    .domains()
+                    .iter()
+                    .any(|domain| !domain.guards.is_empty())
+                {
+                    continue;
+                }
+
                 checked_clauses.extend(declared.value().clauses().iter().copied());
                 diagnostics.add_range(declared.into_parts().1);
             }
@@ -118,8 +129,7 @@ impl Compilation {
 
 #[cfg(test)]
 mod tests {
-    use bray_diagnostics::{DiagnosticArg, DiagnosticKind};
-    use bray_syntax::SyntaxKind;
+    use bray_diagnostics::DiagnosticKind;
     use bray_testing::assert_goal_state_diagnostic_kind;
 
     use crate::WorkerBudget;
@@ -128,48 +138,25 @@ mod tests {
     #[test]
     fn conditional_guarantees_never_gain_trust_from_declaration_modifiers() {
         for modifier in ["", "const ", "trusted ", "async "] {
-            for (clause, keyword) in [
-                (
-                    "when(true) { ensures(false) executes(total) }",
-                    SyntaxKind::WhenKeyword,
-                ),
-                ("when(false) {}", SyntaxKind::WhenKeyword),
-            ] {
-                let source = format!(
-                    r#"
-                        trusted module app;
+            let source = format!(
+                r#"
+                trusted module app;
 
-                        {modifier}func check()
-                            {clause} {{}}
-                    "#
-                );
+                {modifier}func check()
+                    when(true)
+                    {{
+                        ensures(false)
+                        executes(total)
+                    }} {{}}
+            "#
+            );
 
-                let compilation = compilation(&source);
+            let compilation = compilation(&source);
 
-                assert!(compilation.syntax_tree_result().diagnostics().is_empty());
-
-                let diagnostics = compilation.check_diagnostics();
-
-                let rejections = diagnostics
-                    .iter()
-                    .filter(|diagnostic| {
-                        diagnostic.kind() == DiagnosticKind::CheckingExecutionGuaranteeUnsupported
-                    })
-                    .collect::<Vec<_>>();
-
-                assert_eq!(rejections.len(), 1, "{source}: {diagnostics:?}");
-                assert_eq!(diagnostics.len(), 1, "{source}: {diagnostics:?}");
-
-                assert_eq!(
-                    rejections[0].args(),
-                    &[DiagnosticArg::actual_syntax_kind(keyword)]
-                );
-
-                assert_goal_state_diagnostic_kind(
-                    diagnostics,
-                    DiagnosticKind::CheckingExecutionGuaranteeUnsupported,
-                );
-            }
+            assert_goal_state_diagnostic_kind(
+                compilation.check_diagnostics(),
+                DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+            );
         }
     }
 
@@ -211,32 +198,26 @@ mod tests {
     fn execution_guarantees_in_nested_and_bodyless_callables_are_rejected() {
         for declaration in [
             r#"
-                callable Action = func()
-                    executes(total);
+                func outer(pos flag: bool)
+                {
+                    let action = lambda(flag: bool)
+                        when(flag)
+                        {
+                            executes(total)
+                        }
+                    {
+                    };
+                }
             "#,
             r#"
-                func outer()
-                {
-                    let action = lambda()
-                        when(true)
-                        {
-                        } {};
-                }
+                callable Action = func()
+                    executes(total);
             "#,
             r#"
                 trait Resource
                 {
                     func requirement()
                         executes(pure);
-                }
-            "#,
-            r#"
-                struct Value
-                {
-                    finalize()
-                        when(true)
-                        {
-                        } {}
                 }
             "#,
             r#"

@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use super::ExecutionProperty;
+use super::ExecutionObligation;
 
 /// The reason a local candidate cannot supply certified execution evidence.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -8,15 +8,15 @@ pub enum ExecutionProofFailure<K> {
     /// A dependency has no locally checked implementation candidate.
     MissingCandidate(K),
     /// Normal termination depends on itself through selected calls or cleanup.
-    CircularTotal(K),
+    CircularCompletion(K),
 }
 
 /// Validates selected proof dependencies using the shared graph analysis.
-/// Pure recursion is allowed. Any cycle containing a total obligation is rejected.
+/// Pure recursion is allowed. Any cycle containing a total or completion obligation is rejected.
 /// Missing candidates invalidate all transitive consumers.
 pub fn check_execution_proof_dependencies<K: Copy + Ord>(
-    graph: &BTreeMap<(K, ExecutionProperty), BTreeSet<(K, ExecutionProperty)>>,
-) -> BTreeMap<(K, ExecutionProperty), ExecutionProofFailure<K>> {
+    graph: &BTreeMap<(K, ExecutionObligation), BTreeSet<(K, ExecutionObligation)>>,
+) -> BTreeMap<(K, ExecutionObligation), ExecutionProofFailure<K>> {
     let mut failures = BTreeMap::new();
     let mut reverse = BTreeMap::<_, BTreeSet<_>>::new();
 
@@ -36,13 +36,11 @@ pub fn check_execution_proof_dependencies<K: Copy + Ord>(
     for component in bray_base::strongly_connected_components(graph.keys().copied(), |key| {
         graph.get(&key).into_iter().flatten().copied()
     }) {
-        if let Some(total) = component
-            .iter()
-            .find(|key| key.1 == ExecutionProperty::Total)
+        if let Some(total) = component.iter().find(|key| key.1.requires_acyclic_proof())
             && (component.len() > 1 || graph.get(total).is_some_and(|deps| deps.contains(total)))
         {
             for key in &component {
-                failures.insert(*key, ExecutionProofFailure::CircularTotal(total.0));
+                failures.insert(*key, ExecutionProofFailure::CircularCompletion(total.0));
             }
         }
     }
@@ -68,25 +66,28 @@ pub fn check_execution_proof_dependencies<K: Copy + Ord>(
 #[cfg(test)]
 mod tests {
     use super::{ExecutionProofFailure, check_execution_proof_dependencies};
-    use crate::execution_guarantees::ExecutionProperty::{Pure, Total};
+    use crate::execution_guarantees::{ExecutionObligation, ExecutionProperty};
+    const PURE: ExecutionObligation = ExecutionObligation::Property(ExecutionProperty::Pure, None);
+    const TOTAL: ExecutionObligation =
+        ExecutionObligation::Property(ExecutionProperty::Total, None);
     use std::collections::{BTreeMap, BTreeSet};
 
     #[test]
     fn pure_recursion_is_independent_of_total_certification() {
         let graph = BTreeMap::from([
-            ((0, Pure), BTreeSet::from([(1, Pure)])),
-            ((1, Pure), BTreeSet::from([(0, Pure)])),
-            ((0, Total), BTreeSet::from([(1, Total)])),
-            ((1, Total), BTreeSet::from([(0, Total)])),
-            ((2, Total), BTreeSet::from([(1, Total)])),
+            ((0, PURE), BTreeSet::from([(1, PURE)])),
+            ((1, PURE), BTreeSet::from([(0, PURE)])),
+            ((0, TOTAL), BTreeSet::from([(1, TOTAL)])),
+            ((1, TOTAL), BTreeSet::from([(0, TOTAL)])),
+            ((2, TOTAL), BTreeSet::from([(1, TOTAL)])),
         ]);
 
         assert_eq!(
             check_execution_proof_dependencies(&graph),
             BTreeMap::from([
-                ((0, Total), ExecutionProofFailure::CircularTotal(0)),
-                ((1, Total), ExecutionProofFailure::CircularTotal(0)),
-                ((2, Total), ExecutionProofFailure::CircularTotal(0)),
+                ((0, TOTAL), ExecutionProofFailure::CircularCompletion(0)),
+                ((1, TOTAL), ExecutionProofFailure::CircularCompletion(0)),
+                ((2, TOTAL), ExecutionProofFailure::CircularCompletion(0)),
             ])
         );
     }
@@ -94,16 +95,16 @@ mod tests {
     #[test]
     fn missing_evidence_invalidates_transitive_consumers() {
         let graph = BTreeMap::from([
-            ((0, Pure), BTreeSet::from([(1, Pure)])),
-            ((1, Pure), BTreeSet::from([(2, Pure)])),
+            ((0, PURE), BTreeSet::from([(1, PURE)])),
+            ((1, PURE), BTreeSet::from([(2, PURE)])),
         ]);
 
         assert_eq!(
             check_execution_proof_dependencies(&graph),
             BTreeMap::from([
-                ((0, Pure), ExecutionProofFailure::MissingCandidate(2)),
-                ((1, Pure), ExecutionProofFailure::MissingCandidate(2)),
-                ((2, Pure), ExecutionProofFailure::MissingCandidate(2)),
+                ((0, PURE), ExecutionProofFailure::MissingCandidate(2)),
+                ((1, PURE), ExecutionProofFailure::MissingCandidate(2)),
+                ((2, PURE), ExecutionProofFailure::MissingCandidate(2)),
             ])
         );
     }

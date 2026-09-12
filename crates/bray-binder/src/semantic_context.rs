@@ -138,7 +138,9 @@ fn contract_clause_kind(
     let actual = unit.key().source().syntax().syntax_kind();
 
     match actual {
-        SyntaxKind::RequiresClause => Ok(CallableContractClauseKind::Requires),
+        SyntaxKind::RequiresClause | SyntaxKind::WhenClause => {
+            Ok(CallableContractClauseKind::Requires)
+        }
         SyntaxKind::EnsuresClause => Ok(CallableContractClauseKind::Ensures),
         SyntaxKind::WithClause => Ok(CallableContractClauseKind::Static),
         _ => Err(SemanticUnitContextError::InvalidContractClauseKind {

@@ -9,7 +9,7 @@ use super::floating::{fold_complex_binary, fold_real_binary};
 use super::integer::{from_big_integer, significant_bits, to_big_integer};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum ConstantOperationError {
+pub(crate) enum ConstantOperationError {
     Invalid,
     DivisionByZero,
     NotRepresentable,
@@ -77,7 +77,7 @@ pub(super) fn fold_unary(
     Ok(result)
 }
 
-pub(super) fn fold_binary(
+pub(crate) fn fold_binary(
     operator: BoundOperator,
     left: &ConstantValueKind,
     right: &ConstantValueKind,

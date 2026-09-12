@@ -1,10 +1,10 @@
 {
   "rule_families": [
     {
-      "name": "unconditional-execution-guarantees",
+      "name": "execution-guarantees",
       "production": ["check_execution_candidate", "check_execution_proof_dependencies"],
-      "diagnostic_source_tests": ["declarations_do_not_certify_effects_or_recursive_termination"],
-      "valid_source_tests": ["owned_and_local_destructors_participate_in_certification"],
+      "diagnostic_source_tests": ["declarations_do_not_certify_effects_or_recursive_termination", "recursive_completion_claims_cannot_certify_each_other"],
+      "valid_source_tests": ["owned_and_local_destructors_participate_in_certification", "nested_and_overlapping_groups_hold_independently_of_order", "field_mutation_preserves_only_disjoint_entry_facts", "completion_evidence_follows_the_returned_value_and_rejects_false_callee_promises"],
       "boundary_tests": ["opaque_foreign_assertions_retain_their_provenance"],
       "published": ["ExecutionCertification"]
     },
