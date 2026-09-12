@@ -266,10 +266,17 @@ fn bind_callable_contracts(
     let signature =
         context.resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(owner))?;
 
-    let (execution, trust) = match signature.value().callable_type() {
-        bray_symbols::TypeExpressionTemplate::Callable(callable) => {
-            (callable.execution(), callable.trust())
-        }
+    let (execution, trust, properties) = match signature.value().callable_type() {
+        bray_symbols::TypeExpressionTemplate::Callable(callable) => (
+            callable.execution(),
+            callable.trust(),
+            callable
+                .phase_behaviors()
+                .deferred_execution()
+                .unwrap_or_else(|| callable.phase_behaviors().invocation())
+                .execution_properties()
+                .to_vec(),
+        ),
         bray_symbols::TypeExpressionTemplate::Resolved(ty) => {
             let data = context
                 .semantic_values
@@ -277,7 +284,16 @@ fn bind_callable_contracts(
                 .map_err(crate::compilation::binder::semantic_value_binding_error)?;
 
             match &*data {
-                TypeData::Callable(callable) => (callable.execution(), callable.trust()),
+                TypeData::Callable(callable) => (
+                    callable.execution(),
+                    callable.trust(),
+                    callable
+                        .phase_behaviors()
+                        .deferred_execution()
+                        .unwrap_or_else(|| callable.phase_behaviors().invocation())
+                        .execution_properties()
+                        .to_vec(),
+                ),
                 _ => {
                     return Err(binding_contract(
                         SemanticQueryContext::Type(*ty),
@@ -333,6 +349,7 @@ fn bind_callable_contracts(
 
     let (invocation_behavior, deferred_execution_behavior) = callable_phase_behaviors(
         execution,
+        &properties,
         capabilities
             .value()
             .iter()
@@ -476,6 +493,7 @@ impl DeclaredTrustedCapability {
 
 fn callable_phase_behaviors(
     execution: CallableExecution,
+    properties: &[bray_symbols::ExecutionProperty],
     trusted_capabilities: impl IntoIterator<Item = TrustedCapabilityRequirement>,
     dependencies: DependencyContractTemplateId,
     declared_execution_requirements: impl IntoIterator<Item = CallableExecutionRequirement>,
@@ -515,7 +533,8 @@ fn callable_phase_behaviors(
         lifecycle_obligations,
         dependencies,
         current_run_cancellation,
-    );
+    )
+    .with_execution_properties(properties.iter().copied());
 
     match execution {
         CallableExecution::Synchronous => (body_behavior, None),

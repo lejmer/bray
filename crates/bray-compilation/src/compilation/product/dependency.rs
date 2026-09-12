@@ -617,6 +617,7 @@ fn push_conversion_dependencies(
             }
             ConversionTarget::Composite(children) => pending.extend(children.iter()),
             ConversionTarget::Identity
+            | ConversionTarget::CallableContract
             | ConversionTarget::NullablePresent
             | ConversionTarget::BuiltInScalar
             | ConversionTarget::CVariadicPromotion => {}

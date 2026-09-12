@@ -1115,6 +1115,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             },
             5 => ConversionTarget::CVariadicPromotion,
             6 => ConversionTarget::NullablePresent,
+            7 => ConversionTarget::CallableContract,
             _ => return Err(ExecutableTemplateDecodeError::Malformed),
         };
 

@@ -200,7 +200,7 @@ impl Parser {
         at_boundary(self)
             || at_primary_hard_boundary(kind)
             || kind == SyntaxKind::CommaToken
-            || at_infix_operator(kind)
+            || (at_infix_operator(kind) && !self.should_parse_explicit_generic_application())
     }
 
     pub(in crate::parser::expression) fn at_struct_field_initializer_boundary(&mut self) -> bool {

@@ -66,7 +66,7 @@ impl Compilation {
             });
 
             for (obligation, source) in properties.chain(postconditions) {
-                let (failure, assertions) = self.certify_execution_obligation(
+                let (failure, assertions, dependencies) = self.certify_execution_obligation(
                     root,
                     obligation,
                     &mut diagnostics,
@@ -91,6 +91,7 @@ impl Compilation {
                 }
 
                 certified.foreign_assertions.extend(assertions);
+                certified.dependencies.extend(dependencies);
             }
         }
 
@@ -107,11 +108,13 @@ impl Compilation {
         (
             Option<(SourceSpan, bool)>,
             BTreeSet<(SyntaxAnchor, bray_checker::ExecutionProperty)>,
+            BTreeSet<(SyntaxAnchor, BoundCallableTarget, ExecutionObligation)>,
         ),
         FactQueryError,
     > {
         let mut graph = BTreeMap::new();
         let mut assertions = BTreeSet::new();
+        let mut selected_dependencies = BTreeSet::new();
         let mut visited = BTreeSet::new();
 
         // The traversal retains each immutable unit identity until its dependencies are checked.
@@ -177,6 +180,24 @@ impl Compilation {
             let mut valid = true;
 
             for (target, required, node) in execution.chain(completion) {
+                if let BoundCallableTarget::Indirect(ty) = target {
+                    let ty = self
+                        .semantic_value_store()?
+                        .type_data(ty)
+                        .map_err(FactQueryError::SemanticValueStore)?;
+
+                    // An opaque target can carry purity. Its unknown call graph cannot establish
+                    // a new termination proof or a completion predicate.
+                    valid &= matches!(ty.as_ref(), bray_symbols::TypeData::Callable(callable)
+                        if required == ExecutionObligation::Property(bray_checker::ExecutionProperty::Pure, None)
+                            && callable.phase_behaviors().invocation().execution_properties()
+                                .contains(&bray_checker::ExecutionProperty::Pure));
+
+                    selected_dependencies.insert((proof_key.0, target, required));
+
+                    continue;
+                }
+
                 let BoundCallableTarget::Declaration(callable) = target else {
                     valid = false;
                     continue;
@@ -224,6 +245,7 @@ impl Compilation {
                     };
 
                     if let Some(selected) = selected {
+                        selected_dependencies.insert((proof_key.0, target, selected));
                         dependencies.insert((anchor, selected));
                         pending.push((body, selected));
                     } else {
@@ -248,6 +270,7 @@ impl Compilation {
                             .iter()
                             .any(|declared| declared.property == property)
                     {
+                        selected_dependencies.insert((proof_key.0, target, required));
                         dependencies.insert((anchor, required));
                         graph.insert((anchor, required), BTreeSet::new());
                         assertions.insert((anchor, property));
@@ -281,11 +304,11 @@ impl Compilation {
             failure.get_or_insert((source_span(root_key.0), false));
         }
 
-        Ok((failure, assertions))
+        Ok((failure, assertions, selected_dependencies))
     }
 }
 
-fn guarantee_diagnostic(
+pub(super) fn guarantee_diagnostic(
     obligation: ExecutionObligation,
     source: SourceSpan,
     cause: SourceSpan,

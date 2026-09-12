@@ -97,6 +97,7 @@ pub(crate) fn expression_condition(
                 let value = if matches!(
                     conversion.target(),
                     bray_bound_tree::ConversionTarget::Identity
+                        | bray_bound_tree::ConversionTarget::CallableContract
                 ) {
                     expression_condition(
                         unit,

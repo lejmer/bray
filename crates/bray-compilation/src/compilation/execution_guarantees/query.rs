@@ -246,6 +246,48 @@ mod tests {
     use bray_diagnostics::DiagnosticKind;
 
     #[test]
+    fn certified_dependencies_preserve_selected_generic_arguments() {
+        let compilation = compilation(
+            r#"
+            module app;
+            func helper<T>() -> bool executes(total) { return true; }
+            func root() -> bool executes(total) { return helper<bool>(); }
+        "#,
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+
+        let proof = compilation
+            .execution_properties(source_function_body_key(&compilation, "root"))
+            .unwrap();
+
+        let values = compilation.semantic_value_store().unwrap();
+
+        assert!(
+            proof
+                .value()
+                .dependencies
+                .iter()
+                .any(|(_, target, obligation)| {
+                    let bray_bound_tree::BoundCallableTarget::Declaration(instance) = target else {
+                        return false;
+                    };
+                    *obligation == bray_checker::ExecutionObligation::Property(Total, None)
+                        && values
+                            .generic_substitution_data(instance.substitution())
+                            .unwrap()
+                            .bindings()
+                            .len()
+                            == 1
+                })
+        );
+    }
+
+    #[test]
     fn unconditional_execution_properties_check_source_bodies() {
         let compilation = compilation(
             r#"

@@ -140,6 +140,9 @@ where
         let Some(operand) = self.term_value(operand)? else {
             return match conversion.target() {
                 ConversionTarget::Identity => Ok(operand),
+                ConversionTarget::CallableContract => {
+                    Err(EvaluationFailure::invalid_expression(expression))
+                }
                 ConversionTarget::NullablePresent => {
                     self.intern_typed_term(ty, ConstantTermData::NullablePresent(operand))
                 }

@@ -33,6 +33,14 @@ where
         )));
     }
 
+    if callable_contract_conversion_is_valid(request.semantic_values(), source, target)? {
+        return Ok(Some(SelectedConversion::new(
+            source,
+            target,
+            ConversionTarget::CallableContract,
+        )));
+    }
+
     if scalar_conversion_is_valid(request, source, target)? {
         return Ok(Some(SelectedConversion::new(
             source,
@@ -77,6 +85,9 @@ where
 
         let is_valid = match conversion.target() {
             ConversionTarget::Identity => source == target,
+            ConversionTarget::CallableContract => {
+                callable_contract_conversion_is_valid(request.semantic_values(), source, target)?
+            }
             ConversionTarget::NullablePresent => {
                 let target = request
                     .semantic_values()
@@ -115,6 +126,59 @@ where
     }
 
     Ok(true)
+}
+
+/// Checks whether a callable conversion preserves the signature and cannot invent a promise.
+/// The supplied callable's implementation must independently pass execution certification.
+pub fn callable_contract_conversion_is_valid(
+    values: &bray_symbols::SemanticValueStore,
+    source: TypeId,
+    target: TypeId,
+) -> Result<bool, CheckerInfrastructureError> {
+    let source = values
+        .type_data(source)
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+
+    let target = values
+        .type_data(target)
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+
+    let (TypeData::Callable(source), TypeData::Callable(target)) =
+        (source.as_ref(), target.as_ref())
+    else {
+        return Ok(false);
+    };
+
+    Ok(source.parameters() == target.parameters()
+        && source.is_variadic() == target.is_variadic()
+        && source.result() == target.result()
+        && source.constness() == target.constness()
+        && source.trust() == target.trust()
+        && source.abi() == target.abi()
+        && phase_contract_is_compatible(
+            source.phase_behaviors().invocation(),
+            target.phase_behaviors().invocation(),
+        )
+        && match (
+            source.phase_behaviors().deferred_execution(),
+            target.phase_behaviors().deferred_execution(),
+        ) {
+            (Some(source), Some(target)) => phase_contract_is_compatible(source, target),
+            (None, None) => true,
+            _ => false,
+        })
+}
+
+fn phase_contract_is_compatible(
+    source: &bray_symbols::CallablePhaseBehavior,
+    target: &bray_symbols::CallablePhaseBehavior,
+) -> bool {
+    // Removing promises compares the same immutable phase contracts without widening obligations.
+    source.clone().with_execution_properties([]) == target.clone().with_execution_properties([])
+        && target
+            .execution_properties()
+            .iter()
+            .all(|property| source.execution_properties().contains(property))
 }
 
 fn scalar_conversion_is_valid<C>(
@@ -367,6 +431,7 @@ pub(super) const fn is_builtin_conversion(operation: &SelectedOperation) -> bool
     matches!(
         conversion.target(),
         ConversionTarget::Identity
+            | ConversionTarget::CallableContract
             | ConversionTarget::NullablePresent
             | ConversionTarget::BuiltInScalar
             | ConversionTarget::CVariadicPromotion

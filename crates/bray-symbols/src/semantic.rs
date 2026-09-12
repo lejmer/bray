@@ -5,6 +5,7 @@ mod contract;
 mod default;
 mod directive;
 mod execution;
+mod execution_property;
 mod foreign;
 mod implementation;
 mod module;
@@ -67,6 +68,7 @@ pub use execution::{
     CallableCapabilityRequirement, CallableEffectRequirement, CallableExecutionRequirement,
     CallablePhaseBehavior, CallablePhaseBehaviors, CurrentRunCancellation,
 };
+pub use execution_property::ExecutionProperty;
 pub use foreign::{
     ForeignCallableContract, ForeignCallableDirection, ForeignStaticContract, NativeLinkKind,
     NativeLinkRequirement, NativeSymbolBinding, NativeSymbolContract, NativeSymbolIdentity,

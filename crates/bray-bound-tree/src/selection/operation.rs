@@ -426,6 +426,8 @@ impl SelectedConstruction {
 pub enum ConversionTarget {
     /// Source and target are the same semantic type.
     Identity,
+    /// A representation-preserving callable conversion that only forgets guarantees.
+    CallableContract,
     /// A value initializes the present state of its nullable target type.
     NullablePresent,
     /// A compiler-defined total value-preserving scalar conversion.
@@ -747,6 +749,7 @@ fn conversion_witnesses(conversion: &SelectedConversion) -> Vec<SelectedImplemen
         } => witnesses.push(SelectedImplementationWitness::new(*requirement, *witness)),
         ConversionTarget::Composite(_) => {}
         ConversionTarget::Identity
+        | ConversionTarget::CallableContract
         | ConversionTarget::NullablePresent
         | ConversionTarget::BuiltInScalar
         | ConversionTarget::CVariadicPromotion

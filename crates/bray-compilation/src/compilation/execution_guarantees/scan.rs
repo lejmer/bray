@@ -48,6 +48,44 @@ impl Compilation {
         }
 
         for declaration in source_graph.declarations().declarations() {
+            if let Some(symbol) = self
+                .symbol_graph()?
+                .symbol_for_declaration(declaration.id())
+                && matches!(
+                    self.symbol_graph()?.containing_symbol(symbol),
+                    Some(bray_symbols::AnySymbolId::Trait(_))
+                )
+                && let Some(owner) = self.execution_contract_owner(symbol)?
+            {
+                let declared = self.execution_declaration(declaration.syntax_anchor())?;
+                diagnostics.add_range(declared.diagnostics().iter().cloned());
+
+                for domain in declared.value().domains() {
+                    let anchors = declared
+                        .value()
+                        .requirements()
+                        .iter()
+                        .chain(&domain.guards)
+                        .copied()
+                        .collect::<Vec<_>>();
+
+                    let conditions =
+                        self.execution_condition_inputs(&owner, &anchors, cancellation)?;
+
+                    diagnostics.add_range(conditions.into_parts().1);
+
+                    let posts = self.execution_condition_inputs(
+                        &owner,
+                        &domain.postconditions,
+                        cancellation,
+                    )?;
+
+                    diagnostics.add_range(posts.into_parts().1);
+                }
+
+                checked_clauses.extend(declared.value().clauses().iter().copied());
+            }
+
             let Some(bray_symbols::AnySymbolId::Function(function)) = self
                 .symbol_graph()?
                 .symbol_for_declaration(declaration.id())
@@ -94,6 +132,9 @@ impl Compilation {
         checked_clauses: &std::collections::BTreeSet<SyntaxAnchor>,
     ) -> DiagnosticBag {
         let mut diagnostics = DiagnosticBag::new();
+
+        // Source roots share the completed declaration set and add independently checked callable types.
+        let mut checked_clauses = checked_clauses.clone();
         let declarations = source_graph.declarations();
 
         let roots: HashSet<_> = declarations
@@ -112,6 +153,10 @@ impl Compilation {
             if let SyntaxWalkEvent::EnterNode(node) = event
                 && roots.contains(&SyntaxAnchor::from_node(&node))
             {
+                if self.state.package_interface_export.is_none() {
+                    check_callable_type_clauses(&node, &mut checked_clauses, &mut diagnostics);
+                }
+
                 diagnostics.add_range(bray_checker::check_execution_guarantees(
                     &node,
                     &checked_clauses,
@@ -125,6 +170,41 @@ impl Compilation {
 
         diagnostics
     }
+}
+
+fn check_callable_type_clauses(
+    root: &impl bray_syntax::SyntaxWalkRoot,
+    checked: &mut std::collections::BTreeSet<SyntaxAnchor>,
+    diagnostics: &mut DiagnosticBag,
+) {
+    bray_syntax::walk_syntax_node(root, |event| {
+        let SyntaxWalkEvent::EnterNode(node) = event else {
+            return SyntaxWalkControl::Continue;
+        };
+
+        if node.kind() != bray_syntax::SyntaxKind::TypeExpression
+            || !node
+                .tokens()
+                .any(|token| token.kind() == bray_syntax::SyntaxKind::FuncKeyword)
+        {
+            return SyntaxWalkControl::Continue;
+        }
+
+        let declared = bray_checker::declared_execution_properties(node);
+
+        if !declared.value().has_requirements()
+            && declared
+                .value()
+                .domains()
+                .iter()
+                .all(|domain| domain.guards.is_empty() && domain.postconditions.is_empty())
+        {
+            checked.extend(declared.value().clauses().iter().copied());
+            diagnostics.add_range(declared.into_parts().1);
+        }
+
+        SyntaxWalkControl::Continue
+    });
 }
 
 #[cfg(test)]
@@ -210,18 +290,11 @@ mod tests {
                 }
             "#,
             r#"
-                callable Action = func()
+                callable Action = func() requires(true)
                     executes(total);
             "#,
             r#"
-                trait Resource
-                {
-                    func requirement()
-                        executes(pure);
-                }
-            "#,
-            r#"
-                func higher_order(action: func()
+                func higher_order(action: func() requires(true)
                         executes(pure)
                     ) {}
             "#,

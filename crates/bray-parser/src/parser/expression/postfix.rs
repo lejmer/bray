@@ -352,6 +352,36 @@ mod tests {
     }
 
     #[test]
+    fn conversion_targets_preserve_generic_arguments_and_comparison_boundaries() {
+        for (text, target) in [
+            ("action as Plain<bool>;", "Plain<bool>"),
+            ("action as Plain<Box<bool>>;", "Plain<Box<bool>>"),
+            ("value as i32 < other;", "i32"),
+        ] {
+            let sources = source_store([text]);
+            let snapshot = source(&sources, 0);
+            let mut parser = Parser::new(snapshot);
+            let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::SemicolonToken);
+            let expression = parser.parse_expression_until(&mut boundary);
+            let diagnostics = parser.finish();
+            let mut targets = Vec::new();
+
+            bray_syntax::walk_syntax_node(&expression, |event| {
+                if let bray_syntax::SyntaxWalkEvent::EnterNode(node) = event
+                    && let Some(conversion) = node.cast::<bray_syntax::ConversionOperationSyntax>()
+                {
+                    targets.push(conversion.type_expression().full_text().trim().to_owned());
+                }
+
+                bray_syntax::SyntaxWalkControl::Continue
+            });
+
+            assert_eq!(targets, [target], "{text}");
+            assert!(diagnostics.is_empty(), "{text}: {diagnostics:?}");
+        }
+    }
+
+    #[test]
     fn parser_parses_trait_qualified_member_postfix() {
         let sources = source_store(["target(Display).format;"]);
         let snapshot = source(&sources, 0);

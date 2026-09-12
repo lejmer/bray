@@ -9,7 +9,7 @@ use bray_bound_tree::{
 };
 use bray_checker::{
     ImplementationSelectionEvidence, OperationCandidate, OperationCandidateState,
-    resolve_callable_signature_template, resolve_type_expression_template,
+    resolve_type_expression_template,
 };
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticLabel,
@@ -19,8 +19,8 @@ use bray_source::SourceSpan;
 use bray_symbols::{
     AnySymbolId, BorrowKind, CallableDefinitionId, CallableInstanceData,
     CallableParameterDefaultProviderSymbolId, CallableParameterDefaultTemplateQuery,
-    CallableParameterSymbolId, CallableSignature, CallableSignatureQuery, CheckedConstraintKind,
-    ExactSymbolId, GenericDeclarationTemplateQuery, GenericOwnerId, ImplementationSelection,
+    CallableParameterSymbolId, CallableSignature, CheckedConstraintKind, ExactSymbolId,
+    GenericDeclarationTemplateQuery, GenericOwnerId, ImplementationSelection,
     ImplementationSubjectQuery, MemberLookupResult, NamedTypeSymbolId, SelfTypeContext,
     StructFieldTypeQuery, SymbolQueryContract, SymbolQueryRequest, TraitApplicationId,
     TraitCallableMemberSymbolId, TraitConstraintDispatch, TypeAssociatedMemberOrigin, TypeData,
@@ -585,7 +585,7 @@ impl Compilation {
         let selected = selected.instance();
 
         let callable =
-            self.resolve_callable_instance_signature(binding_context, selected, diagnostics)?;
+            self.resolved_callable_instance_member(binding_context, selected, diagnostics)?;
 
         let Some(mut callable) = callable else {
             return Ok(None);
@@ -1277,49 +1277,27 @@ impl Compilation {
         let substitution =
             substitution_for_owner(binding_context.semantic_values(), member, substitutions)?;
 
-        self.resolve_callable_instance_signature(
+        self.resolved_callable_instance_member(
             binding_context,
             CallableInstanceData::new(definition, substitution),
             diagnostics,
         )
     }
 
-    fn resolve_callable_instance_signature(
+    fn resolved_callable_instance_member(
         &self,
         binding_context: &CompilationBindingContext<'_>,
         instance: CallableInstanceData,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<ResolvedCallableMember>, FactQueryError> {
-        let callable = instance.definition().callable_symbol();
-
-        let result = binding_context
-            .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(callable))
-            .map_err(binding_query_error)?;
-
-        *diagnostics = diagnostics.merged(result.diagnostics());
-
-        let checked = self.checked_constant_terms_for_templates_with_cancellation(
-            [result.value().callable_type(), result.value().result()],
-            binding_context.cancellation(),
-        )?;
-
-        *diagnostics = diagnostics.merged(checked.diagnostics());
-
-        let signature = resolve_callable_signature_template(
-            binding_context.semantic_values(),
-            result.value(),
-            instance.substitution(),
-            checked.value(),
-        )
-        .map_err(FactQueryError::from)?;
-
-        Ok(signature.map(|signature| ResolvedCallableMember {
-            signature,
-            instance,
-            template: None,
-        }))
+        Ok(self
+            .resolve_callable_instance_signature(binding_context, instance, diagnostics)?
+            .map(|signature| ResolvedCallableMember {
+                signature,
+                instance,
+                template: None,
+            }))
     }
-
     pub(super) fn resolve_member_type<'binding_context, F>(
         &self,
         binding_context: &CompilationBindingContext<'binding_context>,

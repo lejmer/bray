@@ -56,6 +56,7 @@ pub(crate) fn execution_cleanup_dependencies<C: CheckerRequestContext + ?Sized>(
 
         match data.as_ref() {
             TypeData::Borrow { .. }
+            | TypeData::Callable(_)
             | TypeData::TraitView(_)
             | TypeData::Slice(_)
             | TypeData::FlexibleArray(_) => {}
@@ -180,8 +181,7 @@ pub(crate) fn execution_cleanup_dependencies<C: CheckerRequestContext + ?Sized>(
             | TypeData::TypeParameter(_)
             | TypeData::ContextualSelf(_)
             | TypeData::TypeValuedMemberProjection { .. }
-            | TypeData::Generator(_)
-            | TypeData::Callable(_) => valid = false,
+            | TypeData::Generator(_) => valid = false,
         }
     }
 

@@ -682,7 +682,7 @@ mod tests {
         "        clobbers = \"\",\n",
         "        features = \"\",\n",
         "        options = 1,\n",
-        "        inputs = (value, value, 7),\n",
+        "        inputs = (value, if value == 0 { yield 1; } else { yield value; }, 7),\n",
         "    );\n",
         "\n",
         "    return outputs.0;\n",
@@ -1602,6 +1602,30 @@ mod tests {
             generated_artifacts(&backend, &plan)
                 .iter()
                 .all(|artifact| !artifact.is_empty())
+        );
+    }
+
+    #[test]
+    fn weakened_callable_execution_contract_emits_native_units() {
+        assert_source_emits_valid_native_units(
+            r#"
+                module app;
+                callable Strong = func() -> bool executes(pure, total);
+                callable Plain = func() -> bool;
+
+                func supplied() -> bool executes(pure, total)
+                {
+                    return true;
+                }
+
+                public func root() -> bool
+                {
+                    let provided: Strong = supplied;
+                    let weakened = provided as Plain;
+                    return weakened();
+                }
+            "#,
+            crate::BuildConfiguration::Development,
         );
     }
 

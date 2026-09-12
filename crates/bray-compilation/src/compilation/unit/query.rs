@@ -409,6 +409,7 @@ impl Compilation {
             key,
             cancellation,
             bound.result().value(),
+            &types,
             &semantic_context,
             &context,
         )?;

@@ -239,6 +239,7 @@ pub(crate) fn collect_conversion_behavior(
         }
         ConversionTarget::Composite(_) => {}
         ConversionTarget::Identity
+        | ConversionTarget::CallableContract
         | ConversionTarget::NullablePresent
         | ConversionTarget::BuiltInScalar
         | ConversionTarget::CVariadicPromotion => {}

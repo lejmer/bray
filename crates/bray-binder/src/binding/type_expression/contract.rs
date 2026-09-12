@@ -54,8 +54,9 @@ impl TypeParameterBinding {
 }
 
 /// Caller-visible callable type qualifiers derived from declaration modifiers.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CallableTypeQualifiers {
+    pub(super) execution_properties: std::collections::BTreeSet<bray_symbols::ExecutionProperty>,
     pub(super) constness: CallableConstness,
     pub(super) execution: CallableExecution,
     pub(super) trust: CallableTrust,
@@ -73,12 +74,23 @@ impl CallableTypeQualifiers {
         receiver_mode: Option<ReceiverMode>,
     ) -> Self {
         Self {
+            execution_properties: std::collections::BTreeSet::new(),
             constness,
             execution,
             trust,
             abi,
             receiver_mode,
         }
+    }
+
+    /// Retains declared execution promises for later implementation checking.
+    pub fn with_execution_properties(
+        mut self,
+        properties: impl IntoIterator<Item = bray_symbols::ExecutionProperty>,
+    ) -> Self {
+        self.execution_properties = properties.into_iter().collect();
+
+        self
     }
 
     /// Returns ordinary safe synchronous runtime qualifiers.

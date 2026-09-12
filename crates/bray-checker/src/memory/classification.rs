@@ -590,6 +590,33 @@ where
         return Ok(false);
     }
 
+    if hook == ImplementationHook::CallableFromPointer
+        && let bray_symbols::TypeData::Callable(callable) = data.as_ref()
+        && let Some(property) = callable
+            .phase_behaviors()
+            .invocation()
+            .execution_properties()
+            .first()
+    {
+        diagnostics.add(
+            Diagnostic::new(
+                crate::diagnostic::diagnostic_id(diagnostics.len()),
+                DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                SeverityKind::Error,
+            )
+            .with_primary_span(span)
+            .with_label(DiagnosticLabel::primary(
+                DiagnosticLabelKind::ExecutionGuaranteeFailure,
+                span,
+            ))
+            .with_arg(bray_diagnostics::DiagnosticArg::referenced_name(
+                property.as_str(),
+            )),
+        );
+
+        return Ok(false);
+    }
+
     if !request
         .selected_target()
         .properties()
@@ -1051,6 +1078,51 @@ mod tests {
                 &diagnostics,
                 DiagnosticKind::CheckingMemoryPointeeTypeUnsupported,
             );
+        });
+    }
+
+    #[test]
+    fn raw_pointers_cannot_supply_execution_evidence() {
+        with_request(|request| {
+            for property in [
+                bray_symbols::ExecutionProperty::Pure,
+                bray_symbols::ExecutionProperty::Total,
+            ] {
+                let phases = crate::test_support::empty_callable_phase_behaviors()
+                    .with_execution_properties([property]);
+
+                let callable = bray_symbols::CallableTypeData::new(
+                    [],
+                    error_type(),
+                    bray_symbols::CallableConstness::Runtime,
+                    bray_symbols::CallableTrust::Safe,
+                    bray_symbols::CallableAbi::C,
+                    phases.dependency_contracts(),
+                )
+                .with_phase_behaviors(phases);
+
+                let ty = semantic_values()
+                    .intern_type(TypeData::Callable(callable))
+                    .unwrap_or_else(|error| panic!("callable must intern: {error:?}"));
+
+                let mut diagnostics = DiagnosticBag::new();
+
+                let operation = classify_operation(
+                    request,
+                    ImplementationHook::CallableFromPointer,
+                    &[GenericArgument::Type(ty)],
+                    first_expression(request),
+                    &mut BTreeMap::new(),
+                    &mut diagnostics,
+                );
+
+                assert_eq!(operation, Ok(None));
+
+                assert_goal_state_diagnostic_kind(
+                    &diagnostics,
+                    DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                );
+            }
         });
     }
 

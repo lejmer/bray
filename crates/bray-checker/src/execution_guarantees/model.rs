@@ -1,33 +1,7 @@
 use bray_bound_tree::{AnyBoundNodeId, BoundCallableTarget};
 use bray_source::SourceSpan;
 
-/// An independent property of ordinary callable execution.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum ExecutionProperty {
-    /// Execution has no runtime effects, including cleanup effects.
-    Pure,
-    /// Execution and cleanup terminate normally on valid inputs.
-    Total,
-}
-
-impl ExecutionProperty {
-    /// Resolves a language execution property name.
-    pub fn from_name(name: &str) -> Option<Self> {
-        match name {
-            "pure" => Some(Self::Pure),
-            "total" => Some(Self::Total),
-            _ => None,
-        }
-    }
-
-    /// Returns the property's source spelling.
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Pure => "pure",
-            Self::Total => "total",
-        }
-    }
-}
+use bray_symbols::ExecutionProperty;
 
 /// A declaration creates an obligation without certifying its implementation.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -122,6 +96,12 @@ impl ExecutionCandidate {
 /// Foreign assertions retain their source identity and never represent checked Bray bodies.
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct ExecutionCertification {
+    /// Selected obligations used by successful proofs, retaining source and generic identities.
+    pub dependencies: std::collections::BTreeSet<(
+        bray_declarations::SyntaxAnchor,
+        BoundCallableTarget,
+        ExecutionObligation,
+    )>,
     /// Certified properties restricted to their declared entry domains.
     pub guarded_properties: std::collections::BTreeSet<(SourceSpan, ExecutionProperty)>,
     /// Certified predicates on normal completion.

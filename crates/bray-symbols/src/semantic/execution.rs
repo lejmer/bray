@@ -51,9 +51,10 @@ define_callable_requirement!(
     "One checked execution-lane predicate required by a callable contract phase."
 );
 
-/// Complete checked behavior of one callable contract phase.
+/// Caller-visible behavior and execution promises of one callable contract phase.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CallablePhaseBehavior {
+    execution_properties: Arc<[super::ExecutionProperty]>,
     effects: Arc<[CallableEffectRequirement]>,
     capabilities: Arc<[CallableCapabilityRequirement]>,
     trusted_capabilities: Arc<[TrustedCapabilityRequirement]>,
@@ -75,6 +76,7 @@ impl CallablePhaseBehavior {
         current_run_cancellation: CurrentRunCancellation,
     ) -> Self {
         Self {
+            execution_properties: Arc::new([]),
             effects: sorted_unique_shared_slice(effects),
             capabilities: sorted_unique_shared_slice(capabilities),
             trusted_capabilities: sorted_unique_shared_slice(trusted_capabilities),
@@ -83,6 +85,21 @@ impl CallablePhaseBehavior {
             dependency_contract,
             current_run_cancellation,
         }
+    }
+
+    /// Attaches execution promises that supplied implementations must establish separately.
+    pub fn with_execution_properties(
+        mut self,
+        properties: impl IntoIterator<Item = super::ExecutionProperty>,
+    ) -> Self {
+        self.execution_properties = sorted_unique_shared_slice(properties);
+
+        self
+    }
+
+    /// Returns the execution promises on this phase's valid input domain.
+    pub fn execution_properties(&self) -> &[super::ExecutionProperty] {
+        &self.execution_properties
     }
 
     /// Creates behavior with no requirements other than its dependency template.
@@ -152,6 +169,21 @@ pub struct CallablePhaseBehaviors {
 }
 
 impl CallablePhaseBehaviors {
+    /// Attaches promises to ordinary body execution, including deferred async execution.
+    pub fn with_execution_properties(
+        mut self,
+        properties: impl IntoIterator<Item = super::ExecutionProperty>,
+    ) -> Self {
+        let body = self
+            .deferred_execution
+            .as_mut()
+            .unwrap_or(&mut self.invocation);
+
+        Arc::make_mut(body).execution_properties = sorted_unique_shared_slice(properties);
+
+        self
+    }
+
     /// Creates behavior for an immediately executing callable.
     pub fn synchronous(invocation: CallablePhaseBehavior) -> Self {
         Self {
