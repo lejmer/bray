@@ -468,6 +468,8 @@ define_diagnostic_kinds! {
     /// A variadic callable does not satisfy the language's foreign boundary shape.
     CheckingVariadicCallableContractUnsupported,
     /// An execution guarantee cannot yet be verified.
+    // TODO(BRA-497): Stop emitting this diagnostic for conditional guarantee groups once checked.
+    // TODO(BRA-500): Remove this temporary diagnostic when remaining guarantee forms are supported.
     CheckingExecutionGuaranteeUnsupported,
     /// An execution property name is outside the language vocabulary.
     CheckingUnknownExecutionProperty,
