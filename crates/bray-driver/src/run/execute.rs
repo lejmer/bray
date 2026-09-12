@@ -661,7 +661,7 @@ mod tests {
 
     #[test]
     fn malformed_compiler_request_returns_structured_json() {
-        let request = TemporaryFile::write("request.json", b"{");
+        let request = TemporaryFile::write("request.json", b"[");
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
 

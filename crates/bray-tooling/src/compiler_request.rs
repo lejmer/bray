@@ -5,40 +5,30 @@ use bray_diagnostics::{
     DiagnosticDocumentParseKind, DiagnosticIoErrorKind, DiagnosticProjectCommandFailure,
     DiagnosticProjectOperation,
 };
-use serde::{Deserialize, Serialize};
 
 /// Process argument selecting a compiler request file. It must be the only argument pair.
 pub const COMPILER_REQUEST_ARGUMENT: &str = "--compiler-request";
-
-#[derive(Serialize, Deserialize)]
-enum CompilerRequest<T> {
-    V1(T),
-}
 
 /// Writes ordered compiler arguments without converting native paths to Unicode.
 pub fn write_compiler_request(
     path: &Path,
     arguments: &[OsString],
 ) -> Result<(), DiagnosticProjectCommandFailure> {
-    let bytes = serde_json::to_vec(&CompilerRequest::V1(arguments)).map_err(|error| {
+    let bytes = serde_json::to_vec(arguments).map_err(|error| {
         document_failure(path, DiagnosticDocumentParseKind::Serialization, error)
     })?;
 
     std::fs::write(path, bytes).map_err(|error| io_failure(path, error))
 }
 
-/// Reads a versioned compiler request, preserving argument order and native path encoding.
+/// Reads compiler arguments, preserving their order and native path encoding.
 pub fn read_compiler_request(
     path: &Path,
 ) -> Result<Vec<OsString>, DiagnosticProjectCommandFailure> {
     let bytes = std::fs::read(path).map_err(|error| io_failure(path, error))?;
 
-    let CompilerRequest::V1(arguments) =
-        serde_json::from_slice(&bytes).map_err(|error: serde_json::Error| {
-            document_failure(path, error.classify().into(), error)
-        })?;
-
-    Ok(arguments)
+    serde_json::from_slice(&bytes)
+        .map_err(|error: serde_json::Error| document_failure(path, error.classify().into(), error))
 }
 
 fn io_failure(path: &Path, error: std::io::Error) -> DiagnosticProjectCommandFailure {
@@ -96,15 +86,15 @@ mod tests {
     }
 
     #[test]
-    fn malformed_and_unknown_versions_preserve_document_causes() {
+    fn malformed_requests_preserve_document_causes() {
         use bray_diagnostics::{DiagnosticDocumentParseKind, DiagnosticProjectCommandFailure};
 
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("request.json");
 
         for (bytes, expected) in [
-            ("{", DiagnosticDocumentParseKind::UnexpectedEnd),
-            ("{\"V2\":[]}", DiagnosticDocumentParseKind::Schema),
+            ("[", DiagnosticDocumentParseKind::UnexpectedEnd),
+            ("{}", DiagnosticDocumentParseKind::Schema),
         ] {
             std::fs::write(&path, bytes).unwrap();
 
