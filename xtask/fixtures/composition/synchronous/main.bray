@@ -14,6 +14,7 @@ func run()
     assert(match_result(false));
     assert(!caught_cleanup_result());
     assert(transferred_cleanup_result());
+    assert(nested_cleanup_result());
 }
 
 struct PanickingGuard
@@ -84,7 +85,18 @@ func transfer_packet(pos value: GuardPacket) -> PanickingGuard
     {
         let packet = value;
 
-        return packet.guard;
+        let guard = if true
+        {
+            yield packet.guard;
+        }
+        else
+        {
+            yield PanickingGuard
+            {
+            };
+        };
+
+        return guard;
     };
 }
 
@@ -140,5 +152,66 @@ func replace_owner()
 
     owner = TotalOwner
     {
+    };
+}
+
+func nested_cleanup_result() -> bool
+{
+    let mut transferred = false;
+
+    let result = catch
+    {
+        let guards = nested_transfer(
+            GuardPacket
+            {
+                guard = PanickingGuard
+                {
+                },
+                flag = true,
+            }
+        );
+
+        transferred = guards matches Ok(_);
+    };
+
+    return transferred;
+}
+
+func nested_transfer(pos value: GuardPacket) -> Result<(PanickingGuard, PanickingGuard), PanicReport>
+{
+    let outer = catch
+    {
+        let packet = value;
+
+        let inner = catch
+        {
+            let first =
+            {
+                let source = GuardPacket
+                {
+                    guard = PanickingGuard
+                    {
+                    },
+                    flag = false,
+                };
+
+                let taken = if true
+                {
+                    yield source.guard;
+                }
+                else
+                {
+                    yield PanickingGuard
+                    {
+                    };
+                };
+
+                yield taken;
+            };
+
+            yield(first, packet.guard);
+        };
+
+        return inner;
     };
 }

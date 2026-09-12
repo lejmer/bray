@@ -6,6 +6,32 @@ use super::build::ControlFlowGraphBuilder;
 use super::id::AnalysisBlockId;
 use super::model::{AnalysisEdgeKind, AnalysisExitKind};
 
+pub(super) type CleanupFreeExits = std::collections::BTreeSet<(BoundBlockId, AnyBoundNodeId)>;
+
+pub(super) fn record_cleanup_free_exits(
+    exits: &mut CleanupFreeExits,
+    asynchronous: &bray_bound_tree::CheckedAsync,
+) -> bool {
+    let possible = asynchronous
+        .scope_exits()
+        .iter()
+        .filter(|plan| plan.is_recovered() || plan.has_cleanup())
+        .map(|plan| (plan.scope(), plan.exit()))
+        .collect::<CleanupFreeExits>();
+
+    let previous = exits.len();
+
+    exits.extend(
+        asynchronous
+            .scope_exits()
+            .iter()
+            .map(|plan| (plan.scope(), plan.exit()))
+            .filter(|exit| !possible.contains(exit)),
+    );
+
+    exits.len() != previous
+}
+
 impl<C> ControlFlowGraphBuilder<'_, C>
 where
     C: CheckerRequestContext + ?Sized,
@@ -104,18 +130,11 @@ where
             return false;
         }
 
-        let Some((_, _, asynchronous)) = self.completion_semantics else {
+        let Some((_, _, cleanup_free)) = self.completion_semantics else {
             return true;
         };
 
-        let mut plans = asynchronous
-            .scope_exits()
-            .iter()
-            .filter(|plan| plan.scope() == scope && plan.exit() == exit)
-            .peekable();
-
-        // Missing or recovered plans cannot rule out cleanup during recovery.
-        plans.peek().is_none() || plans.any(|plan| plan.is_recovered() || plan.has_cleanup())
+        !cleanup_free.contains(&(scope, exit))
     }
 
     pub(super) fn resolve_scopes(

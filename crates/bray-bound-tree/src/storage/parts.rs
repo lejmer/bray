@@ -194,16 +194,17 @@ impl StorageCleanupPart {
     /// Moving one array element does not remove its whole element family.
     pub fn is_fully_moved_by(&self, path: &[StorageProjection]) -> bool {
         path.len() <= self.projections.len()
-            && path.iter().zip(self.projections.iter()).all(|(moved, part)| {
-                match part.projection() {
+            && path
+                .iter()
+                .zip(self.projections.iter())
+                .all(|(moved, part)| match part.projection() {
                     StorageCleanupProjectionKind::Component(component) => *moved == component,
                     StorageCleanupProjectionKind::OwnedTarget(_) => {
                         *moved == StorageProjection::OwnedTarget
                     }
                     StorageCleanupProjectionKind::ArrayElements(_)
                     | StorageCleanupProjectionKind::UnionPayloadElement { .. } => false,
-                }
-            })
+                })
     }
 
     pub(crate) fn is_valid_for(&self, unit: crate::BoundUnitId) -> bool {
@@ -251,8 +252,9 @@ mod tests {
 
         assert!(array.is_fully_moved_by(&[]));
 
-        assert!(!array.is_fully_moved_by(&[StorageProjection::ElementFromStart(
-            SymbolOrdinal::new(0),
-        )]));
+        assert!(
+            !array
+                .is_fully_moved_by(&[StorageProjection::ElementFromStart(SymbolOrdinal::new(0),)])
+        );
     }
 }

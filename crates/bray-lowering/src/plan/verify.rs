@@ -282,13 +282,11 @@ impl<'unit> VerifiedLoweringPlans<'unit> {
             .get(*index)
             .ok_or(CleanupPlanLookupError::MissingScopeExit { scope, exit })?;
 
-        Ok(
-            if !plan.has_cleanup() {
-                ScopeExitCleanupStatus::NoCleanup
-            } else {
-                ScopeExitCleanupStatus::Cleanup
-            },
-        )
+        Ok(if !plan.has_cleanup() {
+            ScopeExitCleanupStatus::NoCleanup
+        } else {
+            ScopeExitCleanupStatus::Cleanup
+        })
     }
 
     /// Returns storage occurrences whose cleanup depends on runtime initialization state.
@@ -1037,7 +1035,8 @@ mod tests {
                     exit,
                     [first, second],
                     [first, second],
-                    [], [],
+                    [],
+                    [],
                     [],
                     [],
                     false,
@@ -1710,7 +1709,8 @@ mod tests {
                 fixture.exit,
                 [fixture.first, fixture.second],
                 [fixture.first, fixture.second],
-                [], [],
+                [],
+                [],
                 [],
                 [],
                 true,
@@ -1954,7 +1954,8 @@ mod tests {
                 fixture.exit,
                 [fixture.first],
                 [fixture.first],
-                [], [],
+                [],
+                [],
                 [fixture.second],
                 [],
                 false,
@@ -1999,7 +2000,8 @@ mod tests {
                 fixture.exit,
                 [fixture.first, fixture.second],
                 [fixture.first],
-                [], [],
+                [],
+                [],
                 [],
                 [],
                 false,
@@ -2047,7 +2049,8 @@ mod tests {
                 fixture.exit,
                 [fixture.first, fixture.second],
                 [fixture.first],
-                [], [],
+                [],
+                [],
                 [],
                 [],
                 false,
@@ -2119,7 +2122,8 @@ mod tests {
                     fixture.exit,
                     [fixture.first, fixture.second],
                     [fixture.first],
-                    moved.iter().copied(), [],
+                    moved.iter().copied(),
+                    [],
                     [],
                     [],
                     false,
@@ -2204,7 +2208,8 @@ mod tests {
                 fixture.exit,
                 [fixture.first, fixture.second],
                 [fixture.first],
-                [fixture.second_access], [],
+                [fixture.second_access],
+                [],
                 [fixture.second],
                 [],
                 false,
@@ -2267,7 +2272,8 @@ mod tests {
                 fixture.exit,
                 [fixture.first, fixture.second],
                 [fixture.first, fixture.second],
-                [fixture.second_projected_access], [],
+                [fixture.second_projected_access],
+                [],
                 [],
                 [],
                 false,

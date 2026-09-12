@@ -159,7 +159,20 @@ impl<'unit> Lowerer<'unit> {
         };
 
         if let Some(block) = completion.block {
-            if !self.builder.is_reachable(entry, block)? {
+            // Ordinary checking proves required callable results cannot fall through.
+            // Conservative cleanup branches can still leave this end block in MIR.
+            let required_result = matches!(
+                root,
+                BoundUnitRoot::CallableBody { .. } | BoundUnitRoot::AnonymousCallable { .. }
+            ) && match self.input.expression_types().callable_result_type() {
+                Some(result) => {
+                    self.type_representation(result)?
+                        != Some(bray_compiler_known::RepresentationRole::Unit)
+                }
+                None => false,
+            };
+
+            if required_result || !self.builder.is_reachable(entry, block)? {
                 self.set_terminator(block, completion.source, MirTerminatorKind::Unreachable)?;
             } else if self.input.unit_kind().protected_frame().is_some() {
                 let result_type = self

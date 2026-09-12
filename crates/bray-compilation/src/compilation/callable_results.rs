@@ -493,3 +493,133 @@ fn callable_results_preserve_surviving_partial_cleanup() {
         DiagnosticKind::CheckingCallableResultRequired,
     );
 }
+
+#[test]
+fn callable_results_refine_cleanup_after_resolved_branches() {
+    let compilation = compilation(
+        r#"
+            module app;
+
+            struct Guard
+            {
+                destruct()
+                {
+                    panic("cleanup");
+                }
+            }
+
+            struct Packet
+            {
+                guard: Guard;
+                flag: bool;
+            }
+
+            func literal(pos value: Packet) -> Guard
+            {
+                let result = catch
+                {
+                    let packet = value;
+                    let guard = if true
+                    {
+                        yield packet.guard;
+                    }
+                    else
+                    {
+                        yield Guard {};
+                    };
+
+                    return guard;
+                };
+            }
+
+            func exhaustive(pos value: Packet, pos condition: bool) -> Guard
+            {
+                let result = catch
+                {
+                    let packet = value;
+                    let guard = match condition
+                    {
+                        case true { yield packet.guard; }
+                        case false { yield packet.guard; }
+                    };
+
+                    return guard;
+                };
+            }
+
+            func nested(pos value: Packet) -> Result<(Guard, Guard), PanicReport>
+            {
+                let outer = catch
+                {
+                    let packet = value;
+                    let inner = catch
+                    {
+                        let first =
+                        {
+                            let source = Packet
+                            {
+                                guard = Guard {},
+                                flag = false,
+                            };
+                            let taken = if true
+                            {
+                                yield source.guard;
+                            }
+                            else
+                            {
+                                yield Guard {};
+                            };
+
+                            yield taken;
+                        };
+
+                        yield (first, packet.guard);
+                    };
+
+                    return inner;
+                };
+            }
+        "#,
+    );
+
+    assert!(
+        compilation.check_diagnostics().is_empty(),
+        "{:?}",
+        compilation.check_diagnostics()
+    );
+
+    for name in ["literal", "exhaustive", "nested"] {
+        let key = crate::test_support::source_function_body_key(&compilation, name);
+        let lowered = compilation.lowered_unit(key).unwrap();
+        let mir = lowered.value().as_ref().unwrap().mir().unwrap();
+
+        assert!(mir.blocks().iter().all(|block| {
+            !matches!(block.terminator().kind(), bray_ir::MirTerminatorKind::Return(None))
+        }), "{name}");
+    }
+}
+
+#[test]
+fn caught_owned_results_consume_the_success_operand() {
+    let compilation = compilation(
+        r#"
+            module app;
+
+            struct Guard
+            {
+                destruct() {}
+            }
+
+            func invalid(pos value: Guard)
+            {
+                let result = catch value;
+                let reused = value;
+            }
+        "#,
+    );
+
+    assert_goal_state_diagnostic_kind(
+        compilation.check_diagnostics(),
+        DiagnosticKind::CheckingUseOfMovedStorage,
+    );
+}
