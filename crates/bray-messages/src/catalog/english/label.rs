@@ -284,6 +284,11 @@ pub(crate) const fn template(kind: DiagnosticLabelKind) -> MessageTemplate {
                 "this box storage policy must contain exactly one type",
             )])
         }
+        DiagnosticLabelKind::CallableResultRequired => {
+            MessageTemplate::new(&[MessageTemplatePart::Text(
+                "a reachable path ends without returning a result",
+            )])
+        }
         DiagnosticLabelKind::ExecutionGuaranteeFailure => {
             MessageTemplate::new(&[MessageTemplatePart::Text(
                 "this operation or its cleanup cannot establish the required execution guarantee",

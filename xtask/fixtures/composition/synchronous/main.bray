@@ -9,6 +9,34 @@ func run()
     assert(identity(true));
     replace_owner();
     assert(failure() matches Error(false));
+    assert(branch_result(true));
+    assert(!branch_result(false));
+    assert(match_result(false));
+}
+
+func branch_result(pos value: bool) -> bool
+{
+    if value
+    {
+        return true;
+    }
+    else
+    {
+        return false;
+    }
+}
+
+func match_result(pos value: bool) -> bool
+{
+    match value
+    {
+        case true { return false; }
+
+        case false
+        {
+            return true;
+        }
+    };
 }
 
 func identity(pos value: bool) -> bool

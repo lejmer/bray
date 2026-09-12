@@ -1935,3 +1935,39 @@ fn json_storage_failures_preserve_revision_and_permission_details() {
         assert_eq!(value[actual_key], actual);
     }
 }
+
+#[test]
+fn callable_result_diagnostic_preserves_json_context() {
+    let span = SourceSpan::new(
+        bray_source::SourceId::new(0),
+        TextRange::new(TextSize::new(0), TextSize::new(12)),
+    );
+
+    let diagnostic = Diagnostic::new(
+        DiagnosticId::new(0),
+        DiagnosticKind::CheckingCallableResultRequired,
+        SeverityKind::Error,
+    )
+    .with_primary_span(span)
+    .with_arg(DiagnosticArg::declaration_name("missing"))
+    .with_arg(DiagnosticArg::expected_type(DiagnosticType::Boolean))
+    .with_label(bray_diagnostics::DiagnosticLabel::primary(
+        bray_diagnostics::DiagnosticLabelKind::CallableResultRequired,
+        span,
+    ))
+    .with_note(DiagnosticNote::new(
+        DiagnosticNoteKind::ReturnRequiredResult,
+    ));
+
+    let mut output = Vec::new();
+    write_json_diagnostics(&DiagnosticBag::single(diagnostic), None, &mut output).unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&output).unwrap();
+    let diagnostic = &json["diagnostics"][0];
+    assert_eq!(diagnostic["kind"], "checking_callable_result_required");
+    assert_eq!(diagnostic["code"], 7121);
+    assert_eq!(diagnostic["args"][0]["name"], "declaration_name");
+    assert_eq!(diagnostic["args"][0]["value"]["value"], "missing");
+    assert_eq!(diagnostic["args"][1]["name"], "expected_type");
+    assert_eq!(diagnostic["labels"][0]["kind"], "callable_result_required");
+    assert_eq!(diagnostic["notes"][0]["kind"], "return_required_result");
+}

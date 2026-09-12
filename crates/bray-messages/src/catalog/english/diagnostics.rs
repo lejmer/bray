@@ -1999,6 +1999,7 @@ pub(crate) const fn note_kind(kind: DiagnosticNoteKind) -> RenderedDiagnosticNot
         | DiagnosticNoteKind::LinkPlanContext
         | DiagnosticNoteKind::AwaitDependencyUnavailable
         | DiagnosticNoteKind::ReportCompilerDefect => RenderedDiagnosticNoteKind::Note,
+        DiagnosticNoteKind::ReturnRequiredResult => RenderedDiagnosticNoteKind::Help,
         DiagnosticNoteKind::RebuildRetainedProduct => RenderedDiagnosticNoteKind::Help,
         DiagnosticNoteKind::DocumentFailureLocation => RenderedDiagnosticNoteKind::Note,
         DiagnosticNoteKind::SourceFileMustBeReadable
@@ -2492,6 +2493,11 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
             MessageTemplatePart::Text("this callable cannot establish its "),
             MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
             MessageTemplatePart::Text(" execution guarantee"),
+        ]),
+        DiagnosticKind::CheckingCallableResultRequired => MessageTemplate::new(&[
+            MessageTemplatePart::Arg(DiagnosticArgName::DeclarationName),
+            MessageTemplatePart::Text(" can reach the end of its body without returning "),
+            MessageTemplatePart::Arg(DiagnosticArgName::ExpectedType),
         ]),
         DiagnosticKind::CheckingCircularExecutionGuarantee => {
             MessageTemplate::new(&[MessageTemplatePart::Text(
@@ -3106,6 +3112,11 @@ pub(crate) const fn note_template(kind: DiagnosticNoteKind) -> MessageTemplate {
         DiagnosticNoteKind::RebuildRetainedProduct => {
             MessageTemplate::new(&[MessageTemplatePart::Text(
                 "build the selected product again before requesting a no-build run",
+            )])
+        }
+        DiagnosticNoteKind::ReturnRequiredResult => {
+            MessageTemplate::new(&[MessageTemplatePart::Text(
+                "Return the declared result on every path that completes normally.",
             )])
         }
         DiagnosticNoteKind::ReportCompilerDefect => {

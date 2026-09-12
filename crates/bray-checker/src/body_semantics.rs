@@ -7,7 +7,8 @@ use bray_symbols::CallableSignatureQuery;
 
 use crate::analysis::{
     ControlFlowGraphBuildOutcome, analyze_storage_liveness_with_graph,
-    build_storage_control_flow_graph, check_refinements_with_graph, check_storage_flow_with_graph,
+    build_storage_control_flow_graph, check_callable_result, check_refinements_with_graph,
+    check_storage_flow_with_graph,
 };
 use crate::asynchronous::check_async_analysis_with_graph;
 use crate::behavior::collect_body_behavior;
@@ -90,6 +91,8 @@ where
             }
         };
     }
+
+    complete!(check_callable_result(request, expressions, patterns));
 
     let liveness = complete!(analyze_storage_liveness_with_graph(
         request,

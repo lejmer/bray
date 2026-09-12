@@ -395,7 +395,14 @@ where
             candidate = next_candidate;
         }
 
-        self.push_edge(candidate, join, AnalysisEdgeKind::MatchNoMatch, None);
+        let exhaustive = self
+            .completion_facts
+            .and_then(|(_, patterns)| patterns.match_coverage(id))
+            .is_some_and(|coverage| coverage.is_exhaustive() && !coverage.is_recovered());
+
+        if !exhaustive {
+            self.push_edge(candidate, join, AnalysisEdgeKind::MatchNoMatch, None);
+        }
 
         Some(Some(join))
     }

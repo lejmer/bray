@@ -1143,6 +1143,13 @@ impl DiagnosticKind {
             Self::CheckingUnknownExecutionProperty | Self::CheckingExecutionGuaranteeNotProven => {
                 Self::quality_source(&[ReferencedName], primary_components!(&[ReferencedName]))
             }
+            Self::CheckingCallableResultRequired => Self::quality_source(
+                &[DeclarationName, ExpectedType],
+                note_components!(
+                    &[DeclarationName, ExpectedType],
+                    DiagnosticNoteKind::ReturnRequiredResult
+                ),
+            ),
             Self::CheckingCircularExecutionGuarantee => {
                 Self::quality_source(&[], primary_components!(&[]))
             }

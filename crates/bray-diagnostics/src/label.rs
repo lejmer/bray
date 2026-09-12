@@ -145,6 +145,8 @@ pub enum DiagnosticLabelKind {
     BoxStoragePolicy,
     /// The operation or dependency that prevents an execution guarantee.
     ExecutionGuaranteeFailure,
+    /// A callable body that falls through without its result.
+    CallableResultRequired,
     /// Label for a callable that cannot serve as a product entry.
     InvalidProductEntry,
     /// Label for a callable or type that cannot cross a foreign boundary.
@@ -236,6 +238,7 @@ impl DiagnosticLabelKind {
             Self::InvalidDeclaration => "invalid_declaration",
             Self::BoxStoragePolicy => "box_storage_policy",
             Self::ExecutionGuaranteeFailure => "execution_guarantee_failure",
+            Self::CallableResultRequired => "callable_result_required",
             Self::InvalidProductEntry => "invalid_product_entry",
             Self::InvalidForeignBoundary => "invalid_foreign_boundary",
             Self::OverlappingImplementation => "overlapping_implementation",
