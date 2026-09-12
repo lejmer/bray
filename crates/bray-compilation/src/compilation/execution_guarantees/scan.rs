@@ -134,7 +134,14 @@ mod tests {
                 ),
                 ("when(false) {}", SyntaxKind::WhenKeyword),
             ] {
-                let source = format!("trusted module app; {modifier}func check() {clause} {{}}");
+                let source = format!(
+                    r#"
+                        trusted module app;
+
+                        {modifier}func check()
+                            {clause} {{}}
+                    "#
+                );
 
                 let compilation = compilation(&source);
 
@@ -168,9 +175,27 @@ mod tests {
     #[test]
     fn execution_guarantees_respect_source_and_product_selection() {
         let sources = [
-            "module app; func ordinary() {}",
-            "@test module app.tests; func test_only() executes(total) {}",
-            "@target(false) module app.disabled; func disabled() when(true) {} {}",
+            r#"
+                module app;
+
+                func ordinary() {}
+            "#,
+            r#"
+                @test
+                module app.tests;
+
+                func test_only()
+                    executes(total) {}
+            "#,
+            r#"
+                @target(false)
+                module app.disabled;
+
+                func disabled()
+                    when(true)
+                    {
+                    } {}
+            "#,
         ];
 
         let compilation =
@@ -184,13 +209,49 @@ mod tests {
     #[test]
     fn execution_guarantees_in_nested_and_bodyless_callables_are_rejected() {
         for declaration in [
-            "callable Action = func() executes(total);",
-            "func outer() { let action = lambda() when(true) {} {}; }",
-            "trait Resource { func requirement() executes(pure); }",
-            "struct Value { finalize() when(true) {} {} }",
-            "func higher_order(action: func() executes(pure)) {}",
+            r#"
+                callable Action = func()
+                    executes(total);
+            "#,
+            r#"
+                func outer()
+                {
+                    let action = lambda()
+                        when(true)
+                        {
+                        } {};
+                }
+            "#,
+            r#"
+                trait Resource
+                {
+                    func requirement()
+                        executes(pure);
+                }
+            "#,
+            r#"
+                struct Value
+                {
+                    finalize()
+                        when(true)
+                        {
+                        } {}
+                }
+            "#,
+            r#"
+                func higher_order(action: func()
+                        executes(pure)
+                    ) {}
+            "#,
         ] {
-            let source = format!("module app; {declaration}");
+            let source = format!(
+                r#"
+                    module app;
+
+                    {declaration}
+                "#
+            );
+
             let compilation = compilation(&source);
 
             assert!(compilation.syntax_tree_result().diagnostics().is_empty());

@@ -142,10 +142,20 @@ mod tests {
     fn unconditional_execution_properties_check_source_bodies() {
         let compilation = compilation(
             r#"
-            trusted module app;
-            func identity(pos value: bool) -> bool executes(pure, total) { return value; }
-            trusted func trusted_identity(pos value: bool) -> bool executes(pure, total) { return identity(value); }
-        "#,
+                trusted module app;
+
+                func identity(pos value: bool) -> bool
+                    executes(pure, total)
+                {
+                    return value;
+                }
+
+                trusted func trusted_identity(pos value: bool) -> bool
+                    executes(pure, total)
+                {
+                    return identity(value);
+                }
+            "#,
         );
 
         assert!(
@@ -169,10 +179,44 @@ mod tests {
     #[test]
     fn declarations_do_not_certify_effects_or_recursive_termination() {
         for source in [
-            r#"module app; func change(pos mut value: bool) executes(pure) { value = false; }"#,
-            r#"trusted module app; trusted func change(pos mut value: bool) executes(pure) { value = false; }"#,
-            r#"module app; func forever() executes(total) { loop {} }"#,
-            r#"module app; func missing() {} func caller() executes(total) { missing(); }"#,
+            r#"
+                module app;
+
+                func change(pos mut value: bool)
+                    executes(pure)
+                {
+                    value = false;
+                }
+            "#,
+            r#"
+                trusted module app;
+
+                trusted func change(pos mut value: bool)
+                    executes(pure)
+                {
+                    value = false;
+                }
+            "#,
+            r#"
+                module app;
+
+                func forever()
+                    executes(total)
+                {
+                    loop {}
+                }
+            "#,
+            r#"
+                module app;
+
+                func missing() {}
+
+                func caller()
+                    executes(total)
+                {
+                    missing();
+                }
+            "#,
         ] {
             let compilation = compilation(source);
 
@@ -184,10 +228,20 @@ mod tests {
 
         let compilation = compilation(
             r#"
-            module app;
-            func first() executes(pure, total) { second(); }
-            func second() executes(pure, total) { first(); }
-        "#,
+                module app;
+
+                func first()
+                    executes(pure, total)
+                {
+                    second();
+                }
+
+                func second()
+                    executes(pure, total)
+                {
+                    first();
+                }
+            "#,
         );
 
         bray_testing::assert_goal_state_diagnostic_kind(
@@ -209,10 +263,20 @@ mod tests {
     fn error_results_complete_normally() {
         let compilation = compilation(
             r#"
-            module app;
-            func failure() -> Result<bool, bool> executes(pure, total) { return Error(false); }
-            func propagate() -> Result<bool, bool> executes(pure, total) { return Ok(try failure()); }
-        "#,
+                module app;
+
+                func failure() -> Result<bool, bool>
+                    executes(pure, total)
+                {
+                    return Error(false);
+                }
+
+                func propagate() -> Result<bool, bool>
+                    executes(pure, total)
+                {
+                    return Ok(try failure());
+                }
+            "#,
         );
 
         assert!(
@@ -225,11 +289,25 @@ mod tests {
     fn owned_and_local_destructors_participate_in_certification() {
         let compilation = compilation(
             r#"
-            module app;
-            struct Value { destruct() executes(pure, total) {} }
-            func dispose(pos value: Value) executes(pure, total) {}
-            func local() executes(pure, total) { let value = Value {}; }
-        "#,
+                module app;
+
+                struct Value
+                {
+                    destruct()
+                        executes(pure, total) {}
+                }
+
+                func dispose(pos value: Value)
+                    executes(pure, total) {}
+
+                func local()
+                    executes(pure, total)
+                {
+                    let value = Value
+                    {
+                    };
+                }
+            "#,
         );
 
         assert!(
@@ -244,18 +322,49 @@ mod tests {
         for source in [
             r#"
                 module app;
-                struct Value { destruct() { panic("cleanup"); } }
-                func dispose(pos value: Value) executes(total) {}
+
+                struct Value
+                {
+                    destruct()
+                    {
+                        panic("cleanup");
+                    }
+                }
+
+                func dispose(pos value: Value)
+                    executes(total) {}
             "#,
             r#"
                 module app;
-                struct Value { finalize() -> Result<unit, bool> executes(total) { return Error(false); } }
-                func dispose(pos value: Value) executes(total) {}
+
+                struct Value
+                {
+                    finalize() -> Result<unit, bool>
+                        executes(total)
+                    {
+                        return Error(false);
+                    }
+                }
+
+                func dispose(pos value: Value)
+                    executes(total) {}
             "#,
             r#"
                 module app;
-                struct Value { finalize() executes(total) {} }
-                func make() -> Value executes(pure, total) { return Value {}; }
+
+                struct Value
+                {
+                    finalize()
+                        executes(total) {}
+                }
+
+                func make() -> Value
+                    executes(pure, total)
+                {
+                    return Value
+                    {
+                    };
+                }
             "#,
         ] {
             let compilation = compilation(source);
@@ -271,24 +380,57 @@ mod tests {
     fn exceptional_cleanup_participates_in_pure_certification() {
         for operation in ["risky(value)", "1 / value", "Maker(value)"] {
             for (destructor, pure) in [
-                ("destruct() { panic(\"cleanup\"); }", false),
-                ("destruct() executes(pure, total) {}", true),
+                (
+                    r#"
+                        destruct()
+                        {
+                            panic("cleanup");
+                        }
+                    "#,
+                    false,
+                ),
+                (
+                    r#"
+                        destruct()
+                            executes(pure, total) {}
+                    "#,
+                    true,
+                ),
             ] {
                 let source = r#"
-            module app;
-            struct Value { DESTRUCTOR }
-            struct Maker {
-                construct(pos value: i32) -> Self executes(pure) {
-                    risky(value);
-                    return Maker {};
-                }
-            }
-            func risky(pos value: i32) -> i32 executes(pure) { return 1 / value; }
-            func relay(pos owner: Value, pos value: i32) -> Value executes(pure) {
-                OPERATION;
-                return owner;
-            }
-            "#
+                    module app;
+
+                    struct Value
+                    {
+                        DESTRUCTOR
+                    }
+
+                    struct Maker
+                    {
+                        construct(pos value: i32) -> Self
+                            executes(pure)
+                        {
+                            risky(value);
+
+                            return Maker
+                            {
+                            };
+                        }
+                    }
+
+                    func risky(pos value: i32) -> i32
+                        executes(pure)
+                    {
+                        return 1 / value;
+                    }
+
+                    func relay(pos owner: Value, pos value: i32) -> Value
+                        executes(pure)
+                    {
+                        OPERATION;
+                        return owner;
+                    }
+                "#
                 .replace("DESTRUCTOR", destructor)
                 .replace("OPERATION", operation);
 
@@ -311,10 +453,22 @@ mod tests {
     fn returning_an_owner_transfers_its_later_cleanup() {
         let compilation = compilation(
             r#"
-            module app;
-            struct Value { finalize() { panic("later"); } }
-            func relay(pos value: Value) -> Value executes(pure, total) { return value; }
-        "#,
+                module app;
+
+                struct Value
+                {
+                    finalize()
+                    {
+                        panic("later");
+                    }
+                }
+
+                func relay(pos value: Value) -> Value
+                    executes(pure, total)
+                {
+                    return value;
+                }
+            "#,
         );
 
         assert!(
@@ -328,10 +482,25 @@ mod tests {
     fn cleanup_cycles_cannot_certify_total_execution() {
         let compilation = compilation(
             r#"
-            module app;
-            struct Value { destruct() executes(total) { recurse(); } }
-            func recurse() executes(total) { let value = Value {}; }
-        "#,
+                module app;
+
+                struct Value
+                {
+                    destruct()
+                        executes(total)
+                    {
+                        recurse();
+                    }
+                }
+
+                func recurse()
+                    executes(total)
+                {
+                    let value = Value
+                    {
+                    };
+                }
+            "#,
         );
 
         bray_testing::assert_goal_state_diagnostic_kind(
@@ -343,10 +512,36 @@ mod tests {
     #[test]
     fn invalid_declarations_do_not_supply_execution_evidence() {
         for source in [
-            "module app; func bad() executes(total) { missing(); }",
-            "module app; func bad() executes(magic) {}",
-            "module app; func bad() executes(total) { return ; ; }",
-            "module app; func bad() -> bool executes(total) {}",
+            r#"
+                module app;
+
+                func bad()
+                    executes(total)
+                {
+                    missing();
+                }
+            "#,
+            r#"
+                module app;
+
+                func bad()
+                    executes(magic) {}
+            "#,
+            r#"
+                module app;
+
+                func bad()
+                    executes(total)
+                {
+                    return ; ;
+                }
+            "#,
+            r#"
+                module app;
+
+                func bad() -> bool
+                    executes(total) {}
+            "#,
         ] {
             let compilation = compilation(source);
             assert!(compilation.check_diagnostics().has_errors(), "{source}");
@@ -375,11 +570,22 @@ mod tests {
 
         let compilation = crate::test_support::compilation_with_options(
             r#"
-            trusted module app;
-            @link(name = "c") @symbol(name = "native_value") @abi(c)
-            extern trusted func native_value() -> i32 uses(foreign_call) executes(total);
-            trusted func wrapper() -> i32 uses(foreign_call) executes(total) { return native_value(); }
-        "#,
+                trusted module app;
+
+                @link(name = "c")
+                @symbol(name = "native_value")
+                @abi(c)
+                extern trusted func native_value() -> i32
+                    uses(foreign_call)
+                    executes(total);
+
+                trusted func wrapper() -> i32
+                    uses(foreign_call)
+                    executes(total)
+                {
+                    return native_value();
+                }
+            "#,
             options,
         );
 
@@ -403,7 +609,14 @@ mod tests {
 
     #[test]
     fn unknown_execution_property_names_have_source_diagnostics() {
-        let compilation = compilation("module app; func bad() executes(magic) {}");
+        let compilation = compilation(
+            r#"
+            module app;
+
+            func bad()
+                executes(magic) {}
+        "#,
+        );
 
         bray_testing::assert_goal_state_diagnostic_kind(
             compilation.check_diagnostics(),
@@ -414,7 +627,15 @@ mod tests {
     #[test]
     fn certifications_are_immutable_and_invalidated_with_their_source() {
         let original = compilation(
-            "module app; func identity(pos value: bool) -> bool executes(total) { return value; }",
+            r#"
+                module app;
+
+                func identity(pos value: bool) -> bool
+                    executes(total)
+                {
+                    return value;
+                }
+            "#,
         );
 
         let key = source_function_body_key(&original, "identity");
@@ -432,7 +653,15 @@ mod tests {
 
         let updated = original
             .updated_sources(vec![crate::test_support::source_input(
-                "module app; func identity(pos value: bool) -> bool executes(total) { loop {} }",
+                r#"
+                    module app;
+
+                    func identity(pos value: bool) -> bool
+                        executes(total)
+                    {
+                        loop {}
+                    }
+                "#,
                 1,
             )])
             .unwrap();
@@ -451,7 +680,19 @@ mod tests {
     #[test]
     fn callee_requirements_are_not_unconditional_caller_evidence() {
         let compilation = compilation(
-            "module app; func guarded(pos value: bool) requires(value) executes(total) {} func caller(pos value: bool) executes(total) { guarded(value); }",
+            r#"
+                module app;
+
+                func guarded(pos value: bool)
+                    requires(value)
+                    executes(total) {}
+
+                func caller(pos value: bool)
+                    executes(total)
+                {
+                    guarded(value);
+                }
+            "#,
         );
 
         bray_testing::assert_goal_state_diagnostic_kind(
@@ -472,15 +713,40 @@ mod tests {
     fn methods_constructors_and_lambda_bodies_establish_their_own_evidence() {
         let compilation = compilation(
             r#"
-            module app;
-            struct Value {
-                construct() -> Self executes(pure, total) { return Value {}; }
-                func value() -> bool executes(pure, total) { return true; }
-                static func helper() executes(pure, total) {}
-            }
-            func make() -> Value executes(pure, total) { return Value(); }
-            func outer() { let action = lambda() executes(pure, total) {}; }
-        "#,
+                module app;
+
+                struct Value
+                {
+                    construct() -> Self
+                        executes(pure, total)
+                    {
+                        return Value
+                        {
+                        };
+                    }
+
+                    func value() -> bool
+                        executes(pure, total)
+                    {
+                        return true;
+                    }
+
+                    static func helper()
+                        executes(pure, total) {}
+                }
+
+                func make() -> Value
+                    executes(pure, total)
+                {
+                    return Value();
+                }
+
+                func outer()
+                {
+                    let action = lambda()
+                        executes(pure, total) {};
+                }
+            "#,
         );
 
         assert!(
@@ -493,9 +759,28 @@ mod tests {
     #[test]
     fn replacing_local_owners_requires_the_selected_destructor() {
         for (promise, valid) in [("executes(total)", true), ("", false)] {
-            let source = format!(
-                "module app; struct Value {{ destruct() {promise} {{}} }} func replace() executes(total) {{ let mut value = Value {{}}; value = Value {{}}; }}"
-            );
+            let source = r#"
+                module app;
+
+                struct Value
+                {
+                    destruct()
+                        PROMISE {}
+                }
+
+                func replace()
+                    executes(total)
+                {
+                    let mut value = Value
+                    {
+                    };
+
+                    value = Value
+                    {
+                    };
+                }
+            "#
+            .replace("PROMISE", promise);
 
             let compilation = compilation(&source);
 
@@ -510,7 +795,24 @@ mod tests {
     #[test]
     fn deferred_trait_dispatch_cannot_certify_from_a_default_body() {
         let compilation = compilation(
-            "module app; trait Value { func get() -> bool executes(total) { return true; } func read() -> bool executes(total) { return self.get(); } }",
+            r#"
+                module app;
+
+                trait Value
+                {
+                    func get() -> bool
+                        executes(total)
+                    {
+                        return true;
+                    }
+
+                    func read() -> bool
+                        executes(total)
+                    {
+                        return self.get();
+                    }
+                }
+            "#,
         );
 
         bray_testing::assert_goal_state_diagnostic_kind(
