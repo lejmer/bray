@@ -62,7 +62,7 @@ pub use execution_guarantees::{
     ExecutionCondition, ExecutionDeclaration, ExecutionDependency, ExecutionDomain,
     ExecutionObligation, ExecutionPlace, ExecutionProofFailure, ExecutionProperty,
     check_execution_guarantees, check_execution_proof_dependencies, declared_execution_properties,
-    execution_conditions,
+    execution_condition_is_implied, execution_conditions, remap_execution_condition_inputs,
 };
 pub use expression::{NestedCallableEvidence, check_generic_arguments};
 pub use outcome::{CheckerOutcome, ControlFlowCheckResult};
@@ -81,7 +81,8 @@ pub use selection::{
     SelectionCandidateKey, SelectionCandidateSignature, SelectionFailure,
     SelectionFailureCandidate, SelectionInaccessibility, built_in_conversion_plan,
     built_in_conversion_plan_for_context, built_in_operation_result_type,
-    built_in_operator_supported, built_in_trait_constraint_outcome, compiler_known_operation_role,
+    built_in_operator_supported, built_in_trait_constraint_outcome,
+    callable_contract_conversion_is_valid, compiler_known_operation_role,
     composite_conversion_children,
 };
 pub use semantic_context::{

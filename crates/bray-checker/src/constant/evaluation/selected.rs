@@ -237,6 +237,9 @@ where
 
         let kind = match conversion.target() {
             ConversionTarget::Identity => return Ok(value),
+            ConversionTarget::CallableContract => {
+                return Err(EvaluationFailure::invalid_expression(expression));
+            }
             ConversionTarget::NullablePresent => ConstantValueKind::NullablePresent(value),
             ConversionTarget::BuiltInScalar | ConversionTarget::CVariadicPromotion => {
                 let Some(target) = type_representation(self.request, conversion.target_type())

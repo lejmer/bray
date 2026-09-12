@@ -2367,6 +2367,7 @@ fn conversion_parts(
 
     match conversion.target() {
         ConversionTarget::Identity
+        | ConversionTarget::CallableContract
         | ConversionTarget::NullablePresent
         | ConversionTarget::BuiltInScalar
         | ConversionTarget::CVariadicPromotion => {}
@@ -2654,6 +2655,7 @@ fn generator_kind(kind: MirGeneratorKind) -> &'static str {
 fn conversion_kind(target: &ConversionTarget) -> &'static str {
     match target {
         ConversionTarget::Identity => "identity",
+        ConversionTarget::CallableContract => "callable_contract",
         ConversionTarget::NullablePresent => "nullable_present",
         ConversionTarget::BuiltInScalar => "built_in_scalar",
         ConversionTarget::CVariadicPromotion => "c_variadic_promotion",

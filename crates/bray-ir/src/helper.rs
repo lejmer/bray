@@ -406,6 +406,7 @@ fn collect_conversion_helpers(
             helpers.push(MirHelperReference::Conversion(*member));
         }
         ConversionTarget::Identity
+        | ConversionTarget::CallableContract
         | ConversionTarget::NullablePresent
         | ConversionTarget::BuiltInScalar
         | ConversionTarget::CVariadicPromotion => {}

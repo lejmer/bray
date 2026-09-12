@@ -213,6 +213,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 let value = if matches!(
                     conversion.target(),
                     bray_bound_tree::ConversionTarget::Identity
+                        | bray_bound_tree::ConversionTarget::CallableContract
                 ) {
                     state
                         .expressions

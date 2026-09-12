@@ -127,8 +127,7 @@ where
             TypeData::TypeParameter(_)
             | TypeData::ContextualSelf(_)
             | TypeData::TypeValuedMemberProjection { .. }
-            | TypeData::Generator(_)
-            | TypeData::Callable(_) => CleanupShape::BOTH,
+            | TypeData::Generator(_) => CleanupShape::BOTH,
             TypeData::Named {
                 definition,
                 substitution,
@@ -147,6 +146,7 @@ where
             TypeData::FlexibleArray(_)
             | TypeData::Slice(_)
             | TypeData::Borrow { .. }
+            | TypeData::Callable(_)
             | TypeData::TraitView(_) => CleanupShape::default(),
         };
 

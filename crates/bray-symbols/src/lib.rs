@@ -150,7 +150,7 @@ pub use semantic::{
     DeclaredUnionTag, DirectiveArgumentName, DirectiveArgumentTemplate, DirectiveAttachment,
     DirectiveKind, DirectiveSurface, DirectiveTemplate, ErrorCallableParameterDefault,
     ErrorConstantDefinition, ErrorPredicateDefinition, ErrorStructFieldDefault,
-    ErrorUnionPayloadDefault, ForeignCallableContract, ForeignCallableDirection,
+    ErrorUnionPayloadDefault, ExecutionProperty, ForeignCallableContract, ForeignCallableDirection,
     ForeignStaticContract, GenericArgumentTemplate, GenericConstParameterDeclaredTypeQuery,
     GenericConstraintObligationKey, GenericConstraintSatisfactionQuery, GenericConstraintSet,
     GenericConstraintTemplate, GenericConstraintsQuery, GenericDeclarationTemplate,

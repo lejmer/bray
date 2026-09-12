@@ -3,6 +3,7 @@ mod binder;
 mod boundary;
 #[cfg(test)]
 mod callable_results;
+mod callable_signature;
 mod checker;
 mod codegen;
 mod configuration;

@@ -80,7 +80,10 @@ fn callable_surface(
     Ok(CallableSurface {
         parameters,
         result,
-        qualifiers: abi.map(|abi| callable_qualifiers(symbol, modifiers, abi)),
+        qualifiers: abi.map(|abi| {
+            callable_qualifiers(symbol, modifiers, abi)
+                .with_execution_properties(bray_binder::callable_execution_properties(root))
+        }),
         has_body,
     })
 }

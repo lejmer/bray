@@ -332,6 +332,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         helpers: &mut impl Iterator<Item = &'mapping CodegenHelperMapping>,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         match conversion.target() {
+            ConversionTarget::CallableContract => Ok(value),
             ConversionTarget::Identity
             | ConversionTarget::BuiltInScalar
             | ConversionTarget::CVariadicPromotion => {

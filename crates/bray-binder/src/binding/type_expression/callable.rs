@@ -35,6 +35,7 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
             result.as_ref(),
             Some(&syntax.callable_modifiers()),
             Some(&syntax.callable_directives()),
+            super::execution::callable_execution_properties(bray_syntax::syntax_node_view(syntax)),
         )?;
 
         self.check_cancellation()?;
@@ -172,6 +173,7 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
             qualifiers.trust,
             qualifiers.abi,
             dependencies,
+            qualifiers.execution_properties,
         )?;
 
         self.check_cancellation()?;
@@ -205,6 +207,7 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
             result.as_ref(),
             modifiers.as_ref(),
             directives.as_ref(),
+            super::execution::callable_execution_properties(bray_syntax::syntax_node_view(syntax)),
         )?;
 
         let variadic = parameters
@@ -245,6 +248,7 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
         result: Option<&TypeExpressionSyntax>,
         modifiers: Option<&CallableModifiersSyntax>,
         directives: Option<&CallableDirectivesSyntax>,
+        execution_properties: Vec<bray_symbols::ExecutionProperty>,
     ) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {
         let variadic = parameters.is_some_and(|parameters| parameters.ellipsis_token().is_some());
 
@@ -294,6 +298,7 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
             trust,
             abi,
             dependencies,
+            execution_properties,
         )
     }
 
@@ -306,7 +311,11 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
         trust: CallableTrust,
         abi: bray_symbols::CallableAbi,
         dependencies: CallableDependencyContracts,
+        execution_properties: impl IntoIterator<Item = bray_symbols::ExecutionProperty>,
     ) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {
+        let phase_behaviors = bray_symbols::CallablePhaseBehaviors::empty(dependencies)
+            .with_execution_properties(execution_properties);
+
         let parameters_are_resolved = parameters
             .iter()
             .all(|parameter| parameter.ty().resolved_type().is_some());
@@ -327,7 +336,8 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
 
             let callable =
                 CallableTypeData::new(parameters, result, constness, trust, abi, dependencies)
-                    .with_variadic(variadic);
+                    .with_variadic(variadic)
+                    .with_phase_behaviors(phase_behaviors);
 
             return self
                 .intern_type(TypeData::Callable(callable))
@@ -336,7 +346,8 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
 
         Ok(TypeExpressionTemplate::Callable(
             CallableTypeTemplate::new(parameters, result, constness, trust, abi, dependencies)
-                .with_variadic(variadic),
+                .with_variadic(variadic)
+                .with_phase_behaviors(phase_behaviors),
         ))
     }
 

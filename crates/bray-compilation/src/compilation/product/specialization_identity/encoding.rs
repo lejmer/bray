@@ -489,6 +489,15 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
         &mut self,
         behavior: &CallablePhaseBehavior,
     ) -> Result<(), FactQueryError> {
+        self.length(behavior.execution_properties().len());
+
+        for property in behavior.execution_properties() {
+            self.tag(match property {
+                bray_symbols::ExecutionProperty::Pure => 0,
+                bray_symbols::ExecutionProperty::Total => 1,
+            });
+        }
+
         self.length(behavior.effects().len());
 
         for requirement in behavior.effects() {
@@ -708,4 +717,57 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
 enum CodegenArgumentKind {
     Type,
     Constant,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::structural_type_identity;
+    use bray_symbols::{
+        CallableAbi, CallableConstness, CallableDependencyContracts, CallablePhaseBehaviors,
+        CallableTrust, CallableTypeData, ExecutionProperty, TypeData,
+    };
+
+    #[test]
+    fn callable_execution_properties_distinguish_specialization_identities() {
+        let compilation = crate::test_support::compilation("module app;");
+        let values = compilation.semantic_value_store().unwrap();
+
+        let context = compilation
+            .binding_context(&compilation.state.cancellation)
+            .unwrap();
+
+        let result = values.intern_type(TypeData::Tuple([].into())).unwrap();
+
+        let dependencies = CallableDependencyContracts::synchronous(
+            values.empty_dependency_contract_template().unwrap(),
+        );
+
+        let identities = [
+            vec![],
+            vec![ExecutionProperty::Pure],
+            vec![ExecutionProperty::Total],
+        ]
+        .into_iter()
+        .map(|properties| {
+            let phases =
+                CallablePhaseBehaviors::empty(dependencies).with_execution_properties(properties);
+
+            let callable = CallableTypeData::new(
+                [],
+                result,
+                CallableConstness::Runtime,
+                CallableTrust::Safe,
+                CallableAbi::Bray,
+                dependencies,
+            )
+            .with_phase_behaviors(phases);
+
+            let ty = values.intern_type(TypeData::Callable(callable)).unwrap();
+
+            structural_type_identity(values, &context, ty).unwrap()
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+
+        assert_eq!(identities.len(), 3);
+    }
 }

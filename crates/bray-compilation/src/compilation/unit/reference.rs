@@ -26,6 +26,7 @@ impl Compilation {
         key: &bray_bound_tree::BoundUnitKey,
         cancellation: &CancellationToken,
         bound: &BoundUnit,
+        types: &bray_bound_tree::CheckedExpressionTypes,
         semantic_context: &bray_checker::SemanticUnitContext,
         checker_context: &impl bray_checker::CheckerRequestContext<UpstreamError = FactQueryError>,
     ) -> Result<(Vec<SemanticSelectionEntry>, DiagnosticBag), FactQueryError> {
@@ -47,6 +48,15 @@ impl Compilation {
 
         let mut entries = Vec::new();
         let mut diagnostics = DiagnosticBag::new();
+
+        let callees = bound
+            .tree()
+            .expressions()
+            .filter_map(|(_, node)| match node {
+                BoundExpression::Call(call) => Some(call.callee()),
+                _ => None,
+            })
+            .collect::<std::collections::BTreeSet<_>>();
 
         for (expression, node) in bound.tree().expressions() {
             let BoundExpression::Name(name) = node else {
@@ -98,6 +108,44 @@ impl Compilation {
                     SemanticSelection::StaticReference(selection)
                 }
             };
+
+            if let SemanticSelection::CallableReference(instance) = &selection
+                && !callees.contains(&expression)
+                && let Some(expected) = types.expression(expression)
+                && !expected.is_recovered()
+                && let Some(actual) = self.resolve_callable_instance_signature(
+                    &binding_context,
+                    *instance,
+                    &mut diagnostics,
+                )?
+                && !bray_checker::callable_contract_conversion_is_valid(
+                    binding_context.semantic_values(),
+                    actual.callable_type(),
+                    expected.ty(),
+                )?
+            {
+                let anchor = name.origin().source_anchor().syntax();
+                let span = SourceSpan::new(anchor.source_id(), anchor.full_range());
+
+                diagnostics.add(
+                    bray_diagnostics::Diagnostic::new(
+                        bray_diagnostics::DiagnosticId::new(span.start().bytes()),
+                        bray_diagnostics::DiagnosticKind::CheckingIncompatibleExpressionType,
+                        bray_diagnostics::SeverityKind::Error,
+                    )
+                    .with_primary_span(span)
+                    .with_label(bray_diagnostics::DiagnosticLabel::primary(
+                        bray_diagnostics::DiagnosticLabelKind::IncompatibleExpressionType,
+                        span,
+                    ))
+                    .with_arg(bray_diagnostics::DiagnosticArg::expected_type(
+                        bray_checker::diagnostic_type(checker_context, expected.ty())?,
+                    ))
+                    .with_arg(bray_diagnostics::DiagnosticArg::actual_type(
+                        bray_checker::diagnostic_type(checker_context, actual.callable_type())?,
+                    )),
+                );
+            }
 
             entries.push(SemanticSelectionEntry::new(expression, selection));
         }

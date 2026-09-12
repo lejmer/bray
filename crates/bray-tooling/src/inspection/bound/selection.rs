@@ -235,6 +235,7 @@ impl InspectionConversion {
 #[derive(Serialize)]
 #[serde(tag = "rule_kind", rename_all = "snake_case")]
 enum InspectionConversionRule {
+    CallableContract,
     Identity,
     NullablePresent,
     BuiltInScalar,
@@ -258,6 +259,7 @@ impl InspectionConversionRule {
     const fn kind_name(&self) -> &'static str {
         match self {
             Self::Identity => "identity",
+            Self::CallableContract => "callable_contract",
             Self::NullablePresent => "nullable present",
             Self::BuiltInScalar => "built-in scalar",
             Self::CVariadicPromotion => "C variadic promotion",
@@ -567,6 +569,7 @@ fn inspection_conversion(
 ) -> Result<InspectionConversion, SelectionInspectionError> {
     let rule = match conversion.target() {
         ConversionTarget::Identity => InspectionConversionRule::Identity,
+        ConversionTarget::CallableContract => InspectionConversionRule::CallableContract,
         ConversionTarget::NullablePresent => InspectionConversionRule::NullablePresent,
         ConversionTarget::BuiltInScalar => InspectionConversionRule::BuiltInScalar,
         ConversionTarget::CVariadicPromotion => InspectionConversionRule::CVariadicPromotion,

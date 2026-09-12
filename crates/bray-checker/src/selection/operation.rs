@@ -11,7 +11,8 @@ pub use built_in::{
 };
 pub(crate) use conversion::c_variadic_promotion_target;
 pub use conversion::{
-    built_in_conversion_plan, built_in_conversion_plan_for_context, composite_conversion_children,
+    built_in_conversion_plan, built_in_conversion_plan_for_context,
+    callable_contract_conversion_is_valid, composite_conversion_children,
 };
 pub use role::compiler_known_operation_role;
 pub(super) use select::select;

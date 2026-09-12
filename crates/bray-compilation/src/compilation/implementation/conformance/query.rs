@@ -342,6 +342,31 @@ impl Compilation {
                 }
             };
 
+            let selected = match resolution {
+                TraitRequirementResolution::Explicit(fulfillment) => Some(fulfillment.symbol()),
+                TraitRequirementResolution::SubjectLifecycle(symbol) => Some(symbol),
+                _ => None,
+            };
+
+            let resolution = if let Some(selected) = selected {
+                let conformance = self.execution_contract_conformance(
+                    requirement.symbol(),
+                    selected,
+                    cancellation,
+                )?;
+
+                let valid = *conformance.value();
+                diagnostics.add_range(conformance.into_parts().1);
+
+                if valid {
+                    resolution
+                } else {
+                    TraitRequirementResolution::Incompatible(selected)
+                }
+            } else {
+                resolution
+            };
+
             checked.push(TraitRequirementConformance::new(requirement, resolution));
 
             if let Some(matches) = matching_fulfillments {

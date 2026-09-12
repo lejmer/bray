@@ -354,6 +354,7 @@ impl Lowerer<'_> {
             };
 
             let lowered = self.lower_expression(element, current)?;
+            let lowered = self.materialize_for_later_evaluation(element, lowered)?;
 
             let Some(continuation) = lowered.block else {
                 return Ok(lowered);
@@ -401,6 +402,9 @@ impl Lowerer<'_> {
 
         for element in elements {
             let lowered = self.lower_expression(element, current)?;
+
+            // Alternate trampolines run in different blocks and cannot capture local MIR values.
+            let lowered = self.materialize_for_later_evaluation(element, lowered)?;
 
             let Some(continuation) = lowered.block else {
                 return Err(LoweringError::MissingSemanticSelection(element));
