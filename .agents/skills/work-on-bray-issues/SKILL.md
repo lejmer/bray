@@ -21,6 +21,10 @@ Complete the requested issue or ordered stack through implementation, verificati
 7. Fix valid findings, reply with the change or a concrete disagreement, and resolve addressed threads. When a finding reveals a defect class, audit all structurally equivalent paths and update the review matrix before requesting re-review. Use focused checks while iterating, then run the required broad validation once the systemic audit is complete. Do not repeat unchanged broad checks merely to start another cycle. Request fresh re-review after material fixes, and repeat until there are no findings or all disagreements are recorded. After the agent review cycle is clean and a human reviewer takes over, treat the human review as the active review cycle. Fix and respond to human findings without launching another review agent unless the human reviewer asks for one.
 8. Mark the pull request ready and move the issue to `In Review` only after implementation, verification, and review. Never mark it `Done`. Linear does that when the user merges the pull request.
 
+## Attribute PR comments
+
+Start every agent-authored PR comment with `Posted by <model name> on behalf of <GitHub user name>:` followed by a blank line. Apply this to review summaries, inline findings, replies, and comments posted for subagents. Use the authoring agent's model name from session information and the verified authenticated GitHub login. When publishing a subagent's review, retain that subagent's model attribution. Do not guess a model name or add agent attribution to human-authored comments.
+
 ## Bound build storage
 
 Before the first expensive Rust build, resolve and size Cargo's target directory. Reuse repository-approved shared Cargo, dependency, and LLVM storage. Otherwise use one task-owned target for the whole stack, never one per issue, branch, review, or reproduction. Never clean shared storage.
