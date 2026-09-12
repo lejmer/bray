@@ -141,6 +141,10 @@ pub enum DiagnosticLabelKind {
     DuplicateDeclaration,
     /// Label for a declaration whose form violates its owning context.
     InvalidDeclaration,
+    /// The explicit policy arguments of a box type or construction.
+    BoxStoragePolicy,
+    /// The operation or dependency that prevents an execution guarantee.
+    ExecutionGuaranteeFailure,
     /// Label for a callable that cannot serve as a product entry.
     InvalidProductEntry,
     /// Label for a callable or type that cannot cross a foreign boundary.
@@ -230,6 +234,8 @@ impl DiagnosticLabelKind {
             Self::MemoryOperationFailure => "memory_operation_failure",
             Self::DuplicateDeclaration => "duplicate_declaration",
             Self::InvalidDeclaration => "invalid_declaration",
+            Self::BoxStoragePolicy => "box_storage_policy",
+            Self::ExecutionGuaranteeFailure => "execution_guarantee_failure",
             Self::InvalidProductEntry => "invalid_product_entry",
             Self::InvalidForeignBoundary => "invalid_foreign_boundary",
             Self::OverlappingImplementation => "overlapping_implementation",

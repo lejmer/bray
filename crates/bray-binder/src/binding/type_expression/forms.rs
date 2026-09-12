@@ -207,6 +207,10 @@ pub(in crate::binding) fn box_storage_policy(
             &syntax,
             bray_diagnostics::DiagnosticKind::BindingInvalidBoxStoragePolicy,
         )
+        .with_label(bray_diagnostics::DiagnosticLabel::primary(
+            bray_diagnostics::DiagnosticLabelKind::BoxStoragePolicy,
+            bray_source::SourceSpan::new(syntax.source().source_id(), syntax.full_range()),
+        ))
         .with_arg(bray_diagnostics::DiagnosticArg::token_text(
             syntax
                 .source()

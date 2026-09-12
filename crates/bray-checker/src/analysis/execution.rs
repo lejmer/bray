@@ -102,7 +102,9 @@ where
             return Some(Some(resume));
         }
 
-        if self.call_may_propagate_panic(id, hook) {
+        if self.dependency_failures == super::build::DependencyFailureMode::PotentialExits
+            && self.call_may_propagate_panic(id, hook)
+        {
             return Some(Some(self.push_propagating_call(id, current)));
         }
 

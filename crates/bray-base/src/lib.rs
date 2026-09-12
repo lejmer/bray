@@ -23,3 +23,6 @@ pub use hex::{decode_lowercase_hex, is_lowercase_hex, lowercase_hex};
 pub use path::is_canonical_relative_path;
 pub use slice::{shared_slice, sorted_unique_shared_slice};
 pub use text::{NonEmptySharedStr, shared_str};
+
+mod graph;
+pub use graph::strongly_connected_components;

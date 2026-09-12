@@ -377,6 +377,7 @@ pub(crate) enum SemanticSymbolCategory {
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum SemanticDataKind {
+    LifecycleMember,
     BoundExpression,
     BoundUnit,
     CallableSignature,

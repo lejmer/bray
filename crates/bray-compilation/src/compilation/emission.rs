@@ -627,15 +627,6 @@ mod tests {
 
                 10
             } else {
-                let (completed, changed) = &self.fast_completed;
-
-                let mut completed = completed
-                    .lock()
-                    .unwrap_or_else(|_| panic!("test completion gate must remain available"));
-
-                *completed = true;
-                changed.notify_all();
-
                 20
             };
 
@@ -644,6 +635,17 @@ mod tests {
                 .unwrap_or_else(|_| panic!("test observation must remain available"))
                 .completed
                 .push(unit.clone());
+
+            if ordinal == 20 {
+                let (completed, changed) = &self.fast_completed;
+
+                let mut completed = completed
+                    .lock()
+                    .unwrap_or_else(|_| panic!("test completion gate must remain available"));
+
+                *completed = true;
+                changed.notify_all();
+            }
 
             ordinal
         }

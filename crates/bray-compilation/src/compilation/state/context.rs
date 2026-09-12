@@ -176,6 +176,10 @@ pub(in crate::compilation) struct CompilationState {
     pub(in crate::compilation) checked_patterns: UnitQueryCache<CheckedPatterns>,
     pub(in crate::compilation) storage_plans: UnitQueryCache<StoragePlan>,
     pub(in crate::compilation) memory_operations: UnitQueryCache<CheckedMemoryOperations>,
+    pub(in crate::compilation) execution_candidates:
+        UnitQueryCache<[bray_checker::ExecutionCandidate; 2]>,
+    pub(in crate::compilation) certified_execution:
+        UnitQueryCache<bray_checker::ExecutionCertification>,
     pub(in crate::compilation) body_semantics: UnitQueryCache<CheckedBodySemantics>,
     pub(in crate::compilation) checked_body_behaviors: UnitQueryCache<CheckedBodyBehavior>,
     pub(in crate::compilation) lowered_units: UnitQueryCache<Option<bray_lowering::LoweredUnit>>,

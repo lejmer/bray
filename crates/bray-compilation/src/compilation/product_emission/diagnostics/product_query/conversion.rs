@@ -668,7 +668,6 @@ const fn product_data_kind(kind: ProductDataKind) -> &'static str {
         ProductDataKind::ConversionPlan => "conversion_plan",
         ProductDataKind::CompilerKnownRepresentation => "compiler_known_representation",
         ProductDataKind::LifecycleRole => "lifecycle_role",
-        ProductDataKind::LifecycleMember => "lifecycle_member",
         ProductDataKind::LifecycleType => "lifecycle_type",
         ProductDataKind::RealizedStatic => "realized_static",
         ProductDataKind::StaticDependencyCounter => "static_dependency_counter",

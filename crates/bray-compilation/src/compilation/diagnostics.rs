@@ -557,7 +557,7 @@ impl Compilation {
         }
 
         let coherence = self.implementation_coherence_diagnostics(cancellation)?;
-        let execution_guarantees = self.execution_guarantee_diagnostics(source_graph);
+        let execution_guarantees = self.execution_guarantee_diagnostics(source_graph)?;
         let callable_overloads = self.callable_overload_diagnostics(cancellation)?;
         let foreign_callables = self.foreign_callable_diagnostics(cancellation)?;
         let product = self.product_semantics_with_cancellation(cancellation)?;

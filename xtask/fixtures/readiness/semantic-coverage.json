@@ -1,6 +1,14 @@
 {
   "rule_families": [
     {
+      "name": "unconditional-execution-guarantees",
+      "production": ["check_execution_candidate", "check_execution_proof_dependencies"],
+      "diagnostic_source_tests": ["declarations_do_not_certify_effects_or_recursive_termination"],
+      "valid_source_tests": ["owned_and_local_destructors_participate_in_certification"],
+      "boundary_tests": ["opaque_foreign_assertions_retain_their_provenance"],
+      "published": ["ExecutionCertification"]
+    },
+    {
       "name": "name-resolution",
       "production": ["bind_path"],
       "diagnostic_source_tests": ["failed_lookup_preserves_shape_and_emits_structured_diagnostics"],

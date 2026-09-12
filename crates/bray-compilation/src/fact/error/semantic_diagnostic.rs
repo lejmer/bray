@@ -743,6 +743,7 @@ const fn semantic_data_kind(kind: SemanticDataKind) -> &'static str {
         SemanticDataKind::ContainingModule => "containing_module",
         SemanticDataKind::TraitApplication => "trait_application",
         SemanticDataKind::Type => "type",
+        SemanticDataKind::LifecycleMember => "lifecycle_member",
         SemanticDataKind::TypeSurface => "type_surface",
         SemanticDataKind::Diagnostic => "diagnostic",
     }

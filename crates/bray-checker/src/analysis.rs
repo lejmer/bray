@@ -6,6 +6,7 @@ mod condition;
 mod control;
 mod execution;
 mod fixed_point;
+mod guarantee;
 mod id;
 mod liveness;
 mod model;
@@ -17,6 +18,7 @@ mod storage_index;
 
 pub(crate) use build::{ControlFlowGraphBuildOutcome, build_storage_control_flow_graph};
 pub(crate) use check::check_control_flow;
+pub use guarantee::check_execution_candidate;
 pub(crate) use liveness::{analyze_storage_liveness, analyze_storage_liveness_with_graph};
 pub(crate) use model::{
     AnalysisOperationKind, AnalysisSuspensionKind, AnalysisTaskOperationKind, ControlFlowGraph,

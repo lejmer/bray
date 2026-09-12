@@ -211,8 +211,6 @@ pub(crate) enum ProductDataKind {
     CompilerKnownRepresentation,
     /// A generated lifecycle role.
     LifecycleRole,
-    /// A type-associated lifecycle member.
-    LifecycleMember,
     /// The semantic type owned by a lifecycle helper.
     LifecycleType,
     /// A realized static instance.

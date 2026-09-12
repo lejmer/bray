@@ -482,6 +482,10 @@ pub(crate) enum CompilationFactKey {
     MemoryOperations(BoundUnitKey),
     /// Correlated immutable flow, storage, dependency, async, and behavior semantics.
     BodySemantics(BoundUnitKey),
+    /// Body-local execution obligations whose dependencies have not been certified.
+    ExecutionCandidates(BoundUnitKey),
+    /// Certified unconditional execution properties with foreign assertion provenance.
+    CertifiedExecution(BoundUnitKey),
     /// Reachable normalized behavior of one checked semantic body.
     CheckedBodyBehavior(BoundUnitKey),
     /// The lowering result for one exact checked semantic unit.
@@ -623,6 +627,8 @@ impl CompilationFactKey {
             | Self::CheckedPatterns(key)
             | Self::StoragePlan(key)
             | Self::MemoryOperations(key)
+            | Self::ExecutionCandidates(key)
+            | Self::CertifiedExecution(key)
             | Self::BodySemantics(key)
             | Self::CheckedBodyBehavior(key)
             | Self::LoweredUnit(key)

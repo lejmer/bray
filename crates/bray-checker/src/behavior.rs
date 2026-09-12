@@ -161,12 +161,13 @@ where
     ))
 }
 
-fn collect_operation_behavior(
+/// Collects invocation dependencies and reports whether their witnesses are already resolved.
+pub(crate) fn collect_operation_behavior(
     operation: &SelectedOperation,
     source: Option<bray_bound_tree::BoundSourceAnchor>,
     calls: &mut Vec<BodyBehaviorCall>,
     defaults: &mut Vec<ConstructionDefaultProvider>,
-) {
+) -> bool {
     if let Some(target) = operation.operator_target() {
         match target {
             OperatorTarget::Trait { fulfillment, .. } => {
@@ -178,7 +179,7 @@ fn collect_operation_behavior(
             OperatorTarget::BuiltIn(_) => {}
         }
 
-        return;
+        return !matches!(target, OperatorTarget::TraitConstraint { .. });
     }
 
     match operation {
@@ -189,7 +190,11 @@ fn collect_operation_behavior(
         SelectedOperation::Index {
             target: IndexTarget::TraitConstraint { member, .. },
             ..
-        } => calls.push(invocation(*member, source)),
+        } => {
+            calls.push(invocation(*member, source));
+
+            return false;
+        }
         SelectedOperation::Construction(construction) => {
             if let ConstructionTarget::TypeForm { callable, .. } = construction.target() {
                 calls.push(invocation(callable, source));
@@ -206,7 +211,7 @@ fn collect_operation_behavior(
             );
         }
         SelectedOperation::Conversion(conversion) => {
-            collect_conversion_behavior(conversion, source, calls);
+            return collect_conversion_behavior(conversion, source, calls);
         }
         SelectedOperation::Member(_)
         | SelectedOperation::Operator { .. }
@@ -214,30 +219,37 @@ fn collect_operation_behavior(
         | SelectedOperation::Index { .. }
         | SelectedOperation::Implementation(_) => {}
     }
+
+    true
 }
 
-fn collect_conversion_behavior(
+/// Collects conversion invocations and reports whether their witnesses are already resolved.
+pub(crate) fn collect_conversion_behavior(
     conversion: &SelectedConversion,
     source: Option<bray_bound_tree::BoundSourceAnchor>,
     calls: &mut Vec<BodyBehaviorCall>,
-) {
-    match conversion.target() {
-        ConversionTarget::Trait { fulfillment, .. } => {
-            calls.push(invocation(*fulfillment, source));
-        }
-        ConversionTarget::TraitConstraint { member, .. } => {
-            calls.push(invocation(*member, source));
-        }
-        ConversionTarget::Composite(conversions) => {
-            for conversion in conversions.iter() {
-                collect_conversion_behavior(conversion, source, calls);
+) -> bool {
+    let mut resolved = true;
+    let mut pending = vec![conversion];
+
+    while let Some(conversion) = pending.pop() {
+        match conversion.target() {
+            ConversionTarget::Trait { fulfillment, .. } => {
+                calls.push(invocation(*fulfillment, source))
             }
+            ConversionTarget::TraitConstraint { member, .. } => {
+                calls.push(invocation(*member, source));
+                resolved = false;
+            }
+            ConversionTarget::Composite(conversions) => pending.extend(conversions.iter().rev()),
+            ConversionTarget::Identity
+            | ConversionTarget::NullablePresent
+            | ConversionTarget::BuiltInScalar
+            | ConversionTarget::CVariadicPromotion => {}
         }
-        ConversionTarget::Identity
-        | ConversionTarget::NullablePresent
-        | ConversionTarget::BuiltInScalar
-        | ConversionTarget::CVariadicPromotion => {}
     }
+
+    resolved
 }
 
 fn invocation(

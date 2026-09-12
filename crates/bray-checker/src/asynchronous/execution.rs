@@ -1,0 +1,192 @@
+use std::collections::BTreeSet;
+
+use bray_bound_tree::{AnyBoundNodeId, BoundCallableTarget};
+use bray_compiler_known::RepresentationRole;
+use bray_diagnostics::DiagnosticResult;
+use bray_symbols::{
+    CallableExecution, DeclaredStorageShape, GenericArgument, TypeAssociatedLifecycleSlot,
+    TypeData, TypeId,
+};
+
+use super::cleanup::CleanupShapeResolver;
+use crate::execution_guarantees::{ExecutionDependency, ExecutionProperty};
+use crate::{
+    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
+};
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(crate) enum ExecutionCleanupMode {
+    Disposal,
+    Admission,
+}
+
+pub(crate) fn execution_cleanup_dependencies<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    ty: TypeId,
+    property: ExecutionProperty,
+    mode: ExecutionCleanupMode,
+    node: AnyBoundNodeId,
+) -> Result<DiagnosticResult<Option<Vec<ExecutionDependency>>>, CheckerQueryError<C::UpstreamError>>
+{
+    let mut resolver = CleanupShapeResolver::new(request);
+    let mut pending = vec![ty];
+    let mut visited = BTreeSet::new();
+    let mut dependencies = Vec::new();
+    let mut valid = true;
+
+    while let Some(ty) = pending.pop() {
+        if request.is_cancelled() {
+            return Err(CheckerQueryError::Cancelled);
+        }
+
+        if !visited.insert(ty) {
+            continue;
+        }
+
+        if visited.len() > 1024 {
+            valid = false;
+            break;
+        }
+
+        let data = request
+            .semantic_values()
+            .type_data(ty)
+            .map_err(CheckerInfrastructureError::SemanticValueStore)
+            .map_err(CheckerQueryError::Infrastructure)?;
+
+        match data.as_ref() {
+            TypeData::Borrow { .. }
+            | TypeData::TraitView(_)
+            | TypeData::Slice(_)
+            | TypeData::FlexibleArray(_) => {}
+            TypeData::Tuple(elements) => pending.extend(elements.iter().copied()),
+            TypeData::Array { element, .. } | TypeData::Nullable(element) => pending.push(*element),
+            TypeData::Named {
+                definition,
+                substitution,
+            } => {
+                let role = crate::representation::type_representation(request, ty)
+                    .map_err(CheckerQueryError::Infrastructure)?;
+
+                match role {
+                    Some(RepresentationRole::Future | RepresentationRole::Task) => valid = false,
+                    Some(RepresentationRole::String | RepresentationRole::PanicReport) => {
+                        valid &= property == ExecutionProperty::Total
+                    }
+                    Some(
+                        RepresentationRole::Result
+                        | RepresentationRole::RunResult
+                        | RepresentationRole::ConversionError,
+                    ) => {
+                        let substitution = request
+                            .semantic_values()
+                            .generic_substitution_data(*substitution)
+                            .map_err(CheckerInfrastructureError::SemanticValueStore)
+                            .map_err(CheckerQueryError::Infrastructure)?;
+
+                        pending.extend(substitution.bindings().iter().filter_map(|binding| {
+                            match binding.argument() {
+                                GenericArgument::Type(ty) => Some(ty),
+                                GenericArgument::Constant(_) => None,
+                            }
+                        }));
+                    }
+                    Some(_) => {}
+                    None => {
+                        for slot in [
+                            TypeAssociatedLifecycleSlot::Finalizer,
+                            TypeAssociatedLifecycleSlot::Destructor,
+                        ] {
+                            let selected = request.context().lifecycle_callable(ty, slot)?;
+
+                            // The aggregate owns diagnostics beyond the selected query result.
+                            resolver
+                                .diagnostics
+                                .add_range(selected.diagnostics().clone());
+
+                            valid &= !selected.diagnostics().has_errors();
+
+                            if let Some((callable, signature)) = selected.value() {
+                                let callable_type = request
+                                    .semantic_values()
+                                    .type_data(signature.callable_type())
+                                    .map_err(CheckerInfrastructureError::SemanticValueStore)
+                                    .map_err(CheckerQueryError::Infrastructure)?;
+
+                                let TypeData::Callable(callable_type) = callable_type.as_ref()
+                                else {
+                                    valid = false;
+                                    continue;
+                                };
+
+                                let unit = crate::representation::type_representation(
+                                    request,
+                                    signature.result(),
+                                )
+                                .map_err(CheckerQueryError::Infrastructure)?
+                                    == Some(RepresentationRole::Unit);
+
+                                if slot == TypeAssociatedLifecycleSlot::Finalizer {
+                                    // Graceful cleanup reserves and discharges capacity even when its body is inert.
+                                    valid &= mode == ExecutionCleanupMode::Disposal
+                                        && property == ExecutionProperty::Total;
+                                }
+
+                                if mode == ExecutionCleanupMode::Disposal {
+                                    valid &= unit
+                                        && callable_type.execution()
+                                            == CallableExecution::Synchronous;
+
+                                    dependencies.push(ExecutionDependency {
+                                        target: BoundCallableTarget::Declaration(*callable),
+                                        property,
+                                        node,
+                                    });
+                                }
+                            }
+                        }
+
+                        let representation = request.declared_type_representation(*definition)?;
+
+                        // Retain representation diagnostics after this type has been traversed.
+                        resolver
+                            .diagnostics
+                            .add_range(representation.diagnostics().clone());
+
+                        valid &= !representation.value().is_recovered();
+
+                        let members = match representation.value().storage() {
+                            DeclaredStorageShape::Structure(members) => {
+                                members.iter().map(|member| member.ty()).collect::<Vec<_>>()
+                            }
+                            DeclaredStorageShape::Union(variants) => variants
+                                .iter()
+                                .flat_map(|variant| variant.members())
+                                .map(|member| member.ty())
+                                .collect(),
+                        };
+
+                        for member in members {
+                            match resolver.member_type(member, *substitution)? {
+                                Some(ty) => pending.push(ty),
+                                None => valid = false,
+                            }
+                        }
+                    }
+                }
+            }
+            TypeData::OwnedIndirection { .. }
+            | TypeData::Error
+            | TypeData::TypeParameter(_)
+            | TypeData::ContextualSelf(_)
+            | TypeData::TypeValuedMemberProjection { .. }
+            | TypeData::Generator(_)
+            | TypeData::Callable(_) => valid = false,
+        }
+    }
+
+    Ok(DiagnosticResult::new(
+        valid.then_some(dependencies),
+        resolver.diagnostics,
+    ))
+}

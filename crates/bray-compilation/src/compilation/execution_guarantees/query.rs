@@ -1,0 +1,490 @@
+use std::sync::Arc;
+
+use bray_bound_tree::BoundUnitKey;
+use bray_checker::{
+    ExecutionCandidate, ExecutionCertification, ExecutionDeclaration, ExecutionProperty,
+    check_execution_candidate, declared_execution_properties,
+};
+use bray_declarations::SyntaxAnchor;
+use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
+
+use crate::compilation::checker::checker_result;
+use crate::compilation::unit::{checker_unit_view, semantic_unit_context_for};
+use crate::compilation::{
+    Compilation, SemanticDataKind, SemanticQueryContext, SemanticQueryFailure,
+    SemanticQueryViolation,
+};
+use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitResult};
+
+impl Compilation {
+    pub(super) fn execution_declaration(
+        &self,
+        anchor: SyntaxAnchor,
+    ) -> Result<DiagnosticResult<ExecutionDeclaration>, FactQueryError> {
+        let node = self
+            .syntax_tree()
+            .find_node(
+                anchor.source_id(),
+                anchor.syntax_kind(),
+                anchor.full_range(),
+                anchor.is_recovered(),
+            )
+            .ok_or_else(|| {
+                SemanticQueryFailure::contract(
+                    SemanticQueryContext::Source(anchor.source_id()),
+                    SemanticQueryViolation::Missing(SemanticDataKind::Syntax),
+                )
+            })?;
+
+        Ok(declared_execution_properties(node))
+    }
+
+    /// Returns certified unconditional properties after checking all selected dependencies.
+    pub fn execution_properties(
+        &self,
+        key: BoundUnitKey,
+    ) -> Result<Arc<DiagnosticResult<ExecutionCertification>>, FactQueryError> {
+        let published =
+            self.certified_execution_with_cancellation(key, &self.state.cancellation)?;
+
+        Ok(Arc::clone(published.result()))
+    }
+
+    pub(in crate::compilation) fn certified_execution_with_cancellation(
+        &self,
+        key: BoundUnitKey,
+        cancellation: &CancellationToken,
+    ) -> Result<Arc<PublishedUnitResult<ExecutionCertification>>, FactQueryError> {
+        // Fact keys and their immutable publications retain shared unit identities independently.
+        self.unit_query(
+            &self.state.certified_execution,
+            CompilationFactKey::CertifiedExecution(key.clone()),
+            key.clone(),
+            cancellation,
+            |cancellation| {
+                let result = self.compute_certified_execution(&key, cancellation)?;
+
+                Ok((result, Box::new([])))
+            },
+        )
+    }
+
+    pub(super) fn execution_candidates_with_cancellation(
+        &self,
+        key: BoundUnitKey,
+        cancellation: &CancellationToken,
+    ) -> Result<Arc<PublishedUnitResult<[ExecutionCandidate; 2]>>, FactQueryError> {
+        // Fact keys and their immutable publications retain shared unit identities independently.
+        self.unit_query(
+            &self.state.execution_candidates,
+            CompilationFactKey::ExecutionCandidates(key.clone()),
+            key.clone(),
+            cancellation,
+            |cancellation| {
+                // Each queried publication owns this Arc-backed unit identity.
+                let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
+
+                let expressions =
+                    self.expression_semantics_with_cancellation(key.clone(), cancellation)?;
+
+                let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
+                let body = self.body_semantics_with_cancellation(key.clone(), cancellation)?;
+                let memory = self.memory_operations_with_cancellation(key.clone(), cancellation)?;
+                let flow = self.control_flow_with_cancellation(key.clone(), cancellation)?;
+                let context = self.checker_context_for(&key, cancellation)?;
+
+                let semantic_context =
+                    semantic_unit_context_for(context.symbols(), bound.result().value())?;
+
+                let unit = checker_unit_view(bound.result().value(), &semantic_context, &context)?;
+
+                let check = |property| {
+                    checker_result(check_execution_candidate(
+                        unit,
+                        property,
+                        expressions.result().value(),
+                        storage.result().value(),
+                        body.result().value(),
+                        memory.result().value(),
+                    ))
+                };
+
+                let pure = check(ExecutionProperty::Pure)?;
+                let total = check(ExecutionProperty::Total)?;
+
+                let diagnostics = DiagnosticBag::merged_all([
+                    bound.result().diagnostics(),
+                    expressions.result().diagnostics(),
+                    storage.result().diagnostics(),
+                    body.result().diagnostics(),
+                    memory.result().diagnostics(),
+                    flow.result().diagnostics(),
+                    pure.diagnostics(),
+                    total.diagnostics(),
+                ]);
+
+                Ok((
+                    DiagnosticResult::new([pure.into_parts().0, total.into_parts().0], diagnostics),
+                    Box::new([]),
+                ))
+            },
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::test_support::{compilation, source_function_body_key};
+    use bray_checker::ExecutionProperty::{Pure, Total};
+    use bray_diagnostics::DiagnosticKind;
+
+    #[test]
+    fn unconditional_execution_properties_check_source_bodies() {
+        let compilation = compilation(
+            r#"
+            trusted module app;
+            func identity(pos value: bool) -> bool executes(pure, total) { return value; }
+            trusted func trusted_identity(pos value: bool) -> bool executes(pure, total) { return identity(value); }
+        "#,
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+
+        for name in ["identity", "trusted_identity"] {
+            let proof = compilation
+                .execution_properties(source_function_body_key(&compilation, name))
+                .unwrap();
+
+            assert_eq!(
+                &proof.value().properties,
+                &std::collections::BTreeSet::from([Pure, Total])
+            );
+        }
+    }
+
+    #[test]
+    fn declarations_do_not_certify_effects_or_recursive_termination() {
+        for source in [
+            r#"module app; func change(pos mut value: bool) executes(pure) { value = false; }"#,
+            r#"trusted module app; trusted func change(pos mut value: bool) executes(pure) { value = false; }"#,
+            r#"module app; func forever() executes(total) { loop {} }"#,
+            r#"module app; func missing() {} func caller() executes(total) { missing(); }"#,
+        ] {
+            let compilation = compilation(source);
+
+            bray_testing::assert_goal_state_diagnostic_kind(
+                compilation.check_diagnostics(),
+                DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+            );
+        }
+
+        let compilation = compilation(
+            r#"
+            module app;
+            func first() executes(pure, total) { second(); }
+            func second() executes(pure, total) { first(); }
+        "#,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            compilation.check_diagnostics(),
+            DiagnosticKind::CheckingCircularExecutionGuarantee,
+        );
+
+        let proof = compilation
+            .execution_properties(source_function_body_key(&compilation, "first"))
+            .unwrap();
+
+        assert_eq!(
+            &proof.value().properties,
+            &std::collections::BTreeSet::from([Pure])
+        );
+    }
+
+    #[test]
+    fn error_results_complete_normally() {
+        let compilation = compilation(
+            r#"
+            module app;
+            func failure() -> Result<bool, bool> executes(pure, total) { return Error(false); }
+            func propagate() -> Result<bool, bool> executes(pure, total) { return Ok(try failure()); }
+        "#,
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+    }
+    #[test]
+    fn owned_and_local_destructors_participate_in_certification() {
+        let compilation = compilation(
+            r#"
+            module app;
+            struct Value { destruct() executes(pure, total) {} }
+            func dispose(pos value: Value) executes(pure, total) {}
+            func local() executes(pure, total) { let value = Value {}; }
+        "#,
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+    }
+
+    #[test]
+    fn cleanup_effects_and_admission_prevent_certification() {
+        for source in [
+            r#"
+                module app;
+                struct Value { destruct() { panic("cleanup"); } }
+                func dispose(pos value: Value) executes(total) {}
+            "#,
+            r#"
+                module app;
+                struct Value { finalize() -> Result<unit, bool> executes(total) { return Error(false); } }
+                func dispose(pos value: Value) executes(total) {}
+            "#,
+            r#"
+                module app;
+                struct Value { finalize() executes(total) {} }
+                func make() -> Value executes(pure, total) { return Value {}; }
+            "#,
+        ] {
+            let compilation = compilation(source);
+
+            bray_testing::assert_goal_state_diagnostic_kind(
+                compilation.check_diagnostics(),
+                DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+            );
+        }
+    }
+
+    #[test]
+    fn returning_an_owner_transfers_its_later_cleanup() {
+        let compilation = compilation(
+            r#"
+            module app;
+            struct Value { finalize() { panic("later"); } }
+            func relay(pos value: Value) -> Value executes(pure, total) { return value; }
+        "#,
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+    }
+
+    #[test]
+    fn cleanup_cycles_cannot_certify_total_execution() {
+        let compilation = compilation(
+            r#"
+            module app;
+            struct Value { destruct() executes(total) { recurse(); } }
+            func recurse() executes(total) { let value = Value {}; }
+        "#,
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            compilation.check_diagnostics(),
+            DiagnosticKind::CheckingCircularExecutionGuarantee,
+        );
+    }
+
+    #[test]
+    fn invalid_declarations_do_not_supply_execution_evidence() {
+        for source in [
+            "module app; func bad() executes(total) { missing(); }",
+            "module app; func bad() executes(magic) {}",
+            "module app; func bad() executes(total) { return ; ; }",
+            "module app; func bad() -> bool executes(total) {}",
+        ] {
+            let compilation = compilation(source);
+            assert!(compilation.check_diagnostics().has_errors(), "{source}");
+
+            if compilation.syntax_tree_result().diagnostics().is_empty() {
+                let proof = compilation
+                    .execution_properties(source_function_body_key(&compilation, "bad"))
+                    .unwrap();
+
+                assert!(proof.value().properties.is_empty(), "{source}: {proof:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn opaque_foreign_assertions_retain_their_provenance() {
+        let options = crate::CompilationOptions::new(
+            crate::WorkerBudget::serial(),
+            bray_symbols::ProductKind::Library,
+            crate::SelectedTarget::baseline(),
+        )
+        .with_native_link_inputs([bray_symbols::NativeLinkRequirement::new(
+            bray_base::NonEmptySharedStr::try_new("c").unwrap(),
+            bray_symbols::NativeLinkKind::Dynamic,
+        )]);
+
+        let compilation = crate::test_support::compilation_with_options(
+            r#"
+            trusted module app;
+            @link(name = "c") @symbol(name = "native_value") @abi(c)
+            extern trusted func native_value() -> i32 uses(foreign_call) executes(total);
+            trusted func wrapper() -> i32 uses(foreign_call) executes(total) { return native_value(); }
+        "#,
+            options,
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+
+        let evidence = compilation
+            .execution_properties(source_function_body_key(&compilation, "wrapper"))
+            .unwrap();
+
+        assert_eq!(
+            evidence.value().properties,
+            std::collections::BTreeSet::from([Total])
+        );
+
+        assert_eq!(evidence.value().foreign_assertions.len(), 1);
+    }
+
+    #[test]
+    fn unknown_execution_property_names_have_source_diagnostics() {
+        let compilation = compilation("module app; func bad() executes(magic) {}");
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            compilation.check_diagnostics(),
+            DiagnosticKind::CheckingUnknownExecutionProperty,
+        );
+    }
+
+    #[test]
+    fn certifications_are_immutable_and_invalidated_with_their_source() {
+        let original = compilation(
+            "module app; func identity(pos value: bool) -> bool executes(total) { return value; }",
+        );
+
+        let key = source_function_body_key(&original, "identity");
+        let first = original.execution_properties(key.clone()).unwrap();
+
+        std::thread::scope(|scope| {
+            let requests = (0..4)
+                .map(|_| scope.spawn(|| original.execution_properties(key.clone()).unwrap()))
+                .collect::<Vec<_>>();
+
+            for request in requests {
+                assert!(std::sync::Arc::ptr_eq(&first, &request.join().unwrap()));
+            }
+        });
+
+        let updated = original
+            .updated_sources(vec![crate::test_support::source_input(
+                "module app; func identity(pos value: bool) -> bool executes(total) { loop {} }",
+                1,
+            )])
+            .unwrap();
+
+        let proof = updated
+            .execution_properties(source_function_body_key(&updated, "identity"))
+            .unwrap();
+
+        assert!(proof.value().properties.is_empty());
+
+        assert_eq!(
+            first.value().properties,
+            std::collections::BTreeSet::from([Total])
+        );
+    }
+    #[test]
+    fn callee_requirements_are_not_unconditional_caller_evidence() {
+        let compilation = compilation(
+            "module app; func guarded(pos value: bool) requires(value) executes(total) {} func caller(pos value: bool) executes(total) { guarded(value); }",
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            compilation.check_diagnostics(),
+            DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+        );
+
+        let proof = compilation
+            .execution_properties(source_function_body_key(&compilation, "guarded"))
+            .unwrap();
+
+        assert_eq!(
+            proof.value().properties,
+            std::collections::BTreeSet::from([Total])
+        );
+    }
+    #[test]
+    fn methods_constructors_and_lambda_bodies_establish_their_own_evidence() {
+        let compilation = compilation(
+            r#"
+            module app;
+            struct Value {
+                construct() -> Self executes(pure, total) { return Value {}; }
+                func value() -> bool executes(pure, total) { return true; }
+                static func helper() executes(pure, total) {}
+            }
+            func make() -> Value executes(pure, total) { return Value(); }
+            func outer() { let action = lambda() executes(pure, total) {}; }
+        "#,
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+    }
+
+    #[test]
+    fn replacing_local_owners_requires_the_selected_destructor() {
+        for (promise, valid) in [("executes(total)", true), ("", false)] {
+            let source = format!(
+                "module app; struct Value {{ destruct() {promise} {{}} }} func replace() executes(total) {{ let mut value = Value {{}}; value = Value {{}}; }}"
+            );
+
+            let compilation = compilation(&source);
+
+            assert_eq!(
+                !compilation.check_diagnostics().has_errors(),
+                valid,
+                "{source}: {:?}",
+                compilation.check_diagnostics()
+            );
+        }
+    }
+    #[test]
+    fn deferred_trait_dispatch_cannot_certify_from_a_default_body() {
+        let compilation = compilation(
+            "module app; trait Value { func get() -> bool executes(total) { return true; } func read() -> bool executes(total) { return self.get(); } }",
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            compilation.check_diagnostics(),
+            DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+        );
+
+        let proof = compilation
+            .execution_properties(crate::test_support::source_trait_callable_member_body_key(
+                &compilation,
+                "read",
+            ))
+            .unwrap();
+
+        assert!(proof.value().properties.is_empty());
+    }
+}

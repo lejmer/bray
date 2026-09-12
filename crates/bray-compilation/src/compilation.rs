@@ -18,6 +18,7 @@ mod implementation;
 mod imported;
 mod input;
 mod iteration;
+mod lifecycle;
 mod limits;
 mod linking;
 mod load;

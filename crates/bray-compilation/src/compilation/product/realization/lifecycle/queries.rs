@@ -1,8 +1,6 @@
-use bray_binder::SymbolQueryProvider;
 use bray_ir::MirCallableReference;
 use bray_symbols::{
-    CallableExecution, CallableSignature, CallableSignatureQuery, SymbolQueryRequest,
-    TypeAssociatedLifecycleSlot, TypeData, TypeId,
+    CallableExecution, CallableSignature, TypeAssociatedLifecycleSlot, TypeData, TypeId,
 };
 
 use super::super::support::receiver_codegen_type;
@@ -30,77 +28,26 @@ impl Compilation {
             .type_data(ty)
             .map_err(FactQueryError::SemanticValueStore)?;
 
-        let TypeData::Named {
-            definition,
-            substitution,
-        } = data.as_ref()
-        else {
+        let TypeData::Named { substitution, .. } = data.as_ref() else {
             return Ok(None);
         };
 
-        let surface =
-            self.type_associated_surface_result_with_cancellation(*definition, cancellation)?;
+        let selected = self.selected_lifecycle_signature(ty, slot, cancellation)?;
 
-        let members = surface
-            .value()
-            .lifecycle_members()
-            .iter()
-            .filter(|member| member.slot() == slot)
-            .map(|member| member.id())
-            .collect::<Vec<_>>();
+        if selected.diagnostics().has_errors() {
+            // The failure retains selected lifecycle diagnostics after the query result drops.
+            return Err(CodegenPreparationError::Diagnostics(
+                selected.diagnostics().clone(),
+            ));
+        }
 
-        let [member] = members.as_slice() else {
-            if members.is_empty() {
-                return Ok(None);
-            }
-
-            return Err(ProductQueryFailure::count_mismatch(
-                ProductQueryContext::Type(ty),
-                ProductDataKind::LifecycleMember,
-                1,
-                members.len(),
-            )
-            .into());
+        let Some((callable, signature)) = selected.value() else {
+            return Ok(None);
         };
-
-        let member = *member;
-
-        let callable =
-            crate::compilation::implementation::callable_instance(values, member, [*substitution])?;
-
-        let binding_context = self.binding_context(cancellation)?;
-
-        let signature = binding_context
-            .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
-                callable.definition().callable_symbol(),
-            ))
-            .map_err(crate::compilation::binder::binding_query_error)?;
-
-        let constants = self.checked_constant_terms_for_templates_with_cancellation(
-            [
-                signature.value().callable_type(),
-                signature.value().result(),
-            ],
-            cancellation,
-        )?;
-
-        let signature = bray_checker::resolve_callable_signature_template(
-            values,
-            signature.value(),
-            callable.substitution(),
-            constants.value(),
-        )
-        .map_err(FactQueryError::from)?
-        .ok_or_else(|| {
-            ProductQueryFailure::missing(
-                ProductQueryContext::CallableData(callable),
-                ProductDataKind::CallableSignature,
-            )
-        })?;
 
         let receiver = signature.receiver().ok_or_else(|| {
             ProductQueryFailure::missing(
-                ProductQueryContext::CallableData(callable),
+                ProductQueryContext::CallableData(*callable),
                 ProductDataKind::CallableReceiver,
             )
         })?;
@@ -131,7 +78,7 @@ impl Compilation {
         };
 
         Ok(Some((
-            MirCallableReference::new(callable, callable_type.abi()),
+            MirCallableReference::new(*callable, callable_type.abi()),
             receiver,
             result,
             callable_type.execution(),

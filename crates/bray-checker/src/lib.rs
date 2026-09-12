@@ -34,6 +34,7 @@ mod unit;
 #[cfg(test)]
 mod test_support;
 
+pub use analysis::check_execution_candidate;
 pub use analysis::{closed_type_is_copyable, type_is_copyable, type_is_copyable_in_context};
 pub use atomic::atomic_target_representation;
 pub use constant::{
@@ -55,7 +56,11 @@ pub use context::{
     ImplementationHookResolution, StorageFlowInputKind,
 };
 pub use diagnostic::diagnostic_type;
-pub use execution_guarantees::check_execution_guarantees;
+pub use execution_guarantees::{
+    DeclaredExecutionProperty, ExecutionCandidate, ExecutionCertification, ExecutionDeclaration,
+    ExecutionDependency, ExecutionProofFailure, ExecutionProperty, check_execution_guarantees,
+    check_execution_proof_dependencies, declared_execution_properties,
+};
 pub use expression::{NestedCallableEvidence, check_generic_arguments};
 pub use outcome::{CheckerOutcome, ControlFlowCheckResult};
 pub use pattern::{

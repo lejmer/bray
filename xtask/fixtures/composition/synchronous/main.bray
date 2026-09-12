@@ -6,4 +6,37 @@ using composition.api;
 func run()
 {
     assert(composition.api.answer() == 42);
+    assert(identity(true));
+    replace_owner();
+    assert(failure() matches Error(false));
+}
+
+func identity(pos value: bool) -> bool
+    executes(pure, total)
+{
+    return value;
+}
+
+func failure() -> Result<bool, bool>
+    executes(pure, total)
+{
+    return Error(false);
+}
+
+struct TotalOwner
+{
+    destruct()
+        executes(total) {}
+}
+
+func replace_owner()
+    executes(total)
+{
+    let mut owner = TotalOwner
+    {
+    };
+
+    owner = TotalOwner
+    {
+    };
 }
