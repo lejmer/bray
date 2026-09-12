@@ -146,7 +146,7 @@ pub(crate) fn selected_semantic_sections(
     ];
 
     match kind {
-        crate::InterfaceSemanticRecordKind::CallableSignature => Some(CALLABLE_SIGNATURE_SECTIONS),
+        crate::InterfaceSemanticRecordKind::CallableSignature => Some(COMPLETE_SEMANTIC_SECTIONS),
         crate::InterfaceSemanticRecordKind::GenericDeclaration => {
             Some(GENERIC_DECLARATION_SECTIONS)
         }

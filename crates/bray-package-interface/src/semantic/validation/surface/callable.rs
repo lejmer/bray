@@ -175,7 +175,7 @@ impl InterfaceSemantics {
             ));
         }
 
-        Ok(())
+        self.validate_execution_phase_promises(signature)
     }
 
     fn validate_generic_declaration(

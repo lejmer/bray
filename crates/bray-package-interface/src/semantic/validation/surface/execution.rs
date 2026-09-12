@@ -8,7 +8,7 @@ use bray_symbols::{
 use super::reference::{local_symbol, reference_owner, validate_symbol_kind};
 use crate::validation::is_strictly_sorted;
 use crate::{
-    InterfaceCallableContract, InterfaceCallableExecutionContract, InterfaceConstantTerm,
+    InterfaceCallableContract, InterfaceCallableSignature, InterfaceConstantTerm,
     InterfaceConstantTermId, InterfaceSemantics, InterfaceSymbolReference, InterfaceType,
     InterfaceValidationError, InterfaceValidationField, PackageInterfaceSurface,
 };
@@ -250,37 +250,13 @@ impl InterfaceSemantics {
             return Err(invalid());
         }
 
-        self.validate_execution_phase_promises(contract, execution)?;
-
         Ok(())
     }
 
-    fn validate_execution_phase_promises(
+    pub(super) fn validate_execution_phase_promises(
         &self,
-        contract: &InterfaceCallableContract,
-        execution: &InterfaceCallableExecutionContract,
+        signature: &InterfaceCallableSignature,
     ) -> Result<(), InterfaceValidationError> {
-        let behavior = contract
-            .deferred_execution_behavior
-            .as_ref()
-            .unwrap_or(&contract.invocation_behavior);
-
-        for property in &*behavior.execution_properties {
-            if !execution
-                .domains
-                .iter()
-                .any(|domain| domain.entry.is_empty() && domain.properties.contains(property))
-            {
-                return Err(invalid());
-            }
-        }
-
-        let signature = self
-            .callable_signatures
-            .iter()
-            .find(|signature| signature.owner == contract.owner)
-            .ok_or_else(invalid)?;
-
         let Some(InterfaceType::Callable {
             invocation_behavior,
             deferred_execution_behavior,
@@ -291,6 +267,22 @@ impl InterfaceSemantics {
             .and_then(|index| self.types.get(index))
         else {
             return Err(invalid());
+        };
+
+        let Some(contract) = self
+            .callable_contracts
+            .iter()
+            .find(|contract| contract.owner == signature.owner)
+        else {
+            return if invocation_behavior.execution_properties.is_empty()
+                && deferred_execution_behavior
+                    .as_ref()
+                    .is_none_or(|behavior| behavior.execution_properties.is_empty())
+            {
+                Ok(())
+            } else {
+                Err(invalid())
+            };
         };
 
         if invocation_behavior.execution_properties
@@ -304,6 +296,22 @@ impl InterfaceSemantics {
                     .map(|behavior| &behavior.execution_properties)
         {
             return Err(invalid());
+        }
+
+        let behavior = contract
+            .deferred_execution_behavior
+            .as_ref()
+            .unwrap_or(&contract.invocation_behavior);
+
+        for property in &*behavior.execution_properties {
+            if !contract
+                .execution_contract
+                .domains
+                .iter()
+                .any(|domain| domain.entry.is_empty() && domain.properties.contains(property))
+            {
+                return Err(invalid());
+            }
         }
 
         Ok(())

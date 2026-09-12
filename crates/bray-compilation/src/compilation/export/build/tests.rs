@@ -52,12 +52,27 @@ fn execution_guarantees_reject_malformed_interface_evidence() {
         .copied()
         .unwrap();
 
-    for corruption in 0..7 {
+    for corruption in 0..9 {
         let contracts = original
             .semantics()
             .callable_contracts()
             .iter()
+            .filter(|_| corruption != 8)
             .map(|contract| {
+                if corruption == 7 {
+                    return bray_package_interface::InterfaceCallableContract::new(
+                        contract.owner().clone(),
+                        [],
+                        contract
+                            .invocation_behavior()
+                            .clone()
+                            .with_execution_properties([]),
+                        contract
+                            .deferred_execution_behavior()
+                            .map(|behavior| behavior.clone().with_execution_properties([])),
+                    );
+                }
+
                 let mut execution = contract.execution_contract().clone();
 
                 if !execution.evidence.is_empty() {
