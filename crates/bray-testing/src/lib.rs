@@ -35,7 +35,7 @@ pub use source::{
     try_test_source_store,
 };
 pub use syntax::{
-    assert_single_final_eof, assert_tokens_cover_source_text, first_syntax_descendant,
-    syntax_descendants,
+    EXECUTION_GUARANTEES_SOURCE, assert_single_final_eof, assert_tokens_cover_source_text,
+    first_syntax_descendant, syntax_descendants,
 };
 pub use temporary_file::{TemporaryFile, unique_temporary_directory};

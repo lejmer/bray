@@ -11,6 +11,7 @@ mod constant;
 mod context;
 mod dependency;
 mod diagnostic;
+mod execution_guarantees;
 mod expression;
 mod memory;
 mod memory_diagnostics;
@@ -54,6 +55,7 @@ pub use context::{
     ImplementationHookResolution, StorageFlowInputKind,
 };
 pub use diagnostic::diagnostic_type;
+pub use execution_guarantees::check_execution_guarantees;
 pub use expression::{NestedCallableEvidence, check_generic_arguments};
 pub use outcome::{CheckerOutcome, ControlFlowCheckResult};
 pub use pattern::{

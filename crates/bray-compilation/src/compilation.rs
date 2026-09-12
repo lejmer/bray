@@ -10,6 +10,7 @@ mod declaration_body;
 mod diagnostics;
 mod directive;
 mod emission;
+mod execution_guarantees;
 mod export;
 mod foreign;
 mod generic_constraint;

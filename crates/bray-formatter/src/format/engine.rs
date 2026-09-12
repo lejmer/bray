@@ -393,7 +393,8 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
         if (self.callable_header_group_open || self.callable_clause_indent_open)
             && (kind == SyntaxKind::SemicolonToken
                 || kind == SyntaxKind::OpenBraceToken
-                    && !self.nodes.contains(&SyntaxKind::ParameterList))
+                    && !self.nodes.contains(&SyntaxKind::ParameterList)
+                    && self.nodes.last() != Some(&SyntaxKind::WhenClause))
         {
             self.close_callable_header();
         }
@@ -404,6 +405,8 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
                     kind,
                     SyntaxKind::RequiresClause
                         | SyntaxKind::EnsuresClause
+                        | SyntaxKind::ExecutesClause
+                        | SyntaxKind::WhenClause
                         | SyntaxKind::WithClause
                         | SyntaxKind::UsesClause
                 )
@@ -898,5 +901,49 @@ mod tests {
             formatted.text(),
             "trusted module fixture;\n\nextern trusted func create_thread(\n    pos attributes: RawPointer<SecurityAttributes>,\n    pos stack_size: usize,\n    pos entry: ThreadStartRoutine,\n    pos context: RawPointer<u8>,\n    pos creation_flags: u32,\n    pos thread_identifier: RawPointer<u32>\n) -> RawPointer<u8>\n    uses(foreign_call);\n"
         );
+    }
+
+    #[test]
+    fn execution_guarantees_format_every_callable_form() {
+        let source = bray_testing::EXECUTION_GUARANTEES_SOURCE;
+        let output = format(source);
+        let snapshot = test_source_snapshot(output.text());
+        let parsed = bray_parser::parse_source_unit(&snapshot);
+
+        assert!(
+            parsed.diagnostics().is_empty(),
+            "{:?}",
+            parsed.diagnostics()
+        );
+
+        assert_eq!(output.text().matches("executes(pure, total)").count(), 21);
+        assert_eq!(output.text().matches("when(true)").count(), 42);
+        assert!(!format(output.text()).changed(), "{}", output.text());
+    }
+
+    #[test]
+    fn guarded_guarantees_keep_nested_contract_indentation() {
+        let source = "module fixture; func check(pos ready: bool) when(ready){executes(pure,total) ensures(true) when(true){executes(total)}} ensures(true){}";
+        let output = format(source);
+
+        assert_eq!(
+            output.text(),
+            concat!(
+                "module fixture;\n\n",
+                "func check(pos ready: bool)\n",
+                "    when(ready)\n",
+                "    {\n",
+                "        executes(pure, total)\n",
+                "        ensures(true)\n",
+                "        when(true)\n",
+                "        {\n",
+                "            executes(total)\n",
+                "        }\n",
+                "    }\n",
+                "    ensures(true) {}\n",
+            )
+        );
+
+        assert!(!format(output.text()).changed());
     }
 }

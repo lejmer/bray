@@ -1,0 +1,281 @@
+module guarantee_syntax;
+
+callable Action = func()
+    executes(pure, total)
+    when(true)
+    {
+        executes(total)
+        ensures(true)
+        when(true)
+        {
+            executes(pure)
+        }
+    }
+;
+
+func ordinary()
+    executes(pure, total)
+    when(true)
+    {
+        executes(total)
+        ensures(true)
+        when(true)
+        {
+            executes(pure)
+        }
+    }
+{}
+
+extern trusted func foreign()
+    executes(pure, total)
+    when(true)
+    {
+        executes(total)
+        ensures(true)
+        when(true)
+        {
+            executes(pure)
+        }
+    }
+;
+
+func outer()
+{
+    let action = lambda()
+        executes(pure, total)
+        when(true)
+        {
+            executes(total)
+            ensures(true)
+            when(true)
+            {
+                executes(pure)
+            }
+        }
+    {};
+}
+
+func higher_order(action: func()
+    executes(pure, total)
+    when(true)
+    {
+        executes(total)
+        ensures(true)
+        when(true)
+        {
+            executes(pure)
+        }
+    }
+)
+    executes(pure, total)
+    when(true)
+    {
+        executes(total)
+        ensures(true)
+        when(true)
+        {
+            executes(pure)
+        }
+    }
+{}
+
+struct Value
+{
+    construct() -> Self
+        executes(pure, total)
+        when(true)
+        {
+            executes(total)
+            ensures(true)
+            when(true)
+            {
+                executes(pure)
+            }
+        }
+    { return {}; }
+
+    func method()
+        executes(pure, total)
+        when(true)
+        {
+            executes(total)
+            ensures(true)
+            when(true)
+            {
+                executes(pure)
+            }
+        }
+    {}
+
+    static func helper()
+        executes(pure, total)
+        when(true)
+        {
+            executes(total)
+            ensures(true)
+            when(true)
+            {
+                executes(pure)
+            }
+        }
+    {}
+
+    finalize()
+        executes(pure, total)
+        when(true)
+        {
+            executes(total)
+            ensures(true)
+            when(true)
+            {
+                executes(pure)
+            }
+        }
+    {}
+
+    destruct()
+        executes(pure, total)
+        when(true)
+        {
+            executes(total)
+            ensures(true)
+            when(true)
+            {
+                executes(pure)
+            }
+        }
+    {}
+
+    enter() -> unit
+        executes(pure, total)
+        when(true)
+        {
+            executes(total)
+            ensures(true)
+            when(true)
+            {
+                executes(pure)
+            }
+        }
+    {}
+
+    exit(pos lease: unit)
+        executes(pure, total)
+        when(true)
+        {
+            executes(total)
+            ensures(true)
+            when(true)
+            {
+                executes(pure)
+            }
+        }
+    {}
+}
+
+trait Resource
+{
+    func requirement()
+        executes(pure, total)
+        when(true)
+        {
+            executes(total)
+            ensures(true)
+            when(true)
+            {
+                executes(pure)
+            }
+        }
+    ;
+
+    func default_method()
+        executes(pure, total)
+        when(true)
+        {
+            executes(total)
+            ensures(true)
+            when(true)
+            {
+                executes(pure)
+            }
+        }
+    {}
+
+    static func static_requirement()
+        executes(pure, total)
+        when(true)
+        {
+            executes(total)
+            ensures(true)
+            when(true)
+            {
+                executes(pure)
+            }
+        }
+    ;
+
+    static func static_default()
+        executes(pure, total)
+        when(true)
+        {
+            executes(total)
+            ensures(true)
+            when(true)
+            {
+                executes(pure)
+            }
+        }
+    {}
+
+    finalize()
+        executes(pure, total)
+        when(true)
+        {
+            executes(total)
+            ensures(true)
+            when(true)
+            {
+                executes(pure)
+            }
+        }
+    ;
+
+    destruct()
+        executes(pure, total)
+        when(true)
+        {
+            executes(total)
+            ensures(true)
+            when(true)
+            {
+                executes(pure)
+            }
+        }
+    ;
+
+    enter() -> unit
+        executes(pure, total)
+        when(true)
+        {
+            executes(total)
+            ensures(true)
+            when(true)
+            {
+                executes(pure)
+            }
+        }
+    ;
+
+    exit(pos lease: unit)
+        executes(pure, total)
+        when(true)
+        {
+            executes(total)
+            ensures(true)
+            when(true)
+            {
+                executes(pure)
+            }
+        }
+    ;
+}

@@ -2484,6 +2484,10 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::CheckingVariadicCallableContractUnsupported => {
             MessageTemplate::new(CHECKING_VARIADIC_CALLABLE_CONTRACT_UNSUPPORTED)
         }
+        DiagnosticKind::CheckingExecutionGuaranteeUnsupported => MessageTemplate::new(&[
+            MessageTemplatePart::Text("Bray cannot yet verify guarantees declared with the "),
+            MessageTemplatePart::Arg(DiagnosticArgName::ActualSyntaxKind),
+        ]),
         DiagnosticKind::CheckingCallableAddressTypeUnsupported => {
             MessageTemplate::new(CHECKING_CALLABLE_ADDRESS_TYPE_UNSUPPORTED)
         }

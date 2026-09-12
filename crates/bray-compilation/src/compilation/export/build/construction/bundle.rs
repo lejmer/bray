@@ -61,6 +61,9 @@ impl Compilation {
         if self.source_diagnostics().has_errors()
             || self.syntax_tree_result().diagnostics().has_errors()
             || source_graph.diagnostics().has_errors()
+            || self
+                .execution_guarantee_diagnostics(source_graph)
+                .has_errors()
             || self.imported_diagnostics().has_errors()
         {
             // rust-style: allow(context-erasing-failure-conversion, reason = "source and semantic diagnostics retain the exact causes")
