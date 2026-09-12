@@ -13,6 +13,7 @@ mod model;
 mod propagation;
 mod reachability;
 mod refinement;
+mod result;
 mod storage_flow;
 mod storage_index;
 
@@ -24,5 +25,6 @@ pub(crate) use model::{
     AnalysisOperationKind, AnalysisSuspensionKind, AnalysisTaskOperationKind, ControlFlowGraph,
 };
 pub(crate) use refinement::{check_refinements, check_refinements_with_graph};
+pub(crate) use result::check_callable_result;
 pub(crate) use storage_flow::{check_storage_flow, check_storage_flow_with_graph};
 pub use storage_flow::{closed_type_is_copyable, type_is_copyable, type_is_copyable_in_context};

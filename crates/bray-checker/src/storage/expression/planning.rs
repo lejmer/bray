@@ -490,8 +490,13 @@ where
                 self.temporary_access(id)
             }
             _ => {
+                let purpose = match kind {
+                    BoundStructuredExpressionKind::Catch => StorageAccessPurpose::ValueTransfer,
+                    _ => StorageAccessPurpose::Read,
+                };
+
                 for operand in operands {
-                    self.plan_expression(*operand, Some(StorageAccessPurpose::Read))?;
+                    self.plan_expression(*operand, Some(purpose))?;
                 }
 
                 // The immutable node is cloned so recursive planning can mutably advance

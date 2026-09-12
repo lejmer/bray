@@ -9,6 +9,120 @@ func run()
     assert(identity(true));
     replace_owner();
     assert(failure() matches Error(false));
+    assert(branch_result(true));
+    assert(!branch_result(false));
+    assert(match_result(false));
+    assert(!caught_cleanup_result());
+    assert(transferred_cleanup_result());
+    assert(nested_cleanup_result());
+}
+
+struct PanickingGuard
+{
+    destruct()
+    {
+        panic("cleanup");
+    }
+}
+
+func caught_cleanup_result() -> bool
+{
+    let result = catch
+    {
+        let guard = PanickingGuard
+        {
+        };
+
+        return true;
+    };
+
+    return false;
+}
+
+func transferred_cleanup_result() -> bool
+{
+    let mut transferred = false;
+
+    let result = catch
+    {
+        let guard = transfer_guard(
+            transfer_packet(
+                GuardPacket
+                {
+                    guard = PanickingGuard
+                    {
+                    },
+                    flag = true,
+                }
+            )
+        );
+
+        transferred = true;
+    };
+
+    return transferred;
+}
+
+func transfer_guard(pos value: PanickingGuard) -> PanickingGuard
+{
+    let result = catch
+    {
+        let guard = value;
+
+        return guard;
+    };
+}
+
+struct GuardPacket
+{
+    guard: PanickingGuard;
+    flag: bool;
+}
+
+func transfer_packet(pos value: GuardPacket) -> PanickingGuard
+{
+    let result = catch
+    {
+        let packet = value;
+
+        let guard = if true
+        {
+            yield packet.guard;
+        }
+        else
+        {
+            yield PanickingGuard
+            {
+            };
+        };
+
+        return guard;
+    };
+}
+
+func branch_result(pos value: bool) -> bool
+{
+    if value
+    {
+        return true;
+    }
+    else
+    {
+        return false;
+    }
+}
+
+func match_result(pos value: bool) -> bool
+{
+    match value
+    {
+        case true { return false; }
+
+        case false
+        {
+            return true;
+        }
+    };
 }
 
 func identity(pos value: bool) -> bool
@@ -38,5 +152,66 @@ func replace_owner()
 
     owner = TotalOwner
     {
+    };
+}
+
+func nested_cleanup_result() -> bool
+{
+    let mut transferred = false;
+
+    let result = catch
+    {
+        let guards = nested_transfer(
+            GuardPacket
+            {
+                guard = PanickingGuard
+                {
+                },
+                flag = true,
+            }
+        );
+
+        transferred = guards matches Ok(_);
+    };
+
+    return transferred;
+}
+
+func nested_transfer(pos value: GuardPacket) -> Result<(PanickingGuard, PanickingGuard), PanicReport>
+{
+    let outer = catch
+    {
+        let packet = value;
+
+        let inner = catch
+        {
+            let first =
+            {
+                let source = GuardPacket
+                {
+                    guard = PanickingGuard
+                    {
+                    },
+                    flag = false,
+                };
+
+                let taken = if true
+                {
+                    yield source.guard;
+                }
+                else
+                {
+                    yield PanickingGuard
+                    {
+                    };
+                };
+
+                yield taken;
+            };
+
+            yield(first, packet.guard);
+        };
+
+        return inner;
     };
 }

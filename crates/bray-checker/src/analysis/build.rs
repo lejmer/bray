@@ -40,17 +40,20 @@ where
         None,
         Default::default(),
         DependencyFailureMode::PotentialExits,
+        None,
     )
 }
 
-pub(crate) fn build_storage_control_flow_graph<C>(
+pub(crate) fn build_storage_control_flow_graph<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
     selections: &bray_bound_tree::CheckedSemanticSelections,
-) -> ControlFlowGraphBuildOutcome<C::UpstreamError>
-where
-    C: CheckerRequestContext + ?Sized,
-{
+    completion_semantics: Option<(
+        &bray_bound_tree::CheckedExpressionSemantics,
+        &bray_bound_tree::CheckedPatterns,
+        &super::cleanup::CleanupFreeExits,
+    )>,
+) -> ControlFlowGraphBuildOutcome<C::UpstreamError> {
     let scopes = match crate::asynchronous::cleanup_scopes(request, storage) {
         Ok(scopes) => scopes,
         Err(crate::CheckerQueryError::Cancelled) => return ControlFlowGraphBuildOutcome::Cancelled,
@@ -68,6 +71,7 @@ where
         Some(selections),
         scopes,
         DependencyFailureMode::PotentialExits,
+        completion_semantics,
     )
 }
 
@@ -86,6 +90,7 @@ where
         Some(selections),
         Default::default(),
         DependencyFailureMode::ProofDependencies,
+        None,
     )
 }
 
@@ -95,6 +100,11 @@ fn build_control_flow_graph_with_storage<C, E>(
     selections: Option<&bray_bound_tree::CheckedSemanticSelections>,
     cleanup_scopes: std::collections::BTreeSet<BoundBlockId>,
     dependency_failures: DependencyFailureMode,
+    completion_semantics: Option<(
+        &bray_bound_tree::CheckedExpressionSemantics,
+        &bray_bound_tree::CheckedPatterns,
+        &super::cleanup::CleanupFreeExits,
+    )>,
 ) -> ControlFlowGraphBuildOutcome<E>
 where
     C: CheckerRequestContext + ?Sized,
@@ -103,6 +113,7 @@ where
         ControlFlowGraphBuilder::new(request, checked_storage, selections, cleanup_scopes);
 
     builder.dependency_failures = dependency_failures;
+    builder.completion_semantics = completion_semantics;
 
     let entry = builder.push_block();
 
@@ -150,6 +161,11 @@ where
     infrastructure_failure: Option<CheckerInfrastructureError>,
     pub(super) cleanup_scopes: std::collections::BTreeSet<BoundBlockId>,
     pub(super) dependency_failures: DependencyFailureMode,
+    pub(super) completion_semantics: Option<(
+        &'view bray_bound_tree::CheckedExpressionSemantics,
+        &'view bray_bound_tree::CheckedPatterns,
+        &'view super::cleanup::CleanupFreeExits,
+    )>,
 }
 
 #[derive(Clone, Copy)]
@@ -197,6 +213,7 @@ where
             infrastructure_failure: None,
             cleanup_scopes,
             dependency_failures: DependencyFailureMode::PotentialExits,
+            completion_semantics: None,
         }
     }
 
@@ -285,7 +302,7 @@ where
         }
     }
 
-    pub(super) fn build_expression(
+    pub(super) fn build_expression_inner(
         &mut self,
         id: BoundExpressionId,
         current: AnalysisBlockId,
@@ -1440,7 +1457,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("matching test roots must produce a view: {error:?}"));
 
         let ControlFlowGraphBuildOutcome::Complete(graph) =
-            build_storage_control_flow_graph(request, &storage, &selections)
+            build_storage_control_flow_graph(request, &storage, &selections, None)
         else {
             panic!("checked storage graph construction must complete");
         };

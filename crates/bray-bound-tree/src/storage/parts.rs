@@ -190,9 +190,71 @@ impl StorageCleanupPart {
         self.phases
     }
 
+    /// Returns whether moving one concrete storage path removes this entire cleanup part.
+    /// Moving one array element does not remove its whole element family.
+    pub fn is_fully_moved_by(&self, path: &[StorageProjection]) -> bool {
+        path.len() <= self.projections.len()
+            && path
+                .iter()
+                .zip(self.projections.iter())
+                .all(|(moved, part)| match part.projection() {
+                    StorageCleanupProjectionKind::Component(component) => *moved == component,
+                    StorageCleanupProjectionKind::OwnedTarget(_) => {
+                        *moved == StorageProjection::OwnedTarget
+                    }
+                    StorageCleanupProjectionKind::ArrayElements(_)
+                    | StorageCleanupProjectionKind::UnionPayloadElement { .. } => false,
+                })
+    }
+
     pub(crate) fn is_valid_for(&self, unit: crate::BoundUnitId) -> bool {
         self.projections
             .iter()
             .all(|projection| projection.is_valid_for(unit))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{StorageCleanupPart, StorageCleanupProjection, StorageCleanupProjectionKind};
+    use crate::{AsyncCleanupPhases, StorageProjection};
+    use bray_symbols::{ConstantTermData, SymbolOrdinal};
+
+    #[test]
+    fn complete_part_moves_distinguish_ancestors_siblings_and_array_elements() {
+        let store = crate::test_support::semantic_values();
+        let ty = crate::test_support::error_type_in(&store);
+        let first = StorageProjection::TupleElement(SymbolOrdinal::new(0));
+        let second = StorageProjection::TupleElement(SymbolOrdinal::new(1));
+
+        let part = StorageCleanupPart::new(
+            [StorageCleanupProjection::new(first, ty, ty)],
+            AsyncCleanupPhases::Lifecycle,
+        );
+
+        assert!(part.is_fully_moved_by(&[]));
+        assert!(part.is_fully_moved_by(&[first]));
+        assert!(!part.is_fully_moved_by(&[second]));
+        assert!(!part.is_fully_moved_by(&[first, second]));
+
+        let length = store
+            .intern_constant_term(ConstantTermData::CallableArgument(SymbolOrdinal::new(0)))
+            .unwrap();
+
+        let array = StorageCleanupPart::new(
+            [StorageCleanupProjection::new(
+                StorageCleanupProjectionKind::ArrayElements(length),
+                ty,
+                ty,
+            )],
+            AsyncCleanupPhases::Lifecycle,
+        );
+
+        assert!(array.is_fully_moved_by(&[]));
+
+        assert!(
+            !array
+                .is_fully_moved_by(&[StorageProjection::ElementFromStart(SymbolOrdinal::new(0),)])
+        );
     }
 }

@@ -346,6 +346,11 @@ impl AsyncScopeExitPlan {
         &self.lifecycle_resolution
     }
 
+    /// Returns whether this exit schedules cancellation or lifecycle cleanup.
+    pub fn has_cleanup(&self) -> bool {
+        !self.cancellation_broadcast.is_empty() || !self.lifecycle_resolution.is_empty()
+    }
+
     /// Returns paths already moved at this scope exit.
     pub fn moved(&self) -> &[StorageAccessId] {
         &self.moved

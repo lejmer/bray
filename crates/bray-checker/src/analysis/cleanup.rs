@@ -6,6 +6,32 @@ use super::build::ControlFlowGraphBuilder;
 use super::id::AnalysisBlockId;
 use super::model::{AnalysisEdgeKind, AnalysisExitKind};
 
+pub(super) type CleanupFreeExits = std::collections::BTreeSet<(BoundBlockId, AnyBoundNodeId)>;
+
+pub(super) fn record_cleanup_free_exits(
+    exits: &mut CleanupFreeExits,
+    asynchronous: &bray_bound_tree::CheckedAsync,
+) -> bool {
+    let possible = asynchronous
+        .scope_exits()
+        .iter()
+        .filter(|plan| plan.is_recovered() || plan.has_cleanup())
+        .map(|plan| (plan.scope(), plan.exit()))
+        .collect::<CleanupFreeExits>();
+
+    let previous = exits.len();
+
+    exits.extend(
+        asynchronous
+            .scope_exits()
+            .iter()
+            .map(|plan| (plan.scope(), plan.exit()))
+            .filter(|exit| !possible.contains(exit)),
+    );
+
+    exits.len() != previous
+}
+
 impl<C> ControlFlowGraphBuilder<'_, C>
 where
     C: CheckerRequestContext + ?Sized,
@@ -72,7 +98,7 @@ where
         let mut can_fail = false;
 
         for index in (retained_depth..self.scopes.len()).rev() {
-            if !self.cleanup_scopes.contains(&self.scopes[index]) {
+            if !self.scope_cleanup_can_fail(self.scopes[index], exit) {
                 continue;
             }
 
@@ -97,6 +123,18 @@ where
         if can_fail {
             self.push_exit(block, AnalysisExitKind::Cancellation, exit);
         }
+    }
+
+    fn scope_cleanup_can_fail(&self, scope: BoundBlockId, exit: AnyBoundNodeId) -> bool {
+        if !self.cleanup_scopes.contains(&scope) {
+            return false;
+        }
+
+        let Some((_, _, cleanup_free)) = self.completion_semantics else {
+            return true;
+        };
+
+        !cleanup_free.contains(&(scope, exit))
     }
 
     pub(super) fn resolve_scopes(

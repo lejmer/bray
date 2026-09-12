@@ -62,7 +62,7 @@ where
         return CheckerOutcome::InfrastructureFailure(error);
     }
 
-    let graph = match build_storage_control_flow_graph(request, storage, selections) {
+    let graph = match build_storage_control_flow_graph(request, storage, selections, None) {
         ControlFlowGraphBuildOutcome::Complete(graph) => graph,
         ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
         ControlFlowGraphBuildOutcome::InfrastructureFailure(error) => {

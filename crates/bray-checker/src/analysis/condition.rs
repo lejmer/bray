@@ -181,6 +181,39 @@ where
             self.push_bound(current, id.into());
         }
 
+        if pattern.is_none()
+            && let Some(value) = self
+                .completion_semantics
+                .and_then(|(expressions, _, _)| expressions.literals().expression(id))
+        {
+            let value = match self.request().semantic_values().constant_value_data(value) {
+                Ok(value) => value,
+                Err(error) => {
+                    self.record_infrastructure_failure(
+                        crate::CheckerInfrastructureError::SemanticValueStore(error),
+                    );
+
+                    return None;
+                }
+            };
+
+            if let bray_symbols::ConstantValueKind::Boolean(value) = value.kind() {
+                let (target, kind) = if *value { matched } else { unmatched };
+
+                self.push_edge(
+                    current,
+                    target,
+                    kind,
+                    Some(AnalysisRefinement::Condition {
+                        expression: id,
+                        value: *value,
+                    }),
+                );
+
+                return Some(());
+            }
+        }
+
         let success = if pattern.is_some() {
             self.push_block()
         } else {

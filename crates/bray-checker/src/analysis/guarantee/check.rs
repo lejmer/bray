@@ -60,7 +60,7 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
     // Purity alone does not discharge cleanup on a dependency's abnormal completion.
     let graph = match property {
         ExecutionProperty::Pure => {
-            build_storage_control_flow_graph(request, storage, expressions.selections())
+            build_storage_control_flow_graph(request, storage, expressions.selections(), None)
         }
         ExecutionProperty::Total => {
             build_execution_control_flow_graph(request, storage, expressions.selections())
@@ -229,16 +229,7 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
         }
     }
 
-    if let Err(error) = check_completion(
-        request,
-        &graph,
-        &reachable,
-        expressions,
-        property,
-        &mut candidate,
-    ) {
-        return CheckerOutcome::InfrastructureFailure(error);
-    }
+    check_completion(request, &graph, &reachable, property, &mut candidate);
 
     CheckerOutcome::complete(candidate, diagnostics)
 }
@@ -247,27 +238,9 @@ fn check_completion<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     graph: &super::super::model::ControlFlowGraph,
     reachable: &super::super::reachability::ReachabilityResult,
-    expressions: &CheckedExpressionSemantics,
     property: ExecutionProperty,
     candidate: &mut ExecutionCandidate,
-) -> Result<(), crate::CheckerInfrastructureError> {
-    // TODO(BRA-509): Remove this safeguard when ordinary body checking rejects missing results.
-    if graph.exits().iter().any(|exit| {
-        reachable.is_block_reachable(exit.block())
-            && exit.kind() == AnalysisExitKind::NormalFallthrough
-    }) {
-        let result = match expressions.types().callable_result_type() {
-            Some(ty) => crate::representation::type_representation(request, ty),
-            None => Ok(None),
-        };
-
-        match result {
-            Ok(Some(bray_compiler_known::RepresentationRole::Unit)) => {}
-            Ok(_) => record_failure(request, candidate, request.unit().root().into()),
-            Err(error) => return Err(error),
-        }
-    }
-
+) {
     if property == ExecutionProperty::Total {
         for exit in graph
             .exits()
@@ -295,8 +268,6 @@ fn check_completion<C: CheckerRequestContext + ?Sized>(
             record_failure(request, candidate, request.unit().root().into());
         }
     }
-
-    Ok(())
 }
 
 fn record_failure<C: CheckerRequestContext + ?Sized>(

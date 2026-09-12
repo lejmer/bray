@@ -477,6 +477,8 @@ define_diagnostic_kinds! {
     CheckingExecutionGuaranteeNotProven,
     /// A termination proof depends on itself.
     CheckingCircularExecutionGuarantee,
+    /// A callable reaches its end without supplying its required result.
+    CheckingCallableResultRequired,
     /// A callable address operation names a type without a foreign callable ABI.
     CheckingCallableAddressTypeUnsupported,
     /// A fixed-layout helper names a type without a complete fixed-size representation.
@@ -902,6 +904,7 @@ impl DiagnosticKind {
             Self::CheckingUnknownExecutionProperty => 7118,
             Self::CheckingExecutionGuaranteeNotProven => 7119,
             Self::CheckingCircularExecutionGuarantee => 7120,
+            Self::CheckingCallableResultRequired => 7121,
             Self::CheckingCallableAddressTypeUnsupported => 7105,
             Self::CheckingFixedLayoutQueryTypeUnsupported => 7106,
             Self::CheckingTrailingLayoutQueryTypeUnsupported => 7107,
@@ -1344,6 +1347,7 @@ impl DiagnosticKind {
             Self::CheckingUnknownExecutionProperty => "checking_unknown_execution_property",
             Self::CheckingExecutionGuaranteeNotProven => "checking_execution_guarantee_not_proven",
             Self::CheckingCircularExecutionGuarantee => "checking_circular_execution_guarantee",
+            Self::CheckingCallableResultRequired => "checking_callable_result_required",
             Self::CheckingExecutionGuaranteeUnsupported => {
                 "checking_execution_guarantee_unsupported"
             }

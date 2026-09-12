@@ -1,6 +1,8 @@
 mod behavior;
 mod binder;
 mod boundary;
+#[cfg(test)]
+mod callable_results;
 mod checker;
 mod codegen;
 mod configuration;

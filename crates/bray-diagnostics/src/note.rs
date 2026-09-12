@@ -145,6 +145,8 @@ pub enum DiagnosticNoteKind {
     PublicDependencyRequired,
     /// Guidance for reporting a compiler-owned invariant failure.
     ReportCompilerDefect,
+    /// Supply the declared result on each normal callable exit.
+    ReturnRequiredResult,
 }
 
 impl DiagnosticNoteKind {
@@ -217,6 +219,7 @@ impl DiagnosticNoteKind {
             Self::UniqueTestIdentityRequired => "unique_test_identity_required",
             Self::PublicDependencyRequired => "public_dependency_required",
             Self::ReportCompilerDefect => "report_compiler_defect",
+            Self::ReturnRequiredResult => "return_required_result",
         }
     }
 }
