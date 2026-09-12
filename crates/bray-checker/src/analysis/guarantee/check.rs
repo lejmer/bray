@@ -251,6 +251,7 @@ fn check_completion<C: CheckerRequestContext + ?Sized>(
     property: ExecutionProperty,
     candidate: &mut ExecutionCandidate,
 ) -> Result<(), crate::CheckerInfrastructureError> {
+    // TODO(BRA-509): Remove this safeguard when ordinary body checking rejects missing results.
     if graph.exits().iter().any(|exit| {
         reachable.is_block_reachable(exit.block())
             && exit.kind() == AnalysisExitKind::NormalFallthrough

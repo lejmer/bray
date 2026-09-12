@@ -65,6 +65,7 @@ impl Compilation {
             }
         }
 
+        // TODO(BRA-500): Preserve certified guarantees in exported interfaces before accepting them.
         if self.state.package_interface_export.is_some() {
             checked_clauses.clear();
         }
