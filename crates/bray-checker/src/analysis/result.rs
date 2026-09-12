@@ -1,4 +1,6 @@
-use bray_bound_tree::{BoundExpressionId, CheckedExpressionSemantics, CheckedPatterns};
+use bray_bound_tree::{
+    BoundExpressionId, CheckedExpressionSemantics, CheckedPatterns, StoragePlan,
+};
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticBag,
@@ -10,7 +12,7 @@ use bray_source::SourceSpan;
 use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitRoot, CheckerUnitView};
 
 use super::build::{
-    ControlFlowGraphBuildOutcome, ControlFlowGraphBuilder, build_result_control_flow_graph,
+    ControlFlowGraphBuildOutcome, ControlFlowGraphBuilder, build_storage_control_flow_graph,
 };
 use super::id::AnalysisBlockId;
 use super::model::AnalysisExitKind;
@@ -20,6 +22,7 @@ pub(crate) fn check_callable_result<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     expressions: &CheckedExpressionSemantics,
     patterns: &CheckedPatterns,
+    storage: &StoragePlan,
 ) -> CheckerOutcome<(), C::UpstreamError> {
     let CheckerUnitRoot::CallableBody(_) = request.root() else {
         return CheckerOutcome::without_diagnostics(());
@@ -35,13 +38,22 @@ pub(crate) fn check_callable_result<C: CheckerRequestContext + ?Sized>(
         Err(error) => return CheckerOutcome::InfrastructureFailure(error),
     }
 
-    let graph = match build_result_control_flow_graph(request, expressions, patterns) {
+    // Completion refines resolved paths while preserving caught cleanup failures.
+    // Cleanup planning retains its conservative paths because lowering still visits them.
+    let graph = match build_storage_control_flow_graph(
+        request,
+        storage,
+        expressions.selections(),
+        Some((expressions, patterns)),
+    ) {
         ControlFlowGraphBuildOutcome::Complete(graph) => graph,
         ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
         ControlFlowGraphBuildOutcome::InfrastructureFailure(error) => {
             return CheckerOutcome::InfrastructureFailure(error);
         }
-        ControlFlowGraphBuildOutcome::UpstreamFailure(error) => match error {},
+        ControlFlowGraphBuildOutcome::UpstreamFailure(error) => {
+            return CheckerOutcome::UpstreamFailure(error);
+        }
     };
 
     let Some(reachability) = analyze_reachability(&graph, request) else {
@@ -118,7 +130,7 @@ impl<C: CheckerRequestContext + ?Sized> ControlFlowGraphBuilder<'_, C> {
         };
 
         if let Some(ty) = self
-            .completion_facts
+            .completion_semantics
             .and_then(|(expressions, _)| expressions.types().expression(id))
             .map(|entry| entry.ty())
         {

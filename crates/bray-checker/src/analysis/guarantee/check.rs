@@ -60,7 +60,7 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
     // Purity alone does not discharge cleanup on a dependency's abnormal completion.
     let graph = match property {
         ExecutionProperty::Pure => {
-            build_storage_control_flow_graph(request, storage, expressions.selections())
+            build_storage_control_flow_graph(request, storage, expressions.selections(), None)
         }
         ExecutionProperty::Total => {
             build_execution_control_flow_graph(request, storage, expressions.selections())

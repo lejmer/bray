@@ -315,3 +315,46 @@ fn callable_results_do_not_replace_explicit_return_type_errors() {
             .any(|diagnostic| diagnostic.kind() == DiagnosticKind::CheckingCallableResultRequired)
     );
 }
+
+#[test]
+fn callable_results_preserve_caught_cleanup_exits() {
+    let source = r#"
+        module app;
+
+        struct Guard
+        {
+            destruct()
+            {
+                panic("cleanup");
+            }
+        }
+
+        func missing(pos value: Guard) -> bool
+        {
+            let result = catch
+            {
+                let local = value;
+
+                return true;
+            };
+        }
+    "#;
+
+    let rejected = compilation(source);
+
+    assert_goal_state_diagnostic_kind(
+        rejected.check_diagnostics(),
+        DiagnosticKind::CheckingCallableResultRequired,
+    );
+
+    let completed = compilation(&source.replace(
+        "            };",
+        "            };\n            return false;",
+    ));
+
+    assert!(
+        completed.check_diagnostics().is_empty(),
+        "{:?}",
+        completed.check_diagnostics()
+    );
+}

@@ -58,16 +58,17 @@ where
         return CheckerOutcome::InfrastructureFailure(error);
     }
 
-    let graph = match build_storage_control_flow_graph(request, storage, expressions.selections()) {
-        ControlFlowGraphBuildOutcome::Complete(graph) => graph,
-        ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
-        ControlFlowGraphBuildOutcome::InfrastructureFailure(error) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
-        ControlFlowGraphBuildOutcome::UpstreamFailure(error) => {
-            return CheckerOutcome::UpstreamFailure(error);
-        }
-    };
+    let graph =
+        match build_storage_control_flow_graph(request, storage, expressions.selections(), None) {
+            ControlFlowGraphBuildOutcome::Complete(graph) => graph,
+            ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
+            ControlFlowGraphBuildOutcome::InfrastructureFailure(error) => {
+                return CheckerOutcome::InfrastructureFailure(error);
+            }
+            ControlFlowGraphBuildOutcome::UpstreamFailure(error) => {
+                return CheckerOutcome::UpstreamFailure(error);
+            }
+        };
 
     let mut diagnostics = DiagnosticBag::new();
 
@@ -92,7 +93,12 @@ where
         };
     }
 
-    complete!(check_callable_result(request, expressions, patterns));
+    complete!(check_callable_result(
+        request,
+        expressions,
+        patterns,
+        storage
+    ));
 
     let liveness = complete!(analyze_storage_liveness_with_graph(
         request,

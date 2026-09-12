@@ -396,7 +396,7 @@ where
         }
 
         let exhaustive = self
-            .completion_facts
+            .completion_semantics
             .and_then(|(_, patterns)| patterns.match_coverage(id))
             .is_some_and(|coverage| coverage.is_exhaustive() && !coverage.is_recovered());
 

@@ -12,6 +12,29 @@ func run()
     assert(branch_result(true));
     assert(!branch_result(false));
     assert(match_result(false));
+    assert(!caught_cleanup_result());
+}
+
+struct PanickingGuard
+{
+    destruct()
+    {
+        panic("cleanup");
+    }
+}
+
+func caught_cleanup_result() -> bool
+{
+    let result = catch
+    {
+        let guard = PanickingGuard
+        {
+        };
+
+        return true;
+    };
+
+    return false;
 }
 
 func branch_result(pos value: bool) -> bool
