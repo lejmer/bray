@@ -141,8 +141,13 @@ mod tests {
             let source = format!(
                 r#"
                 trusted module app;
+
                 {modifier}func check()
-                    when(true) {{ ensures(false) executes(total) }} {{}}
+                    when(true)
+                    {{
+                        ensures(false)
+                        executes(total)
+                    }} {{}}
             "#
             );
 
@@ -154,6 +159,7 @@ mod tests {
             );
         }
     }
+
     #[test]
     fn execution_guarantees_respect_source_and_product_selection() {
         let sources = [
