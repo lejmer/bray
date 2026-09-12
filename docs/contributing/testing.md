@@ -54,8 +54,7 @@ to select another persistent location, and pass the same location on reruns. Fai
 structured diagnostics and the available compiler, toolchain, runtime, standard-library, host, catalog, and generation
 identities. The first invocation can build compiler tools and bundles. Later invocations reuse their existing caches.
 
-Run on a supported native host with its configured LLVM and native linker. On Windows, invoke native workflows outside
-the Codex sandbox, as required by the repository build rules. Broad standard-library conformance remains later coverage.
+The suite requires a supported native host with [LLVM](llvm.md) and a native linker configured.
 
 ## Readiness audits
 

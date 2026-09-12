@@ -363,7 +363,7 @@ harmed by an arbitrary split.
 - Keep design documentation aligned with implementation when behavior changes.
 - Do not document speculative future behavior as if it already exists.
 
-## Agent-specific rules
+## Making changes
 
 - Prefer modifying the existing abstraction over adding a parallel one.
 - Do not preserve backward compatibility unless explicitly requested.
