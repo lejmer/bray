@@ -736,6 +736,21 @@ pub trait CheckerRequestContext: Sync {
         Ok(DiagnosticResult::without_diagnostics(None))
     }
 
+    /// Returns the selected whole-value lifecycle implementation and substituted signature.
+    fn lifecycle_callable(
+        &self,
+        ty: TypeId,
+        slot: bray_symbols::TypeAssociatedLifecycleSlot,
+    ) -> CheckerQueryResult<
+        DiagnosticResult<
+            Option<(
+                bray_symbols::CallableInstanceData,
+                bray_symbols::CallableSignature,
+            )>,
+        >,
+        Self::UpstreamError,
+    >;
+
     /// Returns whether a declared type has whole-value finalization, destruction, or scoped behavior.
     fn declared_type_has_lifecycle(
         &self,

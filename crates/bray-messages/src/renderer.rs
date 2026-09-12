@@ -327,12 +327,54 @@ mod tests {
 
             assert_eq!(
                 rendered.message(),
-                format!("Bray cannot yet verify guarantees declared with the {spelling} keyword")
+                format!("Bray cannot yet support guarantees declared with the {spelling} keyword")
             );
 
             assert_eq!(rendered.primary_span(), Some(span));
             assert_eq!(rendered.labels().len(), 1);
             assert!(!rendered.labels()[0].message().is_empty());
+        }
+    }
+
+    #[test]
+    fn execution_proof_failures_identify_the_promised_behavior_and_cause() {
+        let span = SourceSpan::new(SourceId::new(0), TextRange::empty(TextSize::ZERO));
+
+        for (kind, name, expected) in [
+            (
+                DiagnosticKind::CheckingUnknownExecutionProperty,
+                Some("constant"),
+                "unknown execution property 'constant'",
+            ),
+            (
+                DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                Some("pure"),
+                "this callable cannot establish its 'pure' execution guarantee",
+            ),
+            (
+                DiagnosticKind::CheckingCircularExecutionGuarantee,
+                None,
+                "this callable's total execution guarantee depends on a recursive call or cleanup cycle",
+            ),
+        ] {
+            let mut diagnostic = Diagnostic::new(DiagnosticId::new(0), kind, SeverityKind::Error)
+                .with_primary_span(span)
+                .with_label(DiagnosticLabel::secondary(
+                    DiagnosticLabelKind::ExecutionGuaranteeFailure,
+                    span,
+                ));
+
+            if let Some(name) = name {
+                diagnostic = diagnostic.with_arg(DiagnosticArg::referenced_name(name));
+            }
+
+            let rendered = DiagnosticRenderer::english().render(&diagnostic);
+            assert_eq!(rendered.message(), expected);
+
+            assert_eq!(
+                rendered.labels()[0].message(),
+                "this operation or its cleanup cannot establish the required execution guarantee"
+            );
         }
     }
 

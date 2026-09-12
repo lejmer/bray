@@ -222,6 +222,16 @@ fn push_fact_context(
 
             "memory_operations"
         }
+        Fact::ExecutionCandidates(unit) => {
+            push_bound_unit_key(fields, unit);
+
+            "execution_candidates"
+        }
+        Fact::CertifiedExecution(unit) => {
+            push_bound_unit_key(fields, unit);
+
+            "certified_execution"
+        }
         Fact::BodySemantics(unit) => {
             push_bound_unit_key(fields, unit);
 

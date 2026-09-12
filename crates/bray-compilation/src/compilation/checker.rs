@@ -672,6 +672,24 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
         ))
     }
 
+    fn lifecycle_callable(
+        &self,
+        ty: TypeId,
+        slot: bray_symbols::TypeAssociatedLifecycleSlot,
+    ) -> CheckerQueryResult<
+        DiagnosticResult<
+            Option<(
+                bray_symbols::CallableInstanceData,
+                bray_symbols::CallableSignature,
+            )>,
+        >,
+    > {
+        self.binding_context
+            .compilation()
+            .selected_lifecycle_signature(ty, slot, self.binding_context.cancellation())
+            .map_err(checker_query_error)
+    }
+
     fn declared_type_has_lifecycle(
         &self,
         subject: NamedTypeSymbolId,

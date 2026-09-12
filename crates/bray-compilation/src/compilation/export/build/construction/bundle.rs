@@ -63,7 +63,7 @@ impl Compilation {
             || self.syntax_tree_result().diagnostics().has_errors()
             || source_graph.diagnostics().has_errors()
             || self
-                .execution_guarantee_diagnostics(source_graph)
+                .unhandled_execution_guarantee_diagnostics(source_graph, &Default::default())
                 .has_errors()
             || self.imported_diagnostics().has_errors()
         {

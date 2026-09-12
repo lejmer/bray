@@ -15,6 +15,12 @@ use super::model::{
     AnalysisSuspensionKind, ControlFlowGraph,
 };
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(super) enum DependencyFailureMode {
+    PotentialExits,
+    ProofDependencies,
+}
+
 pub(crate) enum ControlFlowGraphBuildOutcome<E = std::convert::Infallible> {
     Complete(ControlFlowGraph),
     Cancelled,
@@ -28,7 +34,13 @@ pub(crate) fn build_control_flow_graph<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    build_control_flow_graph_with_storage(request, None, None, Default::default())
+    build_control_flow_graph_with_storage(
+        request,
+        None,
+        None,
+        Default::default(),
+        DependencyFailureMode::PotentialExits,
+    )
 }
 
 pub(crate) fn build_storage_control_flow_graph<C>(
@@ -50,7 +62,31 @@ where
         }
     };
 
-    build_control_flow_graph_with_storage(request, Some(storage), Some(selections), scopes)
+    build_control_flow_graph_with_storage(
+        request,
+        Some(storage),
+        Some(selections),
+        scopes,
+        DependencyFailureMode::PotentialExits,
+    )
+}
+
+pub(crate) fn build_execution_control_flow_graph<C>(
+    request: CheckerUnitView<'_, C>,
+    storage: &StoragePlan,
+    selections: &bray_bound_tree::CheckedSemanticSelections,
+) -> ControlFlowGraphBuildOutcome<C::UpstreamError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    // Call and cleanup failures are obligations of selected dependency proofs.
+    build_control_flow_graph_with_storage(
+        request,
+        Some(storage),
+        Some(selections),
+        Default::default(),
+        DependencyFailureMode::ProofDependencies,
+    )
 }
 
 fn build_control_flow_graph_with_storage<C, E>(
@@ -58,12 +94,15 @@ fn build_control_flow_graph_with_storage<C, E>(
     checked_storage: Option<&StoragePlan>,
     selections: Option<&bray_bound_tree::CheckedSemanticSelections>,
     cleanup_scopes: std::collections::BTreeSet<BoundBlockId>,
+    dependency_failures: DependencyFailureMode,
 ) -> ControlFlowGraphBuildOutcome<E>
 where
     C: CheckerRequestContext + ?Sized,
 {
     let mut builder =
         ControlFlowGraphBuilder::new(request, checked_storage, selections, cleanup_scopes);
+
+    builder.dependency_failures = dependency_failures;
 
     let entry = builder.push_block();
 
@@ -110,6 +149,7 @@ where
     selections: Option<&'view bray_bound_tree::CheckedSemanticSelections>,
     infrastructure_failure: Option<CheckerInfrastructureError>,
     pub(super) cleanup_scopes: std::collections::BTreeSet<BoundBlockId>,
+    pub(super) dependency_failures: DependencyFailureMode,
 }
 
 #[derive(Clone, Copy)]
@@ -156,6 +196,7 @@ where
             selections,
             infrastructure_failure: None,
             cleanup_scopes,
+            dependency_failures: DependencyFailureMode::PotentialExits,
         }
     }
 
@@ -361,7 +402,9 @@ where
 
         let mut current = self.push_source_operation(id, current);
 
-        if matches!(expression, BoundExpression::Assignment(_)) {
+        if self.dependency_failures == DependencyFailureMode::PotentialExits
+            && matches!(expression, BoundExpression::Assignment(_))
+        {
             // Old cleanup failure is observable only after the replacement is installed.
             let continuation = self.push_block();
             self.push_edge(current, continuation, AnalysisEdgeKind::Sequential, None);
@@ -378,7 +421,9 @@ where
         expression: BoundExpressionId,
         current: AnalysisBlockId,
     ) -> AnalysisBlockId {
-        if !self.source_operation_may_propagate_panic(expression) {
+        if self.dependency_failures == DependencyFailureMode::ProofDependencies
+            || !self.source_operation_may_propagate_panic(expression)
+        {
             self.push_bound(current, expression.into());
 
             return current;

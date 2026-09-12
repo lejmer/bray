@@ -1140,6 +1140,12 @@ impl DiagnosticKind {
             Self::CheckingVariadicCallableContractUnsupported => {
                 Self::quality_source(&[], primary_components!(&[]))
             }
+            Self::CheckingUnknownExecutionProperty | Self::CheckingExecutionGuaranteeNotProven => {
+                Self::quality_source(&[ReferencedName], primary_components!(&[ReferencedName]))
+            }
+            Self::CheckingCircularExecutionGuarantee => {
+                Self::quality_source(&[], primary_components!(&[]))
+            }
             Self::CheckingExecutionGuaranteeUnsupported => Self::quality_source(
                 &[ActualSyntaxKind],
                 primary_components!(&[ActualSyntaxKind]),

@@ -549,6 +549,8 @@ pub(super) fn compilation_fact_kind(value: &CompilationFactKey) -> &'static str 
         Value::CheckedPatterns(_) => "checked_patterns",
         Value::StoragePlan(_) => "storage_plan",
         Value::MemoryOperations(_) => "memory_operations",
+        Value::ExecutionCandidates(_) => "execution_candidates",
+        Value::CertifiedExecution(_) => "certified_execution",
         Value::BodySemantics(_) => "body_semantics",
         Value::CheckedBodyBehavior(_) => "checked_body_behavior",
         Value::LoweredUnit(_) => "lowered_unit",

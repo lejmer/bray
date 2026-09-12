@@ -2484,8 +2484,24 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::CheckingVariadicCallableContractUnsupported => {
             MessageTemplate::new(CHECKING_VARIADIC_CALLABLE_CONTRACT_UNSUPPORTED)
         }
+        DiagnosticKind::CheckingUnknownExecutionProperty => MessageTemplate::new(&[
+            MessageTemplatePart::Text("unknown execution property "),
+            MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+        ]),
+        DiagnosticKind::CheckingExecutionGuaranteeNotProven => MessageTemplate::new(&[
+            MessageTemplatePart::Text("this callable cannot establish its "),
+            MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+            MessageTemplatePart::Text(" execution guarantee"),
+        ]),
+        DiagnosticKind::CheckingCircularExecutionGuarantee => {
+            MessageTemplate::new(&[MessageTemplatePart::Text(
+                "this callable's total execution guarantee depends on a recursive call or cleanup cycle",
+            )])
+        }
+        // TODO(BRA-497): Retire this message for conditional guarantee groups once checked.
+        // TODO(BRA-500): Remove this temporary message when remaining guarantee forms are supported.
         DiagnosticKind::CheckingExecutionGuaranteeUnsupported => MessageTemplate::new(&[
-            MessageTemplatePart::Text("Bray cannot yet verify guarantees declared with the "),
+            MessageTemplatePart::Text("Bray cannot yet support guarantees declared with the "),
             MessageTemplatePart::Arg(DiagnosticArgName::ActualSyntaxKind),
         ]),
         DiagnosticKind::CheckingCallableAddressTypeUnsupported => {

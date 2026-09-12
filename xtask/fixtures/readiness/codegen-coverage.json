@@ -481,11 +481,11 @@
       }
     },
     {
-      "name": "CheckCallPanic",
+      "name": "CheckCallOutcome",
       "disposition": "translated",
       "production": {
         "path": "crates/bray-codegen-llvm/src/translation/unit/control.rs",
-        "symbol": "MirTerminatorKind::CheckCallPanic"
+        "symbol": "MirTerminatorKind::CheckCallOutcome"
       }
     },
     {
@@ -590,7 +590,7 @@
       "name": "MirCallArgument",
       "variants": ["Receiver", "Explicit", "Default"],
       "production": {
-        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call_arguments.rs",
         "symbol": "evaluate_call_arguments"
       }
     },
@@ -598,7 +598,7 @@
       "name": "MirCallTarget",
       "variants": ["Direct", "Indirect", "Runtime"],
       "production": {
-        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call/translation.rs",
         "symbol": "call.target()"
       }
     },
@@ -668,7 +668,7 @@
     },
     {
       "name": "MirProjectionKind",
-      "variants": ["Dereference", "Field", "TupleField", "ElementFromStart", "ElementFromEnd", "Index", "Slice", "Variant", "ActiveUnionPayloadField", "NullableValue", "OwnedStorage"],
+      "variants": ["Dereference", "Field", "TupleField", "ElementFromStart", "ElementFromEnd", "Index", "Slice", "Variant", "ActiveUnionPayloadField", "ActiveUnionPayloadElement", "NullableValue", "OwnedStorage"],
       "production": {
         "path": "crates/bray-codegen-llvm/src/translation/unit/place.rs",
         "symbol": "match projection.kind()"
@@ -686,7 +686,7 @@
       "name": "MirTaskTerminalState",
       "variants": ["Completed", "Cancelled", "Panicked"],
       "production": {
-        "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call/runtime.rs",
         "symbol": "terminal_state_arguments"
       }
     },
@@ -881,7 +881,7 @@
     {
       "name": "current run cancellation outcome",
       "production": {
-        "path": "crates/bray-lowering/src/lowering/cleanup.rs",
+        "path": "crates/bray-lowering/src/lowering/cleanup/control.rs",
         "symbol": "finish_cancellation"
       },
       "test": "async_callables_lower_to_protected_frames_and_explicit_suspension"

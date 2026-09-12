@@ -279,6 +279,16 @@ pub(crate) const fn template(kind: DiagnosticLabelKind) -> MessageTemplate {
             MessageTemplate::new(MEMORY_OPERATION_FAILURE)
         }
         DiagnosticLabelKind::DuplicateDeclaration => MessageTemplate::new(DUPLICATE_DECLARATION),
+        DiagnosticLabelKind::BoxStoragePolicy => {
+            MessageTemplate::new(&[MessageTemplatePart::Text(
+                "this box storage policy must contain exactly one type",
+            )])
+        }
+        DiagnosticLabelKind::ExecutionGuaranteeFailure => {
+            MessageTemplate::new(&[MessageTemplatePart::Text(
+                "this operation or its cleanup cannot establish the required execution guarantee",
+            )])
+        }
         DiagnosticLabelKind::InvalidDeclaration => MessageTemplate::new(INVALID_DECLARATION),
         DiagnosticLabelKind::InvalidProductEntry => MessageTemplate::new(INVALID_PRODUCT_ENTRY),
         DiagnosticLabelKind::InvalidForeignBoundary => {

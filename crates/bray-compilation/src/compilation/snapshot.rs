@@ -393,6 +393,14 @@ fn reuse_mapped_cells(
         CompilationFactKey::MemoryOperations(key.clone())
     });
 
+    reuse!(execution_candidates, |key| {
+        CompilationFactKey::ExecutionCandidates(key.clone())
+    });
+
+    reuse!(certified_execution, |key| {
+        CompilationFactKey::CertifiedExecution(key.clone())
+    });
+
     reuse!(body_semantics, |key| {
         CompilationFactKey::BodySemantics(key.clone())
     });

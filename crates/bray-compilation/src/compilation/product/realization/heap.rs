@@ -288,6 +288,11 @@ mod tests {
                 let compilation = crate::test_support::compilation(&format!("module app; {body}"));
                 let diagnostics = compilation.check_diagnostics();
 
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    bray_diagnostics::DiagnosticKind::BindingInvalidBoxStoragePolicy,
+                );
+
                 let diagnostic = diagnostics
                     .iter()
                     .find(|diagnostic| {
@@ -298,6 +303,12 @@ mod tests {
 
                 assert!(diagnostic.primary_span().is_some());
                 let rendered = bray_messages::DiagnosticRenderer::english().render(diagnostic);
+
+                assert_eq!(
+                    rendered.labels()[0].message(),
+                    "this box storage policy must contain exactly one type"
+                );
+
                 assert!(rendered.message().contains("box storage policy"));
                 assert!(rendered.message().contains(policy));
                 assert!(rendered.message().contains("exactly one type"));

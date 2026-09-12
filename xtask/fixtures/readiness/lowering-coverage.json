@@ -5,6 +5,7 @@
     { "name": "Await", "production": "lower_await", "test": "async_callables_lower_to_protected_frames_and_explicit_suspension" },
     { "name": "Binary", "production": "lower_binary", "test": "lowering_publishes_selected_binary_operations_and_returns" },
     { "name": "Block", "production": "lower_block", "test": "runtime_default_expression_roots_lower_to_mir" },
+    { "name": "BoxConstruction", "production": "lower_construction", "test": "structured_values_lower_to_aggregates_construction_and_projections" },
     { "name": "Call", "production": "lower_call", "test": "lowering_retains_selected_call_behavior_and_runtime_defaults" },
     { "name": "ControlTransfer", "production": "lower_control_transfer", "test": "checked_control_patterns_and_iteration_lower_to_explicit_mir" },
     { "name": "Conversion", "production": "convert_operand", "test": "structured_values_lower_to_aggregates_construction_and_projections" },
@@ -50,7 +51,6 @@
     { "name": "SliceIndex", "production": "lower_index", "test": "structured_values_lower_to_aggregates_construction_and_projections" },
     { "name": "TrustBoundary", "production": "lower_trust_boundary", "test": "checked_control_patterns_and_iteration_lower_to_explicit_mir" },
     { "name": "Tuple", "production": "MirAggregateKind::Tuple", "test": "structured_values_lower_to_aggregates_construction_and_projections" },
-    { "name": "TypeFormConstruction", "production": "lower_construction", "test": "structured_values_lower_to_aggregates_construction_and_projections" },
     { "name": "Unit", "production": "unit_operand", "test": "runtime_default_expression_roots_lower_to_mir" },
     { "name": "While", "production": "lower_while", "test": "checked_control_patterns_and_iteration_lower_to_explicit_mir" },
     { "name": "With", "production": "lower_with", "test": "checked_control_patterns_and_iteration_lower_to_explicit_mir" }

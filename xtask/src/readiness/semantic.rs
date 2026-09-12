@@ -6,6 +6,7 @@ use serde::Deserialize;
 use super::workspace::{RustTest, RustWorkspace, require_ordered_names};
 
 const REQUIRED_RULE_FAMILIES: &[&str] = &[
+    "unconditional-execution-guarantees",
     "name-resolution",
     "type-and-generic-binding",
     "callable-surfaces",

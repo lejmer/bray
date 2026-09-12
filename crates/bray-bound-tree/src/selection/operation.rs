@@ -465,6 +465,20 @@ pub struct SelectedConversion {
 }
 
 impl SelectedConversion {
+    /// Visits leaf conversion targets in evaluation order without recursive traversal.
+    pub fn visit_targets(&self, mut visit: impl FnMut(&ConversionTarget)) {
+        let mut pending = vec![self];
+
+        while let Some(conversion) = pending.pop() {
+            match conversion.target() {
+                ConversionTarget::Composite(conversions) => {
+                    pending.extend(conversions.iter().rev())
+                }
+                target => visit(target),
+            }
+        }
+    }
+
     /// Creates one explicit conversion plan.
     pub const fn new(source_type: TypeId, target_type: TypeId, target: ConversionTarget) -> Self {
         Self {
@@ -566,18 +580,35 @@ impl SelectedOperation {
         }
     }
 
-    /// Returns whether realizing this operation invokes a synchronous Bray implementation.
-    pub const fn may_propagate_synchronous_panic(&self) -> bool {
+    /// Returns whether this operation can panic directly or through a selected implementation.
+    pub fn may_propagate_synchronous_panic(&self) -> bool {
         match self {
-            Self::Operator { target, .. } => matches!(target, OperatorTarget::Trait { .. }),
-            Self::CompoundAssignment(selection) => {
-                matches!(selection.target(), OperatorTarget::Trait { .. })
-            }
+            Self::Operator { target, .. } => match target {
+                OperatorTarget::BuiltIn(operator) => operator.builtin_may_panic(),
+                OperatorTarget::Trait { .. } | OperatorTarget::TraitConstraint { .. } => true,
+            },
+            Self::CompoundAssignment(_) => true,
             Self::Index { target, .. } => matches!(target, IndexTarget::Custom { .. }),
             Self::Conversion(conversion) => {
-                matches!(conversion.target(), ConversionTarget::Trait { .. })
+                let mut may_panic = false;
+
+                conversion.visit_targets(|target| {
+                    may_panic |= matches!(
+                        target,
+                        ConversionTarget::Trait { .. } | ConversionTarget::TraitConstraint { .. }
+                    );
+                });
+
+                may_panic
             }
-            Self::Member(_) | Self::Construction(_) | Self::Implementation(_) => false,
+            Self::Construction(construction) => {
+                matches!(construction.target(), ConstructionTarget::TypeForm { .. })
+                    || construction
+                        .inputs()
+                        .iter()
+                        .any(|input| matches!(input, SelectedConstructionInput::Default { .. }))
+            }
+            Self::Member(_) | Self::Implementation(_) => false,
         }
     }
 
@@ -707,23 +738,20 @@ impl SelectedOperation {
 
 fn conversion_witnesses(conversion: &SelectedConversion) -> Vec<SelectedImplementationWitness> {
     let mut witnesses = Vec::new();
-    let mut pending = vec![conversion];
 
-    while let Some(conversion) = pending.pop() {
-        match conversion.target() {
-            ConversionTarget::Trait {
-                requirement,
-                witness,
-                ..
-            } => witnesses.push(SelectedImplementationWitness::new(*requirement, *witness)),
-            ConversionTarget::Composite(children) => pending.extend(children.iter()),
-            ConversionTarget::Identity
-            | ConversionTarget::NullablePresent
-            | ConversionTarget::BuiltInScalar
-            | ConversionTarget::CVariadicPromotion
-            | ConversionTarget::TraitConstraint { .. } => {}
-        }
-    }
+    conversion.visit_targets(|target| match target {
+        ConversionTarget::Trait {
+            requirement,
+            witness,
+            ..
+        } => witnesses.push(SelectedImplementationWitness::new(*requirement, *witness)),
+        ConversionTarget::Composite(_) => {}
+        ConversionTarget::Identity
+        | ConversionTarget::NullablePresent
+        | ConversionTarget::BuiltInScalar
+        | ConversionTarget::CVariadicPromotion
+        | ConversionTarget::TraitConstraint { .. } => {}
+    });
 
     witnesses
 }

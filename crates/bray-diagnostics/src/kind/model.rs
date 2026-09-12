@@ -468,7 +468,15 @@ define_diagnostic_kinds! {
     /// A variadic callable does not satisfy the language's foreign boundary shape.
     CheckingVariadicCallableContractUnsupported,
     /// An execution guarantee cannot yet be verified.
+    // TODO(BRA-497): Stop emitting this diagnostic for conditional guarantee groups once checked.
+    // TODO(BRA-500): Remove this temporary diagnostic when remaining guarantee forms are supported.
     CheckingExecutionGuaranteeUnsupported,
+    /// An execution property name is outside the language vocabulary.
+    CheckingUnknownExecutionProperty,
+    /// A body or selected dependency cannot establish an execution promise.
+    CheckingExecutionGuaranteeNotProven,
+    /// A termination proof depends on itself.
+    CheckingCircularExecutionGuarantee,
     /// A callable address operation names a type without a foreign callable ABI.
     CheckingCallableAddressTypeUnsupported,
     /// A fixed-layout helper names a type without a complete fixed-size representation.
@@ -891,6 +899,9 @@ impl DiagnosticKind {
             Self::CheckingForeignCallableExecutionUnsupported => 7056,
             Self::CheckingVariadicCallableContractUnsupported => 7104,
             Self::CheckingExecutionGuaranteeUnsupported => 7117,
+            Self::CheckingUnknownExecutionProperty => 7118,
+            Self::CheckingExecutionGuaranteeNotProven => 7119,
+            Self::CheckingCircularExecutionGuarantee => 7120,
             Self::CheckingCallableAddressTypeUnsupported => 7105,
             Self::CheckingFixedLayoutQueryTypeUnsupported => 7106,
             Self::CheckingTrailingLayoutQueryTypeUnsupported => 7107,
@@ -1330,6 +1341,9 @@ impl DiagnosticKind {
             Self::CheckingVariadicCallableContractUnsupported => {
                 "checking_variadic_callable_contract_unsupported"
             }
+            Self::CheckingUnknownExecutionProperty => "checking_unknown_execution_property",
+            Self::CheckingExecutionGuaranteeNotProven => "checking_execution_guarantee_not_proven",
+            Self::CheckingCircularExecutionGuarantee => "checking_circular_execution_guarantee",
             Self::CheckingExecutionGuaranteeUnsupported => {
                 "checking_execution_guarantee_unsupported"
             }
