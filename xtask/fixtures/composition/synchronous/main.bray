@@ -7,6 +7,7 @@ func run()
 {
     assert(composition.api.answer() == 42);
     assert(identity(true));
+    assert(conditional_completion());
     replace_owner();
     assert(failure() matches Error(false));
     assert(branch_result(true));
@@ -214,4 +215,32 @@ func nested_transfer(pos value: GuardPacket) -> Result<(PanickingGuard, Panickin
 
         return inner;
     };
+}
+
+func conditional_identity(pos value: bool) -> bool
+    when(value)
+    {
+        executes(pure, total)
+        ensures(result)
+    }
+{
+    if value
+    {
+        return value;
+    }
+
+    panic("outside promised domain");
+}
+
+func conditional_completion() -> bool
+    executes(pure, total)
+    when(true)
+    {
+        ensures(result)
+    }
+{
+    let original = conditional_identity(true);
+    let moved = original;
+
+    return moved;
 }

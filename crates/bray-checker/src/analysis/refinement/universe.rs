@@ -1,9 +1,9 @@
+use super::super::storage_invalidation::invalidating_operation_accesses;
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
     AnyBoundNodeId, BoundExpression, BoundExpressionId, CheckedPatterns, PatternPredicate,
-    Refinement, RefinementKind, StorageAccessId, StorageAccessPurpose, StoragePlan,
-    StorageRelationship,
+    Refinement, RefinementKind, StorageAccessId, StoragePlan, StorageRelationship,
 };
 use bray_diagnostics::{DiagnosticRefinementCapacity, DiagnosticRefinementCapacitySurface};
 
@@ -378,25 +378,6 @@ fn direct_expression_dependencies(
     dependencies
 }
 
-fn invalidating_operation_accesses(
-    storage: &StoragePlan,
-) -> BTreeMap<AnyBoundNodeId, Box<[StorageAccessId]>> {
-    let mut accesses = BTreeMap::<AnyBoundNodeId, Vec<StorageAccessId>>::new();
-
-    for plan in storage
-        .access_plans()
-        .iter()
-        .filter(|plan| access_invalidates_refinements(plan.purpose()))
-    {
-        accesses.entry(plan.node()).or_default().push(plan.access());
-    }
-
-    accesses
-        .into_iter()
-        .map(|(expression, accesses)| (expression, accesses.into_boxed_slice()))
-        .collect()
-}
-
 fn expression_completes_normally(
     view: bray_bound_tree::BoundUnitView<'_>,
     expression: BoundExpressionId,
@@ -404,18 +385,6 @@ fn expression_completes_normally(
     matches!(
         view.expression(expression),
         Some(BoundExpression::Call(_) | BoundExpression::Await(_))
-    )
-}
-
-const fn access_invalidates_refinements(purpose: StorageAccessPurpose) -> bool {
-    matches!(
-        purpose,
-        StorageAccessPurpose::Write
-            | StorageAccessPurpose::Initialize
-            | StorageAccessPurpose::Move
-            | StorageAccessPurpose::ValueTransfer
-            | StorageAccessPurpose::Borrow(bray_symbols::BorrowKind::Mutable)
-            | StorageAccessPurpose::Assignment
     )
 }
 

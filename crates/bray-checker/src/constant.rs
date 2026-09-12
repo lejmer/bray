@@ -27,6 +27,7 @@ pub(crate) use integer::{fits_integer_representation, integer_to_usize, signific
 pub use limits::{ConstantEvaluationLimits, ConstantEvaluationUsage};
 pub use literal::{ConstantLiteralError, check_constant_literal, normalize_integer_literal};
 pub(crate) use literal::{check_negated_integer_operand_literal, literal_diagnostic_kind};
+pub(crate) use operation::fold_binary;
 pub use template::{
     CheckedConstantTerms, CheckedConstantTermsBuildError, resolve_callable_signature_template,
     resolve_trait_application_template, resolve_type_expression_template,

@@ -13,56 +13,35 @@ use super::super::build::{
 use super::super::model::{
     AnalysisEdgeKind, AnalysisExitKind, AnalysisOperationKind, AnalysisScopeExitPhase,
 };
-use super::super::reachability::analyze_reachability;
+use super::flow::analyze_execution_flow;
 use crate::execution_guarantees::{ExecutionCandidate, ExecutionProperty};
 use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView};
 
 /// Checks body-local operations and records selected dependencies without certifying them.
 pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
-    property: ExecutionProperty,
+    property: Option<ExecutionProperty>,
+    assumptions: &[crate::ExecutionCondition],
+    postconditions: &[(crate::ExecutionCondition, bray_source::SourceSpan)],
+    contracts: &std::collections::BTreeMap<
+        bray_bound_tree::BoundExpressionId,
+        Vec<crate::ExecutionCompletionContract>,
+    >,
     expressions: &CheckedExpressionSemantics,
     storage: &StoragePlan,
     body: &CheckedBodySemantics,
     memory: &CheckedMemoryOperations,
 ) -> CheckerOutcome<ExecutionCandidate, C::UpstreamError> {
-    if let Some(error) = crate::unit::semantic_input_failure(
-        request,
-        [
-            (
-                crate::CheckerInputKind::ExpressionTypes,
-                (expressions.types().unit(), expressions.types().kind()),
-            ),
-            (
-                crate::CheckerInputKind::SemanticSelections,
-                (
-                    expressions.selections().unit(),
-                    expressions.selections().kind(),
-                ),
-            ),
-            (
-                crate::CheckerInputKind::StoragePlan,
-                (storage.unit(), storage.kind()),
-            ),
-            (
-                crate::CheckerInputKind::MemoryOperations,
-                (memory.unit(), memory.kind()),
-            ),
-            (
-                crate::CheckerInputKind::AsyncAnalysis,
-                (body.asynchronous().unit(), body.asynchronous().kind()),
-            ),
-        ],
-    ) {
+    if let Some(error) = execution_input_failure(request, expressions, storage, body, memory) {
         return CheckerOutcome::InfrastructureFailure(error);
     }
 
     // Purity alone does not discharge cleanup on a dependency's abnormal completion.
     let graph = match property {
-        ExecutionProperty::Pure => {
+        Some(ExecutionProperty::Pure) => {
             build_storage_control_flow_graph(request, storage, expressions.selections(), None)
         }
-        ExecutionProperty::Total => {
+        Some(ExecutionProperty::Total) | None => {
             build_execution_control_flow_graph(request, storage, expressions.selections())
         }
     };
@@ -78,11 +57,45 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
         }
     };
 
-    let Some(reachable) = analyze_reachability(&graph, request) else {
-        return CheckerOutcome::Cancelled;
+    let literals = match crate::execution_guarantees::condition_literals(
+        expressions,
+        request.semantic_values(),
+    ) {
+        Ok(literals) => literals,
+        Err(error) => {
+            return CheckerOutcome::InfrastructureFailure(
+                crate::CheckerInfrastructureError::SemanticValueStore(error),
+            );
+        }
     };
 
-    let mut candidate = ExecutionCandidate::default();
+    let reachable = match analyze_execution_flow(
+        &graph,
+        request,
+        expressions,
+        assumptions,
+        &literals,
+        storage,
+        contracts,
+    ) {
+        super::super::fixed_point::FixedPointOutcome::Complete(flow) => flow,
+        super::super::fixed_point::FixedPointOutcome::Cancelled => {
+            return CheckerOutcome::Cancelled;
+        }
+        super::super::fixed_point::FixedPointOutcome::ConvergenceInvariantViolated => {
+            let mut candidate = ExecutionCandidate::default();
+            record_failure(request, &mut candidate, request.unit().root().into());
+
+            return CheckerOutcome::complete(candidate, DiagnosticBag::new());
+        }
+    };
+
+    let mut candidate = ExecutionCandidate {
+        calls: reachable.calls(),
+        completion_dependencies: reachable.completion_dependencies(),
+        ..ExecutionCandidate::default()
+    };
+
     let mut diagnostics = DiagnosticBag::new();
 
     macro_rules! checked {
@@ -107,6 +120,10 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
         .iter()
         .filter(|block| reachable.is_block_reachable(block.id()))
     {
+        let Some(property) = property else {
+            break;
+        };
+
         if request.is_cancelled() {
             return CheckerOutcome::Cancelled;
         }
@@ -230,6 +247,7 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
     }
 
     check_completion(request, &graph, &reachable, property, &mut candidate);
+    check_postconditions(&graph, &reachable, postconditions, &mut candidate);
 
     CheckerOutcome::complete(candidate, diagnostics)
 }
@@ -237,11 +255,11 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
 fn check_completion<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     graph: &super::super::model::ControlFlowGraph,
-    reachable: &super::super::reachability::ReachabilityResult,
-    property: ExecutionProperty,
+    reachable: &super::flow::ExecutionFlow<'_, '_, C>,
+    property: Option<ExecutionProperty>,
     candidate: &mut ExecutionCandidate,
 ) {
-    if property == ExecutionProperty::Total {
+    if property == Some(ExecutionProperty::Total) {
         for exit in graph
             .exits()
             .iter()
@@ -288,4 +306,85 @@ fn record_failure<C: CheckerRequestContext + ?Sized>(
         anchor.source_id(),
         anchor.full_range(),
     ));
+}
+
+fn check_postconditions<C: CheckerRequestContext + ?Sized>(
+    graph: &super::super::model::ControlFlowGraph,
+    flow: &super::flow::ExecutionFlow<'_, '_, C>,
+    postconditions: &[(crate::ExecutionCondition, bray_source::SourceSpan)],
+    candidate: &mut ExecutionCandidate,
+) {
+    for (condition, source) in postconditions {
+        let proven = graph
+            .exits()
+            .iter()
+            .filter(|exit| {
+                matches!(
+                    exit.kind(),
+                    AnalysisExitKind::Return
+                        | AnalysisExitKind::NormalFallthrough
+                        | AnalysisExitKind::ResultErrorPropagation
+                )
+            })
+            .all(|exit| {
+                let Some(state) = flow.output(exit.block()) else {
+                    return true;
+                };
+
+                let condition = condition.substitute(
+                    &|input| {
+                        input
+                            .value_in(&state.current)
+                            .unwrap_or_else(|| crate::ExecutionCondition::Input(input.clone()))
+                    },
+                    &state.result,
+                    &mut { crate::ExecutionCondition::WORK_LIMIT },
+                );
+
+                condition.prove(&state.assumptions, &mut {
+                    crate::ExecutionCondition::WORK_LIMIT
+                }) == Some(true)
+            });
+
+        if !proven {
+            candidate.failure.get_or_insert(*source);
+        }
+    }
+}
+
+fn execution_input_failure<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    expressions: &CheckedExpressionSemantics,
+    storage: &StoragePlan,
+    body: &CheckedBodySemantics,
+    memory: &CheckedMemoryOperations,
+) -> Option<crate::CheckerInfrastructureError> {
+    crate::unit::semantic_input_failure(
+        request,
+        [
+            (
+                crate::CheckerInputKind::ExpressionTypes,
+                (expressions.types().unit(), expressions.types().kind()),
+            ),
+            (
+                crate::CheckerInputKind::SemanticSelections,
+                (
+                    expressions.selections().unit(),
+                    expressions.selections().kind(),
+                ),
+            ),
+            (
+                crate::CheckerInputKind::StoragePlan,
+                (storage.unit(), storage.kind()),
+            ),
+            (
+                crate::CheckerInputKind::MemoryOperations,
+                (memory.unit(), memory.kind()),
+            ),
+            (
+                crate::CheckerInputKind::AsyncAnalysis,
+                (body.asynchronous().unit(), body.asynchronous().kind()),
+            ),
+        ],
+    )
 }

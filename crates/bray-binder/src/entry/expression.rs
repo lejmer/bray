@@ -507,6 +507,10 @@ where
     C: BindingQueryContext + ?Sized,
 {
     match anchor.syntax_kind() {
+        SyntaxKind::WhenClause => {
+            anchored_descendant::<_, bray_syntax::WhenClauseSyntax>(binding_context, anchor)
+                .map(|clause| vec![clause.condition()])
+        }
         SyntaxKind::RequiresClause => {
             anchored_descendant::<_, RequiresClauseSyntax>(binding_context, anchor)
                 .map(|clause| clause.expressions().collect())
