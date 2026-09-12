@@ -720,6 +720,7 @@ const fn semantic_data_kind(kind: SemanticDataKind) -> &'static str {
         SemanticDataKind::ConstantTerm => "constant_term",
         SemanticDataKind::DeclarationRecord => "declaration_record",
         SemanticDataKind::DependencyContract => "dependency_contract",
+        SemanticDataKind::ExecutionEvidence => "execution_evidence",
         SemanticDataKind::GenericConstraint => "generic_constraint",
         SemanticDataKind::GenericSubstitution => "generic_substitution",
         SemanticDataKind::Implementation => "implementation",

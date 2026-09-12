@@ -369,6 +369,19 @@ pub(super) fn decode_predicate_definition(
 ) -> Result<InterfacePredicateDefinition, InterfaceValidationError> {
     let owner = read_symbol_reference(reader, context)?;
     let state = decode_tag(read_u32(reader)?)?;
+    let count = read_count(reader, context.limits(), InterfaceLimit::RecordCount)?;
+    let mut parameters = context.allocate_items(reader, count)?;
 
-    Ok(InterfacePredicateDefinition::new(owner, state))
+    for _ in 0..count {
+        let parameter = read_symbol_reference(reader, context)?;
+        let name = crate::semantic::codec::common::read_string(reader, context)?;
+
+        let name = bray_symbols::CallableParameterName::try_new(name).ok_or_else(|| {
+            crate::semantic::codec::invalid_value(crate::InterfaceValidationField::String)
+        })?;
+
+        parameters.push((parameter, name, InterfaceTypeId::new(read_u32(reader)?)));
+    }
+
+    Ok(InterfacePredicateDefinition::new(owner, state).with_parameters(parameters))
 }

@@ -114,11 +114,6 @@ impl Compilation {
             }
         }
 
-        // TODO(BRA-500): Preserve certified guarantees in exported interfaces before accepting them.
-        if self.state.package_interface_export.is_some() {
-            checked_clauses.clear();
-        }
-
         diagnostics.add_range(
             self.unhandled_execution_guarantee_diagnostics(source_graph, &checked_clauses),
         );
@@ -153,9 +148,7 @@ impl Compilation {
             if let SyntaxWalkEvent::EnterNode(node) = event
                 && roots.contains(&SyntaxAnchor::from_node(&node))
             {
-                if self.state.package_interface_export.is_none() {
-                    check_callable_type_clauses(&node, &mut checked_clauses, &mut diagnostics);
-                }
+                check_callable_type_clauses(&node, &mut checked_clauses, &mut diagnostics);
 
                 diagnostics.add_range(bray_checker::check_execution_guarantees(
                     &node,

@@ -1,10 +1,11 @@
+mod clause;
 mod condition;
 mod declaration;
 mod implication;
 mod model;
 mod normalize;
 mod place;
-mod proof;
+mod portable;
 mod unsupported;
 
 pub use bray_symbols::ExecutionProperty;
@@ -19,5 +20,8 @@ pub use model::{
 pub use normalize::execution_conditions;
 pub(crate) use normalize::{condition_literals, expression_condition, expression_place};
 pub use place::ExecutionPlace;
-pub use proof::{ExecutionProofFailure, check_execution_proof_dependencies};
 pub use unsupported::check_execution_guarantees;
+
+pub use portable::{execution_condition_from_term, execution_condition_term};
+
+pub use clause::ExecutionClauseId;

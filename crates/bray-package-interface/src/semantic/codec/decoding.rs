@@ -3,6 +3,7 @@ mod common;
 mod contract;
 mod declaration;
 mod directory;
+mod execution;
 mod inspection;
 mod selection;
 mod support;

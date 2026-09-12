@@ -57,6 +57,8 @@ impl InterfaceSemantics {
                 })?;
         }
 
+        self.validate_execution_contracts(surface)?;
+
         self.validate_callable_parameter_defaults(surface)
     }
 
@@ -173,7 +175,7 @@ impl InterfaceSemantics {
             ));
         }
 
-        Ok(())
+        self.validate_execution_phase_promises(signature)
     }
 
     fn validate_generic_declaration(
@@ -340,7 +342,9 @@ impl InterfaceSemantics {
             validate_symbol(&requirement.capability, symbol_count, dependency_count)?;
         }
 
-        if !is_strictly_sorted(&behavior.lifecycle_obligations) {
+        if !is_strictly_sorted(&behavior.lifecycle_obligations)
+            || !is_strictly_sorted(&behavior.execution_properties)
+        {
             return Err(crate::semantic::codec::invalid_value(
                 crate::InterfaceValidationField::Reference,
             ));

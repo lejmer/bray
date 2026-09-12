@@ -1606,6 +1606,57 @@ mod tests {
     }
 
     #[test]
+    fn imported_execution_guarantees_emit_native_units() {
+        let dependency = generic_dependency_from_fixture(
+            true,
+            false,
+            GenericDependencyFixture {
+                source: "module templates; func helper<T>() -> bool executes(pure, total) when(true) { ensures(result) } { return true; } public func certified<T>() -> bool executes(pure, total) when(true) { ensures(result) } { return helper<T>(); }",
+                runtime_frames: None,
+                executable_templates: 2,
+                platform_service: None,
+            },
+        );
+
+        let backend = Arc::new(bray_codegen_llvm::LlvmCodeGenerator::try_new().unwrap());
+
+        let registry =
+            CodeGeneratorRegistry::try_new([Arc::clone(&backend) as Arc<dyn CodeGenerator>])
+                .unwrap();
+
+        let codegen = CodegenConfiguration::try_new(registry, backend.identity().clone()).unwrap();
+        let target = SelectedTarget::baseline();
+
+        let request = CompilationRequest::with_options(
+            crate::test_support::package_identity(),
+            vec![crate::test_support::source_input("module app; using example.dependency.templates.certified; public func root() -> bool executes(pure, total) when(true) { ensures(result) } { return example.dependency.templates.certified<bool>(); }", 0)],
+            CompilationOptions::new(WorkerBudget::serial(), ProductKind::Library, target.clone()),
+        ).with_dependency_interfaces([dependency, crate::test_support::runtime_standard_library_dependency(&target)]);
+
+        let compilation = crate::Compilation::load_with_codegen(request, codegen).unwrap();
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+
+        let plan = compilation
+            .native_product_plan(
+                test_product_identity(),
+                crate::BuildConfiguration::Development,
+                None,
+                [],
+                None,
+            )
+            .unwrap();
+
+        let artifacts = generated_artifacts(&backend, &plan);
+        assert!(!artifacts.is_empty());
+        assert!(artifacts.iter().all(|artifact| !artifact.is_empty()));
+    }
+
+    #[test]
     fn weakened_callable_execution_contract_emits_native_units() {
         assert_source_emits_valid_native_units(
             r#"

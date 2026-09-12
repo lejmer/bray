@@ -149,6 +149,7 @@ pub(super) fn decode_callable_contract(
         CallableContractClauseKind::Ensures,
     )?);
 
+    let execution_contract = super::execution::decode_execution_contract(reader, limits, context)?;
     let invocation_behavior = decode_callable_behavior(reader, limits, context)?;
     let deferred_execution_behavior_raw = read_u32(reader)?;
 
@@ -168,7 +169,8 @@ pub(super) fn decode_callable_contract(
         decoded_clauses,
         invocation_behavior,
         deferred_execution_behavior,
-    ))
+    )
+    .with_execution_contract(execution_contract))
 }
 
 fn decode_callable_clauses(
@@ -242,8 +244,14 @@ pub(super) fn decode_callable_behavior(
 
     let dependency_contract = InterfaceDependencyContractId::new(read_u32(reader)?);
     let current_run_cancellation = decode_tag(read_u32(reader)?)?;
+    let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+    let mut execution_properties = context.allocate_items(reader, count)?;
 
-    Ok(InterfaceCallablePhaseBehavior::new(
+    for _ in 0..count {
+        execution_properties.push(decode_tag(read_u32(reader)?)?);
+    }
+
+    let mut behavior = InterfaceCallablePhaseBehavior::new(
         effects,
         capabilities,
         trusted_capabilities,
@@ -251,7 +259,12 @@ pub(super) fn decode_callable_behavior(
         lifecycle_obligations,
         dependency_contract,
         current_run_cancellation,
-    ))
+    );
+
+    // Retain wire ordering so validation can reject duplicate or unordered promises.
+    behavior.execution_properties = execution_properties.into();
+
+    Ok(behavior)
 }
 
 pub(super) fn decode_dependency_requirement(

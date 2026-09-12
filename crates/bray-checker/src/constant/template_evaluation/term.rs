@@ -1,3 +1,4 @@
+use crate::constant::operator::binary_operator;
 use bray_compiler_known::IntegerRepresentation;
 use bray_symbols::{
     AnyConstantDefinitionId, ConstantField, ConstantInstanceKey, ConstantProjection,
@@ -11,9 +12,7 @@ use super::super::diagnostic::{ConstantDiagnostic, ConstantLimitKind, diagnostic
 use super::super::integer::fits_integer_representation;
 use super::super::operation::fold_binary;
 use super::evaluator::TemplateEvaluator;
-use super::support::{
-    TemplateEvaluationFailure, binary_operator, integer_index, operation_failure,
-};
+use super::support::{TemplateEvaluationFailure, integer_index, operation_failure};
 use crate::CheckerRequestContext;
 
 pub(super) fn evaluate_term<C>(

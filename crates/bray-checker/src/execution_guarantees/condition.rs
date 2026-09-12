@@ -33,7 +33,7 @@ pub enum ExecutionCondition {
 
 impl ExecutionCondition {
     // Bound recursive normalization and implication work, including adversarial source depth.
-    pub(crate) const WORK_LIMIT: usize = 128;
+    pub(crate) const WORK_LIMIT: usize = bray_symbols::EXECUTION_CONDITION_WORK_LIMIT;
 
     pub(crate) fn inputs(&self) -> Vec<&super::ExecutionPlace> {
         let mut pending = vec![self];

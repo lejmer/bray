@@ -1,10 +1,10 @@
 use bray_binder::SymbolQueryProvider;
 use bray_bound_tree::{BoundUnitKey, CheckedTemplateKind};
 use bray_package_interface::{
-    InterfaceCallableContract, InterfaceCallableParameterDefault, InterfaceCallableSignature,
-    InterfaceCheckedTemplate, InterfaceCheckedTemplateId, InterfaceConstraint,
-    InterfaceDeclarationTemplate, InterfaceDeclaredType, InterfaceGenericDeclaration,
-    InterfacePredicateDefinition, InterfaceSupportEntity, InterfaceTypeRepresentation,
+    InterfaceCallableParameterDefault, InterfaceCallableSignature, InterfaceCheckedTemplate,
+    InterfaceCheckedTemplateId, InterfaceConstraint, InterfaceDeclarationTemplate,
+    InterfaceDeclaredType, InterfaceGenericDeclaration, InterfacePredicateDefinition,
+    InterfaceSupportEntity, InterfaceTypeRepresentation,
 };
 use bray_symbols::{
     AnySymbolId, CallableContractTemplate, CallableContractTemplateQuery, CallableContractsQuery,
@@ -26,7 +26,7 @@ use super::defaults::{
     callable_template_inputs, generic_parameters, generic_template_inputs,
     push_declaration_template, runtime_default_inputs,
 };
-use super::implementation::predicate_definition;
+
 use super::templates::{checked_constraint_expression, incomplete, index};
 
 #[derive(Default)]
@@ -35,7 +35,6 @@ pub(super) struct ExportedDeclarations {
     pub(super) generic_declarations: Vec<InterfaceGenericDeclaration>,
     pub(super) parameter_defaults: Vec<InterfaceCallableParameterDefault>,
     pub(super) constraints: Vec<InterfaceConstraint>,
-    pub(super) callable_contracts: Vec<InterfaceCallableContract>,
     pub(super) predicate_definitions: Vec<InterfacePredicateDefinition>,
     pub(super) declared_types: Vec<InterfaceDeclaredType>,
     pub(super) type_representations: Vec<InterfaceTypeRepresentation>,
@@ -75,10 +74,6 @@ pub(super) fn export_callable_semantics(
     if contracts.diagnostics().has_errors() {
         return Err(incomplete(symbol));
     }
-
-    semantics
-        .callable_contracts
-        .push(export.callable_contract(symbol, contracts.value())?);
 
     let template = binder
         .resolve_symbol_query(SymbolQueryRequest::<CallableContractTemplateQuery>::new(
@@ -235,26 +230,6 @@ pub(super) fn export_generic_semantics(
                 entity,
             ));
     }
-
-    Ok(())
-}
-
-pub(super) fn export_predicate_semantics(
-    binder: &CompilationBindingContext<'_>,
-    symbol: AnySymbolId,
-    export: &SemanticExporter<'_>,
-    semantics: &mut ExportedDeclarations,
-) -> Result<(), PackageInterfaceExportError> {
-    let Some(state) = predicate_definition(binder, symbol)? else {
-        return Ok(());
-    };
-
-    semantics
-        .predicate_definitions
-        .push(InterfacePredicateDefinition::new(
-            export.symbol_reference(symbol)?,
-            state,
-        ));
 
     Ok(())
 }

@@ -54,6 +54,17 @@ pub(in crate::semantic::codec::decoding) fn decode_selected_record_graph(
 
     let semantics = remap_selected_records(builder.records)?;
 
+    if semantics.callable_signatures.iter().any(|signature| {
+        matches!(
+            signature.callable_type.to_index().and_then(|index| semantics.types.get(index)),
+            Some(InterfaceType::Callable { invocation_behavior, deferred_execution_behavior, .. })
+                if !invocation_behavior.execution_properties.is_empty()
+                    || deferred_execution_behavior.as_ref().is_some_and(|behavior| !behavior.execution_properties.is_empty())
+        )
+    }) {
+        return bundle::decode_semantics(sections, surface, limits);
+    }
+
     semantics.validate(surface, limits)?;
 
     Ok(semantics)

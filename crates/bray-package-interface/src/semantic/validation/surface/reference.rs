@@ -2,7 +2,7 @@ use bray_symbols::SymbolKind;
 
 use crate::{InterfaceSymbolReference, InterfaceValidationError, PackageInterfaceSurface};
 
-pub(super) fn validate_owned_parameter(
+pub(in crate::semantic::validation) fn validate_owned_parameter(
     owner: &InterfaceSymbolReference,
     parameter: &InterfaceSymbolReference,
     expected_kind: SymbolKind,
@@ -35,7 +35,7 @@ pub(super) fn reference_is_owned_by(
     }
 }
 
-pub(super) fn relationship_members(
+pub(in crate::semantic::validation) fn relationship_members(
     surface: &PackageInterfaceSurface,
     owner: bray_symbols::InterfaceSymbolId,
     relationship_kind: bray_symbols::SymbolRelationshipKind,

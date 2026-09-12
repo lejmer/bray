@@ -36,6 +36,32 @@ pub(crate) fn validate_predicate_definition(
         ));
     }
 
+    let expected = super::surface::relationship_members(
+        surface,
+        local_symbol(definition.owner())?,
+        bray_symbols::SymbolRelationshipKind::PredicateParameter,
+        SymbolKind::PredicateParameter,
+    );
+
+    if !expected.iter().eq(definition
+        .parameters()
+        .iter()
+        .map(|(parameter, _, _)| parameter))
+    {
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Declaration,
+        ));
+    }
+
+    for (parameter, _, _) in definition.parameters() {
+        super::surface::validate_owned_parameter(
+            definition.owner(),
+            parameter,
+            SymbolKind::PredicateParameter,
+            surface,
+        )?;
+    }
+
     Ok(())
 }
 

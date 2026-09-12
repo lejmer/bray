@@ -238,6 +238,17 @@ impl InterfaceSemanticIdRemap {
         mapped(&self.types, id.raw(), InterfaceSemanticTableKind::Type)
     }
 
+    pub(super) fn callable_instance(
+        &self,
+        id: InterfaceCallableInstanceId,
+    ) -> Result<InterfaceCallableInstanceId, InterfaceSemanticCommitError> {
+        mapped(
+            &self.callable_instances,
+            id.raw(),
+            InterfaceSemanticTableKind::CallableInstance,
+        )
+    }
+
     pub(super) fn constant_term(
         &self,
         id: InterfaceConstantTermId,

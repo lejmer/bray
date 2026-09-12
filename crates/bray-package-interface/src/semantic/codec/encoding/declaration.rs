@@ -71,6 +71,13 @@ pub(super) fn encode_declaration_semantics(
         |encoder, definition| {
             write_symbol_reference(encoder, &definition.owner);
             encoder.write_u32(definition.state.to_wire());
+            write_count(encoder, definition.parameters.len());
+
+            for (parameter, name, ty) in &*definition.parameters {
+                write_symbol_reference(encoder, parameter);
+                crate::semantic::codec::common::write_string(encoder, name.as_str());
+                encoder.write_u32(ty.raw());
+            }
         },
     );
 

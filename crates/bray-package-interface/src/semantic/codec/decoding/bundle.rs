@@ -126,11 +126,7 @@ pub(crate) fn selected_semantic_sections(
         InterfaceSectionTag::DeclarationSemantics,
     ];
 
-    const PREDICATE_DEFINITION_SECTIONS: &[InterfaceSectionTag] = &[
-        InterfaceSectionTag::SemanticRecordDirectory,
-        InterfaceSectionTag::DeclarationSemantics,
-        InterfaceSectionTag::DeclarationTemplates,
-    ];
+    const PREDICATE_DEFINITION_SECTIONS: &[InterfaceSectionTag] = COMPLETE_SEMANTIC_SECTIONS;
 
     const IMPLEMENTATION_SECTIONS: &[InterfaceSectionTag] = &[
         InterfaceSectionTag::SemanticRecordDirectory,
@@ -150,7 +146,7 @@ pub(crate) fn selected_semantic_sections(
     ];
 
     match kind {
-        crate::InterfaceSemanticRecordKind::CallableSignature => Some(CALLABLE_SIGNATURE_SECTIONS),
+        crate::InterfaceSemanticRecordKind::CallableSignature => Some(COMPLETE_SEMANTIC_SECTIONS),
         crate::InterfaceSemanticRecordKind::GenericDeclaration => {
             Some(GENERIC_DECLARATION_SECTIONS)
         }

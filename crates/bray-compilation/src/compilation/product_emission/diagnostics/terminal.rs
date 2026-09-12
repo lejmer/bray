@@ -220,6 +220,10 @@ fn package_interface_export_failure_diagnostic(
             product,
             target,
         ),
+        PackageInterfaceExportError::ExecutionEvidence(diagnostic) => {
+            // The emitted diagnostic must outlive the cached export failure.
+            diagnostic.as_ref().clone()
+        }
         PackageInterfaceExportError::InvalidCompilation => package_failure_diagnostic(
             // rust-style: allow(context-erasing-failure-conversion, reason = "the package-interface diagnostic bag retains the exact causes")
             DiagnosticPackageInterfaceFailure::InvalidCompilation,

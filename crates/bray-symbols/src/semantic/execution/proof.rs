@@ -1,11 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use super::ExecutionObligation;
+use crate::CallableExecutionObligation;
 
-/// The reason a local candidate cannot supply certified execution evidence.
+/// The reason an implementation cannot supply certified execution evidence.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExecutionProofFailure<K> {
-    /// A dependency has no locally checked implementation candidate.
+    /// A dependency has no available implementation candidate.
     MissingCandidate(K),
     /// Normal termination depends on itself through selected calls or cleanup.
     CircularCompletion(K),
@@ -14,9 +14,12 @@ pub enum ExecutionProofFailure<K> {
 /// Validates selected proof dependencies using the shared graph analysis.
 /// Pure recursion is allowed. Any cycle containing a total or completion obligation is rejected.
 /// Missing candidates invalidate all transitive consumers.
-pub fn check_execution_proof_dependencies<K: Copy + Ord>(
-    graph: &BTreeMap<(K, ExecutionObligation), BTreeSet<(K, ExecutionObligation)>>,
-) -> BTreeMap<(K, ExecutionObligation), ExecutionProofFailure<K>> {
+pub fn check_execution_proof_dependencies<K: Copy + Ord, C: Copy + Ord>(
+    graph: &BTreeMap<
+        (K, CallableExecutionObligation<C>),
+        BTreeSet<(K, CallableExecutionObligation<C>)>,
+    >,
+) -> BTreeMap<(K, CallableExecutionObligation<C>), ExecutionProofFailure<K>> {
     let mut failures = BTreeMap::new();
     let mut reverse = BTreeMap::<_, BTreeSet<_>>::new();
 
@@ -66,7 +69,8 @@ pub fn check_execution_proof_dependencies<K: Copy + Ord>(
 #[cfg(test)]
 mod tests {
     use super::{ExecutionProofFailure, check_execution_proof_dependencies};
-    use crate::execution_guarantees::{ExecutionObligation, ExecutionProperty};
+    use crate::{CallableExecutionObligation, ExecutionProperty};
+    type ExecutionObligation = CallableExecutionObligation<u32>;
     const PURE: ExecutionObligation = ExecutionObligation::Property(ExecutionProperty::Pure, None);
     const TOTAL: ExecutionObligation =
         ExecutionObligation::Property(ExecutionProperty::Total, None);

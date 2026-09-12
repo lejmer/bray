@@ -232,6 +232,7 @@ impl InterfaceTrustedCapabilityRequirement {
 /// Durable checked behavior for one callable contract phase.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfaceCallablePhaseBehavior {
+    pub(crate) execution_properties: Arc<[bray_symbols::ExecutionProperty]>,
     pub(crate) effects: Arc<[InterfaceSymbolReference]>,
     pub(crate) capabilities: Arc<[InterfaceSymbolReference]>,
     pub(crate) trusted_capabilities: Arc<[InterfaceTrustedCapabilityRequirement]>,
@@ -258,9 +259,25 @@ impl InterfaceCallablePhaseBehavior {
             trusted_capabilities: trusted_capabilities.into_iter().collect(),
             execution_requirements: sorted_unique_shared_slice(execution_requirements),
             lifecycle_obligations: sorted_unique_shared_slice(lifecycle_obligations),
+            execution_properties: Arc::from([]),
             dependency_contract,
             current_run_cancellation,
         }
+    }
+
+    /// Retains declared execution promises separately from implementation evidence.
+    pub fn with_execution_properties(
+        mut self,
+        properties: impl IntoIterator<Item = bray_symbols::ExecutionProperty>,
+    ) -> Self {
+        self.execution_properties = sorted_unique_shared_slice(properties);
+
+        self
+    }
+
+    /// Returns the declared execution promises in semantic order.
+    pub fn execution_properties(&self) -> &[bray_symbols::ExecutionProperty] {
+        &self.execution_properties
     }
 
     /// Returns checked effects in canonical semantic order.
@@ -300,9 +317,16 @@ impl InterfaceCallablePhaseBehavior {
 }
 
 /// Checked phase-separated contracts for one callable.
+pub type InterfaceCallableExecutionContract = bray_symbols::CallableExecutionContract<
+    super::InterfaceConstantTermId,
+    bray_symbols::CallableExecutionTarget<super::InterfaceCallableInstanceId, InterfaceTypeId>,
+>;
+
+/// Checked phase-separated contracts for one callable.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfaceCallableContract {
     pub(crate) owner: InterfaceSymbolReference,
+    pub(crate) execution_contract: InterfaceCallableExecutionContract,
     pub(crate) invocation_preconditions: Arc<[InterfaceCallableContractClause]>,
     pub(crate) static_constraints: Arc<[InterfaceCallableContractClause]>,
     pub(crate) normal_completion_postconditions: Arc<[InterfaceCallableContractClause]>,
@@ -337,9 +361,22 @@ impl InterfaceCallableContract {
             invocation_preconditions: invocation_preconditions.into(),
             static_constraints: static_constraints.into(),
             normal_completion_postconditions: normal_completion_postconditions.into(),
+            execution_contract: Default::default(),
             invocation_behavior,
             deferred_execution_behavior,
         }
+    }
+
+    /// Retains portable entry domains and separately checked proof evidence.
+    pub fn with_execution_contract(mut self, contract: InterfaceCallableExecutionContract) -> Self {
+        self.execution_contract = contract;
+
+        self
+    }
+
+    /// Returns portable entry domains and separately checked proof evidence.
+    pub const fn execution_contract(&self) -> &InterfaceCallableExecutionContract {
+        &self.execution_contract
     }
 
     /// Returns the callable that owns this contract.

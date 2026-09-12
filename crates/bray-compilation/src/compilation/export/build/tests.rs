@@ -31,22 +31,390 @@ use crate::{
 };
 
 #[test]
-fn execution_guarantees_block_direct_library_interface_export() {
-    for clause in ["executes(pure, total)", "when(true) { ensures(false) }"] {
-        let source = format!("module app; func unchecked() {clause} {{}}");
+fn execution_guarantees_reject_malformed_interface_evidence() {
+    use bray_symbols::{CallableExecutionOrigin, SymbolOrdinal};
+
+    let provider = compilation(
+        "module api; func helper() executes(pure, total) {} public func root() executes(pure, total) { helper(); }",
+    );
+
+    let original = export(&provider);
+
+    let dependency = original
+        .semantics()
+        .callable_contracts()
+        .iter()
+        .flat_map(|contract| contract.execution_contract().evidence.iter())
+        .flat_map(|proof| proof.dependencies.iter())
+        .find(|(_, obligation)| {
+            obligation.property() == Some(bray_symbols::ExecutionProperty::Total)
+        })
+        .copied()
+        .unwrap();
+
+    for corruption in 0..9 {
+        let contracts = original
+            .semantics()
+            .callable_contracts()
+            .iter()
+            .filter(|_| corruption != 8)
+            .map(|contract| {
+                if corruption == 7 {
+                    return bray_package_interface::InterfaceCallableContract::new(
+                        contract.owner().clone(),
+                        [],
+                        contract
+                            .invocation_behavior()
+                            .clone()
+                            .with_execution_properties([]),
+                        contract
+                            .deferred_execution_behavior()
+                            .map(|behavior| behavior.clone().with_execution_properties([])),
+                    );
+                }
+
+                let mut execution = contract.execution_contract().clone();
+
+                if !execution.evidence.is_empty() {
+                    match corruption {
+                        0 => execution.evidence = Arc::from([]),
+                        1 => {
+                            Arc::make_mut(&mut execution.domains)[0].ordinal =
+                                SymbolOrdinal::new(99)
+                        }
+                        2 => {
+                            Arc::make_mut(&mut execution.evidence)[0].origin =
+                                CallableExecutionOrigin::ForeignAssertion
+                        }
+                        3 => {
+                            Arc::make_mut(&mut execution.evidence)[0].origin =
+                                CallableExecutionOrigin::Requirement
+                        }
+                        4 => {
+                            for proof in Arc::make_mut(&mut execution.evidence) {
+                                for (target, _) in Arc::make_mut(&mut proof.dependencies) {
+                                    *target = bray_symbols::CallableExecutionTarget::Callable(
+                                        bray_package_interface::InterfaceCallableInstanceId::new(
+                                            u32::MAX,
+                                        ),
+                                    );
+                                }
+                            }
+                        }
+                        5 => {
+                            for proof in Arc::make_mut(&mut execution.evidence) {
+                                for (_, obligation) in Arc::make_mut(&mut proof.dependencies) {
+                                    *obligation =
+                                        bray_symbols::CallableExecutionObligation::Postcondition(
+                                            SymbolOrdinal::new(99),
+                                        );
+                                }
+                            }
+                        }
+                        6 => {
+                            for proof in Arc::make_mut(&mut execution.evidence) {
+                                if proof.obligation.property()
+                                    == Some(bray_symbols::ExecutionProperty::Total)
+                                {
+                                    proof.dependencies = Arc::from([dependency]);
+                                }
+                            }
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+
+                contract.clone().with_execution_contract(execution)
+            })
+            .collect::<Vec<_>>();
+
+        let semantics = original.semantics().clone().with_contracts(
+            original.semantics().constraints().iter().cloned(),
+            contracts,
+        );
+
+        let malformed = PackageInterfaceExportBundle::try_new(
+            original.surface().clone(),
+            semantics,
+            original.language_revision(),
+            original.implementation_configuration().clone(),
+        );
+
+        assert!(
+            malformed.is_err(),
+            "corruption {corruption} must be rejected"
+        );
+    }
+}
+#[test]
+fn execution_guarantees_export_only_certified_evidence() {
+    for (clause, valid) in [
+        ("executes(pure, total)", true),
+        ("when(true) { ensures(false) }", false),
+    ] {
+        let source = format!("module app; func checked() {clause} {{}}");
         let compilation = compilation(&source);
+        let result = compilation.package_interface_export_bundle().unwrap();
+        assert_eq!(result.is_ok(), valid, "{source}: {result:?}");
+    }
+}
 
-        assert!(compilation.syntax_tree_result().diagnostics().is_empty());
+#[test]
+fn execution_guarantees_survive_provider_consumer_compilation() {
+    let provider = compilation(
+        r#"
+        module api;
+        func helper<T>() -> bool executes(total) { return true; }
+        public func guarded(pos flag: bool) -> bool
+            when(flag) { executes(pure, total) ensures(result) }
+        {
+            if flag { return true; }
+            loop {}
+        }
+        public func root() -> bool executes(total) { return helper<bool>(); }
+    "#,
+    );
 
-        assert!(matches!(
-            compilation.package_interface_export_bundle(),
-            Some(Err(crate::PackageInterfaceExportError::InvalidCompilation))
+    let bundle = export(&provider);
+    let artifact = encode_package_interface(bundle).unwrap();
+
+    for (argument, valid) in [("true", true), ("false", false)] {
+        let source = format!(
+            "module app; using example.package.api.guarded; func caller() -> bool executes(pure, total) when(true) {{ ensures(result) }} {{ return example.package.api.guarded({argument}); }}"
+        );
+
+        let consumer = crate::test_support::compilation_with_dependencies(
+            &source,
+            [DependencyInterfaceInput::new(
+                PackageIdentity::try_new("example.package").unwrap(),
+                InterfaceProductIdentity::try_new("library").unwrap(),
+                "provider.brayi",
+                artifact.shared_bytes(),
+                InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+            )],
+        );
+
+        assert_eq!(
+            consumer.check_diagnostics().is_empty(),
+            valid,
+            "{source}: {:?}",
+            consumer.check_diagnostics()
+        );
+    }
+}
+
+#[test]
+fn execution_guarantees_preserve_imported_trait_requirements() {
+    let provider = compilation(
+        "module api; public trait Readable { func read(pos flag: bool) -> bool when(flag) { executes(total) ensures(result) }; }",
+    );
+
+    for (property, valid) in [("executes(total)", true), ("", false)] {
+        let source = format!(
+            "module app; using example.package.api.Readable; struct Value {{}} impl Value(example.package.api.Readable) {{ func read(pos flag: bool) -> bool when(flag) {{ {property} ensures(result) }} {{ return true; }} }}"
+        );
+
+        let consumer = execution_consumer(&provider, &source);
+
+        assert_eq!(
+            consumer.check_diagnostics().is_empty(),
+            valid,
+            "{source}: {:?}",
+            consumer.check_diagnostics()
+        );
+    }
+}
+
+#[test]
+fn execution_guarantees_preserve_selected_predicate_guards() {
+    let provider = compilation(
+        "module api; public predicate ready(flag: bool) = flag; public func guarded(pos flag: bool) executes(total) requires(ready(flag)) {}",
+    );
+
+    for (negation, valid) in [("", true), ("!", false)] {
+        let source = format!(
+            "module app; using example.package.api; func caller(pos flag: bool) requires({negation}example.package.api.ready(flag)) executes(total) {{ example.package.api.guarded(flag); }}"
+        );
+
+        let consumer = execution_consumer(&provider, &source);
+
+        assert_eq!(
+            consumer.check_diagnostics().is_empty(),
+            valid,
+            "{source}: {:?}",
+            consumer.check_diagnostics()
+        );
+    }
+}
+
+#[test]
+fn execution_guarantees_round_trip_and_reject_result_as_an_entry_guard() {
+    let provider = compilation(
+        "module api; public func checked(pos flag: bool) -> bool when(flag) { executes(pure, total) ensures(result, flag) } { return true; }",
+    );
+
+    let original = export(&provider);
+    let artifact = encode_package_interface(original).unwrap();
+
+    let validated = ValidatedPackageInterface::try_new(
+        artifact.bytes(),
+        InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+    )
+    .unwrap();
+
+    let decoded = validated.decode_semantics(original.surface()).unwrap();
+
+    assert_eq!(
+        decoded.callable_contracts(),
+        original.semantics().callable_contracts()
+    );
+
+    let contracts = decoded
+        .callable_contracts()
+        .iter()
+        .map(|contract| {
+            let mut execution = contract.execution_contract().clone();
+
+            for domain in Arc::make_mut(&mut execution.domains) {
+                if let Some((_, post)) = domain.postconditions.first() {
+                    domain.entry = Arc::from([*post]);
+                }
+            }
+
+            contract.clone().with_execution_contract(execution)
+        })
+        .collect::<Vec<_>>();
+
+    let semantics = decoded
+        .clone()
+        .with_contracts(decoded.constraints().iter().cloned(), contracts);
+
+    assert!(
+        PackageInterfaceExportBundle::try_new(
+            original.surface().clone(),
+            semantics,
+            original.language_revision(),
+            original.implementation_configuration().clone()
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn execution_guarantees_retain_foreign_trust_and_caller_obligations() {
+    let provider = compilation_from_sources_for_product_with_platform_services_and_worker_budget(
+        [
+            "trusted module api; @link(name = \"c\") @abi(c) @symbol(name = \"foreign_truth\") public extern trusted func asserted() -> bool executes(total) uses(foreign_call);",
+        ],
+        ProductKind::Library,
+        [],
+        WorkerBudget::default(),
+        None,
+        [bray_symbols::NativeLinkRequirement::new(
+            bray_base::NonEmptySharedStr::try_new("c").unwrap(),
+            bray_symbols::NativeLinkKind::Dynamic,
+        )],
+    );
+
+    assert!(
+        provider.check_diagnostics().is_empty(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    let bundle = export(&provider);
+
+    assert!(
+        bundle
+            .semantics()
+            .callable_contracts()
+            .iter()
+            .flat_map(|contract| &*contract.execution_contract().evidence)
+            .all(|proof| proof.origin == bray_symbols::CallableExecutionOrigin::ForeignAssertion)
+    );
+
+    for (trust, valid) in [("trusted ", true), ("", false)] {
+        let source = format!(
+            "trusted module app; using example.package.api.asserted; {trust}func caller() -> bool uses(foreign_call) executes(total) {{ return example.package.api.asserted(); }}"
+        );
+
+        let consumer = execution_consumer(&provider, &source);
+
+        assert_eq!(
+            consumer.check_diagnostics().is_empty(),
+            valid,
+            "{source}: {:?}",
+            consumer.check_diagnostics()
+        );
+    }
+}
+
+fn execution_consumer(provider: &Compilation, source: &str) -> Compilation {
+    crate::test_support::compilation_with_dependencies(source, [execution_dependency(provider)])
+}
+
+fn execution_dependency(provider: &Compilation) -> DependencyInterfaceInput {
+    let bundle = export(provider);
+    let artifact = encode_package_interface(bundle).unwrap();
+
+    DependencyInterfaceInput::new(
+        bundle.surface().identity().package().clone(),
+        bundle.surface().identity().product().clone(),
+        "provider.brayi",
+        artifact.shared_bytes(),
+        InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+    )
+}
+
+#[test]
+fn execution_guarantees_follow_transitive_provider_dependencies() {
+    let provider = compilation("module api; public func checked() executes(pure, total) {}");
+    let package = PackageIdentity::try_new("example.wrapper").unwrap();
+
+    let identity = bray_package_interface::PackageInterfaceIdentity::try_new(
+        package.clone(),
+        package_version(),
+        InterfaceProductIdentity::try_new("library").unwrap(),
+        bray_package_interface::InterfaceProductKind::Library,
+        "public",
+    )
+    .unwrap();
+
+    let source = "module api; using example.package.api; public func wrapped() executes(pure, total) { example.package.api.checked(); }";
+
+    let request = CompilationRequest::new(package, test_source_inputs("wrapper", [source]))
+        .with_dependency_interfaces([execution_dependency(&provider)])
+        .with_package_interface_export(PackageInterfaceExportRequest::new(
+            identity,
+            InterfaceLanguageRevision::new(0),
         ));
 
-        assert!(compilation.check_diagnostics().iter().any(|diagnostic| {
-            diagnostic.kind()
-                == bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeUnsupported
-        }));
+    let wrapper = Compilation::load(request).unwrap();
+
+    assert!(
+        wrapper.check_diagnostics().is_empty(),
+        "{:?}",
+        wrapper.check_diagnostics()
+    );
+
+    for include_provider in [true, false] {
+        let mut dependencies = vec![execution_dependency(&wrapper)];
+
+        if include_provider {
+            dependencies.push(execution_dependency(&provider));
+        }
+
+        let consumer = crate::test_support::compilation_with_dependencies(
+            "module app; using example.wrapper.api; func caller() executes(pure, total) { example.wrapper.api.wrapped(); }",
+            dependencies,
+        );
+
+        assert_eq!(
+            consumer.check_diagnostics().is_empty(),
+            include_provider,
+            "{:?}",
+            consumer.check_diagnostics()
+        );
     }
 }
 
@@ -2189,6 +2557,7 @@ fn compilation_from_sources_with_worker_budget<const N: usize>(
         std::iter::empty(),
         worker_budget,
         None,
+        [],
     )
 }
 
@@ -2204,6 +2573,7 @@ fn profiled_compilation_from_sources_with_worker_budget<const N: usize>(
         Some(CompilationProfileConfiguration::new(
             CompilationProfileMode::Summary,
         )),
+        [],
     )
 }
 
@@ -2229,6 +2599,7 @@ fn compilation_from_sources_for_product_with_platform_services<const N: usize>(
         platform_services,
         WorkerBudget::default(),
         None,
+        [],
     )
 }
 
@@ -2238,6 +2609,7 @@ fn compilation_from_sources_for_product_with_platform_services_and_worker_budget
     platform_services: impl IntoIterator<Item = PlatformServiceBinding>,
     worker_budget: WorkerBudget,
     profile: Option<CompilationProfileConfiguration>,
+    native_links: impl IntoIterator<Item = bray_symbols::NativeLinkRequirement>,
 ) -> Compilation {
     let package = PackageIdentity::try_new("example.package")
         .unwrap_or_else(|| panic!("test package identity must be valid"));
@@ -2258,7 +2630,8 @@ fn compilation_from_sources_for_product_with_platform_services_and_worker_budget
 
     let sources = test_source_inputs("test", sources);
 
-    let options = CompilationOptions::new(worker_budget, product_kind, SelectedTarget::default());
+    let options = CompilationOptions::new(worker_budget, product_kind, SelectedTarget::default())
+        .with_native_link_inputs(native_links);
 
     let request = CompilationRequest::with_options(package, sources, options)
         .with_platform_services(platform_services)

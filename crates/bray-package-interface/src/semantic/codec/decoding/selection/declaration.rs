@@ -50,7 +50,7 @@ pub(super) fn decode_predicate_definition(
     sections: &[ValidatedInterfaceSection<'_>],
     surface: &PackageInterfaceSurface,
     owner: InterfaceSymbolId,
-    _limits: InterfaceValidationLimits,
+    limits: InterfaceValidationLimits,
     mut context: SemanticDecodeContext,
     directory: &[InterfaceSemanticRecord],
 ) -> Result<InterfaceSemantics, InterfaceValidationError> {
@@ -70,6 +70,11 @@ pub(super) fn decode_predicate_definition(
         &mut context,
         codec::decode_predicate_definition,
     )?;
+
+    // Parameter types may reach the complete semantic value graph.
+    if !definition.parameters().is_empty() {
+        return bundle::decode_semantics(sections, surface, limits);
+    }
 
     if definition.owner() != &owner {
         return Err(crate::semantic::codec::invalid_value(

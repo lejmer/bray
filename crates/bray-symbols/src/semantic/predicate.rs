@@ -374,6 +374,7 @@ impl TrustedCapabilityRequirement {
 /// Checked callable contracts, trusted obligations, and portable dependencies.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CallableContractSet {
+    execution_contract: super::ResolvedCallableExecutionContract,
     invocation_preconditions: Arc<[CallableContractClause]>,
     static_constraints: Arc<[CallableContractClause]>,
     normal_completion_postconditions: Arc<[CallableContractClause]>,
@@ -403,6 +404,7 @@ impl CallableContractSet {
 
         Self {
             invocation_preconditions: shared_slice(invocation_preconditions),
+            execution_contract: Default::default(),
             static_constraints: shared_slice(static_constraints),
             normal_completion_postconditions: shared_slice(normal_completion_postconditions),
             phase_behaviors: match deferred_execution_behavior {
@@ -412,6 +414,21 @@ impl CallableContractSet {
                 None => super::CallablePhaseBehaviors::synchronous(invocation_behavior),
             },
         }
+    }
+
+    /// Attaches normalized execution domains and their checked evidence.
+    pub fn with_execution_contract(
+        mut self,
+        contract: super::ResolvedCallableExecutionContract,
+    ) -> Self {
+        self.execution_contract = contract;
+
+        self
+    }
+
+    /// Returns normalized execution domains and their checked evidence.
+    pub const fn execution_contract(&self) -> &super::ResolvedCallableExecutionContract {
+        &self.execution_contract
     }
 
     /// Returns preconditions checked before callable invocation.

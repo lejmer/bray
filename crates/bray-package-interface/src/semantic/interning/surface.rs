@@ -201,13 +201,32 @@ impl InternState {
                     .map(|behavior| self.convert_callable_behavior(behavior, symbols))
                     .transpose()?;
 
+                let execution_contract = input.execution_contract.try_map(
+                    &mut (),
+                    |_, term| {
+                        self.constant_term_id(term)
+                            .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)
+                    },
+                    |_, target| match target {
+                        bray_symbols::CallableExecutionTarget::Callable(callable) => self
+                            .callable_instance_id(callable)
+                            .map(bray_symbols::CallableExecutionTarget::Callable)
+                            .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph),
+                        bray_symbols::CallableExecutionTarget::Indirect(ty) => self
+                            .type_id(ty)
+                            .map(bray_symbols::CallableExecutionTarget::Indirect)
+                            .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph),
+                    },
+                )?;
+
                 Ok(ImportedCallableContract {
                     owner: resolve_family::<CallableSymbolId>(symbols, &input.owner)?,
                     contract: CallableContractSet::new(
                         clauses,
                         invocation_behavior,
                         deferred_execution_behavior,
-                    ),
+                    )
+                    .with_execution_contract(execution_contract),
                 })
             })
             .collect()
@@ -263,7 +282,8 @@ impl InternState {
             input.lifecycle_obligations.iter().copied(),
             dependency,
             input.current_run_cancellation,
-        ))
+        )
+        .with_execution_properties(input.execution_properties.iter().copied()))
     }
 
     pub(super) fn convert_implementations(

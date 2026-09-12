@@ -1,3 +1,4 @@
+use crate::constant::operator::{binary_operator, unary_operator};
 use bray_bound_tree::{
     CheckedTemplate, CheckedTemplateInputKind, CheckedTemplateKind, CheckedTemplateNodeId,
     CheckedTemplateOperation, CheckedTemplateShortCircuitKind,
@@ -18,8 +19,8 @@ use super::super::diagnostic::{ConstantDiagnostic, ConstantLimitKind, diagnostic
 use super::super::limits::{ConstantEvaluationLimits, EvaluationBudget};
 use super::super::operation::{fold_binary, fold_unary};
 use super::support::{
-    TemplateEvaluationFailure, binary_operator, constant_definition, operation_failure,
-    recovery_value, target_integer_width, template_index, unary_operator,
+    TemplateEvaluationFailure, constant_definition, operation_failure, recovery_value,
+    target_integer_width, template_index,
 };
 use crate::representation::type_representation_for_context;
 use crate::{CheckerQueryError, CheckerRequestContext};

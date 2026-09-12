@@ -100,6 +100,8 @@ pub(in crate::compilation::export) fn capacity_export_error(
 /// Failure while producing the current library product's public interface.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum PackageInterfaceExportError {
+    /// Execution evidence cannot be represented, retaining the exact source diagnostic.
+    ExecutionEvidence(Box<bray_diagnostics::Diagnostic>),
     /// Export was cancelled before a complete interface could be committed.
     Cancelled,
     /// Query-runtime coordination prevented a complete interface from being committed.

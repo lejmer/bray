@@ -2,8 +2,8 @@ use bray_bound_tree::{BoundExpression, BoundExpressionId, BoundOperator, Express
 use bray_compiler_known::IntegerRepresentation;
 use bray_diagnostics::DiagnosticConstantOperation;
 use bray_symbols::{
-    ConstantBinaryOperation, ConstantTermData, ConstantTermId, ConstantUnaryOperation,
-    ConstantValueData, ConstantValueId, ConstantValueKind, GenericArgument, TypeData, TypeId,
+    ConstantTermData, ConstantTermId, ConstantValueData, ConstantValueId, ConstantValueKind,
+    GenericArgument, TypeData, TypeId,
 };
 
 use crate::constant::diagnostic::ConstantDiagnostic;
@@ -436,64 +436,6 @@ impl EvaluationFailure {
         Self::Source {
             expression,
             diagnostic: ConstantDiagnostic::operation(operation, error),
-        }
-    }
-}
-
-pub(super) const fn unary_term_operation(
-    operation: BoundOperator,
-) -> Option<ConstantUnaryOperation> {
-    match operation {
-        BoundOperator::Add => Some(ConstantUnaryOperation::Identity),
-        BoundOperator::Subtract => Some(ConstantUnaryOperation::Negate),
-        BoundOperator::LogicalNot => Some(ConstantUnaryOperation::LogicalNot),
-        BoundOperator::BitwiseNot => Some(ConstantUnaryOperation::BitwiseNot),
-        BoundOperator::LogicalOr
-        | BoundOperator::LogicalAnd
-        | BoundOperator::Equal
-        | BoundOperator::NotEqual
-        | BoundOperator::Less
-        | BoundOperator::LessEqual
-        | BoundOperator::Greater
-        | BoundOperator::GreaterEqual
-        | BoundOperator::BitwiseOr
-        | BoundOperator::BitwiseXor
-        | BoundOperator::BitwiseAnd
-        | BoundOperator::ShiftLeft
-        | BoundOperator::ShiftRight
-        | BoundOperator::Multiply
-        | BoundOperator::Divide
-        | BoundOperator::Remainder
-        | BoundOperator::MatrixMultiply
-        | BoundOperator::Exponentiate => None,
-    }
-}
-
-pub(super) const fn binary_term_operation(
-    operation: BoundOperator,
-) -> Option<ConstantBinaryOperation> {
-    match operation {
-        BoundOperator::LogicalOr => Some(ConstantBinaryOperation::LogicalOr),
-        BoundOperator::LogicalAnd => Some(ConstantBinaryOperation::LogicalAnd),
-        BoundOperator::Equal => Some(ConstantBinaryOperation::Equal),
-        BoundOperator::NotEqual => Some(ConstantBinaryOperation::NotEqual),
-        BoundOperator::Less => Some(ConstantBinaryOperation::Less),
-        BoundOperator::LessEqual => Some(ConstantBinaryOperation::LessOrEqual),
-        BoundOperator::Greater => Some(ConstantBinaryOperation::Greater),
-        BoundOperator::GreaterEqual => Some(ConstantBinaryOperation::GreaterOrEqual),
-        BoundOperator::BitwiseOr => Some(ConstantBinaryOperation::BitwiseOr),
-        BoundOperator::BitwiseXor => Some(ConstantBinaryOperation::BitwiseXor),
-        BoundOperator::BitwiseAnd => Some(ConstantBinaryOperation::BitwiseAnd),
-        BoundOperator::ShiftLeft => Some(ConstantBinaryOperation::ShiftLeft),
-        BoundOperator::ShiftRight => Some(ConstantBinaryOperation::ShiftRight),
-        BoundOperator::Add => Some(ConstantBinaryOperation::Add),
-        BoundOperator::Subtract => Some(ConstantBinaryOperation::Subtract),
-        BoundOperator::Multiply => Some(ConstantBinaryOperation::Multiply),
-        BoundOperator::Divide => Some(ConstantBinaryOperation::Divide),
-        BoundOperator::Remainder => Some(ConstantBinaryOperation::Remainder),
-        BoundOperator::Exponentiate => Some(ConstantBinaryOperation::Exponentiate),
-        BoundOperator::MatrixMultiply | BoundOperator::BitwiseNot | BoundOperator::LogicalNot => {
-            None
         }
     }
 }

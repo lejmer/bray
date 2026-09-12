@@ -17,7 +17,8 @@ use crate::constant::operation::{fold_binary, fold_unary};
 use crate::representation::type_representation;
 
 use super::engine::Evaluator;
-use super::support::{EvaluationFailure, binary_term_operation, unary_term_operation};
+use super::support::EvaluationFailure;
+use crate::constant::operator::{binary_term_operation, unary_term_operation};
 
 impl<'view, 'input, 'types, C> Evaluator<'view, 'input, 'types, C>
 where
