@@ -188,6 +188,7 @@ pub(crate) enum ToolStream {
 
 #[derive(Debug)]
 pub(crate) enum ToolExecutionError {
+    CompilerRequest(bray_diagnostics::DiagnosticProjectCommandFailure),
     Platform {
         program: PathBuf,
         error: PlatformError,
@@ -218,12 +219,38 @@ impl ToolExecutor for NativeToolExecutor {
         })
     }
 
-    fn capture(&self, request: ToolRequest) -> Result<ToolOutput, ToolExecutionError> {
+    fn capture(&self, mut request: ToolRequest) -> Result<ToolOutput, ToolExecutionError> {
+        let request_file = if request.tool == Tool::Compiler {
+            let file = tempfile::NamedTempFile::new().map_err(|error| {
+                ToolExecutionError::CompilerRequest(
+                    bray_diagnostics::DiagnosticProjectCommandFailure::Io {
+                        operation: bray_diagnostics::DiagnosticProjectOperation::CompilerRequest,
+                        path: std::env::temp_dir(),
+                        error: error.kind().into(),
+                    },
+                )
+            })?;
+
+            bray_tooling::write_compiler_request(file.path(), &request.arguments)
+                .map_err(ToolExecutionError::CompilerRequest)?;
+
+            request.arguments = vec![
+                bray_tooling::COMPILER_REQUEST_ARGUMENT.into(),
+                file.path().into(),
+            ];
+
+            Some(file)
+        } else {
+            None
+        };
+
         let (command, program) = native_command(&request)?;
 
         let output = command
             .capture(request.input)
             .map_err(|error| ToolExecutionError::Platform { program, error })?;
+
+        drop(request_file);
 
         let (status, stdout, stderr) = output.into_parts();
 

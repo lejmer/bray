@@ -62,6 +62,7 @@ serde_json = "1"
 tempfile = { version = "3", optional = true }
 
 [dev-dependencies]
+tempfile = "3"
 bray-testing = { path = "../bray-testing", features = ["mir-unit"] }
 
 [lints]

@@ -116,7 +116,7 @@ pub(crate) fn copy_file(source: &Path, destination: &Path) -> Result<(), String>
     })
 }
 
-fn copy_directory(source: &Path, destination: &Path) -> Result<(), String> {
+pub(crate) fn copy_directory(source: &Path, destination: &Path) -> Result<(), String> {
     fs::create_dir_all(destination).map_err(|error| {
         format!(
             "could not create toolchain directory {}: {error}",

@@ -1,0 +1,19 @@
+{
+  "format": 1,
+  "package": {
+    "version": "0.1.0"
+  },
+  "output_root": "build",
+  "targets": [
+    {
+      "name": "native",
+      "identity": "x86_64-pc-windows-msvc"
+    }
+  ],
+  "packages": [
+    {
+      "path": ".",
+      "role": "root"
+    }
+  ]
+}

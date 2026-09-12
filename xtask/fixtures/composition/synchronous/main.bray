@@ -1,0 +1,9 @@
+module composition.synchronous;
+
+using composition.api;
+
+@test
+func run()
+{
+    assert(composition.api.answer() == 42);
+}

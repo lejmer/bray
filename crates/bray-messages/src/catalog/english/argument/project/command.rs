@@ -29,6 +29,7 @@ const fn format_english_project_operation(
         Operation::CompilerJsonOutput => "decode compiler JSON output",
         Operation::ProductOutputDirectory => "resolve the product output directory",
         Operation::ThinLtoCacheDirectory => "create the native optimization cache directory",
+        Operation::CompilerRequest => "read or write the compiler request",
         Operation::CompilerProcess => "run the compiler",
         Operation::CompilerProfileOutputDirectory => "create the profile output directory",
         Operation::CompilerProfileReportOutput => "write the compiler profile report",
@@ -450,5 +451,22 @@ fn format_english_test_plan_problem(
             "test {} requires {required_bytes} output-capture bytes, but the command budget is {maximum_bytes} bytes",
             format_english_quoted_text(test)
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn compiler_request_failure_identifies_the_affected_file() {
+        let failure = bray_diagnostics::DiagnosticProjectCommandFailure::Io {
+            operation: bray_diagnostics::DiagnosticProjectOperation::CompilerRequest,
+            path: std::path::PathBuf::from("build/request.json"),
+            error: bray_diagnostics::DiagnosticIoErrorKind::NotFound,
+        };
+
+        let rendered = super::format_english_project_command_failure(&failure);
+
+        assert!(rendered.contains("compiler request"));
+        assert!(rendered.contains("request.json"));
     }
 }

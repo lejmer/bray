@@ -1,0 +1,14 @@
+module composition.runtime_role;
+
+async func answer() -> i32
+{
+    return 42;
+}
+
+@test
+async func run()
+{
+    let value = await answer();
+
+    assert(value == 42);
+}

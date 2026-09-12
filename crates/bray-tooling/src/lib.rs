@@ -4,6 +4,7 @@
 
 #[cfg(feature = "build-identity")]
 mod build_identity;
+mod compiler_request;
 #[cfg(feature = "analysis")]
 mod inspection;
 mod model;
@@ -24,6 +25,9 @@ mod toolchain;
 
 #[cfg(feature = "build-identity")]
 pub use build_identity::reusable_build_identity_mismatch_diagnostics;
+pub use compiler_request::{
+    COMPILER_REQUEST_ARGUMENT, read_compiler_request, write_compiler_request,
+};
 #[cfg(feature = "analysis")]
 pub use inspection::{
     InspectionError, InspectionOutput, format_semantic_type, render_bound_inspection,

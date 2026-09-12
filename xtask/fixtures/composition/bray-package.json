@@ -1,0 +1,155 @@
+{
+  "format": 1,
+  "identity": "composition",
+  "version": {
+    "workspace": true
+  },
+  "source_roots": [
+    {
+      "name": "library",
+      "path": "library"
+    },
+    {
+      "name": "synchronous",
+      "path": "synchronous"
+    },
+    {
+      "name": "standard-library",
+      "path": "standard-library"
+    },
+    {
+      "name": "runtime-role",
+      "path": "runtime-role"
+    },
+    {
+      "name": "cleanup",
+      "path": "cleanup"
+    },
+    {
+      "name": "selected-entry",
+      "path": "selected-entry"
+    },
+    {
+      "name": "typed-error",
+      "path": "typed-error"
+    },
+    {
+      "name": "compiler-request",
+      "path": "compiler-request"
+    }
+  ],
+  "products": [
+    {
+      "name": "library",
+      "kind": "library",
+      "source_roots": [
+        "library"
+      ],
+      "targets": [
+        "native"
+      ],
+      "outputs": [
+        "package_interface",
+        "package_implementation"
+      ]
+    },
+    {
+      "name": "synchronous",
+      "kind": "test",
+      "tested_library": "library",
+      "source_roots": [
+        "synchronous"
+      ],
+      "targets": [
+        "native"
+      ],
+      "outputs": [
+        "executable"
+      ]
+    },
+    {
+      "name": "standard-library",
+      "kind": "test",
+      "tested_library": "library",
+      "source_roots": [
+        "standard-library"
+      ],
+      "targets": [
+        "native"
+      ],
+      "outputs": [
+        "executable"
+      ]
+    },
+    {
+      "name": "runtime-role",
+      "kind": "test",
+      "tested_library": "library",
+      "source_roots": [
+        "runtime-role"
+      ],
+      "targets": [
+        "native"
+      ],
+      "outputs": [
+        "executable"
+      ]
+    },
+    {
+      "name": "cleanup",
+      "kind": "test",
+      "tested_library": "library",
+      "source_roots": [
+        "cleanup"
+      ],
+      "targets": [
+        "native"
+      ],
+      "outputs": [
+        "executable"
+      ]
+    },
+    {
+      "name": "selected-entry",
+      "kind": "test",
+      "tested_library": "library",
+      "source_roots": [
+        "selected-entry"
+      ],
+      "targets": [
+        "native"
+      ],
+      "outputs": [
+        "executable"
+      ]
+    },
+    {
+      "name": "typed-error",
+      "kind": "test",
+      "tested_library": "library",
+      "source_roots": [
+        "typed-error"
+      ],
+      "targets": [
+        "native"
+      ],
+      "outputs": [
+        "executable"
+      ]
+    },
+    {
+      "name": "compiler-request",
+      "kind": "test",
+      "tested_library": "library",
+      "source_roots": [
+        "compiler-request"
+      ],
+      "targets": [
+        "native"
+      ],
+      "outputs": [
+        "executable"
+      ]
+    }
+  ]
+}

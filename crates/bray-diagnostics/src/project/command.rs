@@ -120,6 +120,8 @@ pub enum DiagnosticProjectOperation {
     /// Creation of the persistent native ThinLTO cache directory.
     ThinLtoCacheDirectory,
     CompilerProcess,
+    /// Reading or writing the compiler invocation file.
+    CompilerRequest,
     CompilerProfileOutputDirectory,
     /// Publication of a compiler profile report to its selected output path.
     CompilerProfileReportOutput,
@@ -564,6 +566,7 @@ impl DiagnosticProjectOperation {
             Self::CompilerJsonOutput => "compiler_json_output",
             Self::ProductOutputDirectory => "product_output_directory",
             Self::ThinLtoCacheDirectory => "thin_lto_cache_directory",
+            Self::CompilerRequest => "compiler_request",
             Self::CompilerProcess => "compiler_process",
             Self::CompilerProfileOutputDirectory => "compiler_profile_output_directory",
             Self::CompilerProfileReportOutput => "compiler_profile_report_output",

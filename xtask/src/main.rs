@@ -3,6 +3,7 @@
 mod bundle;
 mod command;
 mod compiler_known;
+mod composition;
 mod dependency_audit;
 mod diagnostic_output;
 mod input_identity;
@@ -11,6 +12,7 @@ mod link_map;
 mod native_archive;
 mod native_product;
 mod native_symbols;
+mod native_test_report;
 mod native_toolchain;
 mod package_interface;
 mod path;
@@ -25,12 +27,13 @@ mod text;
 mod windows_crt;
 mod workspace;
 
-const USAGE: &str = "usage: cargo xtask <compiler-known | format | package-interface | performance | readiness | runtime-artifact | standard-library | style> ...";
+const USAGE: &str = "usage: cargo xtask <compiler-known | composition | format | package-interface | performance | readiness | runtime-artifact | standard-library | style> ...";
 
 fn main() -> std::process::ExitCode {
     let mut arguments = std::env::args().skip(1);
 
     match arguments.next().as_deref() {
+        Some("composition") => composition::run(arguments),
         Some("compiler-known") => compiler_known::run(arguments),
         Some("format") => source_format::run(arguments),
         Some("package-interface") => package_interface::run(arguments),
