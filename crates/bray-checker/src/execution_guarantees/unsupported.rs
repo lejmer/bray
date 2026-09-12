@@ -23,7 +23,9 @@ pub fn check_execution_guarantees(
         };
 
         let keyword = match node.kind() {
+            // TODO(BRA-500): Validate guarantees on callable types and trait declarations.
             SyntaxKind::ExecutesClause => SyntaxKind::ExecutesKeyword,
+            // TODO(BRA-497): Replace guarded-group rejection with conditional guarantee checking.
             SyntaxKind::WhenClause => SyntaxKind::WhenKeyword,
             _ => return SyntaxWalkControl::Continue,
         };

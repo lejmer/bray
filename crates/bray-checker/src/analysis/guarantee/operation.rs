@@ -63,6 +63,7 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
 
     match selections.expression(expression) {
         Some(SemanticSelection::Call(call)) => {
+            // TODO(BRA-500): Certify trait dispatch from its preserved contract and dependencies.
             if call.resolution().trait_dispatch().is_some()
                 || !matches!(call.resolution().result(), BoundCallResult::Immediate(_))
                 || call
