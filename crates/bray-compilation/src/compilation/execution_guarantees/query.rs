@@ -268,6 +268,46 @@ mod tests {
     }
 
     #[test]
+    fn exceptional_cleanup_participates_in_pure_certification() {
+        for operation in ["risky(value)", "1 / value", "Maker(value)"] {
+            for (destructor, pure) in [
+                ("destruct() { panic(\"cleanup\"); }", false),
+                ("destruct() executes(pure, total) {}", true),
+            ] {
+                let source = r#"
+            module app;
+            struct Value { DESTRUCTOR }
+            struct Maker {
+                construct(pos value: i32) -> Self executes(pure) {
+                    risky(value);
+                    return Maker {};
+                }
+            }
+            func risky(pos value: i32) -> i32 executes(pure) { return 1 / value; }
+            func relay(pos owner: Value, pos value: i32) -> Value executes(pure) {
+                OPERATION;
+                return owner;
+            }
+            "#
+                .replace("DESTRUCTOR", destructor)
+                .replace("OPERATION", operation);
+
+                let compilation = compilation(&source);
+
+                let proof = compilation
+                    .execution_properties(source_function_body_key(&compilation, "relay"))
+                    .unwrap();
+
+                assert_eq!(
+                    proof.value().properties.contains(&Pure),
+                    pure,
+                    "{source}: {proof:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn returning_an_owner_transfers_its_later_cleanup() {
         let compilation = compilation(
             r#"

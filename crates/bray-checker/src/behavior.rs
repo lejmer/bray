@@ -230,24 +230,19 @@ pub(crate) fn collect_conversion_behavior(
     calls: &mut Vec<BodyBehaviorCall>,
 ) -> bool {
     let mut resolved = true;
-    let mut pending = vec![conversion];
 
-    while let Some(conversion) = pending.pop() {
-        match conversion.target() {
-            ConversionTarget::Trait { fulfillment, .. } => {
-                calls.push(invocation(*fulfillment, source))
-            }
-            ConversionTarget::TraitConstraint { member, .. } => {
-                calls.push(invocation(*member, source));
-                resolved = false;
-            }
-            ConversionTarget::Composite(conversions) => pending.extend(conversions.iter().rev()),
-            ConversionTarget::Identity
-            | ConversionTarget::NullablePresent
-            | ConversionTarget::BuiltInScalar
-            | ConversionTarget::CVariadicPromotion => {}
+    conversion.visit_targets(|target| match target {
+        ConversionTarget::Trait { fulfillment, .. } => calls.push(invocation(*fulfillment, source)),
+        ConversionTarget::TraitConstraint { member, .. } => {
+            calls.push(invocation(*member, source));
+            resolved = false;
         }
-    }
+        ConversionTarget::Composite(_) => {}
+        ConversionTarget::Identity
+        | ConversionTarget::NullablePresent
+        | ConversionTarget::BuiltInScalar
+        | ConversionTarget::CVariadicPromotion => {}
+    });
 
     resolved
 }

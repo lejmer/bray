@@ -1,5 +1,5 @@
 use bray_bound_tree::{
-    BoundCallResult, BoundExpression, BoundExpressionId, BoundOperator, BoundReferenceTarget,
+    BoundCallResult, BoundExpression, BoundExpressionId, BoundReferenceTarget,
     BoundStructuredExpressionKind, CheckedMemoryOperationKind, CheckedMemoryOperations,
     CheckedSemanticSelections, ConstructionTarget, OperatorTarget, SelectedArgument,
     SelectedConstructionInput, SelectedConversion, SelectedOperation, SemanticSelection,
@@ -174,21 +174,7 @@ fn check_operation(
         SelectedOperation::Operator {
             target: OperatorTarget::BuiltIn(operator),
             ..
-        } => {
-            property == ExecutionProperty::Pure
-                || matches!(
-                    operator,
-                    BoundOperator::LogicalNot
-                        | BoundOperator::LogicalAnd
-                        | BoundOperator::LogicalOr
-                        | BoundOperator::Equal
-                        | BoundOperator::NotEqual
-                        | BoundOperator::Less
-                        | BoundOperator::LessEqual
-                        | BoundOperator::Greater
-                        | BoundOperator::GreaterEqual
-                )
-        }
+        } => property == ExecutionProperty::Pure || !operator.builtin_may_panic(),
         SelectedOperation::Construction(construction) => {
             matches!(construction.target(), ConstructionTarget::TypeForm { .. })
                 || construction

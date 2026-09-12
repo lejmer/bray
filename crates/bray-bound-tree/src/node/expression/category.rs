@@ -373,6 +373,22 @@ pub enum BoundStructuredExpressionKind {
 }
 
 impl BoundOperator {
+    /// Returns whether this built-in operator can fail without a narrower operand-domain proof.
+    pub const fn builtin_may_panic(self) -> bool {
+        !matches!(
+            self,
+            Self::LogicalNot
+                | Self::LogicalAnd
+                | Self::LogicalOr
+                | Self::Equal
+                | Self::NotEqual
+                | Self::Less
+                | Self::LessEqual
+                | Self::Greater
+                | Self::GreaterEqual
+        )
+    }
+
     /// Returns this operator's stable machine-readable name.
     pub const fn as_str(self) -> &'static str {
         match self {

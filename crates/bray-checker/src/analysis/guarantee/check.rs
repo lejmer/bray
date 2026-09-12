@@ -6,7 +6,10 @@ use bray_bound_tree::{
 };
 use bray_diagnostics::DiagnosticBag;
 
-use super::super::build::{ControlFlowGraphBuildOutcome, build_execution_control_flow_graph};
+use super::super::build::{
+    ControlFlowGraphBuildOutcome, build_execution_control_flow_graph,
+    build_storage_control_flow_graph,
+};
 use super::super::model::{
     AnalysisEdgeKind, AnalysisExitKind, AnalysisOperationKind, AnalysisScopeExitPhase,
 };
@@ -54,8 +57,17 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
         return CheckerOutcome::InfrastructureFailure(error);
     }
 
-    let graph = match build_execution_control_flow_graph(request, storage, expressions.selections())
-    {
+    // Purity alone does not discharge cleanup on a dependency's abnormal completion.
+    let graph = match property {
+        ExecutionProperty::Pure => {
+            build_storage_control_flow_graph(request, storage, expressions.selections())
+        }
+        ExecutionProperty::Total => {
+            build_execution_control_flow_graph(request, storage, expressions.selections())
+        }
+    };
+
+    let graph = match graph {
         ControlFlowGraphBuildOutcome::Complete(graph) => graph,
         ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
         ControlFlowGraphBuildOutcome::InfrastructureFailure(error) => {
