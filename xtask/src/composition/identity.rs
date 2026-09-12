@@ -101,10 +101,12 @@ pub(super) fn audit_runtime(
     case: &str,
 ) -> Result<(), String> {
     let target = bray_target::NativeTarget::current().ok_or("unsupported composition host")?;
+
     let metadata = toolchain
         .join("lib/bray/runtime")
         .join(target.as_str())
         .join("bray-runtime.brayrt");
+
     let original = read(&metadata)?;
 
     for (field, expected_key, expected_value) in [

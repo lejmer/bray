@@ -8,5 +8,7 @@ async func answer() -> i32
 @test
 async func run()
 {
-    assert(await answer() == 42);
+    let value = await answer();
+
+    assert(value == 42);
 }

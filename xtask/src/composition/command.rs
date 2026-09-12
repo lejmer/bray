@@ -195,9 +195,11 @@ fn remove_obsolete_sources(source: &Path, destination: &Path) -> Result<(), Stri
     {
         let entry =
             entry.map_err(|error| crate::workspace::io_error("read", destination, error))?;
+
         let file_type = entry
             .file_type()
             .map_err(|error| crate::workspace::io_error("inspect", &entry.path(), error))?;
+
         let original = source.join(entry.file_name());
         let copied = entry.path();
 
@@ -246,6 +248,7 @@ fn run_case(
             crate::progress::run("Checking runtime ABI and role rejection", || {
                 super::identity::audit_runtime(root, workspace, toolchain, case)
             })?;
+
             let restored = invoke(root, workspace, toolchain, directory, case, false)?;
             let restored_rerun = invoke(root, workspace, toolchain, directory, case, true)?;
             report::same_generation(&restored, &restored_rerun)?;

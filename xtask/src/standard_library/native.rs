@@ -673,12 +673,7 @@ fn require_stream(
     stream: &NativeStream,
     expected: &[u8],
 ) -> Result<(), BuildError> {
-    if stream.policy != "captured"
-        || stream.bytes != expected
-        || stream.truncated
-        || stream.discarded_byte_count != 0
-        || stream.failure.is_some()
-    {
+    if !stream.captured_exactly(expected) {
         return Err(BuildError::conformance(
             "native capture",
             format!(

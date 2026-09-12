@@ -126,3 +126,13 @@ pub(crate) struct NativeStream {
     pub(crate) discarded_byte_count: u64,
     pub(crate) failure: Option<serde_json::Value>,
 }
+
+impl NativeStream {
+    pub(crate) fn captured_exactly(&self, expected: &[u8]) -> bool {
+        self.policy == "captured"
+            && self.bytes == expected
+            && !self.truncated
+            && self.discarded_byte_count == 0
+            && self.failure.is_none()
+    }
+}

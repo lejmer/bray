@@ -76,6 +76,7 @@ fn validate_structure(
 ) -> Result<(), String> {
     let failure =
         || format!("composition {case}: report structure does not match the selected case");
+
     let expects_error = case == "typed-error";
     let discovered = if case == "selected-entry" { 2 } else { 1 };
 
@@ -112,12 +113,9 @@ fn validate_structure(
         || product.package != "composition"
         || product.product != case
         || test.identity != format!("composition/{case}::composition.{module}.run")
-        || ![&test.stdout, &test.stderr].iter().all(|stream| {
-            stream.bytes.is_empty()
-                && !stream.truncated
-                && stream.discarded_byte_count == 0
-                && stream.failure.is_none()
-        })
+        || ![&test.stdout, &test.stderr]
+            .iter()
+            .all(|stream| stream.captured_exactly(&[]))
     {
         return Err(failure());
     }
@@ -258,8 +256,8 @@ mod tests {
             "selection": {"discovered": 1, "selected": 1, "filtered_out": 0},
             "products": [{"package": "composition", "product": "synchronous", "catalog_digest": "",
                 "tests": [{"identity": "composition/synchronous::composition.synchronous.run", "outcome": {"kind": "passed"},
-                    "stdout": {"policy": "capture", "bytes": [], "truncated": false, "discarded_byte_count": 0, "failure": null},
-                    "stderr": {"policy": "capture", "bytes": [], "truncated": false, "discarded_byte_count": 0, "failure": null}}]}],
+                    "stdout": {"policy": "captured", "bytes": [], "truncated": false, "discarded_byte_count": 0, "failure": null},
+                    "stderr": {"policy": "captured", "bytes": [], "truncated": false, "discarded_byte_count": 0, "failure": null}}]}],
             "summary": {"passed": 1, "failed": 0}
         });
 
@@ -272,6 +270,14 @@ mod tests {
             ("/selection/selected", json!(0)),
             ("/products/0/product", json!("other")),
             ("/products/0/tests/0/identity", json!("other")),
+            ("/products/0/tests/0/stdout/policy", json!("inherited")),
+            ("/products/0/tests/0/stderr/bytes", json!([1])),
+            ("/products/0/tests/0/stdout/truncated", json!(true)),
+            ("/products/0/tests/0/stderr/discarded_byte_count", json!(1)),
+            (
+                "/products/0/tests/0/stdout/failure",
+                json!({"kind": "read"}),
+            ),
             ("/duration_nanoseconds", json!(60_000_000_001_u64)),
         ] {
             let mut altered = valid.clone();
@@ -283,6 +289,7 @@ mod tests {
             }
 
             let report = serde_json::from_value(altered).unwrap();
+
             assert!(
                 super::validate_structure(&report, "synchronous", true, true).is_err(),
                 "{pointer}"
