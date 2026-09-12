@@ -13,6 +13,7 @@ func run()
     assert(!branch_result(false));
     assert(match_result(false));
     assert(!caught_cleanup_result());
+    assert(transferred_cleanup_result());
 }
 
 struct PanickingGuard
@@ -35,6 +36,56 @@ func caught_cleanup_result() -> bool
     };
 
     return false;
+}
+
+func transferred_cleanup_result() -> bool
+{
+    let mut transferred = false;
+
+    let result = catch
+    {
+        let guard = transfer_guard(
+            transfer_packet(
+                GuardPacket
+                {
+                    guard = PanickingGuard
+                    {
+                    },
+                    flag = true,
+                }
+            )
+        );
+
+        transferred = true;
+    };
+
+    return transferred;
+}
+
+func transfer_guard(pos value: PanickingGuard) -> PanickingGuard
+{
+    let result = catch
+    {
+        let guard = value;
+
+        return guard;
+    };
+}
+
+struct GuardPacket
+{
+    guard: PanickingGuard;
+    flag: bool;
+}
+
+func transfer_packet(pos value: GuardPacket) -> PanickingGuard
+{
+    let result = catch
+    {
+        let packet = value;
+
+        return packet.guard;
+    };
 }
 
 func branch_result(pos value: bool) -> bool

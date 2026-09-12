@@ -51,6 +51,7 @@ pub(crate) fn build_storage_control_flow_graph<C: CheckerRequestContext + ?Sized
     completion_semantics: Option<(
         &bray_bound_tree::CheckedExpressionSemantics,
         &bray_bound_tree::CheckedPatterns,
+        &bray_bound_tree::CheckedAsync,
     )>,
 ) -> ControlFlowGraphBuildOutcome<C::UpstreamError> {
     let scopes = match crate::asynchronous::cleanup_scopes(request, storage) {
@@ -102,6 +103,7 @@ fn build_control_flow_graph_with_storage<C, E>(
     completion_semantics: Option<(
         &bray_bound_tree::CheckedExpressionSemantics,
         &bray_bound_tree::CheckedPatterns,
+        &bray_bound_tree::CheckedAsync,
     )>,
 ) -> ControlFlowGraphBuildOutcome<E>
 where
@@ -162,6 +164,7 @@ where
     pub(super) completion_semantics: Option<(
         &'view bray_bound_tree::CheckedExpressionSemantics,
         &'view bray_bound_tree::CheckedPatterns,
+        &'view bray_bound_tree::CheckedAsync,
     )>,
 }
 

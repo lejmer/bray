@@ -93,13 +93,6 @@ where
         };
     }
 
-    complete!(check_callable_result(
-        request,
-        expressions,
-        patterns,
-        storage
-    ));
-
     let liveness = complete!(analyze_storage_liveness_with_graph(
         request,
         expressions.selections(),
@@ -138,6 +131,14 @@ where
         &refinements,
         &flow,
         &graph,
+    ));
+
+    complete!(check_callable_result(
+        request,
+        expressions,
+        patterns,
+        storage,
+        &asynchronous
     ));
 
     let behavior = complete!(

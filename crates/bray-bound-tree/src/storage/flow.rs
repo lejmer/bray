@@ -183,6 +183,7 @@ pub struct StorageExitDecision {
     initialized: Arc<[StorageIdentityId]>,
     moved: Arc<[StorageAccessId]>,
     fully_moved: Arc<[StorageIdentityId]>,
+    definitely_moved: Arc<[StorageAccessId]>,
     active_borrows: Arc<[BorrowCapabilityId]>,
     is_recovered: bool,
 }
@@ -195,6 +196,7 @@ impl StorageExitDecision {
         live: impl IntoIterator<Item = StorageIdentityId>,
         initialized: impl IntoIterator<Item = StorageIdentityId>,
         moved: impl IntoIterator<Item = StorageAccessId>,
+        definitely_moved: impl IntoIterator<Item = StorageAccessId>,
         fully_moved: impl IntoIterator<Item = StorageIdentityId>,
         active_borrows: impl IntoIterator<Item = BorrowCapabilityId>,
         is_recovered: bool,
@@ -205,6 +207,7 @@ impl StorageExitDecision {
             live: sorted_unique_shared_slice(live),
             initialized: sorted_unique_shared_slice(initialized),
             moved: sorted_unique_shared_slice(moved),
+            definitely_moved: sorted_unique_shared_slice(definitely_moved),
             fully_moved: sorted_unique_shared_slice(fully_moved),
             active_borrows: sorted_unique_shared_slice(active_borrows),
             is_recovered,
@@ -234,6 +237,11 @@ impl StorageExitDecision {
     /// Returns storage accesses whose reached values were moved before this exit.
     pub fn moved(&self) -> &[StorageAccessId] {
         &self.moved
+    }
+
+    /// Returns storage paths known to be moved on every incoming path.
+    pub fn definitely_moved(&self) -> &[StorageAccessId] {
+        &self.definitely_moved
     }
 
     /// Returns storage identities known to be fully moved on every incoming path.
@@ -332,7 +340,11 @@ impl StorageFlow {
                         .initialized()
                         .iter()
                         .any(|storage| storage.unit() != unit)
-                    || exit.moved().iter().any(|access| access.unit() != unit)
+                    || exit
+                        .moved()
+                        .iter()
+                        .chain(exit.definitely_moved())
+                        .any(|access| access.unit() != unit)
                     || exit
                         .fully_moved()
                         .iter()
@@ -560,7 +572,7 @@ mod tests {
             scope.into(),
             [storage, storage],
             [storage, storage],
-            [access, access],
+            [access, access], [],
             [storage, storage],
             [],
             false,

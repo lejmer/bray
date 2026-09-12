@@ -184,7 +184,7 @@ where
         if pattern.is_none()
             && let Some(value) = self
                 .completion_semantics
-                .and_then(|(expressions, _)| expressions.literals().expression(id))
+                .and_then(|(expressions, _, _)| expressions.literals().expression(id))
         {
             let value = match self.request().semantic_values().constant_value_data(value) {
                 Ok(value) => value,

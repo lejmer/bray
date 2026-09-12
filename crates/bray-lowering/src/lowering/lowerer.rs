@@ -1524,7 +1524,7 @@ mod tests {
                 .iter()
                 .map(|(scope, exit)| StorageExitPoint::new(*scope, *exit)),
             scope_exits.iter().map(|(scope, exit)| {
-                StorageExitDecision::new(*scope, *exit, [], [], [], [], [], false)
+                StorageExitDecision::new(*scope, *exit, [], [], [], [], [], [], false)
             }),
             false,
         )

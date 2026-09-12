@@ -129,6 +129,7 @@ pub(super) struct StorageFlowState {
     pub(super) initialized: BTreeSet<StorageIdentityId>,
     pub(super) observed_pattern_bindings: BTreeSet<StorageIdentityId>,
     pub(super) moved: BTreeMap<StorageAccessId, BoundExpressionId>,
+    pub(super) definitely_moved: BTreeSet<StorageAccessId>,
     pub(super) fully_moved: BTreeSet<StorageIdentityId>,
     pub(super) active_borrows: BTreeSet<BorrowCapabilityId>,
     pub(super) definitely_active_borrows: BTreeSet<BorrowCapabilityId>,
@@ -141,6 +142,15 @@ pub(super) struct StorageFlowState {
 }
 
 impl StorageFlowState {
+    pub(super) fn retain_definite_moves(&mut self, storage: &StoragePlan) {
+        self.definitely_moved.retain(|definite| {
+            self.moved.keys().any(|possible| {
+                storage.relationship(*possible, *definite)
+                    == bray_bound_tree::StorageRelationship::Identical
+            })
+        });
+    }
+
     fn entry(storage: &StoragePlan) -> Self {
         let initialized = storage
             .identity_entries()
@@ -158,6 +168,7 @@ impl StorageFlowState {
             initialized,
             observed_pattern_bindings: BTreeSet::new(),
             moved: BTreeMap::new(),
+            definitely_moved: BTreeSet::new(),
             fully_moved: BTreeSet::new(),
             definitely_active_borrows: active_borrows.clone(),
             active_borrows,
@@ -185,6 +196,7 @@ impl StorageFlowState {
         let initialized_count = self.initialized.len();
         let observed_count = self.observed_pattern_bindings.len();
         let moved_count = self.moved.len();
+        let definite_move_count = self.definitely_moved.len();
         let fully_moved_count = self.fully_moved.len();
         let borrow_count = self.active_borrows.len();
         let definite_borrow_count = self.definitely_active_borrows.len();
@@ -224,6 +236,9 @@ impl StorageFlowState {
                 }
             }
         }
+
+        self.definitely_moved
+            .retain(|access| incoming.definitely_moved.contains(access));
 
         self.fully_moved
             .retain(|storage| incoming.fully_moved.contains(storage));
@@ -289,6 +304,7 @@ impl StorageFlowState {
             || self.observed_pattern_bindings.len() != observed_count
             || self.moved.len() != moved_count
             || moved_changed
+            || self.definitely_moved.len() != definite_move_count
             || self.fully_moved.len() != fully_moved_count
             || self.active_borrows.len() != borrow_count
             || self.definitely_active_borrows.len() != definite_borrow_count
@@ -436,7 +452,7 @@ where
             .storage
             .identities()
             .len()
-            .saturating_add(self.storage.accesses().len())
+            .saturating_add(self.storage.accesses().len().saturating_mul(2))
             .saturating_add(self.storage.borrow_capabilities().len())
             .saturating_add(self.storage.identities().len().saturating_mul(3))
             .saturating_add(2);

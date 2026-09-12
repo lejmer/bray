@@ -147,6 +147,19 @@ impl crate::AsyncStorageRequirement {
             return AsyncStorageExitDisposition::Moved;
         }
 
+        if self.parts().is_some_and(|parts| {
+            parts.iter().all(|part| {
+                exit.definitely_moved().iter().any(|access| {
+                    storage.root_identity(*access) == Some(self.identity())
+                        && storage
+                            .resolved_projections(*access)
+                            .is_some_and(|path| part.is_fully_moved_by(path))
+                })
+            })
+        }) {
+            return AsyncStorageExitDisposition::NoCleanup;
+        }
+
         let is_partial = exit.moved().iter().any(|access| {
             storage.root_identity(*access) == Some(self.identity())
                 && !storage.is_root_access(*access)

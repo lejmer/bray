@@ -72,7 +72,7 @@ where
         let mut can_fail = false;
 
         for index in (retained_depth..self.scopes.len()).rev() {
-            if !self.cleanup_scopes.contains(&self.scopes[index]) {
+            if !self.scope_cleanup_can_fail(self.scopes[index], exit) {
                 continue;
             }
 
@@ -97,6 +97,25 @@ where
         if can_fail {
             self.push_exit(block, AnalysisExitKind::Cancellation, exit);
         }
+    }
+
+    fn scope_cleanup_can_fail(&self, scope: BoundBlockId, exit: AnyBoundNodeId) -> bool {
+        if !self.cleanup_scopes.contains(&scope) {
+            return false;
+        }
+
+        let Some((_, _, asynchronous)) = self.completion_semantics else {
+            return true;
+        };
+
+        let mut plans = asynchronous
+            .scope_exits()
+            .iter()
+            .filter(|plan| plan.scope() == scope && plan.exit() == exit)
+            .peekable();
+
+        // Missing or recovered plans cannot rule out cleanup during recovery.
+        plans.peek().is_none() || plans.any(|plan| plan.is_recovered() || plan.has_cleanup())
     }
 
     pub(super) fn resolve_scopes(

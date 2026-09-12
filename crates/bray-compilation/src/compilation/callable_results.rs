@@ -358,3 +358,138 @@ fn callable_results_preserve_caught_cleanup_exits() {
         completed.check_diagnostics()
     );
 }
+
+#[test]
+fn callable_results_exclude_transferred_cleanup() {
+    let compilation = compilation(
+        r#"
+            module app;
+
+            struct Guard
+            {
+                destruct()
+                {
+                    panic("cleanup");
+                }
+            }
+
+            func complete(pos value: Guard) -> Guard
+            {
+                let result = catch
+                {
+                    let guard = value;
+
+                    return guard;
+                };
+            }
+
+            func conditional(pos value: Guard, pos condition: bool) -> Guard
+            {
+                let result = catch
+                {
+                    if condition
+                    {
+                        return value;
+                    }
+
+                    let guard = value;
+
+                    return guard;
+                };
+            }
+
+            func nested(pos value: Guard) -> Guard
+            {
+                let result = catch
+                {
+                    let guard =
+                    {
+                        let inner = value;
+
+                        yield inner;
+                    };
+
+                    return guard;
+                };
+            }
+
+            struct Packet
+            {
+                guard: Guard;
+                flag: bool;
+            }
+
+            func partial(pos value: Packet) -> Guard
+            {
+                let result = catch
+                {
+                    let packet = value;
+
+                    return packet.guard;
+                };
+            }
+
+            func joined(pos value: Packet, pos condition: bool) -> Guard
+            {
+                let result = catch
+                {
+                    let packet = value;
+                    let guard = if condition
+                    {
+                        yield packet.guard;
+                    }
+                    else
+                    {
+                        yield packet.guard;
+                    };
+
+                    return guard;
+                };
+            }
+        "#,
+    );
+
+    assert!(
+        compilation.check_diagnostics().is_empty(),
+        "{:?}",
+        compilation.check_diagnostics()
+    );
+}
+
+#[test]
+fn callable_results_preserve_surviving_partial_cleanup() {
+    let compilation = compilation(
+        r#"
+            module app;
+
+            struct Guard
+            {
+                destruct()
+                {
+                    panic("cleanup");
+                }
+            }
+
+            struct Packet
+            {
+                first: Guard;
+                second: Guard;
+            }
+
+            func missing(pos value: Packet) -> Guard
+            {
+                let result = catch
+                {
+                    let packet = value;
+
+                    return packet.first;
+                };
+            }
+        "#,
+    );
+
+    assert_goal_state_diagnostic_kind(
+        compilation.check_diagnostics(),
+        DiagnosticKind::CheckingCallableResultRequired,
+    );
+}

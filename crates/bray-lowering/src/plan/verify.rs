@@ -283,7 +283,7 @@ impl<'unit> VerifiedLoweringPlans<'unit> {
             .ok_or(CleanupPlanLookupError::MissingScopeExit { scope, exit })?;
 
         Ok(
-            if plan.cancellation_broadcast().is_empty() && plan.lifecycle_resolution().is_empty() {
+            if !plan.has_cleanup() {
                 ScopeExitCleanupStatus::NoCleanup
             } else {
                 ScopeExitCleanupStatus::Cleanup
@@ -1037,7 +1037,7 @@ mod tests {
                     exit,
                     [first, second],
                     [first, second],
-                    [],
+                    [], [],
                     [],
                     [],
                     false,
@@ -1710,7 +1710,7 @@ mod tests {
                 fixture.exit,
                 [fixture.first, fixture.second],
                 [fixture.first, fixture.second],
-                [],
+                [], [],
                 [],
                 [],
                 true,
@@ -1954,7 +1954,7 @@ mod tests {
                 fixture.exit,
                 [fixture.first],
                 [fixture.first],
-                [],
+                [], [],
                 [fixture.second],
                 [],
                 false,
@@ -1999,7 +1999,7 @@ mod tests {
                 fixture.exit,
                 [fixture.first, fixture.second],
                 [fixture.first],
-                [],
+                [], [],
                 [],
                 [],
                 false,
@@ -2047,7 +2047,7 @@ mod tests {
                 fixture.exit,
                 [fixture.first, fixture.second],
                 [fixture.first],
-                [],
+                [], [],
                 [],
                 [],
                 false,
@@ -2119,7 +2119,7 @@ mod tests {
                     fixture.exit,
                     [fixture.first, fixture.second],
                     [fixture.first],
-                    moved.iter().copied(),
+                    moved.iter().copied(), [],
                     [],
                     [],
                     false,
@@ -2204,7 +2204,7 @@ mod tests {
                 fixture.exit,
                 [fixture.first, fixture.second],
                 [fixture.first],
-                [fixture.second_access],
+                [fixture.second_access], [],
                 [fixture.second],
                 [],
                 false,
@@ -2267,7 +2267,7 @@ mod tests {
                 fixture.exit,
                 [fixture.first, fixture.second],
                 [fixture.first, fixture.second],
-                [fixture.second_projected_access],
+                [fixture.second_projected_access], [],
                 [],
                 [],
                 false,

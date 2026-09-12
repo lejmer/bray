@@ -641,6 +641,14 @@ where
             StorageAccessPurpose::Move => {
                 state.moved.insert(plan.access(), plan.expression());
 
+                if let (Some(identity), Some(path)) = (
+                    self.storage.root_identity(plan.access()),
+                    self.storage.resolved_projections(plan.access()),
+                ) && let Some(access) = self.storage.access_at(identity, path)
+                {
+                    state.definitely_moved.insert(access);
+                }
+
                 if self.storage.is_root_access(plan.access())
                     && self
                         .storage
@@ -666,6 +674,8 @@ where
                 state
                     .moved
                     .retain(|moved, _| !self.storage.access_contains(plan.access(), *moved));
+
+                state.retain_definite_moves(self.storage);
             }
             StorageAccessPurpose::Write => {}
             StorageAccessPurpose::Borrow(_) => {
@@ -722,6 +732,8 @@ where
                 .root_identity(*access)
                 .is_none_or(|storage| !definitions.contains(&storage))
         });
+
+        state.retain_definite_moves(self.storage);
 
         state
             .fully_moved
@@ -852,6 +864,8 @@ where
                     .is_none_or(|borrow| !ended.contains(&borrow))
             })
         });
+
+        state.retain_definite_moves(self.storage);
     }
 
     fn end_scope(&self, state: &mut StorageFlowState, block: bray_bound_tree::BoundBlockId) {
@@ -868,6 +882,8 @@ where
                 .root_identity(*access)
                 .is_some_and(|storage| state.live.contains(&storage))
         });
+
+        state.retain_definite_moves(self.storage);
 
         state
             .fully_moved
@@ -925,6 +941,7 @@ where
                 state.live.iter().copied(),
                 state.initialized.iter().copied(),
                 state.moved.keys().copied(),
+                state.definitely_moved.iter().copied(),
                 state.fully_moved.iter().copied(),
                 state.active_borrows.iter().copied(),
                 state.recovered,

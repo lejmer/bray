@@ -239,9 +239,7 @@ impl Lowerer<'_> {
     ) -> Result<(), LoweringError> {
         let plans = self.cleanup_plans(scope_depth, exit)?;
 
-        if plans.iter().all(|plan| {
-            plan.cancellation_broadcast().is_empty() && plan.lifecycle_resolution().is_empty()
-        }) {
+        if plans.iter().all(|plan| !plan.has_cleanup()) {
             return self.set_direct_exit(current, source, entry, destination, value);
         }
 

@@ -1,5 +1,5 @@
 use bray_bound_tree::{
-    BoundExpressionId, CheckedExpressionSemantics, CheckedPatterns, StoragePlan,
+    BoundExpressionId, CheckedAsync, CheckedExpressionSemantics, CheckedPatterns, StoragePlan,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{
@@ -23,6 +23,7 @@ pub(crate) fn check_callable_result<C: CheckerRequestContext + ?Sized>(
     expressions: &CheckedExpressionSemantics,
     patterns: &CheckedPatterns,
     storage: &StoragePlan,
+    asynchronous: &CheckedAsync,
 ) -> CheckerOutcome<(), C::UpstreamError> {
     let CheckerUnitRoot::CallableBody(_) = request.root() else {
         return CheckerOutcome::without_diagnostics(());
@@ -44,7 +45,7 @@ pub(crate) fn check_callable_result<C: CheckerRequestContext + ?Sized>(
         request,
         storage,
         expressions.selections(),
-        Some((expressions, patterns)),
+        Some((expressions, patterns, asynchronous)),
     ) {
         ControlFlowGraphBuildOutcome::Complete(graph) => graph,
         ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
@@ -131,7 +132,7 @@ impl<C: CheckerRequestContext + ?Sized> ControlFlowGraphBuilder<'_, C> {
 
         if let Some(ty) = self
             .completion_semantics
-            .and_then(|(expressions, _)| expressions.types().expression(id))
+            .and_then(|(expressions, _, _)| expressions.types().expression(id))
             .map(|entry| entry.ty())
         {
             match crate::representation::type_representation(self.request(), ty) {
