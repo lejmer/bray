@@ -1,0 +1,7 @@
+module composition.typed_error;
+
+@test
+func run() -> Result<unit, i32>
+{
+    return Error(37);
+}

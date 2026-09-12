@@ -29,6 +29,34 @@ compiler, toolchain, standard-library, runtime, and protocol identities still ma
 identity category and requires a normal `bray test` invocation to publish a matching generation. JSON reports identify
 the retained generations and state whether compilation, emission, or linking occurred during the command.
 
+## Native composition tests
+
+Run the small native corpus before broad standard-library conformance:
+
+```text
+cargo xtask composition
+cargo xtask composition --case cleanup
+cargo xtask composition --case cleanup --no-build
+```
+
+The cases cover synchronous calls, a compiled standard-library call, async runtime-role selection, box replacement and
+scope cleanup, selected-entry filtering, typed error reporting, and compiler requests larger than the Windows command
+line limit. Each case uses the production package, compiler, linker, native test host, catalog, and JSON report paths.
+The synchronous case also checks rejection of changed compiler, toolchain, standard-library, runtime, input, protocol,
+host, and catalog identities. Identity probes restore the retained product before returning.
+
+A normal run prepares cached runtime and standard-library bundles, builds each selected product, and verifies an
+unchanged no-build rerun. `--no-build` skips compiler-tool and bundle builds and uses the ordinary retained-product
+checks. It fails when the selected product has not been built or an input has changed.
+
+Products and JSON reports remain under the Cargo target directory's `composition` directory. Use `--output <directory>`
+to select another persistent location, and pass the same location on reruns. Failures include the failed command's
+structured diagnostics and the available compiler, toolchain, runtime, standard-library, host, catalog, and generation
+identities. The first invocation can build compiler tools and bundles. Later invocations reuse their existing caches.
+
+Run on a supported native host with its configured LLVM and native linker. On Windows, invoke native workflows outside
+the Codex sandbox, as required by the repository build rules. Broad standard-library conformance remains later coverage.
+
 ## Readiness audits
 
 Repository-wide readiness audits are development checks rather than ordinary behavioral tests. Run every audit

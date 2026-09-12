@@ -66,6 +66,7 @@ pub(crate) fn tool_execution_failure(
     error: ToolExecutionError,
 ) -> DiagnosticProjectCommandFailure {
     match error {
+        ToolExecutionError::CompilerRequest(failure) => failure,
         ToolExecutionError::Platform { program, error } => {
             process_failure(operation, program, error)
         }

@@ -378,3 +378,9 @@ Verify standard-library conformance and reproducible bundle production with:
 ```text
 cargo xtask standard-library verify
 ```
+
+## Native composition
+
+`cargo xtask composition` runs the fixed small native-product corpus. Use `--case <name>` for one case and `--no-build`
+for an unchanged retained-product rerun. `--output <directory>` selects persistent product and report storage.
+See [Native composition tests](testing.md#native-composition-tests) for coverage, cache behavior, and host requirements.

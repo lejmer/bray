@@ -11,6 +11,11 @@ use bray_test_protocol::{TestBatchPlan, TestBatchRequest, decode_test_catalog};
 use serde::Deserialize;
 
 use super::command::BuildError;
+use crate::native_test_report::{
+    NativeOutcome, NativeStream, NativeTestBuildProvenance, NativeTestReport, NativeTestResult,
+};
+#[cfg(test)]
+use crate::native_test_report::{NativeProductReport, NativeSelection, NativeSummary};
 
 const PACKAGE_IDENTITY: &str = "std";
 const API_PRODUCT: &str = "api";
@@ -1196,134 +1201,6 @@ struct NativeTestBatchPlanReport {
     report: NativeTestReport,
 }
 
-#[derive(Deserialize)]
-struct NativeTestReport {
-    format: u32,
-    #[serde(rename = "build")]
-    _build: NativeTestBuildProvenance,
-    selection: NativeSelection,
-    products: Vec<NativeProductReport>,
-    summary: NativeSummary,
-}
-
-#[derive(Deserialize)]
-struct NativeTestBuildProvenance {
-    reused: bool,
-    compilation: bool,
-    emission: bool,
-    linking: bool,
-    products: Vec<NativeTestProductGeneration>,
-}
-
-#[derive(Deserialize)]
-struct NativeTestProductGeneration {
-    #[serde(rename = "product")]
-    _product: String,
-    #[serde(rename = "generation")]
-    _generation: String,
-}
-
-#[derive(Deserialize)]
-struct NativeSelection {
-    discovered: usize,
-    selected: usize,
-    filtered_out: usize,
-}
-
-#[derive(Deserialize)]
-struct NativeSummary {
-    passed: usize,
-    failed: usize,
-}
-
-#[derive(Deserialize)]
-struct NativeProductReport {
-    package: String,
-    product: String,
-    catalog_digest: String,
-    tests: Vec<NativeTestResult>,
-}
-
-#[derive(Deserialize)]
-struct NativeTestResult {
-    identity: String,
-    outcome: NativeOutcome,
-    stdout: NativeStream,
-    stderr: NativeStream,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-enum NativeOutcome {
-    Passed,
-    ReturnedError {
-        error_type: String,
-        formatted_value: Option<String>,
-    },
-    ExplicitFailure {
-        source: NativeSourceAnchor,
-        message: String,
-    },
-    AssertionFailure {
-        source: NativeSourceAnchor,
-        message: Option<String>,
-    },
-    Panicked {
-        cause: String,
-        source: Option<NativeSourceAnchor>,
-        message: String,
-    },
-    TimedOut {
-        nanoseconds: u64,
-    },
-    Cancelled {
-        #[serde(rename = "source")]
-        _source: String,
-    },
-    InfrastructureFailed {
-        failure: String,
-        detail_code: Option<u64>,
-    },
-}
-
-#[derive(Clone, Copy, Debug, Deserialize)]
-struct NativeSourceAnchor {
-    source: u32,
-    start: u32,
-    end: u32,
-    version: u64,
-}
-
-impl NativeSourceAnchor {
-    const fn is_valid(self) -> bool {
-        self.source == 0 && self.start < self.end && self.version == 0
-    }
-}
-
-impl NativeOutcome {
-    const fn kind(&self) -> &'static str {
-        match self {
-            Self::Passed => "passed",
-            Self::ReturnedError { .. } => "returned_error",
-            Self::ExplicitFailure { .. } => "explicit_failure",
-            Self::AssertionFailure { .. } => "assertion_failure",
-            Self::Panicked { .. } => "panicked",
-            Self::TimedOut { .. } => "timed_out",
-            Self::Cancelled { .. } => "cancelled",
-            Self::InfrastructureFailed { .. } => "infrastructure_failed",
-        }
-    }
-}
-
-#[derive(Deserialize)]
-struct NativeStream {
-    policy: String,
-    bytes: Vec<u8>,
-    truncated: bool,
-    discarded_byte_count: u64,
-    failure: Option<serde_json::Value>,
-}
-
 #[cfg(test)]
 mod tests {
     use std::path::Path;
@@ -1434,7 +1311,7 @@ mod tests {
     fn focused_startup_report_requires_the_api_product_identity() {
         let report = super::NativeTestReport {
             format: 1,
-            _build: super::NativeTestBuildProvenance {
+            build: super::NativeTestBuildProvenance {
                 reused: false,
                 compilation: true,
                 emission: true,
@@ -1452,6 +1329,7 @@ mod tests {
                 catalog_digest: "0".repeat(64),
                 tests: Vec::new(),
             }],
+            duration_nanoseconds: None,
             summary: super::NativeSummary {
                 passed: 1,
                 failed: 0,

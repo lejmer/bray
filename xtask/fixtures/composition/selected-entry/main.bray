@@ -1,0 +1,13 @@
+module composition.selected_entry;
+
+@test
+func run()
+{
+    assert(true);
+}
+
+@test
+func excluded()
+{
+    assert(false, "selection executed the excluded entry");
+}

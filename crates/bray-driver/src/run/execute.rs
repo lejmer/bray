@@ -632,6 +632,59 @@ mod tests {
     use crate::test_support::{TemporaryFile, unique_temporary_directory};
 
     #[test]
+    fn compiler_request_runs_the_same_source_identity_check() {
+        let file = TemporaryFile::write("main.bray", b"module app;\n");
+        let request = TemporaryFile::write("request.json", b"");
+
+        let arguments = vec![
+            OsString::from("--expected-source-digest"),
+            OsString::from(serde_json::to_string(&[0_u8; 32]).unwrap()),
+            OsString::from("check"),
+            file.path().as_os_str().to_os_string(),
+        ];
+
+        bray_tooling::write_compiler_request(request.path(), &arguments).unwrap();
+
+        let result = run_result([
+            OsString::from("brayc"),
+            OsString::from(bray_tooling::COMPILER_REQUEST_ARGUMENT),
+            request.path().as_os_str().to_os_string(),
+        ]);
+
+        assert_eq!(result.exit_code(), ExitCode::FAILURE);
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            DiagnosticKind::ProjectCommandSelectionInvalid,
+        );
+    }
+
+    #[test]
+    fn malformed_compiler_request_returns_structured_json() {
+        let request = TemporaryFile::write("request.json", b"{");
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+
+        let result = run_with_writers(
+            [
+                OsString::from("brayc"),
+                OsString::from(bray_tooling::COMPILER_REQUEST_ARGUMENT),
+                request.path().as_os_str().to_os_string(),
+            ],
+            &mut stdout,
+            &mut stderr,
+        );
+
+        let json: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+        let rendered = serde_json::to_string(&json).unwrap();
+
+        assert_eq!(result, ExitCode::FAILURE);
+        assert!(rendered.contains("compiler_request"));
+        assert!(rendered.contains("unexpected_end"));
+        assert!(rendered.contains("request.json"));
+    }
+
+    #[test]
     fn profiling_is_absent_unless_explicitly_requested() {
         let file = TemporaryFile::write("main.bray", b"module app;\n");
 

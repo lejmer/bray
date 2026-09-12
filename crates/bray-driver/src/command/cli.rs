@@ -96,6 +96,23 @@ impl DriverInvocation {
         I: IntoIterator<Item = T>,
         T: Into<OsString> + Clone,
     {
+        let mut arguments: Vec<OsString> = arguments.into_iter().map(Into::into).collect();
+
+        if arguments.len() == 3 && arguments[1] == bray_tooling::COMPILER_REQUEST_ARGUMENT {
+            let expanded = bray_tooling::read_compiler_request(std::path::Path::new(&arguments[2]))
+                .map_err(|failure| DriverCliError {
+                    kind: DriverCliErrorKind::Diagnostics {
+                        diagnostics: DiagnosticBag::single(
+                            failure.diagnostic(DiagnosticId::new(0)),
+                        ),
+                        output_format: OutputFormat::Json,
+                    },
+                })?;
+
+            arguments.truncate(1);
+            arguments.extend(expanded);
+        }
+
         let cli = Cli::try_parse_from(arguments).map_err(DriverCliError::from)?;
 
         cli.into_driver_invocation()

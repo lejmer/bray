@@ -1,0 +1,39 @@
+module composition.cleanup;
+
+static COUNT: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+struct Guard
+{
+    id: usize;
+
+    destruct()
+    {
+        let previous = core.atomic.load<usize, 1>(&COUNT);
+
+        core.atomic.store<usize, 4>(&COUNT, previous * 10 + self.id);
+    }
+}
+
+@test
+func run()
+{
+    {
+        let mut guard: box Guard = box(
+            Guard
+            {
+                id = 1
+            }
+        );
+
+        guard = box(
+            Guard
+            {
+                id = 2
+            }
+        );
+
+        assert(core.atomic.load<usize, 1>(&COUNT) == 1);
+    };
+
+    assert(core.atomic.load<usize, 1>(&COUNT) == 12);
+}

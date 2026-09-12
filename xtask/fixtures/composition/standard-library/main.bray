@@ -1,0 +1,9 @@
+module composition.standard_library;
+
+using std.testing;
+
+@test
+func run()
+{
+    assert(std.testing.assert_ok<i32, unit>(Ok(42)) == 42);
+}
