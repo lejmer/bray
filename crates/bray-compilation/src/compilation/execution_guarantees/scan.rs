@@ -191,7 +191,18 @@ mod tests {
     #[test]
     fn execution_guarantees_in_nested_and_bodyless_callables_are_rejected() {
         for declaration in [
-            r#"func outer(pos flag: bool) { let action = lambda(flag: bool) when(flag) { executes(total) } { }; }"#,
+            r#"
+                func outer(pos flag: bool)
+                {
+                    let action = lambda(flag: bool)
+                        when(flag)
+                        {
+                            executes(total)
+                        }
+                    {
+                    };
+                }
+            "#,
             r#"
                 callable Action = func()
                     executes(total);

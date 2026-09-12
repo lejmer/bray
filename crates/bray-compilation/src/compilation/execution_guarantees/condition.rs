@@ -78,11 +78,21 @@ mod tests {
         for (requirement, valid) in [("other.ready", true), ("!other.ready", false)] {
             let source = r#"
                 module app;
-                struct Flags { ready: bool; }
+
+                struct Flags
+                {
+                    ready: bool;
+                }
+
                 func root(pos mut value: Flags, other: Flags)
                     requires(REQUIREMENT)
-                    when(value.ready) { ensures(value.ready) }
-                { value = other; }
+                    when(value.ready)
+                    {
+                        ensures(value.ready)
+                    }
+                {
+                    value = other;
+                }
             "#
             .replace("REQUIREMENT", requirement);
 
@@ -96,19 +106,23 @@ mod tests {
             );
         }
     }
+
     #[test]
     fn predicate_guards_compare_selected_identity_without_name_special_cases() {
         for (predicate, valid) in [("complete", true), ("other", false)] {
             let source = r#"
                 module app;
+
                 predicate complete(value: bool) = value;
+
                 predicate other(value: bool) = !value;
-                func root(pos flag: bool) when(complete(flag))
-                {
-                    executes(total)
-                    ensures(PREDICATE(flag))
-                }
-                { }
+
+                func root(pos flag: bool)
+                    when(complete(flag))
+                    {
+                        executes(total)
+                        ensures(PREDICATE(flag))
+                    } {}
             "#
             .replace("PREDICATE", predicate);
 
@@ -128,8 +142,16 @@ mod tests {
         for (promise, valid) in [("true", true), ("false", false)] {
             let source = r#"
                 module app;
-                func root() -> Result<unit, unit> when(true) { executes(total) ensures(PROMISE) }
-                { return Error(unit); }
+
+                func root() -> Result<unit, unit>
+                    when(true)
+                    {
+                        executes(total)
+                        ensures(PROMISE)
+                    }
+                {
+                    return Error(unit);
+                }
             "#
             .replace("PROMISE", promise);
 
@@ -143,16 +165,28 @@ mod tests {
             );
         }
     }
+
     #[test]
     fn field_mutation_preserves_only_disjoint_entry_facts() {
         for (field, valid) in [("other", true), ("ready", false)] {
             let source = r#"
                 module app;
-                struct Flags { mut ready: bool; mut other: bool; }
+
+                struct Flags
+                {
+                    mut ready: bool;
+                    mut other: bool;
+                }
+
                 func update(pos mut value: Flags)
                     requires(value.ready)
-                    when(true) { ensures(value.ready) }
-                { value.FIELD = false; }
+                    when(true)
+                    {
+                        ensures(value.ready)
+                    }
+                {
+                    value.FIELD = false;
+                }
             "#
             .replace("FIELD", field);
 
@@ -172,12 +206,26 @@ mod tests {
         for (argument, valid) in [("4", true), ("0", false)] {
             let source = r#"
                 module app;
-                func guarded(pos value: i32) when(value > 0) { executes(total) }
+
+                func guarded(pos value: i32)
+                    when(value > 0)
+                    {
+                        executes(total)
+                    }
                 {
-                    if value > 0 { return; }
+                    if value > 0
+                    {
+                        return;
+                    }
+
                     panic("outside domain");
                 }
-                func caller() executes(total) { guarded(ARGUMENT); }
+
+                func caller()
+                    executes(total)
+                {
+                    guarded(ARGUMENT);
+                }
             "#
             .replace("ARGUMENT", argument);
 
@@ -197,8 +245,24 @@ mod tests {
         let compilation = compilation(
             r#"
             module app;
-            func leaf() -> bool when(true) { ensures(result) } { return true; }
-            func caller() -> bool when(true) { ensures(!result) } { return !leaf(); }
+
+            func leaf() -> bool
+                when(true)
+                {
+                    ensures(result)
+                }
+            {
+                return true;
+            }
+
+            func caller() -> bool
+                when(true)
+                {
+                    ensures(!result)
+                }
+            {
+                return !leaf();
+            }
         "#,
         );
 
@@ -214,16 +278,25 @@ mod tests {
         for (returned, valid) in [("true", true), ("false", false)] {
             let source = r#"
                 module app;
+
                 func leaf() -> bool
-                    when(true) { ensures(result) }
+                    when(true)
+                    {
+                        ensures(result)
+                    }
                 {
                     return RETURNED;
                 }
+
                 func caller() -> bool
-                    when(true) { ensures(result) }
+                    when(true)
+                    {
+                        ensures(result)
+                    }
                 {
                     let first = leaf();
                     let moved = first;
+
                     return moved;
                 }
             "#
@@ -245,8 +318,24 @@ mod tests {
         let compilation = compilation(
             r#"
             module app;
-            func first() -> bool when(true) { ensures(result) } { return second(); }
-            func second() -> bool when(true) { ensures(result) } { return first(); }
+
+            func first() -> bool
+                when(true)
+                {
+                    ensures(result)
+                }
+            {
+                return second();
+            }
+
+            func second() -> bool
+                when(true)
+                {
+                    ensures(result)
+                }
+            {
+                return first();
+            }
         "#,
         );
 
@@ -261,10 +350,24 @@ mod tests {
         let compilation = compilation(
             r#"
             module app;
-            func leaf() -> bool when(true) { ensures(result) } { return true; }
-            func caller() -> bool when(true) { ensures(result) }
+
+            func leaf() -> bool
+                when(true)
+                {
+                    ensures(result)
+                }
+            {
+                return true;
+            }
+
+            func caller() -> bool
+                when(true)
+                {
+                    ensures(result)
+                }
             {
                 let mut value = leaf();
+
                 value = false;
                 return value;
             }
@@ -276,17 +379,29 @@ mod tests {
             DiagnosticKind::CheckingExecutionGuaranteeNotProven,
         );
     }
+
     #[test]
     fn callers_require_proven_callee_entry_guards() {
         for (argument, valid) in [("true", true), ("flag", false), ("false", false)] {
             let source = r#"
                 module app;
-                func guarded(pos flag: bool) when(flag) { executes(total) }
+
+                func guarded(pos flag: bool)
+                    when(flag)
+                    {
+                        executes(total)
+                    }
                 {
-                    if flag { return; }
+                    if flag
+                    {
+                        return;
+                    }
+
                     panic("unguarded input");
                 }
-                func caller(pos flag: bool) executes(total)
+
+                func caller(pos flag: bool)
+                    executes(total)
                 {
                     guarded(ARGUMENT);
                 }
@@ -309,11 +424,24 @@ mod tests {
         for (alternative, valid) in [("true", true), ("false", false)] {
             let source = r#"
                 module app;
+
                 func joined(pos branch: bool) -> bool
-                    when(true) { ensures(result) }
+                    when(true)
+                    {
+                        ensures(result)
+                    }
                 {
                     let mut value: bool = true;
-                    if branch { value = true; } else { value = ALTERNATIVE; }
+
+                    if branch
+                    {
+                        value = true;
+                    }
+                    else
+                    {
+                        value = ALTERNATIVE;
+                    }
+
                     return value;
                 }
             "#
@@ -333,8 +461,34 @@ mod tests {
     #[test]
     fn nested_and_overlapping_groups_hold_independently_of_order() {
         for clauses in [
-            "when(left) { ensures(result) when(right) { executes(pure, total) } } when(right) { ensures(result) }",
-            "when(right) { ensures(result) } when(left) { when(right) { executes(total, pure) } ensures(result) }",
+            r#"
+                when(left)
+                {
+                    ensures(result)
+                    when(right)
+                    {
+                        executes(pure, total)
+                    }
+                }
+                when(right)
+                {
+                    ensures(result)
+                }
+            "#,
+            r#"
+                when(right)
+                {
+                    ensures(result)
+                }
+                when(left)
+                {
+                    when(right)
+                    {
+                        executes(total, pure)
+                    }
+                    ensures(result)
+                }
+            "#,
         ] {
             let source = r#"
                 module app;
@@ -355,6 +509,7 @@ mod tests {
             );
         }
     }
+
     #[test]
     fn conditional_execution_checks_only_the_promised_entry_domain() {
         let compilation = compilation(
@@ -368,7 +523,11 @@ mod tests {
                     ensures(result)
                 }
             {
-                if flag { return true; }
+                if flag
+                {
+                    return true;
+                }
+
                 panic("outside promised domain");
             }
         "#,
@@ -422,7 +581,12 @@ mod tests {
         let compilation = compilation(
             r#"
             module app;
-            func invalid() when(true) { ensures(false) } {}
+
+            func invalid()
+                when(true)
+                {
+                    ensures(false)
+                } {}
         "#,
         );
 
