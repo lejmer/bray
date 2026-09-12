@@ -18,6 +18,12 @@ Do not treat existing code as permanent. When touching an area, delete or flatte
 
 Keep reviews bounded by the issue contract. Fix correctness defects, architectural violations, and mandatory convention failures, but move unrelated improvements to later work instead of repeatedly expanding or rewriting the current change.
 
+## Repository approvals
+
+Before requesting approval to push or write through repository-hosting tools, verify the exact destination, repository visibility and ownership, and authenticated account using read-only commands. Include those verified results in the approval request.
+
+Reuse verified evidence during the task unless the destination or authentication changes. If trust is unresolved, gather the missing evidence before requesting approval.
+
 ## Structured messages
 
 Do not construct user-facing English text inside compiler logic. Emit structured message IDs and typed arguments instead. User-facing text must be rendered through `bray-messages`.
