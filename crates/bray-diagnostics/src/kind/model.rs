@@ -467,6 +467,8 @@ define_diagnostic_kinds! {
     CheckingForeignCallableExecutionUnsupported,
     /// A variadic callable does not satisfy the language's foreign boundary shape.
     CheckingVariadicCallableContractUnsupported,
+    /// An execution guarantee cannot yet be verified.
+    CheckingExecutionGuaranteeUnsupported,
     /// A callable address operation names a type without a foreign callable ABI.
     CheckingCallableAddressTypeUnsupported,
     /// A fixed-layout helper names a type without a complete fixed-size representation.
@@ -888,6 +890,7 @@ impl DiagnosticKind {
             Self::CheckingForeignCallableRequiresCapability => 7055,
             Self::CheckingForeignCallableExecutionUnsupported => 7056,
             Self::CheckingVariadicCallableContractUnsupported => 7104,
+            Self::CheckingExecutionGuaranteeUnsupported => 7117,
             Self::CheckingCallableAddressTypeUnsupported => 7105,
             Self::CheckingFixedLayoutQueryTypeUnsupported => 7106,
             Self::CheckingTrailingLayoutQueryTypeUnsupported => 7107,
@@ -1326,6 +1329,9 @@ impl DiagnosticKind {
             }
             Self::CheckingVariadicCallableContractUnsupported => {
                 "checking_variadic_callable_contract_unsupported"
+            }
+            Self::CheckingExecutionGuaranteeUnsupported => {
+                "checking_execution_guarantee_unsupported"
             }
             Self::CheckingCallableAddressTypeUnsupported => {
                 "checking_callable_address_type_unsupported"

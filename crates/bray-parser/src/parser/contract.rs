@@ -1,6 +1,7 @@
 use bray_syntax::{
     CallableContractDeclarationSyntaxBuilder, DestructorMemberDeclarationSyntaxBuilder,
-    EnsuresClauseSyntax, EnsuresClauseSyntaxBuilder, ExpressionSyntax,
+    EnsuresClauseSyntax, EnsuresClauseSyntaxBuilder, ExecutesClauseSyntax,
+    ExecutesClauseSyntaxBuilder, ExecutionPropertySyntax, ExpressionSyntax,
     FinalizerMemberDeclarationSyntaxBuilder, FunctionDeclarationSyntaxBuilder,
     InherentImplementationDeclarationSyntaxBuilder, LambdaExpressionSyntaxBuilder,
     NamedTraitImplementationDeclarationSyntaxBuilder, PathSyntax, RequiresClauseSyntax,
@@ -14,19 +15,25 @@ use bray_syntax::{
     TraitScopeExitRequirementDeclarationSyntaxBuilder, TypeCallableMemberDeclarationSyntaxBuilder,
     TypeConstructorMemberDeclarationSyntaxBuilder, TypeExpressionSyntaxBuilder,
     UnionDeclarationSyntaxBuilder, UnnamedTraitImplementationDeclarationSyntaxBuilder,
-    UsesClauseSyntax, UsesClauseSyntaxBuilder, WithClauseSyntax, WithClauseSyntaxBuilder,
+    UsesClauseSyntax, UsesClauseSyntaxBuilder, WhenClauseSyntax, WithClauseSyntax,
+    WithClauseSyntaxBuilder,
 };
 
+use super::delimiter::DelimiterDepth;
 use super::expression::EXPRESSION_START_KINDS;
+use super::member::MEMBER_KEYWORD_RECOVERY_KINDS;
+use super::module::MODULE_ITEM_START_KINDS;
 use super::recovery::RecoverySyntaxSink;
 use super::separated::{SeparatedListSpec, SeparatedListSyntaxSink, separated_list_recovery_kinds};
 use super::state::Parser;
 
 type ContractBoundary = fn(&mut Parser) -> bool;
 
-const CALLABLE_CONTRACT_CLAUSE_START_KINDS: [SyntaxKind; 4] = [
+const CALLABLE_CONTRACT_CLAUSE_START_KINDS: [SyntaxKind; 6] = [
     SyntaxKind::RequiresKeyword,
     SyntaxKind::EnsuresKeyword,
+    SyntaxKind::ExecutesKeyword,
+    SyntaxKind::WhenKeyword,
     SyntaxKind::WithKeyword,
     SyntaxKind::UsesKeyword,
 ];
@@ -41,10 +48,12 @@ pub(super) const BRACED_DECLARATION_CONSTRAINT_BOUNDARY_KINDS: [SyntaxKind; 5] =
 
 const PATH_START_KINDS: [SyntaxKind; 1] = [SyntaxKind::IdentifierToken];
 
-const CONTRACT_CLAUSE_RECOVERY_KINDS: [SyntaxKind; 36] = [
+const CONTRACT_CLAUSE_RECOVERY_KINDS: [SyntaxKind; 38] = [
     SyntaxKind::CloseParenToken,
     SyntaxKind::RequiresKeyword,
     SyntaxKind::EnsuresKeyword,
+    SyntaxKind::ExecutesKeyword,
+    SyntaxKind::WhenKeyword,
     SyntaxKind::WithKeyword,
     SyntaxKind::UsesKeyword,
     SyntaxKind::EqualsToken,
@@ -94,6 +103,12 @@ impl Parser {
                 SyntaxKind::EnsuresKeyword => {
                     builder.push_ensures_clause(self.parse_ensures_clause(at_boundary));
                 }
+                SyntaxKind::ExecutesKeyword => {
+                    builder.push_executes_clause(self.parse_executes_clause(at_boundary));
+                }
+                SyntaxKind::WhenKeyword => {
+                    builder.push_when_clause(self.parse_when_clause());
+                }
                 SyntaxKind::WithKeyword => {
                     builder.push_with_clause(self.parse_with_clause(at_boundary));
                 }
@@ -137,6 +152,133 @@ impl Parser {
         self.parse_expression_contract_clause_arguments(&mut builder, at_boundary);
 
         builder.build()
+    }
+
+    fn parse_executes_clause(&mut self, at_boundary: ContractBoundary) -> ExecutesClauseSyntax {
+        let start = self.peek().full_range().start();
+        let mut builder = ExecutesClauseSyntax::builder(self.syntax_source(), start);
+
+        builder.push_executes_keyword(self.expect(SyntaxKind::ExecutesKeyword));
+
+        self.parse_parenthesized_contract_clause_arguments(
+            &mut builder,
+            at_boundary,
+            &PATH_START_KINDS,
+            Parser::parse_execution_property,
+        );
+
+        builder.build()
+    }
+
+    fn parse_execution_property(
+        &mut self,
+        _at_boundary: ContractBoundary,
+    ) -> ExecutionPropertySyntax {
+        let start = self.peek().full_range().start();
+        let mut builder = ExecutionPropertySyntax::builder(self.syntax_source(), start);
+
+        builder.push_identifier_token(self.expect(SyntaxKind::IdentifierToken));
+
+        builder.build()
+    }
+
+    fn parse_when_clause(&mut self) -> WhenClauseSyntax {
+        let start = self.peek().full_range().start();
+        let mut builder = WhenClauseSyntax::builder(self.syntax_source(), start);
+
+        if !self.try_enter_syntax_nesting() {
+            let mut depth = DelimiterDepth::default();
+            let mut closed = false;
+
+            self.recover_current_and_until_predicate(&mut builder, |parser| {
+                if closed
+                    || parser.at_any(&MODULE_ITEM_START_KINDS)
+                    || parser.at_any(&MEMBER_KEYWORD_RECOVERY_KINDS)
+                {
+                    return true;
+                }
+
+                match parser.peek().kind() {
+                    kind @ (SyntaxKind::OpenBraceToken | SyntaxKind::CloseBraceToken) => {
+                        if kind == SyntaxKind::CloseBraceToken && depth.is_at_root() {
+                            return true;
+                        }
+
+                        depth.observe_grouping(kind);
+                        closed = kind == SyntaxKind::CloseBraceToken && depth.is_at_root();
+                    }
+                    _ => {}
+                }
+
+                false
+            });
+
+            return builder.build();
+        }
+
+        builder.push_when_keyword(self.expect(SyntaxKind::WhenKeyword));
+        builder.push_open_paren_token(self.expect(SyntaxKind::OpenParenToken));
+
+        builder
+            .push_condition(self.parse_contract_clause_expression(Parser::at_guarantee_boundary));
+
+        builder.push_close_paren_token(self.expect(SyntaxKind::CloseParenToken));
+        builder.push_open_brace_token(self.expect(SyntaxKind::OpenBraceToken));
+
+        while !self.at_guarantee_group_end() {
+            match self.peek().kind() {
+                SyntaxKind::EnsuresKeyword => {
+                    builder.push_ensures_clause(
+                        self.parse_ensures_clause(Parser::at_guarantee_boundary),
+                    );
+                }
+                SyntaxKind::ExecutesKeyword => {
+                    builder.push_executes_clause(
+                        self.parse_executes_clause(Parser::at_guarantee_boundary),
+                    );
+                }
+                SyntaxKind::WhenKeyword => builder.push_when_clause(self.parse_when_clause()),
+                _ => {
+                    let actual = self.peek();
+
+                    let diagnostic = crate::diagnostic::expected_operator(
+                        &self.syntax_source(),
+                        SyntaxKind::CloseBraceToken,
+                        &actual,
+                    );
+
+                    self.record_syntax_diagnostic(diagnostic);
+
+                    self.recover_current_and_until_balanced_close_brace_or_recovery_set(
+                        &mut builder,
+                        crate::cursor::RecoverySet::new(&[
+                            SyntaxKind::EnsuresKeyword,
+                            SyntaxKind::ExecutesKeyword,
+                            SyntaxKind::WhenKeyword,
+                        ])
+                        .with_additional(&CONTRACT_CLAUSE_RECOVERY_KINDS),
+                    );
+                }
+            }
+        }
+
+        builder.push_close_brace_token(self.expect(SyntaxKind::CloseBraceToken));
+        self.leave_syntax_nesting();
+
+        builder.build()
+    }
+
+    fn at_guarantee_group_end(&mut self) -> bool {
+        self.at_any(&[
+            SyntaxKind::CloseBraceToken,
+            SyntaxKind::OpenBraceToken,
+            SyntaxKind::EndOfFileToken,
+        ]) || self.at_any(&MODULE_ITEM_START_KINDS)
+            || self.at_any(&MEMBER_KEYWORD_RECOVERY_KINDS)
+    }
+
+    fn at_guarantee_boundary(&mut self) -> bool {
+        self.at_guarantee_group_end() || self.at(SyntaxKind::SemicolonToken)
     }
 
     fn parse_with_clause(&mut self, at_boundary: ContractBoundary) -> WithClauseSyntax {
@@ -360,6 +502,10 @@ pub(super) trait CallableContractClauseSyntaxSink: RecoverySyntaxSink {
 
     fn push_ensures_clause(&mut self, clause: EnsuresClauseSyntax);
 
+    fn push_executes_clause(&mut self, clause: ExecutesClauseSyntax);
+
+    fn push_when_clause(&mut self, clause: WhenClauseSyntax);
+
     fn push_with_clause(&mut self, clause: WithClauseSyntax);
 
     fn push_uses_clause(&mut self, clause: UsesClauseSyntax);
@@ -455,6 +601,28 @@ impl ParenthesizedContractClauseSyntaxSink<PathSyntax> for UsesClauseSyntaxBuild
     }
 }
 
+impl SeparatedListSyntaxSink<ExecutionPropertySyntax> for ExecutesClauseSyntaxBuilder {
+    fn push_item(&mut self, item: ExecutionPropertySyntax) {
+        self.push_property(item);
+    }
+
+    fn push_separator(&mut self, separator: SyntaxToken) {
+        self.push_separator_token(separator);
+    }
+}
+
+impl ParenthesizedContractClauseSyntaxSink<ExecutionPropertySyntax>
+    for ExecutesClauseSyntaxBuilder
+{
+    fn push_open_paren_token(&mut self, token: SyntaxToken) {
+        ExecutesClauseSyntaxBuilder::push_open_paren_token(self, token);
+    }
+
+    fn push_close_paren_token(&mut self, token: SyntaxToken) {
+        ExecutesClauseSyntaxBuilder::push_close_paren_token(self, token);
+    }
+}
+
 macro_rules! impl_callable_contract_clause_sink {
     ($builder:ty) => {
         impl CallableContractClauseSyntaxSink for $builder {
@@ -464,6 +632,14 @@ macro_rules! impl_callable_contract_clause_sink {
 
             fn push_ensures_clause(&mut self, clause: EnsuresClauseSyntax) {
                 <$builder>::push_ensures_clause(self, clause);
+            }
+
+            fn push_executes_clause(&mut self, clause: ExecutesClauseSyntax) {
+                <$builder>::push_executes_clause(self, clause);
+            }
+
+            fn push_when_clause(&mut self, clause: WhenClauseSyntax) {
+                <$builder>::push_when_clause(self, clause);
             }
 
             fn push_with_clause(&mut self, clause: WithClauseSyntax) {
@@ -520,6 +696,223 @@ mod tests {
 
     use crate::parser::parse_compilation_unit;
     use crate::test_support::parse_diagnostic_kinds;
+
+    #[test]
+    fn guarded_guarantees_preserve_nested_clauses_and_the_ordinary_body() {
+        let source = r#"
+        module main;
+        func check(pos ready: bool) -> unit requires(true) when(ready)
+        {
+            executes(pure, total,) ensures(result == unit) when(true)
+            {
+                executes(total)
+            }
+        }
+        executes(total)
+        {
+            return unit;
+        }
+        "#;
+
+        let result = parse_compilation_unit(&source_store([source]));
+        let unit = &result.syntax_tree().root().source_units()[0];
+        let declaration = unit.function_declarations().next().unwrap();
+        let group = declaration.when_clauses().next().unwrap();
+
+        assert!(
+            result.diagnostics().is_empty(),
+            "{:?}",
+            result.diagnostics()
+        );
+
+        assert_eq!(unit.full_text(), source);
+        assert_eq!(group.condition().full_text().trim(), "ready");
+
+        assert_eq!(
+            group
+                .executes_clauses()
+                .next()
+                .unwrap()
+                .properties()
+                .count(),
+            2
+        );
+
+        assert_eq!(group.ensures_clauses().count(), 1);
+        assert_eq!(group.when_clauses().count(), 1);
+        assert_eq!(declaration.executes_clauses().count(), 1);
+        assert_eq!(declaration.ensures_clauses().count(), 0);
+    }
+
+    #[test]
+    fn execution_guarantees_are_shared_by_every_callable_form() {
+        let source = bray_testing::EXECUTION_GUARANTEES_SOURCE;
+
+        let result = parse_compilation_unit(&source_store([source]));
+
+        assert!(
+            result.diagnostics().is_empty(),
+            "{:?}",
+            result.diagnostics()
+        );
+
+        assert_eq!(
+            result.syntax_tree().root().source_units()[0].full_text(),
+            source
+        );
+    }
+
+    #[test]
+    fn execution_property_lists_do_not_accept_expressions() {
+        for properties in ["pure()", "pure.total", "{ true }", "pure && total", ""] {
+            let source = format!(
+                r#"
+                module main;
+                func check() executes({properties})
+                {{
+                }}
+                func next()
+                {{
+                }}
+                "#
+            );
+
+            let result = parse_compilation_unit(&source_store([source.as_str()]));
+
+            assert!(!result.diagnostics().is_empty(), "accepted {properties}");
+
+            assert_eq!(
+                result.syntax_tree().root().source_units()[0]
+                    .function_declarations()
+                    .count(),
+                2,
+                "{properties}"
+            );
+
+            assert_eq!(
+                result.syntax_tree().root().source_units()[0].full_text(),
+                source
+            );
+        }
+    }
+
+    #[test]
+    fn guarded_groups_do_not_accept_executable_code_or_requirements() {
+        for contents in [
+            "return unit;",
+            "yield true;",
+            "= true;",
+            "let value = true;",
+            "requires(true)",
+            "uses(io)",
+            "with(true)",
+        ] {
+            let source = format!(
+                r#"
+                module main;
+                func check() when(true)
+                {{
+                    {contents}
+                }}
+                {{
+                }}
+                func next()
+                {{
+                }}
+                "#
+            );
+
+            let result = parse_compilation_unit(&source_store([source.as_str()]));
+            let unit = &result.syntax_tree().root().source_units()[0];
+
+            let diagnostic = result.diagnostics().iter().next().unwrap();
+
+            assert_eq!(diagnostic.kind(), DiagnosticKind::SyntaxExpectedToken);
+
+            assert!(diagnostic.args().contains(
+                &bray_diagnostics::DiagnosticArg::expected_syntax_kind(SyntaxKind::CloseBraceToken)
+            ));
+
+            assert_eq!(
+                diagnostic.primary_span().unwrap().range().start().bytes(),
+                u32::try_from(source.find(contents).unwrap()).unwrap()
+            );
+
+            assert_eq!(
+                diagnostic.labels()[0].kind(),
+                bray_diagnostics::DiagnosticLabelKind::InvalidOperatorOrPunctuation
+            );
+
+            assert_eq!(unit.full_text(), source);
+            assert_eq!(unit.function_declarations().count(), 2);
+        }
+    }
+
+    #[test]
+    fn malformed_guarantee_groups_preserve_following_declarations() {
+        for header in [
+            "when(true) { executes(total)",
+            "when(true) { let value = true;",
+            "when(true) { when(true) { executes(total)",
+            "when(true)",
+            "when(true",
+            "when(",
+            "when(true) { ensures(",
+        ] {
+            let source = format!("module main; func broken() {header} func next() {{}}");
+            let result = parse_compilation_unit(&source_store([source.as_str()]));
+            let unit = &result.syntax_tree().root().source_units()[0];
+
+            assert!(!result.diagnostics().is_empty(), "accepted {header}");
+            assert_eq!(unit.full_text(), source);
+            assert_eq!(unit.function_declarations().count(), 2, "{header}");
+        }
+    }
+
+    #[test]
+    fn unterminated_overdeep_guarantee_groups_preserve_following_declarations() {
+        let source = format!(
+            "module main; func broken() {}executes(total) func next() {{}}",
+            "when(true) {".repeat(140),
+        );
+
+        let result = parse_compilation_unit(&source_store([source.as_str()]));
+        let unit = &result.syntax_tree().root().source_units()[0];
+
+        assert!(
+            parse_diagnostic_kinds(&result).contains(&DiagnosticKind::SyntaxNestingLimitExceeded)
+        );
+
+        assert_eq!(unit.full_text(), source);
+        assert_eq!(unit.function_declarations().count(), 2);
+    }
+
+    #[test]
+    fn guarded_group_nesting_uses_the_parser_depth_limit() {
+        let source = format!(
+            "module main; func check() {}executes(total){} {{}} func next() {{}}",
+            "when(true) {".repeat(140),
+            "}".repeat(140)
+        );
+
+        let result = parse_compilation_unit(&source_store([source.as_str()]));
+
+        assert!(
+            parse_diagnostic_kinds(&result).contains(&DiagnosticKind::SyntaxNestingLimitExceeded)
+        );
+
+        assert_eq!(
+            result.syntax_tree().root().source_units()[0]
+                .function_declarations()
+                .count(),
+            2
+        );
+
+        assert_eq!(
+            result.syntax_tree().root().source_units()[0].full_text(),
+            source
+        );
+    }
 
     #[test]
     fn parser_parses_callable_contract_clauses() {

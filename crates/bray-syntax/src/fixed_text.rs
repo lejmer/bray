@@ -49,6 +49,7 @@ fixed_syntax_text! {
     "each" => EachKeyword,
     "else" => ElseKeyword,
     "ensures" => EnsuresKeyword,
+    "executes" => ExecutesKeyword,
     "enter" => EnterKeyword,
     "exit" => ExitKeyword,
     "export" => ExportKeyword,

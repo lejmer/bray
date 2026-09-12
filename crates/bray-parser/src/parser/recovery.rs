@@ -11,8 +11,9 @@ use bray_syntax::{
     ConditionalExpressionSyntaxBuilder, ConstantDeclarationSyntaxBuilder,
     ContinueExpressionSyntaxBuilder, ConversionOperationSyntaxBuilder,
     DestructorMemberDeclarationSyntaxBuilder, DirectiveArgumentListSyntaxBuilder,
-    ElementIndexOperationSyntaxBuilder, EnsuresClauseSyntaxBuilder, ExportDeclarationSyntaxBuilder,
-    ExpressionSyntaxBuilder, FinalizerMemberDeclarationSyntaxBuilder, ForExpressionSyntaxBuilder,
+    ElementIndexOperationSyntaxBuilder, EnsuresClauseSyntaxBuilder, ExecutesClauseSyntaxBuilder,
+    ExecutionPropertySyntaxBuilder, ExportDeclarationSyntaxBuilder, ExpressionSyntaxBuilder,
+    FinalizerMemberDeclarationSyntaxBuilder, ForExpressionSyntaxBuilder,
     FunctionDeclarationSyntaxBuilder, FunctionDirectivesSyntaxBuilder,
     GeneralGeneratorExpressionSyntaxBuilder, GeneratorIterationExpressionSyntaxBuilder,
     GenericArgumentListSyntaxBuilder, GenericParameterListSyntaxBuilder,
@@ -49,8 +50,9 @@ use bray_syntax::{
     UnionDeclarationSyntaxBuilder, UnionPayloadFieldSyntaxBuilder,
     UnionVariantDeclarationSyntaxBuilder, UnionVariantPayloadSyntaxBuilder,
     UnnamedTraitImplementationDeclarationSyntaxBuilder, UsesClauseSyntaxBuilder,
-    UsingDeclarationSyntaxBuilder, VariantDirectivesSyntaxBuilder, WhileExpressionSyntaxBuilder,
-    WithClauseSyntaxBuilder, WithExpressionSyntaxBuilder, YieldExpressionSyntaxBuilder,
+    UsingDeclarationSyntaxBuilder, VariantDirectivesSyntaxBuilder, WhenClauseSyntaxBuilder,
+    WhileExpressionSyntaxBuilder, WithClauseSyntaxBuilder, WithExpressionSyntaxBuilder,
+    YieldExpressionSyntaxBuilder,
 };
 
 use crate::cursor::RecoverySet;
@@ -586,6 +588,12 @@ impl RecoverySyntaxSink for EnsuresClauseSyntaxBuilder {
         EnsuresClauseSyntaxBuilder::push_skipped_tokens(self, tokens);
     }
 }
+
+impl_recovery_syntax_sink!(
+    ExecutesClauseSyntaxBuilder,
+    ExecutionPropertySyntaxBuilder,
+    WhenClauseSyntaxBuilder
+);
 
 impl RecoverySyntaxSink for WithClauseSyntaxBuilder {
     fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {

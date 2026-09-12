@@ -92,3 +92,6 @@ pub fn assert_tokens_cover_source_text(snapshot: &SourceSnapshot, tokens: &[Synt
     assert_eq!(cursor, snapshot.text_len());
     assert_eq!(reconstructed, snapshot.text());
 }
+
+/// All callable grammar forms with unconditional and nested execution guarantees.
+pub const EXECUTION_GUARANTEES_SOURCE: &str = include_str!("../fixtures/execution_guarantees.bray");

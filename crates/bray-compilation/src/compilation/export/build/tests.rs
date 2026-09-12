@@ -31,6 +31,26 @@ use crate::{
 };
 
 #[test]
+fn execution_guarantees_block_direct_library_interface_export() {
+    for clause in ["executes(pure, total)", "when(true) { ensures(false) }"] {
+        let source = format!("module app; func unchecked() {clause} {{}}");
+        let compilation = compilation(&source);
+
+        assert!(compilation.syntax_tree_result().diagnostics().is_empty());
+
+        assert!(matches!(
+            compilation.package_interface_export_bundle(),
+            Some(Err(crate::PackageInterfaceExportError::InvalidCompilation))
+        ));
+
+        assert!(compilation.check_diagnostics().iter().any(|diagnostic| {
+            diagnostic.kind()
+                == bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeUnsupported
+        }));
+    }
+}
+
+#[test]
 fn module_only_library_exports_are_cached_on_demand() {
     let compilation = compilation("module app;");
 
