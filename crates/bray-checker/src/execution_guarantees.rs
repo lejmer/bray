@@ -12,6 +12,7 @@ use bray_syntax::{
 /// Checks all callable forms within the supplied source declaration, including callable types
 /// and anonymous callables. A guarded group produces one diagnostic for the whole group.
 pub fn check_execution_guarantees(declaration: &impl SyntaxWalkRoot) -> DiagnosticBag {
+    // TODO: Replace blanket rejection with execution guarantee verification under BRA-482.
     let mut diagnostics = DiagnosticBag::new();
 
     walk_syntax_node(declaration, |event| {

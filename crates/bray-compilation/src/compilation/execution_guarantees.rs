@@ -11,6 +11,7 @@ impl Compilation {
         &self,
         source_graph: &ProductSourceGraph,
     ) -> DiagnosticBag {
+        // TODO: Remove this temporary syntax scan once semantic queries verify execution guarantees.
         let declarations = source_graph.declarations();
 
         let roots: HashSet<_> = declarations
