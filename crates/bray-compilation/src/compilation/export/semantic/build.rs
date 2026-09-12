@@ -75,7 +75,11 @@ pub(in crate::compilation::export) fn build_semantics(
 
     let native_boundaries = native_boundaries(compilation, selected, &export)?;
 
+    let callable_contracts =
+        super::execution::callable_contracts(compilation, &binder, selected, &mut export)?;
+
     let semantics = InterfaceSemantics::new()
+        .with_contracts([], callable_contracts)
         .with_applications(
             export.substitutions,
             export.trait_applications,

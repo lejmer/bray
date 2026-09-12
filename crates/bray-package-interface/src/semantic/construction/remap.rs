@@ -57,6 +57,12 @@ pub(super) fn commit_fragment(
         declared_type.ty = remap.ty(declared_type.ty)?;
     }
 
+    for predicate in Arc::make_mut(&mut fragment.predicate_definitions) {
+        for (_, _, ty) in Arc::make_mut(&mut predicate.parameters) {
+            *ty = remap.ty(*ty)?;
+        }
+    }
+
     for representation in Arc::make_mut(&mut fragment.type_representations) {
         representation.union_tag_type = representation
             .union_tag_type
@@ -185,6 +191,19 @@ fn remap_callable_contract(
     for clause in Arc::make_mut(&mut contract.normal_completion_postconditions) {
         remap_callable_clause(clause, remap)?;
     }
+
+    contract.execution_contract = contract.execution_contract.try_map(
+        &mut (),
+        |_, term| remap.constant_term(term),
+        |_, target| match target {
+            bray_symbols::CallableExecutionTarget::Callable(callable) => remap
+                .callable_instance(callable)
+                .map(bray_symbols::CallableExecutionTarget::Callable),
+            bray_symbols::CallableExecutionTarget::Indirect(ty) => remap
+                .ty(ty)
+                .map(bray_symbols::CallableExecutionTarget::Indirect),
+        },
+    )?;
 
     remap_callable_behavior(&mut contract.invocation_behavior, remap)?;
 

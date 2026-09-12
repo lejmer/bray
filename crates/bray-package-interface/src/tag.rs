@@ -406,3 +406,14 @@ mod tests {
         }
     }
 }
+
+wire_tags!(bray_symbols::ExecutionProperty {
+    0 => bray_symbols::ExecutionProperty::Pure,
+    1 => bray_symbols::ExecutionProperty::Total,
+});
+
+wire_tags!(bray_symbols::CallableExecutionOrigin {
+    0 => bray_symbols::CallableExecutionOrigin::CheckedBody,
+    1 => bray_symbols::CallableExecutionOrigin::ForeignAssertion,
+    2 => bray_symbols::CallableExecutionOrigin::Requirement,
+});

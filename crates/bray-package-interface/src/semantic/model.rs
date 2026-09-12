@@ -37,10 +37,11 @@ pub use id::{
 };
 pub use record::{
     InterfaceAbiDependency, InterfaceCallableContract, InterfaceCallableContractClause,
-    InterfaceCallableContractClauseValue, InterfaceCallablePhaseBehavior, InterfaceCoherenceRecord,
-    InterfaceConstraint, InterfaceConstraintKind, InterfaceImplementationRecord,
-    InterfacePredicateSummary, InterfaceRuntimeRequirement, InterfaceSemanticRecord,
-    InterfaceSemanticRecordKind, InterfaceSourceProvenance, InterfaceTargetPropertyDependency,
+    InterfaceCallableContractClauseValue, InterfaceCallableExecutionContract,
+    InterfaceCallablePhaseBehavior, InterfaceCoherenceRecord, InterfaceConstraint,
+    InterfaceConstraintKind, InterfaceImplementationRecord, InterfacePredicateSummary,
+    InterfaceRuntimeRequirement, InterfaceSemanticRecord, InterfaceSemanticRecordKind,
+    InterfaceSourceProvenance, InterfaceTargetPropertyDependency,
     InterfaceTrustedCapabilityRequirement,
 };
 pub use support::{

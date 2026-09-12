@@ -58,12 +58,12 @@ impl Compilation {
             .product_source_graph()
             .map_err(super::super::super::invalid_compilation_fact_error)?;
 
-        // TODO: Remove the execution-guarantee scan once interface export requires certified guarantees.
         if self.source_diagnostics().has_errors()
             || self.syntax_tree_result().diagnostics().has_errors()
             || source_graph.diagnostics().has_errors()
             || self
-                .unhandled_execution_guarantee_diagnostics(source_graph, &Default::default())
+                .execution_guarantee_diagnostics(source_graph)
+                .map_err(super::super::super::invalid_compilation_fact_error)?
                 .has_errors()
             || self.imported_diagnostics().has_errors()
         {

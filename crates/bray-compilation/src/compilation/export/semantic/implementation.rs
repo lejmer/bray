@@ -4,8 +4,7 @@ use bray_binder::{SymbolQueryErrorProvider, SymbolQueryProvider};
 use bray_bound_tree::CheckedTemplateKind;
 use bray_package_interface::{
     InterfaceCoherenceRecord, InterfaceDependencyRequirementKind, InterfaceImplementationRecord,
-    InterfacePredicateDefinitionState, InterfaceSymbolReference, InterfaceTraitApplicationId,
-    InterfaceTypeId,
+    InterfaceSymbolReference, InterfaceTraitApplicationId, InterfaceTypeId,
 };
 use bray_symbols::{
     AnySymbolId, ConstantDefinitionState, DependencyRequirementKind, ImplementationCoherenceQuery,
@@ -220,7 +219,7 @@ pub(super) const fn incomplete_type() -> PackageInterfaceExportError {
 pub(super) fn predicate_definition(
     binder: &CompilationBindingContext<'_>,
     symbol: AnySymbolId,
-) -> Result<Option<InterfacePredicateDefinitionState>, PackageInterfaceExportError> {
+) -> Result<Option<PredicateDefinitionState<PredicateDefinition>>, PackageInterfaceExportError> {
     let state = match symbol {
         AnySymbolId::Predicate(predicate) => resolve_predicate_definition(
             binder,
@@ -247,7 +246,7 @@ fn resolve_predicate_definition<'a, C>(
     binder: &CompilationBindingContext<'a>,
     symbol: AnySymbolId,
     request: SymbolQueryRequest<C>,
-) -> Result<InterfacePredicateDefinitionState, PackageInterfaceExportError>
+) -> Result<PredicateDefinitionState<PredicateDefinition>, PackageInterfaceExportError>
 where
     C: SymbolQueryContract<Value = PredicateDefinitionState<PredicateDefinition>>,
     CompilationBindingContext<'a>: SymbolQueryErrorProvider<UpstreamError = crate::fact::FactQueryError>
@@ -261,20 +260,8 @@ where
         return Err(incomplete(symbol));
     }
 
-    predicate_definition_state(semantics.value()).ok_or_else(|| incomplete(symbol))
-}
-
-const fn predicate_definition_state<T>(
-    state: &PredicateDefinitionState<T>,
-) -> Option<InterfacePredicateDefinitionState> {
-    match state {
-        PredicateDefinitionState::Defined(_) => Some(InterfacePredicateDefinitionState::Defined),
-        PredicateDefinitionState::Required => Some(InterfacePredicateDefinitionState::Required),
-        PredicateDefinitionState::OpaqueTrusted => {
-            Some(InterfacePredicateDefinitionState::OpaqueTrusted)
-        }
-        PredicateDefinitionState::Error(_) => None,
-    }
+    // Retain the immutable predicate summary after releasing the query result.
+    Ok(semantics.value().clone())
 }
 
 pub(super) const fn dependency_requirement_kind(

@@ -397,6 +397,10 @@ fn bind_predicate_signature_template(
 ) -> BindingQueryResult<DiagnosticResult<PredicateSignatureTemplate>> {
     let symbol = owner.into_any();
 
+    if let Some(address) = context.imported_semantic_address(symbol)? {
+        return super::super::imported::imported_predicate_signature(context, address);
+    }
+
     let parameters = context
         .symbols
         .predicate_definition_parameters(owner)

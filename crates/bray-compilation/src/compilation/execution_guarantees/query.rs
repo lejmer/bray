@@ -202,7 +202,7 @@ impl Compilation {
                             candidates.insert(
                                 bray_checker::ExecutionObligation::Property(
                                     property.property,
-                                    Some(property.source),
+                                    Some(property.source.into()),
                                 ),
                                 candidate.into_parts().0,
                             );
@@ -227,7 +227,7 @@ impl Compilation {
                         diagnostics.add_range(candidate.diagnostics().iter().cloned());
 
                         candidates.insert(
-                            bray_checker::ExecutionObligation::Postcondition(source),
+                            bray_checker::ExecutionObligation::Postcondition(source.into()),
                             candidate.into_parts().0,
                         );
                     }
@@ -272,7 +272,7 @@ mod tests {
                 .value()
                 .dependencies
                 .iter()
-                .any(|(_, target, obligation)| {
+                .any(|(_, _, target, obligation)| {
                     let bray_bound_tree::BoundCallableTarget::Declaration(instance) = target else {
                         return false;
                     };

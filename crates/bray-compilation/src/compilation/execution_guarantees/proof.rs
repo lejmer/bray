@@ -1,10 +1,9 @@
-use std::collections::{BTreeMap, BTreeSet};
+use super::imported::{ExecutionProofGraph, ExecutionProofOwner};
+use bray_symbols::{ExecutionProofFailure, check_execution_proof_dependencies};
+use std::collections::BTreeSet;
 
 use bray_bound_tree::{BoundCallableTarget, BoundUnitKey};
-use bray_checker::{
-    ExecutionCertification, ExecutionObligation, ExecutionProofFailure,
-    check_execution_proof_dependencies,
-};
+use bray_checker::{ExecutionCertification, ExecutionObligation};
 use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticLabel,
@@ -53,7 +52,7 @@ impl Compilation {
                 (
                     ExecutionObligation::Property(
                         property.property,
-                        (!domain.guards.is_empty()).then_some(property.source),
+                        (!domain.guards.is_empty()).then_some(property.source.into()),
                     ),
                     property.source,
                 )
@@ -62,7 +61,7 @@ impl Compilation {
             let postconditions = domain.postconditions.iter().map(|anchor| {
                 let source = source_span(*anchor);
 
-                (ExecutionObligation::Postcondition(source), source)
+                (ExecutionObligation::Postcondition(source.into()), source)
             });
 
             for (obligation, source) in properties.chain(postconditions) {
@@ -82,12 +81,18 @@ impl Compilation {
                     ExecutionObligation::Property(property, None) => {
                         certified.properties.insert(property);
                     }
-                    ExecutionObligation::Property(property, Some(source)) => {
+                    ExecutionObligation::Property(
+                        property,
+                        Some(bray_checker::ExecutionClauseId::Source(source)),
+                    ) => {
                         certified.guarded_properties.insert((source, property));
                     }
-                    ExecutionObligation::Postcondition(source) => {
+                    ExecutionObligation::Postcondition(
+                        bray_checker::ExecutionClauseId::Source(source),
+                    ) => {
                         certified.postconditions.insert(source);
                     }
+                    _ => continue,
                 }
 
                 certified.foreign_assertions.extend(assertions);
@@ -98,7 +103,7 @@ impl Compilation {
         Ok(DiagnosticResult::new(certified, diagnostics))
     }
 
-    fn certify_execution_obligation(
+    pub(super) fn certify_execution_obligation(
         &self,
         root: &BoundUnitKey,
         obligation: ExecutionObligation,
@@ -108,11 +113,16 @@ impl Compilation {
         (
             Option<(SourceSpan, bool)>,
             BTreeSet<(SyntaxAnchor, bray_checker::ExecutionProperty)>,
-            BTreeSet<(SyntaxAnchor, BoundCallableTarget, ExecutionObligation)>,
+            BTreeSet<(
+                SyntaxAnchor,
+                ExecutionObligation,
+                BoundCallableTarget,
+                ExecutionObligation,
+            )>,
         ),
         FactQueryError,
     > {
-        let mut graph = BTreeMap::new();
+        let mut graph = ExecutionProofGraph::new();
         let mut assertions = BTreeSet::new();
         let mut selected_dependencies = BTreeSet::new();
         let mut visited = BTreeSet::new();
@@ -193,7 +203,7 @@ impl Compilation {
                             && callable.phase_behaviors().invocation().execution_properties()
                                 .contains(&bray_checker::ExecutionProperty::Pure));
 
-                    selected_dependencies.insert((proof_key.0, target, required));
+                    selected_dependencies.insert((proof_key.0, proof_key.1, target, required));
 
                     continue;
                 }
@@ -207,7 +217,29 @@ impl Compilation {
                     .symbol_graph()?
                     .declaration_syntax_anchor(callable.definition().symbol())
                 else {
-                    valid = false;
+                    let selected = self.select_imported_execution_obligation(
+                        callable,
+                        required,
+                        candidate.call_evidence(node),
+                        diagnostics,
+                        cancellation,
+                    )?;
+
+                    if let Some(selected) = selected {
+                        valid &= self.append_imported_execution_proof(
+                            callable,
+                            selected,
+                            &mut graph,
+                            diagnostics,
+                            cancellation,
+                        )?;
+
+                        selected_dependencies.insert((proof_key.0, proof_key.1, target, selected));
+                        dependencies.insert((ExecutionProofOwner::Imported(callable), selected));
+                    } else {
+                        valid = false;
+                    }
+
                     continue;
                 };
 
@@ -230,7 +262,9 @@ impl Compilation {
                                 cancellation,
                             )?;
 
-                            selected.map(|source| ExecutionObligation::Property(property, source))
+                            selected.map(|source| {
+                                ExecutionObligation::Property(property, source.map(Into::into))
+                            })
                         }
                         postcondition => Some(postcondition),
                     };
@@ -245,8 +279,8 @@ impl Compilation {
                     };
 
                     if let Some(selected) = selected {
-                        selected_dependencies.insert((proof_key.0, target, selected));
-                        dependencies.insert((anchor, selected));
+                        selected_dependencies.insert((proof_key.0, proof_key.1, target, selected));
+                        dependencies.insert((ExecutionProofOwner::Source(anchor), selected));
                         pending.push((body, selected));
                     } else {
                         valid = false;
@@ -270,9 +304,14 @@ impl Compilation {
                             .iter()
                             .any(|declared| declared.property == property)
                     {
-                        selected_dependencies.insert((proof_key.0, target, required));
-                        dependencies.insert((anchor, required));
-                        graph.insert((anchor, required), BTreeSet::new());
+                        selected_dependencies.insert((proof_key.0, proof_key.1, target, required));
+                        dependencies.insert((ExecutionProofOwner::Source(anchor), required));
+
+                        graph.insert(
+                            (ExecutionProofOwner::Source(anchor), required),
+                            BTreeSet::new(),
+                        );
+
                         assertions.insert((anchor, property));
                     } else {
                         valid = false;
@@ -283,25 +322,33 @@ impl Compilation {
             }
 
             if valid {
-                graph.insert(proof_key, dependencies);
+                graph.insert(
+                    (ExecutionProofOwner::Source(proof_key.0), proof_key.1),
+                    dependencies,
+                );
             } else {
                 failure.get_or_insert((source_span(proof_key.0), false));
             }
         }
 
-        let root_key = (root.source().syntax(), obligation);
+        let root_key = (
+            ExecutionProofOwner::Source(root.source().syntax()),
+            obligation,
+        );
 
         if let Some(reason) = check_execution_proof_dependencies(&graph).get(&root_key) {
             failure = Some(match reason {
-                ExecutionProofFailure::CircularCompletion(anchor) => (source_span(*anchor), true),
-                ExecutionProofFailure::MissingCandidate(anchor) => {
-                    failure.unwrap_or((source_span(*anchor), false))
+                ExecutionProofFailure::CircularCompletion(owner) => {
+                    (proof_owner_span(*owner, root.source().syntax()), true)
+                }
+                ExecutionProofFailure::MissingCandidate(owner) => {
+                    failure.unwrap_or((proof_owner_span(*owner, root.source().syntax()), false))
                 }
             });
         }
 
         if !graph.contains_key(&root_key) {
-            failure.get_or_insert((source_span(root_key.0), false));
+            failure.get_or_insert((proof_owner_span(root_key.0, root.source().syntax()), false));
         }
 
         Ok((failure, assertions, selected_dependencies))
@@ -348,4 +395,11 @@ pub(super) fn guarantee_diagnostic(
 
 fn source_span(anchor: SyntaxAnchor) -> SourceSpan {
     SourceSpan::new(anchor.source_id(), anchor.full_range())
+}
+
+fn proof_owner_span(owner: ExecutionProofOwner, source: SyntaxAnchor) -> SourceSpan {
+    match owner {
+        ExecutionProofOwner::Source(anchor) => source_span(anchor),
+        ExecutionProofOwner::Imported(_) => source_span(source),
+    }
 }

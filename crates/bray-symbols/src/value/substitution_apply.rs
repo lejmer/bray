@@ -71,6 +71,17 @@ impl SemanticValueStore {
         self.substitute_generic_substitution_data(nested, &substitution)
     }
 
+    /// Applies one generic substitution to an exact callable instance.
+    pub fn substitute_callable_instance(
+        &self,
+        callable: super::CallableInstanceId,
+        substitution: GenericSubstitutionId,
+    ) -> Result<super::CallableInstanceId, SemanticValueStoreError> {
+        let substitution = self.generic_substitution_data(substitution)?;
+
+        self.substitute_callable_instance_data(callable, &substitution)
+    }
+
     /// Applies one generic substitution throughout a trait application.
     pub fn substitute_trait_application(
         &self,
@@ -372,7 +383,7 @@ impl SemanticValueStore {
                     .transpose()?;
 
                 ConstantTermData::call(
-                    self.substitute_callable_instance(*callable, substitution)?,
+                    self.substitute_callable_instance_data(*callable, substitution)?,
                     selected_implementation,
                     arguments
                         .iter()
@@ -643,7 +654,7 @@ impl SemanticValueStore {
         Ok(DependencySubject::new(root, projections))
     }
 
-    fn substitute_callable_instance(
+    fn substitute_callable_instance_data(
         &self,
         callable: super::CallableInstanceId,
         substitution: &GenericSubstitutionData,

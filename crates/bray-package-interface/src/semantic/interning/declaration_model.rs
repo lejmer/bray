@@ -64,20 +64,26 @@ impl ImportedCallableParameterDefault {
 }
 
 /// One imported predicate definition state and its exact owner.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ImportedPredicateDefinition {
     pub(super) owner: PredicateDefinitionSymbolId,
     pub(super) state: InterfacePredicateDefinitionState,
+    pub(super) signature: bray_symbols::PredicateSignatureTemplate,
 }
 
 impl ImportedPredicateDefinition {
     /// Returns the predicate declaration that owns this state.
-    pub const fn owner(self) -> PredicateDefinitionSymbolId {
+    pub const fn owner(&self) -> PredicateDefinitionSymbolId {
         self.owner
     }
 
     /// Returns the predicate's exported definition state.
-    pub const fn state(self) -> InterfacePredicateDefinitionState {
+    pub const fn state(&self) -> InterfacePredicateDefinitionState {
         self.state
+    }
+
+    /// Returns the imported predicate's parameter signature.
+    pub const fn signature(&self) -> &bray_symbols::PredicateSignatureTemplate {
+        &self.signature
     }
 }

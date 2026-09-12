@@ -11,6 +11,15 @@ use bray_symbols::{AnySymbolId, CallableSignatureQuery, CallableSymbolId, Symbol
 use crate::compilation::Compilation;
 use crate::fact::{CancellationToken, FactQueryError};
 
+struct ConformanceExecutionDomain {
+    entry: Vec<bray_checker::ExecutionCondition>,
+    properties: Vec<bray_checker::ExecutionProperty>,
+    postconditions: Vec<(
+        bray_checker::ExecutionCondition,
+        bray_checker::ExecutionClauseId,
+    )>,
+}
+
 impl Compilation {
     pub(in crate::compilation) fn execution_contract_conformance(
         &self,
@@ -18,156 +27,183 @@ impl Compilation {
         fulfillment: AnySymbolId,
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<bool>, FactQueryError> {
-        let mut diagnostics = DiagnosticBag::new();
-
-        let Some(required_owner) = self.execution_contract_owner(requirement)? else {
-            return Ok(DiagnosticResult::new(true, diagnostics));
-        };
-
-        let required = self.execution_declaration(required_owner.source().syntax())?;
-
-        if required.value().clauses().is_empty() {
-            return Ok(DiagnosticResult::new(true, diagnostics));
-        }
-
-        let Some(provided_owner) = self.execution_contract_owner(fulfillment)? else {
-            return Ok(DiagnosticResult::new(false, diagnostics));
-        };
-
-        let provided = self.execution_declaration(provided_owner.source().syntax())?;
+        let required = self.conformance_execution_domains(requirement, cancellation)?;
+        let provided = self.conformance_execution_domains(fulfillment, cancellation)?;
 
         let inputs =
             self.execution_contract_input_mapping(fulfillment, requirement, cancellation)?;
 
-        diagnostics.add_range(required.diagnostics().iter().cloned());
-        diagnostics.add_range(provided.diagnostics().iter().cloned());
-        diagnostics.add_range(inputs.diagnostics().iter().cloned());
+        let mut diagnostics = DiagnosticBag::merged_all([
+            required.diagnostics(),
+            provided.diagnostics(),
+            inputs.diagnostics(),
+        ]);
 
         let mut valid = !diagnostics.has_errors();
 
-        for domain in required.value().domains() {
-            let anchors = required
-                .value()
-                .requirements()
+        let identity = inputs
+            .value()
+            .values()
+            .map(|input| (*input, *input))
+            .collect();
+
+        let graph = self.symbol_graph()?;
+
+        let source = graph
+            .declaration_syntax_anchor(fulfillment)
+            .or_else(|| graph.declaration_syntax_anchor(requirement))
+            .map(|anchor| bray_source::SourceSpan::new(anchor.source_id(), anchor.full_range()));
+
+        for domain in required.value() {
+            let mut properties = std::collections::BTreeSet::new();
+            let mut postconditions = Vec::new();
+
+            for candidate in provided.value() {
+                if candidate.entry.iter().all(|condition| {
+                    execution_condition_is_implied(condition, &domain.entry, inputs.value())
+                }) {
+                    properties.extend(candidate.properties.iter().copied());
+
+                    postconditions.extend(candidate.postconditions.iter().map(|(condition, _)| {
+                        remap_execution_condition_inputs(condition, inputs.value())
+                    }));
+                }
+            }
+
+            let missing_properties = domain
+                .properties
                 .iter()
-                .chain(&domain.guards)
-                .copied()
-                .collect::<Vec<_>>();
+                .filter(|property| !properties.contains(property))
+                .map(|property| ExecutionObligation::Property(*property, None));
 
-            let assumptions =
-                self.execution_condition_inputs(&required_owner, &anchors, cancellation)?;
+            let missing_posts = domain
+                .postconditions
+                .iter()
+                .filter(|(condition, _)| {
+                    !execution_condition_is_implied(condition, &postconditions, &identity)
+                })
+                .map(|(_, clause)| ExecutionObligation::Postcondition(*clause));
 
-            diagnostics.add_range(assumptions.diagnostics().iter().cloned());
+            for obligation in missing_properties.chain(missing_posts) {
+                valid = false;
 
-            let assumptions = assumptions
-                .into_parts()
-                .0
-                .into_iter()
-                .map(|(condition, _)| condition)
-                .collect::<Vec<_>>();
-
-            let mut available_properties = std::collections::BTreeSet::new();
-            let mut available_postconditions = Vec::new();
-
-            for source in provided.value().domains() {
-                let anchors = provided
-                    .value()
-                    .requirements()
-                    .iter()
-                    .chain(&source.guards)
-                    .copied()
-                    .collect::<Vec<_>>();
-
-                let conditions =
-                    self.execution_condition_inputs(&provided_owner, &anchors, cancellation)?;
-
-                diagnostics.add_range(conditions.diagnostics().iter().cloned());
-
-                if !conditions.diagnostics().has_errors()
-                    && conditions.value().iter().all(|(condition, _)| {
-                        execution_condition_is_implied(condition, &assumptions, inputs.value())
-                    })
-                {
-                    available_properties
-                        .extend(source.properties.iter().map(|property| property.property));
-
-                    let posts = self.execution_condition_inputs(
-                        &provided_owner,
-                        &source.postconditions,
-                        cancellation,
-                    )?;
-
-                    diagnostics.add_range(posts.diagnostics().iter().cloned());
-
-                    if !posts.diagnostics().has_errors() {
-                        available_postconditions.extend(posts.value().iter().map(
-                            |(condition, _)| {
-                                remap_execution_condition_inputs(condition, inputs.value())
-                            },
-                        ));
-                    }
-                }
-            }
-
-            for property in &domain.properties {
-                if !available_properties.contains(&property.property) {
-                    valid = false;
-
+                if let Some(source) = source {
                     diagnostics.add(super::proof::guarantee_diagnostic(
-                        ExecutionObligation::Property(property.property, None),
-                        property.source,
-                        bray_source::SourceSpan::new(
-                            provided_owner.source().syntax().source_id(),
-                            provided_owner.source().syntax().full_range(),
-                        ),
-                        false,
+                        obligation, source, source, false,
                     ));
-                }
-            }
-
-            if !domain.guards.is_empty() {
-                let posts = self.execution_condition_inputs(
-                    &required_owner,
-                    &domain.postconditions,
-                    cancellation,
-                )?;
-
-                diagnostics.add_range(posts.diagnostics().iter().cloned());
-
-                let identity = inputs
-                    .value()
-                    .values()
-                    .map(|input| (*input, *input))
-                    .collect();
-
-                for (condition, source) in posts.value() {
-                    if !execution_condition_is_implied(
-                        condition,
-                        &available_postconditions,
-                        &identity,
-                    ) {
-                        valid = false;
-
-                        diagnostics.add(super::proof::guarantee_diagnostic(
-                            ExecutionObligation::Postcondition(*source),
-                            *source,
-                            bray_source::SourceSpan::new(
-                                provided_owner.source().syntax().source_id(),
-                                provided_owner.source().syntax().full_range(),
-                            ),
-                            false,
-                        ));
-                    }
                 }
             }
         }
 
-        Ok(DiagnosticResult::new(
-            valid && !diagnostics.has_errors(),
-            diagnostics,
-        ))
+        Ok(DiagnosticResult::new(valid, diagnostics))
     }
 
+    fn conformance_execution_domains(
+        &self,
+        symbol: AnySymbolId,
+        cancellation: &CancellationToken,
+    ) -> Result<DiagnosticResult<Vec<ConformanceExecutionDomain>>, FactQueryError> {
+        let mut domains = Vec::new();
+        let mut diagnostics = DiagnosticBag::new();
+
+        let Some(callable) = CallableSymbolId::try_from_any(symbol) else {
+            return Ok(DiagnosticResult::new(domains, diagnostics));
+        };
+
+        if let Some(owner) = self.execution_contract_owner(symbol)? {
+            let declared = self.execution_declaration(owner.source().syntax())?;
+            diagnostics.add_range(declared.diagnostics().iter().cloned());
+
+            // Ordinary clauses without execution guarantees use the existing contract matcher.
+            if declared.value().clauses().is_empty() {
+                return Ok(DiagnosticResult::new(domains, diagnostics));
+            }
+
+            for domain in declared.value().domains() {
+                let anchors = declared
+                    .value()
+                    .requirements()
+                    .iter()
+                    .chain(&domain.guards)
+                    .copied()
+                    .collect::<Vec<_>>();
+
+                let entry = self.execution_condition_inputs(&owner, &anchors, cancellation)?;
+
+                let posts =
+                    self.execution_condition_inputs(&owner, &domain.postconditions, cancellation)?;
+
+                diagnostics.add_range(entry.diagnostics().iter().cloned());
+                diagnostics.add_range(posts.diagnostics().iter().cloned());
+
+                domains.push(ConformanceExecutionDomain {
+                    entry: entry
+                        .into_parts()
+                        .0
+                        .into_iter()
+                        .map(|(condition, _)| condition)
+                        .collect(),
+                    properties: domain
+                        .properties
+                        .iter()
+                        .map(|property| property.property)
+                        .collect(),
+                    postconditions: posts
+                        .into_parts()
+                        .0
+                        .into_iter()
+                        .map(|(condition, source)| (condition, source.into()))
+                        .collect(),
+                });
+            }
+        } else {
+            let context = self.binding_context(cancellation)?;
+
+            let contract = context
+                .resolve_symbol_query(
+                    SymbolQueryRequest::<bray_symbols::CallableContractsQuery>::new(callable),
+                )
+                .map_err(crate::compilation::binder::binding_query_error)?;
+
+            diagnostics.add_range(contract.diagnostics().iter().cloned());
+            let inputs = self.execution_callable_inputs(symbol, cancellation)?;
+            let values = self.semantic_value_store()?;
+
+            for domain in &*contract.value().execution_contract().domains {
+                let entry = domain
+                    .entry
+                    .iter()
+                    .map(|term| {
+                        bray_checker::execution_condition_from_term(values, *term, &inputs)
+                            .map_err(FactQueryError::SemanticValueStore)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                let postconditions = domain
+                    .postconditions
+                    .iter()
+                    .map(|(ordinal, term)| {
+                        bray_checker::execution_condition_from_term(values, *term, &inputs)
+                            .map(|condition| {
+                                (
+                                    condition,
+                                    bray_checker::ExecutionClauseId::Imported(*ordinal),
+                                )
+                            })
+                            .map_err(FactQueryError::SemanticValueStore)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                domains.push(ConformanceExecutionDomain {
+                    entry,
+                    properties: domain.properties.to_vec(),
+                    postconditions,
+                });
+            }
+        }
+
+        Ok(DiagnosticResult::new(domains, diagnostics))
+    }
     pub(super) fn execution_contract_owner(
         &self,
         symbol: AnySymbolId,

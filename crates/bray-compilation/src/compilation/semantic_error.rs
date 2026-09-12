@@ -385,6 +385,7 @@ pub(crate) enum SemanticDataKind {
     ConstantTerm,
     DeclarationRecord,
     DependencyContract,
+    ExecutionEvidence,
     GenericConstraint,
     GenericSubstitution,
     Implementation,

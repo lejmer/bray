@@ -1,8 +1,7 @@
 use crate::compilation::binder::BindingQueryResult;
-use std::collections::BTreeMap;
 
 use bray_binder::{BindingError, BindingQueryContext, BindingQueryError, SymbolQueryProvider};
-use bray_bound_tree::{BoundUnitKey, CheckedTemplateKind};
+use bray_bound_tree::CheckedTemplateKind;
 use bray_diagnostics::DiagnosticResult;
 use bray_package_interface::InterfacePredicateDefinitionState;
 use bray_symbols::{
@@ -20,7 +19,7 @@ use super::super::imported::{
 };
 use super::shared::{checked_source_expression, syntax_diagnostics};
 use crate::compilation::binder::CompilationBindingContext;
-use crate::fact::{CompilationFactKey, SymbolQueryCache};
+use crate::fact::SymbolQueryCache;
 
 impl_declaration_body_query!(
     PredicateDefinitionQuery,
@@ -77,7 +76,10 @@ fn predicate_definition(
         PredicateSignatureTemplateQuery,
     >::new(owner))?;
 
-    let key = predicate_definition_key(context, owner)?;
+    let key = context
+        .compilation()
+        .predicate_definition_key(owner)
+        .map_err(super::super::binding::binder_error)?;
 
     if signature.value().is_trusted() && key.is_some() {
         return Ok(DiagnosticResult::new(
@@ -171,70 +173,6 @@ fn imported_predicate_definition(
                 diagnostics,
             ))
         }
-    }
-}
-
-fn predicate_definition_key(
-    context: &CompilationBindingContext<'_>,
-    owner: PredicateDefinitionSymbolId,
-) -> BindingQueryResult<Option<BoundUnitKey>> {
-    let compilation = context.compilation();
-
-    let result = compilation.evaluate_query(
-        CompilationFactKey::PredicateDefinitionKeys,
-        &compilation.state.predicate_definition_keys,
-        || {
-            let symbols = compilation.symbol_graph()?;
-            let mut definitions = BTreeMap::new();
-
-            for key in compilation.declared_unit_keys()? {
-                if key.kind() != bray_bound_tree::BoundUnitKind::PredicateDefinition {
-                    continue;
-                }
-
-                let symbol = symbols
-                    .symbol_for_key(key.declared_owner())
-                    .ok_or_else(|| {
-                        crate::compilation::SemanticQueryFailure::contract(
-                            crate::compilation::SemanticQueryContext::Unit(key.clone()),
-                            crate::compilation::SemanticQueryViolation::Missing(
-                                crate::compilation::SemanticDataKind::Symbol,
-                            ),
-                        )
-                    })?;
-
-                let symbol =
-                    PredicateDefinitionSymbolId::try_from_any(symbol).ok_or_else(|| {
-                        crate::compilation::SemanticQueryFailure::contract(
-                            crate::compilation::SemanticQueryContext::Symbol(symbol),
-                            crate::compilation::SemanticQueryViolation::UnexpectedSymbolKind {
-                                expected:
-                                    crate::compilation::SemanticSymbolCategory::PredicateDefinition,
-                                actual: symbol.kind(),
-                            },
-                        )
-                    })?;
-
-                if definitions.insert(symbol, key).is_some() {
-                    return Err(crate::compilation::SemanticQueryFailure::contract(
-                        crate::compilation::SemanticQueryContext::Symbol(symbol.into_any()),
-                        crate::compilation::SemanticQueryViolation::CountMismatch {
-                            data: crate::compilation::SemanticDataKind::BoundUnit,
-                            expected: 1,
-                            actual: 2,
-                        },
-                    )
-                    .into());
-                }
-            }
-
-            Ok(definitions)
-        },
-    );
-
-    match result {
-        Ok(definitions) => Ok(definitions.get(&owner).cloned()),
-        Err(error) => Err(super::super::binding::binder_error(error.clone())),
     }
 }
 

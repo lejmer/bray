@@ -69,6 +69,7 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
             encode_callable_clauses(encoder, &contract.invocation_preconditions);
             encode_callable_clauses(encoder, &contract.static_constraints);
             encode_callable_clauses(encoder, &contract.normal_completion_postconditions);
+            super::execution::encode_execution_contract(encoder, &contract.execution_contract);
             encode_callable_behavior(encoder, &contract.invocation_behavior);
 
             match &contract.deferred_execution_behavior {
@@ -140,6 +141,11 @@ pub(super) fn encode_callable_behavior(
 
     encoder.write_u32(behavior.dependency_contract.raw());
     encoder.write_u32(behavior.current_run_cancellation.to_wire());
+    write_count(encoder, behavior.execution_properties.len());
+
+    for property in &*behavior.execution_properties {
+        encoder.write_u32(property.to_wire());
+    }
 }
 
 pub(super) fn encode_dependency_requirement(

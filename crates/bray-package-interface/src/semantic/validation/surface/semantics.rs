@@ -134,7 +134,17 @@ impl InterfaceSemantics {
         dependency_count: usize,
     ) -> Result<(), InterfaceValidationError> {
         for (index, definition) in self.predicate_definitions.iter().enumerate() {
-            validate_predicate_definition(definition, surface).map_err(|error| {
+            let validation = (|| {
+                validate_predicate_definition(definition, surface)?;
+
+                for (_, _, ty) in definition.parameters() {
+                    validate_index(ty.to_index(), self.types.len())?;
+                }
+
+                Ok(())
+            })();
+
+            validation.map_err(|error| {
                 semantic_record_error(
                     error,
                     InterfaceSemanticRecordKind::PredicateDefinition,

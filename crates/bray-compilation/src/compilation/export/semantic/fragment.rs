@@ -15,9 +15,10 @@ use super::super::PackageInterfaceExportError;
 use super::context::SemanticExporter;
 use super::declarations::{
     ExportedDeclarations, export_callable_semantics, export_default_semantics,
-    export_generic_semantics, export_predicate_semantics, export_type_semantics,
+    export_generic_semantics, export_type_semantics,
 };
 use super::implementation::export_constant_semantics;
+use super::predicate::export_predicate_semantics;
 use crate::compilation::Compilation;
 use crate::compilation::binder::CompilationBindingContext;
 
@@ -60,7 +61,7 @@ impl SemanticFragment {
 
         export_constant_semantics(compilation, binder, symbol, &mut export, &mut declarations)?;
 
-        export_predicate_semantics(binder, symbol, &export, &mut declarations)?;
+        export_predicate_semantics(compilation, binder, symbol, &mut export, &mut declarations)?;
 
         export_default_semantics(
             compilation,
@@ -174,7 +175,7 @@ impl SemanticValueOrigins {
                 export.constant_values,
                 export.constant_terms,
             )
-            .with_contracts(declarations.constraints, declarations.callable_contracts)
+            .with_contracts(declarations.constraints, [])
             .with_declarations(
                 declarations.signatures,
                 declarations.generic_declarations,

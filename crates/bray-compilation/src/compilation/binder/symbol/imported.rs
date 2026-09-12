@@ -122,6 +122,31 @@ pub(super) fn imported_predicate_definition_state(
     ))
 }
 
+pub(super) fn imported_predicate_signature(
+    context: &CompilationBindingContext<'_>,
+    address: ImportedSemanticAddress,
+) -> BindingQueryResult<DiagnosticResult<bray_symbols::PredicateSignatureTemplate>> {
+    let result = imported_records(
+        context,
+        address,
+        InterfaceSemanticRecordKind::PredicateDefinition,
+    )?;
+
+    let [ImportedSemanticRecord::PredicateDefinition(definition)] = result.value().as_ref() else {
+        return Err(invalid_imported_record_set(
+            address,
+            InterfaceSemanticRecordKind::PredicateDefinition,
+            result.value(),
+        ));
+    };
+
+    // Candidate queries share the immutable parameter signature and diagnostics.
+    Ok(DiagnosticResult::new(
+        definition.signature().clone(),
+        result.diagnostics().clone(),
+    ))
+}
+
 pub(super) fn imported_declared_type(
     context: &CompilationBindingContext<'_>,
     address: ImportedSemanticAddress,

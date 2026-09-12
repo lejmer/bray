@@ -174,6 +174,25 @@ impl InternState {
                 Ok(ImportedPredicateDefinition {
                     owner,
                     state: input.state(),
+                    signature: bray_symbols::PredicateSignatureTemplate::new(
+                        owner,
+                        input
+                            .parameters()
+                            .iter()
+                            .map(|(parameter, name, ty)| {
+                                Ok(bray_symbols::PredicateParameterTemplate::new(
+                                    resolve_exact::<bray_symbols::PredicateParameterSymbolId>(
+                                        symbols, parameter,
+                                    )?,
+                                    name.clone(),
+                                    TypeExpressionTemplate::Resolved(self.type_id(*ty).ok_or(
+                                        InterfaceSemanticInternError::UnresolvedValueGraph,
+                                    )?),
+                                ))
+                            })
+                            .collect::<Result<Vec<_>, InterfaceSemanticInternError>>()?,
+                        input.state() == crate::InterfacePredicateDefinitionState::OpaqueTrusted,
+                    ),
                 })
             })
             .collect()

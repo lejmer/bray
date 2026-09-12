@@ -1,4 +1,5 @@
 mod memory;
+mod predicate;
 mod query;
 mod reference;
 mod static_reference;

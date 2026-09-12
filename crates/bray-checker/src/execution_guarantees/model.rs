@@ -99,6 +99,7 @@ pub struct ExecutionCertification {
     /// Selected obligations used by successful proofs, retaining source and generic identities.
     pub dependencies: std::collections::BTreeSet<(
         bray_declarations::SyntaxAnchor,
+        ExecutionObligation,
         BoundCallableTarget,
         ExecutionObligation,
     )>,
@@ -157,28 +158,7 @@ impl ExecutionCallEvidence {
 pub type ExecutionCandidates = std::collections::BTreeMap<ExecutionObligation, ExecutionCandidate>;
 
 /// The exact declared promise required by a proof node.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum ExecutionObligation {
-    /// An execution property, optionally restricted to a declared guard domain.
-    Property(ExecutionProperty, Option<SourceSpan>),
-    /// A declared normal-completion predicate.
-    Postcondition(SourceSpan),
-}
-
-impl ExecutionObligation {
-    /// Whether a cycle would assume the completion it is meant to establish.
-    pub const fn requires_acyclic_proof(self) -> bool {
-        !matches!(self, Self::Property(ExecutionProperty::Pure, _))
-    }
-
-    /// Returns the execution property when this is an execution obligation.
-    pub const fn property(self) -> Option<ExecutionProperty> {
-        match self {
-            Self::Property(property, _) => Some(property),
-            Self::Postcondition(_) => None,
-        }
-    }
-}
+pub type ExecutionObligation = bray_symbols::CallableExecutionObligation<super::ExecutionClauseId>;
 
 /// An entry domain and its declared normal-completion predicates at one selected call.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -186,7 +166,7 @@ pub struct ExecutionCompletionContract {
     /// Required conditions, including the group's entry guards.
     pub entry: Vec<super::ExecutionCondition>,
     /// Predicates to establish from the actual callee body before callers may use them.
-    pub postconditions: Vec<(super::ExecutionCondition, SourceSpan)>,
+    pub postconditions: Vec<(super::ExecutionCondition, super::ExecutionClauseId)>,
 }
 
 /// A selected normal-completion predicate whose implementation still needs checking.
@@ -195,7 +175,7 @@ pub struct ExecutionCompletionDependency {
     /// The selected callable.
     pub target: BoundCallableTarget,
     /// The exact normal-completion clause.
-    pub source: SourceSpan,
+    pub source: super::ExecutionClauseId,
     /// The calling expression.
     pub node: AnyBoundNodeId,
 }

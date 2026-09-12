@@ -454,15 +454,50 @@ pub enum InterfacePredicateDefinitionState {
 pub struct InterfacePredicateDefinition {
     pub(crate) owner: InterfaceSymbolReference,
     pub(crate) state: InterfacePredicateDefinitionState,
+    pub(crate) parameters: Arc<
+        [(
+            InterfaceSymbolReference,
+            bray_symbols::CallableParameterName,
+            InterfaceTypeId,
+        )],
+    >,
 }
 
 impl InterfacePredicateDefinition {
     /// Creates one durable predicate definition record.
-    pub const fn new(
-        owner: InterfaceSymbolReference,
-        state: InterfacePredicateDefinitionState,
+    pub fn new(owner: InterfaceSymbolReference, state: InterfacePredicateDefinitionState) -> Self {
+        Self {
+            owner,
+            state,
+            parameters: Arc::from([]),
+        }
+    }
+
+    /// Retains the predicate's named parameters and resolved types in declaration order.
+    pub fn with_parameters(
+        mut self,
+        parameters: impl IntoIterator<
+            Item = (
+                InterfaceSymbolReference,
+                bray_symbols::CallableParameterName,
+                InterfaceTypeId,
+            ),
+        >,
     ) -> Self {
-        Self { owner, state }
+        self.parameters = parameters.into_iter().collect();
+
+        self
+    }
+
+    /// Returns the predicate signature in declaration order.
+    pub fn parameters(
+        &self,
+    ) -> &[(
+        InterfaceSymbolReference,
+        bray_symbols::CallableParameterName,
+        InterfaceTypeId,
+    )] {
+        &self.parameters
     }
 
     /// Returns the predicate declaration that owns this record.

@@ -498,14 +498,26 @@ impl<'a> SemanticExporter<'a> {
             return Ok(InterfaceSymbolReference::Local(id));
         }
 
-        match self.graph.symbol_key(symbol).map(|key| key.data()) {
+        let imported = if self.graph.symbol_key(symbol).is_none() {
+            Some(
+                self.compilation
+                    .imported_symbol_skeleton_result()
+                    .map_err(super::super::fact_query_export_error)?,
+            )
+        } else {
+            None
+        };
+
+        let key = self.graph.symbol_key(symbol).or_else(|| {
+            imported
+                .and_then(|result| result.value().as_deref())
+                .and_then(|symbols| symbols.symbol_key(symbol))
+        });
+
+        match key.map(|key| key.data()) {
             Some(SymbolKeyData::CompilerKnownDeclaration { .. })
             | Some(SymbolKeyData::Synthesized(_)) => {
-                let key = self
-                    .graph
-                    .symbol_key(symbol)
-                    .cloned()
-                    .ok_or_else(|| incomplete(symbol))?;
+                let key = key.cloned().ok_or_else(|| incomplete(symbol))?;
 
                 let reference = bray_package_interface::CompilerKnownSymbolReference::try_new(key)
                     .ok_or_else(|| incomplete(symbol))?;

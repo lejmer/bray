@@ -533,6 +533,7 @@ impl<'a> SemanticExporter<'a> {
             behavior.lifecycle_obligations().iter().copied(),
             self.dependency_contract_id(behavior.dependency_contract())?,
             behavior.current_run_cancellation(),
-        ))
+        )
+        .with_execution_properties(behavior.execution_properties().iter().copied()))
     }
 }

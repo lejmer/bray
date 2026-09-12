@@ -689,6 +689,49 @@ impl Compilation {
             };
 
             let Some(body) = self.callable_body_key(callable.definition())? else {
+                if self
+                    .symbol_graph()?
+                    .declaration_syntax_anchor(callable.definition().symbol())
+                    .is_none()
+                {
+                    let contract =
+                        self.imported_execution_contract(callable, &mut diagnostics, cancellation)?;
+
+                    let mut completion = Vec::new();
+
+                    for domain in &*contract.domains {
+                        let entry = self.imported_execution_conditions(
+                            callable,
+                            domain.entry.iter().copied(),
+                            cancellation,
+                        )?;
+
+                        let mut postconditions = Vec::new();
+
+                        for (ordinal, term) in &*domain.postconditions {
+                            let conditions = self.imported_execution_conditions(
+                                callable,
+                                [*term],
+                                cancellation,
+                            )?;
+
+                            postconditions.extend(conditions.into_iter().map(|condition| {
+                                (
+                                    condition,
+                                    bray_checker::ExecutionClauseId::Imported(*ordinal),
+                                )
+                            }));
+                        }
+
+                        completion.push(bray_checker::ExecutionCompletionContract {
+                            entry,
+                            postconditions,
+                        });
+                    }
+
+                    calls.insert(expression, completion);
+                }
+
                 continue;
             };
 
@@ -724,7 +767,12 @@ impl Compilation {
                         .into_iter()
                         .map(|(condition, _)| condition)
                         .collect(),
-                    postconditions: posts.into_parts().0,
+                    postconditions: posts
+                        .into_parts()
+                        .0
+                        .into_iter()
+                        .map(|(condition, source)| (condition, source.into()))
+                        .collect(),
                 });
             }
 
