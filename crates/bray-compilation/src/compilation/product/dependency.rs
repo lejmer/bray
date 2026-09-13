@@ -47,7 +47,8 @@ pub(super) fn validate_public_expression_dependencies(
             continue;
         }
 
-        roots.push((owner, key));
+        // Scheduled work retains the shared unit identity independently of the inventory.
+        roots.push((owner, key.clone()));
     }
 
     let completed = compilation

@@ -210,16 +210,7 @@ impl Compilation {
         &self,
         provider: AnySymbolId,
     ) -> Result<Option<bray_bound_tree::BoundUnitKey>, CodegenPreparationError> {
-        let symbols = self.symbol_graph()?;
-
-        let Some(provider) = symbols.symbol_key(provider) else {
-            return Ok(None);
-        };
-
-        Ok(self.declared_unit_keys()?.into_iter().find(|unit| {
-            unit.kind() == bray_bound_tree::BoundUnitKind::RuntimeDefault
-                && unit.declared_owner() == provider
-        }))
+        Ok(self.declared_unit_key(provider, bray_bound_tree::BoundUnitKind::RuntimeDefault)?)
     }
 
     pub(in crate::compilation::product) fn concrete_codegen_callable_defaults(

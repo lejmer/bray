@@ -30,7 +30,8 @@ impl Compilation {
                 continue;
             }
 
-            for bound in self.bound_unit_family_with_cancellation(root, cancellation)? {
+            // Family expansion retains the shared identity independently of the inventory.
+            for bound in self.bound_unit_family_with_cancellation(root.clone(), cancellation)? {
                 let declaration =
                     self.execution_declaration(bound.value().key().source().syntax())?;
 

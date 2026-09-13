@@ -682,7 +682,7 @@ fn executable_template_unit(
             });
     }
 
-    if let Some(definition) = bray_symbols::CallableDefinitionId::try_new(owner) {
+    if let Some(definition) = CallableDefinitionId::try_new(owner) {
         return compilation.callable_body_key(definition).map_err(|cause| {
             super::super::executable_template_evaluation_export_error(declaration.clone(), cause)
         });
@@ -692,22 +692,16 @@ fn executable_template_unit(
         return Ok(None);
     }
 
-    let owner = graph.symbol_key(owner).ok_or_else(|| {
+    graph.symbol_key(owner).ok_or_else(|| {
         super::super::export_contract_error(
             super::super::PackageInterfaceExportContract::MissingRuntimeDefaultOwnerKey,
         )
     })?;
 
     compilation
-        .declared_unit_keys()
+        .declared_unit_key(owner, bray_bound_tree::BoundUnitKind::RuntimeDefault)
         .map_err(|cause| {
             super::super::executable_template_evaluation_export_error(declaration.clone(), cause)
-        })
-        .map(|units| {
-            units.into_iter().find(|unit| {
-                unit.kind() == bray_bound_tree::BoundUnitKind::RuntimeDefault
-                    && unit.declared_owner() == owner
-            })
         })
 }
 

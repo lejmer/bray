@@ -324,7 +324,7 @@ impl Compilation {
         self.run_semantic_query(cancellation, priority, || {
             let mut keys = self
                 .declared_unit_keys()?
-                .into_iter()
+                .iter()
                 .filter(|key| key.source().syntax().source_id() == source_id)
                 .collect::<Vec<_>>();
 
@@ -341,7 +341,8 @@ impl Compilation {
             let mut units = Vec::new();
 
             for key in keys {
-                units.extend(self.bound_unit_family_with_cancellation(key, cancellation)?);
+                // Family traversal owns a shared identity while expanding nested units.
+                units.extend(self.bound_unit_family_with_cancellation(key.clone(), cancellation)?);
             }
 
             Ok(units)
@@ -1184,7 +1185,7 @@ mod tests {
         );
 
         let keys = compilation
-            .declared_unit_keys()
+            .declared_unit_keys_for_test()
             .unwrap_or_else(|error| panic!("unit keys must be available: {error:?}"));
 
         let second_source_keys = keys
@@ -1359,7 +1360,7 @@ mod tests {
         assert!(compilation.state.check_diagnostics.get().is_none());
 
         let keys = compilation
-            .declared_unit_keys()
+            .declared_unit_keys_for_test()
             .unwrap_or_else(|error| panic!("unit keys must be available: {error:?}"));
 
         let identity_position = position(SOURCE, "return copy");
@@ -1427,7 +1428,7 @@ mod tests {
         assert!(matches!(result, Err(crate::FactQueryError::Cancelled)));
 
         let keys = compilation
-            .declared_unit_keys()
+            .declared_unit_keys_for_test()
             .unwrap_or_else(|error| panic!("unit keys must be available: {error:?}"));
 
         assert!(keys.iter().all(|key| {
@@ -1508,7 +1509,7 @@ mod tests {
         assert!(compilation.state.check_diagnostics.get().is_none());
 
         let key = compilation
-            .declared_unit_keys()
+            .declared_unit_keys_for_test()
             .unwrap_or_else(|error| panic!("unit keys must be available: {error:?}"))
             .iter()
             .find(|key| key.kind() == BoundUnitKind::CallableBody)

@@ -1468,7 +1468,7 @@ mod tests {
         let compilation = compilation(UNIT_ROOT_LOWERING_SOURCE);
 
         let (outer, nested) = compilation
-            .declared_unit_keys()
+            .declared_unit_keys_for_test()
             .unwrap_or_else(|error| panic!("declared units must be available: {error:?}"))
             .into_iter()
             .filter(|key| key.kind() == BoundUnitKind::CallableBody)
@@ -3654,7 +3654,7 @@ func read(pos owner: &Owner) -> i32
 
     fn declared_unit_key(compilation: &Compilation, kind: BoundUnitKind) -> BoundUnitKey {
         compilation
-            .declared_unit_keys()
+            .declared_unit_keys_for_test()
             .unwrap_or_else(|error| panic!("declared units must be available: {error:?}"))
             .into_iter()
             .find(|key| key.kind() == kind)

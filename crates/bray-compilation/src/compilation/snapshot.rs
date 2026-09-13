@@ -238,17 +238,7 @@ fn reuse_fixed_cells(
         CompilationFactKey::SemanticDiagnostics
     );
 
-    reuse!(
-        constant_template_keys,
-        CompilationFactKey::ConstantTemplateKeys
-    );
-
-    reuse!(callable_body_keys, CompilationFactKey::CallableBodyKeys);
-
-    reuse!(
-        predicate_definition_keys,
-        CompilationFactKey::PredicateDefinitionKeys
-    );
+    reuse!(declared_units, CompilationFactKey::DeclaredUnits);
 
     reuse!(check_diagnostics, CompilationFactKey::CheckDiagnostics);
 

@@ -1,6 +1,5 @@
-// rust-style: allow(module-too-large, reason = "semantic diagnostic aggregation and its source index form one cached query boundary")
+// rust-style: allow(module-too-large, reason = "semantic diagnostic aggregation shares one cached publication boundary")
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use bray_binder::SymbolQueryProvider;
@@ -14,7 +13,7 @@ use bray_checker::{
     TargetAbiValue, TargetCallableAbiRequirement, TargetValidityRequest, TargetValidityRequirement,
 };
 use bray_compiler_known::ImplementationHook;
-use bray_declarations::{DeclarationKind, DeclarationRecord, SyntaxAnchor};
+use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticEmissionEvaluationFailure,
     DiagnosticEmissionFailure, DiagnosticId, DiagnosticInterfaceDeclarationIdentity,
@@ -28,11 +27,8 @@ use bray_symbols::{
     AnySymbolId, CallableContractsQuery, CallableSymbolId, ConstantDefinitionState,
     DeclaredTypeRepresentation, ImplementationSymbolId, ImportedSymbolSkeleton, ModuleSurface,
     ModuleSurfaceQuery, NamedTypeSymbolId, ProductKind, StaticInstanceTemplate, SymbolGraph,
-    SymbolKey, SymbolOrigin, SymbolQueryRequest, TraitImplementationConformanceQuery,
+    SymbolOrigin, SymbolQueryRequest, TraitImplementationConformanceQuery,
     diagnostic_external_symbol_identity, diagnostic_symbol_identity, diagnostic_symbol_kind,
-};
-use bray_syntax::{
-    ExpressionSyntax, SyntaxKind, SyntaxTree, SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_tree,
 };
 
 use super::binder::has_visible_generic_parameters;
@@ -474,7 +470,12 @@ impl Compilation {
             ));
         }
 
-        let roots = self.declared_unit_keys()?.into_iter().map(unit_order_key);
+        // Scheduled diagnostics retain shared identities independently of the inventory.
+        let roots = self
+            .declared_unit_keys()?
+            .iter()
+            .cloned()
+            .map(unit_order_key);
 
         let mut units = self
             .state
@@ -701,160 +702,6 @@ impl Compilation {
         Ok((bound, sources))
     }
 
-    pub(in crate::compilation) fn declared_unit_keys(
-        &self,
-    ) -> Result<Vec<BoundUnitKey>, FactQueryError> {
-        let symbols = self.symbol_graph()?;
-        let syntax = self.syntax_tree();
-        let declarations = self.product_source_graph()?.declarations();
-        let syntax_index = SemanticSyntaxIndex::new(syntax, declarations.declarations());
-
-        let mut keys = Vec::new();
-
-        for declaration in declarations.declarations() {
-            let Some(symbol) = symbols.symbol_for_declaration(declaration.id()) else {
-                continue;
-            };
-
-            // Stable symbol keys are Arc-backed and retained by each bound-unit key.
-            let owner = symbols.symbol_key(symbol).cloned().ok_or_else(|| {
-                FactQueryError::from(SemanticQueryFailure::contract(
-                    SemanticQueryContext::Symbol(symbol),
-                    SemanticQueryViolation::Missing(SemanticDataKind::SymbolKey),
-                ))
-            })?;
-
-            self.push_primary_unit_key(&mut keys, declaration, owner.clone(), &syntax_index)?;
-
-            self.push_surface_unit_keys(
-                &mut keys,
-                declaration,
-                symbol,
-                owner,
-                symbols,
-                &syntax_index,
-            )?;
-        }
-
-        Ok(keys)
-    }
-
-    #[cfg(test)]
-    pub(in crate::compilation) fn declared_unit_keys_for_test(
-        &self,
-    ) -> Result<Vec<BoundUnitKey>, FactQueryError> {
-        self.declared_unit_keys()
-    }
-
-    fn push_primary_unit_key(
-        &self,
-        keys: &mut Vec<BoundUnitKey>,
-        declaration: &DeclarationRecord,
-        owner: SymbolKey,
-        syntax: &SemanticSyntaxIndex,
-    ) -> Result<(), FactQueryError> {
-        let anchor = declaration.syntax_anchor();
-
-        if callable_body_kind(declaration.kind()) && syntax.has_callable_body(anchor) {
-            let context = SemanticQueryContext::SymbolKey(owner.clone());
-
-            push_key(
-                keys,
-                BoundUnitKey::callable_body(owner, self.bound_source(anchor)?),
-                context,
-            )?;
-
-            return Ok(());
-        }
-
-        let constructor = match declaration.kind() {
-            DeclarationKind::Constant
-            | DeclarationKind::Static
-            | DeclarationKind::TraitConstantMember => BoundUnitKey::constant_template,
-            DeclarationKind::Predicate | DeclarationKind::TraitPredicateMember => {
-                BoundUnitKey::predicate_definition
-            }
-            _ => return Ok(()),
-        };
-
-        let Some(expression) = syntax.surface_expression(anchor) else {
-            return Ok(());
-        };
-
-        let context = SemanticQueryContext::SymbolKey(owner.clone());
-
-        push_key(
-            keys,
-            constructor(owner, self.bound_source(expression)?),
-            context,
-        )
-    }
-
-    fn push_surface_unit_keys(
-        &self,
-        keys: &mut Vec<BoundUnitKey>,
-        declaration: &DeclarationRecord,
-        symbol: AnySymbolId,
-        owner: SymbolKey,
-        symbols: &SymbolGraph,
-        syntax: &SemanticSyntaxIndex,
-    ) -> Result<(), FactQueryError> {
-        for anchor in declaration.surface().constraints() {
-            if syntax.has_bound_constraint_expression(*anchor) {
-                let context = SemanticQueryContext::SymbolKey(owner.clone());
-
-                push_key(
-                    keys,
-                    BoundUnitKey::constraint(owner.clone(), self.bound_source(*anchor)?),
-                    context,
-                )?;
-            }
-        }
-
-        for anchor in declaration.surface().contract_clauses() {
-            if syntax.has_bound_constraint_expression(*anchor) {
-                let context = SemanticQueryContext::SymbolKey(owner.clone());
-
-                push_key(
-                    keys,
-                    BoundUnitKey::contract_clause(owner.clone(), self.bound_source(*anchor)?),
-                    context,
-                )?;
-            }
-        }
-
-        let Some(default) = declaration.surface().runtime_default() else {
-            return Ok(());
-        };
-
-        let Some(expression) = syntax.surface_expression(default) else {
-            return Ok(());
-        };
-
-        let provider = symbols.runtime_default_provider(symbol).ok_or_else(|| {
-            FactQueryError::from(SemanticQueryFailure::contract(
-                SemanticQueryContext::Symbol(symbol),
-                SemanticQueryViolation::Missing(SemanticDataKind::RuntimeDefault),
-            ))
-        })?;
-
-        // Synthesized provider keys are Arc-backed and retained by the runtime-default unit key.
-        let provider = symbols.symbol_key(provider).cloned().ok_or_else(|| {
-            FactQueryError::from(SemanticQueryFailure::contract(
-                SemanticQueryContext::Symbol(provider),
-                SemanticQueryViolation::Missing(SemanticDataKind::SymbolKey),
-            ))
-        })?;
-
-        let context = SemanticQueryContext::SymbolKey(provider.clone());
-
-        push_key(
-            keys,
-            BoundUnitKey::runtime_default(provider, self.bound_source(expression)?),
-            context,
-        )
-    }
-
     fn semantic_unit_target_validity(
         &self,
         unit: &BoundUnit,
@@ -970,7 +817,7 @@ impl Compilation {
                 })
                 .collect::<Result<Vec<_>, _>>()?
                 .into_iter()
-                .map(|value| value.unwrap_or(bray_checker::TargetAbiValue::Unsupported))
+                .map(|value| value.unwrap_or(TargetAbiValue::Unsupported))
                 .collect::<Vec<_>>();
 
             if call.implementation_hook() == Some(ImplementationHook::NativeThreadExecution)
@@ -1000,7 +847,7 @@ impl Compilation {
                     conversion.target_type(),
                     cancellation,
                 )?
-                .unwrap_or(bray_checker::TargetAbiValue::Unsupported);
+                .unwrap_or(TargetAbiValue::Unsupported);
 
                 parameters.push(value);
             }
@@ -1093,152 +940,6 @@ fn ordered_diagnostic_collections<'diagnostic>(
         .collect()
 }
 
-struct SemanticSyntaxIndex {
-    entries: HashMap<SyntaxAnchor, SemanticSyntaxEntry>,
-}
-
-impl SemanticSyntaxIndex {
-    fn new<'declaration>(
-        syntax: &SyntaxTree,
-        declarations: impl IntoIterator<Item = &'declaration DeclarationRecord>,
-    ) -> Self {
-        let mut entries: HashMap<SyntaxAnchor, SemanticSyntaxEntry> = HashMap::new();
-
-        for declaration in declarations {
-            entries.entry(declaration.syntax_anchor()).or_default();
-
-            for anchor in declaration
-                .surface()
-                .directives()
-                .iter()
-                .chain(declaration.surface().constraints())
-                .chain(declaration.surface().contract_clauses())
-                .copied()
-                .chain(declaration.surface().runtime_default())
-            {
-                entries.entry(anchor).or_default();
-            }
-        }
-
-        let mut active = Vec::new();
-        let mut depth = 0_usize;
-
-        walk_syntax_tree(syntax, |event| {
-            let node = match event {
-                SyntaxWalkEvent::EnterNode(node) => {
-                    depth += 1;
-
-                    node
-                }
-                SyntaxWalkEvent::ExitNode(node) => {
-                    let anchor = SyntaxAnchor::from_node(&node);
-
-                    if active.last().is_some_and(|(active, _)| *active == anchor) {
-                        active.pop();
-                    }
-
-                    depth -= 1;
-
-                    return SyntaxWalkControl::Continue;
-                }
-                SyntaxWalkEvent::Token(_) => return SyntaxWalkControl::Continue,
-            };
-
-            let anchor = SyntaxAnchor::from_node(&node);
-
-            if entries.contains_key(&anchor) {
-                active.push((anchor, depth));
-            }
-
-            if node.kind() == SyntaxKind::CallableBodyBlockExpression
-                && let Some((active_anchor, _)) = active.last()
-                && let Some(entry) = entries.get_mut(active_anchor)
-            {
-                entry.has_callable_body = true;
-            }
-
-            if let Some((active_anchor, active_depth)) = active.last()
-                && let Some(entry) = entries.get_mut(active_anchor)
-            {
-                let expression_depth = depth - active_depth;
-
-                if node.kind() == SyntaxKind::Expression
-                    && entry
-                        .surface_expression_depth
-                        .is_none_or(|current| expression_depth < current)
-                {
-                    entry.surface_expression = Some(anchor);
-                    entry.surface_expression_depth = Some(expression_depth);
-
-                    entry.surface_expression_is_trait_satisfaction =
-                        node.cast::<ExpressionSyntax>().is_some_and(|expression| {
-                            expression.trait_satisfaction_constraint().is_some()
-                        });
-                }
-            }
-
-            SyntaxWalkControl::Continue
-        });
-
-        Self { entries }
-    }
-
-    fn has_callable_body(&self, anchor: SyntaxAnchor) -> bool {
-        self.entries
-            .get(&anchor)
-            .is_some_and(|entry| entry.has_callable_body)
-    }
-
-    fn has_bound_constraint_expression(&self, anchor: SyntaxAnchor) -> bool {
-        self.entries.get(&anchor).is_some_and(|entry| {
-            entry.surface_expression.is_some() && !entry.surface_expression_is_trait_satisfaction
-        })
-    }
-
-    fn surface_expression(&self, anchor: SyntaxAnchor) -> Option<SyntaxAnchor> {
-        self.entries.get(&anchor)?.surface_expression
-    }
-}
-
-#[derive(Default)]
-struct SemanticSyntaxEntry {
-    surface_expression: Option<SyntaxAnchor>,
-    surface_expression_depth: Option<usize>,
-    surface_expression_is_trait_satisfaction: bool,
-    has_callable_body: bool,
-}
-
-fn callable_body_kind(kind: DeclarationKind) -> bool {
-    matches!(
-        kind,
-        DeclarationKind::Function
-            | DeclarationKind::TraitCallableMember
-            | DeclarationKind::TypeConstructorMember
-            | DeclarationKind::FinalizerMember
-            | DeclarationKind::DestructorMember
-            | DeclarationKind::ScopeEnterMember
-            | DeclarationKind::ScopeExitMember
-            | DeclarationKind::TypeCallableMember
-    )
-}
-
-fn push_key(
-    keys: &mut Vec<BoundUnitKey>,
-    key: Option<BoundUnitKey>,
-    context: SemanticQueryContext,
-) -> Result<(), FactQueryError> {
-    let key = key.ok_or_else(|| {
-        FactQueryError::from(SemanticQueryFailure::contract(
-            context,
-            SemanticQueryViolation::Missing(SemanticDataKind::BoundUnit),
-        ))
-    })?;
-
-    keys.push(key);
-
-    Ok(())
-}
-
 fn unit_order_key(
     key: BoundUnitKey,
 ) -> (
@@ -1303,7 +1004,7 @@ mod tests {
             "}\n",
         ));
 
-        let mut kinds = match compilation.declared_unit_keys() {
+        let mut kinds = match compilation.declared_unit_keys_for_test() {
             Ok(keys) => keys.into_iter().map(|key| key.kind()).collect::<Vec<_>>(),
             Err(error) => panic!("semantic unit keys must be discoverable: {error:?}"),
         };
@@ -1336,7 +1037,7 @@ mod tests {
         let compilation = compilation(source);
 
         let keys = compilation
-            .declared_unit_keys()
+            .declared_unit_keys_for_test()
             .unwrap_or_else(|error| panic!("static initializer key must be available: {error:?}"));
 
         let [key] = keys.as_slice() else {
@@ -1469,7 +1170,7 @@ mod tests {
             "}\n",
         ));
 
-        let keys = match compilation.declared_unit_keys() {
+        let keys = match compilation.declared_unit_keys_for_test() {
             Ok(keys) => keys,
             Err(error) => panic!("callable key must be discoverable: {error:?}"),
         };
@@ -1558,7 +1259,7 @@ func main(value: r16)
         ));
 
         let keys = compilation
-            .declared_unit_keys()
+            .declared_unit_keys_for_test()
             .unwrap_or_else(|error| panic!("callable unit must be discoverable: {error:?}"));
 
         let [key] = keys.as_slice() else {
@@ -1602,7 +1303,7 @@ func main(value: r16)
         ));
 
         let keys = compilation
-            .declared_unit_keys()
+            .declared_unit_keys_for_test()
             .unwrap_or_else(|error| panic!("callable unit must be discoverable: {error:?}"));
 
         let key = keys
@@ -1682,7 +1383,7 @@ func main(value: r16)
             "}\n",
         ));
 
-        let keys = match compilation.declared_unit_keys() {
+        let keys = match compilation.declared_unit_keys_for_test() {
             Ok(keys) => keys,
             Err(error) => panic!("contract-clause key must be discoverable: {error:?}"),
         };
@@ -1727,7 +1428,7 @@ func main(value: r16)
             "}\n",
         ));
 
-        let keys = match compilation.declared_unit_keys() {
+        let keys = match compilation.declared_unit_keys_for_test() {
             Ok(keys) => keys,
             Err(error) => panic!("contract-clause key must be discoverable: {error:?}"),
         };
@@ -1787,7 +1488,7 @@ func main(value: r16)
             "}\n",
         ));
 
-        let keys = match compilation.declared_unit_keys() {
+        let keys = match compilation.declared_unit_keys_for_test() {
             Ok(keys) => keys,
             Err(error) => panic!("contract-clause keys must be discoverable: {error:?}"),
         };
@@ -1855,7 +1556,7 @@ func main(value: r16)
 
         assert!(
             compilation
-                .declared_unit_keys()
+                .declared_unit_keys_for_test()
                 .is_ok_and(|keys| keys.is_empty())
         );
 
@@ -1884,7 +1585,7 @@ func main(value: r16)
         for source in cases {
             let compilation = compilation(source);
 
-            let keys = match compilation.declared_unit_keys() {
+            let keys = match compilation.declared_unit_keys_for_test() {
                 Ok(keys) => keys,
                 Err(error) => panic!("recovered unit keys must be discoverable: {error:?}"),
             };
@@ -1978,7 +1679,7 @@ func main(value: r16)
 
         let serial = compilation_with_sources_and_worker_budget(&sources, WorkerBudget::serial());
 
-        let serial_keys = match serial.declared_unit_keys() {
+        let serial_keys = match serial.declared_unit_keys_for_test() {
             Ok(keys) => keys,
             Err(error) => panic!("serial unit keys must be discoverable: {error:?}"),
         };
@@ -1996,7 +1697,7 @@ func main(value: r16)
 
         let parallel = compilation_with_sources_and_worker_budget(&sources, parallel_budget);
 
-        let mut parallel_keys = match parallel.declared_unit_keys() {
+        let mut parallel_keys = match parallel.declared_unit_keys_for_test() {
             Ok(keys) => keys,
             Err(error) => panic!("parallel unit keys must be discoverable: {error:?}"),
         };
