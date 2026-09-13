@@ -11,6 +11,7 @@ mod imported;
 mod initializer;
 mod module_surface;
 mod result_dependencies;
+pub(in crate::compilation) use result_dependencies::expression_result_dependencies;
 mod static_storage;
 mod surface;
 mod template;

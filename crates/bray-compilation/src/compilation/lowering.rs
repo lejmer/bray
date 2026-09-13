@@ -1446,6 +1446,39 @@ mod tests {
     }
 
     #[test]
+    fn runtime_default_borrows_caller_owned_input_storage() {
+        let compilation = compilation(
+            r#"
+            module app;
+
+            func observe(pos first: bool, second: &bool = &first)
+            {
+            }
+        "#,
+        );
+
+        let key = declared_unit_key(&compilation, BoundUnitKind::RuntimeDefault);
+
+        let result = compilation
+            .lowered_unit(key)
+            .unwrap_or_else(|error| panic!("runtime default MIR must publish: {error:?}"));
+
+        let mir = lowered_mir(&result);
+
+        assert!(mir.storages_with_ids().any(|(_, storage)| matches!(
+            storage.kind(),
+            bray_ir::MirStorageKind::BorrowedParameter(0)
+        )));
+
+        assert!(
+            !mir.storages_with_ids().any(|(_, storage)| matches!(
+                storage.kind(),
+                bray_ir::MirStorageKind::Parameter(_)
+            ))
+        );
+    }
+
+    #[test]
     fn constant_references_lower_to_closed_mir_operands() {
         let compilation = compilation(CONSTANT_REFERENCE_LOWERING_SOURCE);
         let key = source_callable_body_key(&compilation);

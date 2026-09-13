@@ -90,6 +90,7 @@ fn remap_checked_behavior(
         execution,
         behavior.lifecycle_obligations().iter().copied(),
         remap.dependency_contract(behavior.dependency_contract())?,
+        remap.dependency_contract(behavior.result_dependencies())?,
         witnesses,
     ))
 }

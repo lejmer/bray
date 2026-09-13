@@ -149,6 +149,7 @@ fn decode_template(
     }
 
     let dependency_contract = InterfaceDependencyContractId::new(read_u32(reader)?);
+    let result_dependencies = InterfaceDependencyContractId::new(read_u32(reader)?);
     let current_run_cancellation = decode_tag(read_u32(reader)?)?;
 
     let witness_count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
@@ -165,6 +166,7 @@ fn decode_template(
         InterfaceCheckedTemplateExecution::new(execution_requirements, current_run_cancellation),
         lifecycle_obligations,
         dependency_contract,
+        result_dependencies,
         witnesses,
     );
 
@@ -467,6 +469,24 @@ mod tests {
         for template in imported.declaration_templates() {
             assert_eq!(template.kind(), template.template().kind());
             assert_eq!(template.ordinal(), SymbolOrdinal::new(0));
+            let behavior = template.template().behavior();
+
+            assert_ne!(
+                behavior.dependency_contract(),
+                behavior.result_dependencies()
+            );
+
+            let result = store
+                .dependency_contract_template_data(behavior.result_dependencies())
+                .unwrap_or_else(|error| panic!("result dependencies must intern: {error:?}"));
+
+            assert!(matches!(
+                result.requirements(),
+                [bray_symbols::DependencyRequirement::Direct {
+                    kind: bray_symbols::DependencyRequirementKind::StorageAlive,
+                    ..
+                }]
+            ));
         }
     }
 
@@ -533,6 +553,7 @@ mod tests {
                 bray_symbols::CurrentRunCancellation::NotEntered,
             ),
             [],
+            crate::InterfaceDependencyContractId::new(0),
             crate::InterfaceDependencyContractId::new(0),
             [],
         );
@@ -1087,6 +1108,7 @@ mod tests {
                 ),
                 [],
                 crate::InterfaceDependencyContractId::new(0),
+                crate::InterfaceDependencyContractId::new(1),
                 witnesses,
             );
 
@@ -1140,7 +1162,16 @@ mod tests {
 
         InterfaceSemantics::new()
             .with_values(
-                [InterfaceDependencyContract::new([])],
+                [
+                    InterfaceDependencyContract::new([]),
+                    InterfaceDependencyContract::new([crate::InterfaceDependencyRequirement::new(
+                        crate::InterfaceDependencySubject::new(
+                            crate::InterfaceDependencySubjectRoot::Parameter(SymbolOrdinal::new(0)),
+                            [],
+                        ),
+                        crate::InterfaceDependencyRequirementKind::StorageAlive,
+                    )]),
+                ],
                 [InterfaceType::TypeParameter(generic_type.clone())],
                 [],
                 [],
@@ -1289,6 +1320,7 @@ mod tests {
                 bray_symbols::CurrentRunCancellation::MayEnter,
             ),
             [LifecycleObligationKind::Joining],
+            crate::InterfaceDependencyContractId::new(0),
             crate::InterfaceDependencyContractId::new(0),
             [implementation],
         );

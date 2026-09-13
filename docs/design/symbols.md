@@ -1351,6 +1351,16 @@ codegen:
 Provider inputs are explicit. A parameter default can depend on the receiver and earlier parameters, but not itself,
 later parameters, or arbitrary call-site locals. Field and payload defaults cannot depend on `self` or sibling fields.
 
+Evaluation requirements and dependencies retained by the result are separate contracts. A fresh borrow retains storage
+identity, while forwarding an existing value retains its carried dependencies. Both contracts survive interface
+publication and specialization.
+
+Runtime provider inputs alias caller-owned argument storage. The caller keeps those slots alive through subsequent
+defaults and target invocation, then ends their lifetime when the call completes. Generated providers do not own copies
+of those input slots. Field and payload providers have no contextual slots and cannot return borrows of their own
+local temporaries.
+
+
 Imported package interfaces reconstruct provider symbols and their checked surfaces without dependency source syntax.
 Generic providers include a source-independent checked or lowerable template sufficient for downstream instantiation.
 The consuming compiler must not rebind a dependency's default expression.

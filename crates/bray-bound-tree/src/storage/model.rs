@@ -91,6 +91,12 @@ pub enum StorageIdentity {
 }
 
 impl StorageIdentity {
+    /// Returns whether a runtime-default provider borrows this input from its caller.
+    pub fn is_borrowed_provider_input(self, unit: crate::BoundUnitKind) -> bool {
+        unit == crate::BoundUnitKind::RuntimeDefault
+            && matches!(self, Self::Parameter(_) | Self::Receiver(_))
+    }
+
     /// Returns this storage identity's stable machine-readable category.
     pub const fn kind_name(self) -> &'static str {
         match self {

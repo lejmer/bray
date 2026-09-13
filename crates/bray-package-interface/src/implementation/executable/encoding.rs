@@ -339,6 +339,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
     ) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
         let (tag, ordinal) = match kind {
             MirStorageKind::Parameter(ordinal) => (0, Some(*ordinal)),
+            MirStorageKind::BorrowedParameter(ordinal) => (10, Some(*ordinal)),
             MirStorageKind::Local => (1, None),
             MirStorageKind::Temporary => (2, None),
             MirStorageKind::Return => (3, None),

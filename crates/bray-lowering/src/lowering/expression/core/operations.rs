@@ -1322,7 +1322,14 @@ impl Lowerer<'_> {
                     .identity(id)
                     .ok_or(LoweringError::MissingStorageIdentityRecord(id))?;
 
-                let kind = storage_kind(identity, self.parameter_positions.get(&id).copied())?;
+                let mut kind = storage_kind(identity, self.parameter_positions.get(&id).copied())?;
+
+                if identity.is_borrowed_provider_input(self.input.unit().key().kind())
+                    && let MirStorageKind::Parameter(position) = kind
+                {
+                    kind = MirStorageKind::BorrowedParameter(position);
+                }
+
                 let storage = self.builder.push_storage(self.source(origin), kind, ty)?;
 
                 self.storages.insert(id, storage);

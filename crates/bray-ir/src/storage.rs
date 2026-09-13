@@ -12,6 +12,8 @@ use crate::{MirFieldReference, MirOperand, MirSourceAnchor, MirStorageId};
 pub enum MirStorageKind {
     /// Caller-supplied parameter storage at its semantic ABI position.
     Parameter(u32),
+    /// Caller-owned argument storage borrowed by a runtime-default provider.
+    BorrowedParameter(u32),
     /// Source-correlated local storage.
     Local,
     /// Compiler-created temporary storage.

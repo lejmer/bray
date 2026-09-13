@@ -301,6 +301,11 @@ fn validate_template(
         semantics.dependency_contracts.len(),
     )?;
 
+    validate_index(
+        template.behavior().result_dependencies().to_index(),
+        semantics.dependency_contracts.len(),
+    )?;
+
     for symbol in template
         .behavior()
         .effects()

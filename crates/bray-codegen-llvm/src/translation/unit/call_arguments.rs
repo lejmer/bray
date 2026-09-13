@@ -75,14 +75,35 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 .append_basic_block(self.function, "call.default.panicked"),
         });
 
+        let receiver_storage = if defaults.is_empty() {
+            None
+        } else {
+            receiver
+                .map(|value| self.store_default_input(value))
+                .transpose()?
+        };
+
+        let mut parameter_storage = BTreeMap::new();
+
+        if !defaults.is_empty() {
+            for (ordinal, value) in &parameters {
+                parameter_storage.insert(*ordinal, self.store_default_input(*value)?);
+            }
+        }
+
         for (ordinal, provider) in defaults {
             let helper = next_helper(helpers, &MirHelperReference::CallableDefault(provider))?;
 
             let mut preceding =
                 Vec::with_capacity(parameters.len() + usize::from(receiver.is_some()));
 
-            preceding.extend(receiver);
-            preceding.extend(parameters.range(..ordinal).map(|(_, value)| *value));
+            preceding.extend(receiver_storage.map(BasicValueEnum::PointerValue));
+
+            preceding.extend(
+                parameter_storage
+                    .range(..ordinal)
+                    .map(|(_, pointer)| BasicValueEnum::PointerValue(*pointer)),
+            );
 
             let value = match checked_defaults.as_ref() {
                 Some(defaults) => {
@@ -100,6 +121,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             }
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
+            parameter_storage.insert(ordinal, self.store_default_input(value)?);
+
             if parameters.insert(ordinal, value).is_some() {
                 return Err(CodegenFailure::GeneratedModuleInvariant);
             }
@@ -107,14 +130,30 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let mut arguments = Vec::with_capacity(parameters.len() + usize::from(receiver.is_some()));
 
-        arguments.extend(receiver);
+        if let Some(value) = receiver {
+            arguments.push(match receiver_storage {
+                Some(pointer) => llvm(self.builder.build_load(
+                    value.get_type(),
+                    pointer,
+                    "call.receiver.value",
+                ))?,
+                None => value,
+            });
+        }
 
         for (expected, (ordinal, value)) in (0_u32..).zip(parameters) {
             if ordinal != expected {
                 return Err(CodegenFailure::GeneratedModuleInvariant);
             }
 
-            arguments.push(value);
+            arguments.push(match parameter_storage.get(&ordinal) {
+                Some(pointer) => llvm(self.builder.build_load(
+                    value.get_type(),
+                    *pointer,
+                    "call.argument.value",
+                ))?,
+                None => value,
+            });
         }
 
         if arguments.len() != call.arguments().len() {
@@ -125,6 +164,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             values: arguments,
             checked_defaults,
         })
+    }
+
+    fn store_default_input(
+        &self,
+        value: BasicValueEnum<'context>,
+    ) -> Result<PointerValue<'context>, CodegenFailure> {
+        let storage = self.allocate_temporary(value.get_type(), "call.default.input")?;
+        llvm(self.builder.build_store(storage, value))?;
+
+        Ok(storage)
     }
 
     pub(super) fn invoke_helper_with_panic_report_context(

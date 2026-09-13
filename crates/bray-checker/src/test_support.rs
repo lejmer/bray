@@ -121,14 +121,27 @@ impl CheckerRequestContext for TestCheckerContext {
             .empty_dependency_contract_template()
             .map_err(|error| crate::CheckerInfrastructureError::SemanticValueStore(error).into())
     }
-    fn parameter_default_dependencies(
+    fn parameter_default_result(
         &self,
         _parameter: bray_symbols::CallableParameterSymbolId,
-    ) -> crate::CheckerQueryResult<bray_symbols::DependencyContractTemplateId, Self::UpstreamError>
-    {
-        self.semantic_values()
+    ) -> crate::CheckerQueryResult<
+        (
+            bray_symbols::TypeId,
+            bray_symbols::DependencyContractTemplateId,
+        ),
+        Self::UpstreamError,
+    > {
+        let ty = self
+            .semantic_values()
+            .intern_type(TypeData::Error)
+            .map_err(crate::CheckerInfrastructureError::SemanticValueStore)?;
+
+        let dependencies = self
+            .semantic_values()
             .empty_dependency_contract_template()
-            .map_err(|error| crate::CheckerInfrastructureError::SemanticValueStore(error).into())
+            .map_err(crate::CheckerInfrastructureError::SemanticValueStore)?;
+
+        Ok((ty, dependencies))
     }
 
     type UpstreamError = std::convert::Infallible;

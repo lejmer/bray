@@ -38,12 +38,25 @@ pub(super) fn export_checked_source_template(
         .expression_semantics_with_cancellation(key.clone(), cancellation)
         .map_err(super::fact_query_export_error)?;
 
+    let context = compilation
+        .binding_context(cancellation)
+        .map_err(super::fact_query_export_error)?;
+
+    let result_dependencies = crate::compilation::binder::expression_result_dependencies(
+        &context,
+        &key,
+        bound.result().value(),
+        semantics.result().value(),
+    )
+    .map_err(super::binding_query_export_error)?;
+
     let body = compilation
         .body_behavior_with_cancellation(key, cancellation)
         .map_err(super::fact_query_export_error)?;
 
     if bound.result().diagnostics().has_errors()
         || semantics.result().diagnostics().has_errors()
+        || result_dependencies.diagnostics().has_errors()
         || body.result().diagnostics().has_errors()
         || body.result().value().is_recovered()
     {
@@ -90,6 +103,7 @@ pub(super) fn export_checked_source_template(
         ),
         behavior.lifecycle_obligations().iter().copied(),
         dependency,
+        export.dependency_contract_id(*result_dependencies.value())?,
         [],
     );
 
@@ -159,6 +173,10 @@ pub(super) fn export_source_template(
 }
 
 fn source_expression_root(unit: &BoundUnit, syntax: SyntaxAnchor) -> Option<BoundExpressionId> {
+    if let bray_bound_tree::BoundUnitRoot::Expression(root) = unit.root() {
+        return Some(root);
+    }
+
     let mut exact_root = None;
     let mut postfix_root = None;
 

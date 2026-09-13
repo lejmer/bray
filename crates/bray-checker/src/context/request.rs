@@ -99,11 +99,17 @@ pub trait CheckerRequestContext: Sync {
         callable: bray_symbols::CallableSymbolId,
     ) -> CheckerQueryResult<bray_symbols::DependencyContractTemplateId, Self::UpstreamError>;
 
-    /// Returns the checked dependencies of a selected parameter default.
-    fn parameter_default_dependencies(
+    /// Returns the result type and retained dependencies of a selected parameter default.
+    fn parameter_default_result(
         &self,
         parameter: bray_symbols::CallableParameterSymbolId,
-    ) -> CheckerQueryResult<bray_symbols::DependencyContractTemplateId, Self::UpstreamError>;
+    ) -> CheckerQueryResult<
+        (
+            bray_symbols::TypeId,
+            bray_symbols::DependencyContractTemplateId,
+        ),
+        Self::UpstreamError,
+    >;
 
     /// Returns the compilation-wide symbol graph.
     fn symbols(&self) -> &SymbolGraph;

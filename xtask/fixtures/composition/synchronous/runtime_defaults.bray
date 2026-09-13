@@ -1,0 +1,42 @@
+module composition.synchronous;
+
+using composition.api;
+
+func runtime_default_storage()
+{
+    assert(
+        composition.api.read_default_storage(
+            composition.api.DefaultFlag
+            {
+                value = true,
+            }
+        )
+    );
+
+    assert(
+        composition.api.read_default_storage(
+            composition.api.DefaultFlag
+            {
+                value = false,
+            }
+        )
+    );
+
+    assert(
+        composition.api.mutate_default_storage(
+            composition.api.DefaultFlag
+            {
+                value = false,
+            }
+        )
+    );
+
+    let flag = composition.api.DefaultFlag
+    {
+        value = true,
+    };
+
+    let forwarded = composition.api.forward_default<composition.api.DefaultFlag>(&flag);
+
+    assert(forwarded.value);
+}

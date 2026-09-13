@@ -246,7 +246,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                         .map(|source| {
                             DependencyRequirement::direct(
                                 source,
-                                DependencyRequirementKind::ValueDependencies,
+                                DependencyRequirementKind::StorageAlive,
                             )
                         })
                         .collect()

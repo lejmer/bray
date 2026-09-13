@@ -203,7 +203,14 @@ where
             return Ok(false);
         };
 
-        Ok(record.root().borrow_capability().is_some()
+        Ok(self
+            .storage
+            .root_identity(access)
+            .and_then(|root| self.storage.identity(root))
+            .is_some_and(|identity| {
+                identity.is_borrowed_provider_input(self.request.unit().key().kind())
+            })
+            || record.root().borrow_capability().is_some()
             || self.projected_storage_borrow_kind(access)?.is_some())
     }
 

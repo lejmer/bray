@@ -237,7 +237,15 @@ where
                 }
             }
             CheckerUnitRoot::Expression(expression) => {
-                self.plan_expression(expression, Some(StorageAccessPurpose::Read))?;
+                let purpose = if self.request.unit().key().kind()
+                    == bray_bound_tree::BoundUnitKind::RuntimeDefault
+                {
+                    StorageAccessPurpose::ValueTransfer
+                } else {
+                    StorageAccessPurpose::Read
+                };
+
+                self.plan_expression(expression, Some(purpose))?;
             }
             CheckerUnitRoot::ExpressionSequence(block) => self.plan_block(block)?,
         }

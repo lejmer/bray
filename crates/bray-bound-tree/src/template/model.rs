@@ -192,6 +192,7 @@ pub struct CheckedTemplateBehavior {
     execution: CheckedTemplateExecution,
     lifecycle_obligations: Arc<[LifecycleObligationKind]>,
     dependency_contract: DependencyContractTemplateId,
+    result_dependencies: DependencyContractTemplateId,
     witnesses: Arc<[CheckedTemplateWitness]>,
 }
 
@@ -204,6 +205,7 @@ impl CheckedTemplateBehavior {
         execution: CheckedTemplateExecution,
         lifecycle_obligations: impl IntoIterator<Item = LifecycleObligationKind>,
         dependency_contract: DependencyContractTemplateId,
+        result_dependencies: DependencyContractTemplateId,
         witnesses: impl IntoIterator<Item = CheckedTemplateWitness>,
     ) -> Self {
         Self {
@@ -213,6 +215,7 @@ impl CheckedTemplateBehavior {
             execution,
             lifecycle_obligations: sorted_unique_shared_slice(lifecycle_obligations),
             dependency_contract,
+            result_dependencies,
             witnesses: sorted_unique_shared_slice(witnesses),
         }
     }
@@ -255,6 +258,11 @@ impl CheckedTemplateBehavior {
     /// Returns selected implementation witnesses in canonical semantic-set order.
     pub fn witnesses(&self) -> &[CheckedTemplateWitness] {
         &self.witnesses
+    }
+
+    /// Returns dependencies retained by the produced value after evaluation completes.
+    pub const fn result_dependencies(&self) -> DependencyContractTemplateId {
+        self.result_dependencies
     }
 }
 
@@ -639,6 +647,7 @@ mod tests {
                 LifecycleObligationKind::Joining,
             ],
             dependencies,
+            dependencies,
             [
                 CheckedTemplateWitness::new(second_key.clone()),
                 CheckedTemplateWitness::new(first_key.clone()),
@@ -670,6 +679,7 @@ mod tests {
                 LifecycleObligationKind::Destruction,
                 LifecycleObligationKind::Joining,
             ],
+            dependencies,
             dependencies,
             [
                 CheckedTemplateWitness::new(first_key),

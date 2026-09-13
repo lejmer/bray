@@ -216,6 +216,7 @@ fn checked_runtime_default(
                 context,
                 checked.result,
                 checked.dependency_contract,
+                checked.result_dependencies,
                 body_behavior.result().value(),
             )?;
 
@@ -441,6 +442,7 @@ fn runtime_default_behavior(
     context: &CompilationBindingContext<'_>,
     result: TypeId,
     dependency: bray_symbols::DependencyContractTemplateId,
+    result_dependencies: bray_symbols::DependencyContractTemplateId,
     body: &bray_bound_tree::CheckedBodyBehavior,
 ) -> BindingQueryResult<RuntimeDefaultBehavior> {
     let ownership = runtime_default_ownership(context, result)?;
@@ -459,6 +461,7 @@ fn runtime_default_behavior(
             .map(bray_symbols::RuntimeDefaultTrustedObligation::new),
         body.lifecycle_obligations().iter().copied(),
         dependency,
+        result_dependencies,
     ))
 }
 
@@ -536,6 +539,7 @@ fn imported_runtime_default_behavior(
         trusted,
         behavior.lifecycle_obligations().iter().copied(),
         behavior.dependency_contract(),
+        behavior.result_dependencies(),
     ))
 }
 
@@ -780,7 +784,7 @@ mod tests {
     fn generic_runtime_defaults_retain_their_open_substitution() {
         let compilation = compilation(concat!(
             "module app;\n",
-            "func choose<T>(first: T, second: T = first)\n",
+            "func choose<T>(first: &T, second: &T = first)\n",
             "{\n",
             "}\n",
         ));
@@ -848,8 +852,28 @@ mod tests {
     #[test]
     fn expression_created_borrow_defaults_require_the_active_borrow() {
         for source in [
-            "module app; func choose(first: i32, second: &i32 = &first) {}",
-            "module app; struct Holder { value: i32; } impl Holder { static func choose(first: Self, second: &Self = &first) {} }",
+            r#"
+                module app;
+
+                func choose(first: i32, second: &i32 = &first)
+                {
+                }
+            "#,
+            r#"
+                module app;
+
+                struct Holder
+                {
+                    value: i32;
+                }
+
+                impl Holder
+                {
+                    static func choose(first: Self, second: &Self = &first)
+                    {
+                    }
+                }
+            "#,
         ] {
             let compilation = compilation(source);
 
@@ -879,11 +903,17 @@ mod tests {
                 surface.behavior().dependency_contract(),
                 0,
                 &[
-                    DependencyRequirementKind::ValueDependencies,
                     DependencyRequirementKind::StorageAlive,
                     DependencyRequirementKind::StorageInitialized,
                     DependencyRequirementKind::BorrowCapabilityActive(BorrowKind::Shared),
                 ],
+            );
+
+            assert_parameter_dependency_contract(
+                &compilation,
+                surface.behavior().result_dependencies(),
+                0,
+                &[DependencyRequirementKind::StorageAlive],
             );
         }
     }

@@ -94,6 +94,7 @@ pub struct InterfaceCheckedTemplateBehavior {
     execution: InterfaceCheckedTemplateExecution,
     lifecycle_obligations: Arc<[LifecycleObligationKind]>,
     dependency_contract: InterfaceDependencyContractId,
+    result_dependencies: InterfaceDependencyContractId,
     witnesses: Arc<[InterfaceImplementationReference]>,
 }
 
@@ -106,6 +107,7 @@ impl InterfaceCheckedTemplateBehavior {
         execution: InterfaceCheckedTemplateExecution,
         lifecycle_obligations: impl IntoIterator<Item = LifecycleObligationKind>,
         dependency_contract: InterfaceDependencyContractId,
+        result_dependencies: InterfaceDependencyContractId,
         witnesses: impl IntoIterator<Item = InterfaceImplementationReference>,
     ) -> Self {
         Self {
@@ -115,6 +117,7 @@ impl InterfaceCheckedTemplateBehavior {
             execution,
             lifecycle_obligations: sorted_unique_shared_slice(lifecycle_obligations),
             dependency_contract,
+            result_dependencies,
             witnesses: sorted_unique_shared_slice(witnesses),
         }
     }
@@ -157,6 +160,11 @@ impl InterfaceCheckedTemplateBehavior {
     /// Returns selected implementations in canonical semantic-set order.
     pub fn witnesses(&self) -> &[InterfaceImplementationReference] {
         &self.witnesses
+    }
+
+    /// Returns dependencies retained by the produced value after evaluation completes.
+    pub const fn result_dependencies(&self) -> InterfaceDependencyContractId {
+        self.result_dependencies
     }
 }
 

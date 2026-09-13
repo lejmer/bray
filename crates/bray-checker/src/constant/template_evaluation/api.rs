@@ -391,6 +391,7 @@ mod tests {
             CheckedTemplateExecution::new([], CurrentRunCancellation::NotEntered),
             [],
             dependency_contract,
+            dependency_contract,
             [],
         );
 
@@ -528,6 +529,7 @@ mod tests {
             CheckedTemplateExecution::new([], CurrentRunCancellation::NotEntered),
             [],
             dependency_contract,
+            dependency_contract,
             [],
         );
 
@@ -648,6 +650,7 @@ mod tests {
             CheckedTemplateExecution::new([], CurrentRunCancellation::NotEntered),
             [],
             dependency_contract,
+            dependency_contract,
             [],
         );
 
@@ -727,6 +730,7 @@ mod tests {
             [],
             CheckedTemplateExecution::new([], CurrentRunCancellation::NotEntered),
             [],
+            dependency_contract,
             dependency_contract,
             [],
         );

@@ -2565,6 +2565,7 @@ const fn generated_lifecycle_role(role: bray_ir::MirGeneratedLifecycleRole) -> &
 fn storage_kind(kind: &MirStorageKind) -> &'static str {
     match kind {
         MirStorageKind::Parameter(_) => "parameter",
+        MirStorageKind::BorrowedParameter(_) => "borrowed_parameter",
         MirStorageKind::Local => "local",
         MirStorageKind::Temporary => "temporary",
         MirStorageKind::Return => "return",

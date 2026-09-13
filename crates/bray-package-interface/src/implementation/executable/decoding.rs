@@ -2097,6 +2097,9 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
     fn storage_kind(&mut self) -> Result<MirStorageKind, ExecutableTemplateDecodeError> {
         match read_u32(&mut self.reader)? {
             0 => Ok(MirStorageKind::Parameter(read_u32(&mut self.reader)?)),
+            10 => Ok(MirStorageKind::BorrowedParameter(read_u32(
+                &mut self.reader,
+            )?)),
             1 => Ok(MirStorageKind::Local),
             2 => Ok(MirStorageKind::Temporary),
             3 => Ok(MirStorageKind::Return),

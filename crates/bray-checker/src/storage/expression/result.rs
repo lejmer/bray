@@ -33,6 +33,7 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
         })?;
 
         let sources: BTreeSet<_> = template
+            .template
             .requirements()
             .iter()
             .filter_map(|requirement| match requirement {

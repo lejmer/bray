@@ -98,6 +98,7 @@ fn encode_template(encoder: &mut WireEncoder, template: &InterfaceCheckedTemplat
     }
 
     encoder.write_u32(behavior.dependency_contract().raw());
+    encoder.write_u32(behavior.result_dependencies().raw());
     encoder.write_u32(behavior.current_run_cancellation().to_wire());
     write_count(encoder, behavior.witnesses().len());
 

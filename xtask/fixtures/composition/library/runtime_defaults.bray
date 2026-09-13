@@ -1,0 +1,36 @@
+module api;
+
+public struct DefaultFlag
+{
+    mut value: bool;
+}
+
+public func read_default_storage(
+    pos first: DefaultFlag,
+    borrowed: &DefaultFlag = &first,
+    snapshot: bool = borrowed.value,
+) -> bool
+{
+    return borrowed.value == first.value && snapshot == first.value;
+}
+
+func set_default_flag(pos flag: &mut DefaultFlag) -> bool
+{
+    flag.value = true;
+
+    return true;
+}
+
+public func mutate_default_storage(
+    pos mut first: DefaultFlag,
+    borrowed: &mut DefaultFlag = &mut first,
+    changed: bool = set_default_flag(borrowed),
+) -> bool
+{
+    return first.value && changed;
+}
+
+public func forward_default<T>(pos value: &T, selected: &T = value) -> &T
+{
+    return selected;
+}
