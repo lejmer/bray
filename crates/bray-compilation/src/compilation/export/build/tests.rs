@@ -35,7 +35,20 @@ fn execution_guarantees_reject_malformed_interface_evidence() {
     use bray_symbols::{CallableExecutionOrigin, SymbolOrdinal};
 
     let provider = compilation(
-        "module api; func helper() executes(pure, total) {} public func root() executes(pure, total) { helper(); }",
+        r#"
+            module api;
+
+            func helper()
+                executes(pure, total)
+                {
+                }
+
+            public func root()
+                executes(pure, total)
+            {
+                helper();
+            }
+        "#,
     );
 
     let original = export(&provider);
@@ -154,9 +167,27 @@ fn execution_guarantees_reject_malformed_interface_evidence() {
 fn execution_guarantees_export_only_certified_evidence() {
     for (clause, valid) in [
         ("executes(pure, total)", true),
-        ("when(true) { ensures(false) }", false),
+        (
+            r#"
+                when(true)
+                    {
+                        ensures(false)
+                    }
+            "#,
+            false,
+        ),
     ] {
-        let source = format!("module app; func checked() {clause} {{}}");
+        let source = format!(
+            r#"
+                module app;
+
+                func checked()
+                    {clause}
+                {{
+                }}
+            "#
+        );
+
         let compilation = compilation(&source);
         let result = compilation.package_interface_export_bundle().unwrap();
         assert_eq!(result.is_ok(), valid, "{source}: {result:?}");
@@ -179,26 +210,35 @@ fn returned_values_preserve_imported_generic_dependencies() {
     for (body, valid) in [
         (
             r#"
-            func caller(pos value: &bool) -> &bool
-            {
-                return example.package.api.same(value);
-            }
-        "#,
+                func caller(pos value: &bool) -> &bool
+                {
+                    return example.package.api.same(value);
+                }
+            "#,
             true,
         ),
         (
             r#"
-            func caller() -> &bool
-            {
-                let value: bool = true;
+                func caller() -> &bool
+                {
+                    let value: bool = true;
 
-                return example.package.api.same(&value);
-            }
-        "#,
+                    return example.package.api.same(&value);
+                }
+            "#,
             false,
         ),
     ] {
-        let source = format!("module app; using example.package.api.same; {body}");
+        let source = format!(
+            r#"
+                module app;
+
+                using example.package.api.same;
+
+                {body}
+            "#
+        );
+
         let consumer = execution_consumer(&provider, &source);
 
         let flow = consumer
@@ -212,6 +252,84 @@ fn returned_values_preserve_imported_generic_dependencies() {
                 flow.diagnostics(),
                 bray_diagnostics::DiagnosticKind::CheckingEscapingStorageDependency,
             );
+        }
+    }
+}
+
+#[test]
+fn returned_assignments_and_errors_survive_interfaces() {
+    let provider = compilation(
+        r#"
+            module api;
+
+            public struct Holder
+            {
+                mut value: &bool;
+            }
+
+            public func replace(pos first: &bool, pos second: &bool) -> Holder
+            {
+                let mut result = Holder { value = first };
+                result.value = second;
+
+                return result;
+            }
+
+            public func forward(pos input: Result<bool, &bool>) -> Result<bool, &bool>
+            {
+                let value = try input;
+
+                return Ok(value);
+            }
+        "#,
+    );
+
+    for (result, call) in [
+        (
+            "example.package.api.Holder",
+            "example.package.api.replace(caller, argument)",
+        ),
+        (
+            "Result<bool, &bool>",
+            "example.package.api.forward(Error(argument))",
+        ),
+    ] {
+        for (argument, valid) in [("caller", true), ("&local", false)] {
+            let call = call.replace("argument", argument);
+
+            let source = format!(
+                r#"
+                    module app;
+
+                    using example.package.api;
+
+                    func caller(pos caller: &bool) -> {result}
+                    {{
+                        let local: bool = true;
+
+                        return {call};
+                    }}
+                "#
+            );
+
+            let consumer = execution_consumer(&provider, &source);
+
+            let flow = consumer
+                .storage_flow(source_function_body_key(&consumer, "caller"))
+                .unwrap();
+
+            if valid {
+                assert!(
+                    consumer.check_diagnostics().is_empty(),
+                    "{:?}",
+                    consumer.check_diagnostics()
+                );
+            } else {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    flow.diagnostics(),
+                    bray_diagnostics::DiagnosticKind::CheckingEscapingStorageDependency,
+                );
+            }
         }
     }
 }
@@ -251,30 +369,38 @@ fn returned_values_preserve_default_wrapper_dependencies_in_interfaces() {
     for (body, valid) in [
         (
             r#"
-            func caller(pos anchor: &bool) -> example.package.api.Holder
-            {
-                let transient: bool = true;
+                func caller(pos anchor: &bool) -> example.package.api.Holder
+                {
+                    let transient: bool = true;
 
-                return example.package.api.choose(&transient, anchor);
-            }
-        "#,
+                    return example.package.api.choose(&transient, anchor);
+                }
+            "#,
             true,
         ),
         (
             r#"
-            func caller() -> example.package.api.Holder
-            {
-                let anchor: bool = true;
+                func caller() -> example.package.api.Holder
+                {
+                    let anchor: bool = true;
 
-                return example.package.api.choose(&anchor, &anchor);
-            }
-        "#,
+                    return example.package.api.choose(&anchor, &anchor);
+                }
+            "#,
             false,
         ),
     ] {
         let consumer = execution_consumer(
             &provider,
-            &format!("module app; using example.package.api; {body}"),
+            &format!(
+                r#"
+                    module app;
+
+                    using example.package.api;
+
+                    {body}
+                "#
+            ),
         );
 
         let flow = consumer
@@ -300,16 +426,37 @@ fn returned_values_preserve_default_wrapper_dependencies_in_interfaces() {
 fn execution_guarantees_survive_provider_consumer_compilation() {
     let provider = compilation(
         r#"
-        module api;
-        func helper<T>() -> bool executes(total) { return true; }
-        public func guarded(pos flag: bool) -> bool
-            when(flag) { executes(pure, total) ensures(result) }
-        {
-            if flag { return true; }
-            loop {}
-        }
-        public func root() -> bool executes(total) { return helper<bool>(); }
-    "#,
+            module api;
+
+            func helper<T>() -> bool
+                executes(total)
+            {
+                return true;
+            }
+
+            public func guarded(pos flag: bool) -> bool
+                when(flag)
+                {
+                    executes(pure, total)
+                    ensures(result)
+                }
+            {
+                if flag
+                {
+                    return true;
+                }
+
+                loop
+                {
+                }
+            }
+
+            public func root() -> bool
+                executes(total)
+            {
+                return helper<bool>();
+            }
+        "#,
     );
 
     let bundle = export(&provider);
@@ -317,7 +464,21 @@ fn execution_guarantees_survive_provider_consumer_compilation() {
 
     for (argument, valid) in [("true", true), ("false", false)] {
         let source = format!(
-            "module app; using example.package.api.guarded; func caller() -> bool executes(pure, total) when(true) {{ ensures(result) }} {{ return example.package.api.guarded({argument}); }}"
+            r#"
+                module app;
+
+                using example.package.api.guarded;
+
+                func caller() -> bool
+                    executes(pure, total)
+                    when(true)
+                    {{
+                        ensures(result)
+                    }}
+                {{
+                    return example.package.api.guarded({argument});
+                }}
+            "#
         );
 
         let consumer = crate::test_support::compilation_with_dependencies(
@@ -343,12 +504,45 @@ fn execution_guarantees_survive_provider_consumer_compilation() {
 #[test]
 fn execution_guarantees_preserve_imported_trait_requirements() {
     let provider = compilation(
-        "module api; public trait Readable { func read(pos flag: bool) -> bool when(flag) { executes(total) ensures(result) }; }",
+        r#"
+            module api;
+
+            public trait Readable
+            {
+                func read(pos flag: bool) -> bool
+                    when(flag)
+                    {
+                        executes(total)
+                        ensures(result)
+                    };
+            }
+        "#,
     );
 
     for (property, valid) in [("executes(total)", true), ("", false)] {
         let source = format!(
-            "module app; using example.package.api.Readable; struct Value {{}} impl Value(example.package.api.Readable) {{ func read(pos flag: bool) -> bool when(flag) {{ {property} ensures(result) }} {{ return true; }} }}"
+            r#"
+                module app;
+
+                using example.package.api.Readable;
+
+                struct Value
+                {{
+                }}
+
+                impl Value(example.package.api.Readable)
+                {{
+                    func read(pos flag: bool) -> bool
+                        when(flag)
+                        {{
+                            {property}
+                            ensures(result)
+                        }}
+                    {{
+                        return true;
+                    }}
+                }}
+            "#
         );
 
         let consumer = execution_consumer(&provider, &source);
@@ -372,16 +566,19 @@ fn storage_projection_guarantees_survive_generic_interfaces() {
     for borrow in ["&", "&mut "] {
         let provider = compilation(
             &r#"
-        module api;
+                module api;
 
-        public func project<T>(pos value: BORROWbox T) -> BORROWT executes(pure, total)
-        {
-            return match value
-            {
-                case box(inner) { yield BORROWinner; }
-            };
-        }
-    "#
+                        public func project<T>(pos value: BORROWbox T) -> BORROWT executes(pure, total)
+                        {
+                            return match value
+                            {
+                                case box(inner)
+                                {
+                                    yield BORROWinner;
+                                }
+                            };
+                        }
+            "#
             .replace("BORROW", borrow),
         );
 
@@ -394,14 +591,14 @@ fn storage_projection_guarantees_survive_generic_interfaces() {
         let consumer = execution_consumer(
             &provider,
             &r#"
-        module app;
-        using example.package.api.project;
+                module app;
+                        using example.package.api.project;
 
-        func root(pos value: BORROWbox bool) -> BORROWbool executes(pure, total)
-        {
-            return example.package.api.project<bool>(value);
-        }
-    "#
+                        func root(pos value: BORROWbox bool) -> BORROWbool executes(pure, total)
+                        {
+                            return example.package.api.project<bool>(value);
+                        }
+            "#
             .replace("BORROW", borrow),
         );
 
@@ -464,13 +661,17 @@ fn storage_projection_guarantees_survive_generic_interfaces() {
         let escaping = execution_consumer(
             &provider,
             &r#"
-            module app;
-            using example.package.api.project;
-            func root() -> BORROWbool {
-                let mut value = box(true);
-                return example.package.api.project<bool>(BORROWvalue);
-            }
-        "#
+                module app;
+
+                using example.package.api.project;
+
+                func root() -> BORROWbool
+                {
+                    let mut value = box(true);
+
+                    return example.package.api.project<bool>(BORROWvalue);
+                }
+            "#
             .replace("BORROW", borrow),
         );
 
@@ -488,12 +689,33 @@ fn storage_projection_guarantees_survive_generic_interfaces() {
 #[test]
 fn execution_guarantees_preserve_selected_predicate_guards() {
     let provider = compilation(
-        "module api; public predicate ready(flag: bool) = flag; public func guarded(pos flag: bool) executes(total) requires(ready(flag)) {}",
+        r#"
+            module api;
+
+            public predicate ready(flag: bool) = flag;
+
+            public func guarded(pos flag: bool)
+                executes(total)
+                requires(ready(flag))
+                {
+                }
+        "#,
     );
 
     for (negation, valid) in [("", true), ("!", false)] {
         let source = format!(
-            "module app; using example.package.api; func caller(pos flag: bool) requires({negation}example.package.api.ready(flag)) executes(total) {{ example.package.api.guarded(flag); }}"
+            r#"
+                module app;
+
+                using example.package.api;
+
+                func caller(pos flag: bool)
+                    requires({negation}example.package.api.ready(flag))
+                    executes(total)
+                {{
+                    example.package.api.guarded(flag);
+                }}
+            "#
         );
 
         let consumer = execution_consumer(&provider, &source);
@@ -510,7 +732,19 @@ fn execution_guarantees_preserve_selected_predicate_guards() {
 #[test]
 fn execution_guarantees_round_trip_and_reject_result_as_an_entry_guard() {
     let provider = compilation(
-        "module api; public func checked(pos flag: bool) -> bool when(flag) { executes(pure, total) ensures(result, flag) } { return true; }",
+        r#"
+            module api;
+
+            public func checked(pos flag: bool) -> bool
+                when(flag)
+                {
+                    executes(pure, total)
+                    ensures(result, flag)
+                }
+            {
+                return true;
+            }
+        "#,
     );
 
     let original = export(&provider);
@@ -563,9 +797,16 @@ fn execution_guarantees_round_trip_and_reject_result_as_an_entry_guard() {
 #[test]
 fn execution_guarantees_retain_foreign_trust_and_caller_obligations() {
     let provider = compilation_from_sources_for_product_with_platform_services_and_worker_budget(
-        [
-            "trusted module api; @link(name = \"c\") @abi(c) @symbol(name = \"foreign_truth\") public extern trusted func asserted() -> bool executes(total) uses(foreign_call);",
-        ],
+        [r#"
+            trusted module api;
+
+            @link(name = "c")
+            @abi(c)
+            @symbol(name = "foreign_truth")
+            public extern trusted func asserted() -> bool
+                executes(total)
+                uses(foreign_call);
+        "#],
         ProductKind::Library,
         [],
         WorkerBudget::default(),
@@ -595,7 +836,18 @@ fn execution_guarantees_retain_foreign_trust_and_caller_obligations() {
 
     for (trust, valid) in [("trusted ", true), ("", false)] {
         let source = format!(
-            "trusted module app; using example.package.api.asserted; {trust}func caller() -> bool uses(foreign_call) executes(total) {{ return example.package.api.asserted(); }}"
+            r#"
+                trusted module app;
+
+                using example.package.api.asserted;
+
+                {trust}func caller() -> bool
+                    uses(foreign_call)
+                    executes(total)
+                {{
+                    return example.package.api.asserted();
+                }}
+            "#
         );
 
         let consumer = execution_consumer(&provider, &source);
@@ -635,13 +887,16 @@ fn execution_guarantees_retain_foreign_trust_and_caller_obligations() {
 
     let consumer = crate::test_support::compilation_with_dependencies(
         r#"
-        trusted module app;
-        using example.package.api.asserted;
+            trusted module app;
 
-        trusted func caller() -> bool uses(foreign_call) executes(total)
-        {
-            return example.package.api.asserted();
-        }
+            using example.package.api.asserted;
+
+            trusted func caller() -> bool
+                uses(foreign_call)
+                executes(total)
+            {
+                return example.package.api.asserted();
+            }
         "#,
         [execution_bundle_dependency(&forged)],
     );
@@ -674,7 +929,17 @@ fn execution_bundle_dependency(bundle: &PackageInterfaceExportBundle) -> Depende
 
 #[test]
 fn execution_guarantees_follow_transitive_provider_dependencies() {
-    let provider = compilation("module api; public func checked() executes(pure, total) {}");
+    let provider = compilation(
+        r#"
+            module api;
+
+            public func checked()
+                executes(pure, total)
+                {
+                }
+        "#,
+    );
+
     let package = PackageIdentity::try_new("example.wrapper").unwrap();
 
     let identity = bray_package_interface::PackageInterfaceIdentity::try_new(
@@ -686,7 +951,17 @@ fn execution_guarantees_follow_transitive_provider_dependencies() {
     )
     .unwrap();
 
-    let source = "module api; using example.package.api; public func wrapped() executes(pure, total) { example.package.api.checked(); }";
+    let source = r#"
+        module api;
+
+        using example.package.api;
+
+        public func wrapped()
+            executes(pure, total)
+        {
+            example.package.api.checked();
+        }
+    "#;
 
     let request = CompilationRequest::new(package, test_source_inputs("wrapper", [source]))
         .with_dependency_interfaces([execution_dependency(&provider)])
@@ -711,7 +986,17 @@ fn execution_guarantees_follow_transitive_provider_dependencies() {
         }
 
         let consumer = crate::test_support::compilation_with_dependencies(
-            "module app; using example.wrapper.api; func caller() executes(pure, total) { example.wrapper.api.wrapped(); }",
+            r#"
+                module app;
+
+                using example.wrapper.api;
+
+                func caller()
+                    executes(pure, total)
+                {
+                    example.wrapper.api.wrapped();
+                }
+            "#,
             dependencies,
         );
 
@@ -726,7 +1011,11 @@ fn execution_guarantees_follow_transitive_provider_dependencies() {
 
 #[test]
 fn module_only_library_exports_are_cached_on_demand() {
-    let compilation = compilation("module app;");
+    let compilation = compilation(
+        r#"
+            module app;
+        "#,
+    );
 
     assert!(
         compilation
@@ -758,7 +1047,21 @@ fn imported_union_cleanup_retains_members_without_exported_field_identities() {
     };
 
     let provider = compilation(
-        "module types; public struct Guard { destruct() {} } public union Choice { Pair(pos left: Guard, pos right: Guard); }",
+        r#"
+            module types;
+
+            public struct Guard
+            {
+                destruct()
+                {
+                }
+            }
+
+            public union Choice
+            {
+                Pair(pos left: Guard, pos right: Guard);
+            }
+        "#,
     );
 
     assert!(
@@ -771,7 +1074,26 @@ fn imported_union_cleanup_retains_members_without_exported_field_identities() {
     let baseline_artifact = encode_package_interface(original).unwrap();
 
     let baseline = crate::test_support::compilation_with_dependencies(
-        "module app; using example.package.types; func take(pos item: example.package.types.Guard) {} func partial(pos value: example.package.types.Choice) { match consume value { case Pair(left,..) { take(left); } } }",
+        r#"
+            module app;
+
+            using example.package.types;
+
+            func take(pos item: example.package.types.Guard)
+            {
+            }
+
+            func partial(pos value: example.package.types.Choice)
+            {
+                match consume value
+                {
+                    case Pair(left,..)
+                    {
+                        take(left);
+                    }
+                }
+            }
+        "#,
         [DependencyInterfaceInput::new(
             PackageIdentity::try_new("example.package").unwrap(),
             InterfaceProductIdentity::try_new("library").unwrap(),
@@ -845,7 +1167,26 @@ fn imported_union_cleanup_retains_members_without_exported_field_identities() {
     );
 
     let consumer = crate::test_support::compilation_with_dependencies(
-        "module app; using example.package.types; func take(pos item: example.package.types.Guard) {} func partial(pos value: example.package.types.Choice) { match consume value { case Pair(left,..) { take(left); } } }",
+        r#"
+            module app;
+
+            using example.package.types;
+
+            func take(pos item: example.package.types.Guard)
+            {
+            }
+
+            func partial(pos value: example.package.types.Choice)
+            {
+                match consume value
+                {
+                    case Pair(left,..)
+                    {
+                        take(left);
+                    }
+                }
+            }
+        "#,
         [dependency],
     );
 
@@ -871,7 +1212,20 @@ fn imported_union_cleanup_retains_members_without_exported_field_identities() {
 #[test]
 fn imported_construction_defaults_use_the_declaring_type_specialization() {
     let provider = compilation(
-        "module types; public struct Value<T> { marker: bool; data: T? = none; } public union Choice<T> { Item(data: T? = none); }",
+        r#"
+            module types;
+
+            public struct Value<T>
+            {
+                marker: bool;
+                data: T? = none;
+            }
+
+            public union Choice<T>
+            {
+                Item(data: T? = none);
+            }
+        "#,
     );
 
     assert!(
@@ -900,7 +1254,47 @@ fn imported_construction_defaults_use_the_declaring_type_specialization() {
     .with_implementation_artifact("provider.brayimpl", Arc::new(implementation));
 
     let consumer = crate::test_support::compilation_with_dependencies(
-        "module app; using example.package.types; func first<U>() -> example.package.types.Value<U> { return { marker = true }; } func second<U>() -> example.package.types.Value<U> { return { marker = true }; } func third<U>() -> example.package.types.Choice<U> { return Item(); } func fourth<U>() -> example.package.types.Choice<U> { return Item(); } func main() { first<i32>(); second<i32>(); first<bool>(); third<i32>(); fourth<i32>(); third<bool>(); }",
+        r#"
+            module app;
+
+            using example.package.types;
+
+            func first<U>() -> example.package.types.Value<U>
+            {
+                return
+                {
+                    marker = true
+                };
+            }
+
+            func second<U>() -> example.package.types.Value<U>
+            {
+                return
+                {
+                    marker = true
+                };
+            }
+
+            func third<U>() -> example.package.types.Choice<U>
+            {
+                return Item();
+            }
+
+            func fourth<U>() -> example.package.types.Choice<U>
+            {
+                return Item();
+            }
+
+            func main()
+            {
+                first<i32>();
+                second<i32>();
+                first<bool>();
+                third<i32>();
+                fourth<i32>();
+                third<bool>();
+            }
+        "#,
         [dependency],
     );
 
@@ -916,22 +1310,24 @@ fn imported_construction_defaults_use_the_declaring_type_specialization() {
 
 #[test]
 fn library_interfaces_exclude_test_only_block_module_suffixes() {
-    let compilation = compilation(concat!(
-        "module net;\n",
-        "\n",
-        "func parse_packet()\n",
-        "{\n",
-        "}\n",
-        "\n",
-        "@test\n",
-        "module net.tests\n",
-        "{\n",
-        "    @test\n",
-        "    func parses_minimal_packet()\n",
-        "    {\n",
-        "    }\n",
-        "}\n",
-    ));
+    let compilation = compilation(
+        r#"
+            module net;
+
+            func parse_packet()
+            {
+            }
+
+            @test
+            module net.tests
+            {
+                @test
+                func parses_minimal_packet()
+                {
+                }
+            }
+        "#,
+    );
 
     let bundle = export(&compilation);
 
@@ -979,15 +1375,18 @@ fn library_interfaces_exclude_test_only_block_module_suffixes() {
 
 #[test]
 fn internal_owner_chains_retain_identity_without_entering_exported_lookup() {
-    let compilation = compilation(concat!(
-        "module app;\n",
-        "internal struct Hidden\n",
-        "{\n",
-        "    func method()\n",
-        "    {\n",
-        "    }\n",
-        "}\n",
-    ));
+    let compilation = compilation(
+        r#"
+            module app;
+
+            internal struct Hidden
+            {
+                func method()
+                {
+                }
+            }
+        "#,
+    );
 
     let bundle = export(&compilation);
 
@@ -997,22 +1396,38 @@ fn internal_owner_chains_retain_identity_without_entering_exported_lookup() {
 
 #[test]
 fn type_owned_callable_overloads_round_trip_through_package_interfaces() {
-    let compilation = compilation(concat!(
-        "module app;\n",
-        "public struct Value<T>\n",
-        "{\n",
-        "    stored: T;\n",
-        "    internal construct single(pos value: T) -> Self\n",
-        "    {\n",
-        "        return { stored = value };\n",
-        "    }\n",
-        "    internal construct pair(pos first: T, pos second: T) -> Self\n",
-        "    {\n",
-        "        return { stored = first };\n",
-        "    }\n",
-        "    overload new = {single, pair}\n",
-        "}\n",
-    ));
+    let compilation = compilation(
+        r#"
+            module app;
+
+            public struct Value<T>
+            {
+                stored: T;
+
+                internal construct single(pos value: T) -> Self
+                {
+                    return
+                    {
+                        stored = value
+                    };
+                }
+
+                internal construct pair(pos first: T, pos second: T) -> Self
+                {
+                    return
+                    {
+                        stored = first
+                    };
+                }
+
+                overload new =
+                {
+                    single,
+                    pair
+                }
+            }
+        "#,
+    );
 
     assert!(
         compilation.check_diagnostics().is_empty(),
@@ -1034,18 +1449,24 @@ fn type_owned_callable_overloads_round_trip_through_package_interfaces() {
 
 #[test]
 fn generic_trait_implementations_round_trip_through_package_interfaces() {
-    let compilation = compilation(concat!(
-        "module app;\n",
-        "public trait Base\n",
-        "{\n",
-        "}\n",
-        "public trait Extension\n",
-        "{\n",
-        "}\n",
-        "impl DefaultExtension = Subject(Extension) with(Subject: Base)\n",
-        "{\n",
-        "}\n",
-    ));
+    let compilation = compilation(
+        r#"
+            module app;
+
+            public trait Base
+            {
+            }
+
+            public trait Extension
+            {
+            }
+
+            impl DefaultExtension = Subject(Extension)
+                with(Subject: Base)
+            {
+            }
+        "#,
+    );
 
     assert!(
         compilation.check_diagnostics().is_empty(),
@@ -1067,8 +1488,16 @@ fn generic_trait_implementations_round_trip_through_package_interfaces() {
 
 #[test]
 fn public_module_re_exports_enter_the_interface_lookup_surface() {
-    let compilation =
-        compilation_from_sources(["module a;\n", concat!("module b;\n", "\n", "export a;\n",)]);
+    let compilation = compilation_from_sources([
+        r#"
+            module a;
+        "#,
+        r#"
+            module b;
+
+            export a;
+        "#,
+    ]);
 
     let bundle = export(&compilation);
 
@@ -1089,30 +1518,34 @@ fn public_module_re_exports_enter_the_interface_lookup_surface() {
 
 #[test]
 fn public_callable_and_type_semantics_round_trip_without_source() {
-    let compilation = compilation(concat!(
-        "module app;\n",
-        "\n",
-        "public struct Boxed<T>\n",
-        "{\n",
-        "    value: T;\n",
-        "}\n",
-        "\n",
-        "public union Maybe<T>\n",
-        "{\n",
-        "    Some(value: T);\n",
-        "    None;\n",
-        "}\n",
-        "\n",
-        "public func identity<T>(pos value: T) -> T with(true)\n",
-        "{\n",
-        "    return value;\n",
-        "}\n",
-        "\n",
-        "public func count(pos value: i32 = 1) -> usize requires(value > 0)\n",
-        "{\n",
-        "    return 1;\n",
-        "}\n",
-    ));
+    let compilation = compilation(
+        r#"
+            module app;
+
+            public struct Boxed<T>
+            {
+                value: T;
+            }
+
+            public union Maybe<T>
+            {
+                Some(value: T);
+                None;
+            }
+
+            public func identity<T>(pos value: T) -> T
+                with(true)
+            {
+                return value;
+            }
+
+            public func count(pos value: i32 = 1) -> usize
+                requires(value > 0)
+            {
+                return 1;
+            }
+        "#,
+    );
 
     let bundle = export(&compilation);
 
@@ -1145,24 +1578,27 @@ fn public_callable_and_type_semantics_round_trip_without_source() {
 #[test]
 fn parallel_interface_discovery_preserves_encoded_identity() {
     let sources = [
-        concat!(
-            "module app.first;\n",
-            "public struct Boxed<T>\n",
-            "{\n",
-            "    value: T;\n",
-            "}\n",
-            "public func first(pos value: Boxed<i32>) -> Boxed<i32>\n",
-            "{\n",
-            "    return value;\n",
-            "}\n",
-        ),
-        concat!(
-            "module app.second;\n",
-            "public func second(pos value: app.first.Boxed<i32>) -> app.first.Boxed<i32>\n",
-            "{\n",
-            "    return value;\n",
-            "}\n",
-        ),
+        r#"
+            module app.first;
+
+            public struct Boxed<T>
+            {
+                value: T;
+            }
+
+            public func first(pos value: Boxed<i32>) -> Boxed<i32>
+            {
+                return value;
+            }
+        "#,
+        r#"
+            module app.second;
+
+            public func second(pos value: app.first.Boxed<i32>) -> app.first.Boxed<i32>
+            {
+                return value;
+            }
+        "#,
     ];
 
     let serial = compilation_from_sources_with_worker_budget(sources, WorkerBudget::serial());
@@ -1205,14 +1641,22 @@ fn parallel_interface_discovery_preserves_encoded_identity() {
 
 #[test]
 fn public_static_initializers_round_trip_as_checked_source_templates() {
-    let compilation = compilation(concat!(
-        "module app;\n",
-        "public static Root: i32 = 1;\n",
-        "public static Alias: &i32 = &Root;\n",
-        "public static Generic<const N: i32>: i32 with(true) = N;\n",
-        "public static Selected: &i32 = &Generic<1>;\n",
-        "@thread_local public static ThreadValue: i32 = 2;\n",
-    ));
+    let compilation = compilation(
+        r#"
+            module app;
+
+            public static Root: i32 = 1;
+
+            public static Alias: &i32 = &Root;
+
+            public static Generic<const N: i32>: i32
+                with(true) = N;
+
+            public static Selected: &i32 = &Generic<1>;
+
+            @thread_local public static ThreadValue: i32 = 2;
+        "#,
+    );
 
     assert!(
         compilation.check_diagnostics().is_empty(),
@@ -1284,14 +1728,17 @@ fn public_static_initializers_round_trip_as_checked_source_templates() {
 
 #[test]
 fn callable_signatures_export_fixed_array_lengths() {
-    let compilation = compilation(concat!(
-        "module app;\n",
-        "\n",
-        "internal func first(pos values: &[u8; 32]) -> u8\n",
-        "{\n",
-        "    return values[0];\n",
-        "}\n",
-    ));
+    let compilation = compilation(
+        r#"
+            module app;
+
+            internal func first(pos values: &[u8; 32]
+            ) -> u8
+                {
+                    return values[0];
+                }
+        "#,
+    );
 
     let bundle = export(&compilation);
 
@@ -1300,23 +1747,28 @@ fn callable_signatures_export_fixed_array_lengths() {
 
 #[test]
 fn generic_container_lifecycle_bodies_publish_executable_templates() {
-    let compilation = compilation(concat!(
-        "module app;\n",
-        "\n",
-        "public struct Boxed<T>\n",
-        "{\n",
-        "    value: T;\n",
-        "\n",
-        "    construct(value: T) -> Self\n",
-        "    {\n",
-        "        return { value = value, };\n",
-        "    }\n",
-        "\n",
-        "    destruct()\n",
-        "    {\n",
-        "    }\n",
-        "}\n",
-    ));
+    let compilation = compilation(
+        r#"
+            module app;
+
+            public struct Boxed<T>
+            {
+                value: T;
+
+                construct(value: T) -> Self
+                {
+                    return
+                    {
+                        value = value,
+                    };
+                }
+
+                destruct()
+                {
+                }
+            }
+        "#,
+    );
 
     assert!(
         compilation.check_diagnostics().is_empty(),
@@ -1331,80 +1783,86 @@ fn generic_container_lifecycle_bodies_publish_executable_templates() {
 
 #[test]
 fn qualified_union_case_and_generic_constructor_defaults_export() {
-    let compilation = compilation(concat!(
-        "module app;\n",
-        "\n",
-        "public union Radix\n",
-        "{\n",
-        "    Decimal;\n",
-        "}\n",
-        "\n",
-        "public union Alignment\n",
-        "{\n",
-        "    Right;\n",
-        "}\n",
-        "\n",
-        "public union Sign\n",
-        "{\n",
-        "    NegativeOnly;\n",
-        "}\n",
-        "\n",
-        "public union Escaping\n",
-        "{\n",
-        "    Raw;\n",
-        "}\n",
-        "\n",
-        "public struct Options\n",
-        "{\n",
-        "    radix: Radix;\n",
-        "    precision: usize?;\n",
-        "    width: usize;\n",
-        "    alignment: Alignment;\n",
-        "    sign: Sign;\n",
-        "    escaping: Escaping;\n",
-        "\n",
-        "    construct(\n",
-        "        radix: Radix = Radix.Decimal,\n",
-        "        precision: usize? = none,\n",
-        "        width: usize = 0,\n",
-        "        alignment: Alignment = Right,\n",
-        "        sign: Sign = NegativeOnly,\n",
-        "        escaping: Escaping = Raw,\n",
-        "    ) -> Self\n",
-        "    {\n",
-        "        return\n",
-        "        {\n",
-        "            radix = radix,\n",
-        "            precision = precision,\n",
-        "            width = width,\n",
-        "            alignment = alignment,\n",
-        "            sign = sign,\n",
-        "            escaping = escaping,\n",
-        "        };\n",
-        "    }\n",
-        "}\n",
-        "\n",
-        "public func options_with_precision(precision: usize) -> Options\n",
-        "{\n",
-        "    return Options(precision = precision);\n",
-        "}\n",
-        "\n",
-        "internal func default_options() -> Options\n",
-        "{\n",
-        "    return Options();\n",
-        "}\n",
-        "\n",
-        "public struct Argument<T>\n",
-        "{\n",
-        "    value: T;\n",
-        "    options: Options;\n",
-        "\n",
-        "    construct(value: T, options: Options = default_options()) -> Self\n",
-        "    {\n",
-        "        return { value = value, options = options };\n",
-        "    }\n",
-        "}\n",
-    ));
+    let compilation = compilation(
+        r#"
+            module app;
+
+            public union Radix
+            {
+                Decimal;
+            }
+
+            public union Alignment
+            {
+                Right;
+            }
+
+            public union Sign
+            {
+                NegativeOnly;
+            }
+
+            public union Escaping
+            {
+                Raw;
+            }
+
+            public struct Options
+            {
+                radix: Radix;
+                precision: usize?;
+                width: usize;
+                alignment: Alignment;
+                sign: Sign;
+                escaping: Escaping;
+
+                construct(
+                    radix: Radix = Radix.Decimal,
+                    precision: usize? = none,
+                    width: usize = 0,
+                    alignment: Alignment = Right,
+                    sign: Sign = NegativeOnly,
+                    escaping: Escaping = Raw,
+                ) -> Self
+                {
+                    return
+                    {
+                        radix = radix,
+                        precision = precision,
+                        width = width,
+                        alignment = alignment,
+                        sign = sign,
+                        escaping = escaping,
+                    };
+                }
+            }
+
+            public func options_with_precision(precision: usize) -> Options
+            {
+                return Options(precision = precision);
+            }
+
+            internal func default_options() -> Options
+            {
+                return Options();
+            }
+
+            public struct Argument<T>
+            {
+                value: T;
+                options: Options;
+
+                construct(value: T, options: Options = default_options()) -> Self
+                {
+                    return
+                    {
+                        value = value,
+                        options = options
+                    };
+                }
+            }
+        "#,
+    );
 
     assert!(
         compilation.check_diagnostics().is_empty(),
@@ -1426,22 +1884,28 @@ fn platform_service_implementations_publish_their_role_with_the_root_template() 
     };
 
     let compilation = compilation_from_sources_for_product_with_platform_services(
-        [r#"trusted module app;
+        [r#"
+            trusted module app;
 
-@layout(c)
-internal struct PlatformStatus
-{
-category: u32;
-reserved: u32;
-native_code: i64;
-}
+            @layout(c)
+            internal struct PlatformStatus
+            {
+                category: u32;
+                reserved: u32;
+                native_code: i64;
+            }
 
-@abi(c)
-trusted internal func flush() -> PlatformStatus
-{
-return { category = 0, reserved = 0, native_code = 0 };
-}
-"#],
+            @abi(c)
+            trusted internal func flush() -> PlatformStatus
+            {
+                return
+                {
+                    category = 0,
+                    reserved = 0,
+                    native_code = 0
+                };
+            }
+        "#],
         ProductKind::Library,
         [binding],
     );
@@ -1475,37 +1939,39 @@ return { category = 0, reserved = 0, native_code = 0 };
 
 #[test]
 fn exported_callable_and_type_semantics_intern_without_provider_source() {
-    let provider = compilation(concat!(
-        "module app;\n",
-        "\n",
-        "public struct Boxed<T>\n",
-        "{\n",
-        "    value: T;\n",
-        "}\n",
-        "\n",
-        "public trait Provides\n",
-        "{\n",
-        "    type Item;\n",
-        "}\n",
-        "\n",
-        "public impl Boxed<i32>\n",
-        "{\n",
-        "    type Local = i32;\n",
-        "}\n",
-        "\n",
-        "public impl Boxed<i32>(Provides)\n",
-        "{\n",
-        "    type Item = i32;\n",
-        "}\n",
-        "\n",
-        "public func count(pos value: i32 = 1) -> usize requires(value > 0)\n",
-        "{\n",
-        "    return 1;\n",
-        "}\n",
-        "\n",
-        "public static ProductValue: i32 = 1;\n",
-        "@thread_local public static ThreadValue: i32 = 2;\n",
-    ));
+    let provider = compilation(
+        r#"
+            module app;
+
+            public struct Boxed<T>
+            {
+                value: T;
+            }
+
+            public trait Provides
+            {
+                type Item;
+            }
+
+            public impl Boxed<i32>
+            {
+                type Local = i32;
+            }
+
+            public impl Boxed<i32>(Provides)
+            {
+                type Item = i32;
+            }
+
+            public func count(pos value: i32 = 1) -> usize requires(value > 0)
+            {
+                return 1;
+            }
+
+            public static ProductValue: i32 = 1;
+            @thread_local public static ThreadValue: i32 = 2;
+        "#,
+    );
 
     let artifact = encode_package_interface(export(&provider))
         .unwrap_or_else(|error| panic!("provider interface must encode: {error:?}"));
@@ -1531,7 +1997,9 @@ fn exported_callable_and_type_semantics_intern_without_provider_source() {
         SourceIdentity::new(0),
         "consumer.bray",
         SourceVersion::new(0),
-        "module app;\n",
+        r#"
+            module app;
+        "#,
     );
 
     let request = CompilationRequest::new(consumer_package, vec![source])
@@ -1639,13 +2107,16 @@ fn exported_callable_and_type_semantics_intern_without_provider_source() {
 
 #[test]
 fn public_constant_callables_round_trip_as_implementation_bodies() {
-    let compilation = compilation(concat!(
-        "module math;\n",
-        "public const func selected(pos value: i32) -> i32\n",
-        "{\n",
-        "    return value;\n",
-        "}\n",
-    ));
+    let compilation = compilation(
+        r#"
+            module math;
+
+            public const func selected(pos value: i32) -> i32
+            {
+                return value;
+            }
+        "#,
+    );
 
     assert!(
         compilation.check_diagnostics().is_empty(),
@@ -1722,11 +2193,13 @@ fn public_constant_callables_round_trip_as_implementation_bodies() {
         SourceIdentity::new(0),
         "consumer.bray",
         SourceVersion::new(0),
-        concat!(
-            "module app;\n",
-            "using example.package.math.selected;\n",
-            "const result: i32 = example.package.math.selected(37);\n",
-        ),
+        r#"
+            module app;
+
+            using example.package.math.selected;
+
+            const result: i32 = example.package.math.selected(37);
+        "#,
     );
 
     let consumer = Compilation::load(
@@ -1748,25 +2221,34 @@ fn public_constant_callables_round_trip_as_implementation_bodies() {
 
 #[test]
 fn generic_constant_type_members_export_forwarded_self_results() {
-    let provider = compilation(concat!(
-        "module types;\n",
-        "public struct Container<T>\n",
-        "{\n",
-        "    internal value: T?;\n",
-        "    public static const func empty() -> Self\n",
-        "    {\n",
-        "        return internal make_empty<T>();\n",
-        "    }\n",
-        "    public static const func empty_with<U>() -> Self?\n",
-        "    {\n",
-        "        return internal make_empty<T>();\n",
-        "    }\n",
-        "}\n",
-        "internal const func make_empty<T>() -> Container<T>\n",
-        "{\n",
-        "    return { value = none };\n",
-        "}\n",
-    ));
+    let provider = compilation(
+        r#"
+            module types;
+
+            public struct Container<T>
+            {
+                internal value: T?;
+
+                public static const func empty() -> Self
+                {
+                    return internal make_empty<T>();
+                }
+
+                public static const func empty_with<U>() -> Self?
+                {
+                    return internal make_empty<T>();
+                }
+            }
+
+            internal const func make_empty<T>() -> Container<T>
+            {
+                return
+                {
+                    value = none
+                };
+            }
+        "#,
+    );
 
     assert!(
         provider.check_diagnostics().is_empty(),
@@ -1779,21 +2261,29 @@ fn generic_constant_type_members_export_forwarded_self_results() {
 
 #[test]
 fn generic_constant_type_members_can_call_generic_constant_helpers() {
-    let compilation = compilation(concat!(
-        "module values;\n",
-        "public struct Cell<T>\n",
-        "{\n",
-        "    public marker: usize;\n",
-        "    public static const func empty() -> Self\n",
-        "    {\n",
-        "        return internal empty_cell<T>();\n",
-        "    }\n",
-        "}\n",
-        "internal const func empty_cell<T>() -> Cell<T>\n",
-        "{\n",
-        "    return { marker = 0 };\n",
-        "}\n",
-    ));
+    let compilation = compilation(
+        r#"
+            module values;
+
+            public struct Cell<T>
+            {
+                public marker: usize;
+
+                public static const func empty() -> Self
+                {
+                    return internal empty_cell<T>();
+                }
+            }
+
+            internal const func empty_cell<T>() -> Cell<T>
+            {
+                return
+                {
+                    marker = 0
+                };
+            }
+        "#,
+    );
 
     assert!(
         compilation.check_diagnostics().is_empty(),
@@ -1812,32 +2302,34 @@ fn generic_constant_type_members_can_call_generic_constant_helpers() {
 
 #[test]
 fn imported_generic_type_members_reuse_the_receiver_substitution() {
-    let provider = compilation(concat!(
-        "module types;\n",
-        "\n",
-        "public struct Factory<T>\n",
-        "{\n",
-        "    public static func empty() -> Self\n",
-        "    {\n",
-        "        panic(\"fixture\");\n",
-        "    }\n",
-        "\n",
-        "    public static func identity<U>(pos value: U) -> U\n",
-        "    {\n",
-        "        return value;\n",
-        "    }\n",
-        "}\n",
-        "\n",
-        "public struct Guard<T>\n",
-        "{\n",
-        "    internal value: T;\n",
-        "\n",
-        "    public mut func get() -> &mut T\n",
-        "    {\n",
-        "        panic(\"fixture\");\n",
-        "    }\n",
-        "}\n",
-    ));
+    let provider = compilation(
+        r#"
+            module types;
+
+            public struct Factory<T>
+            {
+                public static func empty() -> Self
+                {
+                    panic("fixture");
+                }
+
+                public static func identity<U>(pos value: U) -> U
+                {
+                    return value;
+                }
+            }
+
+            public struct Guard<T>
+            {
+                internal value: T;
+
+                public mut func get() -> &mut T
+                {
+                    panic("fixture");
+                }
+            }
+        "#,
+    );
 
     assert!(
         provider.check_diagnostics().is_empty(),
@@ -1869,22 +2361,21 @@ fn imported_generic_type_members_reuse_the_receiver_substitution() {
         SourceIdentity::new(0),
         "consumer.bray",
         SourceVersion::new(0),
-        concat!(
-            "module app;\n",
-            "\n",
-            "using example.package.types.Factory;\n",
-            "using example.package.types.Guard;\n",
-            "\n",
-            "func run(pos guard: &mut example.package.types.Guard<i32>)\n",
-            "{\n",
-            "    let value: example.package.types.Factory<i32> =\n",
-            "        example.package.types.Factory<i32>.empty();\n",
-            "    let text: string =\n",
-            "        example.package.types.Factory<i32>.identity<string>(\"ok\");\n",
-            "    let value_ref: &mut i32 = guard.get();\n",
-            "    value_ref += 1;\n",
-            "}\n",
-        ),
+        r#"
+            module app;
+
+            using example.package.types.Factory;
+            using example.package.types.Guard;
+
+            func run(pos guard: &mut example.package.types.Guard<i32>)
+            {
+                let value: example.package.types.Factory<i32> = example.package.types.Factory<i32>.empty();
+                let text: string = example.package.types.Factory<i32>.identity<string>("ok");
+                let value_ref: &mut i32 = guard.get();
+
+                value_ref += 1;
+            }
+        "#,
     );
 
     let request = CompilationRequest::new(consumer_package, vec![source])
@@ -2078,19 +2569,22 @@ fn standard_string_equality_satisfies_source_and_imported_generic_constraints() 
     let provider = standard_library_compilation([
         include_str!("../../../../../../standard-library/std/src/std.bray"),
         include_str!("../../../../../../standard-library/std/src/string.bray"),
-        concat!(
-            "module bray.standard_library_tests.string_operations;\n",
-            "using std.string.StringEquatable;\n",
-            "func generic_equal<T>(pos left: T, pos right: T) -> bool\n",
-            "    with(T: Equatable<T>)\n",
-            "{\n",
-            "    return left == right;\n",
-            "}\n",
-            "func source_string_equality()\n",
-            "{\n",
-            "    assert(generic_equal<string>(\"same\", \"same\"));\n",
-            "}\n",
-        ),
+        r#"
+            module bray.standard_library_tests.string_operations;
+
+            using std.string.StringEquatable;
+
+            func generic_equal<T>(pos left: T, pos right: T) -> bool
+                with(T: Equatable<T>)
+            {
+                return left == right;
+            }
+
+            func source_string_equality()
+            {
+                assert(generic_equal<string>("same", "same"));
+            }
+        "#,
     ]);
 
     assert!(
@@ -2123,19 +2617,22 @@ fn standard_string_equality_satisfies_source_and_imported_generic_constraints() 
         SourceIdentity::new(0),
         "consumer.bray",
         SourceVersion::new(0),
-        concat!(
-            "module bray.standard_library_tests.string_operations;\n",
-            "using std.string.StringEquatable;\n",
-            "func generic_equal<T>(pos left: T, pos right: T) -> bool\n",
-            "    with(T: Equatable<T>)\n",
-            "{\n",
-            "    return left == right;\n",
-            "}\n",
-            "func imported_string_equality()\n",
-            "{\n",
-            "    assert(generic_equal<string>(\"same\", \"same\"));\n",
-            "}\n",
-        ),
+        r#"
+            module bray.standard_library_tests.string_operations;
+
+            using std.string.StringEquatable;
+
+            func generic_equal<T>(pos left: T, pos right: T) -> bool
+                with(T: Equatable<T>)
+            {
+                return left == right;
+            }
+
+            func imported_string_equality()
+            {
+                assert(generic_equal<string>("same", "same"));
+            }
+        "#,
     );
 
     let consumer = Compilation::load(
@@ -2158,87 +2655,162 @@ fn standard_formatting_surface_round_trips_and_specializes_without_provider_sour
     // bodies so imported reachability cannot silently treat Bray declarations as foreign imports.
     let provider = standard_library_compilation([
         include_str!("../../../../../../standard-library/std/src/std.bray"),
-        concat!(
-            "module std.memory;\n",
-            "union MemoryLayoutError\n",
-            "{\n",
-            "    SizeOverflow;\n",
-            "    UnsupportedAlignment;\n",
-            "}\n",
-            "func byte_slice_pointer(pos bytes: &[u8]) -> RawPointer<u8> { loop {} }\n",
-            "func byte_slice_pointer_mut(pos bytes: &mut [u8]) -> RawPointer<u8> { loop {} }\n",
-            "trusted func byte_buffer_copy(\n",
-            "    pos source: RawPointer<u8>,\n",
-            "    pos destination: RawPointer<u8>,\n",
-            "    count: usize,\n",
-            ") { loop {} }\n",
-            "trusted func byte_buffer_fill(\n",
-            "    destination: RawPointer<u8>,\n",
-            "    value: u8,\n",
-            "    count: usize,\n",
-            ") { loop {} }\n",
-        ),
-        concat!(
-            "module std.bytes;\n",
-            "using std.memory;\n",
-            "struct Buffer\n",
-            "{\n",
-            "    internal value: bool;\n",
-            "\n",
-            "    internal construct(capacity: usize = 0)\n",
-            "        -> Result<Self, std.memory.MemoryLayoutError>\n",
-            "    {\n",
-            "        let buffer: Buffer =\n",
-            "        {\n",
-            "            value = false,\n",
-            "        };\n",
-            "\n",
-            "        return Ok(buffer);\n",
-            "    }\n",
-            "\n",
-            "    func as_slice() -> &[u8]\n",
-            "    {\n",
-            "        return as_slice(&self);\n",
-            "    }\n",
-            "}\n",
-            "func as_slice(pos buffer: &Buffer) -> &[u8] { loop {} }\n",
-            "func length(pos buffer: &Buffer) -> usize { loop {} }\n",
-            "func push(pos buffer: &mut Buffer, value: u8)\n",
-            "    -> Result<unit, std.memory.MemoryLayoutError> { loop {} }\n",
-            "internal func append_slice(pos buffer: &mut Buffer, pos bytes: &[u8])\n",
-            "    -> Result<unit, std.memory.MemoryLayoutError> { loop {} }\n",
-            "internal func append_repeated(pos buffer: &mut Buffer, pos value: u8, pos count: usize)\n",
-            "    -> Result<unit, std.memory.MemoryLayoutError> { loop {} }\n",
-            "overload append =\n",
-            "{\n",
-            "    append_slice,\n",
-            "    append_repeated,\n",
-            "}\n",
-            "func reserve(pos buffer: &mut Buffer, additional: usize)\n",
-            "    -> Result<unit, std.memory.MemoryLayoutError> { loop {} }\n",
-            "func resize(pos buffer: &mut Buffer, new_length: usize, fill: u8 = 0)\n",
-            "    -> Result<unit, std.memory.MemoryLayoutError> { loop {} }\n",
-        ),
-        concat!(
-            "module std.string;\n",
-            "union Utf8Error\n",
-            "{\n",
-            "    InvalidEncoding;\n",
-            "}\n",
-            "impl string\n",
-            "{\n",
-            "    func as_bytes() -> &[u8]\n",
-            "    {\n",
-            "        return internal utf8(&self);\n",
-            "    }\n",
-            "    static func from_utf8(pos bytes: &[u8]) -> Result<string, Utf8Error>\n",
-            "    {\n",
-            "        return internal decode_utf8(bytes);\n",
-            "    }\n",
-            "}\n",
-            "internal func utf8(pos value: &string) -> &[u8] { loop {} }\n",
-            "internal func decode_utf8(pos bytes: &[u8]) -> Result<string, Utf8Error> { loop {} }\n",
-        ),
+        r#"
+            module std.memory;
+
+            union MemoryLayoutError
+            {
+                SizeOverflow;
+                UnsupportedAlignment;
+            }
+
+            func byte_slice_pointer(pos bytes: &[u8]) -> RawPointer<u8>
+            {
+                loop
+                {
+                }
+            }
+
+            func byte_slice_pointer_mut(pos bytes: &mut [u8]) -> RawPointer<u8>
+            {
+                loop
+                {
+                }
+            }
+
+            trusted func byte_buffer_copy(pos source: RawPointer<u8>, pos destination: RawPointer<u8>, count: usize)
+            {
+                loop
+                {
+                }
+            }
+
+            trusted func byte_buffer_fill(destination: RawPointer<u8>, value: u8, count: usize)
+            {
+                loop
+                {
+                }
+            }
+        "#,
+        r#"
+            module std.bytes;
+
+            using std.memory;
+
+            struct Buffer
+            {
+                internal value: bool;
+
+                internal construct(capacity: usize = 0) -> Result<Self, std.memory.MemoryLayoutError>
+                {
+                    let buffer: Buffer =
+                    {
+                        value = false,
+                    };
+
+                    return Ok(buffer);
+                }
+
+                func as_slice() -> &[u8]
+                {
+                    return as_slice(&self);
+                }
+            }
+
+            func as_slice(pos buffer: &Buffer) -> &[u8]
+            {
+                loop
+                {
+                }
+            }
+
+            func length(pos buffer: &Buffer) -> usize
+            {
+                loop
+                {
+                }
+            }
+
+            func push(pos buffer: &mut Buffer, value: u8) -> Result<unit, std.memory.MemoryLayoutError>
+            {
+                loop
+                {
+                }
+            }
+
+            internal func append_slice(pos buffer: &mut Buffer, pos bytes: &[u8]) -> Result<unit, std.memory.MemoryLayoutError>
+            {
+                loop
+                {
+                }
+            }
+
+            internal func append_repeated(
+                pos buffer: &mut Buffer,
+                pos value: u8,
+                pos count: usize
+            ) -> Result<unit, std.memory.MemoryLayoutError>
+            {
+                loop
+                {
+                }
+            }
+
+            overload append =
+            {
+                append_slice,
+                append_repeated,
+            }
+
+            func reserve(pos buffer: &mut Buffer, additional: usize) -> Result<unit, std.memory.MemoryLayoutError>
+            {
+                loop
+                {
+                }
+            }
+
+            func resize(pos buffer: &mut Buffer, new_length: usize, fill: u8 = 0) -> Result<unit, std.memory.MemoryLayoutError>
+            {
+                loop
+                {
+                }
+            }
+        "#,
+        r#"
+            module std.string;
+
+            union Utf8Error
+            {
+                InvalidEncoding;
+            }
+
+            impl string
+            {
+                func as_bytes() -> &[u8]
+                {
+                    return internal utf8(&self);
+                }
+
+                static func from_utf8(pos bytes: &[u8]) -> Result<string, Utf8Error>
+                {
+                    return internal decode_utf8(bytes);
+                }
+            }
+
+            internal func utf8(pos value: &string) -> &[u8]
+            {
+                loop
+                {
+                }
+            }
+
+            internal func decode_utf8(pos bytes: &[u8]) -> Result<string, Utf8Error>
+            {
+                loop
+                {
+                }
+            }
+        "#,
         include_str!("../../../../../../standard-library/std/src/character.bray"),
         include_str!("../../../../../../standard-library/std/src/numeric/checked.bray"),
         include_str!("../../../../../../standard-library/std/src/numeric/limits.bray"),
@@ -2247,60 +2819,84 @@ fn standard_formatting_surface_round_trips_and_specializes_without_provider_sour
         include_str!("../../../../../../standard-library/std/src/format/sink.bray"),
         include_str!("../../../../../../standard-library/std/src/format/integer_width.bray"),
         include_str!("../../../../../../standard-library/std/src/format/rendering.bray"),
-        concat!(
-            "trusted module std.io;\n",
-            "union IoErrorKind\n",
-            "{\n",
-            "    BrokenStream;\n",
-            "}\n",
-            "struct IoError\n",
-            "{\n",
-            "    kind: IoErrorKind;\n",
-            "    transferred: usize;\n",
-            "}\n",
-            "trait Writer\n",
-            "{\n",
-            "    mut func write(pos source: &[u8]) -> Result<usize, IoError>\n",
-            "        requires(blocking_execution());\n",
-            "    mut func flush() -> Result<unit, IoError>\n",
-            "        requires(blocking_execution());\n",
-            "    mut func write_all(pos source: &[u8]) -> Result<unit, IoError>\n",
-            "        requires(blocking_execution())\n",
-            "    {\n",
-            "        let length: usize = source.length();\n",
-            "        let mut written: usize = 0;\n",
-            "        while written < length\n",
-            "        {\n",
-            "            let result: Result<usize, IoError> = self.write(&source[written..length]);\n",
-            "            match consume result\n",
-            "            {\n",
-            "                case Ok(count)\n",
-            "                {\n",
-            "                    if count == 0 || count > length - written\n",
-            "                    {\n",
-            "                        return Error({ kind = IoErrorKind.BrokenStream, transferred = written });\n",
-            "                    }\n",
-            "                    written += count;\n",
-            "                }\n",
-            "                case Error(error) { return Error(prefixed_error(error, prefix = written)); }\n",
-            "            }\n",
-            "        }\n",
-            "        return Ok(unit);\n",
-            "    }\n",
-            "}\n",
-            "internal func smaller(pos left: usize, pos right: usize) -> usize\n",
-            "{\n",
-            "    if left < right\n",
-            "    {\n",
-            "        return left;\n",
-            "    }\n",
-            "    return right;\n",
-            "}\n",
-            "internal func prefixed_error(pos error: IoError, prefix: usize) -> IoError\n",
-            "{\n",
-            "    return { kind = error.kind, transferred = prefix + error.transferred };\n",
-            "}\n",
-        ),
+        r#"
+            trusted module std.io;
+
+            union IoErrorKind
+            {
+                BrokenStream;
+            }
+
+            struct IoError
+            {
+                kind: IoErrorKind;
+                transferred: usize;
+            }
+
+            trait Writer
+            {
+                mut func write(pos source: &[u8]) -> Result<usize, IoError>
+                    requires(blocking_execution());
+
+                mut func flush() -> Result<unit, IoError>
+                    requires(blocking_execution());
+
+                mut func write_all(pos source: &[u8]) -> Result<unit, IoError>
+                    requires(blocking_execution())
+                {
+                    let length: usize = source.length();
+                    let mut written: usize = 0;
+
+                    while written < length
+                    {
+                        let result: Result<usize, IoError> = self.write(&source[written..length]);
+
+                        match consume result
+                        {
+                            case Ok(count)
+                            {
+                                if count == 0 || count > length - written
+                                {
+                                    return Error(
+                                        {
+                                            kind = IoErrorKind.BrokenStream,
+                                            transferred = written
+                                        }
+                                    );
+                                }
+
+                                written += count;
+                            }
+                            case Error(error)
+                            {
+                                return Error(prefixed_error(error, prefix = written));
+                            }
+                        }
+                    }
+
+                    return Ok(unit);
+                }
+            }
+
+            internal func smaller(pos left: usize, pos right: usize) -> usize
+            {
+                if left < right
+                {
+                    return left;
+                }
+
+                return right;
+            }
+
+            internal func prefixed_error(pos error: IoError, prefix: usize) -> IoError
+            {
+                return
+                {
+                    kind = error.kind,
+                    transferred = prefix + error.transferred
+                };
+            }
+        "#,
         include_str!("../../../../../../standard-library/std/src/io/formatting.bray"),
         crate::test_support::RUNTIME_MEMORY_SOURCE,
         crate::test_support::RUNTIME_TEXT_SOURCE,
@@ -2422,74 +3018,73 @@ fn standard_formatting_surface_round_trips_and_specializes_without_provider_sour
         SourceIdentity::new(0),
         "consumer.bray",
         SourceVersion::new(0),
-        concat!(
-            "module app;\n",
-            "using std.format;\n",
-            "using std.format.ByteSinkFormatting;\n",
-            "using std.format.StringFormat;\n",
-            "using std.format.I32Format;\n",
-            "using std.format.U32Format;\n",
-            "using std.bytes;\n",
-            "using std.io;\n",
-            "using std.io.WriterFormattingSink;\n",
-            "using std.memory;\n",
-            "struct RecordingWriter\n",
-            "{\n",
-            "    mut written: usize;\n",
-            "}\n",
-            "impl RecordingWriterIo = RecordingWriter(std.io.Writer)\n",
-            "{\n",
-            "    mut func write(pos source: &[u8]) -> Result<usize, std.io.IoError>\n",
-            "        requires(blocking_execution())\n",
-            "    {\n",
-            "        let length: usize = source.length();\n",
-            "        self.written += length;\n",
-            "        return Ok(length);\n",
-            "    }\n",
-            "    mut func flush() -> Result<unit, std.io.IoError>\n",
-            "        requires(blocking_execution())\n",
-            "    {\n",
-            "        return Ok(unit);\n",
-            "    }\n",
-            "}\n",
-            "func render(pos destination: &mut std.format.ByteSink, pos value: string)\n",
-            "    -> Result<unit, std.memory.MemoryLayoutError>\n",
-            "    requires(blocking_execution())\n",
-            "{\n",
-            "    return std.format.write(\n",
-            "        destination,\n",
-            "        std.format.Argument<string>(&value),\n",
-            "    );\n",
-            "}\n",
-            "func render_integer(pos destination: &mut std.format.ByteSink, pos value: i32)\n",
-            "    -> Result<unit, std.memory.MemoryLayoutError>\n",
-            "    requires(blocking_execution())\n",
-            "{\n",
-            "    return std.format.write(\n",
-            "        destination,\n",
-            "        std.format.Argument<i32>(&value),\n",
-            "    );\n",
-            "}\n",
-            "func resolved_defaults() -> std.format.Options\n",
-            "{\n",
-            "    return std.format.Options();\n",
-            "}\n",
-            "public trusted func stream_integer(pos writer: &mut RecordingWriter, pos value: u32)\n",
-            "    -> Result<unit, std.io.IoError>\n",
-            "    requires(blocking_execution())\n",
-            "{\n",
-            "    let mut destination: std.io.FormattingSink<RecordingWriter> =\n",
-            "        std.io.FormattingSink<RecordingWriter>(writer);\n",
-            "    return trusted std.format.write_to<\n",
-            "        u32,\n",
-            "        std.io.FormattingSink<RecordingWriter>,\n",
-            "        std.io.IoError\n",
-            "    >(\n",
-            "        &mut destination,\n",
-            "        std.format.Argument<u32>(&value),\n",
-            "    );\n",
-            "}\n",
-        ),
+        r#"
+            module app;
+
+            using std.format;
+            using std.format.ByteSinkFormatting;
+            using std.format.StringFormat;
+            using std.format.I32Format;
+            using std.format.U32Format;
+            using std.bytes;
+            using std.io;
+            using std.io.WriterFormattingSink;
+            using std.memory;
+
+            struct RecordingWriter
+            {
+                mut written: usize;
+            }
+
+            impl RecordingWriterIo = RecordingWriter(std.io.Writer)
+            {
+                mut func write(pos source: &[u8]) -> Result<usize, std.io.IoError>
+                    requires(blocking_execution())
+                {
+                    let length: usize = source.length();
+
+                    self.written += length;
+                    return Ok(length);
+                }
+
+                mut func flush() -> Result<unit, std.io.IoError>
+                    requires(blocking_execution())
+                {
+                    return Ok(unit);
+                }
+            }
+
+            func render(pos destination: &mut std.format.ByteSink, pos value: string) -> Result<unit, std.memory.MemoryLayoutError>
+                requires(blocking_execution())
+            {
+                return std.format.write(destination, std.format.Argument<string>(&value));
+            }
+
+            func render_integer(
+                pos destination: &mut std.format.ByteSink,
+                pos value: i32
+            ) -> Result<unit, std.memory.MemoryLayoutError>
+                requires(blocking_execution())
+            {
+                return std.format.write(destination, std.format.Argument<i32>(&value));
+            }
+
+            func resolved_defaults() -> std.format.Options
+            {
+                return std.format.Options();
+            }
+
+            public trusted func stream_integer(pos writer: &mut RecordingWriter, pos value: u32) -> Result<unit, std.io.IoError>
+                requires(blocking_execution())
+            {
+                let mut destination: std.io.FormattingSink<RecordingWriter> = std.io.FormattingSink<RecordingWriter>(writer);
+
+                return trusted std.format.write_to<u32, std.io.FormattingSink<RecordingWriter>, std.io.IoError>(
+                    &mut destination,
+                    std.format.Argument<u32>(&value),
+                );
+            }
+        "#,
     );
 
     let options = CompilationOptions::new(
@@ -2673,7 +3268,12 @@ fn standard_formatting_surface_round_trips_and_specializes_without_provider_sour
 #[test]
 fn non_library_products_cannot_export_package_interfaces() {
     for product_kind in [ProductKind::Executable, ProductKind::Test] {
-        let compilation = compilation_from_sources_for_product(["module app;"], product_kind);
+        let compilation = compilation_from_sources_for_product(
+            [r#"
+                module app;
+            "#],
+            product_kind,
+        );
 
         assert_eq!(
             compilation.package_interface_export_bundle(),
@@ -2691,22 +3291,22 @@ fn non_library_products_cannot_export_package_interfaces() {
 #[test]
 fn target_gated_contributions_do_not_invalidate_package_interface_export() {
     let compilation = compilation_from_sources([
-        concat!(
-            "@target(false)\n",
-            "module app;\n",
-            "\n",
-            "func disabled()\n",
-            "{\n",
-            "}\n",
-        ),
-        concat!(
-            "@target(target.pointer.BITS == 64)\n",
-            "module app;\n",
-            "\n",
-            "func enabled()\n",
-            "{\n",
-            "}\n",
-        ),
+        r#"
+            @target(false)
+            module app;
+
+            func disabled()
+            {
+            }
+        "#,
+        r#"
+            @target(target.pointer.BITS == 64)
+            module app;
+
+            func enabled()
+            {
+            }
+        "#,
     ]);
 
     let bundle = export(&compilation);
@@ -2772,27 +3372,23 @@ fn target_gated_contributions_do_not_invalidate_package_interface_export() {
 
 #[test]
 fn named_callable_contract_applications_export_in_public_signatures() {
-    let compilation = compilation_from_sources([concat!(
-        "trusted module app;\n",
-        "\n",
-        "callable ThreadStart = @abi(c)\n",
-        "func(pos context: RawPointer<u8>) -> RawPointer<u8>;\n",
-        "\n",
-        "callable Transform<T> = @abi(c)\n",
-        "func(pos value: T) -> T;\n",
-        "\n",
-        "callable FixedTransform<const N: usize> = @abi(c)\n",
-        "func(pos value: RawPointer<[u8; N]>) -> RawPointer<[u8; N]>;\n",
-        "\n",
-        "trusted func register(\n",
-        "    pos start: ThreadStart,\n",
-        "    pos transform: Transform<i32>,\n",
-        "    pos fixed: FixedTransform<4>\n",
-        ") -> i32\n",
-        "{\n",
-        "    return 0;\n",
-        "}\n",
-    )]);
+    let compilation = compilation_from_sources([r#"
+        trusted module app;
+
+        callable ThreadStart = @abi(c)
+        func(pos context: RawPointer<u8>) -> RawPointer<u8>;
+
+        callable Transform<T> = @abi(c)
+        func(pos value: T) -> T;
+
+        callable FixedTransform<const N: usize> = @abi(c)
+        func(pos value: RawPointer<[u8; N]>) -> RawPointer<[u8; N]>;
+
+        trusted func register(pos start: ThreadStart, pos transform: Transform<i32>, pos fixed: FixedTransform<4>) -> i32
+        {
+            return 0;
+        }
+    "#]);
 
     let bundle = export(&compilation);
 
@@ -2802,22 +3398,22 @@ fn named_callable_contract_applications_export_in_public_signatures() {
 #[test]
 fn runtime_defaults_export_after_disabled_target_gated_contributions() {
     let compilation = compilation_from_sources([
-        concat!(
-            "@target(false)\n",
-            "module app;\n",
-            "\n",
-            "func disabled()\n",
-            "{\n",
-            "}\n",
-        ),
-        concat!(
-            "module app;\n",
-            "\n",
-            "func selected(pos value: i64? = none) -> i64?\n",
-            "{\n",
-            "    return value;\n",
-            "}\n",
-        ),
+        r#"
+            @target(false)
+            module app;
+
+            func disabled()
+            {
+            }
+        "#,
+        r#"
+            module app;
+
+            func selected(pos value: i64? = none) -> i64?
+            {
+                return value;
+            }
+        "#,
     ]);
 
     let bundle = export(&compilation);

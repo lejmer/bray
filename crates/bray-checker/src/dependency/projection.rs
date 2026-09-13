@@ -22,10 +22,9 @@ impl ValueInputs {
                 if let BoundBlockItem::LocalBinding(binding) = item
                     && let Some(pattern) = unit.tree().pattern(binding.pattern())
                     && pattern.kind() == BoundPatternKind::Binding
-                    && !pattern.is_mutable()
                     && let [local] = pattern.bindings()
                 {
-                    initializers.insert(*local, binding.initializer());
+                    initializers.insert(*local, (binding.initializer(), pattern.is_mutable()));
                 }
             }
         }
@@ -42,8 +41,14 @@ impl ValueInputs {
                 _ => None,
             };
 
-            if let Some(initializer) = local.and_then(|binding| initializers.get(&binding)) {
-                self.aliases.insert(id, *initializer);
+            if let Some((initializer, mutable)) =
+                local.and_then(|binding| initializers.get(&binding))
+            {
+                self.initializers.insert(id, *initializer);
+
+                if !mutable {
+                    self.aliases.insert(id, *initializer);
+                }
             }
 
             if let Some(SemanticSelection::Operation(SelectedOperation::Construction(
@@ -86,6 +91,32 @@ impl ValueInputs {
                 }
             }
         }
+
+        for (id, _) in unit.tree().expressions() {
+            let Some((BoundReferenceTarget::Local(AnyLocalSymbolId::Binding(binding)), path)) =
+                super::assignment::value_place(unit, selections, &self.aliases, id)
+            else {
+                continue;
+            };
+
+            if path.is_empty() {
+                continue;
+            }
+
+            let Some(path) = path.into_iter().collect::<Option<Vec<_>>>() else {
+                continue;
+            };
+
+            let Some((initializer, _)) = initializers.get(&binding) else {
+                continue;
+            };
+
+            let (value, remaining) = self.project(*initializer, &path);
+
+            if remaining.is_empty() {
+                self.projected_initializers.insert(id, value);
+            }
+        }
     }
 
     /// Resolves initialized aggregate fields without treating carried sources as aggregate storage.
@@ -104,7 +135,17 @@ impl ValueInputs {
             if let Some(child) = self.projections.get(&(expression, *projection)) {
                 expression = *child;
                 path = rest;
-            } else if let Some(initializer) = self.aliases.get(&expression) {
+            } else if let Some(initializer) = self.initializers.get(&expression) {
+                if self
+                    .writes
+                    .get(&expression)
+                    .into_iter()
+                    .flatten()
+                    .any(|written| written.project(path).is_some())
+                {
+                    break;
+                }
+
                 expression = *initializer;
             } else {
                 break;

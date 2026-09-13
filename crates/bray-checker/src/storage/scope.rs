@@ -67,21 +67,15 @@ where
 {
     let mut result = local_initialization_bindings(request, storage);
 
-    for (id, expression) in request.unit().tree().expressions() {
+    for (_, expression) in request.unit().tree().expressions() {
         match expression {
-            BoundExpression::Assignment(assignment)
-                if assignment.operator().binary_operator().is_none() =>
-            {
-                if let [_, value] = assignment.operands() {
-                    result.entry(*value).or_default().extend(
-                        storage
-                            .expression_plans(id)
-                            .filter(|plan| {
-                                plan.purpose() == bray_bound_tree::StorageAccessPurpose::Assignment
-                            })
-                            .map(|plan| StorageBinding::Access(plan.access())),
-                    );
-                }
+            BoundExpression::For(value) => {
+                let bindings = result.entry(value.source()).or_default();
+                extend_pattern_bindings(request.view(), storage, value.pattern(), bindings);
+            }
+            BoundExpression::Generator(value) => {
+                let bindings = result.entry(value.source()).or_default();
+                extend_pattern_bindings(request.view(), storage, value.pattern(), bindings);
             }
             BoundExpression::Match(expression) => {
                 let bindings = result.entry(expression.subject()).or_default();

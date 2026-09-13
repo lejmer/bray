@@ -1,7 +1,6 @@
 use crate::{CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext};
 use bray_bound_tree::{
     BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundStructuredExpressionKind,
-    SelectedOperation, SemanticSelection,
 };
 use bray_symbols::{
     AnyLocalSymbolId, AnySymbolId, DependencyProjection, DependencyRequirement,
@@ -172,30 +171,11 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
         receiver: BoundExpressionId,
         expression: BoundExpressionId,
     ) -> BTreeSet<DependencySubject> {
-        let selection = self.selections.expression(expression);
-
-        let tuple = match self.request.view().expression(expression) {
-            Some(BoundExpression::MemberAccess(member)) => match member.selector() {
-                Some(bray_bound_tree::BoundMemberSelector::TupleElement(index)) => Some(
-                    DependencyProjection::TupleElement(SymbolOrdinal::new(*index)),
-                ),
-                _ => None,
-            },
-            _ => None,
-        };
-
-        let projection = match selection {
-            Some(SemanticSelection::Operation(SelectedOperation::Member(member))) => match member
-                .member()
-            {
-                AnySymbolId::StructField(field) => Some(DependencyProjection::ProductField(field)),
-                AnySymbolId::UnionPayloadField(field) => {
-                    Some(DependencyProjection::UnionPayloadField(field))
-                }
-                _ => None,
-            },
-            _ => tuple,
-        };
+        let projection = crate::dependency::assignment::member_projection(
+            self.request.unit(),
+            self.selections,
+            expression,
+        );
 
         if let Some(projection) = projection {
             let path = [projection];
@@ -225,6 +205,57 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                 )
             })
             .collect()
+    }
+
+    pub(super) fn projected_values(
+        &self,
+        value: BoundExpressionId,
+        path: &[bray_symbols::DependencyProjection],
+    ) -> BTreeSet<DependencyRequirement> {
+        let mut requirements = BTreeSet::new();
+        let mut pending = vec![(value, path.to_vec())];
+        let mut visited = BTreeSet::new();
+
+        while let Some((value, path)) = pending.pop() {
+            let path = normalized_subject(DependencySubjectRoot::Result, path);
+            let path = path.projections();
+
+            if !visited.insert((value, path.to_vec())) {
+                continue;
+            }
+
+            if !path.is_empty() {
+                pending.extend(
+                    self.inputs
+                        .writes
+                        .get(&value)
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|write| write.project(path)),
+                );
+            }
+
+            let (value, path) = self.inputs.project(value, path);
+
+            let sources = self.sources.get(&value);
+
+            if path.is_empty() || sources.is_none_or(BTreeSet::is_empty) {
+                requirements.extend(self.values.get(&value).into_iter().flatten().cloned());
+                continue;
+            }
+
+            requirements.extend(sources.into_iter().flatten().map(|source| {
+                DependencyRequirement::direct(
+                    normalized_subject(
+                        source.subject_root(),
+                        source.projections().iter().chain(path).copied(),
+                    ),
+                    DependencyRequirementKind::ValueDependencies,
+                )
+            }));
+        }
+
+        requirements
     }
 }
 

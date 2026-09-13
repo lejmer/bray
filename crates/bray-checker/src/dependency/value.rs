@@ -14,23 +14,25 @@ pub(crate) struct ValueInputs {
     pub(super) projections:
         BTreeMap<(BoundExpressionId, bray_symbols::DependencyProjection), BoundExpressionId>,
     pub(super) aliases: BTreeMap<BoundExpressionId, BoundExpressionId>,
+    pub(super) initializers: BTreeMap<BoundExpressionId, BoundExpressionId>,
+    pub(super) writes: BTreeMap<BoundExpressionId, Vec<super::assignment::AssignedValue>>,
+    pub(super) projected: BTreeMap<
+        BoundExpressionId,
+        Vec<(BoundExpressionId, Vec<bray_symbols::DependencyProjection>)>,
+    >,
+    pub(super) error_exits:
+        BTreeMap<BoundExpressionId, (BoundExpressionId, bray_symbols::DependencyProjection)>,
+    pub(super) returned_errors: std::collections::BTreeSet<BoundExpressionId>,
     expressions: BTreeMap<BoundExpressionId, Vec<BoundExpressionId>>,
+    pub(super) projected_initializers: BTreeMap<BoundExpressionId, BoundExpressionId>,
 }
 
 impl ValueInputs {
     pub(crate) fn new(unit: &BoundUnit, selections: &CheckedSemanticSelections) -> Self {
         let mut expressions = BTreeMap::<_, Vec<_>>::new();
-        let mut targets = BTreeMap::new();
+        let targets = transfer_targets(unit);
 
         for (id, expression) in unit.tree().expressions() {
-            targets.insert(expression.origin().source_anchor().syntax(), id);
-
-            for block in expression.child_blocks() {
-                if let Some(block) = unit.tree().block(block) {
-                    targets.insert(block.origin().source_anchor().syntax(), id);
-                }
-            }
-
             let inputs = match expression {
                 BoundExpression::Call(call)
                     if matches!(
@@ -88,15 +90,75 @@ impl ValueInputs {
         }
 
         let mut result = Self {
+            projected: BTreeMap::new(),
+            error_exits: BTreeMap::new(),
+            returned_errors: Default::default(),
             expressions,
+            projected_initializers: BTreeMap::new(),
             independent: Default::default(),
             projections: BTreeMap::new(),
             aliases: BTreeMap::new(),
+            initializers: BTreeMap::new(),
+            writes: BTreeMap::new(),
         };
 
         result.collect_projections(unit, selections);
+        result.writes = super::assignment::assignment_inputs(unit, selections, &result.aliases);
 
         result
+    }
+
+    pub(crate) fn prepare<C: CheckerRequestContext + ?Sized>(
+        request: CheckerUnitView<'_, C>,
+        types: &bray_bound_tree::CheckedExpressionTypes,
+        selections: &CheckedSemanticSelections,
+    ) -> Result<Self, crate::CheckerQueryError<C::UpstreamError>> {
+        let mut inputs = Self::new(request.unit(), selections);
+        inputs.filter_independent(request, types)?;
+        inputs.collect_propagation(request, selections)?;
+
+        Ok(inputs)
+    }
+
+    pub(crate) fn projected_operands(
+        &self,
+        expression: BoundExpressionId,
+    ) -> impl Iterator<Item = (BoundExpressionId, &[bray_symbols::DependencyProjection])> {
+        self.projected
+            .get(&expression)
+            .into_iter()
+            .flatten()
+            .map(|(value, path)| (*value, path.as_slice()))
+            .chain(
+                self.writes
+                    .get(&expression)
+                    .into_iter()
+                    .flatten()
+                    .map(|write| (write.value, write.source.as_slice())),
+            )
+    }
+
+    pub(crate) fn propagated_errors(
+        &self,
+    ) -> impl Iterator<
+        Item = (
+            BoundExpressionId,
+            BoundExpressionId,
+            bray_symbols::DependencyProjection,
+        ),
+    > {
+        self.error_exits
+            .iter()
+            .map(|(exit, (value, projection))| (*exit, *value, *projection))
+    }
+
+    pub(crate) fn returned_errors(
+        &self,
+    ) -> impl Iterator<Item = (BoundExpressionId, bray_symbols::DependencyProjection)> {
+        self.returned_errors
+            .iter()
+            .filter_map(|exit| self.error_exits.get(exit))
+            .copied()
     }
 
     pub(crate) fn filter_independent<C: CheckerRequestContext + ?Sized>(
@@ -120,15 +182,29 @@ impl ValueInputs {
         self.independent.contains(&expression)
     }
 
+    pub(crate) fn projected_initializer(
+        &self,
+        expression: BoundExpressionId,
+    ) -> Option<BoundExpressionId> {
+        self.projected_initializers.get(&expression).copied()
+    }
+
     pub(crate) fn operands(
         &self,
         expression: BoundExpressionId,
     ) -> impl Iterator<Item = BoundExpressionId> + '_ {
-        self.expressions
+        let operands = self
+            .projected_initializers
             .get(&expression)
-            .into_iter()
-            .flatten()
-            .copied()
+            .map(std::slice::from_ref)
+            .unwrap_or_else(|| {
+                self.expressions
+                    .get(&expression)
+                    .map(Vec::as_slice)
+                    .unwrap_or_default()
+            });
+
+        operands.iter().copied()
     }
 }
 
@@ -232,4 +308,22 @@ pub(crate) fn independent_value_type<C: CheckerRequestContext + ?Sized>(
     }
 
     Ok(true)
+}
+
+pub(super) fn transfer_targets(
+    unit: &BoundUnit,
+) -> BTreeMap<bray_declarations::SyntaxAnchor, BoundExpressionId> {
+    let mut targets = BTreeMap::new();
+
+    for (id, expression) in unit.tree().expressions() {
+        targets.insert(expression.origin().source_anchor().syntax(), id);
+
+        for block in expression.child_blocks() {
+            if let Some(block) = unit.tree().block(block) {
+                targets.insert(block.origin().source_anchor().syntax(), id);
+            }
+        }
+    }
+
+    targets
 }

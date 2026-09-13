@@ -66,27 +66,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
             };
 
             if *kind == DependencyRequirementKind::ValueDependencies {
-                let (argument, projections) = self.inputs.project(argument, subject.projections());
-
-                if projections.is_empty() {
-                    result.extend(self.values.get(&argument).into_iter().flatten().cloned());
-                } else {
-                    let sources = self.sources.get(&argument);
-
-                    if sources.is_none_or(BTreeSet::is_empty) {
-                        result.extend(self.values.get(&argument).into_iter().flatten().cloned());
-                    }
-
-                    for source in sources.into_iter().flatten() {
-                        result.insert(DependencyRequirement::direct(
-                            super::sources::normalized_subject(
-                                source.subject_root(),
-                                source.projections().iter().chain(projections).copied(),
-                            ),
-                            *kind,
-                        ));
-                    }
-                }
+                result.extend(self.projected_values(argument, subject.projections()));
             } else {
                 for source in self.sources.get(&argument).into_iter().flatten() {
                     let source = super::sources::normalized_subject(

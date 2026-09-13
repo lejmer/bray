@@ -1,9 +1,11 @@
+mod assignment;
 mod call;
 mod check;
 mod defaults;
 mod implementation;
 mod operation;
 mod projection;
+mod propagation;
 mod result;
 mod returned;
 mod value;

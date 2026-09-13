@@ -47,8 +47,7 @@ impl OperationEffects {
     {
         let mut effects = Self::from_storage_plan(request.unit(), storage, memory);
 
-        effects.value_inputs = ValueInputs::new(request.unit(), selections);
-        effects.value_inputs.filter_independent(request, types)?;
+        effects.value_inputs = ValueInputs::prepare(request, types, selections)?;
 
         effects.retain_call_input_dependencies(request.unit());
         effects.add_selected_call_dependencies(request, selections, storage)?;
@@ -309,7 +308,7 @@ impl OperationEffects {
     }
 
     fn retain_owner_control_transfer_dependencies(&mut self, unit: &BoundUnit) {
-        let transfers = unit
+        let mut transfers = unit
             .tree()
             .expressions()
             .filter_map(|(expression, node)| {
@@ -330,6 +329,15 @@ impl OperationEffects {
             })
             .collect::<Vec<_>>();
 
+        for (exit, value, projection) in self.value_inputs.propagated_errors() {
+            let (value, _) = self.value_inputs.project(value, &[projection]);
+
+            transfers.push((
+                exit,
+                retained_subtree_subjects(&self.value_inputs, value, &self.owner_dependencies),
+            ));
+        }
+
         for (expression, subjects) in transfers {
             self.extend_uses(expression, subjects.iter().copied());
             self.exit_dependencies.insert(expression.into(), subjects);
@@ -346,12 +354,14 @@ impl OperationEffects {
         let (accesses_by_root, _) = index_storage_roots(storage);
 
         let initializations = value_transfer_bindings(request, storage);
-        let initializers_by_root = index_initializers_by_root(storage, &initializations);
+
+        let value_sources_by_root =
+            index_value_sources_by_root(storage, &initializations, &self.value_inputs);
 
         for expression in self.owner_dependencies.keys().copied().collect::<Vec<_>>() {
             let nested_borrows = retained_storage_borrows(
                 storage,
-                &initializers_by_root,
+                &value_sources_by_root,
                 self.owner_dependencies
                     .get(&expression)
                     .into_iter()
@@ -393,7 +403,12 @@ impl OperationEffects {
                     };
 
                     for expression in accesses_by_root.get(&root).into_iter().flatten() {
-                        if self.value_inputs.is_independent(*expression) {
+                        if self.value_inputs.is_independent(*expression)
+                            || self
+                                .value_inputs
+                                .projected_initializer(*expression)
+                                .is_some()
+                        {
                             continue;
                         }
 
@@ -542,9 +557,10 @@ impl<'a> OperationEffectView<'a> {
     }
 }
 
-fn index_initializers_by_root(
+fn index_value_sources_by_root(
     storage: &StoragePlan,
     initializations: &BTreeMap<BoundExpressionId, Vec<StorageBinding>>,
+    inputs: &ValueInputs,
 ) -> BTreeMap<StorageIdentityId, Vec<BoundExpressionId>> {
     let mut result = BTreeMap::<_, Vec<_>>::new();
 
@@ -561,12 +577,24 @@ fn index_initializers_by_root(
         }
     }
 
+    for plan in storage.access_plans() {
+        let Some(root) = storage.root_identity(plan.access()) else {
+            continue;
+        };
+
+        result.entry(root).or_default().extend(
+            inputs
+                .projected_operands(plan.expression())
+                .map(|(value, path)| inputs.project(value, path).0),
+        );
+    }
+
     result
 }
 
 fn retained_storage_borrows(
     storage: &StoragePlan,
-    initializers_by_root: &BTreeMap<StorageIdentityId, Vec<BoundExpressionId>>,
+    value_sources_by_root: &BTreeMap<StorageIdentityId, Vec<BoundExpressionId>>,
     subjects: impl IntoIterator<Item = BoundDependencySubject>,
     effects: &OperationEffects,
 ) -> BTreeSet<BoundDependencySubject> {
@@ -584,7 +612,7 @@ fn retained_storage_borrows(
                     continue;
                 }
 
-                for initializer in initializers_by_root.get(&root).into_iter().flatten() {
+                for initializer in value_sources_by_root.get(&root).into_iter().flatten() {
                     pending.extend(retained_subtree_subjects(
                         &effects.value_inputs,
                         *initializer,
@@ -625,9 +653,10 @@ fn retained_subtree_subjects(
 ) -> BTreeSet<BoundDependencySubject> {
     let mut retained = BTreeSet::new();
     let mut pending = vec![root];
+    let mut visited = BTreeSet::new();
 
     while let Some(expression) = pending.pop() {
-        if inputs.is_independent(expression) {
+        if !visited.insert(expression) || inputs.is_independent(expression) {
             continue;
         }
 
@@ -636,6 +665,12 @@ fn retained_subtree_subjects(
         }
 
         pending.extend(inputs.operands(expression));
+
+        pending.extend(
+            inputs
+                .projected_operands(expression)
+                .map(|(value, path)| inputs.project(value, path).0),
+        );
     }
 
     retained
