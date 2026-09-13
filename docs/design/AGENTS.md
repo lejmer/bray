@@ -1,7 +1,7 @@
 # Design documentation
 
-These documents explain the compiler's intended structure, component responsibilities, and how the parts fit together.
+These documents explain the compiler's intended design: structure, responsibilities, relationships, and guiding principles.
 
-- Edit them only to change or clarify that architecture.
-- Do not add specifications, behavioral rules, edge cases, implementation details, or progress logs. A rule spanning several components is still a rule.
+- Include compiler-wide and major-component design choices and conventions, such as immutability, lazy evaluation, parallelism, reusable parts, and parser or binder naming conventions.
+- Do not turn them into specifications, catalogs of behavioral rules or edge cases, local implementation walkthroughs, or progress logs.
 - Existing content outside this scope is not precedent for adding more.
