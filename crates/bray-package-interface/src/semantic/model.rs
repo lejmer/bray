@@ -25,10 +25,10 @@ pub use declaration::{
     InterfaceTypeRepresentation, InterfaceUnionStorageVariant, InterfaceUnionTag,
 };
 pub use dependency::{
-    InterfaceDependencyContract, InterfaceDependencyGuard, InterfaceDependencyProjection,
-    InterfaceDependencyRequirement, InterfaceDependencyRequirementKind,
-    InterfaceDependencyRequirementValue, InterfaceDependencySubject,
-    InterfaceDependencySubjectRoot,
+    InterfaceDependencyCallInput, InterfaceDependencyContract, InterfaceDependencyGuard,
+    InterfaceDependencyProjection, InterfaceDependencyRequirement,
+    InterfaceDependencyRequirementKind, InterfaceDependencyRequirementValue,
+    InterfaceDependencySubject, InterfaceDependencySubjectRoot,
 };
 pub use id::{
     InterfaceCallableInstanceId, InterfaceCheckedTemplateId, InterfaceConstantTermId,

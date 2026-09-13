@@ -544,10 +544,32 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
             .dependency_contract_template_data(id)
             .map_err(FactQueryError::SemanticValueStore)?;
 
-        self.length(data.requirements().len());
+        self.dependency_requirements(data.requirements())
+    }
 
-        for requirement in data.requirements() {
-            self.dependency_requirement(requirement)?;
+    fn dependency_requirements(
+        &mut self,
+        requirements: &[DependencyRequirement],
+    ) -> Result<(), FactQueryError> {
+        let mut identities = Vec::with_capacity(requirements.len());
+
+        for requirement in requirements {
+            let mut encoder = StructuralValueEncoder {
+                values: self.values,
+                binding_context: self.binding_context,
+                digest: StableDigestHasher::new(),
+            };
+
+            encoder.dependency_requirement(requirement)?;
+            identities.push(encoder.digest.finalize());
+        }
+
+        // Requirement sets must not inherit store-local allocation order.
+        identities.sort_unstable();
+        self.length(identities.len());
+
+        for identity in identities {
+            self.digest.write(&identity);
         }
 
         Ok(())
@@ -558,6 +580,42 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
         requirement: &DependencyRequirement,
     ) -> Result<(), FactQueryError> {
         match requirement {
+            DependencyRequirement::Variable { depth, ordinal } => {
+                self.tag(4);
+                self.length(*depth as usize);
+                self.length(ordinal.raw() as usize);
+            }
+            DependencyRequirement::FixedPoint {
+                definitions,
+                result,
+            } => {
+                self.tag(5);
+                self.length(definitions.len());
+
+                for requirements in definitions
+                    .iter()
+                    .map(|definition| definition.as_ref())
+                    .chain([result.as_ref()])
+                {
+                    self.dependency_requirements(requirements)?;
+                }
+            }
+            DependencyRequirement::RecursiveCall { callable, inputs } => {
+                self.tag(3);
+                self.callable_instance(*callable)?;
+                self.dependency_call_inputs(inputs)?;
+            }
+            DependencyRequirement::WitnessCall {
+                callable,
+                requirement,
+                inputs,
+            } => {
+                self.tag(2);
+                self.callable_instance(*callable)?;
+                self.ty(requirement.subject())?;
+                self.trait_application(requirement.trait_application())?;
+                self.dependency_call_inputs(inputs)?;
+            }
             DependencyRequirement::Direct { subject, kind } => {
                 self.tag(0);
                 self.dependency_subject(subject)?;
@@ -566,11 +624,24 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
             DependencyRequirement::Guarded(guarded) => {
                 self.tag(1);
                 self.dependency_guard(guarded.guard())?;
-                self.length(guarded.requirements().len());
+                self.dependency_requirements(guarded.requirements())?;
+            }
+        }
 
-                for requirement in guarded.requirements() {
-                    self.dependency_requirement(requirement)?;
-                }
+        Ok(())
+    }
+
+    fn dependency_call_inputs(
+        &mut self,
+        inputs: &[bray_symbols::DependencyCallInput],
+    ) -> Result<(), FactQueryError> {
+        self.length(inputs.len());
+
+        for input in inputs {
+            self.dependency_subject(&DependencySubject::root(input.root()))?;
+
+            for requirements in [input.values(), input.storage()] {
+                self.dependency_requirements(requirements)?;
             }
         }
 
@@ -601,6 +672,7 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
                 self.ordinal(ordinal);
             }
             DependencySubjectRoot::Result => self.tag(2),
+            DependencySubjectRoot::EvaluationStorage => self.tag(7),
             DependencySubjectRoot::ScopedCapability(ordinal) => {
                 self.tag(3);
                 self.ordinal(ordinal);
@@ -726,6 +798,151 @@ mod tests {
         CallableAbi, CallableConstness, CallableDependencyContracts, CallablePhaseBehaviors,
         CallableTrust, CallableTypeData, ExecutionProperty, TypeData,
     };
+
+    #[test]
+    fn witness_dependencies_distinguish_specialization_identities() {
+        use bray_binder::SymbolQueryProvider;
+
+        use bray_symbols::{
+            CallableResultDependenciesQuery, DependencyCallInput, DependencyContractTemplateData,
+            DependencyRequirement, DependencyRequirementKind, DependencySubject,
+            DependencySubjectRoot, SymbolQueryRequest,
+        };
+
+        let mut by_query_order = Vec::new();
+
+        for names in [["first", "second"], ["second", "first"]] {
+            let compilation = crate::test_support::compilation(
+                r#"
+            module app;
+
+            trait Project
+            {
+                func first() -> &bool;
+                func second() -> &bool;
+            }
+
+            func first<T>(pos value: &T) -> &bool with(T: Project)
+            {
+                return value.first();
+            }
+
+            func second<T>(pos value: &T) -> &bool with(T: Project)
+            {
+                return value.second();
+            }
+        "#,
+            );
+
+            let values = compilation.semantic_value_store().unwrap();
+
+            let context = compilation
+                .binding_context(&compilation.state.cancellation)
+                .unwrap();
+
+            let mut identities = std::collections::BTreeSet::new();
+
+            let mut combined = Vec::new();
+
+            for name in names {
+                let function = crate::test_support::source_function(&compilation, name);
+
+                let contract = context
+                    .resolve_symbol_query(
+                        SymbolQueryRequest::<CallableResultDependenciesQuery>::new(function.into()),
+                    )
+                    .unwrap();
+
+                let contract = values
+                    .dependency_contract_template_data(*contract.value())
+                    .unwrap();
+
+                let mut pending = contract.requirements().iter().collect::<Vec<_>>();
+                let mut witness = None;
+
+                while let Some(item) = pending.pop() {
+                    match item {
+                        DependencyRequirement::FixedPoint { definitions, .. } => pending
+                            .extend(definitions.iter().flat_map(|definition| definition.iter())),
+                        DependencyRequirement::WitnessCall { .. } => {
+                            witness = Some(item);
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+
+                let DependencyRequirement::WitnessCall {
+                    callable,
+                    requirement,
+                    inputs,
+                } = witness.unwrap()
+                else {
+                    panic!("expected witness result");
+                };
+
+                for local_storage in [false, true] {
+                    let inputs = inputs.iter().map(|input| {
+                        DependencyCallInput::new(
+                            input.root(),
+                            input.values().iter().cloned(),
+                            if local_storage {
+                                vec![DependencyRequirement::direct(
+                                    DependencySubject::root(
+                                        DependencySubjectRoot::EvaluationStorage,
+                                    ),
+                                    DependencyRequirementKind::StorageAlive,
+                                )]
+                            } else {
+                                input.storage().to_vec()
+                            },
+                        )
+                    });
+
+                    let contract = values
+                        .intern_dependency_contract_template(DependencyContractTemplateData::new([
+                            DependencyRequirement::witness_call(*callable, *requirement, inputs),
+                        ]))
+                        .unwrap();
+
+                    let mut encoder = super::StructuralValueEncoder {
+                        values,
+                        binding_context: &context,
+                        digest: bray_base::StableDigestHasher::new(),
+                    };
+
+                    combined.extend(
+                        values
+                            .dependency_contract_template_data(contract)
+                            .unwrap()
+                            .requirements()
+                            .iter()
+                            .cloned(),
+                    );
+
+                    encoder.dependency_contract(contract).unwrap();
+                    identities.insert(encoder.digest.finalize());
+                }
+            }
+
+            assert_eq!(identities.len(), 4);
+
+            let combined = values
+                .intern_dependency_contract_template(DependencyContractTemplateData::new(combined))
+                .unwrap();
+
+            let mut encoder = super::StructuralValueEncoder {
+                values,
+                binding_context: &context,
+                digest: bray_base::StableDigestHasher::new(),
+            };
+
+            encoder.dependency_contract(combined).unwrap();
+            by_query_order.push((identities, encoder.digest.finalize()));
+        }
+
+        assert_eq!(by_query_order[0], by_query_order[1]);
+    }
 
     #[test]
     fn callable_execution_properties_distinguish_specialization_identities() {

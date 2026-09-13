@@ -12,10 +12,33 @@ use super::core::{ResultInference, extend};
 use crate::dependency::projection::{binding_projection, pattern_projection};
 
 impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
-    pub(super) fn borrow_requirement_kind(
+    pub(super) fn borrows_evaluation_storage(&self, mut expression: BoundExpressionId) -> bool {
+        loop {
+            match self.request.view().expression(expression) {
+                Some(BoundExpression::Name(name)) => {
+                    return matches!(name.target(), BoundReferenceTarget::Local(_));
+                }
+                Some(BoundExpression::Literal(_)) => return false,
+                Some(BoundExpression::MemberAccess(member)) => expression = member.receiver(),
+                Some(BoundExpression::TraitQualifiedMember(member)) => {
+                    expression = member.receiver()
+                }
+                Some(BoundExpression::Structured(value)) => {
+                    let Some(operand) = value.operands().first() else {
+                        return true;
+                    };
+
+                    expression = *operand;
+                }
+                _ => return true,
+            }
+        }
+    }
+
+    pub(super) fn reborrowed_receiver(
         &self,
         mut expression: BoundExpressionId,
-    ) -> Result<DependencyRequirementKind, CheckerInfrastructureError> {
+    ) -> Result<Option<BoundExpressionId>, CheckerInfrastructureError> {
         loop {
             let receiver = match self.request.view().expression(expression) {
                 Some(BoundExpression::MemberAccess(member)) => Some(member.receiver()),
@@ -34,7 +57,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
             };
 
             let Some(receiver) = receiver else {
-                return Ok(DependencyRequirementKind::StorageAlive);
+                return Ok(None);
             };
 
             let ty = self
@@ -50,7 +73,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
 
             if matches!(ty.as_ref(), bray_symbols::TypeData::Borrow { .. }) {
                 // Reborrowing a reached value retains the existing borrow, not the slot storing it.
-                return Ok(DependencyRequirementKind::ValueDependencies);
+                return Ok(Some(receiver));
             }
 
             expression = receiver;
@@ -320,7 +343,11 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
 fn requirement_subject(requirement: &DependencyRequirement) -> Option<&DependencySubject> {
     match requirement {
         DependencyRequirement::Direct { subject, .. } => Some(subject),
-        DependencyRequirement::Guarded(_) => None,
+        DependencyRequirement::Guarded(_)
+        | DependencyRequirement::WitnessCall { .. }
+        | DependencyRequirement::RecursiveCall { .. }
+        | DependencyRequirement::FixedPoint { .. }
+        | DependencyRequirement::Variable { .. } => None,
     }
 }
 
@@ -339,7 +366,7 @@ fn project_subjects(
         .collect()
 }
 
-pub(super) fn normalized_subject(
+pub(in crate::dependency) fn normalized_subject(
     root: bray_symbols::DependencySubjectRoot,
     projections: impl IntoIterator<Item = DependencyProjection>,
 ) -> DependencySubject {

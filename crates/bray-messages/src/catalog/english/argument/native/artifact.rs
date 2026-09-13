@@ -483,6 +483,9 @@ pub(crate) const fn format_english_semantic_value_failure_detail(
         Failure::GenericOwnerMismatch { .. } => {
             "generic arguments belong to a different declaration"
         }
+        Failure::InvalidDependencyVariable { .. } => {
+            "Bray could not determine which inputs a function result borrows"
+        }
         Failure::OpenSubstitution => {
             "generic substitution remained unresolved where concrete arguments were required"
         }
@@ -703,5 +706,17 @@ mod tests {
         assert!(query.contains("highlighted module declaration"));
         assert!(expression.contains("highlighted expression"));
         assert!(node.contains("highlighted pattern"));
+    }
+    #[test]
+    fn malformed_return_dependency_reports_a_compiler_defect() {
+        assert_eq!(
+            super::format_english_semantic_value_failure(
+                bray_diagnostics::DiagnosticSemanticValueFailure::InvalidDependencyVariable {
+                    depth: 1,
+                    ordinal: 2
+                }
+            ),
+            "internal compiler error: Bray could not determine which inputs a function result borrows"
+        );
     }
 }

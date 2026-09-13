@@ -48,11 +48,95 @@ impl<'a> SemanticExporter<'a> {
         Ok(exported)
     }
 
+    fn dependency_call_inputs(
+        &mut self,
+        inputs: &[bray_symbols::DependencyCallInput],
+    ) -> Result<
+        Vec<bray_package_interface::InterfaceDependencyCallInput>,
+        PackageInterfaceExportError,
+    > {
+        inputs
+            .iter()
+            .map(|input| {
+                let subject = self.dependency_subject(&DependencySubject::root(input.root()))?;
+
+                let root = subject.subject_root().clone();
+
+                Ok(bray_package_interface::InterfaceDependencyCallInput::new(
+                    root,
+                    input
+                        .values()
+                        .iter()
+                        .map(|value| self.dependency_requirement(value))
+                        .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?,
+                    input
+                        .storage()
+                        .iter()
+                        .map(|value| self.dependency_requirement(value))
+                        .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?,
+                ))
+            })
+            .collect::<Result<Vec<_>, PackageInterfaceExportError>>()
+    }
+
     pub(super) fn dependency_requirement(
         &mut self,
         requirement: &DependencyRequirement,
     ) -> Result<InterfaceDependencyRequirement, PackageInterfaceExportError> {
         match requirement {
+            DependencyRequirement::Variable { depth, ordinal } => {
+                Ok(InterfaceDependencyRequirement::variable(*depth, *ordinal))
+            }
+            DependencyRequirement::FixedPoint {
+                definitions,
+                result,
+            } => {
+                let definitions = definitions
+                    .iter()
+                    .map(|definition| {
+                        definition
+                            .iter()
+                            .map(|requirement| self.dependency_requirement(requirement))
+                            .collect::<Result<Vec<_>, _>>()
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                let result = result
+                    .iter()
+                    .map(|requirement| self.dependency_requirement(requirement))
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                Ok(InterfaceDependencyRequirement::fixed_point(
+                    definitions,
+                    result,
+                ))
+            }
+            DependencyRequirement::RecursiveCall { callable, inputs } => {
+                let callable = self.callable_instance_id(*callable)?;
+                let inputs = self.dependency_call_inputs(inputs)?;
+
+                Ok(InterfaceDependencyRequirement::recursive_call(
+                    callable, inputs,
+                ))
+            }
+            DependencyRequirement::WitnessCall {
+                callable,
+                requirement,
+                inputs,
+            } => {
+                let callable = self.callable_instance_id(*callable)?;
+                let subject = self.type_id(requirement.subject())?;
+                let application = self.trait_application_id(requirement.trait_application())?;
+
+                let inputs = self.dependency_call_inputs(inputs)?;
+
+                Ok(InterfaceDependencyRequirement::witness_call(
+                    callable,
+                    subject,
+                    application,
+                    inputs,
+                ))
+            }
             DependencyRequirement::Direct { subject, kind } => {
                 Ok(InterfaceDependencyRequirement::new(
                     self.dependency_subject(subject)?,
@@ -100,6 +184,9 @@ impl<'a> SemanticExporter<'a> {
                 InterfaceDependencySubjectRoot::Parameter(ordinal)
             }
             DependencySubjectRoot::Result => InterfaceDependencySubjectRoot::Result,
+            DependencySubjectRoot::EvaluationStorage => {
+                InterfaceDependencySubjectRoot::EvaluationStorage
+            }
             DependencySubjectRoot::ScopedCapability(ordinal) => {
                 InterfaceDependencySubjectRoot::ScopedCapability(ordinal)
             }

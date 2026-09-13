@@ -2,6 +2,7 @@ mod assignment;
 mod call;
 mod check;
 mod defaults;
+mod equations;
 mod implementation;
 mod operation;
 mod projection;
@@ -9,6 +10,7 @@ mod propagation;
 mod result;
 mod returned;
 mod value;
+mod witness;
 
 pub(crate) use call::selected_call_contracts;
 pub(crate) use check::check_dependency_contracts;

@@ -450,6 +450,10 @@ pub(crate) fn push_semantic_value_failure(
             context.push(text_field("actual_owner_kind", actual_kind));
             context.push(count_field("actual_owner", u64::from(actual)));
         }
+        Failure::InvalidDependencyVariable { depth, ordinal } => {
+            context.push(count_field("depth", u64::from(depth)));
+            context.push(count_field("ordinal", u64::from(ordinal)));
+        }
         Failure::OpenSubstitution => {}
     }
 }
@@ -594,6 +598,7 @@ const fn semantic_value_reason(cause: bray_symbols::SemanticValueStoreError) -> 
         Error::UnknownId { .. } => "semantic_value_unknown_id",
         Error::CapacityExhausted { .. } => "semantic_value_capacity_exhausted",
         Error::GenericOwnerMismatch { .. } => "semantic_value_generic_owner_mismatch",
+        Error::InvalidDependencyVariable { .. } => "semantic_value_invalid_dependency_variable",
         Error::OpenSubstitution => "semantic_value_open_substitution",
     }
 }

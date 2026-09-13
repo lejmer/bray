@@ -279,7 +279,7 @@ impl HeaderMatcher<'_> {
         Ok(true)
     }
 
-    fn match_callable_instance(
+    pub(super) fn match_callable_instance(
         &mut self,
         pattern: CallableInstanceId,
         actual: CallableInstanceId,

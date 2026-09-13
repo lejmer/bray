@@ -482,6 +482,13 @@ pub enum DiagnosticSemanticValueFailure {
         actual: u32,
     },
     OpenSubstitution,
+    /// A returned-dependency reference does not name an enclosing equation.
+    InvalidDependencyVariable {
+        /// Number of enclosing equation groups to skip.
+        depth: u32,
+        /// Equation ordinal within the selected group.
+        ordinal: u32,
+    },
 }
 
 impl DiagnosticEmissionFailure {
@@ -778,6 +785,9 @@ impl DiagnosticSemanticValueFailure {
             Self::UnknownId { .. } => "binding_semantic_value_unknown_id",
             Self::CapacityExhausted { .. } => "binding_semantic_value_capacity_exhausted",
             Self::GenericOwnerMismatch { .. } => "binding_semantic_value_generic_owner_mismatch",
+            Self::InvalidDependencyVariable { .. } => {
+                "binding_semantic_value_invalid_dependency_variable"
+            }
             Self::OpenSubstitution => "binding_semantic_value_open_substitution",
         }
     }

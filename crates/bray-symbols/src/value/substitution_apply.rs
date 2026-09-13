@@ -585,12 +585,96 @@ impl SemanticValueStore {
         self.intern_dependency_contract_template(DependencyContractTemplateData::new(requirements))
     }
 
+    fn substitute_dependency_call_inputs(
+        &self,
+        inputs: &[super::DependencyCallInput],
+        substitution: &GenericSubstitutionData,
+    ) -> Result<Vec<super::DependencyCallInput>, SemanticValueStoreError> {
+        inputs
+            .iter()
+            .map(|input| {
+                Ok(super::DependencyCallInput::new(
+                    input.root(),
+                    input
+                        .values()
+                        .iter()
+                        .map(|value| self.substitute_dependency_requirement(value, substitution))
+                        .collect::<Result<Vec<_>, SemanticValueStoreError>>()?,
+                    input
+                        .storage()
+                        .iter()
+                        .map(|value| self.substitute_dependency_requirement(value, substitution))
+                        .collect::<Result<Vec<_>, SemanticValueStoreError>>()?,
+                ))
+            })
+            .collect::<Result<Vec<_>, SemanticValueStoreError>>()
+    }
+
     fn substitute_dependency_requirement(
         &self,
         requirement: &DependencyRequirement,
         substitution: &GenericSubstitutionData,
     ) -> Result<DependencyRequirement, SemanticValueStoreError> {
         match requirement {
+            DependencyRequirement::FixedPoint {
+                definitions,
+                result,
+            } => {
+                let definitions = definitions
+                    .iter()
+                    .map(|definition| {
+                        definition
+                            .iter()
+                            .map(|value| {
+                                self.substitute_dependency_requirement(value, substitution)
+                            })
+                            .collect::<Result<Vec<_>, _>>()
+                    })
+                    .collect::<Result<Vec<_>, SemanticValueStoreError>>()?;
+
+                let result = result
+                    .iter()
+                    .map(|value| self.substitute_dependency_requirement(value, substitution))
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                Ok(DependencyRequirement::fixed_point(definitions, result))
+            }
+            DependencyRequirement::Variable { depth, ordinal } => {
+                Ok(DependencyRequirement::variable(*depth, *ordinal))
+            }
+            DependencyRequirement::RecursiveCall { callable, inputs } => {
+                let callable = self.substitute_callable_instance_data(*callable, substitution)?;
+                let inputs = self.substitute_dependency_call_inputs(inputs, substitution)?;
+
+                Ok(DependencyRequirement::recursive_call(callable, inputs))
+            }
+            DependencyRequirement::WitnessCall {
+                callable,
+                requirement,
+                inputs,
+            } => {
+                let callable = self.substitute_callable_instance_data(*callable, substitution)?;
+                let subject = self.substitute_type_data(requirement.subject(), substitution)?;
+                let application = self.trait_application_data(requirement.trait_application())?;
+
+                let nested = self.substitute_generic_substitution_data(
+                    application.substitution(),
+                    substitution,
+                )?;
+
+                let application = self.intern_trait_application(TraitApplicationData::new(
+                    application.definition(),
+                    nested,
+                ))?;
+
+                let inputs = self.substitute_dependency_call_inputs(inputs, substitution)?;
+
+                Ok(DependencyRequirement::witness_call(
+                    callable,
+                    crate::ImplementationRequirementKey::new(subject, application),
+                    inputs,
+                ))
+            }
             DependencyRequirement::Direct { subject, kind } => Ok(DependencyRequirement::direct(
                 self.substitute_dependency_subject(subject, substitution)?,
                 *kind,

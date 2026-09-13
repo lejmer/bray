@@ -22,7 +22,7 @@ mod types;
 mod value_mappings;
 
 pub(in crate::compilation::product) use contextual_self::{
-    codegen_instance_contextual_self, substitute_contextual_self,
+    codegen_instance_contextual_self, substitute_callable_instance, substitute_contextual_self,
     substitute_contextual_self_in_application, substitute_contextual_self_in_substitution,
 };
 pub(in crate::compilation) use names::{

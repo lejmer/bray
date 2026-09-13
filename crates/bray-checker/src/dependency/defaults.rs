@@ -10,7 +10,7 @@ use bray_symbols::{
 /// Dependencies retained by a selected call, including inputs whose call-owned storage would escape.
 pub(crate) struct CallResultDependencies {
     pub(crate) template: DependencyContractTemplateData,
-    pub(crate) escaping_default_inputs: Vec<DependencySubjectRoot>,
+    pub(crate) escaping_evaluation_inputs: Vec<DependencySubjectRoot>,
 }
 
 /// Replaces omitted inputs with their declaration-owned provider dependencies.
@@ -20,7 +20,7 @@ pub(crate) fn expand_result_defaults<C: CheckerRequestContext + ?Sized>(
     template: &DependencyContractTemplateData,
 ) -> Result<CallResultDependencies, CheckerQueryError<C::UpstreamError>> {
     let mut result = Vec::new();
-    let mut escaping_default_inputs = std::collections::BTreeSet::new();
+    let mut escaping_evaluation_inputs = std::collections::BTreeSet::new();
 
     let mut pending = template
         .requirements()
@@ -32,6 +32,52 @@ pub(crate) fn expand_result_defaults<C: CheckerRequestContext + ?Sized>(
     let mut visited = std::collections::BTreeSet::new();
 
     while let Some((requirement, from_default)) = pending.pop() {
+        if let DependencyRequirement::FixedPoint {
+            definitions,
+            result: roots,
+        } = requirement
+        {
+            let definitions = definitions
+                .iter()
+                .map(|definition| expand_witness_input_defaults(request, call, definition))
+                .collect::<Result<Vec<_>, _>>()?;
+
+            let roots = expand_witness_input_defaults(request, call, &roots)?;
+            result.push(DependencyRequirement::fixed_point(definitions, roots));
+            continue;
+        }
+
+        if matches!(requirement, DependencyRequirement::Variable { .. }) {
+            result.push(requirement);
+            continue;
+        }
+
+        if let DependencyRequirement::RecursiveCall { callable, inputs } = requirement {
+            result.push(DependencyRequirement::recursive_call(
+                callable,
+                expand_call_inputs(request, call, &inputs)?,
+            ));
+
+            continue;
+        }
+
+        if let DependencyRequirement::WitnessCall {
+            callable,
+            requirement,
+            inputs,
+        } = requirement
+        {
+            let inputs = expand_call_inputs(request, call, &inputs)?;
+
+            result.push(DependencyRequirement::witness_call(
+                callable,
+                requirement,
+                inputs,
+            ));
+
+            continue;
+        }
+
         let DependencyRequirement::Direct { subject, kind } = &requirement else {
             if let DependencyRequirement::Guarded(guarded) = requirement {
                 pending.extend(
@@ -46,11 +92,19 @@ pub(crate) fn expand_result_defaults<C: CheckerRequestContext + ?Sized>(
             continue;
         };
 
+        if subject.subject_root() == DependencySubjectRoot::EvaluationStorage {
+            if *kind != DependencyRequirementKind::ValueDependencies {
+                escaping_evaluation_inputs.insert(DependencySubjectRoot::Result);
+            }
+
+            continue;
+        }
+
         if from_default
             && *kind == DependencyRequirementKind::StorageAlive
             && default_borrows_argument_storage(call, subject, request)?
         {
-            escaping_default_inputs.insert(subject.subject_root());
+            escaping_evaluation_inputs.insert(subject.subject_root());
             continue;
         }
 
@@ -93,18 +147,57 @@ pub(crate) fn expand_result_defaults<C: CheckerRequestContext + ?Sized>(
             .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
         pending.extend(
-            template
-                .requirements()
-                .iter()
-                .cloned()
+            super::witness::resolve(request, template.requirements())?
+                .into_iter()
                 .map(|requirement| (requirement, true)),
         );
     }
 
     Ok(CallResultDependencies {
         template: DependencyContractTemplateData::new(result),
-        escaping_default_inputs: escaping_default_inputs.into_iter().collect(),
+        escaping_evaluation_inputs: escaping_evaluation_inputs.into_iter().collect(),
     })
+}
+
+fn expand_call_inputs<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    call: &SelectedCall,
+    inputs: &[bray_symbols::DependencyCallInput],
+) -> Result<Vec<bray_symbols::DependencyCallInput>, CheckerQueryError<C::UpstreamError>> {
+    inputs
+        .iter()
+        .map(|input| {
+            Ok(bray_symbols::DependencyCallInput::new(
+                input.root(),
+                expand_witness_input_defaults(request, call, input.values())?,
+                expand_witness_input_defaults(request, call, input.storage())?,
+            ))
+        })
+        .collect::<Result<Vec<_>, CheckerQueryError<C::UpstreamError>>>()
+}
+
+fn expand_witness_input_defaults<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    call: &SelectedCall,
+    requirements: &[DependencyRequirement],
+) -> Result<Vec<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
+    let template = DependencyContractTemplateData::new(requirements.iter().cloned());
+    let expanded = expand_result_defaults(request, call, &template)?;
+
+    let errors = expanded.escaping_evaluation_inputs.iter().map(|_| {
+        DependencyRequirement::direct(
+            bray_symbols::DependencySubject::root(DependencySubjectRoot::EvaluationStorage),
+            DependencyRequirementKind::StorageAlive,
+        )
+    });
+
+    Ok(expanded
+        .template
+        .requirements()
+        .iter()
+        .cloned()
+        .chain(errors)
+        .collect())
 }
 
 fn default_borrows_argument_storage<C: CheckerRequestContext + ?Sized>(
@@ -189,7 +282,7 @@ fn default_borrows_argument_storage<C: CheckerRequestContext + ?Sized>(
     Ok(true)
 }
 
-pub(super) fn escaping_default_diagnostic<C: CheckerRequestContext + ?Sized>(
+pub(super) fn escaping_evaluation_diagnostic<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     expression: bray_bound_tree::BoundExpressionId,
     call: &SelectedCall,

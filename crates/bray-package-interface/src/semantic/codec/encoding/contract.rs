@@ -153,6 +153,43 @@ pub(super) fn encode_dependency_requirement(
     requirement: &InterfaceDependencyRequirement,
 ) {
     match &requirement.value {
+        InterfaceDependencyRequirementValue::Variable { depth, ordinal } => {
+            encoder.write_u32(5);
+            encoder.write_u32(*depth);
+            encoder.write_u32(ordinal.raw());
+        }
+        InterfaceDependencyRequirementValue::FixedPoint {
+            definitions,
+            result,
+        } => {
+            encoder.write_u32(6);
+            write_count(encoder, definitions.len());
+
+            for definition in definitions.iter().chain(std::iter::once(result)) {
+                write_count(encoder, definition.len());
+
+                for nested in definition.iter() {
+                    encode_dependency_requirement(encoder, nested);
+                }
+            }
+        }
+        InterfaceDependencyRequirementValue::RecursiveCall { callable, inputs } => {
+            encoder.write_u32(4);
+            encoder.write_u32(callable.raw());
+            encode_dependency_call_inputs(encoder, inputs);
+        }
+        InterfaceDependencyRequirementValue::WitnessCall {
+            callable,
+            subject,
+            application,
+            inputs,
+        } => {
+            encoder.write_u32(3);
+            encoder.write_u32(callable.raw());
+            encoder.write_u32(subject.raw());
+            encoder.write_u32(application.raw());
+            encode_dependency_call_inputs(encoder, inputs);
+        }
         InterfaceDependencyRequirementValue::Direct { subject, kind } => {
             encoder.write_u32(1);
             encode_dependency_subject(encoder, subject);
@@ -173,6 +210,28 @@ pub(super) fn encode_dependency_requirement(
     }
 }
 
+fn encode_dependency_call_inputs(
+    encoder: &mut WireEncoder,
+    inputs: &[crate::InterfaceDependencyCallInput],
+) {
+    write_count(encoder, inputs.len());
+
+    for input in inputs.iter() {
+        encode_dependency_subject(
+            encoder,
+            &InterfaceDependencySubject::new(input.root.clone(), []),
+        );
+
+        for requirements in [&input.values, &input.storage] {
+            write_count(encoder, requirements.len());
+
+            for nested in requirements.iter() {
+                encode_dependency_requirement(encoder, nested);
+            }
+        }
+    }
+}
+
 pub(super) fn encode_dependency_subject(
     encoder: &mut WireEncoder,
     subject: &InterfaceDependencySubject,
@@ -183,6 +242,7 @@ pub(super) fn encode_dependency_subject(
             write_tagged_id(encoder, 2, ordinal.raw());
         }
         InterfaceDependencySubjectRoot::Result => encoder.write_u32(3),
+        InterfaceDependencySubjectRoot::EvaluationStorage => encoder.write_u32(8),
         InterfaceDependencySubjectRoot::ScopedCapability(ordinal) => {
             write_tagged_id(encoder, 4, ordinal.raw());
         }

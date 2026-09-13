@@ -296,7 +296,7 @@ impl<'values> HeaderMatcher<'values> {
         Ok(true)
     }
 
-    fn match_trait_application(
+    pub(super) fn match_trait_application(
         &mut self,
         pattern: TraitApplicationId,
         actual: TraitApplicationId,

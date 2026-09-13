@@ -47,6 +47,69 @@ impl InternState {
 
         for input in inputs {
             let value = match &input.value {
+                InterfaceDependencyRequirementValue::Variable { depth, ordinal } => {
+                    DependencyRequirement::variable(*depth, *ordinal)
+                }
+                InterfaceDependencyRequirementValue::FixedPoint {
+                    definitions,
+                    result,
+                } => {
+                    let mut converted = Vec::with_capacity(definitions.len());
+
+                    for definition in definitions.iter() {
+                        let Some(value) =
+                            self.convert_dependency_requirements(definition, symbols)?
+                        else {
+                            return Ok(None);
+                        };
+
+                        converted.push(value);
+                    }
+
+                    let Some(result) = self.convert_dependency_requirements(result, symbols)?
+                    else {
+                        return Ok(None);
+                    };
+
+                    DependencyRequirement::fixed_point(converted, result)
+                }
+                InterfaceDependencyRequirementValue::RecursiveCall { callable, inputs } => {
+                    let Some(callable) = self.callable_instance_id(*callable) else {
+                        return Ok(None);
+                    };
+
+                    let Some(converted) = self.convert_dependency_call_inputs(inputs, symbols)?
+                    else {
+                        return Ok(None);
+                    };
+
+                    DependencyRequirement::recursive_call(callable, converted)
+                }
+                InterfaceDependencyRequirementValue::WitnessCall {
+                    callable,
+                    subject,
+                    application,
+                    inputs,
+                } => {
+                    let (Some(callable), Some(subject), Some(application)) = (
+                        self.callable_instance_id(*callable),
+                        self.type_id(*subject),
+                        self.trait_application_id(*application),
+                    ) else {
+                        return Ok(None);
+                    };
+
+                    let Some(converted) = self.convert_dependency_call_inputs(inputs, symbols)?
+                    else {
+                        return Ok(None);
+                    };
+
+                    DependencyRequirement::witness_call(
+                        callable,
+                        bray_symbols::ImplementationRequirementKey::new(subject, application),
+                        converted,
+                    )
+                }
                 InterfaceDependencyRequirementValue::Direct { subject, kind } => {
                     let Some(subject) = self.convert_dependency_subject(subject, symbols)? else {
                         return Ok(None);
@@ -78,6 +141,41 @@ impl InternState {
         Ok(Some(values))
     }
 
+    fn convert_dependency_call_inputs(
+        &self,
+        inputs: &[crate::InterfaceDependencyCallInput],
+        symbols: &impl InterfaceSymbolResolver,
+    ) -> Result<Option<Vec<bray_symbols::DependencyCallInput>>, InterfaceSemanticInternError> {
+        let mut converted = Vec::new();
+
+        for input in inputs.iter() {
+            let Some(root) = self.convert_dependency_subject(
+                &InterfaceDependencySubject::new(input.root.clone(), []),
+                symbols,
+            )?
+            else {
+                return Ok(None);
+            };
+
+            let Some(values) = self.convert_dependency_requirements(&input.values, symbols)? else {
+                return Ok(None);
+            };
+
+            let Some(storage) = self.convert_dependency_requirements(&input.storage, symbols)?
+            else {
+                return Ok(None);
+            };
+
+            converted.push(bray_symbols::DependencyCallInput::new(
+                root.subject_root(),
+                values,
+                storage,
+            ));
+        }
+
+        Ok(Some(converted))
+    }
+
     pub(super) fn convert_dependency_subject(
         &self,
         input: &InterfaceDependencySubject,
@@ -89,6 +187,9 @@ impl InternState {
                 DependencySubjectRoot::Parameter(*ordinal)
             }
             InterfaceDependencySubjectRoot::Result => DependencySubjectRoot::Result,
+            InterfaceDependencySubjectRoot::EvaluationStorage => {
+                DependencySubjectRoot::EvaluationStorage
+            }
             InterfaceDependencySubjectRoot::ScopedCapability(ordinal) => {
                 DependencySubjectRoot::ScopedCapability(*ordinal)
             }

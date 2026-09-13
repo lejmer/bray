@@ -406,6 +406,36 @@ fn remap_dependency_requirement(
     maps: &RecordMaps,
 ) -> Result<(), InterfaceValidationError> {
     match &mut requirement.value {
+        InterfaceDependencyRequirementValue::Variable { .. } => {}
+        InterfaceDependencyRequirementValue::FixedPoint {
+            definitions,
+            result,
+        } => {
+            for definition in Arc::make_mut(definitions)
+                .iter_mut()
+                .chain(std::iter::once(result))
+            {
+                for nested in Arc::make_mut(definition) {
+                    remap_dependency_requirement(nested, maps)?;
+                }
+            }
+        }
+        InterfaceDependencyRequirementValue::RecursiveCall { callable, inputs } => {
+            *callable = maps.callable_instance_id(*callable)?;
+            remap_dependency_call_inputs(inputs, maps)?;
+        }
+        InterfaceDependencyRequirementValue::WitnessCall {
+            callable,
+            subject,
+            application,
+            inputs,
+        } => {
+            *callable = maps.callable_instance_id(*callable)?;
+            *subject = maps.type_id(*subject)?;
+            *application = maps.trait_application_id(*application)?;
+
+            remap_dependency_call_inputs(inputs, maps)?;
+        }
         InterfaceDependencyRequirementValue::Direct { subject, .. } => {
             remap_dependency_subject(subject, maps)?;
         }
@@ -423,6 +453,22 @@ fn remap_dependency_requirement(
             for requirement in Arc::make_mut(requirements) {
                 remap_dependency_requirement(requirement, maps)?;
             }
+        }
+    }
+
+    Ok(())
+}
+
+fn remap_dependency_call_inputs(
+    inputs: &mut Arc<[crate::InterfaceDependencyCallInput]>,
+    maps: &RecordMaps,
+) -> Result<(), InterfaceValidationError> {
+    for input in Arc::make_mut(inputs) {
+        for nested in Arc::make_mut(&mut input.values)
+            .iter_mut()
+            .chain(Arc::make_mut(&mut input.storage))
+        {
+            remap_dependency_requirement(nested, maps)?;
         }
     }
 

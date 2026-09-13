@@ -291,6 +291,14 @@ impl OperationEffects {
                 Err(DependencyContractInstantiationError::Resolution(error)) => {
                     return Err(error);
                 }
+                Err(DependencyContractInstantiationError::UnresolvedWitness) => {
+                    return Err(CheckerInfrastructureError::StorageFlow(
+                        crate::CheckerStorageFlowFailure::UnresolvedDependencyWitness {
+                            expression: entry.expression(),
+                        },
+                    )
+                    .into());
+                }
                 Err(DependencyContractInstantiationError::ForeignUnit) => {
                     return Err(CheckerInfrastructureError::InvalidLiveness.into());
                 }

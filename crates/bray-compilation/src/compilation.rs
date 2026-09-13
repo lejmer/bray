@@ -34,6 +34,7 @@ mod pattern;
 mod product;
 mod product_emission;
 mod representation;
+mod result_dependencies;
 mod semantic_error;
 mod snapshot;
 mod source_graph;

@@ -315,10 +315,48 @@ pub(super) fn validate_dependency_template_data(
     store: SemanticValueStoreId,
     data: &DependencyContractTemplateData,
 ) -> Result<(), SemanticValueStoreError> {
+    validate_dependency_variables(data.requirements(), &mut Vec::new())?;
     let mut pending: Vec<_> = data.requirements().iter().collect();
 
     while let Some(requirement) = pending.pop() {
         match requirement {
+            DependencyRequirement::FixedPoint {
+                definitions,
+                result,
+            } => {
+                pending.extend(
+                    definitions
+                        .iter()
+                        .flat_map(|definition| definition.iter())
+                        .chain(result.iter()),
+                );
+            }
+            DependencyRequirement::Variable { .. } => {}
+            DependencyRequirement::RecursiveCall { callable, inputs } => {
+                tables.callable_instances.get(store, *callable)?;
+
+                for input in inputs.iter() {
+                    pending.extend(input.values());
+                    pending.extend(input.storage());
+                }
+            }
+            DependencyRequirement::WitnessCall {
+                callable,
+                requirement,
+                inputs,
+            } => {
+                tables.callable_instances.get(store, *callable)?;
+                tables.types.get(store, requirement.subject())?;
+
+                tables
+                    .trait_applications
+                    .get(store, requirement.trait_application())?;
+
+                for input in inputs.iter() {
+                    pending.extend(input.values());
+                    pending.extend(input.storage());
+                }
+            }
             DependencyRequirement::Direct { subject, .. } => {
                 validate_dependency_subject(tables, store, subject)?;
             }
@@ -326,6 +364,54 @@ pub(super) fn validate_dependency_template_data(
                 validate_dependency_guard(tables, store, guarded.guard())?;
                 pending.extend(guarded.requirements());
             }
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_dependency_variables(
+    requirements: &[DependencyRequirement],
+    scopes: &mut Vec<usize>,
+) -> Result<(), SemanticValueStoreError> {
+    for requirement in requirements {
+        match requirement {
+            DependencyRequirement::Variable { depth, ordinal } => {
+                let count = usize::try_from(*depth)
+                    .ok()
+                    .and_then(|depth| scopes.iter().rev().nth(depth))
+                    .copied();
+
+                if !count.is_some_and(|count| u64::from(ordinal.raw()) < count as u64) {
+                    return Err(SemanticValueStoreError::InvalidDependencyVariable {
+                        depth: *depth,
+                        ordinal: ordinal.raw(),
+                    });
+                }
+            }
+            DependencyRequirement::FixedPoint {
+                definitions,
+                result,
+            } => {
+                scopes.push(definitions.len());
+
+                for definition in definitions.iter().chain(std::iter::once(result)) {
+                    validate_dependency_variables(definition, scopes)?;
+                }
+
+                scopes.pop();
+            }
+            DependencyRequirement::WitnessCall { inputs, .. }
+            | DependencyRequirement::RecursiveCall { inputs, .. } => {
+                for input in inputs.iter() {
+                    validate_dependency_variables(input.values(), scopes)?;
+                    validate_dependency_variables(input.storage(), scopes)?;
+                }
+            }
+            DependencyRequirement::Guarded(guarded) => {
+                validate_dependency_variables(guarded.requirements(), scopes)?
+            }
+            DependencyRequirement::Direct { .. } => {}
         }
     }
 
@@ -498,4 +584,28 @@ fn validate_values(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::SymbolOrdinal;
+    use crate::{DependencyRequirement, SemanticValueStoreError};
+
+    #[test]
+    fn dependency_variable_validation_retains_the_invalid_reference() {
+        for (depth, ordinal, valid) in [(0, 0, true), (1, 0, false), (0, 1, false)] {
+            let variable = DependencyRequirement::variable(depth, SymbolOrdinal::new(ordinal));
+            let graph = DependencyRequirement::fixed_point([vec![variable.clone()]], [variable]);
+            let result = super::validate_dependency_variables(&[graph], &mut Vec::new());
+
+            assert_eq!(
+                result,
+                if valid {
+                    Ok(())
+                } else {
+                    Err(SemanticValueStoreError::InvalidDependencyVariable { depth, ordinal })
+                }
+            );
+        }
+    }
 }

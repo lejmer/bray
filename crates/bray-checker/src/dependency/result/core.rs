@@ -14,13 +14,14 @@ use bray_symbols::{
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Infers the portable dependencies retained by normal returns using the supplied callee contracts.
-/// Recursive callers can iterate this operation until their contracts stop changing.
+/// `recursive_callees` identifies members of recursive call-graph components.
 pub fn infer_result_dependencies<C>(
     request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
     selections: &CheckedSemanticSelections,
     patterns: &CheckedPatterns,
     callees: &BTreeMap<CallableSymbolId, DependencyContractTemplateId>,
+    recursive_callees: &BTreeSet<CallableSymbolId>,
 ) -> Result<DependencyContractTemplateId, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
@@ -45,12 +46,41 @@ where
         return Err(error.into());
     }
 
+    // Ordinary recursive contracts already converge over direct input dependencies.
+    // Defer only when substitution would otherwise keep expanding a symbolic relation.
+    let mut deferred_callees = BTreeSet::new();
+
+    for callee in recursive_callees {
+        let template = callees
+            .get(callee)
+            .copied()
+            .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+
+        let template = request
+            .semantic_values()
+            .dependency_contract_template_data(template)
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+
+        if template
+            .requirements()
+            .iter()
+            .any(|requirement| !matches!(requirement, DependencyRequirement::Direct { .. }))
+        {
+            deferred_callees.insert(*callee);
+        }
+    }
+
+    let recursive_callees = &deferred_callees;
+
     let mut inference = ResultInference {
         request,
         types,
         selections,
         patterns,
         callees,
+        recursive_callees,
+        include_evaluation_storage: false,
+        call_definitions: BTreeMap::new(),
         // Nodes own snapshots so fixed-point propagation can extend destinations independently.
         values: BTreeMap::new(),
         locals: BTreeMap::new(),
@@ -62,6 +92,15 @@ where
             selections,
             patterns,
             |callable| {
+                if recursive_callees.contains(&callable) {
+                    return request
+                        .semantic_values()
+                        .empty_dependency_contract_template()
+                        .map_err(|error| {
+                            CheckerInfrastructureError::SemanticValueStore(error).into()
+                        });
+                }
+
                 callees
                     .get(&callable)
                     .copied()
@@ -132,6 +171,11 @@ where
         }
 
         if !changed {
+            if !inference.include_evaluation_storage {
+                inference.include_evaluation_storage = true;
+                continue;
+            }
+
             break;
         }
     }
@@ -171,6 +215,31 @@ where
             .flat_map(|(value, projection)| inference.projected_values(value, &[projection])),
     );
 
+    let requirements = requirements.collect::<Vec<_>>();
+
+    let requirements = if super::super::equations::has_variables(&requirements, false) {
+        let maximum = inference
+            .call_definitions
+            .keys()
+            .next_back()
+            .copied()
+            .unwrap_or(0);
+
+        let definitions = (0..=maximum).map(|ordinal| {
+            inference
+                .call_definitions
+                .remove(&ordinal)
+                .unwrap_or_default()
+        });
+
+        vec![DependencyRequirement::fixed_point(
+            definitions,
+            requirements,
+        )]
+    } else {
+        requirements
+    };
+
     request
         .semantic_values()
         .intern_dependency_contract_template(DependencyContractTemplateData::new(requirements))
@@ -183,6 +252,9 @@ pub(super) struct ResultInference<'a, C: CheckerRequestContext + ?Sized> {
     pub(super) selections: &'a CheckedSemanticSelections,
     pub(super) patterns: &'a CheckedPatterns,
     pub(super) callees: &'a BTreeMap<CallableSymbolId, DependencyContractTemplateId>,
+    pub(super) recursive_callees: &'a BTreeSet<CallableSymbolId>,
+    pub(super) include_evaluation_storage: bool,
+    call_definitions: BTreeMap<u32, BTreeSet<DependencyRequirement>>,
     pub(super) values: BTreeMap<BoundExpressionId, BTreeSet<DependencyRequirement>>,
     pub(super) locals: BTreeMap<LocalBindingSymbolId, BTreeSet<DependencyRequirement>>,
     pub(super) local_sources: BTreeMap<LocalBindingSymbolId, BTreeSet<DependencySubject>>,
@@ -192,7 +264,7 @@ pub(super) struct ResultInference<'a, C: CheckerRequestContext + ?Sized> {
 
 impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
     fn expression_values(
-        &self,
+        &mut self,
         id: BoundExpressionId,
         expression: &BoundExpression,
     ) -> Result<BTreeSet<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
@@ -236,7 +308,23 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                         Some(SemanticSelection::Call(_))
                     ) =>
                 {
-                    self.call_values(id)?
+                    let values = self.call_values(id)?;
+
+                    if values.iter().any(|requirement| {
+                        !matches!(requirement, DependencyRequirement::Direct { .. })
+                    }) {
+                        self.call_definitions
+                            .entry(id.ordinal())
+                            .or_default()
+                            .extend(values);
+
+                        BTreeSet::from([DependencyRequirement::variable(
+                            0,
+                            bray_symbols::SymbolOrdinal::new(id.ordinal()),
+                        )])
+                    } else {
+                        values
+                    }
                 }
                 BoundExpression::Structured(value)
                     if value.kind() == BoundStructuredExpressionKind::Borrow =>
@@ -247,9 +335,32 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                         .copied()
                         .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
 
-                    let kind = self.borrow_requirement_kind(operand)?;
+                    let reborrowed = self.reborrowed_receiver(operand)?;
 
-                    self.expression_sources(id, expression)?
+                    let kind = if reborrowed.is_some() {
+                        DependencyRequirementKind::ValueDependencies
+                    } else {
+                        DependencyRequirementKind::StorageAlive
+                    };
+
+                    let mut sources = self.expression_sources(id, expression)?;
+
+                    if sources.is_empty()
+                        && let Some(receiver) = reborrowed
+                    {
+                        return Ok(self.projected_values(receiver, &[]));
+                    }
+
+                    if self.include_evaluation_storage
+                        && sources.is_empty()
+                        && self.borrows_evaluation_storage(operand)
+                    {
+                        sources.insert(DependencySubject::root(
+                            bray_symbols::DependencySubjectRoot::EvaluationStorage,
+                        ));
+                    }
+
+                    sources
                         .into_iter()
                         .map(|source| DependencyRequirement::direct(source, kind))
                         .collect()

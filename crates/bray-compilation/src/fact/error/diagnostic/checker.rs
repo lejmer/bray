@@ -321,6 +321,11 @@ fn diagnostic_storage_flow_failure(
             }
         }),
         Failure::ForeignDependencyContract => DiagnosticFailure::ForeignDependencyContract,
+        Failure::UnresolvedDependencyWitness { expression } => {
+            DiagnosticFailure::UnresolvedDependencyWitness {
+                expression: diagnostic_bound_node(expression.into()),
+            }
+        }
         Failure::DependencyContractsConstruction(error) => {
             DiagnosticFailure::DependencyContractsConstruction(match error {
                 bray_bound_tree::DependencyContractsBuildError::ForeignStoragePlan => {

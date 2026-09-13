@@ -37,6 +37,8 @@ pub(crate) fn call_result_template<C: CheckerRequestContext + ?Sized>(
                 value_requirement(DependencySubjectRoot::Parameter(parameter)),
             ]))
             .map_err(CheckerInfrastructureError::SemanticValueStore)?
+    } else if let Some(template) = super::witness::abstract_result(request, call)? {
+        template
     } else if !opaque_result(call)
         && let BoundCallableTarget::Declaration(instance) = call.target()
     {
@@ -72,6 +74,11 @@ pub(crate) fn call_result_template<C: CheckerRequestContext + ?Sized>(
     let template = store
         .dependency_contract_template_data(template)
         .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+
+    let template = DependencyContractTemplateData::new(super::witness::resolve(
+        request,
+        template.requirements(),
+    )?);
 
     super::defaults::expand_result_defaults(request, call, &template)
 }

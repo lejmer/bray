@@ -53,6 +53,28 @@ pub(in crate::compilation::product) fn substitute_contextual_self_in_substitutio
         .map_err(FactQueryError::SemanticValueStore)
 }
 
+pub(in crate::compilation::product) fn substitute_callable_instance(
+    values: &SemanticValueStore,
+    callable: bray_symbols::CallableInstanceData,
+    owner_substitution: Option<GenericSubstitutionId>,
+    contextual_self: Option<(SelfTypeContext, TypeId)>,
+) -> Result<bray_symbols::CallableInstanceData, FactQueryError> {
+    let substitution = match owner_substitution {
+        Some(owner) => values
+            .substitute_generic_substitution(callable.substitution(), owner)
+            .map_err(FactQueryError::SemanticValueStore)?,
+        None => callable.substitution(),
+    };
+
+    let substitution =
+        substitute_contextual_self_in_substitution(values, substitution, contextual_self)?;
+
+    Ok(bray_symbols::CallableInstanceData::new(
+        callable.definition(),
+        substitution,
+    ))
+}
+
 pub(in crate::compilation::product) fn codegen_instance_contextual_self(
     binding_context: &CompilationBindingContext<'_>,
     instance: &ConcreteCodegenInstance,

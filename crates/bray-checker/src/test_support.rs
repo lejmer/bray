@@ -112,6 +112,28 @@ impl bray_base::Cancellation for TestCheckerContext {
 }
 
 impl CheckerRequestContext for TestCheckerContext {
+    fn result_dispatch_requirement(
+        &self,
+        _dispatch: bray_symbols::TraitConstraintDispatch,
+    ) -> crate::CheckerQueryResult<bray_symbols::ImplementationRequirementKey, Self::UpstreamError>
+    {
+        Err(crate::CheckerInfrastructureError::InvalidSemanticSelectionInput.into())
+    }
+
+    fn result_witness_callable(
+        &self,
+        _callable: bray_symbols::CallableInstanceId,
+        _requirement: bray_symbols::ImplementationRequirementKey,
+    ) -> crate::CheckerQueryResult<
+        Option<(
+            bray_symbols::CallableInstanceData,
+            bray_symbols::SelfTypeContext,
+        )>,
+        Self::UpstreamError,
+    > {
+        Ok(None)
+    }
+
     fn callable_result_dependencies(
         &self,
         _callable: bray_symbols::CallableSymbolId,

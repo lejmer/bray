@@ -44,6 +44,7 @@ fn infer_reachable_results(
     let mut templates = BTreeMap::new();
     let mut units = BTreeMap::new();
     let mut pending = vec![root];
+    let mut edges = BTreeMap::<CallableSymbolId, BTreeSet<CallableSymbolId>>::new();
     let mut visited = BTreeSet::new();
     let mut diagnostics = DiagnosticBag::new();
 
@@ -89,7 +90,9 @@ fn infer_reachable_results(
             if let SemanticSelection::Call(call) = entry.selection()
                 && let BoundCallableTarget::Declaration(instance) = call.target()
             {
-                pending.push(instance.definition().callable_symbol());
+                let callee = instance.definition().callable_symbol();
+                pending.push(callee);
+                edges.entry(callable).or_default().insert(callee);
             }
         }
 
@@ -103,6 +106,22 @@ fn infer_reachable_results(
         units.insert(callable, (key, bound, expressions, patterns));
     }
 
+    let recursive_callees =
+        bray_base::strongly_connected_components(units.keys().copied(), |callable| {
+            edges.get(&callable).into_iter().flatten().copied()
+        })
+        .into_iter()
+        .filter(|component| {
+            component.len() > 1
+                || component.first().is_some_and(|callable| {
+                    edges
+                        .get(callable)
+                        .is_some_and(|callees| callees.contains(callable))
+                })
+        })
+        .flatten()
+        .collect::<BTreeSet<_>>();
+
     loop {
         context.cancellation.check().map_err(binder_error)?;
         let mut changed = false;
@@ -115,6 +134,7 @@ fn infer_reachable_results(
                 expressions.result().value(),
                 patterns.result().value(),
                 &templates,
+                &recursive_callees,
             )?;
 
             changed |= templates.insert(*callable, dependencies) != Some(dependencies);
@@ -141,6 +161,7 @@ fn infer_checked_result(
     expressions: &bray_bound_tree::CheckedExpressionSemantics,
     patterns: &bray_bound_tree::CheckedPatterns,
     templates: &BTreeMap<CallableSymbolId, DependencyContractTemplateId>,
+    recursive_callees: &BTreeSet<CallableSymbolId>,
 ) -> BindingQueryResult<DependencyContractTemplateId> {
     let checker = context
         .compilation()
@@ -156,6 +177,7 @@ fn infer_checked_result(
         expressions.selections(),
         patterns,
         templates,
+        recursive_callees,
     )
     .map_err(|error| match error {
         bray_checker::CheckerQueryError::Cancelled => BindingQueryError::Cancelled,
@@ -209,6 +231,7 @@ pub(in crate::compilation) fn expression_result_dependencies(
         expressions,
         patterns.result().value(),
         &templates,
+        &BTreeSet::new(),
     )?;
 
     Ok(DiagnosticResult::new(result, diagnostics))

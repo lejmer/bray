@@ -94,6 +94,79 @@ impl HeaderMatcher<'_> {
     ) -> Result<bool, SemanticValueStoreError> {
         match (pattern, actual) {
             (
+                DependencyRequirement::Variable {
+                    depth: a,
+                    ordinal: b,
+                },
+                DependencyRequirement::Variable {
+                    depth: c,
+                    ordinal: d,
+                },
+            ) => Ok(a == c && b == d),
+            (
+                DependencyRequirement::FixedPoint {
+                    definitions: a,
+                    result: b,
+                },
+                DependencyRequirement::FixedPoint {
+                    definitions: c,
+                    result: d,
+                },
+            ) => {
+                if a.len() != c.len() || !self.match_dependency_requirements(b, d)? {
+                    return Ok(false);
+                }
+
+                for (a, c) in a.iter().zip(c.iter()) {
+                    if !self.match_dependency_requirements(a, c)? {
+                        return Ok(false);
+                    }
+                }
+
+                Ok(true)
+            }
+            (
+                DependencyRequirement::RecursiveCall {
+                    callable: pattern,
+                    inputs: pattern_inputs,
+                },
+                DependencyRequirement::RecursiveCall {
+                    callable: actual,
+                    inputs: actual_inputs,
+                },
+            ) => {
+                if !self.match_callable_instance(*pattern, *actual)? {
+                    return Ok(false);
+                }
+
+                self.match_dependency_call_inputs(pattern_inputs, actual_inputs)
+            }
+            (
+                DependencyRequirement::WitnessCall {
+                    callable: pattern_callable,
+                    requirement: pattern_requirement,
+                    inputs: pattern_inputs,
+                },
+                DependencyRequirement::WitnessCall {
+                    callable: actual_callable,
+                    requirement: actual_requirement,
+                    inputs: actual_inputs,
+                },
+            ) => {
+                if !self.match_callable_instance(*pattern_callable, *actual_callable)?
+                    || !self
+                        .match_type(pattern_requirement.subject(), actual_requirement.subject())?
+                    || !self.match_trait_application(
+                        pattern_requirement.trait_application(),
+                        actual_requirement.trait_application(),
+                    )?
+                {
+                    return Ok(false);
+                }
+
+                self.match_dependency_call_inputs(pattern_inputs, actual_inputs)
+            }
+            (
                 DependencyRequirement::Direct {
                     subject: pattern_subject,
                     kind: pattern_kind,
@@ -114,6 +187,27 @@ impl HeaderMatcher<'_> {
             }
             _ => Ok(false),
         }
+    }
+
+    fn match_dependency_call_inputs(
+        &mut self,
+        pattern: &[bray_symbols::DependencyCallInput],
+        actual: &[bray_symbols::DependencyCallInput],
+    ) -> Result<bool, SemanticValueStoreError> {
+        if pattern.len() != actual.len() {
+            return Ok(false);
+        }
+
+        for (pattern, actual) in pattern.iter().zip(actual) {
+            if pattern.root() != actual.root()
+                || !self.match_dependency_requirements(pattern.values(), actual.values())?
+                || !self.match_dependency_requirements(pattern.storage(), actual.storage())?
+            {
+                return Ok(false);
+            }
+        }
+
+        Ok(true)
     }
 
     fn match_dependency_guard(

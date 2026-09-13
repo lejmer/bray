@@ -19,8 +19,8 @@ pub use constant::{
     ConstantValueKind, IntegerConstant, IntegerSign, RealConstantBits, TargetSizedIntegerType,
 };
 pub use dependency::{
-    DependencyContractTemplateData, DependencyGuard, DependencyProjection, DependencyRequirement,
-    DependencyRequirementKind, DependencySubject, DependencySubjectRoot,
+    DependencyCallInput, DependencyContractTemplateData, DependencyGuard, DependencyProjection,
+    DependencyRequirement, DependencyRequirementKind, DependencySubject, DependencySubjectRoot,
     GuardedDependencyRequirement, LifecycleObligationKind,
 };
 pub use error::{SemanticValueStoreCreateError, SemanticValueStoreError};

@@ -1068,6 +1068,9 @@ fn semantic_content_problem(error: SemanticValueStoreError) -> DiagnosticSemanti
                 actual: actual.symbol().symbol_id().raw(),
             }
         }
+        SemanticValueStoreError::InvalidDependencyVariable { depth, ordinal } => {
+            DiagnosticSemanticContentProblem::InvalidDependencyVariable { depth, ordinal }
+        }
         SemanticValueStoreError::OpenSubstitution => {
             DiagnosticSemanticContentProblem::OpenSubstitution
         }

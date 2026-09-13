@@ -85,6 +85,7 @@ impl InterfaceSemantics {
                     dependency_count,
                     0,
                     limits,
+                    &mut Vec::new(),
                 )?;
             }
         }
@@ -367,10 +368,91 @@ impl InterfaceSemantics {
         dependency_count: usize,
         depth: u64,
         limits: InterfaceValidationLimits,
+        scopes: &mut Vec<usize>,
     ) -> Result<(), InterfaceValidationError> {
         limits.check(InterfaceLimit::SemanticTypeDepth, depth)?;
 
         match &requirement.value {
+            InterfaceDependencyRequirementValue::Variable { depth, ordinal } => {
+                let count = usize::try_from(*depth)
+                    .ok()
+                    .and_then(|depth| scopes.iter().rev().nth(depth))
+                    .copied();
+
+                if !count.is_some_and(|count| u64::from(ordinal.raw()) < count as u64) {
+                    return Err(crate::semantic::codec::invalid_value(
+                        crate::InterfaceValidationField::Dependency,
+                    ));
+                }
+            }
+            InterfaceDependencyRequirementValue::FixedPoint {
+                definitions,
+                result,
+            } => {
+                scopes.push(definitions.len());
+
+                for nested in definitions
+                    .iter()
+                    .flat_map(|definition| definition.iter())
+                    .chain(result.iter())
+                {
+                    self.validate_dependency_requirement(
+                        nested,
+                        symbol_count,
+                        dependency_count,
+                        depth.saturating_add(1),
+                        limits,
+                        scopes,
+                    )?;
+                }
+
+                scopes.pop();
+            }
+            InterfaceDependencyRequirementValue::RecursiveCall { callable, inputs }
+            | InterfaceDependencyRequirementValue::WitnessCall {
+                callable, inputs, ..
+            } => {
+                validate_index(callable.to_index(), self.callable_instances.len())?;
+
+                if let InterfaceDependencyRequirementValue::WitnessCall {
+                    subject,
+                    application,
+                    ..
+                } = &requirement.value
+                {
+                    validate_index(subject.to_index(), self.types.len())?;
+                    validate_index(application.to_index(), self.trait_applications.len())?;
+                }
+
+                if inputs.windows(2).any(|pair| pair[0].root >= pair[1].root) {
+                    return Err(crate::semantic::codec::invalid_value(
+                        crate::InterfaceValidationField::Dependency,
+                    ));
+                }
+
+                for input in inputs.iter() {
+                    if !matches!(
+                        input.root,
+                        InterfaceDependencySubjectRoot::Receiver
+                            | InterfaceDependencySubjectRoot::Parameter(_)
+                    ) {
+                        return Err(crate::semantic::codec::invalid_value(
+                            crate::InterfaceValidationField::Dependency,
+                        ));
+                    }
+
+                    for nested in input.values.iter().chain(input.storage.iter()) {
+                        self.validate_dependency_requirement(
+                            nested,
+                            symbol_count,
+                            dependency_count,
+                            depth.saturating_add(1),
+                            limits,
+                            scopes,
+                        )?;
+                    }
+                }
+            }
             InterfaceDependencyRequirementValue::Direct { subject, .. } => {
                 self.validate_dependency_subject(subject, symbol_count, dependency_count)?;
             }
@@ -387,6 +469,7 @@ impl InterfaceSemantics {
                         dependency_count,
                         depth.saturating_add(1),
                         limits,
+                        scopes,
                     )?;
                 }
             }
@@ -560,5 +643,55 @@ fn direct_type_children(ty: &InterfaceType) -> Vec<InterfaceTypeId> {
         | InterfaceType::ContextualSelf(_)
         | InterfaceType::TraitView(_) => Vec::new(),
         InterfaceType::TypeValuedMemberProjection { subject, .. } => vec![*subject],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        InterfaceDependencyContract, InterfaceDependencyRequirement, InterfaceSemantics,
+        InterfaceValidationLimits,
+    };
+    use bray_symbols::SymbolOrdinal;
+
+    #[test]
+    fn dependency_variables_must_address_an_enclosing_equation() {
+        for (depth, ordinal, valid) in [(0, 0, true), (1, 0, false), (0, 1, false)] {
+            let variable =
+                InterfaceDependencyRequirement::variable(depth, SymbolOrdinal::new(ordinal));
+
+            let mut semantics = InterfaceSemantics::default();
+
+            semantics.dependency_contracts = vec![InterfaceDependencyContract::new([
+                InterfaceDependencyRequirement::fixed_point([vec![variable.clone()]], [variable]),
+            ])]
+            .into();
+
+            let result = semantics.validate_value_graph(0, 0, InterfaceValidationLimits::default());
+
+            if valid {
+                assert_eq!(result, Ok(()));
+            } else {
+                assert_eq!(
+                    result,
+                    Err(crate::semantic::codec::invalid_value(
+                        crate::InterfaceValidationField::Dependency
+                    ))
+                );
+            }
+        }
+
+        let mut semantics = InterfaceSemantics::default();
+
+        semantics.dependency_contracts = vec![InterfaceDependencyContract::new([
+            InterfaceDependencyRequirement::variable(0, SymbolOrdinal::new(0)),
+        ])]
+        .into();
+
+        assert!(
+            semantics
+                .validate_value_graph(0, 0, InterfaceValidationLimits::default())
+                .is_err()
+        );
     }
 }
