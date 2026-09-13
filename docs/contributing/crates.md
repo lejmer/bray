@@ -1,7 +1,6 @@
 # Crate Responsibilities
 
-Use this page to find the crate that owns a concept. Detailed phase contracts and implementation guidance belong in the
-design documents.
+Use this page to find the crate that owns a concept. The design documents explain the intended relationships and guiding choices.
 
 ## `crates/`
 

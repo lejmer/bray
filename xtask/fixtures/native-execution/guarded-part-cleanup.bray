@@ -143,7 +143,7 @@ func boxed(pos pair: box[PairStorage] Pair)
 {
     let box(Pair
     {
-        left, ..
+        left,..
     }
     ) = pair;
 
@@ -156,7 +156,7 @@ func boxed_panic(pos pair: box[PairStorage] Pair)
 {
     let box(Pair
     {
-        left, ..
+        left,..
     }
     ) = pair;
 
@@ -170,7 +170,7 @@ func observe_box(pos pair: box[PairStorage] Pair) -> i32
     {
         case box(Pair
         {
-            left, ..
+            left,..
         }
         )
         {
@@ -194,7 +194,7 @@ func observe_borrowed_box(pos pair: &box[PairStorage] Pair) -> i32
     {
         case box(Pair
         {
-            left, ..
+            left,..
         }
         )
         {
@@ -230,7 +230,7 @@ func guarded(pos pair: Pair, pos flag: bool)
     {
         case Pair
         {
-            left, ..
+            left,..
         }
         when left.counter.value >= 0 && flag
         {
@@ -238,7 +238,7 @@ func guarded(pos pair: Pair, pos flag: bool)
         }
         case Pair
         {
-            right, ..
+            right,..
         }
         {
             take(right);
@@ -297,7 +297,7 @@ func payload(pos choice: Choice)
 {
     match consume choice
     {
-        case Pair(left, ..) { take(left); }
+        case Pair(left,..) { take(left); }
         case Empty {}
     };
 }
@@ -308,7 +308,7 @@ func nullable(pos pair: Pair?)
     {
         case ?Pair
         {
-            left, ..
+            left,..
         }
         {
             take(left);

@@ -360,7 +360,7 @@ harmed by an arbitrary split.
 - Do not expose internal storage, caching, construction, publication, or phase-coordination
   mechanics in public API documentation unless they materially affect callers.
 - Document invariants that callers, implementers, or future compiler phases must preserve.
-- Keep design documentation aligned with implementation when behavior changes.
+- Update design documents when the intended design changes. Follow [the design guidance](../design/AGENTS.md).
 - Do not document speculative future behavior as if it already exists.
 
 ## Making changes

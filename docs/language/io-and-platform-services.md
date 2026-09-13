@@ -366,6 +366,14 @@ let parsed = try std.time.Timestamp.parse(&"2026-08-30T14:45:00.125Z");
 nanosecond parameters remove redundant arity variants. Their `parse` constructors keep strict ISO 8601 and RFC 3339 text
 parsing visible at call sites.
 
+Durations and timestamps have nanosecond precision. Timestamp identity is relative to the Unix epoch and independent of
+its calendar or timezone interpretation. Named zones expose their name and database version, not a process-local handle.
+Leap-second interpretation follows the pinned toolchain policy rather than host libraries.
+
+Parsing consumes the complete input unless an explicitly named prefix parser is used. `TimeError.InvalidFormat` reports
+the first invalid byte offset. Formatting patterns are validated Bray values, and localized names belong to separate
+locale services.
+
 Clock resolution is explicit target information. Arithmetic detects overflow and does not silently wrap. Reading either
 clock is an I/O effect and can return a typed failure when the selected service cannot provide a valid reading.
 
@@ -385,6 +393,9 @@ produce the same output sequence. Their methods do not read system entropy impli
 A convenience that creates a generator from system entropy is explicitly fallible and nondeterministic. APIs that need
 reproducible results accept an explicit generator or seed rather than consulting ambient state.
 
+`std.random.Generator` uses xoshiro256**. Its 32-byte seed is decoded as four little-endian `u64` words. An all-zero
+seed uses `[11400714819323198485, 0, 0, 0]` instead. `fill` writes successive `next_u64` results in little-endian byte
+order, so equal seeds produce equal sequences on every target.
 ## Effects And Execution Requirements
 
 Files, terminals, processes, clocks, environment state, and entropy are external state under the language's I/O effect

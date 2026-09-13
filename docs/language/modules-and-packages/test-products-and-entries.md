@@ -183,6 +183,20 @@ static cleanup incident is reported as a test-product failure rather than attrib
 Lifecycle, finalization, destruction, panic, cancellation, and cleanup behavior during test execution follows the
 ordinary language rules.
 
+## Standard-library helpers
+
+`std.testing` provides consuming state-selection helpers for results, nullable values, and run results. `assert_ok`,
+`assert_error`, `assert_present`, `assert_completed`, and `assert_panicked` return the expected payload and fail the
+test when the state differs. `assert_absent` and `assert_cancelled` require their payload-free state.
+`assert_not_completed` accepts either panic or cancellation.
+
+`std.testing.fail` evaluates its borrowed message once and ends the current test with an explicit failure at the call
+source. It requires no I/O capability and writes no stream output. Outside a test root, it panics with the owned failure
+payload and never returns. Ordinary `assert` remains the primary assertion expression. Reporting does not reevaluate its
+operands.
+
+Fixtures use ordinary values, construction, and lifecycle behavior. The runner introduces no hidden fixture injection or
+alternative ownership model.
 ## Navigation
 
 - [Language index](../index.md)
