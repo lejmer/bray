@@ -305,6 +305,67 @@ mod tests {
     use crate::test_support::compilation;
 
     #[test]
+    fn unreachable_storage_projections_do_not_create_proof_cycles() {
+        for (condition, valid) in [("false", true), ("true", false)] {
+            let source = r#"
+                module app;
+
+                struct Policy
+                {
+                    mut value: box i32;
+                    nested: &box[Policy] i32;
+                }
+
+                impl Policy(Storage<i32>)
+                {
+                    trusted static func create(pos value: i32) -> Self { loop {} }
+
+                    static func borrow(pos storage: &Self) -> &i32 executes(pure, total)
+                    {
+                        if CONDITION
+                        {
+                            let unused = match storage.nested
+                            {
+                                case box(inner) { yield inner; }
+                            };
+                        }
+
+                        return match &storage.value
+                        {
+                            case box(inner) { yield &inner; }
+                        };
+                    }
+
+                    static func borrow_mut(pos storage: &mut Self) -> &mut i32 executes(pure, total)
+                    {
+                        if CONDITION
+                        {
+                            let unused = match storage.nested
+                            {
+                                case box(inner) { yield inner; }
+                            };
+                        }
+
+                        return match &mut storage.value
+                        {
+                            case box(inner) { yield &mut inner; }
+                        };
+                    }
+
+                    trusted static func destroy(pos storage: &mut Self) {}
+                    trusted static func release(pos storage: Self) {}
+                }
+            "#
+            .replace("CONDITION", condition);
+
+            let compilation = compilation(&source);
+            let diagnostics = compilation.check_diagnostics();
+
+            assert_eq!(!diagnostics.has_errors(), valid, "{diagnostics:?}");
+        }
+    }
+
+    #[test]
     fn storage_projections_require_checked_pure_total_bodies() {
         for (contract, shared, mutable, valid) in [
             (

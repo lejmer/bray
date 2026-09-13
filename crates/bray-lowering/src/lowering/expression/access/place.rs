@@ -153,14 +153,7 @@ impl Lowerer<'_> {
                     .iter()
                     .any(|operation| {
                         operation.access() == id
-                            && matches!(
-                                operation.purpose(),
-                                StorageAccessPurpose::Move
-                                    | StorageAccessPurpose::Write
-                                    | StorageAccessPurpose::Assignment
-                                    | StorageAccessPurpose::Initialize
-                                    | StorageAccessPurpose::Borrow(BorrowKind::Mutable)
-                            )
+                            && operation.purpose().projection_borrow_kind() == BorrowKind::Mutable
                     });
 
                 let kind = if mutable && self.guard_bindings.is_empty() {

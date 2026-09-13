@@ -245,6 +245,7 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
                 }
                 AnalysisOperationKind::PatternObservation(_) | AnalysisOperationKind::Bound(_) => {
                     super::operation::check_storage_accesses(
+                        request,
                         node,
                         storage,
                         property,

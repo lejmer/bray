@@ -63,7 +63,7 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
         return false;
     }
 
-    if !check_storage_accesses(expression.into(), storage, property, dependencies) {
+    if !check_storage_accesses(request, expression.into(), storage, property, dependencies) {
         return false;
     }
 
@@ -167,29 +167,28 @@ pub(super) fn check_expression<C: CheckerRequestContext + ?Sized>(
     }
 }
 
-pub(super) fn check_storage_accesses(
+pub(super) fn check_storage_accesses<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
     node: bray_bound_tree::AnyBoundNodeId,
     storage: &StoragePlan,
     property: ExecutionProperty,
     dependencies: &mut Vec<ExecutionDependency>,
 ) -> bool {
-    let mut projects_owner = false;
-
     for plan in storage
         .access_plans()
         .iter()
         .filter(|plan| plan.node() == node)
     {
-        if storage
-            .root_identity(plan.access())
-            .and_then(|id| storage.identity(id))
-            .is_none_or(|identity| {
-                matches!(
-                    identity,
-                    StorageIdentity::Static(_) | StorageIdentity::Error(_)
-                )
-            })
-        {
+        let Some(identity) = storage.root_identity(plan.access()) else {
+            return false;
+        };
+
+        if storage.identity(identity).is_none_or(|identity| {
+            matches!(
+                identity,
+                StorageIdentity::Static(_) | StorageIdentity::Error(_)
+            )
+        }) {
             return false;
         }
 
@@ -197,14 +196,22 @@ pub(super) fn check_storage_accesses(
             return false;
         };
 
-        projects_owner |= path.contains(&StorageProjection::OwnedTarget);
-    }
+        let kind = plan.purpose().projection_borrow_kind();
 
-    if projects_owner {
-        let mut resolved = false;
+        for (index, projection) in path.iter().enumerate() {
+            if *projection != StorageProjection::OwnedTarget {
+                continue;
+            }
 
-        for (_, _, call) in storage.owned_borrows() {
-            resolved = true;
+            let owner = storage
+                .access_at(identity, &path[..index])
+                .and_then(|access| storage.access(access))
+                .map(|access| access.reached_type())
+                .and_then(|ty| request.semantic_values().unborrowed_type(ty).ok());
+
+            let Some(call) = owner.and_then(|owner| storage.owned_borrow(owner, kind)) else {
+                return false;
+            };
 
             dependencies.push(ExecutionDependency {
                 target: bray_bound_tree::BoundCallableTarget::Declaration(call.callable()),
@@ -212,8 +219,6 @@ pub(super) fn check_storage_accesses(
                 node,
             });
         }
-
-        return resolved;
     }
 
     true

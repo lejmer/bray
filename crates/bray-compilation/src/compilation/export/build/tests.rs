@@ -295,7 +295,9 @@ fn storage_projection_guarantees_survive_generic_interfaces() {
             .value()
             .tree()
             .expressions()
-            .find_map(|(id, expression)| matches!(expression, BoundExpression::Call(_)).then_some(id))
+            .find_map(|(id, expression)| {
+                matches!(expression, BoundExpression::Call(_)).then_some(id)
+            })
             .unwrap();
 
         let contract = contracts
@@ -304,21 +306,27 @@ fn storage_projection_guarantees_survive_generic_interfaces() {
             .and_then(|id| contracts.value().contract(id))
             .unwrap();
 
-        assert!(contract.requirements().iter().any(|requirement| matches!(
-            requirement,
-            BoundDependencyRequirement::Direct {
-                subject: BoundDependencySubject::BorrowCapability(actual),
-                kind: BoundDependencyRequirementKind::BorrowCapabilityActive(kind),
-            } if *actual == capability && *kind == input.kind()
-        )), "{contract:?}");
+        assert!(
+            contract.requirements().iter().any(|requirement| matches!(
+                requirement,
+                BoundDependencyRequirement::Direct {
+                    subject: BoundDependencySubject::BorrowCapability(actual),
+                    kind: BoundDependencyRequirementKind::BorrowCapabilityActive(kind),
+                } if *actual == capability && *kind == input.kind()
+            )),
+            "{contract:?}"
+        );
 
-        assert!(contract.requirements().iter().any(|requirement| matches!(
-            requirement,
-            BoundDependencyRequirement::Direct {
-                subject: BoundDependencySubject::StorageAccess(access),
-                kind: BoundDependencyRequirementKind::StorageAlive,
-            } if storage.value().root_identity(*access) == Some(root)
-        )), "{contract:?}");
+        assert!(
+            contract.requirements().iter().any(|requirement| matches!(
+                requirement,
+                BoundDependencyRequirement::Direct {
+                    subject: BoundDependencySubject::StorageAccess(access),
+                    kind: BoundDependencyRequirementKind::StorageAlive,
+                } if storage.value().root_identity(*access) == Some(root)
+            )),
+            "{contract:?}"
+        );
     }
 }
 
