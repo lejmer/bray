@@ -946,6 +946,23 @@ mod tests {
             "await requires storage to remain alive"
         );
 
+        let carried_value_dependency = Diagnostic::new(
+            DiagnosticId::new(10),
+            DiagnosticKind::CheckingUnavailableAwaitDependency,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::dependency_subject_kind(
+            DiagnosticDependencySubjectKind::Storage,
+        ))
+        .with_arg(DiagnosticArg::dependency_requirement_kind(
+            DiagnosticDependencyRequirementKind::ValueDependencies,
+        ));
+
+        assert_eq!(
+            renderer.render(&carried_value_dependency).message(),
+            "await requires storage to preserve the dependencies carried by its value"
+        );
+
         assert_eq!(
             renderer.render(&unresolved).message(),
             "cannot infer the type of this name reference"

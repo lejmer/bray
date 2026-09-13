@@ -202,7 +202,7 @@ impl RuntimeDefaultBehavior {
         &self.lifecycle_obligations
     }
 
-    /// Returns normalized contextual, borrow, and storage dependencies.
+    /// Returns evaluation requirements and `ValueDependencies` carried by the produced value.
     pub const fn dependency_contract(&self) -> DependencyContractTemplateId {
         self.dependency_contract
     }

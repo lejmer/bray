@@ -129,6 +129,8 @@ pub enum InterfaceDependencyRequirementValue {
 /// Portable semantic state required by a dependency contract.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum InterfaceDependencyRequirementKind {
+    /// Dependencies carried by the transferred value.
+    ValueDependencies,
     /// Reached storage remains alive.
     StorageAlive,
     /// Reached storage remains initialized.

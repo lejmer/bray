@@ -99,6 +99,8 @@ impl BoundDependencySubject {
 /// The exact semantic state required from a bound dependency subject.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum BoundDependencyRequirementKind {
+    /// The dependencies carried by the value must remain valid after it transfers.
+    ValueDependencies,
     /// Reached storage must remain alive.
     StorageAlive,
     /// Reached storage or substorage must remain initialized.
@@ -116,6 +118,7 @@ pub enum BoundDependencyRequirementKind {
 impl From<DependencyRequirementKind> for BoundDependencyRequirementKind {
     fn from(kind: DependencyRequirementKind) -> Self {
         match kind {
+            DependencyRequirementKind::ValueDependencies => Self::ValueDependencies,
             DependencyRequirementKind::StorageAlive => Self::StorageAlive,
             DependencyRequirementKind::StorageInitialized => Self::StorageInitialized,
             DependencyRequirementKind::BorrowCapabilityActive(kind) => {
@@ -135,6 +138,7 @@ impl From<DependencyRequirementKind> for BoundDependencyRequirementKind {
 impl From<BoundDependencyRequirementKind> for DependencyRequirementKind {
     fn from(kind: BoundDependencyRequirementKind) -> Self {
         match kind {
+            BoundDependencyRequirementKind::ValueDependencies => Self::ValueDependencies,
             BoundDependencyRequirementKind::StorageAlive => Self::StorageAlive,
             BoundDependencyRequirementKind::StorageInitialized => Self::StorageInitialized,
             BoundDependencyRequirementKind::BorrowCapabilityActive(kind) => {

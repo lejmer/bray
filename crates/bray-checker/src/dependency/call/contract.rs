@@ -6,11 +6,11 @@ use bray_bound_tree::{
 use bray_symbols::{
     BorrowKind, CallableDependencyContracts, CallableInstanceData, CallableSignatureQuery,
     DependencyContractTemplateData, DependencyRequirement, DependencyRequirementKind,
-    DependencySubject, DependencySubjectRoot, SymbolOrdinal, SymbolQueryRequest, TypeData,
-    TypeExpressionTemplate,
+    DependencySubject, DependencySubjectRoot, SymbolQueryRequest, TypeData, TypeExpressionTemplate,
 };
 
 use super::instantiation::{CallInstantiationContext, expression_access, identity_access};
+use crate::dependency::implementation::implementation_dependency_source;
 use crate::{
     CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext,
     CheckerSemanticQueryProvider, CheckerUnitView,
@@ -18,10 +18,15 @@ use crate::{
 
 pub(crate) struct InstantiatedCallContracts {
     invocation: BoundDependencyContract,
+    result: BoundDependencyContract,
     deferred: Option<BoundDependencyContract>,
 }
 
 impl InstantiatedCallContracts {
+    pub(crate) const fn result(&self) -> &BoundDependencyContract {
+        &self.result
+    }
+
     pub(crate) const fn invocation(&self) -> &BoundDependencyContract {
         &self.invocation
     }
@@ -36,6 +41,7 @@ pub(crate) fn selected_call_contracts<C>(
     storage: &StoragePlan,
     expression: BoundExpressionId,
     call: &SelectedCall,
+    values: &crate::dependency::ValueInputs,
 ) -> Result<
     InstantiatedCallContracts,
     DependencyContractInstantiationError<CheckerQueryError<C::UpstreamError>>,
@@ -52,7 +58,34 @@ where
 
     let mut context = CallInstantiationContext::new(request, storage, expression, call);
 
-    instantiate_callable_contracts(request, contracts, &mut context)
+    let mut instantiated = instantiate_callable_contracts(request, contracts, &mut context)?;
+
+    let template = crate::dependency::call_result_template(request, call, |callable| {
+        request.context().callable_result_dependencies(callable)
+    })
+    .map_err(DependencyContractInstantiationError::Resolution)?;
+
+    let mut result_context = CallInstantiationContext::new(request, storage, expression, call);
+    result_context.set_result_values(values);
+
+    instantiated.result = BoundDependencyContract::try_instantiate(&template, &mut result_context)
+        .map_err(|error| error.map_resolution(CheckerQueryError::Infrastructure))?;
+
+    if crate::dependency::opaque_result(call)
+        && let Some(bray_bound_tree::BoundExpression::Call(bound)) =
+            request.view().expression(expression)
+        && let Some(access) = expression_access(storage, bound.callee())
+    {
+        instantiated.result =
+            BoundDependencyContract::new(instantiated.result.requirements().iter().cloned().chain(
+                [bray_bound_tree::BoundDependencyRequirement::Direct {
+                    subject: bray_bound_tree::BoundDependencySubject::StorageAccess(access),
+                    kind: bray_bound_tree::BoundDependencyRequirementKind::ValueDependencies,
+                }],
+            ));
+    }
+
+    Ok(instantiated)
 }
 
 fn callable_dependencies_for_implementation<C>(
@@ -67,20 +100,8 @@ where
         return Ok(contracts);
     };
 
-    let (parameter, authority) = match implementation {
-        bray_compiler_known::ImplementationHook::StringUtf8
-        | bray_compiler_known::ImplementationHook::CallableFromPointer
-        | bray_compiler_known::ImplementationHook::PointerFromCallable => {
-            (SymbolOrdinal::new(0), None)
-        }
-        bray_compiler_known::ImplementationHook::BorrowFrom => {
-            (SymbolOrdinal::new(0), Some(BorrowKind::Shared))
-        }
-        bray_compiler_known::ImplementationHook::BorrowMutFrom => {
-            (SymbolOrdinal::new(0), Some(BorrowKind::Mutable))
-        }
-        bray_compiler_known::ImplementationHook::NativeThreadStart => (SymbolOrdinal::new(1), None),
-        _ => return Ok(contracts),
+    let Some((parameter, authority)) = implementation_dependency_source(implementation) else {
+        return Ok(contracts);
     };
 
     let existing = request
@@ -242,6 +263,7 @@ where
 
     Ok(InstantiatedCallContracts {
         invocation,
+        result: BoundDependencyContract::new([]),
         deferred,
     })
 }
@@ -857,8 +879,14 @@ mod tests {
         let request = CheckerUnitView::new(unit, &semantic_context, &context)
             .unwrap_or_else(|error| panic!("test checker unit must validate: {error:?}"));
 
-        selected_call_contracts(request, storage, expression, call)
-            .unwrap_or_else(|error| panic!("selected call contract must instantiate: {error:?}"))
+        selected_call_contracts(
+            request,
+            storage,
+            expression,
+            call,
+            &crate::dependency::ValueInputs::default(),
+        )
+        .unwrap_or_else(|error| panic!("selected call contract must instantiate: {error:?}"))
     }
 
     fn push_direct_storage(

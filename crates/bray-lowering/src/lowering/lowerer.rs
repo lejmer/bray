@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
     BoundCallableBodyKind, BoundNodeOrigin, BoundUnitRoot, StorageAccessId, StorageIdentity,
@@ -58,6 +58,8 @@ pub(super) struct Lowerer<'unit> {
     pub(super) input: LoweringInput<'unit>,
     pub(super) builder: MirUnitBuilder,
     pub(super) storages: BTreeMap<StorageIdentityId, MirStorageId>,
+    // Cleanup guards can reserve temporary storage before its producer has been evaluated.
+    pub(super) initialized_temporaries: BTreeSet<StorageIdentityId>,
     pub(super) guard_bindings: Vec<BTreeMap<StorageIdentityId, MirPlace>>,
     pub(super) owned_targets: BTreeMap<MirStorageId, MirPlace>,
     pub(super) initialization_guards: BTreeMap<MirStorageId, InitializationState<'unit>>,
@@ -87,6 +89,7 @@ impl<'unit> Lowerer<'unit> {
             input,
             builder,
             storages: BTreeMap::new(),
+            initialized_temporaries: BTreeSet::new(),
             guard_bindings: Vec::new(),
             owned_targets: BTreeMap::new(),
             initialization_guards: BTreeMap::new(),

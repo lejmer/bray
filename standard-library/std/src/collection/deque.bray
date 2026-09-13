@@ -121,7 +121,9 @@ struct Deque<T>
             return Ok(unit);
         }
 
-        try trusted reallocate_deque<T>(&mut self, new_capacity = self.count);
+        let new_capacity: usize = self.count;
+
+        try trusted reallocate_deque<T>(&mut self, new_capacity = new_capacity);
 
         return Ok(unit);
     }
@@ -141,7 +143,9 @@ struct Deque<T>
             self.head -= 1;
         }
 
-        trusted write_deque_slot<T>(&mut self, value, physical_index = self.head);
+        let physical_index: usize = self.head;
+
+        trusted write_deque_slot<T>(&mut self, value, physical_index = physical_index);
         self.count += 1;
 
         return Ok(unit);

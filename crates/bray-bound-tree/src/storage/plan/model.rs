@@ -258,6 +258,14 @@ impl StoragePlan {
             return StorageRelationship::Identical;
         }
 
+        // A retained borrow can cover broad source storage while its own fields remain disjoint.
+        if left.logical_root == right.logical_root
+            && projection_relationship(&left.logical_projections, &right.logical_projections)
+                == StorageRelationship::Disjoint
+        {
+            return StorageRelationship::Disjoint;
+        }
+
         let mut relationship = None;
 
         for left in left.paths.iter() {
@@ -295,6 +303,12 @@ impl StoragePlan {
         ) else {
             return false;
         };
+
+        if container.logical_root == contained.logical_root {
+            return contained
+                .logical_projections
+                .starts_with(&container.logical_projections);
+        }
 
         contained.paths.iter().all(|contained| {
             container
@@ -612,6 +626,118 @@ mod tests {
             plan.relationship(first, StorageAccessId::from_slot(BoundUnitId::new(9), 0)),
             StorageRelationship::Error
         );
+    }
+
+    #[test]
+    fn retained_borrow_fields_are_disjoint_without_separating_their_source() {
+        let unit = BoundUnitId::new(6);
+        let expression = BoundExpressionId::from_slot(unit, 0);
+        let source = crate::test_support::source_anchor();
+        let ty = crate::test_support::error_type();
+        let mut builder = crate::StoragePlanBuilder::new(unit, BoundUnitKind::CallableBody);
+
+        let owner = builder
+            .push_identity(StorageIdentity::Temporary(expression))
+            .unwrap();
+
+        let retained = builder
+            .push_identity(StorageIdentity::Temporary(BoundExpressionId::from_slot(
+                unit, 1,
+            )))
+            .unwrap();
+
+        let owner_access = builder
+            .push_access(StorageAccess::new(
+                StorageAccessRoot::Storage(owner),
+                [],
+                ty,
+                source,
+                false,
+            ))
+            .unwrap();
+
+        let capability = builder
+            .push_borrow_capability(crate::PlannedBorrowCapability::new(
+                crate::BorrowCapabilityOrigin::Expression(expression),
+                bray_symbols::BorrowKind::Mutable,
+                owner_access,
+                None,
+                source,
+                false,
+            ))
+            .unwrap();
+
+        let root = StorageAccessRoot::BorrowedStorage {
+            capability,
+            storage: retained,
+        };
+
+        let first = builder
+            .push_access(StorageAccess::new(
+                root,
+                [StorageProjection::TupleElement(SymbolOrdinal::new(0))],
+                ty,
+                source,
+                false,
+            ))
+            .unwrap();
+
+        let second = builder
+            .push_access(StorageAccess::new(
+                root,
+                [StorageProjection::TupleElement(SymbolOrdinal::new(1))],
+                ty,
+                source,
+                false,
+            ))
+            .unwrap();
+
+        let child = builder
+            .push_borrow_capability(crate::PlannedBorrowCapability::new(
+                crate::BorrowCapabilityOrigin::Expression(BoundExpressionId::from_slot(unit, 2)),
+                bray_symbols::BorrowKind::Shared,
+                first,
+                Some(capability),
+                source,
+                false,
+            ))
+            .unwrap();
+
+        let child_access = builder
+            .push_access(StorageAccess::new(
+                StorageAccessRoot::Borrow(child),
+                [],
+                ty,
+                source,
+                false,
+            ))
+            .unwrap();
+
+        let plan = builder.finish();
+
+        assert_eq!(
+            plan.relationship(first, second),
+            StorageRelationship::Disjoint
+        );
+
+        assert_eq!(
+            plan.relationship(child_access, second),
+            StorageRelationship::Disjoint
+        );
+
+        assert_ne!(
+            plan.relationship(owner_access, first),
+            StorageRelationship::Disjoint
+        );
+
+        assert_ne!(
+            plan.relationship(owner_access, second),
+            StorageRelationship::Disjoint
+        );
+
+        assert!(!plan.access_contains(first, second));
+        assert!(!plan.access_contains(second, child_access));
+        assert!(plan.access_contains(first, child_access));
     }
 
     #[test]

@@ -395,6 +395,7 @@ pub(super) fn decode_dependency_requirement_kind(
 
     match raw {
         1 => Ok(InterfaceDependencyRequirementKind::StorageAlive),
+        7 => Ok(InterfaceDependencyRequirementKind::ValueDependencies),
         2 => Ok(InterfaceDependencyRequirementKind::StorageInitialized),
         3 => Ok(InterfaceDependencyRequirementKind::ExclusiveMutationAuthority),
         4 => Ok(InterfaceDependencyRequirementKind::BorrowCapabilityActive(

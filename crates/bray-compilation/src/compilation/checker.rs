@@ -391,6 +391,39 @@ fn standard_library_package_identity() -> CheckerQueryResult<PackageIdentity> {
 impl CheckerRequestContext for CompilationCheckerContext<'_> {
     type UpstreamError = FactQueryError;
 
+    fn callable_result_dependencies(
+        &self,
+        callable: bray_symbols::CallableSymbolId,
+    ) -> CheckerQueryResult<bray_symbols::DependencyContractTemplateId> {
+        self.binding_context
+            .resolve_symbol_query(SymbolQueryRequest::<
+                bray_symbols::CallableResultDependenciesQuery,
+            >::new(callable))
+            .map(|result| *result.value())
+            .map_err(checker_binder_error)
+    }
+
+    fn parameter_default_dependencies(
+        &self,
+        parameter: bray_symbols::CallableParameterSymbolId,
+    ) -> CheckerQueryResult<bray_symbols::DependencyContractTemplateId> {
+        let checked = self
+            .binding_context
+            .resolve_symbol_query(SymbolQueryRequest::<
+                bray_symbols::CallableParameterDefaultQuery,
+            >::new(parameter))
+            .map_err(checker_binder_error)?;
+
+        match checked.value().value() {
+            bray_symbols::CallableParameterDefaultValue::Valid(surface) => {
+                Ok(surface.behavior().dependency_contract())
+            }
+            bray_symbols::CallableParameterDefaultValue::Error(_) => {
+                Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into())
+            }
+        }
+    }
+
     fn semantic_context_matches(
         &self,
         unit: &BoundUnit,

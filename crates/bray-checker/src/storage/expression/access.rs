@@ -1,7 +1,8 @@
 use bray_bound_tree::{
     BorrowCapabilityOrigin, BoundExpressionId, BoundMemberSelector, BoundReferenceTarget,
     PlannedBorrowCapability, SelectedOperation, SemanticSelection, StorageAccess, StorageAccessId,
-    StorageAccessRoot, StorageBinding, StorageBindingTarget, StorageIdentity, StorageProjection,
+    StorageAccessPurpose, StorageAccessRoot, StorageBinding, StorageBindingTarget, StorageIdentity,
+    StorageProjection,
 };
 use bray_symbols::{
     AnyLocalSymbolId, AnySymbolId, MemberLookupResult, NamedTypeSymbolId, SymbolOrdinal, TypeData,
@@ -103,7 +104,12 @@ where
             None => return self.recovery_access(expression),
         };
 
-        self.project_access(expression, receiver, Some(projection))
+        self.project_access(
+            expression,
+            receiver,
+            projection,
+            self.expression_type(expression)?,
+        )
     }
 
     pub(super) fn member_projection(
@@ -241,9 +247,12 @@ where
         storage: MemberStorage,
     ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         match storage {
-            MemberStorage::Projection(projection) => {
-                self.project_access(expression, receiver, Some(projection))
-            }
+            MemberStorage::Projection(projection) => self.project_access(
+                expression,
+                receiver,
+                projection,
+                self.expression_type(expression)?,
+            ),
             MemberStorage::Value => self.temporary_access(expression),
             MemberStorage::Recovered => self.conservative_subject_access(expression, receiver),
         }
@@ -253,11 +262,10 @@ where
         &mut self,
         expression: BoundExpressionId,
         base: StorageAccessId,
-        projection: Option<StorageProjection>,
+        projection: StorageProjection,
+        reached_type: bray_bound_tree::ExpressionTypeResult,
     ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
-        let Some(projection) = projection else {
-            return self.temporary_access(expression);
-        };
+        let base = self.borrowed_value_access(expression, base)?;
 
         let base = self
             .builder()?
@@ -269,11 +277,52 @@ where
 
         projections.push(projection);
 
+        self.push_expression_access(expression, root, projections, reached_type)
+    }
+
+    pub(super) fn borrowed_value_access(
+        &mut self,
+        expression: BoundExpressionId,
+        access: StorageAccessId,
+    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
+        let record = self
+            .builder()?
+            .access(access)
+            .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+
+        let StorageAccessRoot::Storage(identity) = record.root() else {
+            return Ok(access);
+        };
+
+        let reached_type = record.reached_type();
+
+        let Some(source) = self.borrowed_values.get(&identity).copied() else {
+            return Ok(access);
+        };
+
+        let source = self.borrowed_value_access(expression, source)?;
+
+        let source = self
+            .builder()?
+            .access(source)
+            .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+
+        let Some(capability) = source.root().borrow_capability() else {
+            return Ok(access);
+        };
+
+        // The binding stores the converted borrow value independently of its initializer's representation.
         self.push_expression_access(
             expression,
-            root,
-            projections,
-            self.expression_type(expression)?,
+            StorageAccessRoot::BorrowedStorage {
+                capability,
+                storage: identity,
+            },
+            [],
+            bray_bound_tree::ExpressionTypeResult::new(
+                reached_type,
+                self.expression_type(expression)?.status(),
+            ),
         )
     }
 
@@ -470,13 +519,30 @@ where
             })
             .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
+        self.retain_borrow_value(
+            expression,
+            capability,
+            StorageIdentity::CustomIndexBorrow(expression),
+            borrow_type,
+            result,
+        )
+    }
+
+    pub(super) fn retain_borrow_value(
+        &mut self,
+        expression: BoundExpressionId,
+        capability: bray_bound_tree::BorrowCapabilityId,
+        identity: StorageIdentity,
+        stored_type: TypeId,
+        reached_type: bray_bound_tree::ExpressionTypeResult,
+    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         let storage = self
             .builder_mut()?
-            .push_identity(StorageIdentity::CustomIndexBorrow(expression))
+            .push_identity(identity)
             .map_err(CheckerInfrastructureError::StoragePlan)?;
 
         self.builder_mut()?
-            .set_identity_type(storage, borrow_type)
+            .set_identity_type(storage, stored_type)
             .map_err(CheckerInfrastructureError::StoragePlan)?;
 
         self.push_expression_access(
@@ -486,7 +552,7 @@ where
                 storage,
             },
             [],
-            result,
+            reached_type,
         )
     }
 
@@ -592,6 +658,47 @@ where
 
         self.builder_mut()?
             .push_access(access)
+            .map_err(|error| CheckerInfrastructureError::StoragePlan(error).into())
+    }
+}
+
+impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
+    pub(in crate::storage) fn record_purpose(
+        &mut self,
+        expression: BoundExpressionId,
+        purpose: Option<StorageAccessPurpose>,
+        access: StorageAccessId,
+    ) -> Result<(), PlanError<C::UpstreamError>> {
+        let Some(purpose) = purpose else {
+            return Ok(());
+        };
+
+        let record = self
+            .builder()?
+            .access(access)
+            .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+
+        let purpose = if purpose == StorageAccessPurpose::ValueTransfer
+            && (record.root().borrow_capability().is_some()
+                || matches!(
+                    self.request.view().expression(expression),
+                    Some(bray_bound_tree::BoundExpression::Call(_))
+                ))
+            && matches!(
+                self.request
+                    .semantic_values()
+                    .type_data(self.expression_type(expression)?.ty())
+                    .map_err(CheckerInfrastructureError::SemanticValueStore)?
+                    .as_ref(),
+                TypeData::Borrow { .. }
+            ) {
+            StorageAccessPurpose::Read
+        } else {
+            purpose
+        };
+
+        self.builder_mut()?
+            .plan_access(expression.into(), expression, purpose, access)
             .map_err(|error| CheckerInfrastructureError::StoragePlan(error).into())
     }
 }

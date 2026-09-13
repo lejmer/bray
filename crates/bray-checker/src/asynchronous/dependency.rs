@@ -109,7 +109,8 @@ fn dependency_subject_is_satisfied(
             BoundDependencySubject::ProductStatic(_)
             | BoundDependencySubject::ExactThreadStatic(_) => true,
         },
-        BoundDependencyRequirementKind::StorageInitialized => {
+        BoundDependencyRequirementKind::StorageInitialized
+        | BoundDependencyRequirementKind::ValueDependencies => {
             return dependency_subject_is_initialized(values, storage, state, subject);
         }
         BoundDependencyRequirementKind::BorrowCapabilityActive(expected) => {

@@ -514,31 +514,16 @@ where
         return Ok(None);
     };
 
-    let constants = request
-        .checked_constant_terms(member.ty())
+    let checked = crate::constant::checked_substituted_type(request, member.ty(), substitution)
         .map_err(atomic_query_outcome)?;
 
-    // The support remains available to other consumers, so retain its diagnostics here.
-    diagnostics.add_range(constants.diagnostics().clone());
+    let (member_type, checked_diagnostics) = checked.into_parts();
 
-    let Some(member_type) = crate::resolve_type_expression_template(
-        request.semantic_values(),
-        member.ty(),
-        constants.value(),
-    )
-    .map_err(CheckerOutcome::InfrastructureFailure)?
-    else {
+    diagnostics.add_range(checked_diagnostics);
+
+    let Some(member_type) = member_type else {
         return Ok(None);
     };
-
-    let member_type = request
-        .semantic_values()
-        .substitute_type(member_type, substitution)
-        .map_err(|error| {
-            CheckerOutcome::InfrastructureFailure(CheckerInfrastructureError::SemanticValueStore(
-                error,
-            ))
-        })?;
 
     atomic_value_representation(request, member_type, diagnostics, pending)
 }

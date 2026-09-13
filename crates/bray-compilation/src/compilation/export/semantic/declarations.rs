@@ -63,9 +63,21 @@ pub(super) fn export_callable_semantics(
         return Err(incomplete(symbol));
     }
 
-    semantics
-        .signatures
-        .push(export.callable_signature(symbol, signature.value())?);
+    let result_dependencies = binder
+        .resolve_symbol_query(SymbolQueryRequest::<
+            bray_symbols::CallableResultDependenciesQuery,
+        >::new(callable))
+        .map_err(super::super::binding_query_export_error)?;
+
+    if result_dependencies.diagnostics().has_errors() {
+        return Err(incomplete(symbol));
+    }
+
+    semantics.signatures.push(export.callable_signature(
+        symbol,
+        signature.value(),
+        *result_dependencies.value(),
+    )?);
 
     let contracts = binder
         .resolve_symbol_query(SymbolQueryRequest::<CallableContractsQuery>::new(callable))

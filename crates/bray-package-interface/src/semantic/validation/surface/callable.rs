@@ -96,6 +96,11 @@ impl InterfaceSemantics {
         validate_index(signature.callable_type.to_index(), self.types.len())?;
         validate_index(signature.result.to_index(), self.types.len())?;
 
+        validate_index(
+            signature.result_dependencies.to_index(),
+            self.dependency_contracts.len(),
+        )?;
+
         let Some(crate::InterfaceType::Callable {
             parameters, result, ..
         }) = signature

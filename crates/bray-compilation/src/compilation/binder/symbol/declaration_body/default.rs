@@ -879,6 +879,7 @@ mod tests {
                 surface.behavior().dependency_contract(),
                 0,
                 &[
+                    DependencyRequirementKind::ValueDependencies,
                     DependencyRequirementKind::StorageAlive,
                     DependencyRequirementKind::StorageInitialized,
                     DependencyRequirementKind::BorrowCapabilityActive(BorrowKind::Shared),

@@ -40,6 +40,30 @@ pub(super) fn imported_callable_signature(
     ))
 }
 
+pub(super) fn imported_result_dependencies(
+    context: &CompilationBindingContext<'_>,
+    address: ImportedSemanticAddress,
+) -> BindingQueryResult<DiagnosticResult<bray_symbols::DependencyContractTemplateId>> {
+    let result = imported_records(
+        context,
+        address,
+        InterfaceSemanticRecordKind::CallableSignature,
+    )?;
+
+    let [ImportedSemanticRecord::CallableSignature(signature)] = result.value().as_ref() else {
+        return Err(invalid_imported_record_set(
+            address,
+            InterfaceSemanticRecordKind::CallableSignature,
+            result.value(),
+        ));
+    };
+
+    Ok(DiagnosticResult::new(
+        signature.result_dependencies(),
+        result.diagnostics().clone(),
+    ))
+}
+
 pub(super) fn imported_generic_declaration(
     context: &CompilationBindingContext<'_>,
     owner: GenericOwnerId,

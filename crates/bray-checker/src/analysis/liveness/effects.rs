@@ -6,12 +6,12 @@ use bray_bound_tree::{
     CheckedSemanticSelections, DependencyContractInstantiationError, SemanticSelection,
     StorageAccessRoot, StorageBinding, StorageIdentityId, StoragePlan,
 };
-use bray_symbols::{CallableSignatureQuery, TypeData};
+use bray_symbols::CallableSignatureQuery;
 
 use crate::analysis::model::{AnalysisCallPhase, AnalysisOperation, AnalysisOperationKind};
 use crate::analysis::storage_index::index_storage_roots;
-use crate::dependency::selected_call_contracts;
-use crate::storage::{local_initialization_bindings, value_transfer_bindings};
+use crate::dependency::{ValueInputs, selected_call_contracts};
+use crate::storage::value_transfer_bindings;
 use crate::{
     CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext,
     CheckerSemanticQueryProvider, CheckerUnitView,
@@ -29,6 +29,8 @@ pub(super) struct OperationEffects {
     operation_result_definitions: BTreeMap<BoundExpressionId, BTreeSet<BoundDependencySubject>>,
     pub(super) universe: BTreeSet<BoundDependencySubject>,
     pub(super) owner_dependencies: BTreeMap<BoundExpressionId, BTreeSet<BoundDependencySubject>>,
+    exit_dependencies: BTreeMap<AnyBoundNodeId, BTreeSet<BoundDependencySubject>>,
+    value_inputs: ValueInputs,
     pub(super) recovered_nodes: BTreeSet<AnyBoundNodeId>,
 }
 
@@ -36,6 +38,8 @@ impl OperationEffects {
     pub(super) fn from_checked_inputs<C>(
         request: CheckerUnitView<'_, C>,
         selections: &CheckedSemanticSelections,
+        types: &bray_bound_tree::CheckedExpressionTypes,
+        patterns: &bray_bound_tree::CheckedPatterns,
         storage: &StoragePlan,
         memory: &CheckedMemoryOperations,
     ) -> Result<Self, CheckerQueryError<C::UpstreamError>>
@@ -44,9 +48,47 @@ impl OperationEffects {
     {
         let mut effects = Self::from_storage_plan(request.unit(), storage, memory);
 
+        effects.value_inputs =
+            ValueInputs::prepare(request, types, selections, patterns, |callable| {
+                request.context().callable_result_dependencies(callable)
+            })?;
+
         effects.retain_call_input_dependencies(request.unit());
         effects.add_selected_call_dependencies(request, selections, storage)?;
-        effects.retain_local_borrow_dependencies(request, storage)?;
+
+        for plan in storage.access_plans() {
+            let Some(access) = storage.access(plan.access()) else {
+                continue;
+            };
+
+            let Some(capability) = access.root().borrow_capability() else {
+                continue;
+            };
+
+            let ty = request
+                .semantic_values()
+                .type_data(access.reached_type())
+                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+
+            if matches!(ty.as_ref(), bray_symbols::TypeData::Borrow { .. }) {
+                effects
+                    .owner_dependencies
+                    .entry(plan.expression())
+                    .or_default()
+                    .extend(borrow_capability_subjects(storage, capability));
+            }
+        }
+
+        for (borrow, capability) in storage.borrow_capability_entries() {
+            if let Some(expression) = capability.expression() {
+                effects
+                    .owner_dependencies
+                    .entry(expression)
+                    .or_default()
+                    .extend(borrow_capability_subjects(storage, borrow));
+            }
+        }
+
         effects.retain_owned_call_dependencies(request, storage);
         effects.retain_owner_control_transfer_dependencies(request.unit());
 
@@ -140,6 +182,8 @@ impl OperationEffects {
                 effect.uses.insert(parent);
                 effects.universe.insert(parent);
             }
+
+            effect.uses.remove(&subject);
         }
 
         let await_uses = unit
@@ -212,32 +256,44 @@ impl OperationEffects {
                 continue;
             };
 
-            let contracts =
-                match selected_call_contracts(request, storage, entry.expression(), call) {
-                    Ok(contracts) => contracts,
-                    Err(DependencyContractInstantiationError::Resolution(
-                        CheckerQueryError::Infrastructure(
-                            CheckerInfrastructureError::InvalidSemanticSelectionInput,
-                        ),
-                    )) => {
-                        self.recovered_nodes
-                            .insert(AnyBoundNodeId::Expression(entry.expression()));
+            let contracts = match selected_call_contracts(
+                request,
+                storage,
+                entry.expression(),
+                call,
+                &self.value_inputs,
+            ) {
+                Ok(contracts) => contracts,
+                Err(DependencyContractInstantiationError::Resolution(
+                    CheckerQueryError::Infrastructure(
+                        CheckerInfrastructureError::InvalidSemanticSelectionInput,
+                    ),
+                )) => {
+                    self.recovered_nodes
+                        .insert(AnyBoundNodeId::Expression(entry.expression()));
 
-                        continue;
-                    }
-                    Err(DependencyContractInstantiationError::Resolution(error)) => {
-                        return Err(error);
-                    }
-                    Err(DependencyContractInstantiationError::ForeignUnit) => {
-                        return Err(CheckerInfrastructureError::InvalidLiveness.into());
-                    }
-                };
+                    continue;
+                }
+                Err(DependencyContractInstantiationError::Resolution(error)) => {
+                    return Err(error);
+                }
+                Err(DependencyContractInstantiationError::ForeignUnit) => {
+                    return Err(CheckerInfrastructureError::InvalidLiveness.into());
+                }
+            };
 
             let invocation = dependency_subjects(contracts.invocation().requirements(), storage);
+            let returned = dependency_subjects(contracts.result().requirements(), storage);
+
+            self.owner_dependencies
+                .entry(entry.expression())
+                .or_default()
+                .extend(returned);
 
             if call.implementation_hook()
                 == Some(bray_compiler_known::ImplementationHook::NativeThreadStart)
             {
+                // The structured thread result retains the same contract used during invocation.
                 self.owner_dependencies
                     .insert(entry.expression(), invocation.clone());
             }
@@ -256,7 +312,7 @@ impl OperationEffects {
     }
 
     fn retain_owner_control_transfer_dependencies(&mut self, unit: &BoundUnit) {
-        let transfers = unit
+        let mut transfers = unit
             .tree()
             .expressions()
             .filter_map(|(expression, node)| {
@@ -267,14 +323,28 @@ impl OperationEffects {
                 transfer.operand().map(|operand| {
                     (
                         expression,
-                        retained_subtree_subjects(unit, operand, &self.owner_dependencies),
+                        retained_subtree_subjects(
+                            &self.value_inputs,
+                            operand,
+                            &self.owner_dependencies,
+                        ),
                     )
                 })
             })
             .collect::<Vec<_>>();
 
+        for (exit, value, projection) in self.value_inputs.propagated_errors() {
+            let (value, _) = self.value_inputs.project(value, &[projection]);
+
+            transfers.push((
+                exit,
+                retained_subtree_subjects(&self.value_inputs, value, &self.owner_dependencies),
+            ));
+        }
+
         for (expression, subjects) in transfers {
-            self.extend_uses(expression, subjects);
+            self.extend_uses(expression, subjects.iter().copied());
+            self.exit_dependencies.insert(expression.into(), subjects);
         }
     }
 
@@ -288,13 +358,14 @@ impl OperationEffects {
         let (accesses_by_root, _) = index_storage_roots(storage);
 
         let initializations = value_transfer_bindings(request, storage);
-        let initializers_by_root = index_initializers_by_root(storage, &initializations);
+
+        let value_sources_by_root =
+            index_value_sources_by_root(storage, &initializations, &self.value_inputs);
 
         for expression in self.owner_dependencies.keys().copied().collect::<Vec<_>>() {
             let nested_borrows = retained_storage_borrows(
-                request.unit(),
                 storage,
-                &initializers_by_root,
+                &value_sources_by_root,
                 self.owner_dependencies
                     .get(&expression)
                     .into_iter()
@@ -308,6 +379,7 @@ impl OperationEffects {
                 .extend(nested_borrows);
         }
 
+        // Keep seed contracts immutable while local ownership propagation reaches its fixed point.
         let mut retained_by_expression = self.owner_dependencies.clone();
 
         loop {
@@ -315,7 +387,7 @@ impl OperationEffects {
 
             for (initializer, bindings) in &initializations {
                 let retained = retained_subtree_subjects(
-                    request.unit(),
+                    &self.value_inputs,
                     *initializer,
                     &retained_by_expression,
                 );
@@ -335,6 +407,15 @@ impl OperationEffects {
                     };
 
                     for expression in accesses_by_root.get(&root).into_iter().flatten() {
+                        if self.value_inputs.is_independent(*expression)
+                            || self
+                                .value_inputs
+                                .projected_initializer(*expression)
+                                .is_some()
+                        {
+                            continue;
+                        }
+
                         let expression_retention =
                             retained_by_expression.entry(*expression).or_default();
 
@@ -352,55 +433,19 @@ impl OperationEffects {
         }
 
         for (expression, retained) in &retained_by_expression {
-            self.extend_uses(*expression, retained.iter().copied());
+            let node = AnyBoundNodeId::Expression(*expression);
+            let defined = self.by_node.get(&node).map(|effect| &effect.definitions);
+
+            let subjects = retained
+                .iter()
+                .copied()
+                .filter(|subject| !defined.is_some_and(|definitions| definitions.contains(subject)))
+                .collect::<Vec<_>>();
+
+            self.extend_uses(*expression, subjects);
         }
 
         self.owner_dependencies = retained_by_expression;
-    }
-
-    fn retain_local_borrow_dependencies<C>(
-        &mut self,
-        request: CheckerUnitView<'_, C>,
-        storage: &StoragePlan,
-    ) -> Result<(), CheckerInfrastructureError>
-    where
-        C: CheckerRequestContext + ?Sized,
-    {
-        let (accesses_by_root, types_by_root) = index_storage_roots(storage);
-
-        for (initializer, bindings) in local_initialization_bindings(request, storage) {
-            let subjects = self.subtree_subjects(request.unit(), initializer);
-
-            for binding in bindings {
-                let (root, ty) = match binding {
-                    StorageBinding::Identity(identity) => {
-                        (Some(identity), types_by_root.get(&identity).copied())
-                    }
-                    StorageBinding::Access(access) => (
-                        storage.root_identity(access),
-                        storage.access(access).map(|access| access.reached_type()),
-                    ),
-                };
-
-                let Some(root) = root else {
-                    continue;
-                };
-
-                let Some(ty) = ty else {
-                    continue;
-                };
-
-                if !type_is_borrow(request, ty)? {
-                    continue;
-                }
-
-                for expression in accesses_by_root.get(&root).into_iter().flatten() {
-                    self.extend_uses(*expression, subjects.iter().copied());
-                }
-            }
-        }
-
-        Ok(())
     }
 
     fn extend_uses(
@@ -447,6 +492,10 @@ impl OperationEffects {
         &self,
         operation: &AnalysisOperation,
     ) -> Option<OperationEffectView<'_>> {
+        if matches!(operation.kind(), AnalysisOperationKind::ScopeExit { .. }) {
+            return None;
+        }
+
         let effect = self.effect(operation.kind().node())?;
 
         let (phase, result_definitions) = match operation.kind() {
@@ -468,10 +517,11 @@ impl OperationEffects {
         matches!(operation.kind(), AnalysisOperationKind::Recovery(_))
     }
 
-    pub(super) fn is_owner_dependency(&self, subject: BoundDependencySubject) -> bool {
-        self.owner_dependencies
-            .values()
-            .any(|subjects| subjects.contains(&subject))
+    pub(super) fn retained_at_exit(
+        &self,
+        exit: AnyBoundNodeId,
+    ) -> impl Iterator<Item = &BoundDependencySubject> {
+        self.exit_dependencies.get(&exit).into_iter().flatten()
     }
 }
 
@@ -511,9 +561,10 @@ impl<'a> OperationEffectView<'a> {
     }
 }
 
-fn index_initializers_by_root(
+fn index_value_sources_by_root(
     storage: &StoragePlan,
     initializations: &BTreeMap<BoundExpressionId, Vec<StorageBinding>>,
+    inputs: &ValueInputs,
 ) -> BTreeMap<StorageIdentityId, Vec<BoundExpressionId>> {
     let mut result = BTreeMap::<_, Vec<_>>::new();
 
@@ -530,13 +581,24 @@ fn index_initializers_by_root(
         }
     }
 
+    for plan in storage.access_plans() {
+        let Some(root) = storage.root_identity(plan.access()) else {
+            continue;
+        };
+
+        result.entry(root).or_default().extend(
+            inputs
+                .projected_operands(plan.expression())
+                .map(|(value, path)| inputs.project(value, path).0),
+        );
+    }
+
     result
 }
 
 fn retained_storage_borrows(
-    unit: &BoundUnit,
     storage: &StoragePlan,
-    initializers_by_root: &BTreeMap<StorageIdentityId, Vec<BoundExpressionId>>,
+    value_sources_by_root: &BTreeMap<StorageIdentityId, Vec<BoundExpressionId>>,
     subjects: impl IntoIterator<Item = BoundDependencySubject>,
     effects: &OperationEffects,
 ) -> BTreeSet<BoundDependencySubject> {
@@ -554,8 +616,22 @@ fn retained_storage_borrows(
                     continue;
                 }
 
-                for initializer in initializers_by_root.get(&root).into_iter().flatten() {
-                    pending.extend(effects.subtree_subjects(unit, *initializer));
+                for initializer in value_sources_by_root.get(&root).into_iter().flatten() {
+                    pending.extend(retained_subtree_subjects(
+                        &effects.value_inputs,
+                        *initializer,
+                        &effects.owner_dependencies,
+                    ));
+                }
+
+                if let Some(bray_bound_tree::StorageIdentity::Temporary(expression)) =
+                    storage.identity(root)
+                {
+                    pending.extend(retained_subtree_subjects(
+                        &effects.value_inputs,
+                        expression,
+                        &effects.owner_dependencies,
+                    ));
                 }
             }
             BoundDependencySubject::StorageAccess(access) => {
@@ -575,38 +651,33 @@ fn retained_storage_borrows(
 }
 
 fn retained_subtree_subjects(
-    unit: &BoundUnit,
+    inputs: &ValueInputs,
     root: BoundExpressionId,
     retained_by_expression: &BTreeMap<BoundExpressionId, BTreeSet<BoundDependencySubject>>,
 ) -> BTreeSet<BoundDependencySubject> {
     let mut retained = BTreeSet::new();
     let mut pending = vec![root];
+    let mut visited = BTreeSet::new();
 
     while let Some(expression) = pending.pop() {
+        if !visited.insert(expression) || inputs.is_independent(expression) {
+            continue;
+        }
+
         if let Some(subjects) = retained_by_expression.get(&expression) {
             retained.extend(subjects.iter().copied());
         }
 
-        if let Some(node) = unit.tree().expression(expression) {
-            pending.extend(node.child_expressions());
-        }
+        pending.extend(inputs.operands(expression));
+
+        pending.extend(
+            inputs
+                .projected_operands(expression)
+                .map(|(value, path)| inputs.project(value, path).0),
+        );
     }
 
     retained
-}
-
-fn type_is_borrow<C>(
-    request: CheckerUnitView<'_, C>,
-    ty: bray_symbols::TypeId,
-) -> Result<bool, CheckerInfrastructureError>
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    request
-        .semantic_values()
-        .type_data(ty)
-        .map(|data| matches!(data.as_ref(), TypeData::Borrow { .. }))
-        .map_err(CheckerInfrastructureError::SemanticValueStore)
 }
 
 fn dependency_subjects(

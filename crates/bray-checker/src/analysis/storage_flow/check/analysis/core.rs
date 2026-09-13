@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    AnyBoundNodeId, BorrowCapabilityId, BoundDependencySubject, BoundExpression, BoundExpressionId,
+    AnyBoundNodeId, BorrowCapabilityId, BoundDependencySubject, BoundExpressionId,
     CheckedMemoryOperations, CheckedRefinements, CheckedSemanticSelections, Liveness,
     MemoryOperationStatus, Refinement, StorageAccessId, StorageAccessPlan, StorageAccessPurpose,
     StorageAccessRoot, StorageBinding, StorageExitDecision, StorageExitPoint, StorageFlow,
@@ -458,7 +458,7 @@ where
         } = operation.kind()
         {
             self.record_exit(state, block, exit);
-            self.end_scope(state, block);
+            self.end_scope(state, block, exit);
         }
     }
 
@@ -805,25 +805,6 @@ where
                     .iter()
                     .any(|entry| entry.subject() == subject);
 
-                let retained_by_owner_across_scope = self.liveness.is_owner_retained(subject)
-                    && self
-                        .liveness
-                        .live_across_scopes()
-                        .iter()
-                        .any(|entry| entry.subject() == subject);
-
-                let resolves_owner_retention = match operation {
-                    AnyBoundNodeId::Expression(expression) => {
-                        matches!(
-                            self.request.view().expression(expression),
-                            Some(BoundExpression::Call(_))
-                        ) && !self.liveness.is_owner_retained_by(expression, subject)
-                    }
-                    AnyBoundNodeId::Pattern(_)
-                    | AnyBoundNodeId::Block(_)
-                    | AnyBoundNodeId::CallableBody(_) => false,
-                };
-
                 let completed_retaining_suspension = match operation {
                     AnyBoundNodeId::Expression(expression) => {
                         self.liveness.is_live_across_suspension(expression, subject)
@@ -843,8 +824,7 @@ where
                     && ((moved_borrows.contains(borrow)
                         && !self.liveness.is_owner_retained(subject)
                         && (!retained_for_suspension || completed_retaining_suspension))
-                        || (reaches_last_use
-                            && (!retained_by_owner_across_scope || resolves_owner_retention)))
+                        || reaches_last_use)
             })
             .collect::<BTreeSet<_>>();
 
@@ -868,7 +848,12 @@ where
         state.retain_definite_moves(self.storage);
     }
 
-    fn end_scope(&self, state: &mut StorageFlowState, block: bray_bound_tree::BoundBlockId) {
+    fn end_scope(
+        &self,
+        state: &mut StorageFlowState,
+        block: bray_bound_tree::BoundBlockId,
+        exit: AnyBoundNodeId,
+    ) {
         state
             .live
             .retain(|storage| self.owners.identity_scope(self.storage, *storage) != Some(block));
@@ -891,16 +876,20 @@ where
 
         state.active_borrows.retain(|borrow| {
             self.borrow_is_entry(*borrow)
-                || self
-                    .liveness
-                    .is_live_across_scope(block, BoundDependencySubject::BorrowCapability(*borrow))
+                || self.liveness.is_live_across_scope(
+                    block,
+                    exit,
+                    BoundDependencySubject::BorrowCapability(*borrow),
+                )
         });
 
         state.definitely_active_borrows.retain(|borrow| {
             self.borrow_is_entry(*borrow)
-                || self
-                    .liveness
-                    .is_live_across_scope(block, BoundDependencySubject::BorrowCapability(*borrow))
+                || self.liveness.is_live_across_scope(
+                    block,
+                    exit,
+                    BoundDependencySubject::BorrowCapability(*borrow),
+                )
         });
     }
 

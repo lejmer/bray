@@ -53,6 +53,30 @@ pub enum CheckedConstantTermsBuildError {
     DuplicateOccurrence(ConstantExpressionOccurrenceKey),
 }
 
+pub(crate) fn checked_substituted_type<C: crate::CheckerRequestContext + ?Sized>(
+    request: crate::CheckerUnitView<'_, C>,
+    template: &TypeExpressionTemplate,
+    substitution: GenericSubstitutionId,
+) -> Result<
+    bray_diagnostics::DiagnosticResult<Option<TypeId>>,
+    crate::CheckerQueryError<C::UpstreamError>,
+> {
+    let constants = request.checked_constant_terms(template)?;
+
+    let ty =
+        resolve_type_expression_template(request.semantic_values(), template, constants.value())?;
+
+    let ty = ty
+        .map(|ty| request.semantic_values().substitute_type(ty, substitution))
+        .transpose()
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+
+    Ok(bray_diagnostics::DiagnosticResult::new(
+        ty,
+        constants.into_parts().1,
+    ))
+}
+
 /// Resolves a type template whose embedded constant expressions have been checked.
 ///
 /// Returns `Ok(None)` when a required constant occurrence has not been requested yet.

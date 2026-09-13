@@ -152,6 +152,13 @@ define_resolve_symbol_query_contract! {
         kind: CallableSignature,
         erase: |owner: CallableSymbolId| owner.into_any(),
     }
+    /// The inferred dependencies retained by one callable's normal return value.
+    CallableResultDependenciesQuery {
+        owner: CallableSymbolId,
+        value: crate::DependencyContractTemplateId,
+        kind: CallableResultDependencies,
+        erase: |owner: CallableSymbolId| owner.into_any(),
+    }
     /// Checked contract clauses for one callable.
     CallableContractsQuery {
         owner: CallableSymbolId,

@@ -35,13 +35,27 @@ impl LastUse {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct LiveAcrossScope {
     scope: BoundBlockId,
+    exit: AnyBoundNodeId,
     subject: BoundDependencySubject,
 }
 
 impl LiveAcrossScope {
     /// Creates one scope-boundary liveness decision.
-    pub const fn new(scope: BoundBlockId, subject: BoundDependencySubject) -> Self {
-        Self { scope, subject }
+    pub const fn new(
+        scope: BoundBlockId,
+        exit: AnyBoundNodeId,
+        subject: BoundDependencySubject,
+    ) -> Self {
+        Self {
+            scope,
+            exit,
+            subject,
+        }
+    }
+
+    /// Returns the exact operation that exits the scope.
+    pub const fn exit(self) -> AnyBoundNodeId {
+        self.exit
     }
 
     /// Returns the lexical scope being exited.
@@ -62,7 +76,7 @@ pub struct LiveAcrossSuspension {
     subject: BoundDependencySubject,
 }
 
-/// A subject whose lifetime is transferred into one exact owning call result.
+/// A subject whose lifetime is transferred into one exact value result.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct OwnerRetention {
     expression: BoundExpressionId,
@@ -154,9 +168,11 @@ impl Liveness {
         if last_uses
             .iter()
             .any(|entry| entry.operation().unit() != unit || !entry.subject().is_valid_for(unit))
-            || live_across_scopes
-                .iter()
-                .any(|entry| entry.scope().unit() != unit || !entry.subject().is_valid_for(unit))
+            || live_across_scopes.iter().any(|entry| {
+                entry.scope().unit() != unit
+                    || entry.exit().unit() != unit
+                    || !entry.subject().is_valid_for(unit)
+            })
             || live_across_suspensions.iter().any(|entry| {
                 entry.await_expression().unit() != unit || !entry.subject().is_valid_for(unit)
             })
@@ -247,10 +263,11 @@ impl Liveness {
     pub fn is_live_across_scope(
         &self,
         scope: BoundBlockId,
+        exit: AnyBoundNodeId,
         subject: BoundDependencySubject,
     ) -> bool {
         self.live_across_scopes
-            .binary_search(&LiveAcrossScope::new(scope, subject))
+            .binary_search(&LiveAcrossScope::new(scope, exit, subject))
             .is_ok()
     }
 
@@ -293,7 +310,7 @@ mod tests {
         let subject = BoundDependencySubject::Storage(StorageIdentityId::from_slot(unit, 0));
 
         let last_use = LastUse::new(subject, expression.into());
-        let live_across_scope = LiveAcrossScope::new(scope, subject);
+        let live_across_scope = LiveAcrossScope::new(scope, expression.into(), subject);
         let live_across_suspension = LiveAcrossSuspension::new(expression, subject);
 
         let Ok(liveness) = Liveness::try_new(
@@ -320,7 +337,14 @@ mod tests {
         );
 
         assert!(liveness.is_last_use(expression.into(), subject));
-        assert!(liveness.is_live_across_scope(scope, subject));
+        assert!(liveness.is_live_across_scope(scope, expression.into(), subject));
+
+        assert!(!liveness.is_live_across_scope(
+            scope,
+            BoundExpressionId::from_slot(unit, 2).into(),
+            subject
+        ));
+
         assert!(liveness.is_live_across_suspension(expression, subject));
         assert_eq!(liveness.owner_retained_subjects(), &[subject]);
         assert!(liveness.is_owner_retained(subject));
@@ -345,6 +369,25 @@ mod tests {
                 [],
                 [],
                 false,
+            ),
+            Err(LivenessBuildError::ForeignUnit)
+        );
+
+        let local = BoundDependencySubject::Storage(StorageIdentityId::from_slot(unit, 0));
+
+        assert_eq!(
+            Liveness::try_new(
+                unit,
+                BoundUnitKind::CallableBody,
+                [],
+                [LiveAcrossScope::new(
+                    BoundBlockId::from_slot(unit, 0),
+                    BoundExpressionId::from_slot(BoundUnitId::new(5), 0).into(),
+                    local
+                )],
+                [],
+                [],
+                false
             ),
             Err(LivenessBuildError::ForeignUnit)
         );

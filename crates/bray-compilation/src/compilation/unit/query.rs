@@ -702,6 +702,1619 @@ mod tests {
     }
 
     #[test]
+    fn returned_assignments_preserve_disjoint_fields() {
+        for returned in [
+            "pair.first",
+            "first(pair)",
+            "tuple_first((pair.first, pair.second))",
+        ] {
+            let source = r#"
+                module app;
+
+                struct Pair
+                {
+                    first: &bool;
+                    mut second: &bool;
+                }
+
+                func select(pos caller: &bool, pos temporary: &bool) -> &bool
+                {
+                    let mut pair = Pair { first = caller, second = caller };
+                    pair.second = temporary;
+
+                    return RETURNED;
+                }
+
+                func first(pos pair: Pair) -> &bool
+                {
+                    return pair.first;
+                }
+
+                func tuple_first(pos values: (&bool, &bool)) -> &bool
+                {
+                    let (value, _) = values;
+
+                    return value;
+                }
+
+                func good(pos caller: &bool) -> &bool
+                {
+                    let local: bool = true;
+
+                    return select(caller, &local);
+                }
+            "#;
+
+            let compilation = compilation(&source.replace("RETURNED", returned));
+
+            assert!(
+                compilation.check_diagnostics().is_empty(),
+                "{:?}",
+                compilation.check_diagnostics()
+            );
+        }
+    }
+
+    #[test]
+    fn returned_assignments_through_calls_reject_local_storage() {
+        let compilation = compilation(
+            r#"
+                module app;
+
+                struct Holder
+                {
+                    mut value: &bool;
+                }
+
+                func read(pos holder: Holder) -> &bool
+                {
+                    return holder.value;
+                }
+
+                func bad(pos caller: &bool) -> &bool
+                {
+                    let local: bool = true;
+                    let mut holder = Holder { value = caller };
+                    holder.value = &local;
+
+                    return read(holder);
+                }
+            "#,
+        );
+
+        let flow = compilation
+            .storage_flow(source_function_body_key(&compilation, "bad"))
+            .unwrap();
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            flow.diagnostics(),
+            DiagnosticKind::CheckingEscapingStorageDependency,
+        );
+    }
+
+    #[test]
+    fn returned_assignments_follow_parameter_array_and_alias_storage() {
+        for body in [
+            r#"
+                func replace(pos mut result: Holder, pos second: &bool) -> Holder
+                {
+                    let owner =
+                    {
+                        yield &mut result;
+                    };
+                    owner.value = second;
+
+                    return result;
+                }
+            "#,
+            r#"
+                func replace(pos mut result: Holder, pos second: &bool) -> Holder
+                {
+                    let mut other = Holder { value = second };
+                    let owner = if false
+                    {
+                        yield &mut other;
+                    }
+                    else
+                    {
+                        yield &mut result;
+                    };
+                    owner.value = second;
+
+                    return result;
+                }
+            "#,
+            r#"
+                func first(pos values: (&mut Holder,)) -> &mut Holder
+                {
+                    return values.0;
+                }
+
+                func replace(pos mut result: Holder, pos second: &bool) -> Holder
+                {
+                    let owner = first((&mut result,));
+                    owner.value = second;
+
+                    return result;
+                }
+            "#,
+            r#"
+                impl Holder
+                {
+                    mut func same() -> &mut Holder
+                    {
+                        return &mut self;
+                    }
+                }
+
+                func replace(pos mut result: Holder, pos second: &bool) -> Holder
+                {
+                    let owner = result.same();
+                    owner.value = second;
+
+                    return result;
+                }
+            "#,
+            r#"
+                func same<T>(pos value: &mut T) -> &mut T
+                {
+                    return value;
+                }
+
+                func replace(pos mut result: Holder, pos second: &bool) -> Holder
+                {
+                    let owner = same(&mut result);
+                    owner.value = second;
+
+                    return result;
+                }
+            "#,
+            r#"
+                func same(pos value: &mut Holder) -> &mut Holder
+                {
+                    return value;
+                }
+
+                func replace(pos mut result: Holder, pos second: &bool) -> Holder
+                {
+                    same(&mut result).value = second;
+
+                    return result;
+                }
+            "#,
+            r#"
+                func choose(pos first: &mut Holder, pos second: &mut Holder, pos condition: bool) -> &mut Holder
+                {
+                    if condition
+                    {
+                        return first;
+                    }
+
+                    return second;
+                }
+
+                func replace(pos mut result: Holder, pos second: &bool) -> Holder
+                {
+                    let mut other = Holder { value = second };
+                    let owner = choose(&mut other, &mut result, false);
+                    owner.value = second;
+
+                    return result;
+                }
+            "#,
+            r#"
+                func replace(pos mut result: Holder, pos second: &bool) -> Holder
+                {
+                    result.value = second;
+
+                    return result;
+                }
+            "#,
+            r#"
+                func replace(pos result: Holder, pos second: &bool) -> Holder
+                {
+                    let mut values = [result];
+
+                    values[0] = Holder
+                    {
+                        value = second
+                    };
+
+                    return values[0];
+                }
+            "#,
+            r#"
+                func replace(pos mut result: Holder, pos second: &bool) -> Holder
+                {
+                    let owner = &mut result;
+                    let alias = owner;
+
+                    alias.value = second;
+
+                    return result;
+                }
+            "#,
+            r#"
+                func replace(pos mut result: Holder, pos second: &bool) -> Holder
+                {
+                    result.value = second;
+
+                    return Holder { value = read(result) };
+                }
+
+                func read(pos holder: Holder) -> &bool
+                {
+                    return holder.value;
+                }
+            "#,
+            r#"
+                func replace(pos mut result: Holder, pos second: &bool) -> Holder
+                {
+                    let mut owner = &mut result;
+                    let mut alias = owner;
+                    alias.value = second;
+
+                    return result;
+                }
+            "#,
+            r#"
+                func replace(pos mut result: Holder, pos second: &bool) -> Holder
+                {
+                    let (owner,) = (&mut result,);
+                    owner.value = second;
+
+                    return result;
+                }
+            "#,
+            r#"
+                func replace(pos mut result: Holder, pos second: &bool) -> Holder
+                {
+                    let mut owner = &mut result;
+                    owner = Holder { value = second };
+
+                    return result;
+                }
+            "#,
+            r#"
+                func replace(pos mut result: Holder, pos second: &bool) -> Holder
+                {
+                    let [owner] = [&mut result];
+                    owner.value = second;
+
+                    return result;
+                }
+            "#,
+            r#"
+                func replace(pos mut result: Holder, pos second: &bool) -> Holder
+                {
+                    if let (owner,) = (&mut result,)
+                    {
+                        owner.value = second;
+                    }
+
+                    return result;
+                }
+            "#,
+        ] {
+            let source = format!(
+                r#"
+                    module app;
+
+                    struct Holder
+                    {{
+                        mut value: &bool;
+                    }}
+
+                    {body}
+
+                    func bad(pos caller: &bool) -> Holder
+                    {{
+                        let local: bool = true;
+
+                        return replace(Holder {{ value = caller }}, &local);
+                    }}
+                "#
+            );
+
+            let caller_owned = compilation(&source.replace("&local", "caller"));
+
+            assert!(
+                caller_owned.check_diagnostics().is_empty(),
+                "{source}\n{:?}",
+                caller_owned.check_diagnostics()
+            );
+
+            let compilation = compilation(&source);
+
+            let flow = compilation
+                .storage_flow(source_function_body_key(&compilation, "bad"))
+                .unwrap();
+
+            assert!(
+                flow.diagnostics().iter().any(|diagnostic| diagnostic.kind()
+                    == DiagnosticKind::CheckingEscapingStorageDependency),
+                "{source}\n{:?}",
+                flow.diagnostics()
+            );
+
+            bray_testing::assert_goal_state_diagnostic_kind(
+                flow.diagnostics(),
+                DiagnosticKind::CheckingEscapingStorageDependency,
+            );
+        }
+    }
+
+    #[test]
+    fn returned_iteration_values_reject_local_storage() {
+        let source = r#"
+            module app;
+
+            struct Items
+            {
+                value: &bool;
+            }
+
+            struct Cursor
+            {
+                value: &bool;
+                mut available: bool;
+            }
+
+            impl &Items(Iterable)
+            {
+                type Element = &bool;
+                type Cursor = Cursor;
+
+                consume func iterate() -> Cursor
+                {
+                    return Cursor
+                    {
+                        value = self.value,
+                        available = true
+                    };
+                }
+            }
+
+            impl Cursor(Iterator)
+            {
+                type Element = &bool;
+
+                mut func next() -> (&bool)?
+                {
+                    if !self.available
+                    {
+                        return none;
+                    }
+
+                    self.available = false;
+                    return self.value;
+                }
+            }
+
+            func first(pos values: &Items) -> (&bool)?
+            {
+                for value in values
+                {
+                    return value;
+                }
+
+                return none;
+            }
+
+            func bad() -> (&bool)?
+            {
+                let local: bool = true;
+
+                let items = Items
+                {
+                    value = &local
+                };
+
+                return first(&items);
+            }
+        "#;
+
+        let compilation = compilation(source);
+        let key = source_function_body_key(&compilation, "bad");
+        let flow = compilation.storage_flow(key).unwrap();
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            flow.diagnostics(),
+            DiagnosticKind::CheckingEscapingStorageDependency,
+        );
+    }
+
+    #[test]
+    fn returned_propagation_respects_yield_regions_and_independent_errors() {
+        for (body, result, input, argument, valid) in [
+            (
+                r#"
+                    func forward(pos input: Result<bool, &bool>) -> Result<bool, &bool>
+                    {
+                        let result: Result<bool, &bool> =
+                        {
+                            let value = try input;
+
+                            yield Ok(value);
+                        };
+
+                        return result;
+                    }
+                "#,
+                "Result<bool, &bool>",
+                "Result<bool, &bool>",
+                "Error(&local)",
+                false,
+            ),
+            (
+                r#"
+                    func forward(pos input: Result<(&bool), bool>) -> Result<bool, bool>
+                    {
+                        let value = try input;
+
+                        let output: Result<bool, bool> = Ok(true);
+
+                        return output;
+                    }
+                "#,
+                "Result<bool, bool>",
+                "Result<(&bool), bool>",
+                "Ok(&local)",
+                true,
+            ),
+        ] {
+            let source = format!(
+                r#"
+                    module app;
+
+                    {body}
+
+                    func caller() -> {result}
+                    {{
+                        let local: bool = true;
+
+                        let input: {input} = {argument};
+
+                        return forward(input);
+                    }}
+                "#
+            );
+
+            let compilation = compilation(&source);
+
+            if valid {
+                assert!(
+                    compilation.check_diagnostics().is_empty(),
+                    "{:?}",
+                    compilation.check_diagnostics()
+                );
+            } else {
+                let flow = compilation
+                    .storage_flow(source_function_body_key(&compilation, "caller"))
+                    .unwrap();
+
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    flow.diagnostics(),
+                    DiagnosticKind::CheckingEscapingStorageDependency,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn returned_propagated_errors_reject_local_storage() {
+        let source = r#"
+            module app;
+
+            func forward(pos input: Result<bool, &bool>) -> Result<bool, &bool>
+            {
+                let value = try input;
+
+                return Ok(value);
+            }
+
+            func bad() -> Result<bool, &bool>
+            {
+                let local: bool = true;
+
+                return forward(Error(&local));
+            }
+        "#;
+
+        let compilation = compilation(source);
+        let key = source_function_body_key(&compilation, "bad");
+        let flow = compilation.storage_flow(key).unwrap();
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            flow.diagnostics(),
+            DiagnosticKind::CheckingEscapingStorageDependency,
+        );
+    }
+
+    #[test]
+    fn returned_values_reject_local_storage_dependencies() {
+        for source in [
+            r#"
+                module app;
+
+                struct Holder
+                {
+                    mut value: &bool;
+                }
+
+                func replace(pos first: &bool, pos second: &bool) -> Holder
+                {
+                    let mut result = Holder { value = first };
+                    result.value = second;
+
+                    return result;
+                }
+
+                func bad(pos caller: &bool) -> Holder
+                {
+                    let local: bool = true;
+
+                    return replace(caller, &local);
+                }
+            "#,
+            r#"
+                module app;
+
+                func bad() -> &bool
+                {
+                    let value: bool = true;
+
+                    return &value;
+                }
+            "#,
+            r#"
+                module app;
+
+                func bad() -> &mut bool
+                {
+                    let mut value: bool = true;
+
+                    return &mut value;
+                }
+            "#,
+            r#"
+                module app;
+
+                func bad() -> &bool
+                {
+                    let value: bool = true;
+                    let alias = &value;
+
+                    return alias;
+                }
+            "#,
+            r#"
+                module app;
+
+                struct Holder
+                {
+                    value: &bool;
+                }
+
+                func bad() -> Holder
+                {
+                    let value: bool = true;
+
+                    return Holder
+                    {
+                        value = &value
+                    };
+                }
+            "#,
+            r#"
+                module app;
+
+                func same<T>(pos value: &T) -> &T
+                {
+                    return value;
+                }
+
+                func bad() -> &bool
+                {
+                    let value: bool = true;
+
+                    return same(&value);
+                }
+            "#,
+            r#"
+                module app;
+
+                func same<T>(pos value: &mut T) -> &mut T
+                {
+                    return value;
+                }
+
+                func bad() -> &mut bool
+                {
+                    let mut value: bool = true;
+
+                    return same(&mut value);
+                }
+            "#,
+            r#"
+                module app;
+
+                func same<T>(pos value: T) -> T
+                {
+                    return value;
+                }
+
+                struct Holder
+                {
+                    value: &bool;
+                }
+
+                func bad() -> Holder
+                {
+                    let value: bool = true;
+
+                    return same(
+                        Holder
+                        {
+                            value = &value
+                        }
+                    );
+                }
+            "#,
+            r#"
+                module app;
+
+                func same<T>(pos value: &T) -> &T
+                {
+                    return
+                    {
+                        yield value;
+                    };
+                }
+
+                func bad() -> &bool
+                {
+                    let value: bool = true;
+
+                    return same(&value);
+                }
+            "#,
+            r#"
+                module app;
+
+                func project<T>(pos value: &box T) -> &T
+                {
+                    return match value
+                    {
+                        case box(inner)
+                        {
+                            yield &inner;
+                        }
+                    };
+                }
+
+                func bad() -> &bool
+                {
+                    let value = box(true);
+
+                    return project(&value);
+                }
+            "#,
+            r#"
+                module app;
+
+                struct Holder
+                {
+                    value: bool;
+                }
+
+                func same(pos value: &Holder) -> &Holder
+                {
+                    return value;
+                }
+
+                func bad() -> &bool
+                {
+                    let value = Holder
+                    {
+                        value = true
+                    };
+
+                    let alias = same(&value);
+
+                    return &alias.value;
+                }
+            "#,
+            r#"
+                module app;
+
+                struct Holder
+                {
+                    value: bool;
+                }
+
+                func project(pos value: &Holder) -> &bool
+                {
+                    return &value.value;
+                }
+
+                func bad() -> &bool
+                {
+                    let value = Holder
+                    {
+                        value = true
+                    };
+
+                    let alias = &value;
+
+                    return project(alias);
+                }
+            "#,
+            r#"
+                module app;
+
+                func bad() -> (&bool)?
+                {
+                    let value: bool = true;
+                    let mut result: (&bool)? = none;
+
+                    result = &value;
+                    return result;
+                }
+            "#,
+            r#"
+                module app;
+
+                struct Holder
+                {
+                    value: bool;
+
+                    func borrow() -> &bool
+                    {
+                        return &self.value;
+                    }
+                }
+
+                func bad() -> &bool
+                {
+                    let value = Holder
+                    {
+                        value = true
+                    };
+
+                    return value.borrow();
+                }
+            "#,
+            r#"
+                module app;
+
+                struct Holder
+                {
+                    value: &bool;
+
+                    consume func take() -> &bool
+                    {
+                        return self.value;
+                    }
+                }
+
+                func bad() -> &bool
+                {
+                    let value: bool = true;
+
+                    let holder = Holder
+                    {
+                        value = &value
+                    };
+
+                    return holder.take();
+                }
+            "#,
+            r#"
+                module app;
+
+                func choose(pos value: &bool, other: &bool = value) -> &bool
+                {
+                    return other;
+                }
+
+                func bad() -> &bool
+                {
+                    let value: bool = true;
+
+                    return choose(&value);
+                }
+            "#,
+            r#"
+                module app;
+
+                struct Holder
+                {
+                    value: bool;
+                }
+
+                func same(pos value: &Holder) -> &Holder
+                {
+                    return value;
+                }
+
+                func project(pos value: &Holder) -> &bool
+                {
+                    return &(same(value)).value;
+                }
+
+                func bad() -> &bool
+                {
+                    let value = Holder
+                    {
+                        value = true
+                    };
+
+                    return project(&value);
+                }
+            "#,
+            r#"
+                module app;
+
+                struct Holder
+                {
+                    value: &bool;
+                }
+
+                func wrap(pos transient: &bool, pos anchor: &bool) -> Holder
+                {
+                    return Holder
+                    {
+                        value = anchor
+                    };
+                }
+
+                func choose(pos transient: &bool, pos anchor: &bool, value: Holder = wrap(transient, anchor)) -> Holder
+                {
+                    return value;
+                }
+
+                func bad() -> Holder
+                {
+                    let value: bool = true;
+
+                    return choose(&value, &value);
+                }
+            "#,
+            r#"
+                module app;
+
+                struct Holder
+                {
+                    value: bool;
+                }
+
+                func project(pos value: &Holder) -> &bool
+                {
+                    return &value.value;
+                }
+
+                struct Owner
+                {
+                    source: &Holder;
+
+                    consume func take() -> &bool
+                    {
+                        return project(self.source);
+                    }
+                }
+
+                func bad() -> &bool
+                {
+                    let value = Holder
+                    {
+                        value = true
+                    };
+
+                    let owner = Owner
+                    {
+                        source = &value
+                    };
+
+                    return owner.take();
+                }
+            "#,
+            r#"
+                module app;
+
+                func first(pos values: &[bool; 2]) -> &bool
+                {
+                    return &values[0];
+                }
+
+                func bad() -> &bool
+                {
+                    let values = [true, false];
+
+                    return first(&values);
+                }
+            "#,
+            r#"
+                module app;
+
+                func bad(pos value: bool) -> &bool
+                {
+                    return &value;
+                }
+            "#,
+            r#"
+                module app;
+
+                func call(pos function: func(pos value: &bool) -> &bool, pos value: &bool) -> &bool
+                {
+                    return function(value);
+                }
+
+                func bad(pos function: func(pos value: &bool) -> &bool) -> &bool
+                {
+                    let local: bool = true;
+
+                    return call(function, &local);
+                }
+            "#,
+            r#"
+                module app;
+
+                struct Pair
+                {
+                    first: &bool;
+                    second: &bool;
+                }
+
+                func first(pos value: Pair) -> &bool
+                {
+                    return value.first;
+                }
+
+                func wrap(pos first_value: &bool, pos second_value: &bool) -> &bool
+                {
+                    return first(
+                        Pair
+                        {
+                            first = first_value,
+                            second = second_value
+                        }
+                    );
+                }
+
+                func bad(pos anchor: &bool) -> &bool
+                {
+                    let local: bool = true;
+
+                    return wrap(&local, anchor);
+                }
+            "#,
+        ] {
+            let compilation = compilation(source);
+            let key = source_function_body_key(&compilation, "bad");
+
+            let flow = compilation
+                .storage_flow(key)
+                .expect("storage flow must publish");
+
+            assert!(
+                flow.diagnostics().iter().any(|diagnostic| diagnostic.kind()
+                    == DiagnosticKind::CheckingEscapingStorageDependency),
+                "{source}: {:?}",
+                flow.diagnostics()
+            );
+
+            assert_goal_state_diagnostic_kind(
+                flow.diagnostics(),
+                DiagnosticKind::CheckingEscapingStorageDependency,
+            );
+        }
+    }
+
+    #[test]
+    fn returned_values_preserve_caller_storage_and_owned_results() {
+        for source in [
+            r#"
+                module app;
+
+                struct Value<T>
+                {
+                    values: [T; 2];
+                }
+
+                union Failure
+                {
+                    Unavailable;
+                }
+
+                func good(pos produce: func(pos input: &bool) -> Result<Value<bool>, Failure>)
+                    -> Result<Value<bool>, Failure>
+                {
+                    let local: bool = true;
+
+                    return produce(&local);
+                }
+            "#,
+            r#"
+                module app;
+
+                func good() -> &string
+                {
+                    return &"product lifetime";
+                }
+            "#,
+            r#"
+                module app;
+
+                func same(pos value: &string) -> &string
+                {
+                    return value;
+                }
+
+                func good() -> &string
+                {
+                    return same(&"product lifetime");
+                }
+            "#,
+            r#"
+                module app;
+
+                func good(pos value: &bool) -> &bool
+                {
+                    return value;
+                }
+            "#,
+            r#"
+                module app;
+
+                struct Holder
+                {
+                    value: bool;
+                }
+
+                func same(pos value: &Holder) -> &Holder
+                {
+                    return value;
+                }
+
+                func good(pos value: &Holder) -> &bool
+                {
+                    let alias = same(value);
+
+                    return &alias.value;
+                }
+            "#,
+            r#"
+                module app;
+
+                func project<T>(pos value: &box T) -> &T
+                {
+                    return match value
+                    {
+                        case box(inner)
+                        {
+                            yield &inner;
+                        }
+                    };
+                }
+
+                func good(pos value: &box bool) -> &bool
+                {
+                    return project(value);
+                }
+            "#,
+            r#"
+                module app;
+
+                func good(pos value: &bool) -> (&bool)?
+                {
+                    let mut result: (&bool)? = none;
+
+                    result = value;
+                    return result;
+                }
+            "#,
+            r#"
+                module app;
+
+                struct Holder
+                {
+                    value: &bool;
+
+                    consume func take() -> &bool
+                    {
+                        return self.value;
+                    }
+                }
+
+                func good(pos value: &bool) -> &bool
+                {
+                    let holder = Holder
+                    {
+                        value = value
+                    };
+
+                    return holder.take();
+                }
+            "#,
+            r#"
+                module app;
+
+                func same<T>(pos value: &T, pos stop: bool) -> &T
+                {
+                    if stop
+                    {
+                        return value;
+                    }
+
+                    return same<T>(value, true);
+                }
+
+                func good(pos value: &bool) -> &bool
+                {
+                    return same(value, false);
+                }
+            "#,
+            r#"
+                module app;
+
+                struct Holder
+                {
+                    value: bool;
+                }
+
+                func good(pos value: &Holder) -> &bool
+                {
+                    let alias = value;
+
+                    return &alias.value;
+                }
+            "#,
+            r#"
+                module app;
+
+                func good() -> bool
+                {
+                    let value: bool = true;
+                    let alias = &value;
+
+                    return true;
+                }
+            "#,
+            r#"
+                module app;
+
+                func good() -> bool
+                {
+                    let value: bool = true;
+
+                    return read(&value);
+                }
+
+                func read(pos value: &bool) -> bool
+                {
+                    return true;
+                }
+            "#,
+            r#"
+                module app;
+
+                struct Holder
+                {
+                    value: bool;
+                }
+
+                func good() -> Holder
+                {
+                    let value = Holder
+                    {
+                        value = true
+                    };
+
+                    return value;
+                }
+            "#,
+            r#"
+                module app;
+
+                func same<T>(pos value: &T) -> &T
+                {
+                    return value;
+                }
+
+                func good(pos value: &bool) -> &bool
+                {
+                    return same(value);
+                }
+            "#,
+            r#"
+                module app;
+
+                func same<T>(pos value: T) -> T
+                {
+                    return value;
+                }
+
+                struct Holder
+                {
+                    value: bool;
+                }
+
+                func good() -> Holder
+                {
+                    let value = Holder
+                    {
+                        value = true
+                    };
+
+                    return same(value);
+                }
+            "#,
+            r#"
+                module app;
+
+                func use_value(pos value: &mut bool)
+                {
+                }
+
+                func good() -> bool
+                {
+                    let mut count: i32 = 0;
+
+                    while count < 2
+                    {
+                        let mut value: bool = true;
+
+                        use_value(&mut value);
+                        count += 1;
+                    }
+
+                    return true;
+                }
+            "#,
+            r#"
+                module app;
+
+                func choose(pos value: &bool, other: &bool = value) -> &bool
+                {
+                    return other;
+                }
+
+                func good(pos value: &bool) -> &bool
+                {
+                    return choose(value);
+                }
+            "#,
+            r#"
+                module app;
+
+                struct Holder
+                {
+                    value: &bool;
+                }
+
+                func wrap(pos transient: &bool, pos anchor: &bool) -> Holder
+                {
+                    return Holder
+                    {
+                        value = anchor
+                    };
+                }
+
+                func choose(pos transient: &bool, pos anchor: &bool, value: Holder = wrap(transient, anchor)) -> Holder
+                {
+                    return value;
+                }
+
+                func good(pos anchor: &bool) -> Holder
+                {
+                    let transient: bool = true;
+
+                    return choose(&transient, anchor);
+                }
+            "#,
+            r#"
+                module app;
+
+                struct Holder
+                {
+                    value: bool;
+                }
+
+                func project(pos value: &Holder) -> &bool
+                {
+                    return &value.value;
+                }
+
+                struct Owner
+                {
+                    source: &Holder;
+
+                    consume func take() -> &bool
+                    {
+                        return project(self.source);
+                    }
+                }
+
+                func good(pos value: &Holder) -> &bool
+                {
+                    let owner = Owner
+                    {
+                        source = value
+                    };
+
+                    return owner.take();
+                }
+            "#,
+            r#"
+                module app;
+
+                func first(pos values: &[bool; 2]) -> &bool
+                {
+                    return &values[0];
+                }
+
+                func good(pos values: &[bool; 2]) -> &bool
+                {
+                    return first(values);
+                }
+            "#,
+            r#"
+                module app;
+
+                struct Pair
+                {
+                    first: &bool;
+                    second: &bool;
+                }
+
+                func first(pos value: Pair) -> &bool
+                {
+                    return value.first;
+                }
+
+                func good(pos anchor: &bool) -> &bool
+                {
+                    let local: bool = true;
+
+                    return first(
+                        Pair
+                        {
+                            first = anchor,
+                            second = &local
+                        }
+                    );
+                }
+            "#,
+            r#"
+                module app;
+
+                struct Pair
+                {
+                    first: &bool;
+                    second: &bool;
+                }
+
+                func first(pos value: Pair) -> &bool
+                {
+                    return value.first;
+                }
+
+                func wrap(pos first_value: &bool, pos second_value: &bool) -> &bool
+                {
+                    let pair = Pair
+                    {
+                        first = first_value,
+                        second = second_value
+                    };
+
+                    return first(pair);
+                }
+
+                func good(pos anchor: &bool) -> &bool
+                {
+                    let local: bool = true;
+
+                    return wrap(anchor, &local);
+                }
+            "#,
+        ] {
+            let compilation = compilation(source);
+
+            assert!(
+                !compilation.check_diagnostics().has_errors(),
+                "{source}: {:?}",
+                compilation.check_diagnostics()
+            );
+
+            let key = source_function_body_key(&compilation, "good");
+
+            let flow = compilation
+                .storage_flow(key)
+                .expect("storage flow must publish");
+
+            assert!(
+                !flow.diagnostics().has_errors(),
+                "{source}: {:?}",
+                flow.diagnostics()
+            );
+        }
+    }
+
+    #[test]
+    fn returned_borrow_aliases_lower_inside_nested_scopes() {
+        let compilation = compilation(
+            r#"
+                module app;
+
+                struct Holder
+                {
+                    value: bool;
+                }
+
+                func same(pos value: &Holder) -> &Holder
+                {
+                    return value;
+                }
+
+                func inspect(pos value: &Holder) -> bool
+                {
+                    let alias = same(value);
+                    let second = alias;
+                    let mut count: i32 = 0;
+
+                    while count < 2
+                    {
+                        if second.value
+                        {
+                            count += 1;
+                        }
+                        else
+                        {
+                            return false;
+                        }
+                    }
+
+                    return true;
+                }
+            "#,
+        );
+
+        assert!(
+            !compilation.check_diagnostics().has_errors(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+
+        let key = source_function_body_key(&compilation, "inspect");
+
+        let lowered = compilation
+            .lowered_unit(key)
+            .expect("stored borrow aliases must lower");
+
+        assert!(
+            !lowered.diagnostics().has_errors(),
+            "{:?}",
+            lowered.diagnostics()
+        );
+    }
+
+    #[test]
+    fn chained_nullable_receiver_evaluates_its_producer_once() {
+        let compilation = compilation(
+            r#"
+                module app;
+                            struct Counter<T> {
+                                mut calls: i32;
+                                value: T;
+                                mut func take() -> T? with(T: Copyable) {
+                                    self.calls += 1;
+                                    return self.value;
+                                }
+                                mut func remove() -> bool with(T: Copyable) {
+                                    return self.take().is_present();
+                                }
+                            }
+                            func inspect(pos counter: &mut Counter<i32>) -> bool {
+                                return counter.take().is_present();
+                            }
+            "#,
+        );
+
+        assert!(
+            !compilation.check_diagnostics().has_errors(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+
+        let key = crate::test_support::source_type_callable_member_body_key(&compilation, "remove");
+        let lowered = compilation.lowered_unit(key).unwrap();
+        let mir = lowered.value().as_ref().unwrap().mir().unwrap();
+        let calls: Vec<_> = mir.operations().iter().filter(|operation| matches!(operation.kind(), bray_ir::MirOperationKind::Call(call) if matches!(call.target(), bray_ir::MirCallTarget::Direct(_)))).collect();
+        assert_eq!(calls.len(), 1, "{calls:#?}");
+    }
+
+    #[test]
+    fn returned_slice_receiver_uses_the_call_result_representation() {
+        let compilation = compilation(
+            r#"
+                module app;
+
+                struct Buffer
+                {
+                    values: [bool; 2];
+
+                    func as_slice() -> &[bool]
+                    {
+                        return &self.values[..];
+                    }
+                }
+
+                func inspect() -> usize
+                {
+                    let buffer = Buffer
+                    {
+                        values = [true, false]
+                    };
+
+                    return buffer.as_slice().length();
+                }
+            "#,
+        );
+
+        assert!(
+            !compilation.check_diagnostics().has_errors(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+
+        let key = source_function_body_key(&compilation, "inspect");
+
+        let lowered = compilation
+            .lowered_unit(key)
+            .expect("chained returned slice must lower");
+
+        let mir = lowered.value().as_ref().unwrap().mir().unwrap();
+        let values = compilation.semantic_value_store().unwrap();
+
+        let length = mir
+            .operations()
+            .iter()
+            .find_map(|operation| match operation.kind() {
+                bray_ir::MirOperationKind::Memory(memory)
+                    if memory.kind()
+                        == bray_bound_tree::CheckedMemoryOperationKind::SequenceLength =>
+                {
+                    Some(memory)
+                }
+                _ => None,
+            })
+            .expect("slice length operation must exist");
+
+        let [bray_ir::MirOperand::Value(receiver)] = length.operands() else {
+            panic!("slice receiver must be evaluated");
+        };
+
+        let borrow = mir
+            .operations()
+            .iter()
+            .find(|operation| operation.result() == Some(*receiver))
+            .unwrap();
+
+        let bray_ir::MirOperationKind::Borrow { place, .. } = borrow.kind() else {
+            panic!("slice receiver must be reborrowed");
+        };
+
+        assert!(
+            matches!(
+                values.type_data(place.ty()).unwrap().as_ref(),
+                TypeData::Slice(_)
+            ),
+            "receiver must borrow the slice result, not the anchor array: {place:?}"
+        );
+    }
+
+    #[test]
     fn storage_plans_publish_unit_local_identities_accesses_and_dependencies() {
         let compilation = compilation(concat!(
             "module app;\n",

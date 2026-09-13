@@ -98,19 +98,21 @@ impl Lowerer<'_> {
         let place =
             self.place_for_identity_with_static(identity, root_type, origin, static_reference)?;
 
-        if let Some((owner, value)) = initial_value
-            && !value.reads_from(&place)
-        {
-            self.push_operation(
-                current,
-                self.expression_source(owner)?,
-                MirOperationKind::Store {
-                    kind: MirStoreKind::Initialize,
-                    destination: place.clone(),
-                    value,
-                },
-                None,
-            )?;
+        if let Some((owner, value)) = initial_value {
+            if !value.reads_from(&place) {
+                self.push_operation(
+                    current,
+                    self.expression_source(owner)?,
+                    MirOperationKind::Store {
+                        kind: MirStoreKind::Initialize,
+                        destination: place.clone(),
+                        value,
+                    },
+                    None,
+                )?;
+            }
+
+            self.initialized_temporaries.insert(identity);
         }
 
         Ok(RootInitialization::Continuing {

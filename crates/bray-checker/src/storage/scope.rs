@@ -69,6 +69,14 @@ where
 
     for (_, expression) in request.unit().tree().expressions() {
         match expression {
+            BoundExpression::For(value) => {
+                let bindings = result.entry(value.source()).or_default();
+                extend_pattern_bindings(request.view(), storage, value.pattern(), bindings);
+            }
+            BoundExpression::Generator(value) => {
+                let bindings = result.entry(value.source()).or_default();
+                extend_pattern_bindings(request.view(), storage, value.pattern(), bindings);
+            }
             BoundExpression::Match(expression) => {
                 let bindings = result.entry(expression.subject()).or_default();
 

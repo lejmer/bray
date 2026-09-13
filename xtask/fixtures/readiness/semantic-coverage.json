@@ -159,7 +159,8 @@
       "production": ["check_storage_flow"],
       "diagnostic_source_tests": [
         "storage_flow_is_lazy_and_reports_overlapping_borrows",
-        "storage_flow_rejects_use_after_move"
+        "storage_flow_rejects_use_after_move",
+        "returned_values_reject_local_storage_dependencies"
       ],
       "valid_source_tests": ["storage_flow_accepts_mutation_through_mutable_borrow_parameter"],
       "boundary_tests": ["mutable_borrows_supply_their_own_exclusive_authority"],
@@ -183,11 +184,11 @@
     },
     {
       "name": "dependencies-effects-and-trust",
-      "production": ["check_dependency_contracts"],
+      "production": ["check_dependency_contracts", "infer_result_dependencies"],
       "diagnostic_source_tests": ["trusted_callable_contracts_reject_unused_capabilities"],
-      "valid_source_tests": ["callable_contracts_retain_checked_predicate_dependencies"],
-      "boundary_tests": ["hidden_iteration_calls_instantiate_receiver_and_result_dependencies"],
-      "published": ["CheckedDependencyContracts"]
+      "valid_source_tests": ["callable_contracts_retain_checked_predicate_dependencies", "returned_values_preserve_caller_storage_and_owned_results"],
+      "boundary_tests": ["hidden_iteration_calls_instantiate_receiver_and_result_dependencies", "returned_values_preserve_default_wrapper_dependencies_in_interfaces"],
+      "published": ["CheckedDependencyContracts", "CallableResultDependenciesQuery"]
     },
     {
       "name": "callable-contracts",

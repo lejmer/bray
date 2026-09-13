@@ -261,6 +261,9 @@ const fn diagnostic_dependency_requirement(
     use bray_symbols::{BorrowKind, LifecycleObligationKind};
 
     match requirement {
+        BoundDependencyRequirementKind::ValueDependencies => {
+            DiagnosticDependencyRequirementKind::ValueDependencies
+        }
         BoundDependencyRequirementKind::StorageAlive => {
             DiagnosticDependencyRequirementKind::StorageAlive
         }

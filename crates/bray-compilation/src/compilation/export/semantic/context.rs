@@ -155,6 +155,7 @@ impl<'a> SemanticExporter<'a> {
         &mut self,
         owner: AnySymbolId,
         template: &bray_symbols::CallableSignatureTemplate,
+        result_dependencies: bray_symbols::DependencyContractTemplateId,
     ) -> Result<InterfaceCallableSignature, PackageInterfaceExportError> {
         let callable_type = self.resolve_type_template(owner, template.callable_type())?;
         let result = self.resolve_type_template(owner, template.result())?;
@@ -183,6 +184,7 @@ impl<'a> SemanticExporter<'a> {
             receiver,
             parameters,
             self.type_id(result)?,
+            self.dependency_contract_id(result_dependencies)?,
         )
         .with_body(template.has_body()))
     }

@@ -562,6 +562,11 @@ func indexed<const Count: usize>(pos values: [Guard; Count],
             return 10;
         }
 
+        let mut replacement_counter: Counter = Counter
+        {
+            value = 0
+        };
+
         indexed_repaired(
             [
                 Guard
@@ -576,11 +581,11 @@ func indexed<const Count: usize>(pos values: [Guard; Count],
             0,
             Guard
             {
-                counter = &mut first
+                counter = &mut replacement_counter
             }
         );
 
-        if first.value != 12 || second.value != 11
+        if first.value != 11 || second.value != 11 || replacement_counter.value != 1
         {
             return 11;
         }
@@ -600,7 +605,7 @@ func indexed<const Count: usize>(pos values: [Guard; Count],
             false
         );
 
-        if first.value != 13 || second.value != 12
+        if first.value != 12 || second.value != 12
         {
             return 12;
         }
@@ -620,7 +625,7 @@ func indexed<const Count: usize>(pos values: [Guard; Count],
             true
         );
 
-        if first.value != 14 || second.value != 13
+        if first.value != 13 || second.value != 13
         {
             return 13;
         }
@@ -645,7 +650,7 @@ func indexed<const Count: usize>(pos values: [Guard; Count],
             true
         );
 
-        if first.value != 15 || second.value != 14
+        if first.value != 14 || second.value != 14
         {
             return 14;
         }
@@ -667,7 +672,7 @@ func indexed<const Count: usize>(pos values: [Guard; Count],
 
         boxed(owned);
 
-        if first.value != 16 || second.value != 15
+        if first.value != 15 || second.value != 15
         {
             return 15;
         }
@@ -686,12 +691,12 @@ func indexed<const Count: usize>(pos values: [Guard; Count],
             }
         );
 
-        if observe_borrowed_box(&observed) != 16 || first.value != 16 || second.value != 15
+        if observe_borrowed_box(&observed) != 15
         {
             return 18;
         }
 
-        if observe_box(observed) != 16 || first.value != 17 || second.value != 16
+        if observe_box(observed) != 15 || first.value != 16 || second.value != 16
         {
             return 16;
         }
@@ -712,7 +717,7 @@ func indexed<const Count: usize>(pos values: [Guard; Count],
 
         move_box_target(transferred);
 
-        if first.value != 18 || second.value != 17
+        if first.value != 17 || second.value != 17
         {
             return 17;
         }
@@ -740,7 +745,7 @@ func indexed<const Count: usize>(pos values: [Guard; Count],
 
         boxed(ordered);
 
-        if first.value != 19 || second.value != 18 || core.atomic.load<usize, 1>(&RELEASES) != 4 || core.atomic.load<
+        if first.value != 18 || second.value != 18 || core.atomic.load<usize, 1>(&RELEASES) != 4 || core.atomic.load<
             usize,
             1
         >(&CLEANUP_ORDER) != 123
@@ -778,7 +783,7 @@ func indexed<const Count: usize>(pos values: [Guard; Count],
             case Error(_) { yield true; }
         };
 
-        if !failed || first.value != 20 || second.value != 19 || core.atomic.load<usize, 1>(&RELEASES) != 5 ||
+        if !failed || first.value != 19 || second.value != 19 || core.atomic.load<usize, 1>(&RELEASES) != 5 ||
             core.atomic.load<usize, 1>(&CLEANUP_ORDER) != 123
         {
             return 21;

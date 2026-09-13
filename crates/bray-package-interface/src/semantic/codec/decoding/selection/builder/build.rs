@@ -333,6 +333,10 @@ impl<'bytes> SelectionBuilder<'bytes> {
         self.enqueue(PendingRecord::Type(signature.callable_type.raw()));
         self.enqueue(PendingRecord::Type(signature.result.raw()));
 
+        self.enqueue(PendingRecord::DependencyContract(
+            signature.result_dependencies.raw(),
+        ));
+
         if let Some(receiver) = &signature.receiver {
             self.enqueue(PendingRecord::Type(receiver.ty.raw()));
         }

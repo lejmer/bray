@@ -73,6 +73,13 @@ impl SymbolCompletionEvaluator for CompilationBindingContext<'_> {
 
                 evaluate_typed::<CallableContractsQuery>(self, owner)
             }
+            SymbolQueryKind::CallableResultDependencies => {
+                let owner = CallableSymbolId::try_from_any(request.symbol()).ok_or_else(|| {
+                    unexpected_symbol_category(request, SemanticSymbolCategory::Callable)
+                })?;
+
+                evaluate_typed::<bray_symbols::CallableResultDependenciesQuery>(self, owner)
+            }
             SymbolQueryKind::CallableContractTemplate => {
                 let owner = CallableSymbolId::try_from_any(request.symbol()).ok_or_else(|| {
                     unexpected_symbol_category(request, SemanticSymbolCategory::Callable)

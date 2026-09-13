@@ -112,6 +112,25 @@ impl bray_base::Cancellation for TestCheckerContext {
 }
 
 impl CheckerRequestContext for TestCheckerContext {
+    fn callable_result_dependencies(
+        &self,
+        _callable: bray_symbols::CallableSymbolId,
+    ) -> crate::CheckerQueryResult<bray_symbols::DependencyContractTemplateId, Self::UpstreamError>
+    {
+        self.semantic_values()
+            .empty_dependency_contract_template()
+            .map_err(|error| crate::CheckerInfrastructureError::SemanticValueStore(error).into())
+    }
+    fn parameter_default_dependencies(
+        &self,
+        _parameter: bray_symbols::CallableParameterSymbolId,
+    ) -> crate::CheckerQueryResult<bray_symbols::DependencyContractTemplateId, Self::UpstreamError>
+    {
+        self.semantic_values()
+            .empty_dependency_contract_template()
+            .map_err(|error| crate::CheckerInfrastructureError::SemanticValueStore(error).into())
+    }
+
     type UpstreamError = std::convert::Infallible;
 
     fn semantic_context_matches(&self, unit: &BoundUnit, context: &SemanticUnitContext) -> bool {

@@ -26,6 +26,8 @@ use super::effects::OperationEffects;
 pub(crate) fn analyze_storage_liveness<C>(
     request: CheckerUnitView<'_, C>,
     selections: &CheckedSemanticSelections,
+    types: &bray_bound_tree::CheckedExpressionTypes,
+    patterns: &bray_bound_tree::CheckedPatterns,
     storage: &StoragePlan,
     memory: &CheckedMemoryOperations,
 ) -> CheckerOutcome<Liveness, C::UpstreamError>
@@ -36,8 +38,16 @@ where
         request,
         [
             (
+                CheckerInputKind::ExpressionTypes,
+                (types.unit(), types.kind()),
+            ),
+            (
                 CheckerInputKind::SemanticSelections,
                 (selections.unit(), selections.kind()),
+            ),
+            (
+                CheckerInputKind::Patterns,
+                (patterns.unit(), patterns.kind()),
             ),
             (
                 CheckerInputKind::StoragePlan,
@@ -65,12 +75,16 @@ where
         }
     };
 
-    analyze_storage_liveness_with_graph(request, selections, storage, memory, &graph)
+    analyze_storage_liveness_with_graph(
+        request, selections, types, patterns, storage, memory, &graph,
+    )
 }
 
 pub(crate) fn analyze_storage_liveness_with_graph<C>(
     request: CheckerUnitView<'_, C>,
     selections: &CheckedSemanticSelections,
+    types: &bray_bound_tree::CheckedExpressionTypes,
+    patterns: &bray_bound_tree::CheckedPatterns,
     storage: &StoragePlan,
     memory: &CheckedMemoryOperations,
     graph: &ControlFlowGraph,
@@ -82,8 +96,9 @@ where
         panic!("checker control-flow graph violated its construction invariants");
     }
 
-    let effects = match OperationEffects::from_checked_inputs(request, selections, storage, memory)
-    {
+    let effects = match OperationEffects::from_checked_inputs(
+        request, selections, types, patterns, storage, memory,
+    ) {
         Ok(effects) => effects,
         Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
         Err(CheckerQueryError::Infrastructure(error)) => {
@@ -261,6 +276,16 @@ fn block_transfer(
             continue;
         }
 
+        if let AnalysisOperationKind::ScopeExit { exit, phase, .. } = operation.kind() {
+            if phase == AnalysisScopeExitPhase::LifecycleResolution {
+                transfer
+                    .generated
+                    .extend(effects.retained_at_exit(exit).copied());
+            }
+
+            continue;
+        }
+
         let Some(effect) = effects.operation_effect(operation) else {
             continue;
         };
@@ -288,20 +313,9 @@ fn transfer_operation(
         return;
     }
 
-    if let AnalysisOperationKind::ScopeExit {
-        exit,
-        phase: AnalysisScopeExitPhase::LifecycleResolution,
-        ..
-    } = operation.kind()
-    {
-        if let Some(effect) = effects.effect(exit) {
-            state.extend(
-                effect
-                    .uses
-                    .iter()
-                    .copied()
-                    .filter(|subject| effects.is_owner_dependency(*subject)),
-            );
+    if let AnalysisOperationKind::ScopeExit { exit, phase, .. } = operation.kind() {
+        if phase == AnalysisScopeExitPhase::LifecycleResolution {
+            state.extend(effects.retained_at_exit(exit).copied());
         }
 
         return;
@@ -365,16 +379,8 @@ fn collect_liveness(
                     state
                         .iter()
                         .copied()
-                        .chain(
-                            effects
-                                .effect(exit)
-                                .into_iter()
-                                .flat_map(|effect| effect.uses.iter().copied()),
-                        )
-                        .filter(|subject| {
-                            state.contains(subject) || effects.is_owner_dependency(*subject)
-                        })
-                        .map(|subject| LiveAcrossScope::new(block, subject)),
+                        .chain(effects.retained_at_exit(exit).copied())
+                        .map(|subject| LiveAcrossScope::new(block, exit, subject)),
                 );
             }
 

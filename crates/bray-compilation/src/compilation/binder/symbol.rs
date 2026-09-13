@@ -10,6 +10,7 @@ mod environment;
 mod imported;
 mod initializer;
 mod module_surface;
+mod result_dependencies;
 mod static_storage;
 mod surface;
 mod template;

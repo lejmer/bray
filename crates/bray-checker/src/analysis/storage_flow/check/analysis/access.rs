@@ -207,7 +207,7 @@ where
             || self.projected_storage_borrow_kind(access)?.is_some())
     }
 
-    fn projected_storage_borrow_kind(
+    pub(super) fn projected_storage_borrow_kind(
         &self,
         access: StorageAccessId,
     ) -> Result<Option<BorrowKind>, crate::CheckerInfrastructureError> {
@@ -223,20 +223,36 @@ where
             return Ok(None);
         };
 
-        if access.projections().is_empty() && access.reached_type() == root_type {
-            return Ok(None);
+        for depth in 0..=access.projections().len() {
+            let ty = if depth == 0 {
+                Some(root_type)
+            } else {
+                self.storage
+                    .access_at(storage, &access.projections()[..depth])
+                    .and_then(|prefix| self.storage.access(prefix))
+                    .map(|prefix| prefix.reached_type())
+            };
+
+            let Some(ty) = ty else {
+                continue;
+            };
+
+            if depth == access.projections().len() && ty == access.reached_type() {
+                continue;
+            }
+
+            let data = self
+                .request
+                .semantic_values()
+                .type_data(ty)
+                .map_err(crate::CheckerInfrastructureError::SemanticValueStore)?;
+
+            if let bray_symbols::TypeData::Borrow { kind, .. } = data.as_ref() {
+                return Ok(Some(*kind));
+            }
         }
 
-        let data = self
-            .request
-            .semantic_values()
-            .type_data(root_type)
-            .map_err(crate::CheckerInfrastructureError::SemanticValueStore)?;
-
-        Ok(match data.as_ref() {
-            bray_symbols::TypeData::Borrow { kind, .. } => Some(*kind),
-            _ => None,
-        })
+        Ok(None)
     }
 
     pub(super) fn type_is_borrow(

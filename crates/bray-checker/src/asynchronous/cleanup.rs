@@ -8,9 +8,7 @@ use bray_bound_tree::{
 };
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::DiagnosticBag;
-use bray_symbols::{
-    DeclaredStorageShape, GenericArgument, TypeData, TypeExpressionTemplate, TypeId,
-};
+use bray_symbols::{GenericArgument, TypeData, TypeExpressionTemplate, TypeId};
 
 use super::parts::CleanupExpansion;
 use crate::storage::storage_scope_owners;
@@ -228,17 +226,8 @@ where
 
         self.diagnostics.add_range(lifecycle.diagnostics().clone());
 
-        match representation.value().storage() {
-            DeclaredStorageShape::Structure(members) => {
-                for member in members.iter() {
-                    shape.merge(self.member_shape(member.ty(), substitution)?);
-                }
-            }
-            DeclaredStorageShape::Union(variants) => {
-                for member in variants.iter().flat_map(|variant| variant.members()) {
-                    shape.merge(self.member_shape(member.ty(), substitution)?);
-                }
-            }
+        for member in representation.value().storage().member_types() {
+            shape.merge(self.member_shape(member, substitution)?);
         }
 
         Ok(shape)
@@ -264,30 +253,14 @@ where
         template: &TypeExpressionTemplate,
         substitution: bray_symbols::GenericSubstitutionId,
     ) -> Result<Option<TypeId>, CheckerQueryError<C::UpstreamError>> {
-        let constants = self.request.checked_constant_terms(template)?;
-        self.diagnostics.add_range(constants.diagnostics().clone());
+        let checked =
+            crate::constant::checked_substituted_type(self.request, template, substitution)?;
 
-        let Some(ty) = crate::resolve_type_expression_template(
-            self.request.semantic_values(),
-            template,
-            constants.value(),
-        )
-        .map_err(CheckerQueryError::Infrastructure)?
-        else {
-            return Ok(None);
-        };
+        let (ty, diagnostics) = checked.into_parts();
 
-        let ty = self
-            .request
-            .semantic_values()
-            .substitute_type(ty, substitution)
-            .map_err(|error| {
-                CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
-                    error,
-                ))
-            })?;
+        self.diagnostics.add_range(diagnostics);
 
-        Ok(Some(ty))
+        Ok(ty)
     }
 
     fn aggregate(

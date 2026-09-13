@@ -907,6 +907,7 @@ mod tests {
             signature.receiver().cloned(),
             signature.parameters().iter().cloned(),
             signature.result(),
+            signature.result_dependencies(),
         )
         .with_body(signature.has_body());
 

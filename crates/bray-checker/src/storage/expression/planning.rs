@@ -296,6 +296,12 @@ where
             self.plan_expression(argument, Some(StorageAccessPurpose::ValueTransfer))?;
         }
 
+        if let Some(call) = selection
+            && let Some(access) = self.returned_borrow_access(id, call)?
+        {
+            return Ok(access);
+        }
+
         self.temporary_access(id)
     }
 
@@ -663,7 +669,9 @@ where
 
         let access = match custom_borrow_kind {
             Some(kind) => self.custom_index_access(id, receiver_access, kind)?,
-            None => self.project_access(id, receiver_access, Some(projection))?,
+            None => {
+                self.project_access(id, receiver_access, projection, self.expression_type(id)?)?
+            }
         };
 
         if let Some(kind) = custom_borrow_kind {
