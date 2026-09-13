@@ -6,15 +6,15 @@ library declaration compiler-known.
 
 ## Modules and dependencies
 
-| Module | Responsibility |
-| --- | --- |
+| Module                        | Responsibility                                       |
+|-------------------------------|------------------------------------------------------|
 | `std.string`, `std.character` | Text observation, conversion, and Unicode operations |
-| `std.bytes` | Byte storage and encoding support |
-| `std.iteration` | Lazy adapters and traversal algorithms |
-| `std.collection` | Owning containers and their borrowed views |
-| `std.format` | Typed formatting requests and sinks |
-| `std.hash`, `std.order` | Hashing and ordering policies and algorithms |
-| `std.numeric` | Explicit numeric policies and utilities |
+| `std.bytes`                   | Byte storage and encoding support                    |
+| `std.iteration`               | Lazy adapters and traversal algorithms               |
+| `std.collection`              | Owning containers and their borrowed views           |
+| `std.format`                  | Typed formatting requests and sinks                  |
+| `std.hash`, `std.order`       | Hashing and ordering policies and algorithms         |
+| `std.numeric`                 | Explicit numeric policies and utilities              |
 
 Compiler-known contracts and `std.memory` support bytes, text, and traversal. Hashing and ordering support collections.
 Formatting consumes these lower-level abstractions, and I/O and other service libraries adapt them. Shared contracts

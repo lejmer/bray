@@ -6,14 +6,14 @@ turn library APIs into compiler intrinsics or take over portable lifecycle polic
 
 ## Library responsibilities
 
-| Module | Responsibility |
-| --- | --- |
-| `std.io` | Byte streams, buffering, standard streams, and common failures |
-| `std.path` | Lossless target-native paths and explicit text conversion |
-| `std.fs` | Filesystem resources and operations |
-| `std.process` | Process context, child owners, and typed Bray protocols |
-| `std.time` | Clocks, temporal values, and timer adapters |
-| `std.random` | Entropy and explicitly seeded generators |
+| Module        | Responsibility                                                 |
+|---------------|----------------------------------------------------------------|
+| `std.io`      | Byte streams, buffering, standard streams, and common failures |
+| `std.path`    | Lossless target-native paths and explicit text conversion      |
+| `std.fs`      | Filesystem resources and operations                            |
+| `std.process` | Process context, child owners, and typed Bray protocols        |
+| `std.time`    | Clocks, temporal values, and timer adapters                    |
+| `std.random`  | Entropy and explicitly seeded generators                       |
 
 These modules reuse core data, formatting, and memory contracts. Pure values can remain available when a target lacks a
 service. Service operations follow ordinary target-conditional checking.

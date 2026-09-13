@@ -21,18 +21,18 @@ The durable program representations are lossless syntax, source-shaped bound HIR
 execution-shaped MIR. Each has one owner. Analyses extend knowledge about a bound unit through typed results rather than
 copying its nodes into successive checked-tree families.
 
-| Component | Responsibility |
-| --- | --- |
-| Source | Immutable inputs, source identity, ranges and location mapping |
-| Lexer and [parser](parser.md) | Demand-driven tokens, lossless syntax and recovery |
-| [Declaration discovery](declaration-discovery.md) | Source declaration surfaces and deterministic merging |
-| [Symbols](symbols.md) | Semantic declaration identity, containment and lazy declaration semantics |
-| [Binder](binder.md) | Resolved references, lexical scopes and source-shaped bound units |
-| [Checker](checker.md) | Semantic selection, proof, storage and flow analysis |
-| [Lowering and MIR](lowering.md) | Explicit execution from established semantics |
-| [Code generation](codegen.md) | Concrete instance collection and backend translation |
-| [Emitter](emitter.md) | Artifact planning, serialization coordination and atomic publication |
-| [Linker](linker.md) | Native linking from a resolved typed plan |
+| Component                                         | Responsibility                                                            |
+|---------------------------------------------------|---------------------------------------------------------------------------|
+| Source                                            | Immutable inputs, source identity, ranges and location mapping            |
+| Lexer and [parser](parser.md)                     | Demand-driven tokens, lossless syntax and recovery                        |
+| [Declaration discovery](declaration-discovery.md) | Source declaration surfaces and deterministic merging                     |
+| [Symbols](symbols.md)                             | Semantic declaration identity, containment and lazy declaration semantics |
+| [Binder](binder.md)                               | Resolved references, lexical scopes and source-shaped bound units         |
+| [Checker](checker.md)                             | Semantic selection, proof, storage and flow analysis                      |
+| [Lowering and MIR](lowering.md)                   | Explicit execution from established semantics                             |
+| [Code generation](codegen.md)                     | Concrete instance collection and backend translation                      |
+| [Emitter](emitter.md)                             | Artifact planning, serialization coordination and atomic publication      |
+| [Linker](linker.md)                               | Native linking from a resolved typed plan                                 |
 
 Project tools load one explicit immutable package-product graph through `bray-project`. [Bray Tack](bray-tack.md)
 orchestrates independently installable compiler, formatter, and language-server executables. It does not embed their

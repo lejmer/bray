@@ -7,16 +7,16 @@ semantics.
 
 ## Ownership
 
-| Component | Responsibility |
-| --- | --- |
-| Compilation | Checked entries and their catalog identities |
-| Test protocol | Shared catalog, invocation, event, outcome, and report data |
-| Lowering, codegen, emitter | Generated host and matching published artifacts |
-| Runtime test-host adapter | Root execution, cancellation, capture, and cleanup completion |
-| Platform | Processes, pipes, clocks, waiting, and hard termination |
-| Bray Tack | Workspace selection, filtering, global budgets, admission, and reports |
-| `bray-messages` | Localized presentation |
-| `std.testing` | Ordinary source-level testing helpers |
+| Component                  | Responsibility                                                         |
+|----------------------------|------------------------------------------------------------------------|
+| Compilation                | Checked entries and their catalog identities                           |
+| Test protocol              | Shared catalog, invocation, event, outcome, and report data            |
+| Lowering, codegen, emitter | Generated host and matching published artifacts                        |
+| Runtime test-host adapter  | Root execution, cancellation, capture, and cleanup completion          |
+| Platform                   | Processes, pipes, clocks, waiting, and hard termination                |
+| Bray Tack                  | Workspace selection, filtering, global budgets, admission, and reports |
+| `bray-messages`            | Localized presentation                                                 |
+| `std.testing`              | Ordinary source-level testing helpers                                  |
 
 Compiler fixture helpers in `bray-testing` are separate from this production protocol. Ordinary runtime adapters have no
 test protocol dependency. Integration-test products consume their library's emitted public contract as a dependency.

@@ -10,13 +10,13 @@ A `.brayi` interface describes one checked library product's public declaration 
 required declaration-owned templates. A separate `.brayimpl` bundle carries executable templates needed for downstream
 generic specialization or constant evaluation. Interface-only queries do not load those bodies.
 
-| Owner | Responsibility |
-| --- | --- |
-| `bray-symbols` | Stable external identity, imported identity inputs, and normalized semantic values |
-| Semantic representation crates | Meaning of checked templates and their inputs |
-| `bray-package-interface` | Durable encoding, bounded validation, lazy decoding, and artifact inspection |
-| `bray-compilation` | Query coordination, imported maps, and completed export bundles |
-| `bray-emitter` | Product staging and publication |
+| Owner                          | Responsibility                                                                     |
+|--------------------------------|------------------------------------------------------------------------------------|
+| `bray-symbols`                 | Stable external identity, imported identity inputs, and normalized semantic values |
+| Semantic representation crates | Meaning of checked templates and their inputs                                      |
+| `bray-package-interface`       | Durable encoding, bounded validation, lazy decoding, and artifact inspection       |
+| `bray-compilation`             | Query coordination, imported maps, and completed export bundles                    |
+| `bray-emitter`                 | Product staging and publication                                                    |
 
 Symbols have no dependency on the codec. The codec consumes completed immutable semantic data without invoking binder or
 checker workflows. Interfaces are not native link inputs, and test catalogs remain separate artifacts owned by the test

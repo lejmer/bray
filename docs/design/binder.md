@@ -6,14 +6,14 @@ demand and publication.
 
 ## Phase ownership
 
-| Owner | Responsibility |
-| --- | --- |
-| `bray-symbols` | Declaration identities, semantic values and symbol-facing contracts |
-| `bray-bound-tree` | Bound units, typed nodes, local storage identities and durable semantic result contracts |
-| `bray-binder` | Reference resolution, lexical construction and bound-unit assembly |
-| `bray-checker` | Semantic rules, inference and analysis state |
-| `bray-compilation` | Query context, dependencies, caching and publication |
-| `bray-lowering` | Execution-shaped MIR from established semantic results |
+| Owner              | Responsibility                                                                           |
+|--------------------|------------------------------------------------------------------------------------------|
+| `bray-symbols`     | Declaration identities, semantic values and symbol-facing contracts                      |
+| `bray-bound-tree`  | Bound units, typed nodes, local storage identities and durable semantic result contracts |
+| `bray-binder`      | Reference resolution, lexical construction and bound-unit assembly                       |
+| `bray-checker`     | Semantic rules, inference and analysis state                                             |
+| `bray-compilation` | Query context, dependencies, caching and publication                                     |
+| `bray-lowering`    | Execution-shaped MIR from established semantic results                                   |
 
 The binder receives a narrow read-only query context implemented by compilation. It does not depend on compilation
 internals. A symbol-facing result may require binding or checking without moving those algorithms into the symbol crate.
