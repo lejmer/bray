@@ -46,32 +46,6 @@ where
         return Err(error.into());
     }
 
-    // Ordinary recursive contracts already converge over direct input dependencies.
-    // Defer only when substitution would otherwise keep expanding a symbolic relation.
-    let mut deferred_callees = BTreeSet::new();
-
-    for callee in recursive_callees {
-        let template = callees
-            .get(callee)
-            .copied()
-            .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
-
-        let template = request
-            .semantic_values()
-            .dependency_contract_template_data(template)
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
-
-        if template
-            .requirements()
-            .iter()
-            .any(|requirement| !matches!(requirement, DependencyRequirement::Direct { .. }))
-        {
-            deferred_callees.insert(*callee);
-        }
-    }
-
-    let recursive_callees = &deferred_callees;
-
     let mut inference = ResultInference {
         request,
         types,

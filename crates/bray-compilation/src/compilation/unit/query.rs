@@ -2262,6 +2262,207 @@ mod tests {
     }
 
     #[test]
+    fn abstract_dependencies_do_not_expand_unneeded_recursive_arguments() {
+        for (parameters, initial, nested, mutual) in [
+            ("T, U", "u32, Holder", "(T, T), U", false),
+            ("const count: usize, U", "0, Holder", "count + 1, U", false),
+            ("T, U", "u32, Holder", "(T, T), U", true),
+        ] {
+            let step = if mutual {
+                r#"
+                func step<V, W>(pos value: &W) -> &bool with(W: Project)
+                {
+                    return recurse<(V, V), W>(value, true);
+                }
+                "#
+            } else {
+                ""
+            };
+
+            let recursive_call = if mutual {
+                "step<(T, T), U>(value)".to_owned()
+            } else {
+                format!("recurse<{nested}>(value, true)")
+            };
+
+            let source = format!(
+                r#"
+                module app;
+
+                trait Project
+                {{
+                    func project() -> &bool;
+                }}
+
+                struct Holder
+                {{
+                    value: bool;
+                }}
+
+                impl HolderProject = Holder(Project)
+                {{
+                    func project() -> &bool
+                    {{
+                        return &self.value;
+                    }}
+                }}
+
+                func recurse<{parameters}>(pos value: &U, pos stop: bool) -> &bool
+                    with(U: Project)
+                {{
+                    if stop
+                    {{
+                        return value.project();
+                    }}
+
+                    return {recursive_call};
+                }}
+
+                {step}
+
+                func caller(pos value: &Holder) -> &bool
+                {{
+                    return recurse<{initial}>(value, false);
+                }}
+
+                func bad() -> &bool
+                {{
+                    let local = Holder
+                    {{
+                        value = true,
+                    }};
+
+                    return recurse<{initial}>(&local, false);
+                }}
+            "#
+            );
+
+            let compilation = compilation(&source);
+            let cancellation = compilation.state.cancellation.clone();
+
+            std::thread::scope(|scope| {
+                let (finished, completion) = std::sync::mpsc::channel();
+
+                let cancellation_ref = &cancellation;
+
+                scope.spawn(move || {
+                    if completion
+                        .recv_timeout(std::time::Duration::from_secs(3))
+                        .is_err()
+                    {
+                        cancellation_ref.cancel();
+                    }
+                });
+
+                let result = compilation
+                    .storage_flow(source_function_body_key(&compilation, "caller"))
+                    .expect("abstract dependencies must not expand unused recursive arguments");
+
+                assert!(
+                    !result.diagnostics().has_errors(),
+                    "{source}: {:?}",
+                    result.diagnostics()
+                );
+
+                let result = compilation
+                    .storage_flow(source_function_body_key(&compilation, "bad"))
+                    .unwrap();
+
+                assert_goal_state_diagnostic_kind(
+                    result.diagnostics(),
+                    DiagnosticKind::CheckingEscapingStorageDependency,
+                );
+
+                let _ = finished.send(());
+            });
+        }
+    }
+
+    #[test]
+    fn recursive_dependencies_retain_transitive_witness_arguments() {
+        let compilation = compilation(
+            r#"
+            module app;
+
+            trait Project
+            {
+                func project(pos input: &bool) -> &bool;
+            }
+
+            struct Holder
+            {
+                value: bool;
+            }
+
+            struct Forwarder
+            {
+                value: bool;
+            }
+
+            impl HolderProject = Holder(Project)
+            {
+                func project(pos input: &bool) -> &bool
+                {
+                    return &self.value;
+                }
+            }
+
+            impl ForwarderProject = Forwarder(Project)
+            {
+                func project(pos input: &bool) -> &bool
+                {
+                    return input;
+                }
+            }
+
+            func first<T, U>(pos left: &T, pos right: &U, pos input: &bool) -> &bool
+                with(T: Project, U: Project)
+            {
+                return second<U, T>(right, left, input, false);
+            }
+
+            func second<V, W>(pos left: &V, pos right: &W, pos input: &bool, pos stop: bool) -> &bool
+                with(V: Project, W: Project)
+            {
+                if stop
+                {
+                    return left.project(input);
+                }
+
+                return first<V, W>(left, right, input);
+            }
+
+            func bad(pos forwarder: &Forwarder, pos holder: &Holder) -> &bool
+            {
+                let local: bool = true;
+
+                return first<Forwarder, Holder>(forwarder, holder, &local);
+            }
+
+            func good(pos forwarder: &Forwarder, pos holder: &Holder, pos input: &bool) -> &bool
+            {
+                return first<Forwarder, Holder>(forwarder, holder, input);
+            }
+        "#,
+        );
+
+        let flow = compilation
+            .storage_flow(source_function_body_key(&compilation, "bad"))
+            .unwrap();
+
+        assert_goal_state_diagnostic_kind(
+            flow.diagnostics(),
+            DiagnosticKind::CheckingEscapingStorageDependency,
+        );
+
+        let flow = compilation
+            .storage_flow(source_function_body_key(&compilation, "good"))
+            .unwrap();
+
+        assert!(!flow.diagnostics().has_errors(), "{:?}", flow.diagnostics());
+    }
+
+    #[test]
     fn returned_values_reject_local_storage_dependencies() {
         for source in [
             r#"

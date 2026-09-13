@@ -5,6 +5,7 @@ mod defaults;
 mod equations;
 mod implementation;
 mod operation;
+mod parameters;
 mod projection;
 mod propagation;
 mod result;

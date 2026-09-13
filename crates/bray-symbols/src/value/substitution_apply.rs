@@ -37,6 +37,32 @@ impl SemanticValueStore {
         self.substitute_dependency_contract_data(contract, &substitution)
     }
 
+    /// Reports whether a generic parameter occurs anywhere in a dependency contract.
+    pub fn dependency_contract_uses_parameter(
+        &self,
+        template: super::DependencyContractTemplateId,
+        owner: GenericOwnerId,
+        parameter: GenericParameterSymbolId,
+    ) -> Result<bool, SemanticValueStoreError> {
+        // Substitution is structural and does not evaluate terms. Replacing one parameter with a
+        // closed value detects every occurrence using the same traversal as contract instantiation.
+        let replacement = match parameter {
+            GenericParameterSymbolId::Type(_) => {
+                GenericArgument::Type(self.intern_type(TypeData::tuple([]))?)
+            }
+            GenericParameterSymbolId::Const(_) => {
+                GenericArgument::Constant(self.intern_constant_term(ConstantTermData::tuple([]))?)
+            }
+        };
+
+        let substitution = GenericSubstitutionData::try_new(owner, [parameter], [replacement])
+            .map_err(|_| SemanticValueStoreError::OpenSubstitution)?;
+
+        let substitution = self.intern_generic_substitution(substitution)?;
+
+        Ok(self.substitute_dependency_contract(template, substitution)? != template)
+    }
+
     /// Applies one generic substitution throughout a canonical constant term.
     pub fn substitute_constant_term(
         &self,
@@ -783,6 +809,68 @@ mod tests {
         FunctionSymbolId, GenericConstParameterSymbolId, GenericOwnerId, GenericParameterSymbolId,
         GenericTypeParameterSymbolId, SymbolId, SymbolOrdinal,
     };
+
+    #[test]
+    fn dependency_parameter_occurrences_include_types_nested_in_constants() {
+        let store = SemanticValueStore::try_new().unwrap();
+        let ty_parameter = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(2));
+        let unused = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(3));
+        let count = GenericConstParameterSymbolId::from_symbol_id(SymbolId::new(4));
+
+        let owner = GenericOwnerId::try_new(AnySymbolId::from(FunctionSymbolId::from_symbol_id(
+            SymbolId::new(1),
+        )))
+        .unwrap();
+
+        let ty = store
+            .intern_type(TypeData::TypeParameter(ty_parameter))
+            .unwrap();
+
+        let value = store
+            .intern_constant_value(ConstantValueData::new(ty, ConstantValueKind::Error))
+            .unwrap();
+
+        let value = store
+            .intern_constant_term(ConstantTermData::Value(value))
+            .unwrap();
+
+        let count_term = store
+            .intern_constant_term(ConstantTermData::Parameter(count))
+            .unwrap();
+
+        let template = store
+            .intern_dependency_contract_template(DependencyContractTemplateData::new([
+                DependencyRequirement::guarded(
+                    DependencyGuard::NullablePresent(DependencySubject::root(
+                        DependencySubjectRoot::Receiver,
+                    )),
+                    [DependencyRequirement::direct(
+                        DependencySubject::new(
+                            DependencySubjectRoot::Parameter(SymbolOrdinal::new(0)),
+                            [
+                                DependencyProjection::Element(value),
+                                DependencyProjection::Element(count_term),
+                            ],
+                        ),
+                        DependencyRequirementKind::ValueDependencies,
+                    )],
+                ),
+            ]))
+            .unwrap();
+
+        for (parameter, expected) in [
+            (GenericParameterSymbolId::Type(ty_parameter), true),
+            (GenericParameterSymbolId::Const(count), true),
+            (GenericParameterSymbolId::Type(unused), false),
+        ] {
+            assert_eq!(
+                store
+                    .dependency_contract_uses_parameter(template, owner, parameter)
+                    .unwrap(),
+                expected
+            );
+        }
+    }
 
     #[test]
     fn substitutions_apply_to_types_retained_by_constant_values() {

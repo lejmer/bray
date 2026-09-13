@@ -113,6 +113,7 @@ struct WitnessResultResolver<'a, C: CheckerRequestContext + ?Sized> {
     changed: bool,
     equations: Vec<EquationFrame>,
     scope: Option<usize>,
+    parameters: super::parameters::ResultParameters,
 }
 
 pub(super) fn resolve<C: CheckerRequestContext + ?Sized>(
@@ -126,6 +127,7 @@ pub(super) fn resolve<C: CheckerRequestContext + ?Sized>(
         changed: false,
         equations: Vec::new(),
         scope: None,
+        parameters: Default::default(),
     };
 
     loop {
@@ -143,12 +145,17 @@ impl<C: CheckerRequestContext + ?Sized> WitnessResultResolver<'_, C> {
         &mut self,
         key: WitnessResultKey,
     ) -> Result<Vec<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
+        let (selected, contextual_self) = key;
+
+        let key = (
+            self.parameters.key(self.request, selected)?,
+            contextual_self,
+        );
+
         if !self.active.insert(key) {
             // Recursive calls read the preceding approximation while this result is recomputed.
             return Ok(self.results.get(&key).cloned().unwrap_or_default());
         }
-
-        let (selected, contextual_self) = key;
 
         let request = self.request;
 
