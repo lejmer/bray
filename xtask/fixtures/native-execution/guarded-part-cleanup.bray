@@ -64,11 +64,13 @@ impl PairStorage(Storage<Pair>)
     }
 
     static func borrow(pos storage: &Self) -> &Pair
+        executes(pure, total)
     {
         return borrow_pair(storage);
     }
 
     static func borrow_mut(pos storage: &mut Self) -> &mut Pair
+        executes(pure, total)
     {
         return borrow_pair_mut(storage);
     }
@@ -95,6 +97,7 @@ impl PairStorage(Storage<Pair>)
 }
 
 trusted func borrow_pair(pos storage: &PairStorage) -> &Pair
+    executes(pure, total)
     uses(raw_memory, unchecked_alias)
 {
     let pointer = core.memory.uninit_pointer<Pair>(&storage.value);
@@ -103,6 +106,7 @@ trusted func borrow_pair(pos storage: &PairStorage) -> &Pair
 }
 
 trusted func borrow_pair_mut(pos storage: &mut PairStorage) -> &mut Pair
+    executes(pure, total)
     uses(raw_memory, unchecked_alias)
 {
     let pointer = core.memory.uninit_pointer_mut<Pair>(&mut storage.value);

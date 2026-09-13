@@ -234,14 +234,30 @@ mod tests {
             ("storage: i32", "42, storage = true", false),
         ] {
             let source = format!(
-                "module app; struct Policy {{}} \
-                 impl Policy(Storage<i32>) {{ \
-                 trusted static func create(pos value: i32, {parameter}) -> Self {{ loop {{}} }} \
-                 static func borrow(pos storage: &Self) -> &i32 {{ loop {{}} }} \
-                 static func borrow_mut(pos storage: &mut Self) -> &mut i32 {{ loop {{}} }} \
-                 trusted static func destroy(pos storage: &mut Self) {{ loop {{}} }} \
-                 trusted static func release(pos storage: Self) {{ loop {{}} }} }} \
-                 func make() {{ let value = box[Policy]({arguments}); }}"
+                r#"
+                module app;
+                struct Policy {{ mut value: i32; }}
+
+                impl Policy(Storage<i32>)
+                {{
+                    trusted static func create(pos value: i32, {parameter}) -> Self {{ loop {{}} }}
+
+                    static func borrow(pos storage: &Self) -> &i32 executes(pure, total)
+                    {{
+                        return &storage.value;
+                    }}
+
+                    static func borrow_mut(pos storage: &mut Self) -> &mut i32 executes(pure, total)
+                    {{
+                        return &mut storage.value;
+                    }}
+
+                    trusted static func destroy(pos storage: &mut Self) {{ loop {{}} }}
+                    trusted static func release(pos storage: Self) {{ loop {{}} }}
+                }}
+
+                func make() {{ let value = box[Policy]({arguments}); }}
+                "#
             );
 
             let compilation = crate::test_support::compilation(&source);

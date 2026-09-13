@@ -416,4 +416,5 @@ wire_tags!(bray_symbols::CallableExecutionOrigin {
     0 => bray_symbols::CallableExecutionOrigin::CheckedBody,
     1 => bray_symbols::CallableExecutionOrigin::ForeignAssertion,
     2 => bray_symbols::CallableExecutionOrigin::Requirement,
+    3 => bray_symbols::CallableExecutionOrigin::CompilerIntrinsic,
 });

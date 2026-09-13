@@ -96,9 +96,19 @@ impl Compilation {
             let foreign =
                 self.foreign_callable_contract_with_cancellation(function, cancellation)?;
 
-            if foreign.value().is_some() && !foreign.diagnostics().has_errors() {
-                let declared = self.execution_declaration(declaration.syntax_anchor())?;
+            let declared = self.execution_declaration(declaration.syntax_anchor())?;
 
+            if self.intrinsic_projection_declaration(
+                function.into(),
+                declared.value(),
+                cancellation,
+            )? {
+                checked_clauses.extend(declared.value().clauses().iter().copied());
+                diagnostics.add_range(declared.into_parts().1);
+                continue;
+            }
+
+            if foreign.value().is_some() && !foreign.diagnostics().has_errors() {
                 // TODO(BRA-500): Preserve checked guard domains and provenance on opaque foreign assertions.
                 if declared
                     .value()

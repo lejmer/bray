@@ -64,9 +64,11 @@ extern trusted func copy_overlapping<T>(pos source: RawPointer<T>, pos destinati
 
 extern const func uninit<T>() -> Uninit<T>;
 
-extern func uninit_pointer<T>(pos storage: &Uninit<T>) -> RawPointer<T>;
+extern func uninit_pointer<T>(pos storage: &Uninit<T>) -> RawPointer<T>
+    executes(pure, total);
 
-extern func uninit_pointer_mut<T>(pos storage: &mut Uninit<T>) -> RawPointer<T>;
+extern func uninit_pointer_mut<T>(pos storage: &mut Uninit<T>) -> RawPointer<T>
+    executes(pure, total);
 
 extern func uninit_write<T>(pos storage: &mut Uninit<T>, pos value: T) -> &mut T
     ensures(trusted core.memory.uninit_initialized<T>(storage = storage));
@@ -96,6 +98,7 @@ extern trusted func borrow_from<T, Owner>(pos owner: &Owner, pos pointer: RawPoi
         trusted core.memory.movement_stable<T>(pointer = pointer),
         trusted core.memory.finalization_pending<T>(pointer = pointer),
     )
+    executes(pure, total)
     uses(raw_memory, unchecked_alias);
 
 extern trusted func borrow_mut_from<T, Capability>(
@@ -112,6 +115,7 @@ extern trusted func borrow_mut_from<T, Capability>(
         trusted core.memory.movement_stable<T>(pointer = pointer),
         trusted core.memory.finalization_pending<T>(pointer = pointer),
     )
+    executes(pure, total)
     uses(raw_memory, unchecked_alias);
 
 struct Output<T>

@@ -19,13 +19,13 @@ scope Ambient at ambient {
     declaration StorageBorrow {
         owner Storage;
 
-        surface { static func borrow(pos storage: &Self) -> &T; }
+        surface { static func borrow(pos storage: &Self) -> &T executes(pure, total); }
     }
 
     declaration StorageBorrowMut {
         owner Storage;
 
-        surface { static func borrow_mut(pos storage: &mut Self) -> &mut T; }
+        surface { static func borrow_mut(pos storage: &mut Self) -> &mut T executes(pure, total); }
     }
 
     declaration StorageDestroy {

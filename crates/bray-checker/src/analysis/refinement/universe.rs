@@ -35,6 +35,7 @@ impl RefinementUniverse {
         graph: &ControlFlowGraph,
         request: CheckerUnitView<'_, C>,
         patterns: &CheckedPatterns,
+        selections: &bray_bound_tree::CheckedSemanticSelections,
         storage: &StoragePlan,
     ) -> Result<Self, RefinementUniverseError>
     where
@@ -56,7 +57,7 @@ impl RefinementUniverse {
         }
 
         let direct_dependencies = direct_expression_dependencies(storage);
-        let invalidating_accesses = invalidating_operation_accesses(storage);
+        let invalidating_accesses = invalidating_operation_accesses(request, selections, storage);
 
         let mut universe = Self {
             refinements: Vec::new(),

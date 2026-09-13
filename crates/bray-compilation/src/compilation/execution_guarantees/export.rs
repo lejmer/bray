@@ -224,6 +224,12 @@ impl Compilation {
                 let origin =
                     if matches!(graph.containing_symbol(symbol), Some(AnySymbolId::Trait(_))) {
                         CallableExecutionOrigin::Requirement
+                    } else if self.intrinsic_projection_declaration(
+                        symbol,
+                        declared.value(),
+                        cancellation,
+                    )? {
+                        CallableExecutionOrigin::CompilerIntrinsic
                     } else if let CallableSymbolId::Function(function) =
                         definition.callable_symbol()
                     {
@@ -298,6 +304,10 @@ impl Compilation {
         };
 
         let declaration = self.execution_declaration(owner.source().syntax())?;
+
+        let intrinsic =
+            self.intrinsic_projection_declaration(symbol, declaration.value(), cancellation)?;
+
         let inputs = self.execution_callable_inputs(symbol, cancellation)?;
         let boolean = self.target_property_type(bray_target::TargetPropertyKind::ScalarBool)?;
         let values = self.semantic_value_store()?;
@@ -314,6 +324,9 @@ impl Compilation {
                 .value()
                 .requirements()
                 .iter()
+                // Intrinsic validity is checked by memory semantics and remains in the callable
+                // contract. Its pure/total certificate adds no separate value-entry predicate.
+                .filter(|_| !intrinsic)
                 .chain(&domain.guards)
                 .copied()
                 .collect::<Vec<_>>();

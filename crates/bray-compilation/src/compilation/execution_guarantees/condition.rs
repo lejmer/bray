@@ -74,6 +74,69 @@ mod tests {
     use bray_diagnostics::DiagnosticKind;
 
     #[test]
+    fn projection_preserves_completion_until_mutation() {
+        for (body, valid) in [
+            (
+                "let projected: &mut Flags = &mut value; let _: bool = projected.ready;",
+                true,
+            ),
+            ("observe(&mut value);", true),
+            ("mutate(&mut value);", false),
+            (
+                "let projected = project(&mut value); let _: bool = projected.ready;",
+                true,
+            ),
+            (
+                "let projected = project(&mut value); projected.ready = false;",
+                false,
+            ),
+            (
+                "let projected: &mut Flags = &mut value; projected.ready = false;",
+                false,
+            ),
+        ] {
+            let source = format!(
+                r#"
+                module app;
+
+                struct Flags {{ mut ready: bool; }}
+
+                func observe(pos value: &mut Flags) executes(pure, total) {{}}
+
+                func mutate(pos value: &mut Flags) {{ value.ready = false; }}
+
+                func project(pos value: &mut Flags) -> &mut Flags executes(pure, total)
+                {{
+                    return &mut value;
+                }}
+
+                func root(pos value: &mut Flags)
+                    when(value.ready) {{ ensures(value.ready) }}
+                {{
+                    {body}
+                }}
+            "#
+            );
+
+            let compilation = compilation(&source);
+            let diagnostics = compilation.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                valid,
+                "{source}: {diagnostics:?}"
+            );
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                );
+            }
+        }
+    }
+
+    #[test]
     fn whole_value_replacement_installs_the_moved_field_evidence() {
         for (requirement, valid) in [("other.ready", true), ("!other.ready", false)] {
             let source = r#"
@@ -646,8 +709,9 @@ impl Compilation {
                     .map(|(condition, _)| condition),
             );
 
-            if conditions.is_empty()
-                || evidence.is_some_and(|evidence| evidence.proves(&conditions))
+            if evidence
+                .unwrap_or(&bray_checker::ExecutionCallEvidence::default())
+                .proves(&conditions)
             {
                 return Ok(Some(
                     (!domain.guards.is_empty()).then_some(obligation.source),

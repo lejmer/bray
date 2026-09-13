@@ -564,7 +564,7 @@
     },
     {
       "name": "ConversionTarget",
-      "variants": ["Identity", "BuiltInScalar", "CVariadicPromotion", "Composite", "NullablePresent", "Trait", "TraitConstraint"],
+      "variants": ["Identity", "BuiltInScalar", "CVariadicPromotion", "CallableContract", "Composite", "NullablePresent", "Trait", "TraitConstraint"],
       "production": {
         "path": "crates/bray-codegen-llvm/src/translation/unit/construction.rs",
         "symbol": "conversion.target()"

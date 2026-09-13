@@ -195,6 +195,18 @@ pub enum StorageAccessPurpose {
 }
 
 impl StorageAccessPurpose {
+    /// Returns the policy borrow needed to project storage for this access purpose.
+    pub const fn projection_borrow_kind(self) -> BorrowKind {
+        match self {
+            Self::Move
+            | Self::Write
+            | Self::Assignment
+            | Self::Initialize
+            | Self::Borrow(BorrowKind::Mutable) => BorrowKind::Mutable,
+            _ => BorrowKind::Shared,
+        }
+    }
+
     /// Returns this access purpose's stable machine-readable name.
     pub const fn as_str(self) -> &'static str {
         match self {

@@ -54,6 +54,8 @@ pub enum CallableExecutionOrigin {
     ForeignAssertion,
     /// A trait requirement must be established by its selected implementation.
     Requirement,
+    /// A compiler intrinsic whose identity and supported properties are checked by the consumer.
+    CompilerIntrinsic,
 }
 
 /// A selected proof target retaining either a callable instance or its opaque type.

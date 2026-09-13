@@ -64,12 +64,13 @@ where
         }
     };
 
-    check_refinements_with_graph(request, patterns, storage, &graph).with_upstream()
+    check_refinements_with_graph(request, patterns, selections, storage, &graph).with_upstream()
 }
 
 pub(crate) fn check_refinements_with_graph<C>(
     request: CheckerUnitView<'_, C>,
     patterns: &CheckedPatterns,
+    selections: &CheckedSemanticSelections,
     storage: &StoragePlan,
     graph: &ControlFlowGraph,
 ) -> CheckerOutcome<CheckedRefinements>
@@ -84,7 +85,7 @@ where
         return CheckerOutcome::Cancelled;
     };
 
-    let universe = match RefinementUniverse::new(graph, request, patterns, storage) {
+    let universe = match RefinementUniverse::new(graph, request, patterns, selections, storage) {
         Ok(universe) => universe,
         Err(RefinementUniverseError::CapacityExceeded(capacity)) => {
             return capacity_recovery(request, capacity);
