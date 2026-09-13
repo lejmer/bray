@@ -14,6 +14,10 @@ pub(crate) struct ValueInputs {
     pub(super) projections:
         BTreeMap<(BoundExpressionId, bray_symbols::DependencyProjection), BoundExpressionId>,
     pub(super) initializers: BTreeMap<BoundExpressionId, BoundExpressionId>,
+    pub(super) borrowed: BTreeMap<
+        BoundExpressionId,
+        Vec<(BoundExpressionId, Vec<bray_symbols::DependencyProjection>)>,
+    >,
     pub(super) writes: BTreeMap<BoundExpressionId, Vec<super::assignment::AssignedValue>>,
     pub(super) projected: BTreeMap<
         BoundExpressionId,
@@ -101,13 +105,13 @@ impl ValueInputs {
             independent: Default::default(),
             projections: BTreeMap::new(),
             initializers: BTreeMap::new(),
+            borrowed: BTreeMap::new(),
             writes: BTreeMap::new(),
         };
 
         result.collect_projections(unit, selections, patterns);
 
-        result.writes =
-            super::assignment::assignment_inputs(unit, selections, &result.initializers);
+        result.writes = super::assignment::assignment_inputs(unit, selections, &result);
 
         result
     }
@@ -117,8 +121,17 @@ impl ValueInputs {
         types: &bray_bound_tree::CheckedExpressionTypes,
         selections: &CheckedSemanticSelections,
         patterns: &bray_bound_tree::CheckedPatterns,
+        declaration: impl FnMut(
+            bray_symbols::CallableSymbolId,
+        ) -> Result<
+            bray_symbols::DependencyContractTemplateId,
+            crate::CheckerQueryError<C::UpstreamError>,
+        >,
     ) -> Result<Self, crate::CheckerQueryError<C::UpstreamError>> {
         let mut inputs = Self::new(request.unit(), selections, patterns);
+        inputs.collect_returned_borrows(request, types, selections, declaration)?;
+        inputs.collect_projections(request.unit(), selections, patterns);
+        inputs.writes = super::assignment::assignment_inputs(request.unit(), selections, &inputs);
         inputs.filter_independent(request, types)?;
         inputs.collect_propagation(request, selections)?;
 

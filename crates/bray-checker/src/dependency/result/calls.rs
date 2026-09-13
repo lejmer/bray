@@ -1,6 +1,6 @@
 use crate::{CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext};
-use bray_bound_tree::{BoundExpressionId, SelectedArgument, SemanticSelection};
-use bray_symbols::{DependencyRequirement, DependencyRequirementKind, DependencySubjectRoot};
+use bray_bound_tree::{BoundExpressionId, SemanticSelection};
+use bray_symbols::{DependencyRequirement, DependencyRequirementKind};
 use std::collections::BTreeSet;
 
 use super::core::ResultInference;
@@ -41,22 +41,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                 continue;
             };
 
-            let argument = match subject.subject_root() {
-                DependencySubjectRoot::Parameter(parameter) => {
-                    call.arguments().iter().find_map(|argument| match argument {
-                        SelectedArgument::Explicit {
-                            ordinal,
-                            expression,
-                            ..
-                        } if *ordinal == parameter.raw() => Some(*expression),
-                        _ => None,
-                    })
-                }
-                DependencySubjectRoot::Receiver => {
-                    call.receiver().map(|receiver| receiver.expression())
-                }
-                _ => None,
-            };
+            let argument = crate::dependency::result_argument(call, subject.subject_root());
 
             let Some(argument) = argument else {
                 // The output template owns these non-argument roots independently of the callee.

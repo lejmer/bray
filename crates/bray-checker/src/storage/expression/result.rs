@@ -1,8 +1,6 @@
 use std::collections::BTreeSet;
 
-use bray_bound_tree::{
-    BoundExpressionId, SelectedArgument, SelectedCall, StorageAccessId, StorageProjection,
-};
+use bray_bound_tree::{BoundExpressionId, SelectedCall, StorageAccessId, StorageProjection};
 use bray_symbols::{DependencyProjection, DependencyRequirement, DependencySubjectRoot, TypeData};
 
 use super::super::plan::{PlanError, Planner};
@@ -53,28 +51,18 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
             return Ok(None);
         }
 
-        let argument = match source.subject_root() {
-            DependencySubjectRoot::Receiver => call
-                .receiver()
-                .filter(|receiver| {
-                    matches!(
-                        receiver.mode(),
-                        bray_symbols::ReceiverMode::Shared | bray_symbols::ReceiverMode::Mutable
-                    )
-                })
-                .map(|receiver| receiver.expression()),
-            DependencySubjectRoot::Parameter(parameter) => {
-                call.arguments().iter().find_map(|argument| match argument {
-                    SelectedArgument::Explicit {
-                        ordinal,
-                        expression,
-                        ..
-                    } if *ordinal == parameter.raw() => Some(*expression),
-                    _ => None,
-                })
-            }
-            _ => None,
-        };
+        if source.subject_root() == DependencySubjectRoot::Receiver
+            && call.receiver().is_none_or(|receiver| {
+                !matches!(
+                    receiver.mode(),
+                    bray_symbols::ReceiverMode::Shared | bray_symbols::ReceiverMode::Mutable
+                )
+            })
+        {
+            return Ok(None);
+        }
+
+        let argument = crate::dependency::result_argument(call, source.subject_root());
 
         let Some(argument) = argument else {
             return Ok(None);

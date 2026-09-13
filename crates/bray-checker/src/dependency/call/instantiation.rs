@@ -98,24 +98,8 @@ where
         };
 
         match root {
-            DependencySubjectRoot::Parameter(ordinal) => {
-                call.arguments().iter().find_map(|argument| match argument {
-                    SelectedArgument::Explicit {
-                        expression,
-                        ordinal: actual,
-                        ..
-                    } if SymbolOrdinal::new(*actual) == ordinal => Some(*expression),
-                    SelectedArgument::Explicit { .. } | SelectedArgument::Default { .. } => None,
-                })
-            }
             DependencySubjectRoot::Result => Some(expression),
-            DependencySubjectRoot::Receiver => call
-                .receiver()
-                .map(bray_bound_tree::SelectedReceiver::expression),
-            DependencySubjectRoot::ScopedCapability(_)
-            | DependencySubjectRoot::ImplementationWitness(_)
-            | DependencySubjectRoot::ProductStatic(_)
-            | DependencySubjectRoot::ExactThreadStatic(_) => None,
+            _ => crate::dependency::result_argument(call, root),
         }
     }
 

@@ -798,6 +798,113 @@ mod tests {
             r#"
                 func replace(pos mut result: Holder, pos second: &bool) -> Holder
                 {
+                    let owner =
+                    {
+                        yield &mut result;
+                    };
+                    owner.value = second;
+
+                    return result;
+                }
+            "#,
+            r#"
+                func replace(pos mut result: Holder, pos second: &bool) -> Holder
+                {
+                    let mut other = Holder { value = second };
+                    let owner = if false
+                    {
+                        yield &mut other;
+                    }
+                    else
+                    {
+                        yield &mut result;
+                    };
+                    owner.value = second;
+
+                    return result;
+                }
+            "#,
+            r#"
+                func first(pos values: (&mut Holder,)) -> &mut Holder
+                {
+                    return values.0;
+                }
+
+                func replace(pos mut result: Holder, pos second: &bool) -> Holder
+                {
+                    let owner = first((&mut result,));
+                    owner.value = second;
+
+                    return result;
+                }
+            "#,
+            r#"
+                impl Holder
+                {
+                    mut func same() -> &mut Holder
+                    {
+                        return &mut self;
+                    }
+                }
+
+                func replace(pos mut result: Holder, pos second: &bool) -> Holder
+                {
+                    let owner = result.same();
+                    owner.value = second;
+
+                    return result;
+                }
+            "#,
+            r#"
+                func same<T>(pos value: &mut T) -> &mut T
+                {
+                    return value;
+                }
+
+                func replace(pos mut result: Holder, pos second: &bool) -> Holder
+                {
+                    let owner = same(&mut result);
+                    owner.value = second;
+
+                    return result;
+                }
+            "#,
+            r#"
+                func same(pos value: &mut Holder) -> &mut Holder
+                {
+                    return value;
+                }
+
+                func replace(pos mut result: Holder, pos second: &bool) -> Holder
+                {
+                    same(&mut result).value = second;
+
+                    return result;
+                }
+            "#,
+            r#"
+                func choose(pos first: &mut Holder, pos second: &mut Holder, pos condition: bool) -> &mut Holder
+                {
+                    if condition
+                    {
+                        return first;
+                    }
+
+                    return second;
+                }
+
+                func replace(pos mut result: Holder, pos second: &bool) -> Holder
+                {
+                    let mut other = Holder { value = second };
+                    let owner = choose(&mut other, &mut result, false);
+                    owner.value = second;
+
+                    return result;
+                }
+            "#,
+            r#"
+                func replace(pos mut result: Holder, pos second: &bool) -> Holder
+                {
                     result.value = second;
 
                     return result;
@@ -913,7 +1020,7 @@ mod tests {
 
             assert!(
                 caller_owned.check_diagnostics().is_empty(),
-                "{:?}",
+                "{source}\n{:?}",
                 caller_owned.check_diagnostics()
             );
 

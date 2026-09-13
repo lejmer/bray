@@ -48,7 +48,10 @@ impl OperationEffects {
     {
         let mut effects = Self::from_storage_plan(request.unit(), storage, memory);
 
-        effects.value_inputs = ValueInputs::prepare(request, types, selections, patterns)?;
+        effects.value_inputs =
+            ValueInputs::prepare(request, types, selections, patterns, |callable| {
+                request.context().callable_result_dependencies(callable)
+            })?;
 
         effects.retain_call_input_dependencies(request.unit());
         effects.add_selected_call_dependencies(request, selections, storage)?;

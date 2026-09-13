@@ -56,7 +56,18 @@ where
         locals: BTreeMap::new(),
         local_sources: BTreeMap::new(),
         sources: BTreeMap::new(),
-        inputs: crate::dependency::ValueInputs::prepare(request, types, selections, patterns)?,
+        inputs: crate::dependency::ValueInputs::prepare(
+            request,
+            types,
+            selections,
+            patterns,
+            |callable| {
+                callees
+                    .get(&callable)
+                    .copied()
+                    .ok_or_else(|| CheckerInfrastructureError::InvalidSemanticSelectionInput.into())
+            },
+        )?,
     };
 
     loop {

@@ -82,3 +82,100 @@ fn value_requirement(root: DependencySubjectRoot) -> DependencyRequirement {
         DependencyRequirementKind::ValueDependencies,
     )
 }
+
+/// Resolves a portable input root to the expression selected at this call site.
+pub(crate) fn result_argument(
+    call: &SelectedCall,
+    root: DependencySubjectRoot,
+) -> Option<bray_bound_tree::BoundExpressionId> {
+    match root {
+        DependencySubjectRoot::Parameter(parameter) => {
+            call.arguments().iter().find_map(|argument| match argument {
+                SelectedArgument::Explicit {
+                    ordinal,
+                    expression,
+                    ..
+                } if *ordinal == parameter.raw() => Some(*expression),
+                _ => None,
+            })
+        }
+        DependencySubjectRoot::Receiver => call.receiver().map(|receiver| receiver.expression()),
+        _ => None,
+    }
+}
+
+impl super::ValueInputs {
+    pub(super) fn collect_returned_borrows<C: CheckerRequestContext + ?Sized>(
+        &mut self,
+        request: CheckerUnitView<'_, C>,
+        types: &bray_bound_tree::CheckedExpressionTypes,
+        selections: &bray_bound_tree::CheckedSemanticSelections,
+        mut declaration: impl FnMut(
+            CallableSymbolId,
+        ) -> Result<
+            DependencyContractTemplateId,
+            CheckerQueryError<C::UpstreamError>,
+        >,
+    ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
+        for (expression, node) in request.unit().tree().expressions() {
+            if request.is_cancelled() {
+                return Err(CheckerQueryError::Cancelled);
+            }
+
+            let Some(ty) = types.expression(expression) else {
+                continue;
+            };
+
+            let data = request
+                .semantic_values()
+                .type_data(ty.ty())
+                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+
+            if !matches!(data.as_ref(), bray_symbols::TypeData::Borrow { .. }) {
+                continue;
+            }
+
+            let Some(bray_bound_tree::SemanticSelection::Call(call)) =
+                selections.expression(expression)
+            else {
+                if matches!(
+                    node,
+                    bray_bound_tree::BoundExpression::Block(_)
+                        | bray_bound_tree::BoundExpression::Match(_)
+                        | bray_bound_tree::BoundExpression::Structured(_)
+                ) {
+                    let sources = self
+                        .operands(expression)
+                        .map(|source| (source, Vec::new()))
+                        .collect::<Vec<_>>();
+
+                    if !sources.is_empty() {
+                        self.borrowed.insert(expression, sources);
+                    }
+                }
+
+                continue;
+            };
+
+            let template = call_result_template(request, call, &mut declaration)?;
+
+            let sources = template
+                .requirements()
+                .iter()
+                .filter_map(|requirement| {
+                    let DependencyRequirement::Direct { subject, .. } = requirement else {
+                        return None;
+                    };
+
+                    let argument = result_argument(call, subject.subject_root())?;
+
+                    Some((argument, subject.projections().to_vec()))
+                })
+                .collect();
+
+            self.borrowed.insert(expression, sources);
+        }
+
+        Ok(())
+    }
+}

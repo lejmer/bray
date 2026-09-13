@@ -335,6 +335,62 @@ fn returned_assignments_and_errors_survive_interfaces() {
 }
 
 #[test]
+fn returned_borrow_alias_assignments_survive_interfaces() {
+    let provider = compilation(
+        r#"
+            module api;
+
+            public func same<T>(pos value: &mut T) -> &mut T
+            {
+                return value;
+            }
+        "#,
+    );
+
+    for (argument, valid) in [("caller", true), ("&local", false)] {
+        let source = format!(
+            r#"
+                module app;
+
+                using example.package.api;
+
+                struct Holder
+                {{
+                    mut value: &bool;
+                }}
+
+                func replace(pos mut result: Holder, pos second: &bool) -> Holder
+                {{
+                    let owner = example.package.api.same(&mut result);
+                    owner.value = second;
+
+                    return result;
+                }}
+
+                func caller(pos caller: &bool) -> Holder
+                {{
+                    let local: bool = true;
+
+                    return replace(Holder {{ value = caller }}, {argument});
+                }}
+            "#
+        );
+
+        let consumer = execution_consumer(&provider, &source);
+        let diagnostics = consumer.check_diagnostics();
+
+        if valid {
+            assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                &diagnostics,
+                bray_diagnostics::DiagnosticKind::CheckingEscapingStorageDependency,
+            );
+        }
+    }
+}
+
+#[test]
 fn returned_values_preserve_default_wrapper_dependencies_in_interfaces() {
     let provider = compilation(
         r#"

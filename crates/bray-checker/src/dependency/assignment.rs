@@ -42,17 +42,17 @@ impl AssignedValue {
 pub(super) fn assignment_inputs(
     unit: &BoundUnit,
     selections: &CheckedSemanticSelections,
-    initializers: &BTreeMap<BoundExpressionId, BoundExpressionId>,
+    inputs: &super::ValueInputs,
 ) -> BTreeMap<BoundExpressionId, Vec<AssignedValue>> {
     let mut reads = BTreeMap::<_, Vec<_>>::new();
 
     for (id, _) in unit.tree().expressions() {
-        if let Some((root, path)) = value_place(unit, selections, initializers, id) {
+        for (root, path) in value_places(unit, selections, inputs, id) {
             reads.entry(root).or_default().push((id, path));
         }
     }
 
-    let mut inputs = BTreeMap::<_, Vec<_>>::new();
+    let mut assignments = BTreeMap::<_, Vec<_>>::new();
 
     for (_, expression) in unit.tree().expressions() {
         let BoundExpression::Assignment(assignment) = expression else {
@@ -63,110 +63,129 @@ pub(super) fn assignment_inputs(
             continue;
         };
 
-        let Some((root, destination)) = value_place(unit, selections, initializers, *destination)
-        else {
-            continue;
-        };
+        for (root, destination) in value_places(unit, selections, inputs, *destination) {
+            for (read, path) in reads.get(&root).into_iter().flatten() {
+                if destination
+                    .iter()
+                    .zip(path)
+                    .any(|(left, right)| left.is_some() && right.is_some() && left != right)
+                {
+                    continue;
+                }
 
-        for (read, path) in reads.get(&root).into_iter().flatten() {
-            if destination
-                .iter()
-                .zip(path)
-                .any(|(left, right)| left.is_some() && right.is_some() && left != right)
-            {
-                continue;
+                // Unknown indexes retain the assigned aggregate's complete value contract.
+                let remaining = path
+                    .iter()
+                    .skip(destination.len())
+                    .copied()
+                    .map_while(|projection| projection)
+                    .collect();
+
+                assignments.entry(*read).or_default().push(AssignedValue {
+                    value: *value,
+                    source: remaining,
+                    destination: destination.iter().skip(path.len()).copied().collect(),
+                });
             }
-
-            // Unknown indexes retain the assigned aggregate's complete value contract.
-            let remaining = path
-                .iter()
-                .skip(destination.len())
-                .copied()
-                .map_while(|projection| projection)
-                .collect();
-
-            inputs.entry(*read).or_default().push(AssignedValue {
-                value: *value,
-                source: remaining,
-                destination: destination.iter().skip(path.len()).copied().collect(),
-            });
         }
     }
 
-    inputs
+    assignments
 }
 
-pub(super) fn value_place(
+pub(super) fn value_places(
     unit: &BoundUnit,
     selections: &CheckedSemanticSelections,
-    initializers: &BTreeMap<BoundExpressionId, BoundExpressionId>,
-    mut expression: BoundExpressionId,
-) -> Option<(BoundReferenceTarget, Vec<Option<DependencyProjection>>)> {
-    let mut path = Vec::new();
+    inputs: &super::ValueInputs,
+    expression: BoundExpressionId,
+) -> BTreeSet<(BoundReferenceTarget, Vec<Option<DependencyProjection>>)> {
+    let mut places = BTreeSet::new();
+    let mut pending = vec![(expression, Vec::new())];
     let mut visited = BTreeSet::new();
 
-    loop {
-        if !visited.insert(expression) {
-            return None;
-        }
-
-        if let Some(borrowed) = borrowed_initializer(unit, initializers, expression) {
-            expression = borrowed;
+    while let Some((expression, path)) = pending.pop() {
+        if !visited.insert((expression, path.clone())) {
             continue;
         }
 
-        match unit.tree().expression(expression)? {
-            BoundExpression::Name(name) => {
-                path.reverse();
+        if let Some(borrowed) = borrowed_initializer(unit, inputs, expression) {
+            for (source, projections) in borrowed {
+                let (source, projections) = inputs.project(source, &projections);
 
-                return Some((name.target(), path));
+                let mut source_path = projections.iter().copied().map(Some).collect::<Vec<_>>();
+                source_path.extend(path.iter().copied());
+                pending.push((source, source_path));
             }
-            BoundExpression::PatternReference(reference) => {
-                path.reverse();
 
-                return Some((
+            continue;
+        }
+
+        let next = match unit.tree().expression(expression) {
+            Some(BoundExpression::Name(name)) => {
+                places.insert((name.target(), path));
+                continue;
+            }
+            Some(BoundExpression::PatternReference(reference)) => {
+                places.insert((
                     BoundReferenceTarget::Local(AnyLocalSymbolId::Binding(reference.binding())),
                     path,
                 ));
+
+                continue;
             }
-            BoundExpression::MemberAccess(member) => {
-                path.push(Some(member_projection(unit, selections, expression)?));
-                expression = member.receiver();
+            Some(BoundExpression::MemberAccess(member)) => {
+                member_projection(unit, selections, expression)
+                    .map(|projection| (member.receiver(), Some(projection)))
             }
-            BoundExpression::TraitQualifiedMember(member) => {
-                path.push(Some(member_projection(unit, selections, expression)?));
-                expression = member.receiver();
+            Some(BoundExpression::TraitQualifiedMember(member)) => {
+                member_projection(unit, selections, expression)
+                    .map(|projection| (member.receiver(), Some(projection)))
             }
-            BoundExpression::Structured(value)
+            Some(BoundExpression::Structured(value))
                 if value.kind() == BoundStructuredExpressionKind::ElementIndex =>
             {
-                path.push(None);
-                expression = *value.operands().first()?;
+                value.operands().first().map(|source| (*source, None))
             }
-            _ => return None,
+            _ => None,
+        };
+
+        if let Some((source, projection)) = next {
+            let mut projected = vec![projection];
+            projected.extend(path);
+            pending.push((source, projected));
         }
     }
+
+    places
 }
 
 fn borrowed_initializer(
     unit: &BoundUnit,
-    initializers: &BTreeMap<BoundExpressionId, BoundExpressionId>,
+    inputs: &super::ValueInputs,
     mut expression: BoundExpressionId,
-) -> Option<BoundExpressionId> {
+) -> Option<Vec<(BoundExpressionId, Vec<DependencyProjection>)>> {
     let mut visited = BTreeSet::new();
 
-    while let Some(initializer) = initializers.get(&expression) {
-        if !visited.insert(expression) {
-            return None;
-        }
-
-        if let Some(BoundExpression::Structured(borrow)) = unit.tree().expression(*initializer)
+    while visited.insert(expression) {
+        if let Some(BoundExpression::Structured(borrow)) = unit.tree().expression(expression)
             && borrow.kind() == BoundStructuredExpressionKind::Borrow
         {
-            return borrow.operands().first().copied();
+            return Some(
+                borrow
+                    .operands()
+                    .first()
+                    .map(|source| (*source, Vec::new()))
+                    .into_iter()
+                    .collect(),
+            );
         }
 
-        expression = *initializer;
+        if let Some(sources) = inputs.borrowed.get(&expression) {
+            // Assignment paths own their alternatives while the worklist advances independently.
+            return Some(sources.clone());
+        }
+
+        expression = *inputs.initializers.get(&expression)?;
     }
 
     None

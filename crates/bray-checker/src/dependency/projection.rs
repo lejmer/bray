@@ -206,13 +206,16 @@ impl ValueInputs {
         initializers: &BTreeMap<LocalBindingSymbolId, BoundExpressionId>,
     ) {
         for (id, _) in unit.tree().expressions() {
+            let places = super::assignment::value_places(unit, selections, self, id);
+            let mut places = places.into_iter();
+
             let Some((BoundReferenceTarget::Local(AnyLocalSymbolId::Binding(binding)), path)) =
-                super::assignment::value_place(unit, selections, &self.initializers, id)
+                places.next()
             else {
                 continue;
             };
 
-            if path.is_empty() {
+            if places.next().is_some() || path.is_empty() {
                 continue;
             }
 
