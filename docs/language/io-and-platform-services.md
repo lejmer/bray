@@ -396,6 +396,7 @@ reproducible results accept an explicit generator or seed rather than consulting
 `std.random.Generator` uses xoshiro256**. Its 32-byte seed is decoded as four little-endian `u64` words. An all-zero
 seed uses `[11400714819323198485, 0, 0, 0]` instead. `fill` writes successive `next_u64` results in little-endian byte
 order, so equal seeds produce equal sequences on every target.
+
 ## Effects And Execution Requirements
 
 Files, terminals, processes, clocks, environment state, and entropy are external state under the language's I/O effect

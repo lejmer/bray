@@ -24,6 +24,9 @@ A pinned revision of Howard Hinnant's `date` and `tz` libraries supplies calenda
 also pins IANA timezone data and CLDR Windows-to-IANA mappings. Their provenance is part of the selected toolchain, so
 host libraries and runtime downloads cannot change time behavior.
 
+Demanded provider code and timezone data link from toolchain-supplied static support. Products require no separately
+installed provider DLL, C++ runtime package, or timezone database.
+
 Bray owns the public types, ownership, failures, and policy vocabulary. A small private C ABI exchanges fixed-width
 values, caller-owned buffers, and opaque local identities. C++ layouts, allocators, and exceptions remain behind that
 boundary. Failures cross it as closed status values. Host-zone discovery maps native identities into the pinned IANA

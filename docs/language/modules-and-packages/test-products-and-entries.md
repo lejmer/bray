@@ -197,6 +197,7 @@ operands.
 
 Fixtures use ordinary values, construction, and lifecycle behavior. The runner introduces no hidden fixture injection or
 alternative ownership model.
+
 ## Navigation
 
 - [Language index](../index.md)
