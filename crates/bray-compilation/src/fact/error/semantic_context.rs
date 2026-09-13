@@ -159,9 +159,7 @@ fn push_fact_context(
             "bound_unit"
         }
         Fact::CheckDiagnostics => "check_diagnostics",
-        Fact::ConstantTemplateKeys => "constant_template_keys",
-        Fact::CallableBodyKeys => "callable_body_keys",
-        Fact::PredicateDefinitionKeys => "predicate_definition_keys",
+        Fact::DeclaredUnits => "declared_units",
         Fact::ConstantInstance(key) => {
             let instance = key.instance();
 

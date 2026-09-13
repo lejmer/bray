@@ -41,7 +41,6 @@ use crate::compilation::substitution::empty_substitution;
 use crate::compilation::unit::semantic_unit_context_for;
 use crate::compilation::{
     SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
-    SemanticSymbolCategory,
 };
 use crate::fact::{
     CancellationToken, CompilationFactKey, ConstantInstanceQueryKey, FactQueryError,
@@ -931,7 +930,7 @@ impl Compilation {
         &self,
         definition: AnyConstantDefinitionId,
     ) -> Result<Option<BoundUnitKey>, FactQueryError> {
-        Ok(self.constant_template_keys()?.get(&definition).cloned())
+        self.declared_unit_key(definition.into_any(), BoundUnitKind::ConstantTemplate)
     }
 
     pub(in crate::compilation) fn constant_definition_span(
@@ -971,109 +970,10 @@ impl Compilation {
         &self,
         definition: CallableDefinitionId,
     ) -> Result<Option<BoundUnitKey>, FactQueryError> {
-        let result = self.evaluate_query(
-            CompilationFactKey::CallableBodyKeys,
-            &self.state.callable_body_keys,
-            || {
-                let symbols = self.symbol_graph()?;
-                let mut bodies = BTreeMap::new();
-
-                for key in self.declared_unit_keys()? {
-                    if key.kind() != BoundUnitKind::CallableBody {
-                        continue;
-                    }
-
-                    let symbol = symbols
-                        .symbol_for_key(key.declared_owner())
-                        .ok_or_else(|| {
-                            SemanticQueryFailure::contract(
-                                SemanticQueryContext::Unit(key.clone()),
-                                SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
-                            )
-                        })?;
-
-                    let definition = CallableDefinitionId::try_new(symbol).ok_or_else(|| {
-                        SemanticQueryFailure::contract(
-                            SemanticQueryContext::Unit(key.clone()),
-                            SemanticQueryViolation::UnexpectedSymbolKind {
-                                expected: SemanticSymbolCategory::Callable,
-                                actual: symbol.kind(),
-                            },
-                        )
-                    })?;
-
-                    if bodies.insert(definition, key).is_some() {
-                        return Err(SemanticQueryFailure::contract(
-                            SemanticQueryContext::Symbol(definition.callable_symbol().into_any()),
-                            SemanticQueryViolation::CountMismatch {
-                                data: SemanticDataKind::BoundUnit,
-                                expected: 1,
-                                actual: 2,
-                            },
-                        )
-                        .into());
-                    }
-                }
-
-                Ok(bodies)
-            },
-        );
-
-        match result {
-            Ok(bodies) => Ok(bodies.get(&definition).cloned()),
-            Err(error) => Err(error.clone()),
-        }
-    }
-
-    fn constant_template_keys(
-        &self,
-    ) -> Result<&BTreeMap<AnyConstantDefinitionId, BoundUnitKey>, FactQueryError> {
-        let result = self.evaluate_query(
-            CompilationFactKey::ConstantTemplateKeys,
-            &self.state.constant_template_keys,
-            || {
-                let symbols = self.symbol_graph()?;
-                let mut templates = BTreeMap::new();
-
-                for key in self.declared_unit_keys()? {
-                    if key.kind() != BoundUnitKind::ConstantTemplate {
-                        continue;
-                    }
-
-                    let symbol = symbols
-                        .symbol_for_key(key.declared_owner())
-                        .ok_or_else(|| {
-                            SemanticQueryFailure::contract(
-                                SemanticQueryContext::Unit(key.clone()),
-                                SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
-                            )
-                        })?;
-
-                    let Some(definition) = constant_definition_id(symbol) else {
-                        continue;
-                    };
-
-                    if templates.insert(definition, key).is_some() {
-                        return Err(SemanticQueryFailure::contract(
-                            SemanticQueryContext::Symbol(definition.into_any()),
-                            SemanticQueryViolation::CountMismatch {
-                                data: SemanticDataKind::BoundUnit,
-                                expected: 1,
-                                actual: 2,
-                            },
-                        )
-                        .into());
-                    }
-                }
-
-                Ok(templates)
-            },
-        );
-
-        match result {
-            Ok(templates) => Ok(templates),
-            Err(error) => Err(error.clone()),
-        }
+        self.declared_unit_key(
+            definition.callable_symbol().into_any(),
+            BoundUnitKind::CallableBody,
+        )
     }
 }
 
