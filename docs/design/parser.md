@@ -19,6 +19,8 @@ querying names, types, targets, or package semantics.
 
 ## Demand-driven token access
 
+Lexer operations use the `scan_*` prefix, complementing `parse_*` for parsing operations.
+
 A parser cursor mediates token consumption and stable lookahead. It demands lexical tokens as needed, so parsing does
 not require eager tokenization of the source. Helpers that can demand tokens expose that work through their names and
 mutable access rather than looking like passive predicates.
