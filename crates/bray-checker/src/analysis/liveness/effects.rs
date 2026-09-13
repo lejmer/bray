@@ -39,6 +39,7 @@ impl OperationEffects {
         request: CheckerUnitView<'_, C>,
         selections: &CheckedSemanticSelections,
         types: &bray_bound_tree::CheckedExpressionTypes,
+        patterns: &bray_bound_tree::CheckedPatterns,
         storage: &StoragePlan,
         memory: &CheckedMemoryOperations,
     ) -> Result<Self, CheckerQueryError<C::UpstreamError>>
@@ -47,7 +48,7 @@ impl OperationEffects {
     {
         let mut effects = Self::from_storage_plan(request.unit(), storage, memory);
 
-        effects.value_inputs = ValueInputs::prepare(request, types, selections)?;
+        effects.value_inputs = ValueInputs::prepare(request, types, selections, patterns)?;
 
         effects.retain_call_input_dependencies(request.unit());
         effects.add_selected_call_dependencies(request, selections, storage)?;

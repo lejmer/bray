@@ -42,12 +42,12 @@ impl AssignedValue {
 pub(super) fn assignment_inputs(
     unit: &BoundUnit,
     selections: &CheckedSemanticSelections,
-    aliases: &BTreeMap<BoundExpressionId, BoundExpressionId>,
+    initializers: &BTreeMap<BoundExpressionId, BoundExpressionId>,
 ) -> BTreeMap<BoundExpressionId, Vec<AssignedValue>> {
     let mut reads = BTreeMap::<_, Vec<_>>::new();
 
     for (id, _) in unit.tree().expressions() {
-        if let Some((root, path)) = value_place(unit, selections, aliases, id) {
+        if let Some((root, path)) = value_place(unit, selections, initializers, id) {
             reads.entry(root).or_default().push((id, path));
         }
     }
@@ -63,7 +63,8 @@ pub(super) fn assignment_inputs(
             continue;
         };
 
-        let Some((root, destination)) = value_place(unit, selections, aliases, *destination) else {
+        let Some((root, destination)) = value_place(unit, selections, initializers, *destination)
+        else {
             continue;
         };
 
@@ -98,7 +99,7 @@ pub(super) fn assignment_inputs(
 pub(super) fn value_place(
     unit: &BoundUnit,
     selections: &CheckedSemanticSelections,
-    aliases: &BTreeMap<BoundExpressionId, BoundExpressionId>,
+    initializers: &BTreeMap<BoundExpressionId, BoundExpressionId>,
     mut expression: BoundExpressionId,
 ) -> Option<(BoundReferenceTarget, Vec<Option<DependencyProjection>>)> {
     let mut path = Vec::new();
@@ -109,7 +110,7 @@ pub(super) fn value_place(
             return None;
         }
 
-        if let Some(borrowed) = borrowed_initializer(unit, aliases, expression) {
+        if let Some(borrowed) = borrowed_initializer(unit, initializers, expression) {
             expression = borrowed;
             continue;
         }
@@ -149,12 +150,12 @@ pub(super) fn value_place(
 
 fn borrowed_initializer(
     unit: &BoundUnit,
-    aliases: &BTreeMap<BoundExpressionId, BoundExpressionId>,
+    initializers: &BTreeMap<BoundExpressionId, BoundExpressionId>,
     mut expression: BoundExpressionId,
 ) -> Option<BoundExpressionId> {
     let mut visited = BTreeSet::new();
 
-    while let Some(initializer) = aliases.get(&expression) {
+    while let Some(initializer) = initializers.get(&expression) {
         if !visited.insert(expression) {
             return None;
         }

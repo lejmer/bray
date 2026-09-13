@@ -9,6 +9,7 @@ use bray_symbols::{
 use std::collections::BTreeSet;
 
 use super::core::{ResultInference, extend};
+use crate::dependency::projection::{binding_projection, pattern_projection};
 
 impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
     pub(super) fn bind_pattern(
@@ -22,9 +23,10 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
         let mut pending = vec![(
             root,
             self.sources.get(&expression).cloned().unwrap_or_default(),
+            Vec::new(),
         )];
 
-        while let Some((id, mut sources)) = pending.pop() {
+        while let Some((id, mut sources, mut path)) = pending.pop() {
             let pattern = self
                 .request
                 .unit()
@@ -39,6 +41,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
 
             if let Some(projection) = checked.projection().and_then(pattern_projection) {
                 sources = project_subjects(&sources, projection);
+                path.push(projection);
             }
 
             for binding in checked.bindings(pattern) {
@@ -47,8 +50,18 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                     .binding_type(binding)
                     .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
 
+                let projection =
+                    binding_projection(pattern, binding_type).and_then(pattern_projection);
+
+                let binding_path = path.iter().copied().chain(projection).collect::<Vec<_>>();
+
+                let projected_values = (!binding_path.is_empty())
+                    .then(|| self.projected_values(expression, &binding_path));
+
+                let binding_values = projected_values.as_ref().unwrap_or(&values);
+
                 // Each binding owns its inferred requirements while sibling projections advance.
-                let binding_sources = match binding_type.projection().and_then(pattern_projection) {
+                let binding_sources = match projection {
                     Some(projection) => project_subjects(&sources, projection),
                     None => sources.clone(),
                 };
@@ -67,16 +80,16 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
 
                 changed |= extend(
                     self.locals.entry(binding).or_default(),
-                    requirements.chain(values.iter().cloned()),
+                    requirements.chain(binding_values.iter().cloned()),
                 );
             }
 
-            // Sibling patterns independently retain the parent source set.
+            // Sibling patterns independently retain the parent source set and projection.
             pending.extend(
                 pattern
                     .children()
                     .iter()
-                    .map(|child| (*child, sources.clone())),
+                    .map(|child| (*child, sources.clone(), path.clone())),
             );
         }
 
@@ -279,23 +292,6 @@ fn project_subjects(
             )
         })
         .collect()
-}
-
-fn pattern_projection(
-    projection: bray_bound_tree::PatternProjection,
-) -> Option<DependencyProjection> {
-    use bray_bound_tree::PatternProjection;
-
-    match projection {
-        PatternProjection::ProductField(field) => Some(DependencyProjection::ProductField(field)),
-        PatternProjection::TupleElement(index) => Some(DependencyProjection::TupleElement(index)),
-        PatternProjection::ActiveUnionPayloadField { field, .. } => {
-            Some(DependencyProjection::UnionPayloadField(field))
-        }
-        PatternProjection::NullableValue => Some(DependencyProjection::NullableValue),
-        PatternProjection::OwnedTarget => Some(DependencyProjection::OwnedTarget),
-        PatternProjection::ElementFromStart(_) | PatternProjection::ElementFromEnd(_) => None,
-    }
 }
 
 pub(super) fn normalized_subject(

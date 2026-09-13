@@ -40,8 +40,8 @@ fn execution_guarantees_reject_malformed_interface_evidence() {
 
             func helper()
                 executes(pure, total)
-                {
-                }
+            {
+            }
 
             public func root()
                 executes(pure, total)
@@ -697,8 +697,8 @@ fn execution_guarantees_preserve_selected_predicate_guards() {
             public func guarded(pos flag: bool)
                 executes(total)
                 requires(ready(flag))
-                {
-                }
+            {
+            }
         "#,
     );
 
@@ -935,8 +935,8 @@ fn execution_guarantees_follow_transitive_provider_dependencies() {
 
             public func checked()
                 executes(pure, total)
-                {
-                }
+            {
+            }
         "#,
     );
 

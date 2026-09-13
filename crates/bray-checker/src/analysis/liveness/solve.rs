@@ -27,6 +27,7 @@ pub(crate) fn analyze_storage_liveness<C>(
     request: CheckerUnitView<'_, C>,
     selections: &CheckedSemanticSelections,
     types: &bray_bound_tree::CheckedExpressionTypes,
+    patterns: &bray_bound_tree::CheckedPatterns,
     storage: &StoragePlan,
     memory: &CheckedMemoryOperations,
 ) -> CheckerOutcome<Liveness, C::UpstreamError>
@@ -43,6 +44,10 @@ where
             (
                 CheckerInputKind::SemanticSelections,
                 (selections.unit(), selections.kind()),
+            ),
+            (
+                CheckerInputKind::Patterns,
+                (patterns.unit(), patterns.kind()),
             ),
             (
                 CheckerInputKind::StoragePlan,
@@ -70,13 +75,16 @@ where
         }
     };
 
-    analyze_storage_liveness_with_graph(request, selections, types, storage, memory, &graph)
+    analyze_storage_liveness_with_graph(
+        request, selections, types, patterns, storage, memory, &graph,
+    )
 }
 
 pub(crate) fn analyze_storage_liveness_with_graph<C>(
     request: CheckerUnitView<'_, C>,
     selections: &CheckedSemanticSelections,
     types: &bray_bound_tree::CheckedExpressionTypes,
+    patterns: &bray_bound_tree::CheckedPatterns,
     storage: &StoragePlan,
     memory: &CheckedMemoryOperations,
     graph: &ControlFlowGraph,
@@ -88,17 +96,18 @@ where
         panic!("checker control-flow graph violated its construction invariants");
     }
 
-    let effects =
-        match OperationEffects::from_checked_inputs(request, selections, types, storage, memory) {
-            Ok(effects) => effects,
-            Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-            Err(CheckerQueryError::Infrastructure(error)) => {
-                return CheckerOutcome::InfrastructureFailure(error);
-            }
-            Err(CheckerQueryError::Upstream(error)) => {
-                return CheckerOutcome::UpstreamFailure(error);
-            }
-        };
+    let effects = match OperationEffects::from_checked_inputs(
+        request, selections, types, patterns, storage, memory,
+    ) {
+        Ok(effects) => effects,
+        Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+        Err(CheckerQueryError::Infrastructure(error)) => {
+            return CheckerOutcome::InfrastructureFailure(error);
+        }
+        Err(CheckerQueryError::Upstream(error)) => {
+            return CheckerOutcome::UpstreamFailure(error);
+        }
+    };
 
     let Some(reachability) = analyze_reachability(&graph, request) else {
         return CheckerOutcome::Cancelled;

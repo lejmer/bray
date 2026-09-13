@@ -13,7 +13,6 @@ pub(crate) struct ValueInputs {
     independent: std::collections::BTreeSet<BoundExpressionId>,
     pub(super) projections:
         BTreeMap<(BoundExpressionId, bray_symbols::DependencyProjection), BoundExpressionId>,
-    pub(super) aliases: BTreeMap<BoundExpressionId, BoundExpressionId>,
     pub(super) initializers: BTreeMap<BoundExpressionId, BoundExpressionId>,
     pub(super) writes: BTreeMap<BoundExpressionId, Vec<super::assignment::AssignedValue>>,
     pub(super) projected: BTreeMap<
@@ -28,7 +27,11 @@ pub(crate) struct ValueInputs {
 }
 
 impl ValueInputs {
-    pub(crate) fn new(unit: &BoundUnit, selections: &CheckedSemanticSelections) -> Self {
+    pub(crate) fn new(
+        unit: &BoundUnit,
+        selections: &CheckedSemanticSelections,
+        patterns: &bray_bound_tree::CheckedPatterns,
+    ) -> Self {
         let mut expressions = BTreeMap::<_, Vec<_>>::new();
         let targets = transfer_targets(unit);
 
@@ -97,13 +100,14 @@ impl ValueInputs {
             projected_initializers: BTreeMap::new(),
             independent: Default::default(),
             projections: BTreeMap::new(),
-            aliases: BTreeMap::new(),
             initializers: BTreeMap::new(),
             writes: BTreeMap::new(),
         };
 
-        result.collect_projections(unit, selections);
-        result.writes = super::assignment::assignment_inputs(unit, selections, &result.aliases);
+        result.collect_projections(unit, selections, patterns);
+
+        result.writes =
+            super::assignment::assignment_inputs(unit, selections, &result.initializers);
 
         result
     }
@@ -112,8 +116,9 @@ impl ValueInputs {
         request: CheckerUnitView<'_, C>,
         types: &bray_bound_tree::CheckedExpressionTypes,
         selections: &CheckedSemanticSelections,
+        patterns: &bray_bound_tree::CheckedPatterns,
     ) -> Result<Self, crate::CheckerQueryError<C::UpstreamError>> {
-        let mut inputs = Self::new(request.unit(), selections);
+        let mut inputs = Self::new(request.unit(), selections, patterns);
         inputs.filter_independent(request, types)?;
         inputs.collect_propagation(request, selections)?;
 

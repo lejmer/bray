@@ -56,7 +56,7 @@ where
         locals: BTreeMap::new(),
         local_sources: BTreeMap::new(),
         sources: BTreeMap::new(),
-        inputs: crate::dependency::ValueInputs::prepare(request, types, selections)?,
+        inputs: crate::dependency::ValueInputs::prepare(request, types, selections, patterns)?,
     };
 
     loop {

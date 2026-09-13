@@ -142,6 +142,7 @@ where
             request,
             expressions.selections(),
             expressions.types(),
+            patterns,
             storage,
             memory,
             graph,
@@ -161,7 +162,7 @@ where
 
     let dependencies = complete!(
         diagnostics,
-        check_dependency_contracts(request, expressions.selections(), storage, &flow,)
+        check_dependency_contracts(request, expressions.selections(), patterns, storage, &flow,)
     );
 
     let asynchronous = complete!(

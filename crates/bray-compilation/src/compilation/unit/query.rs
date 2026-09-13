@@ -703,7 +703,11 @@ mod tests {
 
     #[test]
     fn returned_assignments_preserve_disjoint_fields() {
-        for returned in ["pair.first", "first(pair)"] {
+        for returned in [
+            "pair.first",
+            "first(pair)",
+            "tuple_first((pair.first, pair.second))",
+        ] {
             let source = r#"
                 module app;
 
@@ -724,6 +728,13 @@ mod tests {
                 func first(pos pair: Pair) -> &bool
                 {
                     return pair.first;
+                }
+
+                func tuple_first(pos values: (&bool, &bool)) -> &bool
+                {
+                    let (value, _) = values;
+
+                    return value;
                 }
 
                 func good(pos caller: &bool) -> &bool
@@ -829,6 +840,54 @@ mod tests {
                     return holder.value;
                 }
             "#,
+            r#"
+                func replace(pos mut result: Holder, pos second: &bool) -> Holder
+                {
+                    let mut owner = &mut result;
+                    let mut alias = owner;
+                    alias.value = second;
+
+                    return result;
+                }
+            "#,
+            r#"
+                func replace(pos mut result: Holder, pos second: &bool) -> Holder
+                {
+                    let (owner,) = (&mut result,);
+                    owner.value = second;
+
+                    return result;
+                }
+            "#,
+            r#"
+                func replace(pos mut result: Holder, pos second: &bool) -> Holder
+                {
+                    let mut owner = &mut result;
+                    owner = Holder { value = second };
+
+                    return result;
+                }
+            "#,
+            r#"
+                func replace(pos mut result: Holder, pos second: &bool) -> Holder
+                {
+                    let [owner] = [&mut result];
+                    owner.value = second;
+
+                    return result;
+                }
+            "#,
+            r#"
+                func replace(pos mut result: Holder, pos second: &bool) -> Holder
+                {
+                    if let (owner,) = (&mut result,)
+                    {
+                        owner.value = second;
+                    }
+
+                    return result;
+                }
+            "#,
         ] {
             let source = format!(
                 r#"
@@ -850,11 +909,26 @@ mod tests {
                 "#
             );
 
+            let caller_owned = compilation(&source.replace("&local", "caller"));
+
+            assert!(
+                caller_owned.check_diagnostics().is_empty(),
+                "{:?}",
+                caller_owned.check_diagnostics()
+            );
+
             let compilation = compilation(&source);
 
             let flow = compilation
                 .storage_flow(source_function_body_key(&compilation, "bad"))
                 .unwrap();
+
+            assert!(
+                flow.diagnostics().iter().any(|diagnostic| diagnostic.kind()
+                    == DiagnosticKind::CheckingEscapingStorageDependency),
+                "{source}\n{:?}",
+                flow.diagnostics()
+            );
 
             bray_testing::assert_goal_state_diagnostic_kind(
                 flow.diagnostics(),
@@ -1441,18 +1515,17 @@ mod tests {
             r#"
                 module app;
 
-                func first(pos values: &[bool; 2]
-                ) -> &bool
-                    {
-                        return &values[0];
-                    }
+                func first(pos values: &[bool; 2]) -> &bool
+                {
+                    return &values[0];
+                }
 
-                    func bad() -> &bool
-                    {
-                        let values = [true, false];
+                func bad() -> &bool
+                {
+                    let values = [true, false];
 
-                        return first(&values);
-                    }
+                    return first(&values);
+                }
             "#,
             r#"
                 module app;
@@ -1869,17 +1942,15 @@ mod tests {
             r#"
                 module app;
 
-                func first(pos values: &[bool; 2]
-                ) -> &bool
-                    {
-                        return &values[0];
-                    }
+                func first(pos values: &[bool; 2]) -> &bool
+                {
+                    return &values[0];
+                }
 
-                    func good(pos values: &[bool; 2]
-                ) -> &bool
-                    {
-                        return first(values);
-                    }
+                func good(pos values: &[bool; 2]) -> &bool
+                {
+                    return first(values);
+                }
             "#,
             r#"
                 module app;

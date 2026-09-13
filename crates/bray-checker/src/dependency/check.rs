@@ -19,6 +19,7 @@ use crate::{
 pub(crate) fn check_dependency_contracts<C>(
     request: CheckerUnitView<'_, C>,
     selections: &CheckedSemanticSelections,
+    patterns: &bray_bound_tree::CheckedPatterns,
     storage: &StoragePlan,
     flow: &StorageFlow,
 ) -> CheckerOutcome<CheckedDependencyContracts, C::UpstreamError>
@@ -27,6 +28,16 @@ where
 {
     if request.is_cancelled() {
         return CheckerOutcome::Cancelled;
+    }
+
+    if let Some(error) = crate::unit::semantic_input_failure(
+        request,
+        [(
+            crate::CheckerInputKind::Patterns,
+            (patterns.unit(), patterns.kind()),
+        )],
+    ) {
+        return CheckerOutcome::InfrastructureFailure(error);
     }
 
     if let Some(error) = storage_flow_input_failure(
@@ -82,7 +93,7 @@ where
             .extend(requirements);
     }
 
-    let value_inputs = crate::dependency::ValueInputs::new(request.unit(), selections);
+    let value_inputs = crate::dependency::ValueInputs::new(request.unit(), selections, patterns);
 
     for entry in selections.entries() {
         let contract = match entry.selection() {

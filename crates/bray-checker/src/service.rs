@@ -205,10 +205,11 @@ where
         request: CheckerUnitView<'_, C>,
         selections: &CheckedSemanticSelections,
         types: &CheckedExpressionTypes,
+        patterns: &CheckedPatterns,
         storage: &StoragePlan,
         memory: &CheckedMemoryOperations,
     ) -> CheckerOutcome<Liveness, C::UpstreamError> {
-        analyze_storage_liveness(request, selections, types, storage, memory)
+        analyze_storage_liveness(request, selections, types, patterns, storage, memory)
     }
 }
 
@@ -270,10 +271,11 @@ where
         &self,
         request: CheckerUnitView<'_, C>,
         selections: &CheckedSemanticSelections,
+        patterns: &CheckedPatterns,
         storage: &StoragePlan,
         flow: &StorageFlow,
     ) -> CheckerOutcome<CheckedDependencyContracts, C::UpstreamError> {
-        check_dependency_contracts(request, selections, storage, flow)
+        check_dependency_contracts(request, selections, patterns, storage, flow)
     }
 }
 
