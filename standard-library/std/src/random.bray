@@ -15,166 +15,163 @@ struct Generator
     internal mut state2: u64;
     internal mut state3: u64;
 
-    construct(pos seed: [u8; 32]
-    ) -> Self
+    construct(pos seed: [u8; 32]) -> Self
+    {
+        let mut state0: u64 = seed_word(&seed, start = 0);
+        let state1: u64 = seed_word(&seed, start = 8);
+        let state2: u64 = seed_word(&seed, start = 16);
+        let state3: u64 = seed_word(&seed, start = 24);
+
+        if state0 == 0 && state1 == 0 && state2 == 0 && state3 == 0
         {
-            let mut state0: u64 = seed_word(&seed, start = 0);
-            let state1: u64 = seed_word(&seed, start = 8);
-            let state2: u64 = seed_word(&seed, start = 16);
-            let state3: u64 = seed_word(&seed, start = 24);
-
-            if state0 == 0 && state1 == 0 && state2 == 0 && state3 == 0
-            {
-                state0 = 11400714819323198485;
-            }
-
-            return
-            {
-                state0 = state0,
-                state1 = state1,
-                state2 = state2,
-                state3 = state3,
-            };
+            state0 = 11400714819323198485;
         }
 
-        static func from_entropy() -> Result<Self, EntropyError>
-            requires(blocking_execution())
+        return
         {
-            let mut seed: [u8; 32] = [0; 32];
-            let seed_bytes: &mut [u8] = &mut seed[0..SEED_BYTES];
-
-            try fill_entropy(seed_bytes);
-
-            return Ok(Generator(seed = seed));
-        }
-
-        static async func from_entropy_async() -> Result<Self, EntropyError>
-            requires(blocking_execution())
-        {
-            let mut seed: [u8; 32] = [0; 32];
-            let seed_bytes: &mut [u8] = &mut seed[0..SEED_BYTES];
-
-            try await fill_entropy_async(seed_bytes);
-
-            return Ok(Generator(seed = seed));
-        }
-
-        mut func next_u64() -> u64
-        {
-            let multiplied: u64 = wrapping_multiply(left = self.state1, right = 5);
-            let rotated: u64 = rotate_left(value = multiplied, distance = 7);
-            let result: u64 = wrapping_multiply(left = rotated, right = 9);
-            let shifted: u64 = self.state1 << 17;
-
-            self.state2 ^= self.state0;
-            self.state3 ^= self.state1;
-            self.state1 ^= self.state2;
-            self.state0 ^= self.state3;
-            self.state2 ^= shifted;
-            self.state3 = rotate_left(value = self.state3, distance = 45);
-
-            return result;
-        }
-
-        mut func fill(pos destination: &mut [u8])
-        {
-            let count: usize = destination.length();
-            let mut index: usize = 0;
-            let mut value: u64 = 0;
-            let mut available: usize = 0;
-
-            while index < count
-            {
-                if available == 0
-                {
-                    value = self.next_u64();
-                    available = 8;
-                }
-
-                destination[index] = std.truncate_to<u8>(value);
-
-                value >>= 8;
-                available -= 1;
-                index += 1;
-            }
-        }
+            state0 = state0,
+            state1 = state1,
+            state2 = state2,
+            state3 = state3,
+        };
     }
 
-    func fill_entropy(pos destination: &mut [u8]) -> Result<unit, EntropyError>
+    static func from_entropy() -> Result<Self, EntropyError>
         requires(blocking_execution())
+    {
+        let mut seed: [u8; 32] = [0; 32];
+        let seed_bytes: &mut [u8] = &mut seed[0..SEED_BYTES];
+
+        try fill_entropy(seed_bytes);
+
+        return Ok(Generator(seed = seed));
+    }
+
+    static async func from_entropy_async() -> Result<Self, EntropyError>
+        requires(blocking_execution())
+    {
+        let mut seed: [u8; 32] = [0; 32];
+        let seed_bytes: &mut [u8] = &mut seed[0..SEED_BYTES];
+
+        try await fill_entropy_async(seed_bytes);
+
+        return Ok(Generator(seed = seed));
+    }
+
+    mut func next_u64() -> u64
+    {
+        let multiplied: u64 = wrapping_multiply(left = self.state1, right = 5);
+        let rotated: u64 = rotate_left(value = multiplied, distance = 7);
+        let result: u64 = wrapping_multiply(left = rotated, right = 9);
+        let shifted: u64 = self.state1 << 17;
+
+        self.state2 ^= self.state0;
+        self.state3 ^= self.state1;
+        self.state1 ^= self.state2;
+        self.state0 ^= self.state3;
+        self.state2 ^= shifted;
+        self.state3 = rotate_left(value = self.state3, distance = 45);
+
+        return result;
+    }
+
+    mut func fill(pos destination: &mut [u8])
     {
         let count: usize = destination.length();
-        let pointer: RawPointer<u8> = std.memory.byte_slice_pointer_mut(destination);
+        let mut index: usize = 0;
+        let mut value: u64 = 0;
+        let mut available: usize = 0;
 
-        return trusted fill_entropy_from_platform(destination = pointer, count = count);
-    }
-
-    trusted internal func fill_entropy_from_platform(
-        destination: RawPointer<u8>,
-        count: usize
-    ) -> Result<unit, EntropyError>
-        requires(blocking_execution())
-    {
-        let mut transferred: u64 = 0;
-
-        let status: std.platform.PlatformStatus = trusted internal std.platform.entropy_fill(
-            destination = destination,
-            length = count as u64,
-            transferred = std.memory.address_of_mut<u64>(&mut transferred),
-        );
-
-        if status.reserved != 0 || transferred > count as u64
+        while index < count
         {
-            return Error(EntropyError.Platform(internal std.io.invalid_transfer_error()));
-        }
-
-        if status.category == 0 && transferred == count as u64
-        {
-            return Ok(unit);
-        }
-
-        if status.category == 1
-        {
-            return Error(EntropyError.Unavailable);
-        }
-
-        return Error(EntropyError.Platform(internal std.io.platform_status_error(status)));
-    }
-
-    async func fill_entropy_async(pos destination: &mut [u8]) -> Result<unit, EntropyError>
-        requires(blocking_execution())
-    {
-        return fill_entropy(destination);
-    }
-
-    internal func seed_word(pos seed: &[u8; 32],
-        start: usize
-    ) -> u64
-        {
-            let mut value: u128 = 0;
-            let mut index: usize = 0;
-            let mut multiplier: u128 = 1;
-
-            while index < 8
+            if available == 0
             {
-                value += seed[start + index] as u128 * multiplier;
-                multiplier *= 256;
-                index += 1;
+                value = self.next_u64();
+                available = 8;
             }
 
-            return std.truncate_to<u64>(value);
-        }
+            destination[index] = std.truncate_to<u8>(value);
 
-        internal func rotate_left(value: u64, distance: u64) -> u64
-        {
-            return value << distance | value >> (64 - distance);
+            value >>= 8;
+            available -= 1;
+            index += 1;
         }
+    }
+}
 
-        internal func wrapping_multiply(left: u64, right: u64) -> u64
-        {
-            let widened_left: u128 = left as u128;
-            let widened_right: u128 = right as u128;
-            let product: u128 = widened_left * widened_right;
+func fill_entropy(pos destination: &mut [u8]) -> Result<unit, EntropyError>
+    requires(blocking_execution())
+{
+    let count: usize = destination.length();
+    let pointer: RawPointer<u8> = std.memory.byte_slice_pointer_mut(destination);
 
-            return std.truncate_to<u64>(product);
-        }
+    return trusted fill_entropy_from_platform(destination = pointer, count = count);
+}
+
+trusted internal func fill_entropy_from_platform(
+    destination: RawPointer<u8>,
+    count: usize
+) -> Result<unit, EntropyError>
+    requires(blocking_execution())
+{
+    let mut transferred: u64 = 0;
+
+    let status: std.platform.PlatformStatus = trusted internal std.platform.entropy_fill(
+        destination = destination,
+        length = count as u64,
+        transferred = std.memory.address_of_mut<u64>(&mut transferred),
+    );
+
+    if status.reserved != 0 || transferred > count as u64
+    {
+        return Error(EntropyError.Platform(internal std.io.invalid_transfer_error()));
+    }
+
+    if status.category == 0 && transferred == count as u64
+    {
+        return Ok(unit);
+    }
+
+    if status.category == 1
+    {
+        return Error(EntropyError.Unavailable);
+    }
+
+    return Error(EntropyError.Platform(internal std.io.platform_status_error(status)));
+}
+
+async func fill_entropy_async(pos destination: &mut [u8]) -> Result<unit, EntropyError>
+    requires(blocking_execution())
+{
+    return fill_entropy(destination);
+}
+
+internal func seed_word(pos seed: &[u8; 32], start: usize) -> u64
+{
+    let mut value: u128 = 0;
+    let mut index: usize = 0;
+    let mut multiplier: u128 = 1;
+
+    while index < 8
+    {
+        value += seed[start + index] as u128 * multiplier;
+        multiplier *= 256;
+        index += 1;
+    }
+
+    return std.truncate_to<u64>(value);
+}
+
+internal func rotate_left(value: u64, distance: u64) -> u64
+{
+    return value << distance | value >> (64 - distance);
+}
+
+internal func wrapping_multiply(left: u64, right: u64) -> u64
+{
+    let widened_left: u128 = left as u128;
+    let widened_right: u128 = right as u128;
+    let product: u128 = widened_left * widened_right;
+
+    return std.truncate_to<u64>(product);
+}

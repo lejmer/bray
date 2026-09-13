@@ -948,6 +948,29 @@ fn standard_input_bytes_preserve_bom_and_report_invalid_utf8() {
     assert_eq!(error.invalid_utf8_at(), Some(1));
 }
 
+#[test]
+fn preserves_callable_headers_with_array_semicolons() {
+    let source = r#"module app;
+
+func first(pos values: &[bool; 1]) -> &bool
+{
+    return &values[0];
+}
+
+func copy(pos values: [bool; 1] = [true; 1]) -> [bool; 1]
+{
+    return values;
+}
+
+func last() {}
+"#;
+
+    let output = formatted(source);
+
+    assert_eq!(output.text(), source);
+    assert_valid_and_idempotent(&output);
+}
+
 fn formatted(source: &str) -> FormattedSource {
     formatted_with_configuration(source, &FormatterConfiguration::default())
 }

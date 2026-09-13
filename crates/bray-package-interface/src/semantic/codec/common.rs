@@ -20,7 +20,7 @@ use crate::{
 };
 
 pub(in crate::semantic) const DECLARATION_SEMANTICS_FORMAT_VERSION: u32 = 1;
-pub(in crate::semantic) const DECLARATION_TEMPLATE_FORMAT_VERSION: u32 = 2;
+pub(in crate::semantic) const DECLARATION_TEMPLATE_FORMAT_VERSION: u32 = 1;
 
 pub(crate) fn write_symbol_reference(
     encoder: &mut WireEncoder,

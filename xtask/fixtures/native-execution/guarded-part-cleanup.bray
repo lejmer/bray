@@ -203,284 +203,314 @@ func observe_borrowed_box(pos pair: &box[PairStorage] Pair) -> i32
     }
 }
 
-func indexed<const Count: usize>(pos values: [Guard; Count],
-    pos index: usize
-)
-    {
-        take(values[index]);
-    }
+func indexed<const Count: usize>(pos values: [Guard; Count], pos index: usize)
+{
+    take(values[index]);
+}
 
-    func indexed_return<const Count: usize>(pos values: [Guard; Count],
-    pos index: usize
-) -> Guard
-    {
-        return values[index + 0];
-    }
+func indexed_return<const Count: usize>(pos values: [Guard; Count], pos index: usize) -> Guard
+{
+    return values[index + 0];
+}
 
-    func nested_indexed(pos values: [[Guard; 1]; 2],
-    pos index: usize
-)
-    {
-        take(values[index][0]);
-    }
+func nested_indexed(pos values: [[Guard; 1]; 2], pos index: usize)
+{
+    take(values[index][0]);
+}
 
-    func indexed_repaired(pos mut values: [Guard; 2],
-    pos index: usize,
-    pos replacement: Guard
-)
-    {
-        take(values[index]);
-        values[index] = replacement;
-    }
+func indexed_repaired(pos mut values: [Guard; 2], pos index: usize, pos replacement: Guard)
+{
+    take(values[index]);
+    values[index] = replacement;
+}
 
-    func guarded(pos pair: Pair, pos flag: bool)
+func guarded(pos pair: Pair, pos flag: bool)
+{
+    match consume pair
     {
-        match consume pair
+        case Pair
         {
-            case Pair
-            {
-                left,..
-            }
-            when left.counter.value >= 0 && flag
-            {
-                take(left);
-            }
-            case Pair
-            {
-                right,..
-            }
-            {
-                take(right);
-            }
-        };
-    }
-
-    func guarded_alternative(pos choice: GuardChoice, pos flag: bool)
-    {
-        match consume choice
+            left,..
+        }
+        when left.counter.value >= 0 && flag
         {
-            case First(item) | Second(item) when item.counter.value >= 0 && flag { take(item); }
-            case First(item) | Second(item) { take(item); }
-        };
+            take(left);
+        }
+        case Pair
+        {
+            right,..
+        }
+        {
+            take(right);
+        }
+    };
+}
+
+func guarded_alternative(pos choice: GuardChoice, pos flag: bool)
+{
+    match consume choice
+    {
+        case First(item) | Second(item) when item.counter.value >= 0 && flag { take(item); }
+        case First(item) | Second(item) { take(item); }
+    };
+}
+
+func fields(pos flag: bool, pos first: &mut Counter, pos second: &mut Counter) -> i32
+{
+    let pair: Pair = Pair
+    {
+        left = Guard
+        {
+            counter = first
+        },
+        right = Guard
+        {
+            counter = second
+        },
+    };
+
+    if flag
+    {
+        take(pair.left);
     }
 
-    func fields(pos flag: bool, pos first: &mut Counter, pos second: &mut Counter) -> i32
+    return 7;
+}
+
+func tupled(pos first: &mut Counter, pos second: &mut Counter) -> Guard
+{
+    let pair: (Guard, Guard) = (
+        Guard
+        {
+            counter = first
+        },
+        Guard
+        {
+            counter = second
+        }
+    );
+
+    return pair.0;
+}
+
+func payload(pos choice: Choice)
+{
+    match consume choice
     {
-        let pair: Pair = Pair
+        case Pair(left,..) { take(left); }
+        case Empty {}
+    };
+}
+
+func nullable(pos pair: Pair?)
+{
+    match consume pair
+    {
+        case ?Pair
+        {
+            left,..
+        }
+        {
+            take(left);
+        }
+        case none {}
+    };
+}
+
+func replacement(pos fails: bool)
+{
+    let mut first: Counter = Counter
+    {
+        value = 0
+    };
+
+    let mut second: Counter = Counter
+    {
+        value = 0
+    };
+
+    let mut third: Counter = Counter
+    {
+        value = 0
+    };
+
+    let mut fourth: Counter = Counter
+    {
+        value = 0
+    };
+
+    let releases = core.atomic.load<usize, 1>(&RELEASES);
+
+    let outcome = catch
+    {
+        let mut value: box[PairStorage] Pair = box(
+            Pair
+            {
+                left = Guard
+                {
+                    counter = &mut first
+                },
+                right = Guard
+                {
+                    counter = &mut second,
+                    fail = fails
+                }
+            }
+        );
+
+        value = box(
+            Pair
+            {
+                left = Guard
+                {
+                    counter = &mut third
+                },
+                right = Guard
+                {
+                    counter = &mut fourth
+                }
+            }
+        );
+
+        assert(core.atomic.load<usize, 1>(&RELEASES) == releases + 1);
+        yield unit;
+    };
+
+    assert((outcome matches Error(_)) == fails);
+    assert(first.value == 1 && second.value == 1);
+    assert(third.value == 1 && fourth.value == 1);
+    assert(core.atomic.load<usize, 1>(&RELEASES) == releases + 2);
+}
+
+func main() -> i32
+{
+    let mut first: Counter = Counter
+    {
+        value = 0
+    };
+
+    let mut second: Counter = Counter
+    {
+        value = 0
+    };
+
+    if fields(false, &mut first, &mut second) != 7 || first.value != 1 || second.value != 1
+    {
+        return 1;
+    }
+
+    if fields(true, &mut first, &mut second) != 7 || first.value != 2 || second.value != 2
+    {
+        return 2;
+    }
+
+    take(tupled(&mut first, &mut second));
+
+    if first.value != 3 || second.value != 3
+    {
+        return 3;
+    }
+
+    payload(
+        Choice.Pair(
+            Guard
+            {
+                counter = &mut first
+            },
+            Guard
+            {
+                counter = &mut second
+            }
+        )
+    );
+
+    payload(Choice.Empty);
+
+    if first.value != 4 || second.value != 4
+    {
+        return 4;
+    }
+
+    nullable(
+        Pair
         {
             left = Guard
             {
-                counter = first
+                counter = &mut first
             },
             right = Guard
             {
-                counter = second
-            },
-        };
-
-        if flag
-        {
-            take(pair.left);
+                counter = &mut second
+            }
         }
+    );
 
+    nullable(none);
+
+    if first.value != 5 || second.value != 5
+    {
+        return 5;
+    }
+
+    destructed(
+        ConsumingPair
+        {
+            left = Guard
+            {
+                counter = &mut first
+            },
+            right = Guard
+            {
+                counter = &mut second
+            }
+        }
+    );
+
+    if first.value != 6 || second.value != 6
+    {
+        return 6;
+    }
+
+    indexed<2>(
+        [
+            Guard
+            {
+                counter = &mut first
+            },
+            Guard
+            {
+                counter = &mut second
+            }
+        ],
+        1
+    );
+
+    if first.value != 7 || second.value != 7
+    {
         return 7;
     }
 
-    func tupled(pos first: &mut Counter, pos second: &mut Counter) -> Guard
-    {
-        let pair: (Guard, Guard) = (
+    indexed<2>(
+        [
             Guard
             {
-                counter = first
+                counter = &mut first
             },
             Guard
             {
-                counter = second
+                counter = &mut second
             }
-        );
+        ],
+        0
+    );
 
-        return pair.0;
+    if first.value != 8 || second.value != 8
+    {
+        return 8;
     }
 
-    func payload(pos choice: Choice)
-    {
-        match consume choice
-        {
-            case Pair(left,..) { take(left); }
-            case Empty {}
-        };
-    }
-
-    func nullable(pos pair: Pair?)
-    {
-        match consume pair
-        {
-            case ?Pair
-            {
-                left,..
-            }
-            {
-                take(left);
-            }
-            case none {}
-        };
-    }
-
-    func replacement(pos fails: bool)
-    {
-        let mut first: Counter = Counter
-        {
-            value = 0
-        };
-
-        let mut second: Counter = Counter
-        {
-            value = 0
-        };
-
-        let mut third: Counter = Counter
-        {
-            value = 0
-        };
-
-        let mut fourth: Counter = Counter
-        {
-            value = 0
-        };
-
-        let releases = core.atomic.load<usize, 1>(&RELEASES);
-
-        let outcome = catch
-        {
-            let mut value: box[PairStorage] Pair = box(
-                Pair
-                {
-                    left = Guard
-                    {
-                        counter = &mut first
-                    },
-                    right = Guard
-                    {
-                        counter = &mut second,
-                        fail = fails
-                    }
-                }
-            );
-
-            value = box(
-                Pair
-                {
-                    left = Guard
-                    {
-                        counter = &mut third
-                    },
-                    right = Guard
-                    {
-                        counter = &mut fourth
-                    }
-                }
-            );
-
-            assert(core.atomic.load<usize, 1>(&RELEASES) == releases + 1);
-            yield unit;
-        };
-
-        assert((outcome matches Error(_)) == fails);
-        assert(first.value == 1 && second.value == 1);
-        assert(third.value == 1 && fourth.value == 1);
-        assert(core.atomic.load<usize, 1>(&RELEASES) == releases + 2);
-    }
-
-    func main() -> i32
-    {
-        let mut first: Counter = Counter
-        {
-            value = 0
-        };
-
-        let mut second: Counter = Counter
-        {
-            value = 0
-        };
-
-        if fields(false, &mut first, &mut second) != 7 || first.value != 1 || second.value != 1
-        {
-            return 1;
-        }
-
-        if fields(true, &mut first, &mut second) != 7 || first.value != 2 || second.value != 2
-        {
-            return 2;
-        }
-
-        take(tupled(&mut first, &mut second));
-
-        if first.value != 3 || second.value != 3
-        {
-            return 3;
-        }
-
-        payload(
-            Choice.Pair(
-                Guard
-                {
-                    counter = &mut first
-                },
-                Guard
-                {
-                    counter = &mut second
-                }
-            )
-        );
-
-        payload(Choice.Empty);
-
-        if first.value != 4 || second.value != 4
-        {
-            return 4;
-        }
-
-        nullable(
-            Pair
-            {
-                left = Guard
-                {
-                    counter = &mut first
-                },
-                right = Guard
-                {
-                    counter = &mut second
-                }
-            }
-        );
-
-        nullable(none);
-
-        if first.value != 5 || second.value != 5
-        {
-            return 5;
-        }
-
-        destructed(
-            ConsumingPair
-            {
-                left = Guard
-                {
-                    counter = &mut first
-                },
-                right = Guard
-                {
-                    counter = &mut second
-                }
-            }
-        );
-
-        if first.value != 6 || second.value != 6
-        {
-            return 6;
-        }
-
-        indexed<2>(
+    take(
+        indexed_return<2>(
             [
                 Guard
                 {
@@ -492,242 +522,233 @@ func indexed<const Count: usize>(pos values: [Guard; Count],
                 }
             ],
             1
-        );
+        )
+    );
 
-        if first.value != 7 || second.value != 7
-        {
-            return 7;
-        }
+    if first.value != 9 || second.value != 9
+    {
+        return 9;
+    }
 
-        indexed<2>(
+    nested_indexed(
+        [
             [
                 Guard
                 {
                     counter = &mut first
-                },
+                }
+            ],
+            [
                 Guard
                 {
                     counter = &mut second
                 }
-            ],
-            0
-        );
+            ]
+        ],
+        1
+    );
 
-        if first.value != 8 || second.value != 8
-        {
-            return 8;
-        }
+    if first.value != 10 || second.value != 10
+    {
+        return 10;
+    }
 
-        take(
-            indexed_return<2>(
-                [
-                    Guard
-                    {
-                        counter = &mut first
-                    },
-                    Guard
-                    {
-                        counter = &mut second
-                    }
-                ],
-                1
-            )
-        );
+    let mut replacement_counter: Counter = Counter
+    {
+        value = 0
+    };
 
-        if first.value != 9 || second.value != 9
-        {
-            return 9;
-        }
-
-        nested_indexed(
-            [
-                [
-                    Guard
-                    {
-                        counter = &mut first
-                    }
-                ],
-                [
-                    Guard
-                    {
-                        counter = &mut second
-                    }
-                ]
-            ],
-            1
-        );
-
-        if first.value != 10 || second.value != 10
-        {
-            return 10;
-        }
-
-        let mut replacement_counter: Counter = Counter
-        {
-            value = 0
-        };
-
-        indexed_repaired(
-            [
-                Guard
-                {
-                    counter = &mut first
-                },
-                Guard
-                {
-                    counter = &mut second
-                }
-            ],
-            0,
+    indexed_repaired(
+        [
             Guard
             {
-                counter = &mut replacement_counter
-            }
-        );
-
-        if first.value != 11 || second.value != 11 || replacement_counter.value != 1
-        {
-            return 11;
-        }
-
-        guarded(
-            Pair
-            {
-                left = Guard
-                {
-                    counter = &mut first
-                },
-                right = Guard
-                {
-                    counter = &mut second
-                }
+                counter = &mut first
             },
-            false
-        );
-
-        if first.value != 12 || second.value != 12
-        {
-            return 12;
-        }
-
-        guarded(
-            Pair
+            Guard
             {
-                left = Guard
-                {
-                    counter = &mut first
-                },
-                right = Guard
-                {
-                    counter = &mut second
-                }
-            },
-            true
-        );
-
-        if first.value != 13 || second.value != 13
-        {
-            return 13;
-        }
-
-        guarded_alternative(
-            GuardChoice.First(
-                Guard
-                {
-                    counter = &mut first
-                }
-            ),
-            false
-        );
-
-        guarded_alternative(
-            GuardChoice.Second(
-                Guard
-                {
-                    counter = &mut second
-                }
-            ),
-            true
-        );
-
-        if first.value != 14 || second.value != 14
-        {
-            return 14;
-        }
-
-        let owned = box[PairStorage](
-            Pair
-            {
-                left = Guard
-                {
-                    counter = &mut first
-                },
-                right = Guard
-                {
-                    counter = &mut second
-                }
-            },
-            options = 9
-        );
-
-        boxed(owned);
-
-        if first.value != 15 || second.value != 15
-        {
-            return 15;
-        }
-
-        let observed: box[PairStorage] Pair = box(
-            Pair
-            {
-                left = Guard
-                {
-                    counter = &mut first
-                },
-                right = Guard
-                {
-                    counter = &mut second
-                },
+                counter = &mut second
             }
-        );
-
-        if observe_borrowed_box(&observed) != 15
+        ],
+        0,
+        Guard
         {
-            return 18;
+            counter = &mut replacement_counter
         }
+    );
 
-        if observe_box(observed) != 15 || first.value != 16 || second.value != 16
+    if first.value != 11 || second.value != 11 || replacement_counter.value != 1
+    {
+        return 11;
+    }
+
+    guarded(
+        Pair
         {
-            return 16;
-        }
-
-        let transferred: box[PairStorage] Pair = box(
-            Pair
+            left = Guard
             {
-                left = Guard
-                {
-                    counter = &mut first
-                },
-                right = Guard
-                {
-                    counter = &mut second
-                },
+                counter = &mut first
+            },
+            right = Guard
+            {
+                counter = &mut second
             }
-        );
+        },
+        false
+    );
 
-        move_box_target(transferred);
+    if first.value != 12 || second.value != 12
+    {
+        return 12;
+    }
 
-        if first.value != 17 || second.value != 17
+    guarded(
+        Pair
         {
-            return 17;
-        }
+            left = Guard
+            {
+                counter = &mut first
+            },
+            right = Guard
+            {
+                counter = &mut second
+            }
+        },
+        true
+    );
 
-        if core.atomic.load<usize, 1>(&RELEASES) != 3
+    if first.value != 13 || second.value != 13
+    {
+        return 13;
+    }
+
+    guarded_alternative(
+        GuardChoice.First(
+            Guard
+            {
+                counter = &mut first
+            }
+        ),
+        false
+    );
+
+    guarded_alternative(
+        GuardChoice.Second(
+            Guard
+            {
+                counter = &mut second
+            }
+        ),
+        true
+    );
+
+    if first.value != 14 || second.value != 14
+    {
+        return 14;
+    }
+
+    let owned = box[PairStorage](
+        Pair
         {
-            return 19;
-        }
+            left = Guard
+            {
+                counter = &mut first
+            },
+            right = Guard
+            {
+                counter = &mut second
+            }
+        },
+        options = 9
+    );
 
-        let ordered: box[PairStorage] Pair = box(
+    boxed(owned);
+
+    if first.value != 15 || second.value != 15
+    {
+        return 15;
+    }
+
+    let observed: box[PairStorage] Pair = box(
+        Pair
+        {
+            left = Guard
+            {
+                counter = &mut first
+            },
+            right = Guard
+            {
+                counter = &mut second
+            },
+        }
+    );
+
+    if observe_borrowed_box(&observed) != 15
+    {
+        return 18;
+    }
+
+    if observe_box(observed) != 15 || first.value != 16 || second.value != 16
+    {
+        return 16;
+    }
+
+    let transferred: box[PairStorage] Pair = box(
+        Pair
+        {
+            left = Guard
+            {
+                counter = &mut first
+            },
+            right = Guard
+            {
+                counter = &mut second
+            },
+        }
+    );
+
+    move_box_target(transferred);
+
+    if first.value != 17 || second.value != 17
+    {
+        return 17;
+    }
+
+    if core.atomic.load<usize, 1>(&RELEASES) != 3
+    {
+        return 19;
+    }
+
+    let ordered: box[PairStorage] Pair = box(
+        Pair
+        {
+            left = Guard
+            {
+                counter = &mut first,
+                digit = 1
+            },
+            right = Guard
+            {
+                counter = &mut second,
+                digit = 2
+            },
+        }
+    );
+
+    boxed(ordered);
+
+    if first.value != 18 || second.value != 18 || core.atomic.load<usize, 1>(&RELEASES) != 4 || core.atomic.load<
+        usize,
+        1
+    >(&CLEANUP_ORDER) != 123
+    {
+        return 20;
+    }
+
+    core.atomic.store<usize, 4>(&CLEANUP_ORDER, 0);
+
+    let caught: Result<unit, PanicReport> = catch
+    {
+        let partial: box[PairStorage] Pair = box(
             Pair
             {
                 left = Guard
@@ -743,59 +764,29 @@ func indexed<const Count: usize>(pos values: [Guard; Count],
             }
         );
 
-        boxed(ordered);
+        boxed_panic(partial);
+        yield unit;
+    };
 
-        if first.value != 18 || second.value != 18 || core.atomic.load<usize, 1>(&RELEASES) != 4 || core.atomic.load<
-            usize,
-            1
-        >(&CLEANUP_ORDER) != 123
-        {
-            return 20;
-        }
+    let failed: bool = match consume caught
+    {
+        case Ok(_) { yield false; }
+        case Error(_) { yield true; }
+    };
 
-        core.atomic.store<usize, 4>(&CLEANUP_ORDER, 0);
-
-        let caught: Result<unit, PanicReport> = catch
-        {
-            let partial: box[PairStorage] Pair = box(
-                Pair
-                {
-                    left = Guard
-                    {
-                        counter = &mut first,
-                        digit = 1
-                    },
-                    right = Guard
-                    {
-                        counter = &mut second,
-                        digit = 2
-                    },
-                }
-            );
-
-            boxed_panic(partial);
-            yield unit;
-        };
-
-        let failed: bool = match consume caught
-        {
-            case Ok(_) { yield false; }
-            case Error(_) { yield true; }
-        };
-
-        if !failed || first.value != 19 || second.value != 19 || core.atomic.load<usize, 1>(&RELEASES) != 5 ||
-            core.atomic.load<usize, 1>(&CLEANUP_ORDER) != 123
-        {
-            return 21;
-        }
-
-        if core.atomic.load<usize, 1>(&CONSTRUCTION_OPTIONS) != 37
-        {
-            return 22;
-        }
-
-        replacement(false);
-        replacement(true);
-
-        return 0;
+    if !failed || first.value != 19 || second.value != 19 || core.atomic.load<usize, 1>(&RELEASES) != 5 ||
+        core.atomic.load<usize, 1>(&CLEANUP_ORDER) != 123
+    {
+        return 21;
     }
+
+    if core.atomic.load<usize, 1>(&CONSTRUCTION_OPTIONS) != 37
+    {
+        return 22;
+    }
+
+    replacement(false);
+    replacement(true);
+
+    return 0;
+}
