@@ -230,12 +230,16 @@ fn bind_generic_declaration_template(
                     diagnostics = diagnostics.merged(subject.diagnostics());
                     diagnostics = diagnostics.merged(application.diagnostics());
 
+                    let Some(application) = application.value() else {
+                        continue;
+                    };
+
                     // The declaration template owns the Arc-backed checked type templates.
                     GenericConstraintTemplate::trait_satisfaction(
                         ordinal,
                         unit,
                         subject.value().clone(),
-                        application.value().clone(),
+                        application.clone(),
                     )
                 } else if let Some(equality) = expression.type_equality_constraint() {
                     match (

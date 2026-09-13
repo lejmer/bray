@@ -24,6 +24,8 @@ use crate::{DiagnosticInterfaceLimit, DiagnosticInterfaceSection};
 pub enum DiagnosticArgName {
     /// Actual externally supplied count or size.
     ActualCount,
+    /// Exact number required by a source construct.
+    ExpectedCount,
     /// Actual completed artifact byte count.
     ActualByteCount,
     /// Actual digest measured from completed artifact bytes.
@@ -298,6 +300,7 @@ impl DiagnosticArgName {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::ActualCount => "actual_count",
+            Self::ExpectedCount => "expected_count",
             Self::ActualByteCount => "actual_byte_count",
             Self::ActualArtifactDigest => "actual_artifact_digest",
             Self::ArtifactPath => "artifact_path",

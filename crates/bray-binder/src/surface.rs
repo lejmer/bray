@@ -297,7 +297,6 @@ fn binding_error<Upstream>(error: BindingError<Upstream>) -> BindingQueryError<U
         | BindingError::SymbolRecordUnavailable(_)
         | BindingError::ModulePartRecordUnavailable(_)
         | BindingError::DeclarationRecordUnavailable(_)
-        | BindingError::UnresolvedTraitApplication(_)
         | BindingError::ContextualSelfUnavailable(_)
         | BindingError::UnresolvedTypeTemplate
         | BindingError::InvalidUnitKey { .. }

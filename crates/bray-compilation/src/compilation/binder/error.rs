@@ -97,9 +97,6 @@ where
         BindingError::SymbolRecordUnavailable(symbol) => FactQueryError::Binding(
             BoundUnitBindingError::Binding(BindingError::SymbolRecordUnavailable(symbol)),
         ),
-        BindingError::UnresolvedTraitApplication(source) => FactQueryError::Binding(
-            BoundUnitBindingError::Binding(BindingError::UnresolvedTraitApplication(source)),
-        ),
         BindingError::ContextualSelfUnavailable(source) => FactQueryError::Binding(
             BoundUnitBindingError::Binding(BindingError::ContextualSelfUnavailable(source)),
         ),

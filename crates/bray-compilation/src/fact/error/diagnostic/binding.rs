@@ -248,7 +248,6 @@ fn diagnostic_nested_binding_failure(
         Error::SymbolRecordUnavailable(_) => "binding_symbol_record_unavailable",
         Error::ModulePartRecordUnavailable(_) => "binding_module_part_record_unavailable",
         Error::DeclarationRecordUnavailable(_) => "binding_declaration_record_unavailable",
-        Error::UnresolvedTraitApplication(_) => "binding_unresolved_trait_application",
         Error::ContextualSelfUnavailable(_) => "binding_contextual_self_unavailable",
         Error::UnresolvedTypeTemplate => "binding_unresolved_type_template",
         Error::InvalidUnitKey { .. } => "binding_invalid_unit_key",
@@ -307,7 +306,6 @@ fn push_nested_binding_context(
             push_symbol(context, "symbol_kind", "symbol", *symbol);
         }
         Error::SyntaxContract(source)
-        | Error::UnresolvedTraitApplication(source)
         | Error::ContextualSelfUnavailable(source)
         | Error::CallableTypeTemplateExpected(source) => {
             push_syntax_anchor(context, "source", *source);

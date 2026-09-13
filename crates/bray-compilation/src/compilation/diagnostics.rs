@@ -385,10 +385,39 @@ impl Compilation {
         ))
     }
 
+    fn has_incomplete_callable_parameters(&self) -> bool {
+        if !self.syntax_tree_result().diagnostics().has_errors() {
+            return false;
+        }
+
+        let mut incomplete = false;
+
+        bray_syntax::walk_syntax_tree(self.syntax_tree(), |event| {
+            if let bray_syntax::SyntaxWalkEvent::EnterNode(node) = event
+                && let Some(parameter) = node.cast::<bray_syntax::ParameterSyntax>()
+                && parameter.identifier_token().is_missing()
+            {
+                incomplete = true;
+
+                return bray_syntax::SyntaxWalkControl::Stop;
+            }
+
+            bray_syntax::SyntaxWalkControl::Continue
+        });
+
+        incomplete
+    }
+
     fn compute_semantic_diagnostics(
         &self,
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticBag, FactQueryError> {
+        // Recovered nameless parameters cannot form complete callable signatures.
+        // Other syntax recovery can still publish useful semantic diagnostics.
+        if self.source_diagnostics().has_errors() || self.has_incomplete_callable_parameters() {
+            return Ok(DiagnosticBag::new());
+        }
+
         let source_graph = self.product_source_graph()?;
 
         let symbols = self.symbol_graph()?;
@@ -465,6 +494,21 @@ impl Compilation {
                     .map(|symbol| ImplementationSymbolId::from(symbol.id())),
             )
         {
+            let coherence = binder
+                .resolve_symbol_query(SymbolQueryRequest::<
+                    bray_symbols::ImplementationCoherenceQuery,
+                >::new(implementation))
+                .map_err(super::binder::binding_query_error)?;
+
+            if coherence.diagnostics().has_errors() {
+                // Diagnostic publication owns this source bag after the query result is released.
+                sources.push(SemanticDiagnosticSource::Failure(
+                    coherence.diagnostics().clone(),
+                ));
+
+                continue;
+            }
+
             sources.push(SemanticDiagnosticSource::TraitConformance(
                 self.trait_implementation_conformance(implementation)?,
             ));

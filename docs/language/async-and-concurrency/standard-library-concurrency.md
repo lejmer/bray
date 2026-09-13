@@ -25,7 +25,7 @@ impl Once<T>
     func get_or_init(pos initializer: func() -> T) -> &T
         requires(blocking_execution());
 
-    func get_or_try_init<E>(pos initializer: func() -> Result<T, E>) -> Result<&T, E>
+    func get_or_try_init<E>(pos initializer: func() -> Result<T, E>) -> Result<(&T), E>
         requires(blocking_execution());
 }
 ```

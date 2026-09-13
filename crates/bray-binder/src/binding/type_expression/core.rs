@@ -8,9 +8,9 @@ use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     AnySymbolId, BorrowKind, CallableContractSymbolId, ConstantTermData, GenericArgument,
     GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData,
-    GenericTypeParameterSymbolId, ImportedSymbolSkeleton, MemberLookupResult, ModuleSymbolId,
-    SelfTypeContext, SemanticValueStore, SymbolGraph, SymbolName, TraitApplicationData,
-    TraitApplicationTemplate, TraitTypeMemberSymbolId, TypeData, TypeExpressionTemplate, TypeId,
+    GenericTypeParameterSymbolId, ImportedSymbolSkeleton, ModuleSymbolId, SelfTypeContext,
+    SemanticValueStore, SymbolGraph, SymbolName, TraitApplicationData, TraitApplicationTemplate,
+    TraitTypeMemberSymbolId, TypeData, TypeExpressionTemplate, TypeId,
 };
 use bray_syntax::{
     ImplementationSubjectSyntax, PathSyntax, SyntaxToken, TraitApplicationSyntax,
@@ -153,11 +153,11 @@ impl<'binding_context, Upstream> TypeExpressionBinder<'binding_context, Upstream
         Ok(DiagnosticResult::new(result, self.diagnostics))
     }
 
-    /// Binds one trait application and publishes its diagnostics atomically with the value.
+    /// Binds one trait application, or returns no application with source diagnostics when binding fails.
     pub fn bind_trait_application(
         mut self,
         syntax: &TraitApplicationSyntax,
-    ) -> BindingQueryResult<DiagnosticResult<TraitApplicationTemplate>, Upstream> {
+    ) -> BindingQueryResult<DiagnosticResult<Option<TraitApplicationTemplate>>, Upstream> {
         self.check_cancellation()?;
 
         let application = self.bind_trait(syntax)?;
@@ -326,33 +326,10 @@ impl<'binding_context, Upstream> TypeExpressionBinder<'binding_context, Upstream
         &mut self,
         path: &PathSyntax,
     ) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {
-        let resolved = self.bind_type_path(path)?;
-
-        match resolved {
-            MemberLookupResult::Found(crate::lookup::ResolvedTypeName::Named(definition)) => {
-                self.bind_named_type(definition, None)
-            }
-            MemberLookupResult::Found(crate::lookup::ResolvedTypeName::CallableContract(
-                definition,
-            )) => self.bind_callable_contract(definition, None),
-            MemberLookupResult::Found(crate::lookup::ResolvedTypeName::GenericParameter(
-                parameter,
-            )) => self
-                .intern_type(TypeData::TypeParameter(parameter))
-                .map(TypeExpressionTemplate::Resolved),
-            MemberLookupResult::Found(crate::lookup::ResolvedTypeName::TraitMember(member)) => {
-                self.bind_contextual_trait_type_member(member)
-            }
-            MemberLookupResult::Found(_)
-            | MemberLookupResult::NotFound
-            | MemberLookupResult::WrongKind(_)
-            | MemberLookupResult::Ambiguous(_)
-            | MemberLookupResult::Inaccessible(_)
-            | MemberLookupResult::Malformed(_) => self.error_type_template(),
-        }
+        self.bind_named_path(path, None)
     }
 
-    fn bind_contextual_trait_type_member(
+    pub(super) fn bind_contextual_trait_type_member(
         &self,
         member: TraitTypeMemberSymbolId,
     ) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {

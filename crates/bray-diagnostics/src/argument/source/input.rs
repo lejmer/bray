@@ -4,6 +4,14 @@ use bray_syntax::SyntaxKind;
 use super::super::{DiagnosticArg, DiagnosticArgName, DiagnosticArgValue};
 
 impl DiagnosticArg {
+    /// Creates an exact required count argument.
+    pub const fn expected_count(count: u64) -> Self {
+        Self::new(
+            DiagnosticArgName::ExpectedCount,
+            DiagnosticArgValue::Count(count),
+        )
+    }
+
     /// Creates a source-count argument.
     pub const fn source_count(source_count: u64) -> Self {
         Self::new(

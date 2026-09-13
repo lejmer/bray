@@ -307,7 +307,6 @@ pub(super) fn map_binding_error<Upstream>(
         | BindingError::SymbolRecordUnavailable(_)
         | BindingError::ModulePartRecordUnavailable(_)
         | BindingError::DeclarationRecordUnavailable(_)
-        | BindingError::UnresolvedTraitApplication(_)
         | BindingError::ContextualSelfUnavailable(_)
         | BindingError::UnresolvedTypeTemplate
         | BindingError::InvalidUnitKey { .. }

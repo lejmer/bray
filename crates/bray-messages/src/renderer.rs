@@ -304,6 +304,69 @@ mod tests {
     };
 
     #[test]
+    fn generic_application_errors_identify_the_source_and_required_correction() {
+        let span = SourceSpan::new(
+            SourceId::new(0),
+            TextRange::new(TextSize::new(10), TextSize::new(16)),
+        );
+
+        for (kind, args, note, message, help) in [
+            (
+                DiagnosticKind::BindingGenericArgumentCountMismatch,
+                vec![
+                    DiagnosticArg::token_text("Result"),
+                    DiagnosticArg::expected_count(2),
+                    DiagnosticArg::actual_count(0),
+                ],
+                DiagnosticNoteKind::GenericArgumentCountMustMatch,
+                "generic argument count for 'Result' does not match its declaration: expected 2, received 0",
+                "supply one generic argument for each declared generic parameter",
+            ),
+            (
+                DiagnosticKind::BindingGenericArgumentMustBeType,
+                vec![DiagnosticArg::token_text("1")],
+                DiagnosticNoteKind::GenericArgumentRequiresType,
+                "generic argument '1' must be a type",
+                "replace this argument with a type, such as bool or a declared type name",
+            ),
+            (
+                DiagnosticKind::BindingGenericApplicationRequiresName,
+                vec![DiagnosticArg::token_text("(bool)")],
+                DiagnosticNoteKind::GenericApplicationRequiresDeclaredName,
+                "generic arguments cannot be applied to '(bool)' because it is not a declaration name",
+                "apply generic arguments directly to a generic type or trait name",
+            ),
+        ] {
+            let mut diagnostic = Diagnostic::new(DiagnosticId::new(0), kind, SeverityKind::Error)
+                .with_primary_span(span)
+                .with_label(DiagnosticLabel::primary(
+                    DiagnosticLabelKind::GenericApplication,
+                    span,
+                ))
+                .with_note(DiagnosticNote::new(note));
+
+            for arg in args {
+                diagnostic = diagnostic.with_arg(arg);
+            }
+
+            let rendered = DiagnosticRenderer::english().render(&diagnostic);
+            assert_eq!(rendered.message(), message);
+            assert_eq!(rendered.primary_span(), Some(span));
+            assert_eq!(rendered.notes().len(), 1);
+
+            assert_eq!(
+                rendered.notes()[0].rendered_kind(),
+                RenderedDiagnosticNoteKind::Help
+            );
+
+            assert_eq!(rendered.notes()[0].message(), help);
+            assert_eq!(rendered.labels().len(), 1);
+            assert_eq!(rendered.labels()[0].message(), "generic application");
+            assert!(rendered.suggestions().is_empty());
+        }
+    }
+
+    #[test]
     fn execution_guarantee_rejections_identify_the_clause() {
         for (keyword, spelling) in [
             (SyntaxKind::ExecutesKeyword, "executes"),

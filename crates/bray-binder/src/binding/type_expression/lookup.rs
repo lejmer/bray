@@ -18,25 +18,30 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
     pub(super) fn bind_trait(
         &mut self,
         syntax: &TraitApplicationSyntax,
-    ) -> BindingQueryResult<TraitApplicationTemplate, Upstream> {
+    ) -> BindingQueryResult<Option<TraitApplicationTemplate>, Upstream> {
         let definition = self.bind_trait_path(&syntax.path())?;
 
         let MemberLookupResult::Found(definition) = definition else {
-            return Err(BindingQueryError::Binding(
-                BindingError::UnresolvedTraitApplication(
-                    bray_declarations::SyntaxAnchor::from_node(syntax),
-                ),
-            ));
+            return Ok(None);
         };
 
         let parameters = self.trait_parameters(definition)?;
 
-        let arguments = self
-            .bind_generic_arguments(syntax.generic_argument_lists().next().as_ref(), &parameters)?;
+        let arguments = syntax.generic_argument_lists().next();
 
-        Ok(TraitApplicationTemplate::new(
+        if !self.validate_generic_argument_count(
+            &syntax.path(),
+            arguments.as_ref(),
+            parameters.len(),
+        )? {
+            return Ok(None);
+        }
+
+        let arguments = self.bind_generic_arguments(arguments.as_ref(), &parameters)?;
+
+        Ok(Some(TraitApplicationTemplate::new(
             definition, parameters, arguments,
-        ))
+        )))
     }
 
     /// Produces a canonical trait application when every argument is already resolved.

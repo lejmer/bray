@@ -111,6 +111,8 @@ pub enum DiagnosticLabelKind {
     CallableAbiDirective,
     /// Label for a malformed directive argument.
     DirectiveArgument,
+    /// Label for a generic application or argument rejected during binding.
+    GenericApplication,
     /// Label for a module export rejected during binding.
     ModuleExport,
     /// Label for an expression whose actual type conflicts with its expected type.
@@ -221,6 +223,7 @@ impl DiagnosticLabelKind {
             Self::MatchCoverage => "match_coverage",
             Self::CallableAbiDirective => "callable_abi_directive",
             Self::DirectiveArgument => "directive_argument",
+            Self::GenericApplication => "generic_application",
             Self::ModuleExport => "module_export",
             Self::IncompatibleExpressionType => "incompatible_expression_type",
             Self::SelectionFailure => "selection_failure",

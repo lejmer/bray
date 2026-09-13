@@ -420,9 +420,8 @@ impl CompilationSymbolQueryEvaluator<ImplementedTraitApplicationQuery>
 
         let syntax = declaration_child::<TraitApplicationSyntax>(context, symbol)?;
         let binder = type_binder(context, symbol)?;
-        let result = binder.bind_trait_application(&syntax)?;
 
-        Ok(result.map(Some))
+        binder.bind_trait_application(&syntax)
     }
 }
 
@@ -460,6 +459,10 @@ impl CompilationSymbolQueryEvaluator<ImplementationCoherenceQuery> for Compilati
             ImplementedTraitApplicationQuery,
         >::new(owner))?;
 
+        let diagnostics = subject
+            .diagnostics()
+            .merged(trait_application.diagnostics());
+
         let subject = subject.value().ty().resolved_type().ok_or_else(|| {
             query_contract(
                 owner.into_any(),
@@ -482,8 +485,9 @@ impl CompilationSymbolQueryEvaluator<ImplementationCoherenceQuery> for Compilati
             None => None,
         };
 
-        Ok(DiagnosticResult::without_diagnostics(
+        Ok(DiagnosticResult::new(
             ImplementationCoherenceKey::new(subject, trait_application),
+            diagnostics,
         ))
     }
 }

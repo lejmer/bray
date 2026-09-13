@@ -989,9 +989,13 @@ impl Compilation {
 
         *diagnostics = diagnostics.merged(bound.diagnostics());
 
+        let Some(bound) = bound.value() else {
+            return Ok(None);
+        };
+
         let application = type_binder(binding_context, owner)
             .map_err(binding_query_error)?
-            .resolve_trait_application_template(bound.value())
+            .resolve_trait_application_template(bound)
             .map_err(binding_query_error)?
             .ok_or_else(|| {
                 expression_contract_failure(
