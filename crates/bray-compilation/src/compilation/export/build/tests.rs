@@ -624,6 +624,35 @@ fn runtime_default_storage_cannot_escape_source_or_imported_calls() {
             value: bool;
         }
 
+        @copy
+        public struct Wrapper
+        {
+            flag: &Flag;
+        }
+
+        impl Wrapper
+        {
+            public consume func selected(second: &bool = &self.flag.value) -> &bool
+            {
+                return second;
+            }
+
+            public consume func slot(second: &(&Flag) = &self.flag) -> &(&Flag)
+            {
+                return second;
+            }
+        }
+
+        public func borrow_wrapped(pos first: Wrapper, second: &bool = &first.flag.value) -> &bool
+        {
+            return second;
+        }
+
+        public func borrow_wrapped_slot(pos first: Wrapper, second: &(&Flag) = &first.flag) -> &(&Flag)
+        {
+            return second;
+        }
+
         public func read_default(pos first: Flag, second: &Flag = &first) -> bool
         {
             return second.value;
@@ -677,6 +706,24 @@ fn runtime_default_storage_cannot_escape_source_or_imported_calls() {
             true,
         ),
         ("&bool", "borrow_field(owner)", true),
+        ("&bool", "wrapped.selected()", true),
+        ("&(&Flag)", "wrapped.slot()", false),
+        (
+            "&bool",
+            r#"borrow_wrapped(Wrapper
+                    {
+                        flag = owner,
+                    })"#,
+            true,
+        ),
+        (
+            "&(&Flag)",
+            r#"borrow_wrapped_slot(Wrapper
+                    {
+                        flag = owner,
+                    })"#,
+            false,
+        ),
         ("&(&bool)", "borrow_slot(caller)", false),
         ("&bool", "choose(first, second = caller)", true),
         ("bool", "evaluate(first)", true),
@@ -694,6 +741,10 @@ fn runtime_default_storage_cannot_escape_source_or_imported_calls() {
                 func check(pos caller: &bool, pos owner: &Flag) -> {result}
                 {{
                     let first: bool = true;
+                    let wrapped = Wrapper
+                    {{
+                        flag = owner,
+                    }};
 
                     observe(first);
 
@@ -704,13 +755,20 @@ fn runtime_default_storage_cannot_escape_source_or_imported_calls() {
 
         let source = compilation(&format!("{provider_source}\n{body}"));
 
+        let imported_invocation = if invocation.starts_with("wrapped.") {
+            invocation.to_owned()
+        } else {
+            format!("example.package.api.{invocation}")
+        };
+
         let imported_body = body
             .replace(
                 &format!("return {invocation};"),
-                &format!("return example.package.api.{invocation};"),
+                &format!("return {imported_invocation};"),
             )
             .replace("Flag", "example.package.api.Flag")
             .replace("Holder", "example.package.api.Holder")
+            .replace("Wrapper", "example.package.api.Wrapper")
             .replace("observe(first)", "example.package.api.observe(first)");
 
         let imported = execution_consumer(

@@ -118,7 +118,7 @@ fn default_borrows_argument_storage<C: CheckerRequestContext + ?Sized>(
         return Ok(true);
     }
 
-    let ty = match root {
+    let mut ty = match root {
         DependencySubjectRoot::Parameter(ordinal) => {
             match call.arguments().iter().find(|argument| match argument {
                 SelectedArgument::Explicit {
@@ -146,26 +146,47 @@ fn default_borrows_argument_storage<C: CheckerRequestContext + ?Sized>(
             }
         }
         DependencySubjectRoot::Receiver => {
-            return Ok(call.receiver().is_some_and(|receiver| {
-                matches!(
-                    receiver.mode(),
-                    bray_symbols::ReceiverMode::Consuming
-                        | bray_symbols::ReceiverMode::ConsumingMutable
-                )
-            }));
+            let receiver = call
+                .receiver()
+                .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+
+            if !matches!(
+                receiver.mode(),
+                bray_symbols::ReceiverMode::Consuming
+                    | bray_symbols::ReceiverMode::ConsumingMutable
+            ) {
+                return Ok(false);
+            }
+
+            receiver.target_type()
         }
         _ => return Ok(false),
     };
 
-    let ty = request
-        .semantic_values()
-        .type_data(ty)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    for projection in subject.projections() {
+        let data = request
+            .semantic_values()
+            .type_data(ty)
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
-    Ok(!matches!(
-        ty.as_ref(),
-        bray_symbols::TypeData::Borrow { .. }
-    ))
+        if matches!(data.as_ref(), bray_symbols::TypeData::Borrow { .. }) {
+            return Ok(false);
+        }
+
+        let projected = crate::storage::projected_value_type(request, ty, *projection)?;
+
+        if projected.diagnostics().has_errors() {
+            return Ok(true);
+        }
+
+        let Some(projected) = *projected.value() else {
+            return Ok(true);
+        };
+
+        ty = projected;
+    }
+
+    Ok(true)
 }
 
 pub(super) fn escaping_default_diagnostic<C: CheckerRequestContext + ?Sized>(

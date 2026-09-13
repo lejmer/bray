@@ -5,6 +5,33 @@ public struct DefaultFlag
     mut value: bool;
 }
 
+public struct DefaultFlagHolder
+{
+    flag: DefaultFlag;
+}
+
+@copy
+public struct DefaultFlagReference
+{
+    holder: &DefaultFlagHolder;
+}
+
+impl DefaultFlagReference
+{
+    public consume func selected(flag: &DefaultFlag = &self.holder.flag) -> &DefaultFlag
+    {
+        return flag;
+    }
+}
+
+public func projected_default(
+    pos reference: DefaultFlagReference,
+    flag: &DefaultFlag = &reference.holder.flag,
+) -> &DefaultFlag
+{
+    return flag;
+}
+
 public func read_default_storage(
     pos first: DefaultFlag,
     borrowed: &DefaultFlag = &first,

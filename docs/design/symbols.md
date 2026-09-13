@@ -1351,7 +1351,6 @@ codegen:
 Provider inputs are explicit. A parameter default can depend on the receiver and earlier parameters, but not itself,
 later parameters, or arbitrary call-site locals. Field and payload defaults cannot depend on `self` or sibling fields.
 
-
 Imported package interfaces reconstruct provider symbols and their checked surfaces without dependency source syntax.
 Generic providers include a source-independent checked or lowerable template sufficient for downstream instantiation.
 The consuming compiler must not rebind a dependency's default expression.
