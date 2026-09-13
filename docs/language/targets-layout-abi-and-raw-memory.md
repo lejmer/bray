@@ -31,3 +31,4 @@ wrappers.
 - [ABI-oriented memory helpers](targets-layout-abi-and-raw-memory/abi-oriented-memory-helpers.md)
 - [Target control and inline assembly](targets-layout-abi-and-raw-memory/target-control-and-inline-assembly.md)
 - [Summary](targets-layout-abi-and-raw-memory/summary.md)
+- [Foreign standard library](targets-layout-abi-and-raw-memory/foreign-standard-library.md)

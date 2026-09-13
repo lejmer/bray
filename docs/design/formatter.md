@@ -1,169 +1,54 @@
-# Source formatter
+# Source formatter design
 
-## Ownership
+`bray-formatter` owns deterministic source layout over the parser's lossless syntax. The [Bray style
+guide](../contributing/bray-style-guide.md) owns the formatting conventions. Project selection and command-line policy
+belong to the tools that call the formatter.
 
-`bray-formatter` owns deterministic Bray source layout. It depends on the parser and lossless syntax tree, but it does
-not change parser recovery, perform semantic validation, or own project and command-line policy.
+## Syntax-preserving layout
 
-The reusable entry points are:
+Ordinary formatting preserves the ordered non-trivia token stream, literal spellings, and comments. Syntax context
+determines whitespace and legal breakpoints. Source relationships around comments remain part of the layout constraints.
 
-- `format_source_unit` for callers that already own parsed syntax,
-- `format_text` for editor and standard-input text,
-- `format_file` for typed check and write operations over one UTF-8 source file.
+Width-aware layout uses groups, indentation, required breaks, and optional breaks. A shared layout engine chooses among
+legal breaks instead of scattering column checks through grammar-specific code. An indivisible token or preserved
+comment can exceed the width target.
 
-The project CLI can aggregate those operations across manifest-owned source files without moving formatter policy into
-the command layer.
+The same source and resolved configuration produce the same output. Formatting that output again makes no changes.
 
-## Layout
+## Configuration and rule composition
 
-The formatter implements the defined policies in the [Bray source style guide](../contributing/bray-style-guide.md). The
-style guide owns source conventions, while this document owns the formatter architecture and behavior required to apply
-them.
+The formatter receives immutable, resolved configuration. Independently configurable policies have stable rule
+identities and explicit defaults. The rule model describes owned decisions, parameters, dependencies, and conflicts, so
+configuration does not depend on incidental registry order.
 
-The formatter uses syntax node context and source-order token traversal. Ordinary formatting preserves the ordered
-non-trivia token stream. Token spellings, literal spellings, and comment text are copied exactly from the source
-snapshot. Ordinary whitespace is reconstructed from syntax context, while source whitespace still controls blank-line
-placement around comments. Syntax-changing transformations are separate, explicitly enabled rewrite rules with stronger
-correctness requirements.
+Recovery preservation takes precedence over formatting. Optional syntax rewrites precede layout. Comment ownership and
+structural breaks constrain groups, spacing operates within those groups, and wrapping chooses among legal breaks.
+Output encoding and newline policy serialize the result.
 
-Declaration contract clauses are continuation lines of their declaration header. The formatter places each `with(...)`,
-`requires(...)`, `ensures(...)`, and `uses(...)` clause on its own line for every declaration form that accepts the
-clause rather than limiting this layout to callable declarations.
+Workspace configuration discovery belongs to Bray Tack. `brayfmt` decodes explicit formatter configuration and invokes
+the reusable formatter. The formatter library does not search for project files.
 
-The maximum width is a layout target rather than permission to rewrite source tokens. An indivisible token, preserved
-comment, or other source text without a legal breakpoint may exceed it. Width-aware layout uses groups, indentation,
-required breaks, and optional breaks so wrapping remains deterministic and idempotent instead of relying on local column
-checks scattered throughout syntax formatting code.
+## Optional rewrites and recovery
 
-## Formatting rules and configuration
+Syntax-changing rewrites are separate, explicitly enabled operations. They require a syntax-local proof that evaluation,
+scope, lifecycle, control flow, and comment ownership are preserved. An unproven rewrite leaves the original form
+intact, without invoking semantic analysis to justify a formatting change.
 
-Every independently enforceable formatting behavior has a stable rule name. This includes indentation, brace placement,
-spacing, blank-line placement, list layout, wrapping, comments, final newlines, line endings, and optional syntax
-rewrites.
+Recovered source remains lossless. The formatter preserves a recovered source unit rather than letting whitespace edits
+change its recovery boundaries. Parser diagnostics stay parser-owned.
 
-The formatter provides a default configuration and accepts an immutable caller-provided configuration containing:
+## Library and tool boundaries
 
-- the maximum line width, which defaults to 120 display columns,
-- explicit enabled or disabled overrides keyed by formatting rule name,
-- parameters owned by individual rules when a Boolean setting is insufficient.
+Parsed-source, text, and file entry points share the same formatter. File operations add typed I/O and write/check
+outcomes around that core.
 
-A caller can disable any rule enabled by default or enable a rule disabled by default. Unknown rule names and invalid
-rule parameters are configuration errors and are not silently ignored.
+The standalone `brayfmt` executable owns arguments, terminal I/O, and exit status. Bray Tack selects manifest-owned
+files and forwards the selected configuration. Typed failures cross these boundaries as structured diagnostics rendered
+through `bray-messages`.
 
-Disabling a layout rule means that the formatter does not enforce that policy. It does not mean that the formatter
-enforces the opposite policy. Where the relevant trivia can be retained independently of enabled rules, the formatter
-preserves the source layout.
+## Related documents
 
-Rule interaction and precedence must be deterministic and documented. Formatting the same source with the same
-configuration always produces the same result, and formatting that result again makes no changes.
-
-The rule registry is exhaustive for independently configurable behavior:
-
-- `indentation`,
-- `block-braces`,
-- `module-item-spacing`,
-- `callable-member-spacing`,
-- `directive-line-breaks`,
-- `block-paragraph-spacing`,
-- `match-case-spacing`,
-- `match-arm-body-layout`,
-- `struct-construction-layout`,
-- `overload-arm-layout`,
-- `parenthesized-list-layout`,
-- `bracketed-list-layout`,
-- `generic-list-layout`,
-- `trailing-comma-layout`,
-- `comma-spacing`,
-- `colon-spacing`,
-- `operator-spacing`,
-- `generic-delimiter-spacing`,
-- `member-access-spacing`,
-- `range-spacing`,
-- `prefix-operator-spacing`,
-- `directive-marker-spacing`,
-- `word-spacing`,
-- `semicolon-layout`,
-- `comment-placement`,
-- `line-wrapping`,
-- `line-ending-style`,
-- `final-newline`,
-- `simplify-nested-if`.
-
-Each registry entry declares its stable name, default state, typed parameter schema, owned formatting decisions,
-dependencies, and conflicts. Adding an independently configurable behavior requires adding a registry entry and
-configuration, documentation, idempotence, and interaction tests in the same change. A broad rule cannot hide unrelated
-style decisions merely to avoid assigning them stable names.
-
-Rule application has one defined precedence. Recovery preservation decides whether formatting is allowed. Enabled syntax
-rewrites then produce the token sequence. Comment ownership and required structural breaks constrain layout groups.
-Delimiter and list rules choose group structure, spacing rules choose intra-group separation, line wrapping chooses
-among legal breaks, and line-ending and final-newline rules serialize the result. A lower stage cannot undo a constraint
-established by a higher stage. Rule descriptors record any same-stage ordering explicitly, and an unrecorded conflict is
-a formatter invariant failure rather than an order chosen by registry iteration.
-
-An explicitly selected formatter configuration is a JSON object with an optional positive `maximum_line_width` and an
-optional `rules` object whose keys are stable rule names and whose values are Booleans:
-
-```json
-{
-  "maximum_line_width": 100,
-  "rules": {
-    "line-wrapping": true,
-    "simplify-nested-if": false
-  }
-}
-```
-
-Omitted values use formatter defaults. Unknown top-level properties, unknown rule names, non-Boolean rule values, and
-maximum line widths outside the range 1 through 65535 are configuration errors.
-
-Configuration-file discovery and workspace policy do not belong in `bray-formatter`. Its APIs receive resolved
-configuration. `brayfmt` accepts explicit formatter configuration, while Bray Tack can resolve workspace-owned
-configuration before invoking the formatter executable.
-
-## Optional syntax rewrites
-
-An optional syntax rewrite may change non-trivia tokens only when its rule is explicitly enabled and the formatter can
-prove that the replacement preserves program behavior. Failure to prove equivalence leaves the original syntax
-unchanged. A rewrite must also preserve comments without changing which construct they document.
-
-`simplify-nested-if` is disabled by default. It can combine nested conditional expressions only when all of the
-following are preserved:
-
-- condition evaluation order and short-circuit behavior,
-- the result expected from the conditional expression,
-- lexical scope and the lifetime of values and temporaries,
-- constructor, destructor, finalizer, and scope lifecycle behavior,
-- control-flow behavior,
-- comment ownership and placement.
-
-The rule may retain explicit inner blocks when those blocks are necessary to preserve scope and lifecycle behavior. It
-must leave the nested form unchanged when an available syntax-local proof is insufficient. Formatting must not trigger
-binding or whole program semantic analysis merely to make an optional rewrite apply.
-
-The first LF or CRLF line ending in a source selects the output line ending. Sources without a line ending use LF. A
-leading UTF-8 byte order mark is not part of syntax text, but `format_file` retains it when writing a changed file.
-
-## Recovery
-
-A source unit containing a missing token, invalid token, or skipped-syntax node is returned unchanged. This makes
-malformed and unsupported recovery regions strictly lossless and guarantees idempotence even when changing nearby
-whitespace would otherwise alter parser recovery boundaries.
-
-Parser diagnostics remain parser-owned structured diagnostics. The formatter does not render or add user-facing English
-diagnostics.
-
-## Command integration
-
-The standalone `brayfmt` executable exposes the reusable formatter operations:
-
-- Standard input calls `format_text` and writes formatted text to standard output in write mode.
-- File write mode calls `format_file` with `FormatMode::Write`.
-- Check mode calls `format_text` or `format_file` without publishing changes and fails when any result reports changed
-  source.
-- Typed formatter failures are converted to path, I/O category, size, and formatting-status diagnostic arguments
-  rendered through `bray-messages`.
-
-`brayfmt` owns formatter argument selection, terminal I/O, and process exit status. Bray Tack owns manifest source
-discovery and invokes `brayfmt` with the explicit selected files or standard-input stream. The formatter command
-converts typed failures into locale-neutral diagnostics, and `bray-messages` renders them.
+- [Parser](parser.md)
+- [Bray Tack](bray-tack.md)
+- [Bray style guide](../contributing/bray-style-guide.md)
+- [Formatter configuration](../tools/formatter.md)

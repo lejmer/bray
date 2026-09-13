@@ -151,3 +151,9 @@ validation, driver selection, deterministic invocation, product, output, failure
 contracts to their production owners and executable tests. The linker readiness audit rejects missing, duplicate,
 placeholder, stale production, and non-executable test anchors. It also guards the typed linker boundary against
 source-semantic dependencies and interpretations.
+
+## Parser coverage
+
+[The parser coverage fixture](../../crates/bray-parser/tests/fixtures/parser-coverage.md) maps grammar nonterminals to
+parser and test anchors. Update it with changes to the grammar or those anchors. Check it with `cargo test -p
+bray-parser --test parser_coverage`.

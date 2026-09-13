@@ -27,6 +27,7 @@ The chapters are organized from source text to program meaning:
 14. [Compiler-known declarations and standard library recognition](compiler-known-and-standard-library.md)
 15. [I/O and platform services](io-and-platform-services.md)
 16. [Targets, layout, ABI, and raw memory](targets-layout-abi-and-raw-memory.md)
+17. [Core data standard library](core-data-standard-library.md)
 
 The lexical and syntax grammar chapters define how source text is tokenized and parsed.
 
