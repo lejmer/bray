@@ -32,7 +32,11 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
         }
 
         let subject = self.bind_type(&subject)?;
-        let application = self.bind_trait(&application)?;
+
+        let Some(application) = self.bind_trait(&application)? else {
+            return self.error_type_template();
+        };
+
         let member = self.bind_trait_type_member(application.definition(), syntax)?;
 
         let MemberLookupResult::Found(member) = member else {
@@ -101,7 +105,9 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
             return self.error_type_template();
         }
 
-        let application = self.bind_trait(&application)?;
+        let Some(application) = self.bind_trait(&application)? else {
+            return self.error_type_template();
+        };
 
         match self.resolve_trait_application_template(&application)? {
             Some(application) => self

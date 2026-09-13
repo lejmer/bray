@@ -244,6 +244,9 @@ pub(crate) const fn template(kind: DiagnosticLabelKind) -> MessageTemplate {
         DiagnosticLabelKind::PatternFailure => MessageTemplate::new(PATTERN_FAILURE),
         DiagnosticLabelKind::MatchCoverage => MessageTemplate::new(MATCH_COVERAGE),
         DiagnosticLabelKind::CallableAbiDirective => MessageTemplate::new(CALLABLE_ABI_DIRECTIVE),
+        DiagnosticLabelKind::GenericApplication => {
+            MessageTemplate::new(&[MessageTemplatePart::Text("generic application")])
+        }
         DiagnosticLabelKind::DirectiveArgument => MessageTemplate::new(DIRECTIVE_ARGUMENT),
         DiagnosticLabelKind::ModuleExport => MessageTemplate::new(MODULE_EXPORT),
         DiagnosticLabelKind::IncompatibleExpressionType => {

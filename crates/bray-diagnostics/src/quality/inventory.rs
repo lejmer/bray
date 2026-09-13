@@ -185,15 +185,15 @@ impl DiagnosticKind {
             CodegenBackendReport, CodegenVerificationStage, ConstantOperation, CopyContractProblem,
             DeclarationName, DependencyRequirementKind, DependencySubjectKind, DocumentColumn,
             DocumentLine, DocumentParseKind, EmissionArtifactOperation, EmissionFailure,
-            ExpectedArtifactDigest, ExpectedByteCount, ExpectedNameKind, ExpectedPackageIdentity,
-            ExpectedProductIdentity, ExpectedRevision, ExpectedRuntimeAbi, ExpectedSyntaxKind,
-            ExpectedTargetIdentity, ExpectedTargetPredicateValueKind, ExpectedTargetTriple,
-            ExpectedType, ExpressionCategory, ExternalToolExit, ExternalToolFailureKind,
-            ExternalToolOperation, FilePath, ImplementationOverloadProblem, InputIndex,
-            InterfaceLimit, InterfaceRecordIndex, InterfaceSemanticProblem,
-            InterfaceSymbolGraphProblem, InterfaceSymbolIdentity, InterfaceValidationFailure,
-            IoErrorKind, LayoutProblem, LinkOptimizationReportProblem, LinkRequirement,
-            LinkerDriverIdentity, MaximumAlignment, MaximumCount, MemoryOperation,
+            ExpectedArtifactDigest, ExpectedByteCount, ExpectedCount, ExpectedNameKind,
+            ExpectedPackageIdentity, ExpectedProductIdentity, ExpectedRevision, ExpectedRuntimeAbi,
+            ExpectedSyntaxKind, ExpectedTargetIdentity, ExpectedTargetPredicateValueKind,
+            ExpectedTargetTriple, ExpectedType, ExpressionCategory, ExternalToolExit,
+            ExternalToolFailureKind, ExternalToolOperation, FilePath,
+            ImplementationOverloadProblem, InputIndex, InterfaceLimit, InterfaceRecordIndex,
+            InterfaceSemanticProblem, InterfaceSymbolGraphProblem, InterfaceSymbolIdentity,
+            InterfaceValidationFailure, IoErrorKind, LayoutProblem, LinkOptimizationReportProblem,
+            LinkRequirement, LinkerDriverIdentity, MaximumAlignment, MaximumCount, MemoryOperation,
             NativeLinkDirectiveProblem, NativeProductFailureKind, NativeSymbolDirectiveProblem,
             PatternCoverage, PatternUnreachability, PlatformServiceSignatureProblem,
             ProjectCommandFailure, ProjectDependencyCycleMember, ProjectManifestField, ProjectPath,
@@ -760,6 +760,27 @@ impl DiagnosticKind {
             Self::BindingInvalidBoxStoragePolicy => {
                 Self::quality_source(&[TokenText], primary_components!(&[TokenText]))
             }
+            Self::BindingGenericArgumentCountMismatch => Self::quality_source(
+                &[TokenText, ExpectedCount, ActualCount],
+                note_components!(
+                    &[TokenText, ExpectedCount, ActualCount],
+                    DiagnosticNoteKind::GenericArgumentCountMustMatch
+                ),
+            ),
+            Self::BindingGenericApplicationRequiresName => Self::quality_source(
+                &[TokenText],
+                note_components!(
+                    &[TokenText],
+                    DiagnosticNoteKind::GenericApplicationRequiresDeclaredName
+                ),
+            ),
+            Self::BindingGenericArgumentMustBeType => Self::quality_source(
+                &[TokenText],
+                note_components!(
+                    &[TokenText],
+                    DiagnosticNoteKind::GenericArgumentRequiresType
+                ),
+            ),
             Self::BindingMalformedDirectiveArgument => Self::quality_source(
                 &[],
                 note_components!(

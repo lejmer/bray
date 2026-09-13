@@ -67,8 +67,6 @@ pub enum BindingError<Upstream = std::convert::Infallible> {
     ModulePartRecordUnavailable(bray_declarations::ModulePartId),
     /// A declaration identity referenced by module metadata has no declaration record.
     DeclarationRecordUnavailable(bray_declarations::DeclarationId),
-    /// A trait application could not resolve its source path to a trait declaration.
-    UnresolvedTraitApplication(bray_declarations::SyntaxAnchor),
     /// A contextual `Self` type was requested without an enclosing self-type context.
     ContextualSelfUnavailable(bray_declarations::SyntaxAnchor),
     /// An operation requiring a canonical type received a deferred type template.
@@ -190,7 +188,7 @@ impl<Upstream: Hash> Hash for BindingError<Upstream> {
             Self::SymbolRecordUnavailable(symbol) => symbol.hash(state),
             Self::ModulePartRecordUnavailable(part) => part.hash(state),
             Self::DeclarationRecordUnavailable(declaration) => declaration.hash(state),
-            Self::UnresolvedTraitApplication(source) | Self::ContextualSelfUnavailable(source) => {
+            Self::ContextualSelfUnavailable(source) => {
                 source.hash(state);
             }
             Self::InvalidUnitKey { source, owner } => {
@@ -374,9 +372,6 @@ impl BindingError {
             }
             Self::DeclarationRecordUnavailable(declaration) => {
                 BindingError::DeclarationRecordUnavailable(declaration)
-            }
-            Self::UnresolvedTraitApplication(source) => {
-                BindingError::UnresolvedTraitApplication(source)
             }
             Self::ContextualSelfUnavailable(source) => {
                 BindingError::ContextualSelfUnavailable(source)

@@ -61,7 +61,17 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
         }
 
         let Some(path) = base.path() else {
-            return Err(syntax_contract(syntax));
+            self.diagnostics.add(
+                super::diagnostic::generic_diagnostic(
+                    &base,
+                    bray_diagnostics::DiagnosticKind::BindingGenericApplicationRequiresName,
+                )
+                .with_note(bray_diagnostics::DiagnosticNote::new(
+                    bray_diagnostics::DiagnosticNoteKind::GenericApplicationRequiresDeclaredName,
+                )),
+            );
+
+            return self.error_type_template();
         };
 
         let Some(arguments) = syntax.generic_argument_lists().next() else {
@@ -78,6 +88,24 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
     ) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {
         let resolved = self.bind_type_path(path)?;
 
+        let expected = match &resolved {
+            MemberLookupResult::Found(crate::lookup::ResolvedTypeName::Named(definition)) => {
+                self.named_type_parameters(*definition)?.len()
+            }
+            MemberLookupResult::Found(crate::lookup::ResolvedTypeName::CallableContract(
+                definition,
+            )) => self.callable_contract_parameters(*definition)?.len(),
+            MemberLookupResult::Found(
+                crate::lookup::ResolvedTypeName::GenericParameter(_)
+                | crate::lookup::ResolvedTypeName::TraitMember(_),
+            ) => 0,
+            _ => return self.error_type_template(),
+        };
+
+        if !self.validate_generic_argument_count(path, arguments, expected)? {
+            return self.error_type_template();
+        }
+
         match resolved {
             MemberLookupResult::Found(crate::lookup::ResolvedTypeName::Named(definition)) => {
                 self.bind_named_type(definition, arguments)
@@ -87,9 +115,12 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
             )) => self.bind_callable_contract(definition, arguments),
             MemberLookupResult::Found(crate::lookup::ResolvedTypeName::GenericParameter(
                 parameter,
-            )) if arguments.is_none() => self
+            )) => self
                 .intern_type(TypeData::TypeParameter(parameter))
                 .map(TypeExpressionTemplate::Resolved),
+            MemberLookupResult::Found(crate::lookup::ResolvedTypeName::TraitMember(member)) => {
+                self.bind_contextual_trait_type_member(member)
+            }
             MemberLookupResult::Found(_)
             | MemberLookupResult::NotFound
             | MemberLookupResult::WrongKind(_)
@@ -192,6 +223,45 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
         self.require_resolved_type(&template)
     }
 
+    pub(super) fn validate_generic_argument_count(
+        &mut self,
+        path: &PathSyntax,
+        arguments: Option<&GenericArgumentListSyntax>,
+        expected: usize,
+    ) -> BindingQueryResult<bool, Upstream> {
+        let actual = arguments.map_or(0, |arguments| arguments.generic_arguments().count());
+
+        if expected == actual {
+            return Ok(true);
+        }
+
+        let count = |value| {
+            u64::try_from(value).map_err(|_| {
+                BindingQueryError::Binding(BindingError::GenericSubstitution(
+                    GenericSubstitutionShapeError::OrdinalOverflow,
+                ))
+            })
+        };
+
+        let diagnostic = super::diagnostic::generic_diagnostic(
+            path,
+            bray_diagnostics::DiagnosticKind::BindingGenericArgumentCountMismatch,
+        )
+        .with_arg(bray_diagnostics::DiagnosticArg::expected_count(count(
+            expected,
+        )?))
+        .with_arg(bray_diagnostics::DiagnosticArg::actual_count(count(
+            actual,
+        )?))
+        .with_note(bray_diagnostics::DiagnosticNote::new(
+            bray_diagnostics::DiagnosticNoteKind::GenericArgumentCountMustMatch,
+        ));
+
+        self.diagnostics.add(diagnostic);
+
+        Ok(false)
+    }
+
     pub(super) fn bind_generic_arguments(
         &mut self,
         arguments: Option<&GenericArgumentListSyntax>,
@@ -237,16 +307,25 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
             .iter()
             .zip(parameters.iter().copied())
             .map(|(argument, parameter)| match parameter {
-                GenericParameterSymbolId::Type(_) => argument
-                    .type_expressions()
-                    .next()
-                    .ok_or_else(|| {
-                        BindingQueryError::Binding(BindingError::SyntaxContract(
-                            bray_declarations::SyntaxAnchor::from_node(argument),
-                        ))
-                    })
-                    .and_then(|ty| self.bind_type(&ty))
-                    .map(GenericArgumentTemplate::Type),
+                GenericParameterSymbolId::Type(_) => {
+                    let ty = if let Some(ty) = argument.type_expressions().next() {
+                        self.bind_type(&ty)?
+                    } else {
+                        self.diagnostics.add(
+                            super::diagnostic::generic_diagnostic(
+                                argument,
+                                bray_diagnostics::DiagnosticKind::BindingGenericArgumentMustBeType,
+                            )
+                            .with_note(bray_diagnostics::DiagnosticNote::new(
+                                bray_diagnostics::DiagnosticNoteKind::GenericArgumentRequiresType,
+                            )),
+                        );
+
+                        self.error_type_template()?
+                    };
+
+                    Ok(GenericArgumentTemplate::Type(ty))
+                }
                 GenericParameterSymbolId::Const(parameter) => self
                     .bind_generic_constant_argument(argument, parameter)
                     .map(GenericArgumentTemplate::Constant),

@@ -89,6 +89,12 @@ pub enum DiagnosticNoteKind {
     CallableAbiDirectiveMustNameSupportedAbi,
     /// Accepted directive argument forms.
     DirectiveArgumentMustHaveCompleteForm,
+    /// Supply one generic argument for each declared generic parameter.
+    GenericArgumentCountMustMatch,
+    /// Supply type syntax to a generic type parameter.
+    GenericArgumentRequiresType,
+    /// Attach generic arguments directly to a declaration name.
+    GenericApplicationRequiresDeclaredName,
     /// Type-inference recovery guidance.
     TypeInferenceNeedsConstraint,
     /// Compile-time expression recovery guidance.
@@ -184,6 +190,11 @@ impl DiagnosticNoteKind {
             }
             Self::DirectiveArgumentMustHaveCompleteForm => {
                 "directive_argument_must_have_complete_form"
+            }
+            Self::GenericArgumentCountMustMatch => "generic_argument_count_must_match",
+            Self::GenericArgumentRequiresType => "generic_argument_requires_type",
+            Self::GenericApplicationRequiresDeclaredName => {
+                "generic_application_requires_declared_name"
             }
             Self::TypeInferenceNeedsConstraint => "type_inference_needs_constraint",
             Self::ConstantExpressionMustBeEvaluable => "constant_expression_must_be_evaluable",

@@ -301,6 +301,12 @@ define_diagnostic_kinds! {
     BindingInvalidModuleExportTarget,
     /// A directive argument cannot be bound because its syntax is malformed.
     BindingMalformedDirectiveArgument,
+    /// A source application supplies a different number of arguments than declared parameters.
+    BindingGenericArgumentCountMismatch,
+    /// A generic type parameter receives source syntax that is not a type.
+    BindingGenericArgumentMustBeType,
+    /// Explicit generic arguments are attached to a type form instead of a declaration name.
+    BindingGenericApplicationRequiresName,
     /// An explicit box storage policy does not contain exactly one type.
     BindingInvalidBoxStoragePolicy,
     /// An expression's established type is incompatible with its expected type.
@@ -817,6 +823,9 @@ impl DiagnosticKind {
             Self::BindingConflictingModuleExport => 6013,
             Self::BindingInvalidModuleExportTarget => 6014,
             Self::BindingMalformedDirectiveArgument => 6015,
+            Self::BindingGenericArgumentCountMismatch => 6017,
+            Self::BindingGenericArgumentMustBeType => 6018,
+            Self::BindingGenericApplicationRequiresName => 6019,
             Self::BindingInvalidBoxStoragePolicy => 6016,
             Self::CheckingIncompatibleExpressionType => 7001,
             Self::CheckingCompilerDefect => 7114,
@@ -1181,6 +1190,11 @@ impl DiagnosticKind {
             Self::BindingConflictingModuleExport => "binding_conflicting_module_export",
             Self::BindingInvalidModuleExportTarget => "binding_invalid_module_export_target",
             Self::BindingMalformedDirectiveArgument => "binding_malformed_directive_argument",
+            Self::BindingGenericArgumentCountMismatch => "binding_generic_argument_count_mismatch",
+            Self::BindingGenericArgumentMustBeType => "binding_generic_argument_must_be_type",
+            Self::BindingGenericApplicationRequiresName => {
+                "binding_generic_application_requires_name"
+            }
             Self::BindingInvalidBoxStoragePolicy => "binding_invalid_box_storage_policy",
             Self::CheckingIncompatibleExpressionType => "checking_incompatible_expression_type",
             Self::CheckingCompilerDefect => "checking_compiler_defect",

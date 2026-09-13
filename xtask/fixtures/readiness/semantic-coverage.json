@@ -292,7 +292,12 @@
       "production": ["DiagnosticResult"],
       "tests": [
         "storage_plans_retain_recovery_without_panicking",
-        "recovered_source_types_publish_error_types"
+        "recovered_source_types_publish_error_types",
+        "malformed_generic_applications_preserve_source_diagnostics",
+        "malformed_generic_tokens_do_not_abort_diagnostic_collection",
+        "malformed_generic_syntax_preserves_parser_diagnostics",
+        "malformed_generic_trait_applications_recover_across_consumers",
+        "generic_application_recovery_preserves_imported_parameter_counts"
       ]
     },
     {

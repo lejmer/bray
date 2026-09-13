@@ -42,3 +42,22 @@ pub(super) fn source_diagnostic(
     )
     .with_primary_span(span)
 }
+
+pub(super) fn generic_diagnostic(
+    syntax: &impl SourceSyntaxNode,
+    kind: DiagnosticKind,
+) -> Diagnostic {
+    let span = SourceSpan::new(syntax.source().source_id(), syntax.full_range());
+
+    source_diagnostic(syntax, kind)
+        .with_arg(DiagnosticArg::token_text(
+            syntax
+                .source()
+                .text_slice(syntax.full_range())
+                .unwrap_or_default(),
+        ))
+        .with_label(DiagnosticLabel::primary(
+            DiagnosticLabelKind::GenericApplication,
+            span,
+        ))
+}

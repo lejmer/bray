@@ -956,6 +956,41 @@ const BINDING_INVALID_BOX_STORAGE_POLICY: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text(" must contain exactly one type inside the brackets"),
 ];
 
+const BINDING_GENERIC_ARGUMENT_COUNT_MISMATCH: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("generic argument count for "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TokenText),
+    MessageTemplatePart::Text(" does not match its declaration: expected "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ExpectedCount),
+    MessageTemplatePart::Text(", received "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualCount),
+];
+
+const BINDING_GENERIC_APPLICATION_REQUIRES_NAME: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("generic arguments cannot be applied to "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TokenText),
+    MessageTemplatePart::Text(" because it is not a declaration name"),
+];
+
+const NOTE_GENERIC_APPLICATION_REQUIRES_DECLARED_NAME: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "apply generic arguments directly to a generic type or trait name",
+    )];
+
+const BINDING_GENERIC_ARGUMENT_MUST_BE_TYPE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("generic argument "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TokenText),
+    MessageTemplatePart::Text(" must be a type"),
+];
+
+const NOTE_GENERIC_ARGUMENT_COUNT_MUST_MATCH: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Text(
+        "supply one generic argument for each declared generic parameter",
+    )];
+
+const NOTE_GENERIC_ARGUMENT_REQUIRES_TYPE: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "replace this argument with a type, such as bool or a declared type name",
+)];
+
 const BINDING_MALFORMED_DIRECTIVE_ARGUMENT: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text("directive argument is malformed")];
 
@@ -2019,6 +2054,9 @@ pub(crate) const fn note_kind(kind: DiagnosticNoteKind) -> RenderedDiagnosticNot
         | DiagnosticNoteKind::BlockCommentNeedsTerminator
         | DiagnosticNoteKind::CallableAbiDirectiveMustNameSupportedAbi
         | DiagnosticNoteKind::DirectiveArgumentMustHaveCompleteForm
+        | DiagnosticNoteKind::GenericArgumentCountMustMatch
+        | DiagnosticNoteKind::GenericArgumentRequiresType
+        | DiagnosticNoteKind::GenericApplicationRequiresDeclaredName
         | DiagnosticNoteKind::TypeInferenceNeedsConstraint
         | DiagnosticNoteKind::ConstantExpressionMustBeEvaluable
         | DiagnosticNoteKind::ConstantEvaluationMustFitLimits
@@ -2720,6 +2758,15 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::BindingInvalidBoxStoragePolicy => {
             MessageTemplate::new(BINDING_INVALID_BOX_STORAGE_POLICY)
         }
+        DiagnosticKind::BindingGenericArgumentCountMismatch => {
+            MessageTemplate::new(BINDING_GENERIC_ARGUMENT_COUNT_MISMATCH)
+        }
+        DiagnosticKind::BindingGenericApplicationRequiresName => {
+            MessageTemplate::new(BINDING_GENERIC_APPLICATION_REQUIRES_NAME)
+        }
+        DiagnosticKind::BindingGenericArgumentMustBeType => {
+            MessageTemplate::new(BINDING_GENERIC_ARGUMENT_MUST_BE_TYPE)
+        }
         DiagnosticKind::BindingMalformedDirectiveArgument => {
             MessageTemplate::new(BINDING_MALFORMED_DIRECTIVE_ARGUMENT)
         }
@@ -3022,6 +3069,15 @@ pub(crate) const fn note_template(kind: DiagnosticNoteKind) -> MessageTemplate {
         }
         DiagnosticNoteKind::CallableAbiDirectiveMustNameSupportedAbi => {
             MessageTemplate::new(NOTE_CALLABLE_ABI_DIRECTIVE_MUST_NAME_SUPPORTED_ABI)
+        }
+        DiagnosticNoteKind::GenericArgumentCountMustMatch => {
+            MessageTemplate::new(NOTE_GENERIC_ARGUMENT_COUNT_MUST_MATCH)
+        }
+        DiagnosticNoteKind::GenericApplicationRequiresDeclaredName => {
+            MessageTemplate::new(NOTE_GENERIC_APPLICATION_REQUIRES_DECLARED_NAME)
+        }
+        DiagnosticNoteKind::GenericArgumentRequiresType => {
+            MessageTemplate::new(NOTE_GENERIC_ARGUMENT_REQUIRES_TYPE)
         }
         DiagnosticNoteKind::DirectiveArgumentMustHaveCompleteForm => {
             MessageTemplate::new(NOTE_DIRECTIVE_ARGUMENT_MUST_HAVE_COMPLETE_FORM)

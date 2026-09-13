@@ -31,6 +31,59 @@ use crate::{
 };
 
 #[test]
+fn generic_application_recovery_preserves_imported_parameter_counts() {
+    let provider = compilation(
+        r#"
+        module api;
+
+        public struct Boxed<T>
+        {
+            value: T;
+        }
+
+        public callable action<T> = func(pos value: T) -> T;
+
+        public trait Marker<T>
+        {
+        }
+    "#,
+    );
+
+    for (ty, valid) in [
+        ("example.package.api.Boxed", false),
+        ("example.package.api.Boxed<bool>", true),
+        ("example.package.api.action", false),
+        ("example.package.api.action<bool>", true),
+        ("&view example.package.api.Marker", false),
+        ("&view example.package.api.Marker<bool>", true),
+    ] {
+        let source = format!(
+            r#"
+            module app;
+
+            using example.package.api;
+
+            func check(pos value: {ty})
+            {{
+            }}
+        "#
+        );
+
+        let consumer = execution_consumer(&provider, &source);
+        let diagnostics = consumer.check_diagnostics();
+
+        if valid {
+            assert!(diagnostics.is_empty(), "{source}\n{diagnostics:?}");
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                diagnostics,
+                bray_diagnostics::DiagnosticKind::BindingGenericArgumentCountMismatch,
+            );
+        }
+    }
+}
+
+#[test]
 fn execution_guarantees_reject_malformed_interface_evidence() {
     use bray_symbols::{CallableExecutionOrigin, SymbolOrdinal};
 

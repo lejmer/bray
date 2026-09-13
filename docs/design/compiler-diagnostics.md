@@ -318,6 +318,11 @@ Recovery should preserve enough source context to avoid vague later diagnostics.
 
 Recovery should avoid cascades where one source error produces many unrelated reports.
 
+Whole-package checks publish source and syntax errors without requesting complete signatures from recovered nameless
+parameters. Other syntax recovery can still contribute semantic diagnostics. Generic applications recover with error
+types or absent trait applications,
+and their source diagnostics prevent dependent conformance checks from requiring a complete application.
+
 Compiler invariant violations are not recovery cases.
 
 Compiler invariant violations should fail loudly during development and tests.

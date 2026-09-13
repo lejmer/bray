@@ -999,10 +999,14 @@ fn bind_callable_static_constraints(
             *diagnostics = diagnostics.merged(subject.diagnostics());
             *diagnostics = diagnostics.merged(application.diagnostics());
 
+            let Some(application) = application.value() else {
+                continue;
+            };
+
             let (subject, application) = resolve_trait_satisfaction_templates(
                 context,
                 subject.value(),
-                application.value(),
+                application,
                 crate::compilation::SemanticQueryContext::Symbol(owner),
                 diagnostics,
             )?;
