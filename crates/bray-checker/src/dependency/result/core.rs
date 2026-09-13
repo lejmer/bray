@@ -241,14 +241,17 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                 BoundExpression::Structured(value)
                     if value.kind() == BoundStructuredExpressionKind::Borrow =>
                 {
+                    let operand = value
+                        .operands()
+                        .first()
+                        .copied()
+                        .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+
+                    let kind = self.borrow_requirement_kind(operand)?;
+
                     self.expression_sources(id, expression)?
                         .into_iter()
-                        .map(|source| {
-                            DependencyRequirement::direct(
-                                source,
-                                DependencyRequirementKind::StorageAlive,
-                            )
-                        })
+                        .map(|source| DependencyRequirement::direct(source, kind))
                         .collect()
                 }
                 _ => self

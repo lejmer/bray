@@ -668,6 +668,39 @@ fn runtime_default_storage_cannot_escape_source_or_imported_calls() {
             return second;
         }
 
+        func array_element(pos first: &[bool; 1]) -> &bool
+        {
+            return &first[0];
+        }
+
+        func array_slice(pos first: &[bool; 1]) -> &[bool]
+        {
+            return &first[..];
+        }
+
+        public func borrow_index(pos first: &[bool; 1], second: &bool = array_element(first)) -> &bool
+        {
+            return second;
+        }
+
+        public func borrow_slice(pos first: &[bool; 1], second: &[bool] = array_slice(first)) -> &[bool]
+        {
+            return second;
+        }
+
+        public func borrow_owned_index(pos first: [bool; 1], second: &bool = array_element(&first)) -> &bool
+        {
+            return second;
+        }
+
+        public func borrow_array_slot(
+            pos first: &[bool; 1],
+            second: &(&[bool; 1]) = &first,
+        ) -> &(&[bool; 1])
+        {
+            return second;
+        }
+
         public func observe(pos first: bool, second: &bool = &first)
         {
         }
@@ -725,6 +758,10 @@ fn runtime_default_storage_cannot_escape_source_or_imported_calls() {
             false,
         ),
         ("&(&bool)", "borrow_slot(caller)", false),
+        ("&bool", "borrow_index(array)", true),
+        ("&[bool]", "borrow_slice(array)", true),
+        ("&bool", "borrow_owned_index(owned_array)", false),
+        ("&(&[bool; 1])", "borrow_array_slot(array)", false),
         ("&bool", "choose(first, second = caller)", true),
         ("bool", "evaluate(first)", true),
         (
@@ -738,7 +775,12 @@ fn runtime_default_storage_cannot_escape_source_or_imported_calls() {
     ] {
         let body = format!(
             r#"
-                func check(pos caller: &bool, pos owner: &Flag) -> {result}
+                func check(
+                    pos caller: &bool,
+                    pos owner: &Flag,
+                    pos array: &[bool; 1],
+                    pos owned_array: [bool; 1],
+                ) -> {result}
                 {{
                     let first: bool = true;
                     let wrapped = Wrapper
@@ -796,6 +838,32 @@ fn runtime_default_storage_cannot_escape_source_or_imported_calls() {
                 );
             }
         }
+    }
+}
+
+#[test]
+fn runtime_defaults_reborrow_array_targets() {
+    for (result, expression) in [("&bool", "&first[0]"), ("&[bool]", "&first[..]")] {
+        let source = format!(
+            r#"
+                module app;
+
+                func choose(pos first: &[bool; 1], second: {result} = {expression}) -> {result}
+                {{
+                    return second;
+                }}
+
+                func check(pos caller: &[bool; 1]) -> {result}
+                {{
+                    return choose(caller);
+                }}
+            "#
+        );
+
+        let consumer = compilation(&source);
+        let diagnostics = consumer.check_diagnostics();
+
+        assert!(!diagnostics.has_errors(), "{expression}: {diagnostics:?}");
     }
 }
 

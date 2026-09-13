@@ -69,13 +69,11 @@ Explicit argument expressions are evaluated in source order.
 
 Omitted parameter defaults are evaluated after explicit arguments, in parameter declaration order.
 
-An earlier by-value argument has call-owned storage while defaults are evaluated and the selected callable executes.
-A default can borrow that storage for use during the call. A result that retains such a borrow cannot escape the call.
-Forwarding a borrow supplied by the caller retains its original storage dependency instead.
+A default may borrow an earlier by-value argument for use during the call. The callable cannot return a value that
+retains that borrow. A borrow supplied by the caller keeps its original lifetime.
 
-A default cannot return a borrow of a temporary owned by its own evaluation. These lifetime rules also apply when the
-borrow is carried inside an aggregate or through another default.
-
+Values created by defaults follow the ordinary [borrow lifetime rules](../ownership-and-borrowing/borrow-rules.md).
+These rules also apply to borrows carried inside aggregates or passed through later defaults.
 
 Duplicate supplied arguments remain errors even when a parameter has a default.
 

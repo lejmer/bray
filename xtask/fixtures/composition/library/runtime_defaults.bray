@@ -61,3 +61,29 @@ public func forward_default<T>(pos value: &T, selected: &T = value) -> &T
 {
     return selected;
 }
+
+func flag_element(pos flags: &[DefaultFlag; 1]
+) -> &DefaultFlag
+    {
+        return &flags[0];
+    }
+
+    func flag_slice(pos flags: &[DefaultFlag; 1]
+) -> &[DefaultFlag]
+    {
+        return &flags[..];
+    }
+
+    public func indexed_default(pos flags: &[DefaultFlag; 1],
+    selected: &DefaultFlag = flag_element(flags)
+) -> &DefaultFlag
+    {
+        return selected;
+    }
+
+    public func sliced_default(pos flags: &[DefaultFlag; 1],
+    selected: &[DefaultFlag] = flag_slice(flags)
+) -> &[DefaultFlag]
+    {
+        return selected;
+    }

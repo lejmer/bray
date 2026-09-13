@@ -57,4 +57,17 @@ func runtime_default_storage()
 
     assert(projected.value);
     assert(reference.selected().value);
+
+    let flags: [composition.api.DefaultFlag; 1] = [
+        composition.api.DefaultFlag
+        {
+            value = true,
+        }
+    ];
+
+    let indexed = composition.api.indexed_default(&flags);
+    let sliced = composition.api.sliced_default(&flags);
+
+    assert(indexed.value);
+    assert(sliced[0].value);
 }
