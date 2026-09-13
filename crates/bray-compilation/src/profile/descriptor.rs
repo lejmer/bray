@@ -486,7 +486,6 @@ define_profile_query_kinds! {
     CallableTypeDirectives = 1003 => "callable_type_directives",
     BoundUnit = 1006 => "bound_unit",
     CheckDiagnostics = 1007 => "check_diagnostics",
-    DeclaredUnits = 1008 => "declared_units",
     ConstantInstance = 1011 => "constant_instance",
     ConstantCall = 1012 => "constant_call",
     ConstantCallCycle = 1013 => "constant_call_cycle",
@@ -542,6 +541,7 @@ define_profile_query_kinds! {
     BodySemantics = 1073 => "body_semantics",
     ExecutionCandidates = 1074 => "execution_candidates",
     CertifiedExecution = 1075 => "certified_execution",
+    DeclaredUnits = 1076 => "declared_units",
 }
 
 impl ProfileQueryKind {
@@ -667,12 +667,12 @@ mod tests {
         assert_eq!(
             ProfileQueryKind::all().map(ProfileQueryKind::id),
             [
-                1_001, 1_002, 1_003, 1_006, 1_007, 1_008, 1_011, 1_012, 1_013, 1_014, 1_017, 1_019,
-                1_024, 1_027, 1_028, 1_029, 1_030, 1_031, 1_032, 1_033, 1_034, 1_035, 1_036, 1_037,
-                1_038, 1_039, 1_040, 1_041, 1_042, 1_043, 1_044, 1_045, 1_046, 1_047, 1_048, 1_049,
-                1_050, 1_051, 1_052, 1_053, 1_054, 1_055, 1_056, 1_057, 1_058, 1_059, 1_060, 1_061,
-                1_062, 1_063, 1_064, 1_066, 1_067, 1_068, 1_069, 1_070, 1_071, 1_072, 1_073, 1_074,
-                1_075,
+                1_001, 1_002, 1_003, 1_006, 1_007, 1_011, 1_012, 1_013, 1_014, 1_017, 1_019, 1_024,
+                1_027, 1_028, 1_029, 1_030, 1_031, 1_032, 1_033, 1_034, 1_035, 1_036, 1_037, 1_038,
+                1_039, 1_040, 1_041, 1_042, 1_043, 1_044, 1_045, 1_046, 1_047, 1_048, 1_049, 1_050,
+                1_051, 1_052, 1_053, 1_054, 1_055, 1_056, 1_057, 1_058, 1_059, 1_060, 1_061, 1_062,
+                1_063, 1_064, 1_066, 1_067, 1_068, 1_069, 1_070, 1_071, 1_072, 1_073, 1_074, 1_075,
+                1_076,
             ]
         );
     }
