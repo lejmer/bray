@@ -533,6 +533,15 @@ where
         let (declaration, declaration_diagnostics) =
             resolve_symbol_query_value::<_, GenericDeclarationTemplateQuery>(context, owner)?;
 
+        // Keep direct candidates for the checker's rejection of the full source argument count.
+        // Type binding only visits arguments with corresponding declaration parameters.
+        let argument_count = call.arguments.len().min(declaration.parameters().len());
+
+        let call = CallGenericContext {
+            arguments: &call.arguments[..argument_count],
+            scope: call.scope,
+        };
+
         let Some(arguments) = bind_generic_arguments(context, call, &declaration, diagnostics)?
         else {
             return Ok(None);

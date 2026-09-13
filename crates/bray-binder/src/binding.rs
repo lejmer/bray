@@ -27,6 +27,7 @@ pub(crate) use expression::ExpressionBinder;
 pub use type_expression::{
     CallableTypeQualifiers, TypeExpressionBinder, TypeExpressionImports, TypeExpressionScope,
     TypeParameterBinding, bind_callable_abi, callable_execution_properties,
+    generic_argument_count_diagnostic,
 };
 
 #[cfg(test)]

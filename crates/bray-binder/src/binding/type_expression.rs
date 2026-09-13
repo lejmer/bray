@@ -13,5 +13,6 @@ mod static_constraint;
 pub use abi::bind_callable_abi;
 pub use contract::{CallableTypeQualifiers, TypeExpressionScope, TypeParameterBinding};
 pub use core::{TypeExpressionBinder, TypeExpressionImports};
+pub use diagnostic::generic_argument_count_diagnostic;
 pub use execution::callable_execution_properties;
 pub(in crate::binding) use forms::box_storage_policy;

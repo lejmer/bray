@@ -702,6 +702,75 @@ mod tests {
     }
 
     #[test]
+    fn generic_reference_arity_recovers_without_disabling_call_inference() {
+        const REFERENCE_TYPE: &str = "func(pos value: bool, pos other: bool) -> bool";
+
+        for (expression, ty, valid) in [
+            ("identity<bool>", REFERENCE_TYPE, false),
+            ("identity<bool, bool, bool>", REFERENCE_TYPE, false),
+            ("identity<bool, bool>", REFERENCE_TYPE, true),
+            ("identity<bool>(true, true)", "bool", true),
+            ("VALUE<1>", "i32", false),
+            ("VALUE<1, 2, 3>", "i32", false),
+            ("VALUE<1, 2>", "i32", true),
+        ] {
+            let source = format!(
+                r#"
+                module app;
+
+                static VALUE<const N: i32, const M: i32>: i32 = N;
+
+                func identity<T, U>(pos value: T, pos other: U) -> T
+                {{
+                    return value;
+                }}
+
+                func check()
+                {{
+                    let value: {ty} = {expression};
+                }}
+            "#
+            );
+
+            let application = compilation(&source);
+            let diagnostics = application.check_diagnostics();
+
+            if valid {
+                assert!(diagnostics.is_empty(), "{source}\n{diagnostics:?}");
+            } else {
+                assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    DiagnosticKind::BindingGenericArgumentCountMismatch,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn generic_calls_reject_excess_explicit_arguments() {
+        let application = compilation(
+            r#"
+            module app;
+
+            func identity<T>(pos value: T) -> T
+            {
+                return value;
+            }
+
+            func check()
+            {
+                let value = identity<bool, bool>(true);
+            }
+        "#,
+        );
+
+        assert_goal_state_diagnostic_kind(
+            application.check_diagnostics(),
+            DiagnosticKind::CheckingIncompatibleCandidate,
+        );
+    }
+
+    #[test]
     fn malformed_generic_call_type_arguments_preserve_the_binding_error() {
         let application = compilation(
             r#"

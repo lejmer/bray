@@ -5,6 +5,27 @@ use bray_diagnostics::{
 use bray_source::SourceSpan;
 use bray_syntax::SourceSyntaxNode;
 
+/// Reports the exact required and supplied argument counts at a source generic application.
+pub fn generic_argument_count_diagnostic(
+    syntax: &impl SourceSyntaxNode,
+    expected: usize,
+    actual: usize,
+) -> Result<Diagnostic, bray_symbols::GenericSubstitutionShapeError> {
+    let count = |value| {
+        u64::try_from(value)
+            .map_err(|_| bray_symbols::GenericSubstitutionShapeError::OrdinalOverflow)
+    };
+
+    Ok(
+        generic_diagnostic(syntax, DiagnosticKind::BindingGenericArgumentCountMismatch)
+            .with_arg(DiagnosticArg::expected_count(count(expected)?))
+            .with_arg(DiagnosticArg::actual_count(count(actual)?))
+            .with_note(bray_diagnostics::DiagnosticNote::new(
+                bray_diagnostics::DiagnosticNoteKind::GenericArgumentCountMustMatch,
+            )),
+    )
+}
+
 pub(super) fn callable_abi_diagnostic(
     syntax: &impl SourceSyntaxNode,
     kind: DiagnosticKind,

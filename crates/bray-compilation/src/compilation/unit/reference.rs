@@ -1,16 +1,17 @@
-use bray_binder::BindingQueryContext;
+use bray_binder::{BindingQueryContext, SymbolQueryProvider};
 use bray_bound_tree::{BoundExpression, BoundUnit, SemanticSelection, SemanticSelectionEntry};
 use bray_checker::check_generic_arguments;
 use bray_diagnostics::DiagnosticBag;
 use bray_source::SourceSpan;
 use bray_symbols::{
-    AnySymbolId, CallableDefinitionId, CallableInstanceData, GenericOwnerId,
-    GenericSubstitutionData, GenericSubstitutionId, StaticSymbolId,
+    AnySymbolId, CallableDefinitionId, CallableInstanceData, GenericDeclarationTemplateQuery,
+    GenericOwnerId, GenericSubstitutionData, GenericSubstitutionId, StaticSymbolId,
+    SymbolQueryRequest,
 };
 use bray_syntax::GenericArgumentListSyntax;
 
 use super::support::{checker_unit_view, unit_contract_failure};
-use crate::compilation::binder::{binding_query_error, generic_parameter_ids, type_binder};
+use crate::compilation::binder::{binding_query_error, type_binder};
 use crate::compilation::checker::checker_result;
 use crate::compilation::state::Compilation;
 use crate::fact::{CancellationToken, FactQueryError};
@@ -82,7 +83,7 @@ impl Compilation {
                 &binding_context,
                 owner,
                 symbol,
-                name.generic_argument_list(),
+                *name,
                 unit,
                 &mut diagnostics,
             )?
@@ -153,12 +154,48 @@ impl Compilation {
         Ok((entries, diagnostics))
     }
 
+    fn generic_reference_arity_diagnostic(
+        &self,
+        name: bray_bound_tree::BoundNameExpression,
+        symbol: AnySymbolId,
+        expected: usize,
+        actual: usize,
+    ) -> Result<bray_diagnostics::Diagnostic, FactQueryError> {
+        let source = name.origin().source_anchor().syntax();
+
+        let syntax = self
+            .syntax_tree()
+            .find_node(
+                source.source_id(),
+                source.syntax_kind(),
+                source.full_range(),
+                source.is_recovered(),
+            )
+            .ok_or_else(|| {
+                crate::compilation::SemanticQueryFailure::located_contract(
+                    crate::compilation::SemanticQueryContext::Symbol(symbol),
+                    crate::compilation::SemanticQueryViolation::Missing(
+                        crate::compilation::SemanticDataKind::Syntax,
+                    ),
+                    SourceSpan::new(source.source_id(), source.full_range()),
+                )
+            })?;
+
+        bray_binder::generic_argument_count_diagnostic(&syntax, expected, actual).map_err(|cause| {
+            crate::compilation::SemanticQueryFailure::GenericSubstitution {
+                owner: GenericOwnerId::try_new(symbol),
+                cause,
+            }
+            .into()
+        })
+    }
+
     fn named_reference_substitution<C>(
         &self,
         binding_context: &crate::compilation::binder::CompilationBindingContext<'_>,
         owner: AnySymbolId,
         symbol: AnySymbolId,
-        generic_arguments: Option<bray_declarations::SyntaxAnchor>,
+        name: bray_bound_tree::BoundNameExpression,
         unit: bray_checker::CheckerUnitView<'_, C>,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<GenericSubstitutionId>, FactQueryError>
@@ -166,10 +203,26 @@ impl Compilation {
         C: bray_checker::CheckerRequestContext + ?Sized,
         C::UpstreamError: Into<FactQueryError>,
     {
-        let parameters = generic_parameter_ids(binding_context.symbols(), symbol)
+        let generic_owner = GenericOwnerId::try_new(symbol).ok_or_else(|| {
+            crate::compilation::SemanticQueryFailure::contract(
+                crate::compilation::SemanticQueryContext::Symbol(symbol),
+                crate::compilation::SemanticQueryViolation::UnexpectedSymbolKind {
+                    expected: crate::compilation::SemanticSymbolCategory::GenericOwner,
+                    actual: symbol.kind(),
+                },
+            )
+        })?;
+
+        let declaration = binding_context
+            .resolve_symbol_query(SymbolQueryRequest::<GenericDeclarationTemplateQuery>::new(
+                generic_owner,
+            ))
             .map_err(binding_query_error)?;
 
-        let resolved = match generic_arguments {
+        *diagnostics = diagnostics.merged(declaration.diagnostics());
+        let parameters = declaration.value().parameters();
+
+        let resolved = match name.generic_argument_list() {
             Some(anchor) => {
                 let arguments = anchor
                     .find_descendant::<GenericArgumentListSyntax>(self.syntax_tree())
@@ -185,9 +238,20 @@ impl Compilation {
 
                 let arguments = arguments.generic_arguments().collect::<Vec<_>>();
 
+                if arguments.len() != parameters.len() {
+                    diagnostics.add(self.generic_reference_arity_diagnostic(
+                        name,
+                        symbol,
+                        parameters.len(),
+                        arguments.len(),
+                    )?);
+
+                    return Ok(None);
+                }
+
                 let bound_arguments = type_binder(binding_context, owner)
                     .map_err(binding_query_error)?
-                    .bind_call_generic_arguments(&arguments, &parameters)
+                    .bind_call_generic_arguments(&arguments, parameters)
                     .map_err(binding_query_error)?;
 
                 let (bound_arguments, argument_diagnostics) = bound_arguments.into_parts();
@@ -210,23 +274,14 @@ impl Compilation {
             None => return Ok(None),
         };
 
-        let owner = GenericOwnerId::try_new(symbol).ok_or_else(|| {
-            crate::compilation::SemanticQueryFailure::contract(
-                crate::compilation::SemanticQueryContext::Symbol(symbol),
-                crate::compilation::SemanticQueryViolation::UnexpectedSymbolKind {
-                    expected: crate::compilation::SemanticSymbolCategory::GenericOwner,
-                    actual: symbol.kind(),
-                },
-            )
-        })?;
-
         let substitution =
-            GenericSubstitutionData::try_new(owner, parameters, resolved).map_err(|cause| {
-                crate::compilation::SemanticQueryFailure::GenericSubstitution {
-                    owner: Some(owner),
+            GenericSubstitutionData::try_new(generic_owner, parameters.iter().copied(), resolved)
+                .map_err(
+                |cause| crate::compilation::SemanticQueryFailure::GenericSubstitution {
+                    owner: Some(generic_owner),
                     cause,
-                }
-            })?;
+                },
+            )?;
 
         binding_context
             .semantic_values()

@@ -7,7 +7,8 @@ use bray_symbols::{
     StructSymbolId, TypeData, TypeExpressionTemplate, TypeId,
 };
 use bray_syntax::{
-    GenericArgumentListSyntax, GenericArgumentSyntax, PathSyntax, TypeExpressionSyntax,
+    GenericArgumentListSyntax, GenericArgumentSyntax, PathSyntax, SourceSyntaxNode,
+    TypeExpressionSyntax,
 };
 
 use super::core::TypeExpressionBinder;
@@ -225,7 +226,7 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
 
     pub(super) fn validate_generic_argument_count(
         &mut self,
-        path: &PathSyntax,
+        syntax: &impl SourceSyntaxNode,
         arguments: Option<&GenericArgumentListSyntax>,
         expected: usize,
     ) -> BindingQueryResult<bool, Upstream> {
@@ -235,29 +236,12 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
             return Ok(true);
         }
 
-        let count = |value| {
-            u64::try_from(value).map_err(|_| {
-                BindingQueryError::Binding(BindingError::GenericSubstitution(
-                    GenericSubstitutionShapeError::OrdinalOverflow,
-                ))
-            })
-        };
-
-        let diagnostic = super::diagnostic::generic_diagnostic(
-            path,
-            bray_diagnostics::DiagnosticKind::BindingGenericArgumentCountMismatch,
-        )
-        .with_arg(bray_diagnostics::DiagnosticArg::expected_count(count(
-            expected,
-        )?))
-        .with_arg(bray_diagnostics::DiagnosticArg::actual_count(count(
-            actual,
-        )?))
-        .with_note(bray_diagnostics::DiagnosticNote::new(
-            bray_diagnostics::DiagnosticNoteKind::GenericArgumentCountMustMatch,
-        ));
-
-        self.diagnostics.add(diagnostic);
+        self.diagnostics.add(
+            super::diagnostic::generic_argument_count_diagnostic(syntax, expected, actual)
+                .map_err(|cause| {
+                    BindingQueryError::Binding(BindingError::GenericSubstitution(cause))
+                })?,
+        );
 
         Ok(false)
     }
