@@ -39,6 +39,7 @@ pub(super) fn encode_declaration_semantics(
             }
 
             encoder.write_u32(signature.result.raw());
+            encoder.write_u32(signature.result_dependencies.raw());
             encoder.write_u32(u32::from(signature.has_body));
         },
     );

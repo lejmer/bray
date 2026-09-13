@@ -109,6 +109,7 @@ where
     pub(super) builder: Option<StoragePlanBuilder>,
     pub(super) diagnostics: bray_diagnostics::DiagnosticBag,
     pub(super) expression_accesses: BTreeMap<BoundExpressionId, StorageAccessId>,
+    pub(super) borrowed_values: BTreeMap<bray_bound_tree::StorageIdentityId, StorageAccessId>,
     pub(super) planned_blocks: BTreeSet<BoundBlockId>,
     pub(super) planned_patterns: BTreeSet<BoundPatternId>,
     pub(super) alternative_pattern_bindings:
@@ -205,6 +206,7 @@ where
             builder: Some(builder),
             diagnostics: bray_diagnostics::DiagnosticBag::new(),
             expression_accesses: BTreeMap::new(),
+            borrowed_values: BTreeMap::new(),
             planned_blocks: BTreeSet::new(),
             planned_patterns: BTreeSet::new(),
             alternative_pattern_bindings: BTreeMap::new(),
@@ -662,21 +664,6 @@ where
         self.types
             .expression(expression)
             .ok_or_else(|| CheckerInfrastructureError::InvalidStoragePlan.into())
-    }
-
-    pub(super) fn record_purpose(
-        &mut self,
-        expression: BoundExpressionId,
-        purpose: Option<StorageAccessPurpose>,
-        access: StorageAccessId,
-    ) -> Result<(), PlanError<C::UpstreamError>> {
-        let Some(purpose) = purpose else {
-            return Ok(());
-        };
-
-        self.builder_mut()?
-            .plan_access(expression.into(), expression, purpose, access)
-            .map_err(|error| CheckerInfrastructureError::StoragePlan(error).into())
     }
 
     pub(super) fn builder(&self) -> Result<&StoragePlanBuilder, PlanError<C::UpstreamError>> {

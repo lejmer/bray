@@ -29,6 +29,7 @@ pub use limits::{ConstantEvaluationLimits, ConstantEvaluationUsage};
 pub use literal::{ConstantLiteralError, check_constant_literal, normalize_integer_literal};
 pub(crate) use literal::{check_negated_integer_operand_literal, literal_diagnostic_kind};
 pub(crate) use operation::fold_binary;
+pub(crate) use template::checked_substituted_type;
 pub use template::{
     CheckedConstantTerms, CheckedConstantTermsBuildError, resolve_callable_signature_template,
     resolve_trait_application_template, resolve_type_expression_template,

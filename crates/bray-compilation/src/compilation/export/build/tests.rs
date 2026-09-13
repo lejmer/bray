@@ -164,6 +164,139 @@ fn execution_guarantees_export_only_certified_evidence() {
 }
 
 #[test]
+fn returned_values_preserve_imported_generic_dependencies() {
+    let provider = compilation(
+        r#"
+            module api;
+
+            public func same<T>(pos value: &T) -> &T
+            {
+                return value;
+            }
+        "#,
+    );
+
+    for (body, valid) in [
+        (
+            r#"
+            func caller(pos value: &bool) -> &bool
+            {
+                return example.package.api.same(value);
+            }
+        "#,
+            true,
+        ),
+        (
+            r#"
+            func caller() -> &bool
+            {
+                let value: bool = true;
+
+                return example.package.api.same(&value);
+            }
+        "#,
+            false,
+        ),
+    ] {
+        let source = format!("module app; using example.package.api.same; {body}");
+        let consumer = execution_consumer(&provider, &source);
+
+        let flow = consumer
+            .storage_flow(source_function_body_key(&consumer, "caller"))
+            .unwrap();
+
+        if valid {
+            assert!(!flow.diagnostics().has_errors(), "{:?}", flow.diagnostics());
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                flow.diagnostics(),
+                bray_diagnostics::DiagnosticKind::CheckingEscapingStorageDependency,
+            );
+        }
+    }
+}
+
+#[test]
+fn returned_values_preserve_default_wrapper_dependencies_in_interfaces() {
+    let provider = compilation(
+        r#"
+            module api;
+
+            public struct Holder
+            {
+                value: &bool;
+            }
+
+            func wrap(pos transient: &bool, pos anchor: &bool) -> Holder
+            {
+                return Holder
+                {
+                    value = anchor
+                };
+            }
+
+            public func choose(pos transient: &bool, pos anchor: &bool, value: Holder = wrap(transient, anchor)) -> Holder
+            {
+                return value;
+            }
+        "#,
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    for (body, valid) in [
+        (
+            r#"
+            func caller(pos anchor: &bool) -> example.package.api.Holder
+            {
+                let transient: bool = true;
+
+                return example.package.api.choose(&transient, anchor);
+            }
+        "#,
+            true,
+        ),
+        (
+            r#"
+            func caller() -> example.package.api.Holder
+            {
+                let anchor: bool = true;
+
+                return example.package.api.choose(&anchor, &anchor);
+            }
+        "#,
+            false,
+        ),
+    ] {
+        let consumer = execution_consumer(
+            &provider,
+            &format!("module app; using example.package.api; {body}"),
+        );
+
+        let flow = consumer
+            .storage_flow(source_function_body_key(&consumer, "caller"))
+            .unwrap();
+
+        if valid {
+            assert!(
+                !consumer.check_diagnostics().has_errors(),
+                "{:?}",
+                consumer.check_diagnostics()
+            );
+        } else {
+            bray_testing::assert_goal_state_diagnostic_kind(
+                flow.diagnostics(),
+                bray_diagnostics::DiagnosticKind::CheckingEscapingStorageDependency,
+            );
+        }
+    }
+}
+
+#[test]
 fn execution_guarantees_survive_provider_consumer_compilation() {
     let provider = compilation(
         r#"
@@ -326,6 +459,28 @@ fn storage_projection_guarantees_survive_generic_interfaces() {
                 } if storage.value().root_identity(*access) == Some(root)
             )),
             "{contract:?}"
+        );
+
+        let escaping = execution_consumer(
+            &provider,
+            &r#"
+            module app;
+            using example.package.api.project;
+            func root() -> BORROWbool {
+                let mut value = box(true);
+                return example.package.api.project<bool>(BORROWvalue);
+            }
+        "#
+            .replace("BORROW", borrow),
+        );
+
+        let flow = escaping
+            .storage_flow(source_function_body_key(&escaping, "root"))
+            .unwrap();
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            flow.diagnostics(),
+            bray_diagnostics::DiagnosticKind::CheckingEscapingStorageDependency,
         );
     }
 }

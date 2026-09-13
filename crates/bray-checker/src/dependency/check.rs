@@ -82,10 +82,18 @@ where
             .extend(requirements);
     }
 
+    let value_inputs = crate::dependency::ValueInputs::new(request.unit(), selections);
+
     for entry in selections.entries() {
         let contract = match entry.selection() {
             SemanticSelection::Call(call) => {
-                match selected_call_contracts(request, storage, entry.expression(), call) {
+                match selected_call_contracts(
+                    request,
+                    storage,
+                    entry.expression(),
+                    call,
+                    &value_inputs,
+                ) {
                     Ok(contracts) => {
                         if let Some(deferred) = contracts.deferred() {
                             deferred_expression_requirements

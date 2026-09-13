@@ -94,6 +94,23 @@ pub enum DeclaredStorageShape {
     Union(Arc<[DeclaredUnionStorageVariant]>),
 }
 
+impl DeclaredStorageShape {
+    /// Visits every product or union payload member type in declaration order.
+    pub fn member_types(&self) -> impl Iterator<Item = &TypeExpressionTemplate> {
+        let (members, variants) = match self {
+            Self::Structure(members) => (members.as_ref(), &[][..]),
+            Self::Union(variants) => (&[][..], variants.as_ref()),
+        };
+
+        members.iter().map(DeclaredStructStorageMember::ty).chain(
+            variants
+                .iter()
+                .flat_map(DeclaredUnionStorageVariant::members)
+                .map(DeclaredUnionStorageMember::ty),
+        )
+    }
+}
+
 /// The source-level layout policy selected for one declared type.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DeclaredLayoutMode {

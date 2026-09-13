@@ -141,6 +141,7 @@ where
         analyze_storage_liveness_with_graph(
             request,
             expressions.selections(),
+            expressions.types(),
             storage,
             memory,
             graph,

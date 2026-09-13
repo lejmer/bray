@@ -47,6 +47,7 @@ pub(super) fn commit_fragment(
     for signature in Arc::make_mut(&mut fragment.callable_signatures) {
         signature.callable_type = remap.ty(signature.callable_type)?;
         signature.result = remap.ty(signature.result)?;
+        signature.result_dependencies = remap.dependency_contract(signature.result_dependencies)?;
 
         if let Some(receiver) = &mut signature.receiver {
             receiver.ty = remap.ty(receiver.ty)?;

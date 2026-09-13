@@ -1,7 +1,7 @@
 use crate::compilation::binder::{
     BindingQueryResult, semantic_contract_binding_error as binding_contract,
 };
-use bray_binder::BindingQueryError;
+use bray_binder::{BindingQueryContext, BindingQueryError};
 use bray_bound_tree::{
     BoundUnit, BoundUnitKey, BoundUnitRoot, CheckedBodySemantics, CheckedExpressionSemantics,
     SemanticSelection, StoragePlan,
@@ -98,7 +98,35 @@ pub(in crate::compilation::binder::symbol) fn checked_source_expression(
     let dependency_contract =
         portable_dependency_contract(context, storage.result().value(), contract)?;
 
-    let diagnostics = checked_source_diagnostics(&bound, &semantics, &storage, &body);
+    let returned = super::super::result_dependencies::expression_result_dependencies(
+        context,
+        &key,
+        bound.result().value(),
+        semantics.result().value(),
+    )?;
+
+    let store = context.semantic_values();
+
+    let evaluation = store
+        .dependency_contract_template_data(dependency_contract)
+        .map_err(crate::compilation::binder::semantic_value_binding_error)?;
+
+    let returned_template = store
+        .dependency_contract_template_data(*returned.value())
+        .map_err(crate::compilation::binder::semantic_value_binding_error)?;
+
+    let dependency_contract = store
+        .intern_dependency_contract_template(bray_symbols::DependencyContractTemplateData::new(
+            evaluation
+                .requirements()
+                .iter()
+                .chain(returned_template.requirements())
+                .cloned(),
+        ))
+        .map_err(crate::compilation::binder::semantic_value_binding_error)?;
+
+    let diagnostics = checked_source_diagnostics(&bound, &semantics, &storage, &body)
+        .merged(returned.diagnostics());
 
     Ok(CheckedSourceExpression {
         result: result.ty(),

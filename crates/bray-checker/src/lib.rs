@@ -55,6 +55,7 @@ pub use context::{
     CheckerSemanticQueryProvider, CheckerSource, CheckerStorageFlowFailure,
     ImplementationHookResolution, StorageFlowInputKind,
 };
+pub use dependency::infer_result_dependencies;
 pub use diagnostic::diagnostic_type;
 pub use execution_guarantees::{
     DeclaredExecutionProperty, ExecutionCallEvidence, ExecutionCandidate, ExecutionCandidates,

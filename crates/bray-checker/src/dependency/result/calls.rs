@@ -1,0 +1,108 @@
+use crate::{CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext};
+use bray_bound_tree::{BoundExpressionId, SelectedArgument, SemanticSelection};
+use bray_symbols::{DependencyRequirement, DependencyRequirementKind, DependencySubjectRoot};
+use std::collections::BTreeSet;
+
+use super::core::ResultInference;
+
+impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
+    pub(super) fn call_values(
+        &self,
+        expression: BoundExpressionId,
+    ) -> Result<BTreeSet<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
+        let Some(SemanticSelection::Call(call)) = self.selections.expression(expression) else {
+            return Ok(BTreeSet::new());
+        };
+
+        let template = crate::dependency::call_result_template(self.request, call, |callable| {
+            self.callees
+                .get(&callable)
+                .copied()
+                .ok_or_else(|| CheckerInfrastructureError::InvalidSemanticSelectionInput.into())
+        })?;
+
+        let mut result = BTreeSet::new();
+
+        if crate::dependency::opaque_result(call)
+            && let Some(bray_bound_tree::BoundExpression::Call(bound)) =
+                self.request.view().expression(expression)
+        {
+            result.extend(
+                self.values
+                    .get(&bound.callee())
+                    .into_iter()
+                    .flatten()
+                    .cloned(),
+            );
+        }
+
+        for requirement in template.requirements() {
+            let DependencyRequirement::Direct { subject, kind } = requirement else {
+                continue;
+            };
+
+            let argument = match subject.subject_root() {
+                DependencySubjectRoot::Parameter(parameter) => {
+                    call.arguments().iter().find_map(|argument| match argument {
+                        SelectedArgument::Explicit {
+                            ordinal,
+                            expression,
+                            ..
+                        } if *ordinal == parameter.raw() => Some(*expression),
+                        _ => None,
+                    })
+                }
+                DependencySubjectRoot::Receiver => {
+                    call.receiver().map(|receiver| receiver.expression())
+                }
+                _ => None,
+            };
+
+            let Some(argument) = argument else {
+                // The output template owns these non-argument roots independently of the callee.
+                result.insert(requirement.clone());
+
+                continue;
+            };
+
+            if *kind == DependencyRequirementKind::ValueDependencies {
+                let (argument, projections) = self.inputs.project(argument, subject.projections());
+
+                if projections.is_empty() {
+                    result.extend(self.values.get(&argument).into_iter().flatten().cloned());
+                } else {
+                    let sources = self.sources.get(&argument);
+
+                    if sources.is_none_or(BTreeSet::is_empty) {
+                        result.extend(self.values.get(&argument).into_iter().flatten().cloned());
+                    }
+
+                    for source in sources.into_iter().flatten() {
+                        result.insert(DependencyRequirement::direct(
+                            super::sources::normalized_subject(
+                                source.subject_root(),
+                                source.projections().iter().chain(projections).copied(),
+                            ),
+                            *kind,
+                        ));
+                    }
+                }
+            } else {
+                for source in self.sources.get(&argument).into_iter().flatten() {
+                    let source = super::sources::normalized_subject(
+                        source.subject_root(),
+                        source
+                            .projections()
+                            .iter()
+                            .chain(subject.projections())
+                            .copied(),
+                    );
+
+                    result.insert(DependencyRequirement::direct(source, *kind));
+                }
+            }
+        }
+
+        Ok(result)
+    }
+}

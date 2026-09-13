@@ -29,6 +29,7 @@ where
     storage: &'check StoragePlan,
     input: CallInstantiationInput<'check>,
     deferred: bool,
+    result_values: Option<&'check crate::dependency::ValueInputs>,
 }
 
 impl<'check, C> CallInstantiationContext<'check, C>
@@ -46,6 +47,7 @@ where
             storage,
             input: CallInstantiationInput::Selected { expression, call },
             deferred: false,
+            result_values: None,
         }
     }
 
@@ -60,7 +62,12 @@ where
             storage,
             input: CallInstantiationInput::Hidden { receiver, result },
             deferred: false,
+            result_values: None,
         }
+    }
+
+    pub(super) fn set_result_values(&mut self, values: &'check crate::dependency::ValueInputs) {
+        self.result_values = Some(values);
     }
 
     pub(super) const fn begin_deferred_execution(&mut self) {
@@ -188,6 +195,30 @@ where
         access: StorageAccessId,
         kind: bray_symbols::BorrowKind,
     ) -> Option<bray_bound_tree::BorrowCapabilityId> {
+        if let Some((id, _)) = self
+            .storage
+            .borrow_capability_entries()
+            .find(|(_, capability)| {
+                capability.kind() == kind
+                    && expression
+                        .is_some_and(|expression| capability.expression() == Some(expression))
+            })
+        {
+            return Some(id);
+        }
+
+        if let Some(capability) = self
+            .storage
+            .access(access)
+            .and_then(|access| access.root().borrow_capability())
+            && self
+                .storage
+                .borrow_capability(capability)
+                .is_some_and(|capability| capability.kind() == kind)
+        {
+            return Some(capability);
+        }
+
         self.storage
             .borrow_capability_entries()
             .find_map(|(id, capability)| {
@@ -231,7 +262,30 @@ where
         }
 
         let root = subject.subject_root();
-        let expression = self.selected_expression(root);
+        let mut expression = self.selected_expression(root);
+        let mut projections = subject.projections();
+
+        if requirement == DependencyRequirementKind::ValueDependencies
+            && let Some((values, source)) = self.result_values.zip(expression)
+        {
+            let (projected, remaining) = values.project(source, projections);
+
+            expression = Some(projected);
+            projections = remaining;
+        }
+
+        if requirement == DependencyRequirementKind::ValueDependencies
+            && projections.is_empty()
+            && let Some((capability, _)) =
+                self.storage
+                    .borrow_capability_entries()
+                    .find(|(_, capability)| {
+                        expression
+                            .is_some_and(|expression| capability.expression() == Some(expression))
+                    })
+        {
+            return Ok(BoundDependencySubject::BorrowCapability(capability));
+        }
 
         let frame_access = self.deferred_frame_access(root)?;
 
@@ -253,7 +307,7 @@ where
         let access = if frame_access.is_some() {
             base
         } else {
-            projected_access(self.storage, base, subject.projections()).unwrap_or(base)
+            projected_access(self.storage, base, projections).unwrap_or(base)
         };
 
         Ok(BoundDependencySubject::StorageAccess(access))

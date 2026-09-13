@@ -28,7 +28,7 @@ where
             let subject = BoundDependencySubject::BorrowCapability(borrow);
 
             if !self.liveness.is_owner_retained(subject)
-                || !self.liveness.is_live_across_scope(block, subject)
+                || !self.liveness.is_live_across_scope(block, exit, subject)
             {
                 continue;
             }
@@ -44,6 +44,27 @@ where
             let Some(storage) = self.storage.root_identity(capability.access()) else {
                 continue;
             };
+
+            if capability.kind() == bray_symbols::BorrowKind::Shared
+                && let Some(bray_bound_tree::StorageIdentity::Temporary(expression)) =
+                    self.storage.identity(storage)
+                && matches!(self.request.view().expression(expression), Some(bray_bound_tree::BoundExpression::Literal(literal)) if literal.kind() == bray_bound_tree::BoundLiteralKind::String)
+            {
+                continue;
+            }
+
+            if capability.entry_binding().is_some() {
+                continue;
+            }
+
+            match self.borrow_reaches_external_storage(capability.access()) {
+                Ok(true) => continue,
+                Ok(false) => {}
+                Err(error) => {
+                    self.record_infrastructure_failure(error);
+                    return;
+                }
+            }
 
             if self.owners.identity_scope(self.storage, storage) != Some(block)
                 || !self.exit_leaves_scope(exit, block)
@@ -86,6 +107,40 @@ where
                 primary,
                 dependency,
             ));
+        }
+    }
+
+    fn borrow_reaches_external_storage(
+        &self,
+        mut access: bray_bound_tree::StorageAccessId,
+    ) -> Result<bool, CheckerInfrastructureError> {
+        loop {
+            if self.projected_storage_borrow_kind(access)?.is_some() {
+                return Ok(true);
+            }
+
+            let record =
+                self.storage
+                    .access(access)
+                    .ok_or(CheckerInfrastructureError::StorageFlow(
+                        crate::CheckerStorageFlowFailure::MissingStorageAccess { access },
+                    ))?;
+
+            let Some(borrow) = record.root().borrow_capability() else {
+                return Ok(false);
+            };
+
+            let capability = self.storage.borrow_capability(borrow).ok_or(
+                CheckerInfrastructureError::StorageFlow(
+                    crate::CheckerStorageFlowFailure::MissingBorrowCapability { borrow },
+                ),
+            )?;
+
+            if capability.entry_binding().is_some() {
+                return Ok(true);
+            }
+
+            access = capability.access();
         }
     }
 

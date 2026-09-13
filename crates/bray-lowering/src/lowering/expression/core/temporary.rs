@@ -199,6 +199,8 @@ impl Lowerer<'_> {
         let place = self.place_for_identity(temporary, ty, origin)?;
 
         if value.reads_from(&place) {
+            self.initialized_temporaries.insert(temporary);
+
             return Ok(LoweredExpression::continuing(
                 current,
                 Some(value),
@@ -216,6 +218,8 @@ impl Lowerer<'_> {
             },
             None,
         )?;
+
+        self.initialized_temporaries.insert(temporary);
 
         Ok(LoweredExpression::continuing(
             current,

@@ -39,6 +39,7 @@ impl StructuralValueEncoder<'_, '_> {
     pub(super) fn dependency_requirement_kind(&mut self, kind: DependencyRequirementKind) {
         match kind {
             DependencyRequirementKind::StorageAlive => self.tag(0),
+            DependencyRequirementKind::ValueDependencies => self.tag(6),
             DependencyRequirementKind::StorageInitialized => self.tag(1),
             DependencyRequirementKind::BorrowCapabilityActive(kind) => {
                 self.tag(2);

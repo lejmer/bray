@@ -204,10 +204,11 @@ where
         &self,
         request: CheckerUnitView<'_, C>,
         selections: &CheckedSemanticSelections,
+        types: &CheckedExpressionTypes,
         storage: &StoragePlan,
         memory: &CheckedMemoryOperations,
     ) -> CheckerOutcome<Liveness, C::UpstreamError> {
-        analyze_storage_liveness(request, selections, storage, memory)
+        analyze_storage_liveness(request, selections, types, storage, memory)
     }
 }
 

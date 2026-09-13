@@ -28,17 +28,17 @@ internal struct ThreadCleanupProbe
 {
 };
 
-internal func return_value(pos value: i32) -> i32
+internal func return_value(pos state: i32) -> i32
 {
-    return value;
+    return state;
 }
 
-internal func retain_borrow(pos value: &i32) -> unit
+internal func retain_borrow(pos state: &i32) -> unit
 {
-    let _: &i32 = value;
+    let _: &i32 = state;
 }
 
-internal func observe_identity(pos ignored: unit) -> std.thread.Id
+internal func observe_identity(pos state: unit) -> std.thread.Id
 {
     let identity: std.thread.Id = std.thread.current_id();
 
@@ -49,12 +49,12 @@ internal func observe_identity(pos ignored: unit) -> std.thread.Id
     return identity;
 }
 
-internal func panic_in_thread(pos ignored: unit) -> unit
+internal func panic_in_thread(pos state: unit) -> unit
 {
     panic("native thread panic fixture");
 }
 
-internal func wait_for_cancellation(pos ignored: unit) -> unit
+internal func wait_for_cancellation(pos state: unit) -> unit
 {
     while !std.thread.cancellation_requested()
     {
@@ -64,22 +64,22 @@ internal func wait_for_cancellation(pos ignored: unit) -> unit
     std.thread.checkpoint();
 }
 
-internal func park_until_woken(pos value: i32) -> i32
+internal func park_until_woken(pos state: i32) -> i32
 {
     core.atomic.store<u32, 2>(&PARK_READY, 1);
     core.atomic.notify_all<u32>(&PARK_READY);
 
     std.thread.park();
 
-    return value;
+    return state;
 }
 
-internal func name_current_thread(pos name: string) -> bool
+internal func name_current_thread(pos state: string) -> bool
 {
-    return std.thread.set_current_name(&name) matches Ok(_);
+    return std.thread.set_current_name(&state) matches Ok(_);
 }
 
-internal func generic_thread_values(pos ignored: unit) -> (u64, u64)
+internal func generic_thread_values(pos state: unit) -> (u64, u64)
 {
     return (GENERIC_THREAD_VALUE<7>, GENERIC_THREAD_VALUE<11>);
 }

@@ -51,6 +51,7 @@ impl DiagnosticDependencySubjectKind {
 /// Locale-neutral state required from an await dependency.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticDependencyRequirementKind {
+    ValueDependencies,
     StorageAlive,
     StorageInitialized,
     SharedBorrowActive,
@@ -67,6 +68,7 @@ pub enum DiagnosticDependencyRequirementKind {
 impl DiagnosticDependencyRequirementKind {
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::ValueDependencies => "value_dependencies",
             Self::StorageAlive => "storage_alive",
             Self::StorageInitialized => "storage_initialized",
             Self::SharedBorrowActive => "shared_borrow_active",

@@ -100,6 +100,9 @@ pub(super) fn convert_requirement_kind(
 ) -> DependencyRequirementKind {
     match input {
         InterfaceDependencyRequirementKind::StorageAlive => DependencyRequirementKind::StorageAlive,
+        InterfaceDependencyRequirementKind::ValueDependencies => {
+            DependencyRequirementKind::ValueDependencies
+        }
         InterfaceDependencyRequirementKind::StorageInitialized => {
             DependencyRequirementKind::StorageInitialized
         }

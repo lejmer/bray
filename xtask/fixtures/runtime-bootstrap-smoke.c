@@ -67,6 +67,18 @@ typedef struct ShutdownRace {
 
 extern uint32_t bray_runtime_initialization(uintptr_t worker_capacity, uintptr_t timer_capacity);
 static uint32_t substrate_initialized;
+static atomic_uint cleanup_shield_balance;
+
+// The isolated bootstrap host has no cancellation delivery. Check that cleanup shields balance.
+void bray_runtime_cleanup_shield_enter(void) {
+    atomic_fetch_add_explicit(&cleanup_shield_balance, 1, memory_order_relaxed);
+}
+
+void bray_runtime_cleanup_shield_leave(void) {
+    if (atomic_fetch_sub_explicit(&cleanup_shield_balance, 1, memory_order_relaxed) == 0) {
+        abort();
+    }
+}
 
 uint32_t bray_runtime_substrate_initialization(uintptr_t worker_capacity, uintptr_t timer_capacity) {
     (void)worker_capacity;
@@ -536,6 +548,10 @@ int main(void) {
 
     if (bray_runtime_structured_shutdown() != 1) {
         return 22;
+    }
+
+    if (atomic_load_explicit(&cleanup_shield_balance, memory_order_relaxed) != 0) {
+        return 23;
     }
 
     return 0;

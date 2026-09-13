@@ -24,13 +24,7 @@ pub(super) fn path_contains(
     container: &ResolvedStoragePath,
     contained: &ResolvedStoragePath,
 ) -> bool {
-    container.root == contained.root
-        && container.projections.len() <= contained.projections.len()
-        && container
-            .projections
-            .iter()
-            .zip(contained.projections.iter())
-            .all(|(container, contained)| container == contained)
+    container.root == contained.root && contained.projections.starts_with(&container.projections)
 }
 
 pub(super) fn projection_relationship(

@@ -269,6 +269,9 @@ pub(super) const fn dependency_requirement_kind(
 ) -> InterfaceDependencyRequirementKind {
     match kind {
         DependencyRequirementKind::StorageAlive => InterfaceDependencyRequirementKind::StorageAlive,
+        DependencyRequirementKind::ValueDependencies => {
+            InterfaceDependencyRequirementKind::ValueDependencies
+        }
         DependencyRequirementKind::StorageInitialized => {
             InterfaceDependencyRequirementKind::StorageInitialized
         }

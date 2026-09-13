@@ -341,6 +341,7 @@ pub struct InterfaceCallableSignature {
     pub(crate) receiver: Option<InterfaceCallableReceiver>,
     pub(crate) parameters: Arc<[InterfaceSymbolReference]>,
     pub(crate) result: InterfaceTypeId,
+    pub(crate) result_dependencies: crate::InterfaceDependencyContractId,
     pub(crate) has_body: bool,
 }
 
@@ -352,6 +353,7 @@ impl InterfaceCallableSignature {
         receiver: Option<InterfaceCallableReceiver>,
         parameters: impl IntoIterator<Item = InterfaceSymbolReference>,
         result: InterfaceTypeId,
+        result_dependencies: crate::InterfaceDependencyContractId,
     ) -> Self {
         Self {
             owner,
@@ -359,6 +361,7 @@ impl InterfaceCallableSignature {
             receiver,
             parameters: parameters.into_iter().collect(),
             result,
+            result_dependencies,
             has_body: false,
         }
     }
@@ -393,6 +396,11 @@ impl InterfaceCallableSignature {
     /// Returns the callable's checked declared result type.
     pub const fn result(&self) -> InterfaceTypeId {
         self.result
+    }
+
+    /// Returns the dependency contract retained by the returned value.
+    pub const fn result_dependencies(&self) -> crate::InterfaceDependencyContractId {
+        self.result_dependencies
     }
 
     /// Returns whether the declaration supplies an executable body.

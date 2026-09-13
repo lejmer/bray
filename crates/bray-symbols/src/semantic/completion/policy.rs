@@ -32,6 +32,8 @@ pub enum SymbolQueryKind {
     GenericConstraints,
     /// The callable signature excluding executable body checking.
     CallableSignature,
+    /// Dependencies retained by the callable's returned value.
+    CallableResultDependencies,
     /// Checked callable contracts, effects, and capabilities.
     CallableContracts,
     /// Unevaluated callable contract expressions and capability paths.
@@ -78,7 +80,7 @@ pub enum SymbolQueryKind {
     OverloadSignatureTemplate,
 }
 
-pub(super) const SYMBOL_QUERY_KINDS: [SymbolQueryKind; 29] = [
+pub(super) const SYMBOL_QUERY_KINDS: [SymbolQueryKind; 30] = [
     SymbolQueryKind::Members,
     SymbolQueryKind::Imports,
     SymbolQueryKind::Directives,
@@ -86,6 +88,7 @@ pub(super) const SYMBOL_QUERY_KINDS: [SymbolQueryKind; 29] = [
     SymbolQueryKind::GenericDeclarationTemplate,
     SymbolQueryKind::GenericConstraints,
     SymbolQueryKind::CallableSignature,
+    SymbolQueryKind::CallableResultDependencies,
     SymbolQueryKind::CallableContracts,
     SymbolQueryKind::CallableContractTemplate,
     SymbolQueryKind::PredicateSignatureTemplate,
@@ -121,6 +124,7 @@ impl SymbolQueryKind {
             Self::GenericDeclarationTemplate => "generic_declaration_template",
             Self::GenericConstraints => "generic_constraints",
             Self::CallableSignature => "callable_signature",
+            Self::CallableResultDependencies => "callable_result_dependencies",
             Self::CallableContracts => "callable_contracts",
             Self::CallableContractTemplate => "callable_contract_template",
             Self::PredicateSignatureTemplate => "predicate_signature_template",
@@ -153,6 +157,7 @@ impl SymbolQueryKind {
             SymbolCompletionLevel::DeclarationSurface => !matches!(
                 self,
                 Self::GenericConstraints
+                    | Self::CallableResultDependencies
                     | Self::CallableContracts
                     | Self::ConstantDefinition
                     | Self::StaticInstanceTemplate
@@ -180,9 +185,10 @@ impl SymbolQueryKind {
             Self::GenericParameters
             | Self::GenericDeclarationTemplate
             | Self::GenericConstraints => GenericOwnerId::try_new(symbol).is_some(),
-            Self::CallableSignature | Self::CallableContracts | Self::CallableContractTemplate => {
-                supports_callable_queries(kind)
-            }
+            Self::CallableSignature
+            | Self::CallableResultDependencies
+            | Self::CallableContracts
+            | Self::CallableContractTemplate => supports_callable_queries(kind),
             Self::PredicateSignatureTemplate => supports_predicate_queries(kind),
             Self::CallableContractType => matches!(kind, SymbolKind::CallableContract),
             Self::ConstantDeclaredType => supports_declared_constant_type(kind),

@@ -96,6 +96,8 @@ pub enum LifecycleObligationKind {
 /// The exact requirement attached to one formal dependency subject.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DependencyRequirementKind {
+    /// The dependencies carried by the value must remain valid after it transfers.
+    ValueDependencies,
     /// Reached storage must remain alive.
     StorageAlive,
     /// Reached storage must remain initialized.

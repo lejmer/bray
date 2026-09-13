@@ -82,6 +82,11 @@ impl InternState {
                     .collect::<Result<Vec<_>, _>>()?;
 
                 Ok(ImportedCallableSignature {
+                    result_dependencies: self
+                        .dependency_contract_id(input.result_dependencies())
+                        .ok_or(
+                        InterfaceSemanticInternError::UnresolvedValueGraph,
+                    )?,
                     owner: resolve_family::<CallableSymbolId>(symbols, input.owner())?,
                     signature: CallableSignatureTemplate::new(
                         TypeExpressionTemplate::Resolved(callable_type),

@@ -225,7 +225,7 @@ impl Lowerer<'_> {
             .input
             .storage_plan()
             .root_identity(id)
-            .filter(|identity| !self.storages.contains_key(identity))
+            .filter(|identity| !self.initialized_temporaries.contains(identity))
             .and_then(|identity| {
                 self.input
                     .storage_plan()
@@ -288,7 +288,12 @@ impl Lowerer<'_> {
         };
 
         let existing = static_reference.as_ref().map_or_else(
-            || self.storages.get(&identity).copied(),
+            || {
+                self.storages.get(&identity).copied().filter(|_| {
+                    !matches!(model, StorageIdentity::Temporary(_))
+                        || self.initialized_temporaries.contains(&identity)
+                })
+            },
             |reference| self.static_storages.get(reference).copied(),
         );
 

@@ -141,6 +141,9 @@ pub(super) fn remap_selected_records(
             signature.callable_type = maps.type_id(signature.callable_type)?;
             signature.result = maps.type_id(signature.result)?;
 
+            signature.result_dependencies =
+                maps.dependency_contract_id(signature.result_dependencies)?;
+
             if let Some(receiver) = &mut signature.receiver {
                 receiver.ty = maps.type_id(receiver.ty)?;
             }

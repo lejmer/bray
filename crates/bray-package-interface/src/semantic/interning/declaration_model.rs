@@ -11,6 +11,7 @@ use crate::InterfacePredicateDefinitionState;
 pub struct ImportedCallableSignature {
     pub(super) owner: CallableSymbolId,
     pub(super) signature: CallableSignatureTemplate,
+    pub(super) result_dependencies: bray_symbols::DependencyContractTemplateId,
 }
 
 impl ImportedCallableSignature {
@@ -22,6 +23,11 @@ impl ImportedCallableSignature {
     /// Returns the source-independent callable signature template.
     pub const fn signature(&self) -> &CallableSignatureTemplate {
         &self.signature
+    }
+
+    /// Returns the dependencies retained by the returned value.
+    pub const fn result_dependencies(&self) -> bray_symbols::DependencyContractTemplateId {
+        self.result_dependencies
     }
 }
 

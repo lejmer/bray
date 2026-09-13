@@ -10,6 +10,26 @@ struct Counter
     mut calls: i32;
 }
 
+struct GenericCounter<T>
+{
+    mut calls: i32;
+    value: T;
+
+    mut func take() -> T?
+        with(T: Copyable)
+    {
+        self.calls += 1;
+
+        return self.value;
+    }
+
+    mut func remove() -> bool
+        with(T: Copyable)
+    {
+        return self.take().is_present();
+    }
+}
+
 func next_value(pos counter: &mut Counter) -> i32?
 {
     counter.calls += 1;
@@ -40,6 +60,19 @@ func broken_value() -> i32?
 
 func main() -> i32
 {
+    let mut generic: GenericCounter<i32> =
+    {
+        calls = 0,
+        value = 42
+    };
+
+    let removed: bool = generic.remove();
+
+    if generic.calls != 1 || !removed
+    {
+        return 10;
+    }
+
     let present: OwnedValue? = OwnedValue
     {
         value = 7

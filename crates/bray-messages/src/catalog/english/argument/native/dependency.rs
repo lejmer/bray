@@ -23,6 +23,9 @@ pub(crate) const fn format_english_dependency_requirement(
 
     match kind {
         DiagnosticDependencyRequirementKind::StorageAlive => "remain alive",
+        DiagnosticDependencyRequirementKind::ValueDependencies => {
+            "preserve the dependencies carried by its value"
+        }
         DiagnosticDependencyRequirementKind::StorageInitialized => "remain initialized",
         DiagnosticDependencyRequirementKind::SharedBorrowActive => "retain its shared borrow",
         DiagnosticDependencyRequirementKind::MutableBorrowActive => "retain its mutable borrow",

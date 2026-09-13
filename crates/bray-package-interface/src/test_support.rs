@@ -419,34 +419,7 @@ fn template_semantics(
 
     let invocation_behavior = callable_phase_behavior();
 
-    let mut declaration_templates = vec![
-        InterfaceDeclarationTemplate::new(
-            owner.clone(),
-            CheckedTemplateKind::CallableContract,
-            SymbolOrdinal::new(0),
-            InterfaceSupportEntityId::new(0),
-        ),
-        InterfaceDeclarationTemplate::new(
-            defined_predicate.clone(),
-            CheckedTemplateKind::PredicateDefinition,
-            SymbolOrdinal::new(0),
-            InterfaceSupportEntityId::new(1),
-        ),
-        InterfaceDeclarationTemplate::new(
-            implementation.clone(),
-            CheckedTemplateKind::GenericConstraint,
-            SymbolOrdinal::new(0),
-            InterfaceSupportEntityId::new(2),
-        ),
-    ];
-
-    declaration_templates.sort_by(|left, right| {
-        (left.owner(), left.kind(), left.ordinal()).cmp(&(
-            right.owner(),
-            right.kind(),
-            right.ordinal(),
-        ))
-    });
+    let declaration_templates = declaration_templates(&owner, &defined_predicate, &implementation);
 
     InterfaceSemantics::new()
         .with_applications(
@@ -539,6 +512,7 @@ fn template_semantics(
                     None,
                     [parameter.clone()],
                     InterfaceTypeId::new(0),
+                    crate::InterfaceDependencyContractId::new(0),
                 )
                 .with_body(true),
                 InterfaceCallableSignature::new(
@@ -547,6 +521,7 @@ fn template_semantics(
                     None,
                     [],
                     InterfaceTypeId::new(1),
+                    crate::InterfaceDependencyContractId::new(0),
                 )
                 .with_body(true),
                 InterfaceCallableSignature::new(
@@ -555,6 +530,7 @@ fn template_semantics(
                     None,
                     [],
                     InterfaceTypeId::new(1),
+                    crate::InterfaceDependencyContractId::new(0),
                 )
                 .with_body(true),
             ],
@@ -632,6 +608,43 @@ fn template_semantics(
             ],
             [],
         )
+}
+
+fn declaration_templates(
+    owner: &InterfaceSymbolReference,
+    defined_predicate: &InterfaceSymbolReference,
+    implementation: &InterfaceSymbolReference,
+) -> Vec<InterfaceDeclarationTemplate> {
+    let mut declaration_templates = vec![
+        InterfaceDeclarationTemplate::new(
+            owner.clone(),
+            CheckedTemplateKind::CallableContract,
+            SymbolOrdinal::new(0),
+            InterfaceSupportEntityId::new(0),
+        ),
+        InterfaceDeclarationTemplate::new(
+            defined_predicate.clone(),
+            CheckedTemplateKind::PredicateDefinition,
+            SymbolOrdinal::new(0),
+            InterfaceSupportEntityId::new(1),
+        ),
+        InterfaceDeclarationTemplate::new(
+            implementation.clone(),
+            CheckedTemplateKind::GenericConstraint,
+            SymbolOrdinal::new(0),
+            InterfaceSupportEntityId::new(2),
+        ),
+    ];
+
+    declaration_templates.sort_by(|left, right| {
+        (left.owner(), left.kind(), left.ordinal()).cmp(&(
+            right.owner(),
+            right.kind(),
+            right.ordinal(),
+        ))
+    });
+
+    declaration_templates
 }
 
 fn type_representations(structure: InterfaceSymbolReference) -> [InterfaceTypeRepresentation; 1] {

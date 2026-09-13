@@ -243,6 +243,7 @@ pub(super) fn encode_dependency_requirement_kind(
 ) {
     match kind {
         InterfaceDependencyRequirementKind::StorageAlive => encoder.write_u32(1),
+        InterfaceDependencyRequirementKind::ValueDependencies => encoder.write_u32(7),
         InterfaceDependencyRequirementKind::StorageInitialized => encoder.write_u32(2),
         InterfaceDependencyRequirementKind::ExclusiveMutationAuthority => encoder.write_u32(3),
         InterfaceDependencyRequirementKind::BorrowCapabilityActive(kind) => {
