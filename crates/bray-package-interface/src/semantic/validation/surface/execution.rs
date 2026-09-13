@@ -200,6 +200,23 @@ impl InterfaceSemantics {
             }
 
             match proof.origin {
+                CallableExecutionOrigin::CompilerIntrinsic => {
+                    if signature.has_body
+                        || !proof.dependencies.is_empty()
+                        || !matches!(
+                            proof.obligation,
+                            Obligation::Property(
+                                ExecutionProperty::Pure | ExecutionProperty::Total,
+                                _
+                            )
+                        )
+                    {
+                        return Err(invalid());
+                    }
+
+                    // The consumer resolves the exact recognized intrinsic before using this leaf.
+                    graph.insert((owner, proof.obligation), dependencies);
+                }
                 CallableExecutionOrigin::Requirement => {
                     if signature.has_body
                         || reference_owner(&contract.owner, surface)?.map(|owner| owner.kind())

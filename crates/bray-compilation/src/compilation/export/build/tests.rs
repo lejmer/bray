@@ -52,7 +52,7 @@ fn execution_guarantees_reject_malformed_interface_evidence() {
         .copied()
         .unwrap();
 
-    for corruption in 0..9 {
+    for corruption in 0..10 {
         let contracts = original
             .semantics()
             .callable_contracts()
@@ -119,6 +119,10 @@ fn execution_guarantees_reject_malformed_interface_evidence() {
                                     proof.dependencies = Arc::from([dependency]);
                                 }
                             }
+                        }
+                        9 => {
+                            Arc::make_mut(&mut execution.evidence)[0].origin =
+                                CallableExecutionOrigin::CompilerIntrinsic;
                         }
                         _ => unreachable!(),
                     }
@@ -222,6 +226,99 @@ fn execution_guarantees_preserve_imported_trait_requirements() {
             "{source}: {:?}",
             consumer.check_diagnostics()
         );
+    }
+}
+
+#[test]
+fn storage_projection_guarantees_survive_generic_interfaces() {
+    use bray_bound_tree::{
+        BoundDependencyRequirement, BoundDependencyRequirementKind, BoundDependencySubject,
+        BoundExpression,
+    };
+
+    for borrow in ["&", "&mut "] {
+        let provider = compilation(
+            &r#"
+        module api;
+
+        public func project<T>(pos value: BORROWbox T) -> BORROWT executes(pure, total)
+        {
+            return match value
+            {
+                case box(inner) { yield BORROWinner; }
+            };
+        }
+    "#
+            .replace("BORROW", borrow),
+        );
+
+        assert!(
+            !provider.check_diagnostics().has_errors(),
+            "{:?}",
+            provider.check_diagnostics()
+        );
+
+        let consumer = execution_consumer(
+            &provider,
+            &r#"
+        module app;
+        using example.package.api.project;
+
+        func root(pos value: BORROWbox bool) -> BORROWbool executes(pure, total)
+        {
+            return example.package.api.project<bool>(value);
+        }
+    "#
+            .replace("BORROW", borrow),
+        );
+
+        assert!(
+            !consumer.check_diagnostics().has_errors(),
+            "{:?}",
+            consumer.check_diagnostics()
+        );
+
+        let key = source_function_body_key(&consumer, "root");
+        let storage = consumer.storage_plan(key.clone()).unwrap();
+        let unit = consumer.bound_unit(key.clone()).unwrap();
+        let contracts = consumer.dependency_contracts(key).unwrap();
+
+        let (capability, input) = storage
+            .value()
+            .borrow_capability_entries()
+            .find(|(_, capability)| capability.entry_binding().is_some())
+            .unwrap();
+
+        let root = storage.value().root_identity(input.access()).unwrap();
+
+        let call = unit
+            .value()
+            .tree()
+            .expressions()
+            .find_map(|(id, expression)| matches!(expression, BoundExpression::Call(_)).then_some(id))
+            .unwrap();
+
+        let contract = contracts
+            .value()
+            .expression(call)
+            .and_then(|id| contracts.value().contract(id))
+            .unwrap();
+
+        assert!(contract.requirements().iter().any(|requirement| matches!(
+            requirement,
+            BoundDependencyRequirement::Direct {
+                subject: BoundDependencySubject::BorrowCapability(actual),
+                kind: BoundDependencyRequirementKind::BorrowCapabilityActive(kind),
+            } if *actual == capability && *kind == input.kind()
+        )), "{contract:?}");
+
+        assert!(contract.requirements().iter().any(|requirement| matches!(
+            requirement,
+            BoundDependencyRequirement::Direct {
+                subject: BoundDependencySubject::StorageAccess(access),
+                kind: BoundDependencyRequirementKind::StorageAlive,
+            } if storage.value().root_identity(*access) == Some(root)
+        )), "{contract:?}");
     }
 }
 
@@ -347,6 +444,49 @@ fn execution_guarantees_retain_foreign_trust_and_caller_obligations() {
             consumer.check_diagnostics()
         );
     }
+
+    let contracts = bundle
+        .semantics()
+        .callable_contracts()
+        .iter()
+        .map(|contract| {
+            let mut execution = contract.execution_contract().clone();
+
+            for proof in Arc::make_mut(&mut execution.evidence) {
+                proof.origin = bray_symbols::CallableExecutionOrigin::CompilerIntrinsic;
+            }
+
+            contract.clone().with_execution_contract(execution)
+        });
+
+    let forged = PackageInterfaceExportBundle::try_new(
+        bundle.surface().clone(),
+        bundle
+            .semantics()
+            .clone()
+            .with_contracts(bundle.semantics().constraints().iter().cloned(), contracts),
+        bundle.language_revision(),
+        bundle.implementation_configuration().clone(),
+    )
+    .unwrap();
+
+    let consumer = crate::test_support::compilation_with_dependencies(
+        r#"
+        trusted module app;
+        using example.package.api.asserted;
+
+        trusted func caller() -> bool uses(foreign_call) executes(total)
+        {
+            return example.package.api.asserted();
+        }
+        "#,
+        [execution_bundle_dependency(&forged)],
+    );
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        consumer.check_diagnostics(),
+        bray_diagnostics::DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+    );
 }
 
 fn execution_consumer(provider: &Compilation, source: &str) -> Compilation {
@@ -354,7 +494,10 @@ fn execution_consumer(provider: &Compilation, source: &str) -> Compilation {
 }
 
 fn execution_dependency(provider: &Compilation) -> DependencyInterfaceInput {
-    let bundle = export(provider);
+    execution_bundle_dependency(export(provider))
+}
+
+fn execution_bundle_dependency(bundle: &PackageInterfaceExportBundle) -> DependencyInterfaceInput {
     let artifact = encode_package_interface(bundle).unwrap();
 
     DependencyInterfaceInput::new(

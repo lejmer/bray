@@ -233,6 +233,7 @@ pub(crate) fn expression_condition(
             if matches!(
                 operation.kind(),
                 bray_bound_tree::BoundStructuredExpressionKind::Condition
+                    | bray_bound_tree::BoundStructuredExpressionKind::Borrow
             ) =>
         {
             operation

@@ -166,6 +166,21 @@ impl Compilation {
                 .map_err(crate::compilation::binder::binding_query_error)?;
 
             diagnostics.add_range(contract.diagnostics().iter().cloned());
+
+            if self.symbol_graph()?.symbol_origin(symbol)
+                == Some(bray_symbols::SymbolOrigin::CompilerKnown)
+            {
+                domains.push(ConformanceExecutionDomain {
+                    entry: Vec::new(),
+                    properties: contract
+                        .value()
+                        .invocation_behavior()
+                        .execution_properties()
+                        .to_vec(),
+                    postconditions: Vec::new(),
+                });
+            }
+
             let inputs = self.execution_callable_inputs(symbol, cancellation)?;
             let values = self.semantic_value_store()?;
 
@@ -288,6 +303,116 @@ mod tests {
     use bray_diagnostics::DiagnosticKind;
 
     use crate::test_support::compilation;
+
+    #[test]
+    fn storage_projections_require_checked_pure_total_bodies() {
+        for (contract, shared, mutable, valid) in [
+            (
+                "executes(pure, total)",
+                "return &storage.value;",
+                "return &mut storage.value;",
+                true,
+            ),
+            (
+                "",
+                "return &storage.value;",
+                "return &mut storage.value;",
+                false,
+            ),
+            (
+                "executes(pure)",
+                "return &storage.value;",
+                "return &mut storage.value;",
+                false,
+            ),
+            (
+                "executes(total)",
+                "return &storage.value;",
+                "return &mut storage.value;",
+                false,
+            ),
+            (
+                "executes(pure, total) requires(storage.value == 0)",
+                "return &storage.value;",
+                "return &mut storage.value;",
+                false,
+            ),
+            (
+                "when(storage.value == 0) { executes(pure, total) }",
+                "return &storage.value;",
+                "return &mut storage.value;",
+                false,
+            ),
+            (
+                "when(true) { executes(pure, total) }",
+                "return &storage.value;",
+                "return &mut storage.value;",
+                true,
+            ),
+            (
+                "executes(pure, total)",
+                "panic(1);",
+                "return &mut storage.value;",
+                false,
+            ),
+            (
+                "executes(pure, total)",
+                "return &storage.value;",
+                "loop {}",
+                false,
+            ),
+            (
+                "executes(pure, total)",
+                "return &storage.value;",
+                "storage.value = 1; return &mut storage.value;",
+                false,
+            ),
+        ] {
+            let source = format!(
+                r#"
+                module app;
+
+                struct Policy {{ mut value: i32; }}
+
+                impl Policy(Storage<i32>)
+                {{
+                    trusted static func create(pos value: i32) -> Self
+                    {{ return Policy {{ value = value }}; }}
+
+                    static func borrow(pos storage: &Self) -> &i32 {contract}
+                    {{ {shared} }}
+
+                    static func borrow_mut(pos storage: &mut Self) -> &mut i32 {contract}
+                    {{ {mutable} }}
+
+                    trusted static func destroy(pos storage: &mut Self) {{}}
+                    trusted static func release(pos storage: Self) {{}}
+                }}
+
+                func root(pos value: &box[Policy] i32) -> i32 executes(pure, total)
+                {{
+                    return match value {{ case box(inner) {{ yield inner; }} }};
+                }}
+            "#
+            );
+
+            let compilation = compilation(&source);
+            let diagnostics = compilation.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                valid,
+                "{source}: {diagnostics:?}"
+            );
+
+            if !valid {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    diagnostics,
+                    DiagnosticKind::CheckingExecutionGuaranteeNotProven,
+                );
+            }
+        }
+    }
 
     #[test]
     fn concrete_witnesses_are_checked_and_open_termination_dependencies_are_rejected() {

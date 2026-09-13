@@ -129,13 +129,13 @@ scope Ambient at ambient {
     declaration HeapStorageBorrow {
         owner HeapStorageImplementation;
 
-        surface { static func borrow(pos storage: &Heap) -> &T {} }
+        surface { static func borrow(pos storage: &Heap) -> &T executes(pure, total) {} }
     }
 
     declaration HeapStorageBorrowMut {
         owner HeapStorageImplementation;
 
-        surface { static func borrow_mut(pos storage: &mut Heap) -> &mut T {} }
+        surface { static func borrow_mut(pos storage: &mut Heap) -> &mut T executes(pure, total) {} }
     }
 
     declaration HeapStorageDestroy {

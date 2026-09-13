@@ -65,7 +65,11 @@ pub(super) fn analyze_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
         literals,
         storage,
         contracts,
-        invalidating: super::super::storage_invalidation::invalidating_operation_accesses(storage),
+        invalidating: super::super::storage_invalidation::invalidating_operation_accesses(
+            request,
+            semantics.selections(),
+            storage,
+        ),
     };
 
     let states = match solve_fixed_point(graph, &domain, &request) {
@@ -405,12 +409,19 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         };
 
         for (target, binding) in self.storage.bindings() {
-            let bray_bound_tree::StorageBinding::Access(access) = binding else {
-                continue;
+            let access = match binding {
+                bray_bound_tree::StorageBinding::Access(access) => *access,
+                bray_bound_tree::StorageBinding::Identity(identity) => {
+                    let Some(access) = self.storage.root_access(*identity) else {
+                        continue;
+                    };
+
+                    access
+                }
             };
 
             if !accesses.iter().any(|invalidated| {
-                self.storage.relationship(*invalidated, *access)
+                self.storage.relationship(*invalidated, access)
                     != bray_bound_tree::StorageRelationship::Disjoint
             }) {
                 continue;
@@ -433,7 +444,7 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
             };
 
             for invalidated in accesses {
-                if self.storage.relationship(*invalidated, *access)
+                if self.storage.relationship(*invalidated, access)
                     == bray_bound_tree::StorageRelationship::Disjoint
                 {
                     continue;

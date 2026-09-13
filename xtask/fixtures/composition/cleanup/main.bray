@@ -25,6 +25,8 @@ func run()
             }
         );
 
+        assert(guard_id(&guard) == 1);
+
         guard = box(
             Guard
             {
@@ -32,8 +34,18 @@ func run()
             }
         );
 
+        assert(guard_id(&guard) == 2);
         assert(core.atomic.load<usize, 1>(&COUNT) == 1);
     };
 
     assert(core.atomic.load<usize, 1>(&COUNT) == 12);
+}
+
+func guard_id(pos value: &box Guard) -> usize
+    executes(pure, total)
+{
+    return match value
+    {
+        case box(guard) { yield guard.id; }
+    };
 }

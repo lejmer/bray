@@ -92,6 +92,10 @@ impl Compilation {
         diagnostics: &mut DiagnosticBag,
         cancellation: &CancellationToken,
     ) -> Result<Option<ExecutionObligation>, FactQueryError> {
+        if self.synthetic_heap_projection_obligation(callable, required) {
+            return Ok(Some(required));
+        }
+
         let contract = self.imported_execution_contract(callable, diagnostics, cancellation)?;
 
         match required {
@@ -107,7 +111,9 @@ impl Compilation {
                         cancellation,
                     )?;
 
-                    if entry.is_empty() || evidence.is_some_and(|evidence| evidence.proves(&entry))
+                    if evidence
+                        .unwrap_or(&ExecutionCallEvidence::default())
+                        .proves(&entry)
                     {
                         return Ok(Some(ExecutionObligation::Property(
                             property,
@@ -151,6 +157,15 @@ impl Compilation {
                 return Ok(false);
             }
 
+            if self.synthetic_heap_projection_obligation(callable, obligation) {
+                graph.insert(
+                    (ExecutionProofOwner::Imported(callable), obligation),
+                    BTreeSet::new(),
+                );
+
+                continue;
+            }
+
             let Some(portable) = portable_imported_obligation(obligation) else {
                 return Ok(false);
             };
@@ -166,6 +181,19 @@ impl Compilation {
             };
 
             if proof.origin == CallableExecutionOrigin::Requirement {
+                return Ok(false);
+            }
+
+            if proof.origin == CallableExecutionOrigin::CompilerIntrinsic
+                && (!matches!(
+                    obligation,
+                    ExecutionObligation::Property(
+                        ExecutionProperty::Pure | ExecutionProperty::Total,
+                        _
+                    )
+                ) || !self
+                    .intrinsic_projection_symbol(callable.definition().symbol(), cancellation)?)
+            {
                 return Ok(false);
             }
 

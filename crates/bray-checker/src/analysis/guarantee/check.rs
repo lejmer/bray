@@ -96,6 +96,13 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
         ..ExecutionCandidate::default()
     };
 
+    super::operation::collect_preservation_dependencies(
+        candidate.calls.keys().copied(),
+        expressions.selections(),
+        memory,
+        &mut candidate.dependencies,
+    );
+
     let mut diagnostics = DiagnosticBag::new();
 
     macro_rules! checked {
@@ -177,7 +184,6 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
                 AnalysisOperationKind::Recovery(_)
                 | AnalysisOperationKind::Suspension { .. }
                 | AnalysisOperationKind::TaskOperation { .. } => false,
-                AnalysisOperationKind::PatternObservation(_) => true,
                 AnalysisOperationKind::Call { expression, .. }
                 | AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(expression)) => {
                     let mut valid = true;
@@ -237,7 +243,14 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
 
                     valid
                 }
-                AnalysisOperationKind::Bound(_) => true,
+                AnalysisOperationKind::PatternObservation(_) | AnalysisOperationKind::Bound(_) => {
+                    super::operation::check_storage_accesses(
+                        node,
+                        storage,
+                        property,
+                        &mut candidate.dependencies,
+                    )
+                }
             };
 
             if !preserves {
