@@ -1,14 +1,13 @@
 use bray_symbols::{DependencyCallInput, DependencyRequirement, SemanticValueStoreError};
 
-pub(super) fn map_requirements(
+pub(super) fn map_requirements<E>(
     requirements: &[DependencyRequirement],
     depth: u32,
     transform: &mut impl FnMut(
         &DependencyRequirement,
         u32,
-    )
-        -> Option<Result<Vec<DependencyRequirement>, SemanticValueStoreError>>,
-) -> Result<Vec<DependencyRequirement>, SemanticValueStoreError> {
+    ) -> Option<Result<Vec<DependencyRequirement>, E>>,
+) -> Result<Vec<DependencyRequirement>, E> {
     // Rebuilt requirements share unchanged subjects and guards with their input.
     requirements
         .iter()
@@ -61,27 +60,34 @@ pub(super) fn map_requirements(
         .map(|groups| groups.into_iter().flatten().collect())
 }
 
-fn map_inputs(
+fn map_inputs<E>(
     inputs: &[DependencyCallInput],
     depth: u32,
     transform: &mut impl FnMut(
         &DependencyRequirement,
         u32,
-    )
-        -> Option<Result<Vec<DependencyRequirement>, SemanticValueStoreError>>,
-) -> Result<Vec<DependencyCallInput>, SemanticValueStoreError> {
+    ) -> Option<Result<Vec<DependencyRequirement>, E>>,
+) -> Result<Vec<DependencyCallInput>, E> {
+    map_input_requirements(inputs, &mut |requirements| {
+        map_requirements(requirements, depth, transform)
+    })
+}
+
+pub(super) fn map_input_requirements<E>(
+    inputs: &[DependencyCallInput],
+    transform: &mut impl FnMut(&[DependencyRequirement]) -> Result<Vec<DependencyRequirement>, E>,
+) -> Result<Vec<DependencyCallInput>, E> {
     inputs
         .iter()
         .map(|input| {
             Ok(DependencyCallInput::new(
                 input.root(),
-                map_requirements(input.values(), depth, transform)?,
-                map_requirements(input.storage(), depth, transform)?,
+                transform(input.values())?,
+                transform(input.storage())?,
             ))
         })
         .collect()
 }
-
 pub(super) fn shift_variables(
     requirements: &[DependencyRequirement],
     amount: i64,

@@ -93,10 +93,28 @@ pub(super) fn recursive_result<C: CheckerRequestContext + ?Sized>(
     super::defaults::expand_result_defaults(request, call, &template)
 }
 
-type WitnessResultKey = (
-    bray_symbols::CallableInstanceData,
-    Option<(bray_symbols::SelfTypeContext, bray_symbols::TypeId)>,
-);
+pub(super) fn instantiate_template<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    template: DependencyContractTemplateId,
+    key: super::parameters::ResultKey,
+) -> Result<std::sync::Arc<DependencyContractTemplateData>, CheckerQueryError<C::UpstreamError>> {
+    let values = request.semantic_values();
+
+    let template = values
+        .substitute_dependency_contract(template, key.0.substitution())
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+
+    let template = match key.1 {
+        Some((context, subject)) => values
+            .substitute_contextual_self_in_dependency_contract(template, context, subject)
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?,
+        None => template,
+    };
+
+    values
+        .dependency_contract_template_data(template)
+        .map_err(|error| CheckerInfrastructureError::SemanticValueStore(error).into())
+}
 
 struct EquationFrame {
     definitions: std::sync::Arc<[std::sync::Arc<[DependencyRequirement]>]>,
@@ -108,8 +126,8 @@ struct EquationFrame {
 
 struct WitnessResultResolver<'a, C: CheckerRequestContext + ?Sized> {
     request: CheckerUnitView<'a, C>,
-    active: std::collections::BTreeSet<WitnessResultKey>,
-    results: std::collections::BTreeMap<WitnessResultKey, Vec<DependencyRequirement>>,
+    active: std::collections::BTreeSet<super::parameters::ResultKey>,
+    results: std::collections::BTreeMap<super::parameters::ResultKey, Vec<DependencyRequirement>>,
     changed: bool,
     equations: Vec<EquationFrame>,
     scope: Option<usize>,
@@ -143,14 +161,11 @@ pub(super) fn resolve<C: CheckerRequestContext + ?Sized>(
 impl<C: CheckerRequestContext + ?Sized> WitnessResultResolver<'_, C> {
     fn selected_result(
         &mut self,
-        key: WitnessResultKey,
+        key: super::parameters::ResultKey,
     ) -> Result<Vec<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
         let (selected, contextual_self) = key;
 
-        let key = (
-            self.parameters.key(self.request, selected)?,
-            contextual_self,
-        );
+        let key = self.parameters.key(self.request, key)?;
 
         if !self.active.insert(key) {
             // Recursive calls read the preceding approximation while this result is recomputed.
@@ -163,23 +178,7 @@ impl<C: CheckerRequestContext + ?Sized> WitnessResultResolver<'_, C> {
             .context()
             .callable_result_dependencies(selected.definition().callable_symbol())?;
 
-        let template = request
-            .semantic_values()
-            .substitute_dependency_contract(template, selected.substitution())
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
-
-        let template = match contextual_self {
-            Some((context, subject)) => request
-                .semantic_values()
-                .substitute_contextual_self_in_dependency_contract(template, context, subject)
-                .map_err(CheckerInfrastructureError::SemanticValueStore)?,
-            None => template,
-        };
-
-        let template = request
-            .semantic_values()
-            .dependency_contract_template_data(template)
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        let template = instantiate_template(request, template, (selected, contextual_self))?;
 
         let result =
             DependencyContractTemplateData::new(self.requirements(template.requirements())?);

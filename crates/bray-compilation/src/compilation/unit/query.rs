@@ -1851,6 +1851,78 @@ mod tests {
     }
 
     #[test]
+    fn abstract_trait_results_converge_through_generic_recursive_defaults() {
+        let compilation = compilation(
+            r#"
+            module app;
+
+            trait Project
+            {
+                func leaf() -> &bool;
+
+                func project<V>(pos repeat: bool) -> &bool
+                {
+                    if repeat
+                    {
+                        return self.project<(V, V)>(false);
+                    }
+
+                    return self.leaf();
+                }
+            }
+
+            struct Holder
+            {
+                value: bool;
+            }
+
+            impl HolderProject = Holder(Project)
+            {
+                func leaf() -> &bool
+                {
+                    return &self.value;
+                }
+            }
+
+            func forward<T>(pos value: &T) -> &bool with(T: Project)
+            {
+                return value(Project).project<u32>(true);
+            }
+
+            func bad() -> &bool
+            {
+                let local = Holder
+                {
+                    value = true,
+                };
+
+                return forward(&local);
+            }
+
+            func good(pos value: &Holder) -> &bool
+            {
+                return forward(value);
+            }
+        "#,
+        );
+
+        let flow = compilation
+            .storage_flow(source_function_body_key(&compilation, "bad"))
+            .unwrap();
+
+        assert_goal_state_diagnostic_kind(
+            flow.diagnostics(),
+            DiagnosticKind::CheckingEscapingStorageDependency,
+        );
+
+        let flow = compilation
+            .storage_flow(source_function_body_key(&compilation, "good"))
+            .unwrap();
+
+        assert!(!flow.diagnostics().has_errors(), "{:?}", flow.diagnostics());
+    }
+
+    #[test]
     fn abstract_trait_results_instantiate_parameter_defaults() {
         let compilation = compilation(
             r#"
@@ -2268,30 +2340,45 @@ mod tests {
             ("const count: usize, U", "0, Holder", "count + 1, U", false),
             ("T, U", "u32, Holder", "(T, T), U", true),
         ] {
-            let step = if mutual {
-                r#"
+            for generic_method in [false, true] {
+                let constant = parameters.starts_with("const");
+
+                let method_parameters = match (generic_method, constant) {
+                    (true, true) => "<const amount: usize>",
+                    (true, false) => "<V>",
+                    (false, _) => "",
+                };
+
+                let method_arguments = match (generic_method, constant) {
+                    (true, true) => "<count>",
+                    (true, false) => "<T>",
+                    (false, _) => "",
+                };
+
+                let step = if mutual {
+                    r#"
                 func step<V, W>(pos value: &W) -> &bool with(W: Project)
                 {
                     return recurse<(V, V), W>(value, true);
                 }
                 "#
-            } else {
-                ""
-            };
+                } else {
+                    ""
+                };
 
-            let recursive_call = if mutual {
-                "step<(T, T), U>(value)".to_owned()
-            } else {
-                format!("recurse<{nested}>(value, true)")
-            };
+                let recursive_call = if mutual {
+                    "step<(T, T), U>(value)".to_owned()
+                } else {
+                    format!("recurse<{nested}>(value, true)")
+                };
 
-            let source = format!(
-                r#"
+                let source = format!(
+                    r#"
                 module app;
 
                 trait Project
                 {{
-                    func project() -> &bool;
+                    func project{method_parameters}() -> &bool;
                 }}
 
                 struct Holder
@@ -2301,7 +2388,7 @@ mod tests {
 
                 impl HolderProject = Holder(Project)
                 {{
-                    func project() -> &bool
+                    func project{method_parameters}() -> &bool
                     {{
                         return &self.value;
                     }}
@@ -2312,7 +2399,7 @@ mod tests {
                 {{
                     if stop
                     {{
-                        return value.project();
+                        return value.project{method_arguments}();
                     }}
 
                     return {recursive_call};
@@ -2335,46 +2422,47 @@ mod tests {
                     return recurse<{initial}>(&local, false);
                 }}
             "#
-            );
+                );
 
-            let compilation = compilation(&source);
-            let cancellation = compilation.state.cancellation.clone();
+                let compilation = compilation(&source);
+                let cancellation = compilation.state.cancellation.clone();
 
-            std::thread::scope(|scope| {
-                let (finished, completion) = std::sync::mpsc::channel();
+                std::thread::scope(|scope| {
+                    let (finished, completion) = std::sync::mpsc::channel();
 
-                let cancellation_ref = &cancellation;
+                    let cancellation_ref = &cancellation;
 
-                scope.spawn(move || {
-                    if completion
-                        .recv_timeout(std::time::Duration::from_secs(3))
-                        .is_err()
-                    {
-                        cancellation_ref.cancel();
-                    }
+                    scope.spawn(move || {
+                        if completion
+                            .recv_timeout(std::time::Duration::from_secs(3))
+                            .is_err()
+                        {
+                            cancellation_ref.cancel();
+                        }
+                    });
+
+                    let result = compilation
+                        .storage_flow(source_function_body_key(&compilation, "caller"))
+                        .expect("abstract dependencies must not expand unused recursive arguments");
+
+                    assert!(
+                        !result.diagnostics().has_errors(),
+                        "{source}: {:?}",
+                        result.diagnostics()
+                    );
+
+                    let result = compilation
+                        .storage_flow(source_function_body_key(&compilation, "bad"))
+                        .unwrap();
+
+                    assert_goal_state_diagnostic_kind(
+                        result.diagnostics(),
+                        DiagnosticKind::CheckingEscapingStorageDependency,
+                    );
+
+                    let _ = finished.send(());
                 });
-
-                let result = compilation
-                    .storage_flow(source_function_body_key(&compilation, "caller"))
-                    .expect("abstract dependencies must not expand unused recursive arguments");
-
-                assert!(
-                    !result.diagnostics().has_errors(),
-                    "{source}: {:?}",
-                    result.diagnostics()
-                );
-
-                let result = compilation
-                    .storage_flow(source_function_body_key(&compilation, "bad"))
-                    .unwrap();
-
-                assert_goal_state_diagnostic_kind(
-                    result.diagnostics(),
-                    DiagnosticKind::CheckingEscapingStorageDependency,
-                );
-
-                let _ = finished.send(());
-            });
+            }
         }
     }
 
@@ -2460,6 +2548,105 @@ mod tests {
             .unwrap();
 
         assert!(!flow.diagnostics().has_errors(), "{:?}", flow.diagnostics());
+    }
+
+    #[test]
+    fn recursive_witness_parameters_follow_the_selected_implementation() {
+        let compilation = compilation(
+            r#"
+            module app;
+
+            trait Leaf
+            {
+                func leaf() -> &bool;
+            }
+
+            trait Project
+            {
+                func project<T>(pos input: &T) -> &bool with(T: Leaf);
+            }
+
+            struct Holder
+            {
+                value: bool;
+            }
+
+            struct Forwarder
+            {
+                value: bool;
+            }
+
+            impl HolderLeaf = Holder(Leaf)
+            {
+                func leaf() -> &bool
+                {
+                    return &self.value;
+                }
+            }
+
+            impl HolderProject = Holder(Project)
+            {
+                func project<V>(pos input: &V) -> &bool with(V: Leaf)
+                {
+                    return &self.value;
+                }
+            }
+
+            impl ForwarderProject = Forwarder(Project)
+            {
+                func project<W>(pos input: &W) -> &bool with(W: Leaf)
+                {
+                    return input.leaf();
+                }
+            }
+
+            func recurse<X, T, U>(pos value: &U, pos input: &T, pos stop: bool) -> &bool
+                with(T: Leaf, U: Project)
+            {
+                if stop
+                {
+                    return value.project<T>(input);
+                }
+
+                return recurse<(X, X), T, U>(value, input, true);
+            }
+
+            func good(pos value: &Holder) -> &bool
+            {
+                let local = Holder
+                {
+                    value = true,
+                };
+
+                return recurse<u32, Holder, Holder>(value, &local, false);
+            }
+
+            func bad(pos value: &Forwarder) -> &bool
+            {
+                let local = Holder
+                {
+                    value = true,
+                };
+
+                return recurse<u32, Holder, Forwarder>(value, &local, false);
+            }
+        "#,
+        );
+
+        let flow = compilation
+            .storage_flow(source_function_body_key(&compilation, "good"))
+            .unwrap();
+
+        assert!(!flow.diagnostics().has_errors(), "{:?}", flow.diagnostics());
+
+        let flow = compilation
+            .storage_flow(source_function_body_key(&compilation, "bad"))
+            .unwrap();
+
+        assert_goal_state_diagnostic_kind(
+            flow.diagnostics(),
+            DiagnosticKind::CheckingEscapingStorageDependency,
+        );
     }
 
     #[test]
