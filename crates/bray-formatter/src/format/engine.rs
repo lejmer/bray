@@ -392,6 +392,7 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
 
         if (self.callable_header_group_open || self.callable_clause_indent_open)
             && (kind == SyntaxKind::SemicolonToken
+                && !semicolon_stays_inline(self.nodes.last().copied())
                 || kind == SyntaxKind::OpenBraceToken
                     && !self.nodes.contains(&SyntaxKind::ParameterList)
                     && self.nodes.last() != Some(&SyntaxKind::WhenClause))

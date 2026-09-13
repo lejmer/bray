@@ -25,7 +25,7 @@ pub(crate) fn call_result_template<C: CheckerRequestContext + ?Sized>(
         DependencyContractTemplateId,
         CheckerQueryError<C::UpstreamError>,
     >,
-) -> Result<DependencyContractTemplateData, CheckerQueryError<C::UpstreamError>> {
+) -> Result<super::defaults::CallResultDependencies, CheckerQueryError<C::UpstreamError>> {
     let store = request.semantic_values();
 
     let template = if let Some((parameter, _)) = call
@@ -160,6 +160,7 @@ impl super::ValueInputs {
             let template = call_result_template(request, call, &mut declaration)?;
 
             let sources = template
+                .template
                 .requirements()
                 .iter()
                 .filter_map(|requirement| {

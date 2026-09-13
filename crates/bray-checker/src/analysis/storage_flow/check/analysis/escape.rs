@@ -1,13 +1,9 @@
 use bray_bound_tree::{AnyBoundNodeId, BoundDependencySubject};
-use bray_diagnostics::{
-    Diagnostic, DiagnosticId, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind, DiagnosticNote,
-    DiagnosticNoteKind, DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, SeverityKind,
-};
-use bray_source::SourceSpan;
+use bray_diagnostics::DiagnosticKind;
 
 use super::core::StorageFlowCollector;
 use crate::analysis::storage_flow::model::StorageFlowState;
-use crate::diagnostic::{bound_node_origin, diagnostic_id};
+use crate::diagnostic::{bound_node_origin, diagnostic_id, escaping_storage_dependency_diagnostic};
 use crate::{CheckerInfrastructureError, CheckerRequestContext};
 
 impl<C> StorageFlowCollector<'_, C>
@@ -45,11 +41,7 @@ where
                 continue;
             };
 
-            if capability.kind() == bray_symbols::BorrowKind::Shared
-                && let Some(bray_bound_tree::StorageIdentity::Temporary(expression)) =
-                    self.storage.identity(storage)
-                && matches!(self.request.view().expression(expression), Some(bray_bound_tree::BoundExpression::Literal(literal)) if literal.kind() == bray_bound_tree::BoundLiteralKind::String)
-            {
+            if self.borrow_has_permanent_literal_storage(capability) {
                 continue;
             }
 
@@ -108,6 +100,118 @@ where
                 dependency,
             ));
         }
+    }
+
+    pub(super) fn report_escaping_default_storage(
+        &mut self,
+        state: &StorageFlowState,
+        expression: bray_bound_tree::BoundExpressionId,
+    ) {
+        if !self.publish || self.infrastructure_failure.is_some() {
+            return;
+        }
+
+        for borrow in state.active_borrows.iter().copied() {
+            if !self
+                .liveness
+                .is_owner_retained_by(expression, BoundDependencySubject::BorrowCapability(borrow))
+            {
+                continue;
+            }
+
+            let Some(capability) = self.storage.borrow_capability(borrow) else {
+                self.record_infrastructure_failure(CheckerInfrastructureError::StorageFlow(
+                    crate::CheckerStorageFlowFailure::MissingBorrowCapability { borrow },
+                ));
+
+                return;
+            };
+
+            if capability.entry_binding().is_some()
+                || self.borrow_has_permanent_literal_storage(capability)
+            {
+                continue;
+            }
+
+            let Some(identity) = self
+                .storage
+                .root_identity(capability.access())
+                .and_then(|root| self.storage.identity(root))
+            else {
+                continue;
+            };
+
+            if identity.is_borrowed_provider_input(self.request.unit().key().kind())
+                || matches!(identity, bray_bound_tree::StorageIdentity::Static(_))
+            {
+                continue;
+            }
+
+            match self.borrow_reaches_external_storage(capability.access()) {
+                Ok(true) => continue,
+                Ok(false) => {}
+                Err(error) => {
+                    self.record_infrastructure_failure(error);
+                    return;
+                }
+            }
+
+            if !self.reported_diagnostics.insert((
+                DiagnosticKind::CheckingEscapingStorageDependency,
+                capability.access(),
+            )) {
+                continue;
+            }
+
+            let diagnostic = (|| {
+                let origin = bound_node_origin(self.request, expression.into()).ok_or(
+                    CheckerInfrastructureError::StorageFlow(
+                        crate::CheckerStorageFlowFailure::MissingExitOrigin {
+                            exit: expression.into(),
+                        },
+                    ),
+                )?;
+
+                let source = self.request.source(origin.source_anchor())?;
+
+                let dependency = identity
+                    .definition_node()
+                    .and_then(|node| bound_node_origin(self.request, node))
+                    .map(|origin| origin.source_anchor())
+                    .unwrap_or(capability.source());
+
+                let dependency = self.request.source(dependency)?;
+
+                Ok::<_, CheckerInfrastructureError>(escaping_storage_dependency_diagnostic(
+                    diagnostic_id(self.diagnostics.len()),
+                    source.span(),
+                    dependency.span(),
+                ))
+            })();
+
+            match diagnostic {
+                Ok(diagnostic) => self.diagnostics.add(diagnostic),
+                Err(error) => {
+                    self.record_infrastructure_failure(error);
+                    return;
+                }
+            }
+        }
+    }
+
+    fn borrow_has_permanent_literal_storage(
+        &self,
+        capability: bray_bound_tree::PlannedBorrowCapability,
+    ) -> bool {
+        capability.kind() == bray_symbols::BorrowKind::Shared
+            && matches!(
+                self.storage.root_identity(capability.access())
+                    .and_then(|root| self.storage.identity(root)),
+                Some(bray_bound_tree::StorageIdentity::Temporary(expression))
+                    if matches!(self.request.view().expression(expression),
+                        Some(bray_bound_tree::BoundExpression::Literal(literal))
+                            if literal.kind() == bray_bound_tree::BoundLiteralKind::String)
+            )
     }
 
     fn borrow_reaches_external_storage(
@@ -175,37 +279,13 @@ where
     }
 }
 
-fn escaping_storage_dependency_diagnostic(
-    id: DiagnosticId,
-    primary: SourceSpan,
-    dependency: SourceSpan,
-) -> Diagnostic {
-    Diagnostic::new(
-        id,
-        DiagnosticKind::CheckingEscapingStorageDependency,
-        SeverityKind::Error,
-    )
-    .with_primary_span(primary)
-    .with_label(DiagnosticLabel::primary(
-        DiagnosticLabelKind::EscapingStorageDependency,
-        primary,
-    ))
-    .with_related_location(DiagnosticRelatedLocation::new(
-        DiagnosticRelatedLocationKind::DependencyStorageOrigin,
-        dependency,
-    ))
-    .with_note(DiagnosticNote::new(
-        DiagnosticNoteKind::EscapingStorageDependencyResolution,
-    ))
-}
-
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::{DiagnosticBag, DiagnosticId, DiagnosticKind};
     use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
     use bray_testing::assert_goal_state_diagnostic_kind;
 
-    use super::escaping_storage_dependency_diagnostic;
+    use crate::diagnostic::escaping_storage_dependency_diagnostic;
 
     #[test]
     fn escaping_storage_dependencies_publish_the_exact_goal_state_diagnostic() {

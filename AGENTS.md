@@ -18,6 +18,10 @@ Do not treat existing code as permanent. When touching an area, delete or flatte
 
 Keep reviews bounded by the issue contract. Fix correctness defects, architectural violations, and mandatory convention failures, but move unrelated improvements to later work instead of repeatedly expanding or rewriting the current change.
 
+## Design documentation
+
+Before editing anything under `docs/design/`, read and follow [docs/design/AGENTS.md](docs/design/AGENTS.md).
+
 ## Repository approvals
 
 Before requesting approval to push or write through repository-hosting tools, verify the exact destination, repository visibility and ownership, and authenticated account using read-only commands. Include those verified results in the approval request.

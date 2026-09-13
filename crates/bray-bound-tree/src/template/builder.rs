@@ -920,6 +920,7 @@ mod tests {
             ),
             [],
             dependencies,
+            dependencies,
             [],
         );
 

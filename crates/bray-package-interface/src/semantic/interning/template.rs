@@ -315,6 +315,10 @@ fn convert_behavior(
         .dependency_contract_id(behavior.dependency_contract())
         .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
 
+    let result_dependencies = state
+        .dependency_contract_id(behavior.result_dependencies())
+        .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
+
     Ok(CheckedTemplateBehavior::new(
         behavior
             .effects()
@@ -348,6 +352,7 @@ fn convert_behavior(
         ),
         behavior.lifecycle_obligations().iter().copied(),
         dependency_contract,
+        result_dependencies,
         behavior
             .witnesses()
             .iter()

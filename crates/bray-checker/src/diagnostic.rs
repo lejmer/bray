@@ -4,8 +4,10 @@ use bray_bound_tree::{
 };
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{
-    DiagnosticExpressionCategory, DiagnosticId, DiagnosticNamedType, DiagnosticType,
-    DiagnosticTypeArgument,
+    Diagnostic, DiagnosticExpressionCategory, DiagnosticId, DiagnosticKind, DiagnosticLabel,
+    DiagnosticLabelKind, DiagnosticNamedType, DiagnosticNote, DiagnosticNoteKind,
+    DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, DiagnosticType,
+    DiagnosticTypeArgument, SeverityKind,
 };
 use bray_source::SourceSpan;
 use bray_symbols::{
@@ -407,4 +409,28 @@ mod tests {
 
         diagnostic_symbol_path(&SymbolKey::external(declaration), "Value")
     }
+}
+
+pub(crate) fn escaping_storage_dependency_diagnostic(
+    id: DiagnosticId,
+    primary: SourceSpan,
+    dependency: SourceSpan,
+) -> Diagnostic {
+    Diagnostic::new(
+        id,
+        DiagnosticKind::CheckingEscapingStorageDependency,
+        SeverityKind::Error,
+    )
+    .with_primary_span(primary)
+    .with_label(DiagnosticLabel::primary(
+        DiagnosticLabelKind::EscapingStorageDependency,
+        primary,
+    ))
+    .with_related_location(DiagnosticRelatedLocation::new(
+        DiagnosticRelatedLocationKind::DependencyStorageOrigin,
+        dependency,
+    ))
+    .with_note(DiagnosticNote::new(
+        DiagnosticNoteKind::EscapingStorageDependencyResolution,
+    ))
 }

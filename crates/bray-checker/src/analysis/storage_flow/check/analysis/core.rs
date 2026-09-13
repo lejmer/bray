@@ -449,6 +449,16 @@ where
             self.report_escaping_storage_dependencies(state, block, exit);
         }
 
+        if let crate::CheckerUnitRoot::Expression(root) = self.request.root()
+            && operation.kind().node() == root.into()
+            && matches!(
+                self.request.semantic_context(),
+                crate::SemanticUnitContext::RuntimeDefault(_)
+            )
+        {
+            self.report_escaping_default_storage(state, root);
+        }
+
         self.end_last_use_borrows(state, operation.kind().node());
 
         if let AnalysisOperationKind::ScopeExit {

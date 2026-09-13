@@ -212,6 +212,7 @@ impl Compilation {
                 bray_ir::MirStorageKind::Static(reference) => Some(reference),
                 bray_ir::MirStorageKind::NativeStatic(_)
                 | bray_ir::MirStorageKind::Parameter(_)
+                | bray_ir::MirStorageKind::BorrowedParameter(_)
                 | bray_ir::MirStorageKind::Local
                 | bray_ir::MirStorageKind::Temporary
                 | bray_ir::MirStorageKind::Return

@@ -69,6 +69,12 @@ Explicit argument expressions are evaluated in source order.
 
 Omitted parameter defaults are evaluated after explicit arguments, in parameter declaration order.
 
+A default may borrow an earlier by-value argument for use during the call. The callable cannot return a value that
+retains that borrow. A borrow supplied by the caller keeps its original lifetime.
+
+Values created by defaults follow the ordinary [borrow lifetime rules](../ownership-and-borrowing/borrow-rules.md).
+These rules also apply to borrows carried inside aggregates or passed through later defaults.
+
 Duplicate supplied arguments remain errors even when a parameter has a default.
 
 Unknown supplied arguments remain errors even when other parameters have defaults.

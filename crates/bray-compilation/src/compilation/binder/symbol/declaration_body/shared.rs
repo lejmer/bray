@@ -1,7 +1,7 @@
 use crate::compilation::binder::{
     BindingQueryResult, semantic_contract_binding_error as binding_contract,
 };
-use bray_binder::{BindingQueryContext, BindingQueryError};
+use bray_binder::BindingQueryError;
 use bray_bound_tree::{
     BoundUnit, BoundUnitKey, BoundUnitRoot, CheckedBodySemantics, CheckedExpressionSemantics,
     SemanticSelection, StoragePlan,
@@ -17,6 +17,7 @@ use crate::fact::PublishedUnitResult;
 pub(in crate::compilation::binder::symbol) struct CheckedSourceExpression {
     pub(in crate::compilation::binder::symbol) result: TypeId,
     pub(in crate::compilation::binder::symbol) dependency_contract: DependencyContractTemplateId,
+    pub(in crate::compilation::binder::symbol) result_dependencies: DependencyContractTemplateId,
     pub(in crate::compilation::binder::symbol) diagnostics: DiagnosticBag,
     pub(in crate::compilation::binder::symbol) is_recovered: bool,
 }
@@ -105,32 +106,13 @@ pub(in crate::compilation::binder::symbol) fn checked_source_expression(
         semantics.result().value(),
     )?;
 
-    let store = context.semantic_values();
-
-    let evaluation = store
-        .dependency_contract_template_data(dependency_contract)
-        .map_err(crate::compilation::binder::semantic_value_binding_error)?;
-
-    let returned_template = store
-        .dependency_contract_template_data(*returned.value())
-        .map_err(crate::compilation::binder::semantic_value_binding_error)?;
-
-    let dependency_contract = store
-        .intern_dependency_contract_template(bray_symbols::DependencyContractTemplateData::new(
-            evaluation
-                .requirements()
-                .iter()
-                .chain(returned_template.requirements())
-                .cloned(),
-        ))
-        .map_err(crate::compilation::binder::semantic_value_binding_error)?;
-
     let diagnostics = checked_source_diagnostics(&bound, &semantics, &storage, &body)
         .merged(returned.diagnostics());
 
     Ok(CheckedSourceExpression {
         result: result.ty(),
         dependency_contract,
+        result_dependencies: *returned.value(),
         diagnostics,
         is_recovered: expression.is_recovered()
             || result.is_recovered()

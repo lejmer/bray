@@ -60,6 +60,7 @@ where
         return CheckerOutcome::InfrastructureFailure(error);
     }
 
+    let mut diagnostics = DiagnosticBag::new();
     let mut expression_requirements = BTreeMap::new();
     let mut deferred_expression_requirements = BTreeMap::new();
     let mut access_requirements = BTreeMap::new();
@@ -106,6 +107,23 @@ where
                     &value_inputs,
                 ) {
                     Ok(contracts) => {
+                        if let Some(root) = contracts.escaping_default_inputs.first().copied() {
+                            let diagnostic = super::defaults::escaping_default_diagnostic(
+                                request,
+                                entry.expression(),
+                                call,
+                                root,
+                                crate::diagnostic::diagnostic_id(diagnostics.len()),
+                            );
+
+                            match diagnostic {
+                                Ok(diagnostic) => diagnostics.add(diagnostic),
+                                Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+                            }
+
+                            is_recovered = true;
+                        }
+
                         if let Some(deferred) = contracts.deferred() {
                             deferred_expression_requirements
                                 .entry(entry.expression())
@@ -245,5 +263,5 @@ where
         }
     };
 
-    CheckerOutcome::Complete(DiagnosticResult::new(contracts, DiagnosticBag::new()))
+    CheckerOutcome::Complete(DiagnosticResult::new(contracts, diagnostics))
 }

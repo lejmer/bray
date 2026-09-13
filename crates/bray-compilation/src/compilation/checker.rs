@@ -403,10 +403,13 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
             .map_err(checker_binder_error)
     }
 
-    fn parameter_default_dependencies(
+    fn parameter_default_result(
         &self,
         parameter: bray_symbols::CallableParameterSymbolId,
-    ) -> CheckerQueryResult<bray_symbols::DependencyContractTemplateId> {
+    ) -> CheckerQueryResult<(
+        bray_symbols::TypeId,
+        bray_symbols::DependencyContractTemplateId,
+    )> {
         let checked = self
             .binding_context
             .resolve_symbol_query(SymbolQueryRequest::<
@@ -416,7 +419,7 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
 
         match checked.value().value() {
             bray_symbols::CallableParameterDefaultValue::Valid(surface) => {
-                Ok(surface.behavior().dependency_contract())
+                Ok((surface.result(), surface.behavior().result_dependencies()))
             }
             bray_symbols::CallableParameterDefaultValue::Error(_) => {
                 Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into())

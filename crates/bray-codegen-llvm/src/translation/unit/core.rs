@@ -646,7 +646,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             )?;
 
             for (id, storage) in self.unit.storages_with_ids() {
-                if matches!(storage.kind(), MirStorageKind::Static(_)) {
+                if matches!(
+                    storage.kind(),
+                    MirStorageKind::Static(_) | MirStorageKind::BorrowedParameter(_)
+                ) {
                     continue;
                 }
 
@@ -675,7 +678,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         self.builder.position_at_end(entry);
 
         for (id, storage) in self.unit.storages_with_ids() {
-            if matches!(storage.kind(), MirStorageKind::Static(_)) {
+            if matches!(
+                storage.kind(),
+                MirStorageKind::Static(_) | MirStorageKind::BorrowedParameter(_)
+            ) {
                 continue;
             }
 
@@ -710,7 +716,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .unit
             .storages_with_ids()
             .filter_map(|(id, storage)| match storage.kind() {
-                MirStorageKind::Parameter(position) => Some((position, id)),
+                MirStorageKind::Parameter(position)
+                | MirStorageKind::BorrowedParameter(position) => Some((position, id)),
                 _ => None,
             })
             .collect::<BTreeMap<_, _>>();
@@ -732,9 +739,18 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
                     if let Some(storage) = storage {
-                        let destination = self.storage(storage)?;
+                        if matches!(
+                            self.unit.storage(storage).map(bray_ir::MirStorage::kind),
+                            Some(MirStorageKind::BorrowedParameter(_))
+                        ) {
+                            let pointer = pointer_value(value)
+                                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-                        llvm(self.builder.build_store(destination, value))?;
+                            self.storages.insert(storage, pointer);
+                        } else {
+                            let destination = self.storage(storage)?;
+                            llvm(self.builder.build_store(destination, value))?;
+                        }
                     }
 
                     llvm_index += 1;
@@ -757,7 +773,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                     if let Some(storage) = storage {
                         let destination = self.storage(storage)?;
-
                         llvm(self.builder.build_store(destination, value))?;
                     }
 

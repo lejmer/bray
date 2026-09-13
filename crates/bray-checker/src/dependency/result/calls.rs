@@ -36,7 +36,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
             );
         }
 
-        for requirement in template.requirements() {
+        for requirement in template.template.requirements() {
             let DependencyRequirement::Direct { subject, kind } = requirement else {
                 continue;
             };

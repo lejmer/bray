@@ -85,7 +85,7 @@ impl DeclaredValueTypeBinding<'_> {
             let implementation = self
                 .context
                 .symbols()
-                .containing_symbol(self.owner)
+                .containing_symbol(owner)
                 .and_then(bray_symbols::ImplementationSymbolId::try_from_any);
 
             let receiver_type = match implementation {
@@ -311,6 +311,21 @@ impl DeclaredValueTypeBinding<'_> {
                     SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
                 )
             })?;
+
+        if matches!(declaration, AnySymbolId::CallableParameter(_)) {
+            let callable = self
+                .context
+                .symbols()
+                .containing_symbol(declaration)
+                .ok_or_else(|| {
+                    binding_contract(
+                        SemanticQueryContext::Symbol(declaration),
+                        SemanticQueryViolation::Missing(SemanticDataKind::DeclarationRecord),
+                    )
+                })?;
+
+            self.bind_callable_surface(callable, false)?;
+        }
 
         let template = self.declared_surface_value_type(declaration)?;
 

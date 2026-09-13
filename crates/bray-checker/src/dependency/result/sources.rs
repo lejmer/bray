@@ -12,6 +12,51 @@ use super::core::{ResultInference, extend};
 use crate::dependency::projection::{binding_projection, pattern_projection};
 
 impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
+    pub(super) fn borrow_requirement_kind(
+        &self,
+        mut expression: BoundExpressionId,
+    ) -> Result<DependencyRequirementKind, CheckerInfrastructureError> {
+        loop {
+            let receiver = match self.request.view().expression(expression) {
+                Some(BoundExpression::MemberAccess(member)) => Some(member.receiver()),
+                Some(BoundExpression::TraitQualifiedMember(member)) => Some(member.receiver()),
+                Some(BoundExpression::Structured(value))
+                    if matches!(
+                        value.kind(),
+                        BoundStructuredExpressionKind::ElementIndex
+                            | BoundStructuredExpressionKind::SliceIndex
+                            | BoundStructuredExpressionKind::NullablePropagation
+                    ) =>
+                {
+                    value.operands().first().copied()
+                }
+                _ => None,
+            };
+
+            let Some(receiver) = receiver else {
+                return Ok(DependencyRequirementKind::StorageAlive);
+            };
+
+            let ty = self
+                .types
+                .expression(receiver)
+                .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+
+            let ty = self
+                .request
+                .semantic_values()
+                .type_data(ty.ty())
+                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+
+            if matches!(ty.as_ref(), bray_symbols::TypeData::Borrow { .. }) {
+                // Reborrowing a reached value retains the existing borrow, not the slot storing it.
+                return Ok(DependencyRequirementKind::ValueDependencies);
+            }
+
+            expression = receiver;
+        }
+    }
+
     pub(super) fn bind_pattern(
         &mut self,
         root: bray_bound_tree::BoundPatternId,

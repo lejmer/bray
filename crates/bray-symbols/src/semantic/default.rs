@@ -155,6 +155,7 @@ pub struct RuntimeDefaultBehavior {
     trusted_obligations: Arc<[RuntimeDefaultTrustedObligation]>,
     lifecycle_obligations: Arc<[LifecycleObligationKind]>,
     dependency_contract: DependencyContractTemplateId,
+    result_dependencies: DependencyContractTemplateId,
 }
 
 impl RuntimeDefaultBehavior {
@@ -166,6 +167,7 @@ impl RuntimeDefaultBehavior {
         trusted_obligations: impl IntoIterator<Item = RuntimeDefaultTrustedObligation>,
         lifecycle_obligations: impl IntoIterator<Item = LifecycleObligationKind>,
         dependency_contract: DependencyContractTemplateId,
+        result_dependencies: DependencyContractTemplateId,
     ) -> Self {
         Self {
             ownership,
@@ -174,6 +176,7 @@ impl RuntimeDefaultBehavior {
             trusted_obligations: shared_slice(trusted_obligations),
             lifecycle_obligations: shared_slice(lifecycle_obligations),
             dependency_contract,
+            result_dependencies,
         }
     }
 
@@ -205,6 +208,11 @@ impl RuntimeDefaultBehavior {
     /// Returns evaluation requirements and `ValueDependencies` carried by the produced value.
     pub const fn dependency_contract(&self) -> DependencyContractTemplateId {
         self.dependency_contract
+    }
+
+    /// Returns dependencies retained by the produced value after evaluation completes.
+    pub const fn result_dependencies(&self) -> DependencyContractTemplateId {
+        self.result_dependencies
     }
 }
 
@@ -531,6 +539,7 @@ mod tests {
             [trusted],
             [LifecycleObligationKind::Finalization],
             dependencies,
+            dependencies,
         );
 
         let owner = CallableParameterSymbolId::from_symbol_id(SymbolId::new(4));
@@ -682,7 +691,15 @@ mod tests {
     fn empty_owned_behavior(
         dependencies: crate::DependencyContractTemplateId,
     ) -> RuntimeDefaultBehavior {
-        RuntimeDefaultBehavior::new(RuntimeDefaultOwnership::Owned, [], [], [], [], dependencies)
+        RuntimeDefaultBehavior::new(
+            RuntimeDefaultOwnership::Owned,
+            [],
+            [],
+            [],
+            [],
+            dependencies,
+            dependencies,
+        )
     }
 
     fn interface_template() -> RuntimeDefaultTemplateReference {

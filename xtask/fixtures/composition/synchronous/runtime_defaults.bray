@@ -1,0 +1,73 @@
+module composition.synchronous;
+
+using composition.api;
+
+func runtime_default_storage()
+{
+    assert(
+        composition.api.read_default_storage(
+            composition.api.DefaultFlag
+            {
+                value = true,
+            }
+        )
+    );
+
+    assert(
+        composition.api.read_default_storage(
+            composition.api.DefaultFlag
+            {
+                value = false,
+            }
+        )
+    );
+
+    assert(
+        composition.api.mutate_default_storage(
+            composition.api.DefaultFlag
+            {
+                value = false,
+            }
+        )
+    );
+
+    let flag = composition.api.DefaultFlag
+    {
+        value = true,
+    };
+
+    let forwarded = composition.api.forward_default<composition.api.DefaultFlag>(&flag);
+
+    assert(forwarded.value);
+
+    let holder: composition.api.DefaultFlagHolder = composition.api.DefaultFlagHolder
+    {
+        flag = composition.api.DefaultFlag
+        {
+            value = true,
+        },
+    };
+
+    let reference: composition.api.DefaultFlagReference = composition.api.DefaultFlagReference
+    {
+        holder = &holder,
+    };
+
+    let projected = composition.api.projected_default(reference);
+
+    assert(projected.value);
+    assert(reference.selected().value);
+
+    let flags: [composition.api.DefaultFlag; 1] = [
+        composition.api.DefaultFlag
+        {
+            value = true,
+        }
+    ];
+
+    let indexed = composition.api.indexed_default(&flags);
+    let sliced = composition.api.sliced_default(&flags);
+
+    assert(indexed.value);
+    assert(sliced[0].value);
+}

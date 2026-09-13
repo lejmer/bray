@@ -349,6 +349,11 @@ impl<'a> SemanticExporter<'a> {
             self.type_id(expression.ty)?,
         );
 
+        let result_dependencies = self
+            .values
+            .empty_dependency_contract_template()
+            .map_err(super::super::semantic_value_export_error)?;
+
         let behavior = InterfaceCheckedTemplateBehavior::new(
             [],
             [],
@@ -356,6 +361,7 @@ impl<'a> SemanticExporter<'a> {
             InterfaceCheckedTemplateExecution::new([], CurrentRunCancellation::NotEntered),
             [],
             self.dependency_contract_id(dependency_contract)?,
+            self.dependency_contract_id(result_dependencies)?,
             [],
         );
 

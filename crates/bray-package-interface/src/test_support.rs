@@ -693,6 +693,7 @@ fn checked_template(
             ),
             [],
             crate::InterfaceDependencyContractId::new(0),
+            crate::InterfaceDependencyContractId::new(0),
             [],
         ),
     )

@@ -362,7 +362,17 @@ impl Compilation {
             .copied()
             .map(|input| {
                 self.codegen_runtime_default_input_type(input, instance, cancellation)
-                    .map(|ty| CodegenParameterMapping::direct(ty, None, []))
+                    .and_then(|ty| {
+                        let borrowed = self
+                            .semantic_value_store()?
+                            .intern_type(TypeData::Borrow {
+                                kind: bray_symbols::BorrowKind::Mutable,
+                                target: ty,
+                            })
+                            .map_err(FactQueryError::SemanticValueStore)?;
+
+                        Ok(CodegenParameterMapping::direct(borrowed, None, []))
+                    })
             })
             .collect::<Result<Vec<_>, _>>()?;
 

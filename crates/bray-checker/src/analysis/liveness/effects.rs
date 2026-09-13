@@ -90,6 +90,20 @@ impl OperationEffects {
         }
 
         effects.retain_owned_call_dependencies(request, storage);
+
+        if let bray_bound_tree::BoundUnitRoot::Expression(root) = request.unit().root() {
+            let retained =
+                retained_subtree_subjects(&effects.value_inputs, root, &effects.owner_dependencies);
+
+            effects.extend_uses(root, retained.iter().copied());
+
+            effects
+                .owner_dependencies
+                .entry(root)
+                .or_default()
+                .extend(retained);
+        }
+
         effects.retain_owner_control_transfer_dependencies(request.unit());
 
         Ok(effects)

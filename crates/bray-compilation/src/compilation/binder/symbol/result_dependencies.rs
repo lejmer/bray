@@ -166,7 +166,7 @@ fn infer_checked_result(
     })
 }
 
-pub(in crate::compilation::binder::symbol) fn expression_result_dependencies(
+pub(in crate::compilation) fn expression_result_dependencies(
     context: &CompilationBindingContext<'_>,
     key: &bray_bound_tree::BoundUnitKey,
     bound: &bray_bound_tree::BoundUnit,

@@ -62,6 +62,7 @@ pub fn storage_identity_is_destructor_receiver(
 pub struct StorageScopeOwners {
     nodes: BTreeMap<AnyBoundNodeId, BoundBlockId>,
     root: Option<BoundBlockId>,
+    unit: crate::BoundUnitKind,
 }
 
 impl StorageScopeOwners {
@@ -160,13 +161,18 @@ impl StorageScopeOwners {
             }
         }
 
-        Ok(Self { nodes, root })
+        Ok(Self {
+            nodes,
+            root,
+            unit: unit.key().kind(),
+        })
     }
 
     /// Returns the lexical owner for one storage identity.
     pub fn scope(&self, identity: Option<StorageIdentity>) -> Option<BoundBlockId> {
         match identity {
             Some(StorageIdentity::Static(_)) | None => None,
+            Some(identity) if identity.is_borrowed_provider_input(self.unit) => None,
             Some(identity) => identity
                 .definition_node()
                 .and_then(|node| self.nodes.get(&node).copied())
