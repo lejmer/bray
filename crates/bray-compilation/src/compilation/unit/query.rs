@@ -5463,6 +5463,153 @@ mod tests {
     }
 
     #[test]
+    fn recovered_pattern_projections_preserve_binding_diagnostics() {
+        for (valid_source, occupied) in [
+            (
+                "module app; struct Guard { id: usize; } func guard() {} func main(pos value: &box Guard) -> usize { return match value { case box(fresh) { yield fresh.id; } }; }",
+                "guard",
+            ),
+            (
+                "module app; struct Guard { id: usize; } func guard() {} func main(pos value: &box Guard?) -> usize { return match value { case box(?fresh) { yield fresh.id; } case _ { yield 0; } }; }",
+                "guard",
+            ),
+            (
+                "module app; struct Guard { id: usize; } func guard() {} func main(pos value: &(Guard?, Guard?)) -> usize { return match value { case (?fresh, ?other) { yield other.id; } case _ { yield 0; } }; }",
+                "guard",
+            ),
+            (
+                "module app; struct Guard { id: usize; } func main(pos value: &(Guard?, Guard?)) -> usize { return match value { case (?first, ?fresh) { yield first.id; } case _ { yield 0; } }; }",
+                "first",
+            ),
+            (
+                "module app; struct Guard { id: usize; } func main(pos value: &[Guard?; 2]) -> usize { return match value { case [?first, ?fresh] { yield first.id; } case _ { yield 0; } }; }",
+                "first",
+            ),
+            (
+                "module app; struct Guard { id: usize; } union Choice { Pair(first: Guard, second: Guard); Empty; } func guard() {} func main(pos value: &Choice) -> usize { return match value { case Pair(first = fresh, second = other) { yield other.id; } case Empty { yield 0; } }; }",
+                "guard",
+            ),
+            (
+                "module app; struct Guard { id: usize; } union Choice { Pair(first: Guard, second: Guard); Empty; } func main(pos value: &Choice) -> usize { return match value { case Pair(first = first, second = fresh) { yield first.id; } case Empty { yield 0; } }; }",
+                "first",
+            ),
+            (
+                "module app; struct Guard { id: usize; } func guard() {} func main(pos value: &(Guard?, Guard?)) -> usize { if let (?fresh, ?other) = value { return other.id; } return 0; }",
+                "guard",
+            ),
+        ] {
+            let valid = compilation(valid_source);
+            let diagnostics = valid.check_diagnostics();
+
+            assert!(diagnostics.is_empty(), "{valid_source}: {diagnostics:?}");
+
+            assert!(
+                valid
+                    .lowered_unit(source_function_body_key(&valid, "main"))
+                    .unwrap()
+                    .value()
+                    .is_some()
+            );
+
+            let source = valid_source.replace("fresh", occupied);
+            let compilation = compilation(&source);
+            let key = source_function_body_key(&compilation, "main");
+            let bound = compilation.bound_unit(key.clone()).unwrap();
+
+            let expected = bound
+                .diagnostics()
+                .by_kind(DiagnosticKind::BindingNameAlreadyDefined)
+                .collect::<Vec<_>>();
+
+            assert_eq!(expected.len(), 1, "{source}: {:?}", bound.diagnostics());
+            let span = expected[0].primary_span().unwrap();
+
+            assert_eq!(
+                span.start().bytes(),
+                u32::try_from(valid_source.find("fresh").unwrap()).unwrap()
+            );
+
+            assert_eq!(span.range().slice_str(&source).unwrap(), occupied);
+            assert!(!expected[0].related_locations().is_empty());
+
+            let diagnostics = compilation.check_diagnostics();
+
+            let actual = diagnostics
+                .by_kind(DiagnosticKind::BindingNameAlreadyDefined)
+                .collect::<Vec<_>>();
+
+            assert_eq!(actual, expected, "{source}: {diagnostics:?}");
+            assert!(compilation.lowered_unit(key).unwrap().value().is_none());
+        }
+    }
+
+    #[test]
+    fn missing_projection_refinements_remain_storage_invariant_failures() {
+        use bray_bound_tree::{CheckedRefinements, StorageOperationStatus};
+        use bray_checker::{CheckerOutcome, DefaultStorageFlowChecker, StorageFlowChecker};
+
+        let compilation = compilation(
+            "module app; struct Guard { id: usize; } func main(pos value: &Guard?) -> usize { return match value { case ?guard { yield guard.id; } case none { yield 0; } }; }",
+        );
+
+        assert!(compilation.check_diagnostics().is_empty());
+
+        let key = source_function_body_key(&compilation, "main");
+        let bound = compilation.bound_unit(key.clone()).unwrap();
+        let storage = compilation.storage_plan(key.clone()).unwrap();
+        let selections = compilation.semantic_selections(key.clone()).unwrap();
+        let liveness = compilation.liveness(key.clone()).unwrap();
+        let memory = compilation.memory_operations(key.clone()).unwrap();
+        let refinements = compilation.refinements(key.clone()).unwrap();
+
+        let context = compilation
+            .checker_context_for(&key, &compilation.state.cancellation)
+            .unwrap();
+
+        let semantic_context = semantic_unit_context_for(context.symbols(), bound.value()).unwrap();
+        let request = super::checker_unit_view(bound.value(), &semantic_context, &context).unwrap();
+
+        assert!(!storage.value().is_recovered());
+        assert!(!refinements.value().is_recovered());
+
+        assert!(matches!(
+            DefaultStorageFlowChecker.check_storage_flow(
+                request,
+                selections.value(),
+                storage.value(),
+                liveness.value(),
+                refinements.value(),
+                memory.value()
+            ),
+            CheckerOutcome::Complete(_)
+        ));
+
+        let missing =
+            CheckedRefinements::try_new(bound.value().unit(), key.kind(), [], false).unwrap();
+
+        let outcome = DefaultStorageFlowChecker.check_storage_flow(
+            request,
+            selections.value(),
+            storage.value(),
+            liveness.value(),
+            &missing,
+            memory.value(),
+        );
+
+        assert!(
+            matches!(
+                outcome,
+                CheckerOutcome::InfrastructureFailure(
+                    CheckerInfrastructureError::InvalidStorageOperation {
+                        status: StorageOperationStatus::InactiveProjection,
+                        ..
+                    }
+                )
+            ),
+            "{outcome:?}"
+        );
+    }
+    #[test]
     fn storage_plans_retain_recovery_without_panicking() {
         let compilation = compilation(concat!(
             "module app;\n",
