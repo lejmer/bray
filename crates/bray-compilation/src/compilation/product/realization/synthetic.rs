@@ -91,31 +91,8 @@ impl bray_checker::LifecycleSelectionContext for CompilationSyntheticLoweringCon
         target: TypeId,
         member: &CompilerKnownDeclarationKey,
     ) -> Result<bray_bound_tree::LifecycleCallable, Self::Error> {
-        let (callable, signature) = self.compilation.storage_lifecycle_callable(
-            storage,
-            target,
-            member,
-            self.cancellation,
-        )?;
-
-        let [parameter] = signature.parameters() else {
-            return Err(crate::compilation::ProductQueryFailure::count_mismatch(
-                // The failure owns the interned protocol identity after this query returns.
-                crate::compilation::ProductQueryContext::CompilerKnownDeclaration(member.clone()),
-                crate::compilation::ProductDataKind::CallableParameters,
-                1,
-                signature.parameters().len(),
-            )
-            .into());
-        };
-
-        Ok(bray_bound_tree::LifecycleCallable {
-            callable: callable.instance(),
-            abi: callable.abi(),
-            receiver: parameter.ty(),
-            result: signature.result(),
-            execution: bray_symbols::CallableExecution::Synchronous,
-        })
+        self.compilation
+            .storage_lifecycle_callable(storage, target, member, self.cancellation)
     }
 
     fn declared_representation(
