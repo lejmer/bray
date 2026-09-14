@@ -21,7 +21,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         place: MirPlace,
         runtime_abi: bray_runtime_interface::RuntimeAbiVersion,
     ) -> Result<bray_ir::MirBlockId, C::Error> {
-        if self.push_compiler_known_lifecycle_operations(
+        if let Some(block) = self.push_compiler_known_lifecycle_operations(
             builder,
             block,
             source,
@@ -193,7 +193,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             | TypeData::TraitView(_) => {
                 Err(SyntheticLoweringError::UnsupportedType(place.ty()).into())
             }
-            TypeData::Named { .. } | TypeData::Tuple(_) | TypeData::Array { .. } => {
+            TypeData::Array { element, length } => {
+                self.push_array_lifecycle(builder, block, source, role, place, *element, *length)
+            }
+            TypeData::Named { .. } | TypeData::Tuple(_) => {
                 let children = self.lifecycle_children(place)?;
 
                 self.push_child_lifecycle_operations(builder, block, source, role, children)
@@ -373,25 +376,39 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         let mut operations = Vec::new();
 
         for child in children.into_iter().rev() {
-            match role {
-                bray_ir::MirGeneratedLifecycleRole::Destroy => {
-                    // Both lifecycle stages operate on the same represented child.
-                    operations.push(MirOperationKind::Finalize(child.clone()));
-                    operations.push(MirOperationKind::Destroy(child));
-                }
-                bray_ir::MirGeneratedLifecycleRole::Cleanup(phase) => {
-                    operations.push(MirOperationKind::Cleanup {
-                        phase,
-                        place: child,
-                    });
-                }
-                bray_ir::MirGeneratedLifecycleRole::Finalize
-                | bray_ir::MirGeneratedLifecycleRole::StaticFinalize => {
-                    return Err(SyntheticLoweringError::UnsupportedLifecycleRole(role).into());
-                }
-            }
+            operations.extend(
+                child_lifecycle_operations(role, child)?
+                    .into_iter()
+                    .flatten(),
+            );
         }
 
         self.resolve_lifecycle_sequence(builder, block, source, operations)
+    }
+}
+
+pub(super) fn child_lifecycle_operations(
+    role: bray_ir::MirGeneratedLifecycleRole,
+    child: MirPlace,
+) -> Result<[Option<MirOperationKind>; 2], SyntheticLoweringError> {
+    match role {
+        bray_ir::MirGeneratedLifecycleRole::Destroy => {
+            // Both lifecycle stages operate on the same represented child.
+            Ok([
+                Some(MirOperationKind::Finalize(child.clone())),
+                Some(MirOperationKind::Destroy(child)),
+            ])
+        }
+        bray_ir::MirGeneratedLifecycleRole::Cleanup(phase) => Ok([
+            Some(MirOperationKind::Cleanup {
+                phase,
+                place: child,
+            }),
+            None,
+        ]),
+        bray_ir::MirGeneratedLifecycleRole::Finalize
+        | bray_ir::MirGeneratedLifecycleRole::StaticFinalize => {
+            Err(SyntheticLoweringError::UnsupportedLifecycleRole(role))
+        }
     }
 }

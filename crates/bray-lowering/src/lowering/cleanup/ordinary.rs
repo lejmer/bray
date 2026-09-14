@@ -3,9 +3,8 @@ use std::collections::BTreeMap;
 use bray_bound_tree::{AnyBoundNodeId, AsyncScopeExitPlan, BoundBlockId};
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{
-    MirBlockId, MirBlockKind, MirCallPanicEdge, MirCleanupEdge, MirCleanupPhase, MirEdge,
-    MirOperand, MirOperationKind, MirPlace, MirSourceAnchor, MirStorageKind, MirStoreKind,
-    MirTerminatorKind,
+    MirBlockId, MirBlockKind, MirCleanupEdge, MirCleanupPhase, MirEdge, MirOperand,
+    MirOperationKind, MirPlace, MirSourceAnchor, MirStorageKind, MirStoreKind, MirTerminatorKind,
 };
 use bray_symbols::TypeId;
 
@@ -179,60 +178,14 @@ impl Lowerer<'_> {
             return Ok(block);
         };
 
-        let kind = self.builder.block_kind(block)?;
-
-        let completed = self
-            .builder
-            .push_block(Self::retained_source(source), kind)?;
-
-        let (panicked, cancelled) = if kind == MirBlockKind::CleanupBroadcast {
-            let panic_bridge = self
-                .builder
-                .push_block(Self::retained_source(source), kind)?;
-
-            let cancel_bridge = self
-                .builder
-                .push_block(Self::retained_source(source), kind)?;
-
-            let report = self.builder.push_block_parameter(
-                panic_bridge,
-                Self::retained_source(source),
-                report_type,
-            )?;
-
-            self.set_terminator(
-                panic_bridge,
-                Self::retained_source(source),
-                MirTerminatorKind::ContinueCleanup(MirCleanupEdge::new(
-                    MirCleanupPhase::LifecycleResolution,
-                    MirEdge::new(panicked, [MirOperand::Value(report)]),
-                )),
-            )?;
-
-            self.set_terminator(
-                cancel_bridge,
-                Self::retained_source(source),
-                MirTerminatorKind::ContinueCleanup(MirCleanupEdge::new(
-                    MirCleanupPhase::LifecycleResolution,
-                    MirEdge::new(cancelled, []),
-                )),
-            )?;
-
-            (panic_bridge, cancel_bridge)
-        } else {
-            (panicked, cancelled)
-        };
-
-        self.set_terminator(
+        crate::cleanup_outcome::check_call_outcome(
+            &mut self.builder,
             block,
-            Self::retained_source(source),
-            MirTerminatorKind::CheckCallOutcome {
-                completed: MirEdge::new(completed, []),
-                panicked: MirCallPanicEdge::new(panicked, report_type),
-                cancelled: MirEdge::new(cancelled, []),
-            },
-        )?;
-
-        Ok(completed)
+            source,
+            panicked,
+            cancelled,
+            report_type,
+        )
+        .map_err(Into::into)
     }
 }

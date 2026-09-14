@@ -5054,6 +5054,39 @@ mod tests {
     }
 
     #[test]
+    fn nested_cleanup_native_fixture_lowers_checked_paths() {
+        let compilation = compilation(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../xtask/fixtures/composition/cleanup/main.bray"
+        )));
+
+        for name in [
+            "guard_id",
+            "make_guard",
+            "pending_result",
+            "nested_cleanup",
+            "nested_replacement",
+        ] {
+            let key = source_function_body_key(&compilation, name);
+
+            assert!(
+                compilation
+                    .bound_unit(key.clone())
+                    .unwrap()
+                    .diagnostics()
+                    .is_empty(),
+                "{name}"
+            );
+
+            let lowered = compilation.lowered_unit(key);
+            assert!(lowered.is_ok(), "{name}: {lowered:?}");
+            assert!(lowered.unwrap().value().is_some(), "{name}");
+        }
+
+        assert!(compilation.check_diagnostics().is_empty());
+    }
+
+    #[test]
     fn replacement_native_fixture_lowers_checked_cleanup_paths() {
         let compilation = compilation(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),

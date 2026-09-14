@@ -32,23 +32,6 @@ pub(super) struct OrderingRepresentation {
 }
 
 impl Lowerer<'_> {
-    pub(super) fn integer_operand(
-        &self,
-        ty: TypeId,
-        value: u64,
-    ) -> Result<bray_ir::MirOperand, LoweringError> {
-        let value = self.input.semantic_values().intern_constant_value(
-            bray_symbols::ConstantValueData::new(
-                ty,
-                bray_symbols::ConstantValueKind::Integer(bray_symbols::IntegerConstant::from_u64(
-                    value,
-                )),
-            ),
-        )?;
-
-        Ok(bray_ir::MirOperand::Constant { value, ty })
-    }
-
     pub(super) fn type_representation(
         &self,
         ty: TypeId,

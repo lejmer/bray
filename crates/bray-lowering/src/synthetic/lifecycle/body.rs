@@ -76,14 +76,19 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 )?;
             }
             MirHelperReference::StaticFinalize(ty) => {
-                let return_value = if self.push_compiler_known_lifecycle_operations(
-                    &mut builder,
-                    entry,
-                    &source,
-                    reference,
-                    &place,
-                    target.runtime_abi(),
-                )? {
+                let mut end = entry;
+
+                let return_value = if let Some(completed) = self
+                    .push_compiler_known_lifecycle_operations(
+                        &mut builder,
+                        entry,
+                        &source,
+                        reference,
+                        &place,
+                        target.runtime_abi(),
+                    )? {
+                    end = completed;
+
                     None
                 } else if let Some(callable) = self
                     .context
@@ -106,11 +111,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 };
 
                 builder
-                    .set_terminator(
-                        entry,
-                        source.clone(),
-                        MirTerminatorKind::Return(return_value),
-                    )
+                    .set_terminator(end, source.clone(), MirTerminatorKind::Return(return_value))
                     .map_err(|cause| self.mir_error(&source, cause))?;
             }
             MirHelperReference::Finalize(_) | MirHelperReference::Destroy(_) => {
@@ -288,7 +289,7 @@ mod tests {
         {
             assert!(matches!(
                 self.0.type_data(ty).unwrap().as_ref(),
-                TypeData::Tuple(_) | TypeData::Nullable(_)
+                TypeData::Tuple(_) | TypeData::Nullable(_) | TypeData::Array { .. }
             ));
 
             Ok(None)
@@ -336,6 +337,7 @@ mod tests {
                 RepresentationRole::ScalarBool
                     | RepresentationRole::PanicReport
                     | RepresentationRole::Unit
+                    | RepresentationRole::ScalarUsize
             ));
 
             self.0
@@ -343,8 +345,15 @@ mod tests {
                 .map_err(SyntheticLoweringError::SemanticValue)
         }
 
-        fn array_length(&self, _: ConstantTermId) -> Result<u64, Self::Error> {
-            panic!("tuple lowering must not evaluate array extents");
+        fn array_length(&self, length: ConstantTermId) -> Result<u64, Self::Error> {
+            let length = self.0.constant_term_data(length).unwrap();
+
+            let bray_symbols::ConstantTermData::IntegerLiteral { value, .. } = length.as_ref()
+            else {
+                panic!("test extent must be an integer literal");
+            };
+
+            Ok(value.to_u64().unwrap())
         }
 
         fn standard_library_callable(
@@ -353,6 +362,62 @@ mod tests {
         ) -> Result<CallableInstanceData, Self::Error> {
             panic!("tuple lowering must not resolve standard-library helpers");
         }
+    }
+
+    #[test]
+    fn array_cleanup_mir_size_is_independent_of_the_extent() {
+        let context = TupleContext(SemanticValueStore::try_new().unwrap());
+        let leaf = context.0.intern_type(TypeData::tuple([])).unwrap();
+        let mut sizes = Vec::new();
+
+        for length in [1, 4, 257, u64::from(u32::MAX) + 1] {
+            let length = context
+                .0
+                .intern_constant_term(bray_symbols::ConstantTermData::IntegerLiteral {
+                    ty: bray_symbols::TargetSizedIntegerType::Usize,
+                    value: bray_symbols::IntegerConstant::from_u64(length),
+                })
+                .unwrap();
+
+            let array = context
+                .0
+                .intern_type(TypeData::Array {
+                    element: leaf,
+                    length,
+                })
+                .unwrap();
+
+            let reference = MirHelperReference::Destroy(array);
+
+            let key = MirUnitKey::GeneratedLifecycle(MirGeneratedLifecycleKey::new(
+                MirGeneratedLifecycleRole::Destroy,
+                [9; 32],
+            ));
+
+            let mir = lower_lifecycle(
+                &context,
+                key,
+                &reference,
+                MirUnitId::new(7),
+                &bray_testing::test_mir_target(),
+            )
+            .unwrap();
+
+            sizes.push((mir.blocks().len(), mir.operations().len()));
+
+            assert_eq!(
+                mir.operations()
+                    .iter()
+                    .filter(|operation| matches!(
+                        operation.kind(),
+                        MirOperationKind::Finalize(_) | MirOperationKind::Destroy(_)
+                    ))
+                    .count(),
+                2
+            );
+        }
+
+        assert!(sizes.windows(2).all(|pair| pair[0] == pair[1]), "{sizes:?}");
     }
 
     #[test]

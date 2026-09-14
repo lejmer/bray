@@ -1,9 +1,8 @@
 use bray_bound_tree::{CheckedMemoryOperationKind, StorageAccessId, StorageCleanupProjectionKind};
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{
-    MirBinaryOperator, MirBlockId, MirCleanupPhase, MirEdge, MirMemoryOperation, MirOperand,
-    MirOperationKind, MirPlace, MirProjection, MirProjectionKind, MirSourceAnchor, MirStorageKind,
-    MirStoreKind, MirTerminatorKind, MirUnitBuildError, MirValueId,
+    MirBlockId, MirCleanupPhase, MirMemoryOperation, MirOperand, MirOperationKind, MirPlace,
+    MirProjection, MirProjectionKind, MirSourceAnchor, MirUnitBuildError, MirValueId,
 };
 use bray_symbols::{BorrowKind, TypeData, TypeId};
 
@@ -202,102 +201,20 @@ impl Lowerer<'_> {
             usize_type,
         )?;
 
-        let counter = self.builder.push_storage(
-            Self::retained_source(source),
-            MirStorageKind::Local,
-            usize_type,
-        )?;
+        let zero = crate::operand::integer_constant(self.input.semantic_values(), usize_type, 0)?;
+        let one = crate::operand::integer_constant(self.input.semantic_values(), usize_type, 1)?;
 
-        let counter = MirPlace::new(counter, [], usize_type);
-
-        self.push_operation(
+        let cleanup = crate::cleanup_loop::ReverseCleanupLoop::new(
+            &mut self.builder,
             block,
-            Self::retained_source(source),
-            MirOperationKind::Store {
-                kind: MirStoreKind::Initialize,
-                destination: Self::retained_place(&counter),
-                value: length,
-            },
-            None,
-        )?;
-
-        let kind = self.builder.block_kind(block)?;
-
-        let condition = self
-            .builder
-            .push_block(Self::retained_source(source), kind)?;
-
-        let body = self
-            .builder
-            .push_block(Self::retained_source(source), kind)?;
-
-        let continuation = self
-            .builder
-            .push_block(Self::retained_source(source), kind)?;
-
-        let forwarded = value.map(|(value, ty)| (MirOperand::Value(value), ty));
-        let condition_value = self.cleanup_parameter(condition, source, forwarded.as_ref())?;
-        let body_value = self.cleanup_parameter(body, source, forwarded.as_ref())?;
-
-        let continuation_value =
-            self.cleanup_parameter(continuation, source, forwarded.as_ref())?;
-
-        self.set_terminator(
-            block,
-            Self::retained_source(source),
-            MirTerminatorKind::Goto(MirEdge::new(
-                condition,
-                value.map(|(value, _)| MirOperand::Value(value)),
-            )),
-        )?;
-
-        let zero = self.integer_operand(usize_type, 0)?;
-
-        let nonempty = self.push_cleanup_value(
-            condition,
             source,
-            MirOperationKind::Binary {
-                operator: MirBinaryOperator::GreaterThan,
-                left: MirOperand::Copy(Self::retained_place(&counter)),
-                right: zero,
-            },
+            length,
             boolean,
+            [zero, one],
+            value.map(|(value, _)| MirOperand::Value(value)),
         )?;
 
-        self.set_terminator(
-            condition,
-            Self::retained_source(source),
-            MirTerminatorKind::Branch {
-                condition: nonempty,
-                then_edge: MirEdge::new(body, condition_value.map(MirOperand::Value)),
-                else_edge: MirEdge::new(continuation, condition_value.map(MirOperand::Value)),
-            },
-        )?;
-
-        let one = self.integer_operand(usize_type, 1)?;
-
-        let index = self.push_cleanup_value(
-            body,
-            source,
-            MirOperationKind::Binary {
-                operator: MirBinaryOperator::Subtract,
-                left: MirOperand::Copy(Self::retained_place(&counter)),
-                right: one,
-            },
-            usize_type,
-        )?;
-
-        self.push_operation(
-            body,
-            Self::retained_source(source),
-            MirOperationKind::Store {
-                kind: MirStoreKind::Assign,
-                destination: Self::retained_place(&counter),
-                value: index,
-            },
-            None,
-        )?;
-
+        // The indexed child shares the loop's counter storage and the parent's projection path.
         let element_place = MirPlace::new(
             place.storage(),
             place
@@ -305,7 +222,7 @@ impl Lowerer<'_> {
                 .iter()
                 .cloned()
                 .chain([MirProjection::new(
-                    MirProjectionKind::Index(MirOperand::Copy(counter)),
+                    MirProjectionKind::Index(MirOperand::Copy(cleanup.counter.clone())),
                     place.ty(),
                     element,
                 )]),
@@ -313,31 +230,28 @@ impl Lowerer<'_> {
         );
 
         let (completed, completed_value) = self.push_part_cleanup(
-            body,
+            cleanup.body,
             source,
             phase,
             access,
             element_place,
             parts,
             depth + 1,
-            body_value.zip(value.map(|(_, ty)| ty)),
+            cleanup.body_value.zip(value.map(|(_, ty)| ty)),
         )?;
 
-        self.set_terminator(
+        cleanup.close(
+            &mut self.builder,
             completed,
-            Self::retained_source(source),
-            MirTerminatorKind::Goto(MirEdge::new(
-                condition,
-                completed_value.map(|(value, _)| MirOperand::Value(value)),
-            )),
+            source,
+            completed_value.map(|(value, _)| MirOperand::Value(value)),
         )?;
 
         Ok((
-            continuation,
-            continuation_value.zip(value.map(|(_, ty)| ty)),
+            cleanup.continuation,
+            cleanup.continuation_value.zip(value.map(|(_, ty)| ty)),
         ))
     }
-
     fn push_cleanup_value(
         &mut self,
         block: MirBlockId,

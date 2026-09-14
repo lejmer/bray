@@ -67,7 +67,7 @@ impl Lowerer<'_> {
             return Ok(LoweredExpression::continuing(current, Some(length), source));
         }
 
-        let zero = self.integer_operand(usize_type, 0)?;
+        let zero = crate::operand::integer_constant(self.input.semantic_values(), usize_type, 0)?;
         let result_type = self.expression_type(id)?;
 
         let empty = self.push_typed_value_operation(

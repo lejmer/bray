@@ -3152,6 +3152,19 @@ public func invoke<T>(pos value: T)
     }
 
     #[test]
+    fn nested_cleanup_native_fixture_emits() {
+        let (backend, plan) = runtime_native_plan_for_product(
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../xtask/fixtures/composition/cleanup/main.bray"
+            )),
+            ProductKind::Test,
+        );
+
+        assert!(!generated_artifacts(&backend, &plan).is_empty());
+    }
+
+    #[test]
     fn replacement_cleanup_helpers_emit_checked_outcomes() {
         for lifecycle in ["destruct() {}", "finalize() {} destruct() {}"] {
             let source = format!(

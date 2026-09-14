@@ -1764,6 +1764,69 @@ mod tests {
     }
 
     #[test]
+    fn task_cleanup_checks_completed_payload_before_releasing_the_task() {
+        let compilation = compilation("module app;");
+        let target = codegen_target(&compilation);
+        let values = compilation.semantic_value_store().unwrap();
+
+        let unit = compilation
+            .compiler_known_type(RepresentationRole::Unit)
+            .unwrap();
+
+        let task = compilation
+            .available_compiler_known_symbols()
+            .unary_representation_type(values, RepresentationRole::Task, unit)
+            .unwrap()
+            .unwrap();
+
+        let generated = generated_lifecycle(
+            &compilation,
+            &target,
+            MirHelperReference::Cleanup {
+                phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                ty: task,
+            },
+            97,
+        );
+
+        let checked = generated
+            .blocks()
+            .iter()
+            .filter(|block| {
+                block
+                    .operations()
+                    .last()
+                    .and_then(|id| generated.operation(*id))
+                    .is_some_and(|operation| {
+                        matches!(
+                            operation.kind(),
+                            MirOperationKind::Finalize(_) | MirOperationKind::Destroy(_)
+                        )
+                    })
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(checked.len(), 2);
+
+        assert!(checked.iter().all(|block| matches!(
+            block.terminator().kind(),
+            bray_ir::MirTerminatorKind::CheckCallOutcome { .. }
+        )));
+
+        assert_eq!(
+            generated
+                .operations()
+                .iter()
+                .filter(|operation| matches!(
+                    operation.kind(),
+                    MirOperationKind::Async(bray_ir::MirAsyncOperation::DestroyTerminalTask { .. })
+                ))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
     fn task_event_runtime_helpers_use_event_and_status_scalars() {
         let compilation = compilation("module app; func main() {}");
 

@@ -4,6 +4,75 @@ use bray_symbols::{NamedTypeSymbolId, TypeData};
 use super::super::{SyntheticLowerer, SyntheticLoweringContext, SyntheticLoweringError};
 
 impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
+    pub(super) fn push_array_lifecycle(
+        &self,
+        builder: &mut bray_ir::MirUnitBuilder,
+        block: bray_ir::MirBlockId,
+        source: &bray_ir::MirSourceAnchor,
+        role: bray_ir::MirGeneratedLifecycleRole,
+        place: MirPlace,
+        element: bray_symbols::TypeId,
+        length: bray_symbols::ConstantTermId,
+    ) -> Result<bray_ir::MirBlockId, C::Error> {
+        let length = self.context.array_length(length)?;
+
+        if !builder.target().machine().fits_usize(u128::from(length)) {
+            return Err(SyntheticLoweringError::LayoutOverflow(place.ty()).into());
+        }
+
+        if length == 0 {
+            return Ok(block);
+        }
+
+        let integer = self
+            .context
+            .representation_type(bray_compiler_known::RepresentationRole::ScalarUsize)?;
+
+        let boolean = self
+            .context
+            .representation_type(bray_compiler_known::RepresentationRole::ScalarBool)?;
+
+        let constant = |value| {
+            crate::operand::integer_constant(self.context.semantic_values(), integer, value)
+                .map_err(SyntheticLoweringError::SemanticValue)
+        };
+
+        let outcome = self.cleanup_outcome(builder, block, source)?;
+
+        let cleanup = crate::cleanup_loop::ReverseCleanupLoop::new(
+            builder,
+            block,
+            source,
+            constant(length)?,
+            boolean,
+            [constant(0)?, constant(1)?],
+            None,
+        )
+        .map_err(|cause| self.mir_error(source, cause))?;
+
+        // The loop owns the counter while its indexed child retains the same storage identity.
+        let child = place.project(
+            MirProjectionKind::Index(bray_ir::MirOperand::Copy(cleanup.counter.clone())),
+            element,
+        );
+
+        let operations = super::representation::child_lifecycle_operations(role, child)?;
+
+        let completed = outcome
+            .resolve(
+                builder,
+                cleanup.body,
+                source,
+                operations.into_iter().flatten(),
+            )
+            .map_err(|cause| self.mir_error(source, cause))?;
+
+        cleanup
+            .close(builder, completed, source, None)
+            .map_err(|cause| self.mir_error(source, cause))?;
+
+        self.finish_cleanup_outcome(builder, cleanup.continuation, source, &outcome)
+    }
     pub(super) fn lifecycle_children(&self, place: MirPlace) -> Result<Vec<MirPlace>, C::Error> {
         let values = self.context.semantic_values();
 
@@ -60,17 +129,8 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     Ok((MirProjectionKind::TupleField(index), ty))
                 })
                 .collect::<Result<Vec<_>, C::Error>>()?,
-            TypeData::Array { element, length } => {
-                let length = self.context.array_length(*length)?;
-
-                let length = u32::try_from(length)
-                    .map_err(|_| SyntheticLoweringError::LayoutOverflow(place.ty()))?;
-
-                (0..length)
-                    .map(|index| (MirProjectionKind::ElementFromStart(index), *element))
-                    .collect()
-            }
-            TypeData::Error
+            TypeData::Array { .. }
+            | TypeData::Error
             | TypeData::Named {
                 definition: NamedTypeSymbolId::Union(_),
                 ..
