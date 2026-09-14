@@ -1,6 +1,6 @@
 use bray_diagnostics::DiagnosticBag;
 use bray_source::{SourceSnapshot, TextSize};
-use bray_syntax::SyntaxToken;
+use bray_syntax::{SyntaxKind, SyntaxToken};
 
 use super::scanner::{LexerScanMode, scan_token_at};
 
@@ -124,30 +124,28 @@ impl LexerTokenSource {
     /// decimal digits as tuple element indices before ordinary numeric-literal
     /// scanning.
     pub fn consume_tuple_element_index_after_dot(&mut self) -> SyntaxToken {
-        self.cached_tokens.clear();
-
-        let token = self.scan_current_token(LexerScanMode::TupleElementIndexAfterDot);
-
-        self.advance_after_consuming_uncached(&token);
-
-        token
+        self.consume_with_mode(LexerScanMode::TupleElementIndexAfterDot)
     }
 
-    pub(crate) fn consume_generic_close(&mut self) -> SyntaxToken {
+    pub(crate) fn consume_type_punctuation(&mut self) -> SyntaxToken {
+        self.consume_with_mode(LexerScanMode::TypePunctuation)
+    }
+
+    fn consume_with_mode(&mut self, mode: LexerScanMode) -> SyntaxToken {
         self.cached_tokens.clear();
 
-        let token = self.scan_current_token(LexerScanMode::GenericClose);
+        let token = self.scan_token_at(self.cursor, mode);
 
-        self.advance_after_consuming_uncached(&token);
+        self.cursor = token.full_range().end();
 
         token
     }
 
     pub(crate) fn at_generic_close(&self) -> bool {
-        scan_token_at(&self.snapshot, self.cursor, LexerScanMode::GenericClose)
+        scan_token_at(&self.snapshot, self.cursor, LexerScanMode::TypePunctuation)
             .into_token()
             .kind()
-            == bray_syntax::SyntaxKind::GreaterToken
+            == SyntaxKind::GreaterToken
     }
 
     fn cached_lookahead(&mut self, distance: usize) -> SyntaxToken {
@@ -227,10 +225,6 @@ impl LexerTokenSource {
         }
     }
 
-    fn scan_current_token(&mut self, mode: LexerScanMode) -> SyntaxToken {
-        self.scan_token_at(self.cursor, mode)
-    }
-
     fn scan_token_at(&mut self, offset: TextSize, mode: LexerScanMode) -> SyntaxToken {
         let scan = scan_token_at(&self.snapshot, offset, mode);
         self.record_diagnostics(scan.diagnostics());
@@ -257,15 +251,6 @@ impl LexerTokenSource {
         if self.cache_policy == LexerCachePolicy::CacheTokens && !self.cached_tokens.is_empty() {
             self.cached_tokens.remove(0);
         }
-    }
-
-    fn advance_after_consuming_uncached(&mut self, token: &SyntaxToken) {
-        if is_eof(token) {
-            self.cursor = token.full_range().end();
-            return;
-        }
-
-        self.cursor = token.full_range().end();
     }
 }
 
@@ -628,13 +613,46 @@ mod tests {
     }
 
     #[test]
+    fn type_punctuation_runs_keep_longest_expression_tokens() {
+        for policy in [
+            LexerCachePolicy::CacheTokens,
+            LexerCachePolicy::DoNotCacheTokens,
+        ] {
+            let mut source =
+                LexerTokenSource::with_cache_policy(snapshot("&&&&&T >>>>>T &&+"), policy);
+
+            let expected = [
+                SyntaxKind::AmpersandAmpersandToken,
+                SyntaxKind::AmpersandAmpersandToken,
+                SyntaxKind::AmpersandToken,
+                SyntaxKind::IdentifierToken,
+                SyntaxKind::GreaterGreaterToken,
+                SyntaxKind::GreaterGreaterToken,
+                SyntaxKind::GreaterToken,
+                SyntaxKind::IdentifierToken,
+                SyntaxKind::InvalidToken,
+            ];
+
+            for kind in expected {
+                assert_eq!(source.peek().kind(), kind);
+                assert_eq!(source.consume().kind(), kind);
+            }
+
+            assert_eq!(
+                diagnostic_kinds(source.diagnostics()),
+                [DiagnosticKind::LexicalInvalidOperatorOrPunctuation]
+            );
+        }
+    }
+
+    #[test]
     fn generic_close_scan_splits_adjacent_closing_angles() {
         let mut source = LexerTokenSource::new(snapshot(">>"));
 
         assert_eq!(source.peek().kind(), SyntaxKind::GreaterGreaterToken);
 
         assert_eq!(
-            source.consume_generic_close().kind(),
+            source.consume_type_punctuation().kind(),
             SyntaxKind::GreaterToken
         );
 

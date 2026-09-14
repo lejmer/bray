@@ -46,6 +46,10 @@ The lexer uses longest-token matching.
 
 Tuple element indices use a context-specific scan after member-access `.` as described below.
 
+Consecutive ampersands and closing angles form longest `&&` and `>>` tokens followed by a single character token when
+needed. The parser reads one `&` for each borrow layer in type positions and one `>` for each generic close. In
+expressions, `&&` and `>>` remain the logical conjunction and right-shift tokens.
+
 When two token kinds have the same spelling length, the more specific token kind wins:
 
 - keywords win over identifiers,

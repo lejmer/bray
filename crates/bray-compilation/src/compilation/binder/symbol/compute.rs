@@ -538,7 +538,7 @@ mod tests {
     use bray_binder::{BindingQueryError, SymbolQueryProvider};
     use bray_diagnostics::DiagnosticKind;
     use bray_symbols::{
-        AnySymbolId, CallableAbi, CallableContractTypeQuery, CallableExecution,
+        AnySymbolId, BorrowKind, CallableAbi, CallableContractTypeQuery, CallableExecution,
         CallableSignatureQuery, CallableSymbolId, ConstantDeclaredTypeQuery,
         ConstantExpressionExpectedType, ConstantExpressionOccurrence, GenericArgument,
         GenericArgumentTemplate, GenericConstParameterDeclaredTypeQuery,
@@ -648,6 +648,78 @@ func identity<T>(value: T) -> T
     return value;
 }
 "#;
+
+    #[test]
+    fn nested_borrow_annotations_bind_each_capability() {
+        for (ty, kinds) in [
+            ("&&bool", vec![BorrowKind::Shared, BorrowKind::Shared]),
+            ("&&mut bool", vec![BorrowKind::Shared, BorrowKind::Mutable]),
+            ("&mut &bool", vec![BorrowKind::Mutable, BorrowKind::Shared]),
+            (
+                "&mut &mut bool",
+                vec![BorrowKind::Mutable, BorrowKind::Mutable],
+            ),
+            ("&&&&bool", vec![BorrowKind::Shared; 4]),
+        ] {
+            let source = format!(
+                r#"
+                module app;
+
+                func borrow_slot(pos first: &bool, second: {ty}) -> {ty}
+                {{
+                    return second;
+                }}
+            "#
+            );
+
+            let compilation = compilation(&source);
+            let symbols = symbol_graph(&compilation);
+            let cancellation = CancellationToken::new();
+            let context = binding_context(&compilation, &cancellation);
+
+            let function = source_id(
+                symbols.functions(),
+                |symbol| symbol.origin(),
+                |symbol| symbol.id(),
+            );
+
+            let signature = resolved_query(
+                &context,
+                SymbolQueryRequest::<CallableSignatureQuery>::new(CallableSymbolId::from(function)),
+            );
+
+            assert!(
+                signature.diagnostics().is_empty(),
+                "{ty}: {:?}",
+                signature.diagnostics()
+            );
+
+            let callable_type = type_data(&compilation, signature.value().callable_type());
+
+            let TypeData::Callable(callable) = callable_type.as_ref() else {
+                panic!("expected callable");
+            };
+
+            assert_eq!(callable.parameters()[1].ty(), callable.result());
+
+            let mut target = callable.result();
+
+            for expected in kinds {
+                let data = type_data(&compilation, target);
+
+                let TypeData::Borrow {
+                    kind,
+                    target: inner,
+                } = data.as_ref()
+                else {
+                    panic!("expected borrow: {data:?}");
+                };
+
+                assert_eq!(*kind, expected);
+                target = *inner;
+            }
+        }
+    }
 
     #[test]
     fn source_declaration_types_and_signatures_bind_and_publish_once() {

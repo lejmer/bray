@@ -1,11 +1,10 @@
 use bray_syntax::{
     GenericArgumentListSyntax, GenericArgumentListSyntaxBuilder, GenericArgumentSyntax,
     GenericConstParameterSyntax, GenericParameterListSyntax, GenericParameterListSyntaxBuilder,
-    GenericTypeParameterSyntax, SyntaxKind, SyntaxToken, TypeFormArgumentListSyntax,
-    TypeFormArgumentListSyntaxBuilder, TypeFormArgumentSyntax,
+    GenericTypeParameterSyntax, SyntaxKind, SyntaxToken, TypeExpressionSyntax,
+    TypeFormArgumentListSyntax, TypeFormArgumentListSyntaxBuilder, TypeFormArgumentSyntax,
 };
 
-use super::delimiter::DelimiterDepth;
 use super::separated::{SeparatedListSpec, SeparatedListSyntaxSink, separated_list_recovery_kinds};
 use super::state::Parser;
 
@@ -39,8 +38,9 @@ const GENERIC_CONST_PARAMETER_TYPE_BOUNDARY_KINDS: [SyntaxKind; 11] = [
     SyntaxKind::EndOfFileToken,
 ];
 
-const GENERIC_ARGUMENT_START_KINDS: [SyntaxKind; 24] = [
+const GENERIC_ARGUMENT_START_KINDS: [SyntaxKind; 25] = [
     SyntaxKind::AmpersandToken,
+    SyntaxKind::AmpersandAmpersandToken,
     SyntaxKind::BangToken,
     SyntaxKind::BinaryIntegerLiteralToken,
     SyntaxKind::BoxKeyword,
@@ -201,14 +201,12 @@ impl Parser {
         let start = self.peek().full_range().start();
         let mut builder = GenericArgumentSyntax::builder(self.syntax_source(), start);
 
-        if self.should_parse_generic_argument_as_expression(&GENERIC_ARGUMENT_LIST_TERMINATORS) {
-            let mut at_boundary = Parser::at_generic_argument_boundary;
-
-            builder.push_expression(self.parse_non_assignment_expression_until(&mut at_boundary));
+        if let Some(ty) = self.try_parse_type_argument(Parser::at_generic_argument_boundary) {
+            builder.push_type_expression(ty);
         } else {
             let mut at_boundary = Parser::at_generic_argument_boundary;
 
-            builder.push_type_expression(self.parse_type_expression_until(&mut at_boundary));
+            builder.push_expression(self.parse_non_assignment_expression_until(&mut at_boundary));
         }
 
         builder.build()
@@ -243,14 +241,12 @@ impl Parser {
         let start = self.peek().full_range().start();
         let mut builder = TypeFormArgumentSyntax::builder(self.syntax_source(), start);
 
-        if self.should_parse_generic_argument_as_expression(&TYPE_FORM_ARGUMENT_LIST_TERMINATORS) {
-            let mut at_boundary = Parser::at_type_form_argument_boundary;
-
-            builder.push_expression(self.parse_non_assignment_expression_until(&mut at_boundary));
+        if let Some(ty) = self.try_parse_type_argument(Parser::at_type_form_argument_boundary) {
+            builder.push_type_expression(ty);
         } else {
             let mut at_boundary = Parser::at_type_form_argument_boundary;
 
-            builder.push_type_expression(self.parse_type_expression_until(&mut at_boundary));
+            builder.push_expression(self.parse_non_assignment_expression_until(&mut at_boundary));
         }
 
         builder.build()
@@ -270,53 +266,19 @@ impl Parser {
         self.at(SyntaxKind::CommaToken) || self.at_any(&TYPE_FORM_ARGUMENT_LIST_TERMINATORS)
     }
 
-    fn should_parse_generic_argument_as_expression(&mut self, terminators: &[SyntaxKind]) -> bool {
-        let kind = self.peek().kind();
-
-        if at_generic_argument_expression_only_start(kind) {
-            return true;
-        }
-
-        self.scan_ahead(|scan| scan.scan_generic_argument_has_expression_operator(terminators))
-    }
-
-    fn scan_generic_argument_has_expression_operator(
+    fn try_parse_type_argument(
         &mut self,
-        terminators: &[SyntaxKind],
-    ) -> bool {
-        let mut depth = DelimiterDepth::default();
-
-        loop {
-            if self.at_generic_close() {
-                if depth.is_at_root() {
-                    return false;
-                }
-
-                depth.observe_grouping_or_angle(self.consume_generic_close().kind());
-
-                continue;
-            }
-
-            if self.at(SyntaxKind::EndOfFileToken) {
-                return false;
-            }
-
-            let kind = self.peek().kind();
-
-            let at_outer_boundary = depth.is_at_root()
-                && (kind == SyntaxKind::CommaToken || terminators.contains(&kind));
-
-            if at_outer_boundary {
-                return false;
-            }
-
-            if depth.is_at_root() && at_generic_argument_expression_operator(kind) {
-                return true;
-            }
-
-            depth.observe_grouping_or_angle(kind);
-            self.consume();
+        mut at_boundary: fn(&mut Parser) -> bool,
+    ) -> Option<TypeExpressionSyntax> {
+        if at_generic_argument_expression_only_start(self.peek().kind()) {
+            return None;
         }
+
+        self.try_parse(|parser| {
+            let ty = parser.parse_type_expression_until(&mut at_boundary);
+
+            at_boundary(parser).then_some(ty)
+        })
     }
 }
 
@@ -372,26 +334,6 @@ fn at_generic_argument_expression_only_start(kind: SyntaxKind) -> bool {
         )
 }
 
-fn at_generic_argument_expression_operator(kind: SyntaxKind) -> bool {
-    matches!(
-        kind,
-        SyntaxKind::AmpersandAmpersandToken
-            | SyntaxKind::BangEqualsToken
-            | SyntaxKind::CaretToken
-            | SyntaxKind::EqualsEqualsToken
-            | SyntaxKind::GreaterEqualsToken
-            | SyntaxKind::LessEqualsToken
-            | SyntaxKind::MinusToken
-            | SyntaxKind::PercentToken
-            | SyntaxKind::PipePipeToken
-            | SyntaxKind::PipeToken
-            | SyntaxKind::PlusToken
-            | SyntaxKind::SlashToken
-            | SyntaxKind::StarStarToken
-            | SyntaxKind::StarToken
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::DiagnosticKind;
@@ -401,6 +343,27 @@ mod tests {
 
     use super::super::state::Parser;
     use crate::test_support::{diagnostic_kinds, source};
+
+    #[test]
+    fn borrow_type_prefixes_do_not_hide_constant_conjunctions() {
+        for text in [
+            "< &&mut T, left && right>",
+            "< box &&T, &left && right>",
+            "< &mut &&T, (left && right)>",
+            "< box[Heap] &&T, [left] && right>",
+        ] {
+            let sources = source_store([text]);
+            let mut parser = Parser::new(source(&sources, 0));
+            let list = parser.parse_generic_argument_list();
+            let arguments = list.generic_arguments().collect::<Vec<_>>();
+
+            assert_eq!(arguments.len(), 2, "{text}: {:?}", parser.finish());
+            assert_eq!(arguments[0].type_expressions().count(), 1);
+            assert_eq!(arguments[1].expressions().count(), 1);
+            assert_eq!(list.full_text(), text);
+            assert!(parser.finish().is_empty(), "{text}");
+        }
+    }
 
     #[test]
     fn parser_parses_generic_parameter_lists() {

@@ -45,6 +45,24 @@ impl Parser {
         decision
     }
 
+    /// Keeps a speculative parse and its cursor only when it produces a result.
+    pub(super) fn try_parse<T>(
+        &mut self,
+        parse: impl FnOnce(&mut Parser) -> Option<T>,
+    ) -> Option<T> {
+        let checkpoint = self.cursor.checkpoint();
+        let mut fork = self.fork_from_checkpoint(&checkpoint);
+        let result = parse(&mut fork);
+
+        if result.is_some() {
+            *self = fork;
+        } else {
+            self.cursor.absorb_lexical_diagnostics_from(&fork.cursor);
+        }
+
+        result
+    }
+
     fn fork_from_checkpoint(&self, checkpoint: &ParserCursorCheckpoint) -> Self {
         Self {
             // Forked parsers share immutable source text with the main parser.
@@ -135,7 +153,7 @@ impl Parser {
 
     pub(super) fn expect_generic_close(&mut self) -> SyntaxToken {
         if self.at_generic_close() {
-            return self.consume_generic_close();
+            return self.consume_type_punctuation();
         }
 
         self.expect(SyntaxKind::GreaterToken)
@@ -145,8 +163,8 @@ impl Parser {
         self.cursor.at_generic_close()
     }
 
-    pub(super) fn consume_generic_close(&mut self) -> SyntaxToken {
-        self.cursor.consume_generic_close()
+    pub(super) fn consume_type_punctuation(&mut self) -> SyntaxToken {
+        self.cursor.consume_type_punctuation()
     }
 
     pub(super) fn expect(&mut self, kind: SyntaxKind) -> SyntaxToken {
@@ -343,27 +361,29 @@ mod tests {
 
     #[test]
     fn deeply_nested_types_recover_without_losing_source_text() {
-        let type_text = format!(
-            "{}Value",
-            "& ".repeat(MAX_SYNTAX_NESTING_DEPTH.saturating_mul(2))
-        );
+        for prefix in ["& ", "&"] {
+            let type_text = format!(
+                "{}Value",
+                prefix.repeat(MAX_SYNTAX_NESTING_DEPTH.saturating_mul(2))
+            );
 
-        let sources = source_store([type_text.as_str()]);
-        let snapshot = source(&sources, 0);
-        let mut parser = Parser::new(snapshot);
-        let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::EndOfFileToken);
+            let sources = source_store([type_text.as_str()]);
+            let snapshot = source(&sources, 0);
+            let mut parser = Parser::new(snapshot);
+            let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::EndOfFileToken);
 
-        let ty = parser.parse_type_expression_until(&mut boundary);
+            let ty = parser.parse_type_expression_until(&mut boundary);
 
-        assert_eq!(ty.full_text(), type_text);
-        assert_eq!(parser.peek().kind(), SyntaxKind::EndOfFileToken);
+            assert_eq!(ty.full_text(), type_text);
+            assert_eq!(parser.peek().kind(), SyntaxKind::EndOfFileToken);
 
-        let diagnostics = parser.finish();
+            let diagnostics = parser.finish();
 
-        assert_eq!(
-            diagnostic_kinds(&diagnostics),
-            [DiagnosticKind::SyntaxNestingLimitExceeded]
-        );
+            assert_eq!(
+                diagnostic_kinds(&diagnostics),
+                [DiagnosticKind::SyntaxNestingLimitExceeded]
+            );
+        }
     }
 
     #[test]

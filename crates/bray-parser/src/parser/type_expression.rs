@@ -37,48 +37,33 @@ impl Parser {
         &mut self,
         at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
     ) -> TypeExpressionSyntax {
-        match self.peek().kind() {
-            SyntaxKind::AmpersandToken => self.parse_borrow_type_expression(at_boundary),
-            SyntaxKind::BoxKeyword => self.parse_box_type_expression(at_boundary),
-            SyntaxKind::ViewKeyword => self.parse_view_type_expression(),
+        let prefix = match self.peek().kind() {
+            SyntaxKind::AmpersandAmpersandToken => self.consume_type_punctuation(),
+            SyntaxKind::AmpersandToken | SyntaxKind::BoxKeyword => self.consume(),
+            SyntaxKind::ViewKeyword => return self.parse_view_type_expression(),
             kind if self.is_callable_type_expression_start_kind(kind)
                 && self.should_parse_callable_type_expression() =>
             {
-                self.parse_callable_type_expression(at_boundary)
+                return self.parse_callable_type_expression(at_boundary);
             }
-            _ => self.parse_postfix_type_expression(at_boundary),
-        }
-    }
+            _ => return self.parse_postfix_type_expression(at_boundary),
+        };
 
-    fn parse_borrow_type_expression(
-        &mut self,
-        at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
-    ) -> TypeExpressionSyntax {
-        let start = self.peek().full_range().start();
-        let mut builder = TypeExpressionSyntax::builder(self.syntax_source(), start);
+        let mut builder =
+            TypeExpressionSyntax::builder(self.syntax_source(), prefix.full_range().start());
 
-        builder.push_ampersand_token(self.expect(SyntaxKind::AmpersandToken));
+        if prefix.kind() == SyntaxKind::AmpersandToken {
+            builder.push_ampersand_token(prefix);
 
-        if self.at(SyntaxKind::MutKeyword) {
-            builder.push_mut_token(self.expect(SyntaxKind::MutKeyword));
-        }
+            if self.at(SyntaxKind::MutKeyword) {
+                builder.push_mut_token(self.consume());
+            }
+        } else {
+            builder.push_box_keyword(prefix);
 
-        builder.push_type_expression(self.parse_type_expression_until(at_boundary));
-
-        builder.build()
-    }
-
-    fn parse_box_type_expression(
-        &mut self,
-        at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
-    ) -> TypeExpressionSyntax {
-        let start = self.peek().full_range().start();
-        let mut builder = TypeExpressionSyntax::builder(self.syntax_source(), start);
-
-        builder.push_box_keyword(self.expect(SyntaxKind::BoxKeyword));
-
-        if self.at(SyntaxKind::OpenBracketToken) {
-            builder.push_type_form_argument_list(self.parse_type_form_argument_list());
+            if self.at(SyntaxKind::OpenBracketToken) {
+                builder.push_type_form_argument_list(self.parse_type_form_argument_list());
+            }
         }
 
         builder.push_type_expression(self.parse_type_expression_until(at_boundary));
@@ -405,6 +390,119 @@ mod tests {
     use crate::test_support::{diagnostic_kinds, source};
 
     use super::super::state::Parser;
+
+    #[test]
+    fn incomplete_borrow_chains_report_the_missing_target() {
+        for (text, offset, expected) in [
+            ("&&", 2, DiagnosticKind::SyntaxUnexpectedEof),
+            ("&&mut", 5, DiagnosticKind::SyntaxUnexpectedEof),
+            ("&&)", 2, DiagnosticKind::SyntaxExpectedToken),
+            ("&mut &mut )", 10, DiagnosticKind::SyntaxExpectedToken),
+        ] {
+            let sources = source_store([text]);
+            let mut parser = Parser::new(source(&sources, 0));
+
+            let mut boundary = |parser: &mut Parser| {
+                parser.at_any(&[SyntaxKind::CloseParenToken, SyntaxKind::EndOfFileToken])
+            };
+
+            let expression = parser.parse_type_expression_until(&mut boundary);
+            let diagnostics = parser.finish();
+
+            assert_eq!(diagnostic_kinds(&diagnostics), [expected], "{text}");
+
+            assert_eq!(
+                diagnostics
+                    .iter()
+                    .next()
+                    .unwrap()
+                    .primary_span()
+                    .unwrap()
+                    .range()
+                    .start()
+                    .bytes(),
+                offset
+            );
+
+            assert_eq!(expression.full_text(), text.trim_end_matches(')'));
+        }
+    }
+
+    #[test]
+    fn consecutive_borrows_work_through_type_consumers() {
+        for ty in ["&&T", "&&mut T", "&mut &T", "&mut &mut T", "&&&&T"] {
+            for text in [
+                format!(
+                    r#"
+                    module app;
+
+                    func f<T>(value: {ty}) -> {ty}
+                    {{
+                        return value;
+                    }}
+                "#
+                ),
+                format!(
+                    r#"
+                    module app;
+
+                    type A<T> = Container< {ty}>;
+                    type B<T> = Container<Box<List<Map< {ty}>>>>;
+                    type C<T> = box[Store< {ty}>] {ty};
+                    type D<T> = [{ty}];
+                    type E<T> = ({ty}, {ty});
+                "#
+                ),
+            ] {
+                let sources = source_store([text.as_str()]);
+                let parsed = crate::parse_source_unit(&source(&sources, 0));
+
+                assert_eq!(parsed.source_unit().full_text(), text);
+
+                assert!(
+                    parsed.diagnostics().is_empty(),
+                    "{text}: {:?}",
+                    parsed.diagnostics()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn consecutive_borrow_prefixes_preserve_each_layer() {
+        for (text, mutable_layers) in [
+            ("&&T", vec![false, false]),
+            ("&&mut T", vec![false, true]),
+            ("&mut &T", vec![true, false]),
+            ("&mut &mut T", vec![true, true]),
+            ("&&&&T", vec![false; 4]),
+            ("& /* outer */ &mut /* inner */ T", vec![false, true]),
+        ] {
+            let sources = source_store([text]);
+            let mut parser = Parser::new(source(&sources, 0));
+            let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::EndOfFileToken);
+            let expression = parser.parse_type_expression_until(&mut boundary);
+
+            assert_eq!(expression.full_text(), text);
+
+            let mut layer = expression;
+
+            for mutable in mutable_layers {
+                assert_eq!(
+                    layer.ampersand_token().unwrap().kind(),
+                    SyntaxKind::AmpersandToken
+                );
+
+                assert_eq!(layer.mut_token().is_some(), mutable);
+                let inner = layer.type_expressions().next().unwrap();
+                layer = inner;
+            }
+
+            assert_eq!(layer.path().unwrap().full_text(), "T");
+            assert_eq!(parser.peek().kind(), SyntaxKind::EndOfFileToken);
+            assert!(parser.finish().is_empty(), "{text}");
+        }
+    }
 
     #[test]
     fn parser_parses_primary_prefix_tuple_slice_and_callable_type_expressions() {
