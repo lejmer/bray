@@ -817,14 +817,13 @@ mod tests {
         TraitBodySyntax, TraitConstantMemberDeclarationSyntax, TraitDeclarationSyntax,
         TraitDestructorRequirementDeclarationSyntax, TraitFinalizerRequirementDeclarationSyntax,
         TraitModifiersSyntax, TraitPredicateMemberDeclarationSyntax,
-        TraitPredicateMemberModifiersSyntax, TraitQualifiedMemberOperationSyntax,
-        TraitScopeEnterRequirementDeclarationSyntax, TraitScopeExitRequirementDeclarationSyntax,
-        TraitTypeMemberDeclarationSyntax, TrustBoundaryExpressionSyntax, TupleExpressionSyntax,
-        TypeAnnotationSyntax, TypeConstructorMemberDeclarationSyntax, TypeExpressionSyntax,
-        TypeFormArgumentListSyntax, TypeFormArgumentSyntax, TypeFormConstructionExpressionSyntax,
-        TypedIdentifierSyntax, UnionDeclarationSyntax, UnitExpressionSyntax,
-        UnnamedTraitImplementationDeclarationSyntax, UsingDeclarationSyntax, WhileExpressionSyntax,
-        WithExpressionSyntax, YieldExpressionSyntax,
+        TraitPredicateMemberModifiersSyntax, TraitScopeEnterRequirementDeclarationSyntax,
+        TraitScopeExitRequirementDeclarationSyntax, TraitTypeMemberDeclarationSyntax,
+        TrustBoundaryExpressionSyntax, TupleExpressionSyntax, TypeAnnotationSyntax,
+        TypeConstructorMemberDeclarationSyntax, TypeExpressionSyntax, TypeFormArgumentListSyntax,
+        TypeFormArgumentSyntax, TypeFormConstructionExpressionSyntax, TypedIdentifierSyntax,
+        UnionDeclarationSyntax, UnitExpressionSyntax, UnnamedTraitImplementationDeclarationSyntax,
+        UsingDeclarationSyntax, WhileExpressionSyntax, WithExpressionSyntax, YieldExpressionSyntax,
     };
 
     #[test]
@@ -1391,7 +1390,6 @@ mod tests {
         assert_send_sync::<SliceIndexOperationSyntax>();
         assert_send_sync::<NullablePropagationOperationSyntax>();
         assert_send_sync::<ConversionOperationSyntax>();
-        assert_send_sync::<TraitQualifiedMemberOperationSyntax>();
         assert_send_sync::<ArgumentListSyntax>();
         assert_send_sync::<ArgumentSyntax>();
         assert_send_sync::<StructConstructionBodySyntax>();

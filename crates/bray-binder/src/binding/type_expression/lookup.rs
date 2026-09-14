@@ -1,11 +1,14 @@
-use bray_diagnostics::DiagnosticNameKind;
+use bray_diagnostics::{DiagnosticNameKind, DiagnosticResult};
 use bray_symbols::{
     AnySymbolId, GenericArgumentTemplate, GenericConstParameterSymbolId, GenericOwnerId,
     GenericParameterSymbolId, GenericSubstitutionData, GenericTypeParameterSymbolId,
     MemberLookupResult, NamedTypeSymbolId, TraitApplicationData, TraitApplicationId,
     TraitApplicationTemplate, TraitSymbolId, TraitTypeMemberSymbolId,
 };
-use bray_syntax::{PathSyntax, SourceSyntaxNode, TraitApplicationSyntax, TypeExpressionSyntax};
+use bray_syntax::{
+    GenericArgumentListSyntax, PathSyntax, SourceSyntaxNode, TraitApplicationSyntax,
+    TypeExpressionSyntax,
+};
 
 use super::core::{TypeExpressionBinder, token_text};
 use crate::lookup::{
@@ -25,19 +28,38 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
             return Ok(None);
         };
 
-        let parameters = self.trait_parameters(definition)?;
-
         let arguments = syntax.generic_argument_lists().next();
 
-        if !self.validate_generic_argument_count(
-            &syntax.path(),
-            arguments.as_ref(),
-            parameters.len(),
-        )? {
+        self.bind_trait_arguments(definition, &syntax.path(), arguments.as_ref())
+    }
+
+    /// Binds generic arguments for a trait whose name has already been resolved.
+    pub fn bind_trait_reference(
+        mut self,
+        definition: TraitSymbolId,
+        syntax: &impl SourceSyntaxNode,
+        arguments: Option<&GenericArgumentListSyntax>,
+    ) -> BindingQueryResult<DiagnosticResult<Option<TraitApplicationTemplate>>, Upstream> {
+        self.check_cancellation()?;
+
+        let application = self.bind_trait_arguments(definition, syntax, arguments)?;
+
+        Ok(DiagnosticResult::new(application, self.diagnostics))
+    }
+
+    fn bind_trait_arguments(
+        &mut self,
+        definition: TraitSymbolId,
+        syntax: &impl SourceSyntaxNode,
+        arguments: Option<&GenericArgumentListSyntax>,
+    ) -> BindingQueryResult<Option<TraitApplicationTemplate>, Upstream> {
+        let parameters = self.trait_parameters(definition)?;
+
+        if !self.validate_generic_argument_count(syntax, arguments, parameters.len())? {
             return Ok(None);
         }
 
-        let arguments = self.bind_generic_arguments(arguments.as_ref(), &parameters)?;
+        let arguments = self.bind_generic_arguments(arguments, &parameters)?;
 
         Ok(Some(TraitApplicationTemplate::new(
             definition, parameters, arguments,

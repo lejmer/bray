@@ -339,6 +339,9 @@ This is a trait-qualified receiver expression.
 
 It is not a runtime call, cast, conversion, or wrapper construction.
 
+The parenthesized name must resolve to a trait application. When it resolves to a value, the expression is an ordinary
+call followed by member access, as in `projected(reference).value`. The distinction follows ordinary name lookup rules.
+
 A method path used without a call does not implicitly produce a callable value that captures the receiver.
 
 ```bray

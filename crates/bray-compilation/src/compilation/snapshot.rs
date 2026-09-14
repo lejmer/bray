@@ -328,10 +328,6 @@ fn reuse_mapped_cells(
         CompilationFactKey::IterationSource(key.clone())
     });
 
-    reuse!(operation_selections, |key| {
-        CompilationFactKey::OperationSelection(key.clone())
-    });
-
     reuse!(native_products, |key| {
         CompilationFactKey::NativeProduct(key.clone())
     });

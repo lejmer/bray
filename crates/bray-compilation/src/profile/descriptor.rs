@@ -516,7 +516,6 @@ define_profile_query_kinds! {
     GenericConstraintSatisfaction = 1047 => "generic_constraint_satisfaction",
     ImplementationSelection = 1048 => "implementation_selection",
     IterationSource = 1049 => "iteration_source",
-    OperationSelection = 1050 => "operation_selection",
     ImportedSemanticGraph = 1051 => "imported_semantic_graph",
     ImportedSemanticRecord = 1052 => "imported_semantic_record",
     ImportedConstantCallableBody = 1053 => "imported_constant_callable_body",
@@ -600,7 +599,6 @@ impl ProfileQueryKind {
             }
             CompilationFactKey::ImplementationSelection(_) => Self::ImplementationSelection,
             CompilationFactKey::IterationSource(_) => Self::IterationSource,
-            CompilationFactKey::OperationSelection(_) => Self::OperationSelection,
             CompilationFactKey::ImportedSemanticGraph(_) => Self::ImportedSemanticGraph,
             CompilationFactKey::ImportedSemanticRecord(_) => Self::ImportedSemanticRecord,
             CompilationFactKey::ImportedConstantCallableBody(_) => {
@@ -669,10 +667,9 @@ mod tests {
             [
                 1_001, 1_002, 1_003, 1_006, 1_007, 1_011, 1_012, 1_013, 1_014, 1_017, 1_019, 1_024,
                 1_027, 1_028, 1_029, 1_030, 1_031, 1_032, 1_033, 1_034, 1_035, 1_036, 1_037, 1_038,
-                1_039, 1_040, 1_041, 1_042, 1_043, 1_044, 1_045, 1_046, 1_047, 1_048, 1_049, 1_050,
-                1_051, 1_052, 1_053, 1_054, 1_055, 1_056, 1_057, 1_058, 1_059, 1_060, 1_061, 1_062,
-                1_063, 1_064, 1_066, 1_067, 1_068, 1_069, 1_070, 1_071, 1_072, 1_073, 1_074, 1_075,
-                1_076,
+                1_039, 1_040, 1_041, 1_042, 1_043, 1_044, 1_045, 1_046, 1_047, 1_048, 1_049, 1_051,
+                1_052, 1_053, 1_054, 1_055, 1_056, 1_057, 1_058, 1_059, 1_060, 1_061, 1_062, 1_063,
+                1_064, 1_066, 1_067, 1_068, 1_069, 1_070, 1_071, 1_072, 1_073, 1_074, 1_075, 1_076,
             ]
         );
     }

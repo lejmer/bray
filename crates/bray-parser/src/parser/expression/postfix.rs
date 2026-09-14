@@ -1,7 +1,7 @@
 use bray_syntax::{
     CallOperationSyntax, ConversionOperationSyntax, ElementIndexOperationSyntax, ExpressionSyntax,
     MemberAccessOperationSyntax, NullablePropagationOperationSyntax, PrimaryExpressionSyntax,
-    SliceIndexOperationSyntax, SyntaxKind, TraitQualifiedMemberOperationSyntax,
+    SliceIndexOperationSyntax, SyntaxKind,
 };
 
 use crate::parser::state::Parser;
@@ -40,11 +40,6 @@ impl Parser {
                 }
                 PostfixOperationStart::Index => {
                     self.parse_element_index_postfix(expression, at_boundary)
-                }
-                PostfixOperationStart::Parenthesized
-                    if self.should_parse_trait_qualified_member_operation() =>
-                {
-                    self.parse_trait_qualified_member_postfix(expression)
                 }
                 PostfixOperationStart::Parenthesized => self.parse_call_postfix(expression),
                 PostfixOperationStart::Generic if self.should_parse_explicit_generic_call() => {
@@ -168,21 +163,6 @@ impl Parser {
         builder.build()
     }
 
-    fn parse_trait_qualified_member_postfix(
-        &mut self,
-        expression: ExpressionSyntax,
-    ) -> ExpressionSyntax {
-        let start = expression.full_range().start();
-        let mut builder = ExpressionSyntax::builder(self.syntax_source(), start);
-
-        builder.push_expression(expression);
-
-        builder
-            .push_trait_qualified_member_operation(self.parse_trait_qualified_member_operation());
-
-        builder.build()
-    }
-
     pub(in crate::parser::expression) fn parse_member_access_operation(
         &mut self,
     ) -> MemberAccessOperationSyntax {
@@ -290,18 +270,6 @@ impl Parser {
 
         builder.build()
     }
-
-    fn parse_trait_qualified_member_operation(&mut self) -> TraitQualifiedMemberOperationSyntax {
-        let start = self.peek().full_range().start();
-        let mut builder = TraitQualifiedMemberOperationSyntax::builder(self.syntax_source(), start);
-
-        builder.push_open_paren_token(self.expect(SyntaxKind::OpenParenToken));
-        builder.push_trait_application(self.parse_trait_application());
-        builder.push_close_paren_token(self.expect(SyntaxKind::CloseParenToken));
-        builder.push_member_access_operation(self.parse_member_access_operation());
-
-        builder.build()
-    }
 }
 
 pub(super) const fn postfix_operation_start(kind: SyntaxKind) -> Option<PostfixOperationStart> {
@@ -382,7 +350,7 @@ mod tests {
     }
 
     #[test]
-    fn parser_parses_trait_qualified_member_postfix() {
+    fn parser_leaves_trait_qualification_as_call_and_member_syntax() {
         let sources = source_store(["target(Display).format;"]);
         let snapshot = source(&sources, 0);
 
@@ -393,7 +361,7 @@ mod tests {
         let diagnostics = parser.finish();
 
         assert_eq!(expression.full_text(), "target(Display).format");
-        assert_eq!(count_trait_qualified_member_operations(&expression), 1);
+        assert_eq!(count_call_operations(&expression), 1);
         assert!(diagnostics.is_empty());
     }
 
@@ -462,13 +430,19 @@ mod tests {
     }
 
     #[test]
-    fn parser_distinguishes_chained_calls_from_trait_qualified_members() {
-        const CASES: [&str; 2] = [
-            "send_sequence(first_sender, first = 0, count = 64).start();",
-            "hold(&value).start();",
+    fn parser_preserves_calls_followed_by_member_access() {
+        const CASES: [(&str, usize); 5] = [
+            (
+                "send_sequence(first_sender, first = 0, count = 64).start();",
+                2,
+            ),
+            ("hold(&value).start();", 2),
+            ("projected(reference).value;", 1),
+            ("projected(Reference).value;", 1),
+            ("projected<Flag>(reference).value;", 1),
         ];
 
-        for source_text in CASES {
+        for (source_text, calls) in CASES {
             let sources = source_store([source_text]);
             let snapshot = source(&sources, 0);
 
@@ -479,6 +453,7 @@ mod tests {
             let diagnostics = parser.finish();
 
             assert_eq!(expression.full_text(), source_text.trim_end_matches(';'));
+            assert_eq!(count_call_operations(&expression), calls, "{source_text}");
             assert!(diagnostics.is_empty(), "{diagnostics:?}");
         }
     }
@@ -655,14 +630,6 @@ mod tests {
             + expression
                 .expressions()
                 .map(|child| count_conversion_operations(&child))
-                .sum::<usize>()
-    }
-
-    fn count_trait_qualified_member_operations(expression: &ExpressionSyntax) -> usize {
-        expression.trait_qualified_member_operations().count()
-            + expression
-                .expressions()
-                .map(|child| count_trait_qualified_member_operations(&child))
                 .sum::<usize>()
     }
 }

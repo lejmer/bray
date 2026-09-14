@@ -87,30 +87,6 @@ impl Parser {
         false
     }
 
-    pub(in crate::parser::expression) fn should_parse_trait_qualified_member_operation(
-        &mut self,
-    ) -> bool {
-        self.scan_ahead(Parser::scan_trait_qualified_member_operation)
-    }
-
-    fn scan_trait_qualified_member_operation(&mut self) -> bool {
-        if !self.at(SyntaxKind::OpenParenToken) {
-            return false;
-        }
-
-        self.consume();
-
-        let trait_application = self.parse_trait_application();
-
-        if trait_application.is_recovered() || !self.at(SyntaxKind::CloseParenToken) {
-            return false;
-        }
-
-        self.consume();
-
-        self.at(SyntaxKind::DotToken)
-    }
-
     pub(in crate::parser::expression) fn should_parse_expected_type_struct_construction(
         &mut self,
     ) -> bool {

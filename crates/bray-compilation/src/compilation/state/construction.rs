@@ -225,7 +225,6 @@ impl Compilation {
                 generic_constraint_satisfaction: FactCellMap::new(),
                 implementation_selections: FactCellMap::new(),
                 iteration_sources: FactCellMap::new(),
-                operation_selections: FactCellMap::new(),
                 semantic_diagnostics: FactCell::new(),
                 symbol_semantics: CompilationSymbolSemantics::new(),
                 discovery_symbol_semantics: CompilationSymbolSemantics::new(),

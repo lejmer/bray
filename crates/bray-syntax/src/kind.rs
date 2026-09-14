@@ -237,8 +237,6 @@ pub enum SyntaxKind {
     NullablePropagationOperation,
     /// Conversion postfix operation.
     ConversionOperation,
-    /// Trait-qualified member postfix operation.
-    TraitQualifiedMemberOperation,
     /// Runtime argument list including delimiters.
     ArgumentList,
     /// Runtime argument entry.
@@ -635,7 +633,6 @@ impl SyntaxKind {
                 | Self::SliceIndexOperation
                 | Self::NullablePropagationOperation
                 | Self::ConversionOperation
-                | Self::TraitQualifiedMemberOperation
                 | Self::ArgumentList
                 | Self::Argument
                 | Self::StructConstructionBody
@@ -995,7 +992,6 @@ impl SyntaxKind {
             Self::SliceIndexOperation => "slice_index_operation",
             Self::NullablePropagationOperation => "nullable_propagation_operation",
             Self::ConversionOperation => "conversion_operation",
-            Self::TraitQualifiedMemberOperation => "trait_qualified_member_operation",
             Self::ArgumentList => "argument_list",
             Self::Argument => "argument",
             Self::StructConstructionBody => "struct_construction_body",
@@ -1312,7 +1308,6 @@ mod tests {
         assert!(SyntaxKind::SliceIndexOperation.is_node());
         assert!(SyntaxKind::NullablePropagationOperation.is_node());
         assert!(SyntaxKind::ConversionOperation.is_node());
-        assert!(SyntaxKind::TraitQualifiedMemberOperation.is_node());
         assert!(SyntaxKind::ArgumentList.is_node());
         assert!(SyntaxKind::Argument.is_node());
         assert!(SyntaxKind::StructConstructionBody.is_node());
@@ -1798,11 +1793,6 @@ mod tests {
         assert_eq!(
             SyntaxKind::ConversionOperation.as_str(),
             "conversion_operation"
-        );
-
-        assert_eq!(
-            SyntaxKind::TraitQualifiedMemberOperation.as_str(),
-            "trait_qualified_member_operation"
         );
 
         assert_eq!(SyntaxKind::ArgumentList.as_str(), "argument_list");

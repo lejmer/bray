@@ -51,7 +51,7 @@ pub(crate) use fingerprint::{
 pub(crate) use key::{
     CodegenArtifactQueryKey, CompilationFactKey, ConstantCallQueryKey, ConstantInstanceQueryKey,
     ImportedExecutableTemplateAddress, IterationSourceQueryKey, NativeProductQueryKey,
-    OperationSelectionQueryKey, RuntimeComponentQueryIdentity, SymbolQueryKey,
+    RuntimeComponentQueryIdentity, SymbolQueryKey,
 };
 pub(crate) use priority::QueryPriorityDemand;
 #[cfg(test)]

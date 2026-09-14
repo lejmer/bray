@@ -41,6 +41,7 @@ impl ExpressionBinder {
                     };
 
                     self.bind_call(binder, scope, &call, current)
+                        .and_then(|expression| self.push(binder, expression))
                 }
                 SyntaxKind::GenericArgumentList => {
                     let Some(arguments) = operation.cast::<GenericArgumentListSyntax>() else {
@@ -91,17 +92,6 @@ impl ExpressionBinder {
                     BoundStructuredExpressionKind::NullablePropagation,
                     current,
                 ),
-                SyntaxKind::TraitQualifiedMemberOperation => {
-                    let Some(member) =
-                        operation.cast::<bray_syntax::TraitQualifiedMemberOperationSyntax>()
-                    else {
-                        failure = Some(BindingError::UnsupportedSyntax);
-
-                        return SyntaxWalkControl::Stop;
-                    };
-
-                    self.bind_trait_qualified_member(binder, &member, current)
-                }
                 _ => return SyntaxWalkControl::Continue,
             };
 
@@ -139,13 +129,13 @@ impl ExpressionBinder {
         )
     }
 
-    fn bind_call<C>(
+    pub(super) fn bind_call<C>(
         &mut self,
         binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: &CallOperationSyntax,
         callee: BoundExpressionId,
-    ) -> BindingResult<BoundExpressionId, C::UpstreamError>
+    ) -> BindingResult<BoundExpression, C::UpstreamError>
     where
         C: BindingQueryContext + ?Sized,
     {
@@ -185,7 +175,7 @@ impl ExpressionBinder {
             ))
         };
 
-        self.push(binder, expression)
+        Ok(expression)
     }
 
     pub(in crate::binding::expression) fn bind_arguments<C>(

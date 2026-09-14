@@ -1,7 +1,8 @@
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{TypeData, TypeExpressionTemplate};
 use bray_syntax::{
-    ExpressionSyntax, PathSyntax, SourceSyntaxNode, StaticTypeOperandSyntax, TypeExpressionSyntax,
+    ExpressionSyntax, PathSyntax, SourceSyntaxNode, StaticTypeOperandSyntax,
+    TraitApplicationSyntax, TypeExpressionSyntax,
 };
 
 use super::core::TypeExpressionBinder;
@@ -64,25 +65,61 @@ fn static_type_expression_syntax(expression: &ExpressionSyntax) -> Option<TypeEx
         return None;
     }
 
-    let mut operations = expression.trait_qualified_member_operations();
-    let operation = operations.next()?;
+    let mut members = expression.member_access_operations();
+    let member = members.next()?;
 
-    if operations.next().is_some() {
+    if members.next().is_some() {
         return None;
     }
 
-    let subject = static_type_expression_syntax(&subject)?;
-    let member = operation.member_access_operation();
+    let call = subject.call_operations().next()?;
+    let arguments = call.argument_list();
+    let mut inputs = arguments.arguments();
+    let input = inputs.next()?;
+
+    if inputs.next().is_some()
+        || input.identifier_token().is_some()
+        || call.generic_argument_lists().next().is_some()
+    {
+        return None;
+    }
+
+    let application = static_trait_application_syntax(&input.expression())?;
+    let subject = static_type_expression_syntax(&subject.expressions().next()?)?;
 
     let mut builder =
         TypeExpressionSyntax::builder(expression.source().clone(), expression.full_range().start());
 
     builder.push_type_expression(subject);
-    builder.push_open_paren_token(operation.open_paren_token());
-    builder.push_trait_application(operation.trait_application());
-    builder.push_close_paren_token(operation.close_paren_token());
+    builder.push_open_paren_token(arguments.open_paren_token());
+    builder.push_trait_application(application);
+    builder.push_close_paren_token(arguments.close_paren_token());
     builder.push_dot_token(member.dot_token());
     builder.push_identifier_token(member.identifier_token()?);
+
+    Some(builder.build())
+}
+
+fn static_trait_application_syntax(
+    expression: &ExpressionSyntax,
+) -> Option<TraitApplicationSyntax> {
+    let arguments = expression.generic_argument_lists().next();
+
+    let path = match arguments {
+        Some(_) => static_type_path(&expression.expressions().next()?)?,
+        None => static_type_path(expression)?,
+    };
+
+    let mut builder = TraitApplicationSyntax::builder(
+        expression.source().clone(),
+        expression.full_range().start(),
+    );
+
+    builder.push_path(path);
+
+    if let Some(arguments) = arguments {
+        builder.push_generic_argument_list(arguments);
+    }
 
     Some(builder.build())
 }

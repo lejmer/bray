@@ -40,7 +40,7 @@ use bray_syntax::{
     TraitCallableMemberDeclarationSyntaxBuilder, TraitConstantMemberDeclarationSyntaxBuilder,
     TraitDeclarationSyntaxBuilder, TraitDestructorRequirementDeclarationSyntaxBuilder,
     TraitFinalizerRequirementDeclarationSyntaxBuilder,
-    TraitPredicateMemberDeclarationSyntaxBuilder, TraitQualifiedMemberOperationSyntaxBuilder,
+    TraitPredicateMemberDeclarationSyntaxBuilder,
     TraitScopeEnterRequirementDeclarationSyntaxBuilder,
     TraitScopeExitRequirementDeclarationSyntaxBuilder, TraitTypeMemberDeclarationSyntaxBuilder,
     TrustBoundaryExpressionSyntaxBuilder, TupleExpressionSyntaxBuilder,
@@ -688,12 +688,6 @@ impl RecoverySyntaxSink for SliceIndexOperationSyntaxBuilder {
 impl RecoverySyntaxSink for ConversionOperationSyntaxBuilder {
     fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
         ConversionOperationSyntaxBuilder::push_skipped_tokens(self, tokens);
-    }
-}
-
-impl RecoverySyntaxSink for TraitQualifiedMemberOperationSyntaxBuilder {
-    fn push_skipped_tokens(&mut self, tokens: Vec<SyntaxToken>) {
-        TraitQualifiedMemberOperationSyntaxBuilder::push_skipped_tokens(self, tokens);
     }
 }
 

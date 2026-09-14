@@ -23,7 +23,7 @@ use super::view::{
 };
 use crate::compilation::binder::{bind_declared_value_type_templates, binding_query_error};
 use crate::compilation::checker::checker_result;
-use crate::compilation::operation::operation_type_input;
+use crate::compilation::operation::{operation_expressions, operation_type_input};
 use crate::compilation::state::Compilation;
 use crate::fact::{
     CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitResult, QueryPriority,
@@ -300,12 +300,16 @@ impl Compilation {
                 let (pattern_input, iteration_sources, iteration_diagnostics, has_iterations) =
                     self.iteration_inputs(&key, bound.result().value(), cancellation)?;
 
-                let (mut operation_resolutions, mut operation_diagnostics, has_operations) =
-                    self.operation_inputs(&key, bound.result().value(), cancellation)?;
+                let binding_context = self.binding_context_for(&key, cancellation)?;
 
-                if !has_iterations && !has_operations {
+                let operations =
+                    operation_expressions(&binding_context, bound.result().value(), cancellation)?;
+
+                if !has_iterations && operations.is_empty() {
                     return Ok((provisional.result().as_ref().clone(), Box::new([])));
                 }
+
+                let mut operation_resolutions = Vec::new();
 
                 loop {
                     let operation_input = operation_type_input(&operation_resolutions)
@@ -318,17 +322,16 @@ impl Compilation {
                         &operation_input,
                     )?;
 
-                    let (additional, diagnostics) = self.additional_operation_inputs(
+                    let (next, operation_diagnostics) = self.operation_inputs(
                         &key,
                         bound.result().value(),
                         result.0.value(),
+                        &operations,
                         &operation_resolutions,
                         cancellation,
                     )?;
 
-                    operation_diagnostics = operation_diagnostics.merged(&diagnostics);
-
-                    if additional.is_empty() {
+                    if next == operation_resolutions {
                         let (semantics, diagnostics) = result.0.into_parts();
 
                         result.0 = DiagnosticResult::new(
@@ -343,7 +346,7 @@ impl Compilation {
                         return Ok(result);
                     }
 
-                    operation_resolutions.extend(additional);
+                    operation_resolutions = next;
                 }
             },
         )

@@ -384,12 +384,6 @@ fn push_fact_context(
 
             "iteration_source"
         }
-        Fact::OperationSelection(key) => {
-            push_bound_unit_key(fields, key.unit());
-            push_bound_expression(fields, key.expression());
-
-            "operation_selection"
-        }
         Fact::ImportedSemanticGraph(interface) => {
             fields.push(count_field(
                 "imported_interface",

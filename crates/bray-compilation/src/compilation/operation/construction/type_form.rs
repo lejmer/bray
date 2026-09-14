@@ -12,13 +12,14 @@ use super::super::super::Compilation;
 use super::super::super::binder::{CompilationBindingContext, binding_query_error};
 use super::super::query::{operation_contract_failure, symbol_contract_failure};
 use super::super::selected_storage_callable;
+use crate::compilation::operation::OperationSubject;
 use crate::compilation::{SemanticDataKind, SemanticQueryViolation};
-use crate::fact::{CancellationToken, FactQueryError, OperationSelectionQueryKey};
+use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
     pub(super) fn type_form_construction_candidate(
         &self,
-        key: &OperationSelectionQueryKey,
+        key: &OperationSubject,
         binding_context: &CompilationBindingContext<'_>,
         result_type: TypeId,
         cancellation: &CancellationToken,
