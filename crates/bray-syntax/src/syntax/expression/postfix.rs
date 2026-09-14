@@ -1,8 +1,5 @@
 use crate::node::define_source_syntax_node;
-use crate::{
-    ExpressionSyntax, MemberAccessOperationSyntax, SyntaxKind, TraitApplicationSyntax,
-    TypeExpressionSyntax,
-};
+use crate::{ExpressionSyntax, SyntaxKind, TypeExpressionSyntax};
 
 define_source_syntax_node! {
     /// Slice index postfix operation.
@@ -112,57 +109,6 @@ define_source_syntax_node! {
                 push_type_expression;
                 ty: TypeExpressionSyntax;
                 kind: SyntaxKind::TypeExpression;
-            }
-        ],
-    }
-}
-
-define_source_syntax_node! {
-    /// Trait-qualified member postfix operation.
-    pub struct TraitQualifiedMemberOperationSyntax {
-        builder: TraitQualifiedMemberOperationSyntaxBuilder,
-        kind: SyntaxKind::TraitQualifiedMemberOperation,
-        source_slot: "trait_qualified_member_operation.source",
-        node_name: "trait-qualified member operation",
-        range_description: "trait-qualified-member-operation",
-        debug_name: "TraitQualifiedMemberOperationSyntax",
-        builder_debug_name: "TraitQualifiedMemberOperationSyntaxBuilder",
-        skipped_syntax: true,
-        required_tokens: [
-            {
-                /// Returns the required opening parenthesis token.
-                open_paren_token;
-                /// Appends the opening parenthesis token.
-                push_open_paren_token;
-                kind: SyntaxKind::OpenParenToken;
-                slot: "trait_qualified_member_operation.open_paren_token";
-            },
-            {
-                /// Returns the required closing parenthesis token.
-                close_paren_token;
-                /// Appends the closing parenthesis token.
-                push_close_paren_token;
-                kind: SyntaxKind::CloseParenToken;
-                slot: "trait_qualified_member_operation.close_paren_token";
-            }
-        ],
-        optional_tokens: [],
-        required_children: [
-            {
-                /// Returns the trait-application child.
-                trait_application;
-                /// Appends the trait-application child.
-                push_trait_application;
-                ty: TraitApplicationSyntax;
-                kind: SyntaxKind::TraitApplication;
-            },
-            {
-                /// Returns the member-access operation child.
-                member_access_operation;
-                /// Appends the member-access operation child.
-                push_member_access_operation;
-                ty: MemberAccessOperationSyntax;
-                kind: SyntaxKind::MemberAccessOperation;
             }
         ],
     }

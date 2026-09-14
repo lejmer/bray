@@ -40,7 +40,7 @@ func runtime_default_storage()
 
     assert(forwarded.value);
 
-    let holder: composition.api.DefaultFlagHolder = composition.api.DefaultFlagHolder
+    let holder = composition.api.DefaultFlagHolder
     {
         flag = composition.api.DefaultFlag
         {
@@ -48,7 +48,7 @@ func runtime_default_storage()
         },
     };
 
-    let reference: composition.api.DefaultFlagReference = composition.api.DefaultFlagReference
+    let reference = composition.api.DefaultFlagReference
     {
         holder = &holder,
     };
@@ -56,6 +56,7 @@ func runtime_default_storage()
     let projected = composition.api.projected_default(reference);
 
     assert(projected.value);
+    assert(composition.api.projected_default(reference).value);
     assert(reference.selected().value);
 
     let flags: [composition.api.DefaultFlag; 1] = [

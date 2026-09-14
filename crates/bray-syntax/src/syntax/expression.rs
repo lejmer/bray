@@ -76,7 +76,6 @@ pub use postfix::{
     ConversionOperationSyntax, ConversionOperationSyntaxBuilder,
     NullablePropagationOperationSyntax, NullablePropagationOperationSyntaxBuilder,
     SliceIndexOperationSyntax, SliceIndexOperationSyntaxBuilder,
-    TraitQualifiedMemberOperationSyntax, TraitQualifiedMemberOperationSyntaxBuilder,
 };
 pub use primary::{PrimaryExpressionSyntax, PrimaryExpressionSyntaxBuilder};
 pub use root::{ExpressionSyntax, ExpressionSyntaxBuilder};

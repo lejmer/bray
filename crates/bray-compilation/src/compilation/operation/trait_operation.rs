@@ -18,8 +18,9 @@ use super::super::implementation::{
     TypeValuedMemberResolution, callable_instance, implementation_callable_instance,
     implementation_fulfillments, implementation_requirement, selected_type_valued_member,
 };
+use crate::compilation::operation::OperationSubject;
 use crate::compilation::{SemanticDataKind, SemanticQueryViolation};
-use crate::fact::{CancellationToken, FactQueryError, OperationSelectionQueryKey};
+use crate::fact::{CancellationToken, FactQueryError};
 
 use super::model::{OperationResolution, TraitOperation, TraitOperationCandidate};
 use super::query::{
@@ -30,7 +31,7 @@ use super::signature::operation_callable_type;
 impl Compilation {
     pub(super) fn resolve_operator_operation(
         &self,
-        key: &OperationSelectionQueryKey,
+        key: &OperationSubject,
         binding_context: &CompilationBindingContext<'_>,
         unit: &bray_bound_tree::BoundUnit,
         types: &bray_bound_tree::CheckedExpressionTypes,

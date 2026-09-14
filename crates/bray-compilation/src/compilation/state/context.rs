@@ -158,10 +158,6 @@ pub(in crate::compilation) struct CompilationState {
         crate::fact::IterationSourceQueryKey,
         Arc<DiagnosticResult<Option<SelectedIterationSource>>>,
     >,
-    pub(in crate::compilation) operation_selections: FactCellMap<
-        crate::fact::OperationSelectionQueryKey,
-        Arc<DiagnosticResult<Option<crate::compilation::operation::OperationResolution>>>,
-    >,
     pub(in crate::compilation) semantic_diagnostics: FactCell<DiagnosticBag>,
     pub(in crate::compilation) symbol_semantics: CompilationSymbolSemantics,
     pub(in crate::compilation) discovery_symbol_semantics: CompilationSymbolSemantics,

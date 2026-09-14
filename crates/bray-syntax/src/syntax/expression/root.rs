@@ -4,7 +4,7 @@ use crate::{
     CallOperationSyntax, CasePatternSyntax, ConversionOperationSyntax, ElementIndexOperationSyntax,
     GenericArgumentListSyntax, MemberAccessOperationSyntax, NullablePropagationOperationSyntax,
     PrimaryExpressionSyntax, SliceIndexOperationSyntax, SyntaxKind, SyntaxToken,
-    TraitApplicationSyntax, TraitQualifiedMemberOperationSyntax, TypeExpressionSyntax,
+    TraitApplicationSyntax, TypeExpressionSyntax,
 };
 
 pub(in crate::syntax) fn first_expression(
@@ -150,14 +150,6 @@ define_source_syntax_node! {
                 ty: ConversionOperationSyntax;
                 kind: SyntaxKind::ConversionOperation;
             },
-            {
-                /// Returns trait-qualified member postfix operations in source order.
-                trait_qualified_member_operations;
-                /// Appends a trait-qualified member postfix operation.
-                push_trait_qualified_member_operation;
-                ty: TraitQualifiedMemberOperationSyntax;
-                kind: SyntaxKind::TraitQualifiedMemberOperation;
-            }
         ],
     }
 }

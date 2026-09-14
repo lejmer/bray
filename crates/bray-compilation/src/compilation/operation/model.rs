@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use bray_bound_tree::{
-    BoundExpressionId, BoundOperator, ConversionTarget, SelectedConversion, SelectedOperation,
-    SemanticSelection, SemanticSelectionEntry,
+    BoundExpressionId, BoundOperator, BoundUnitKey, ConversionTarget, SelectedConversion,
+    SelectedOperation, SemanticSelection, SemanticSelectionEntry,
 };
 use bray_checker::{
     CompilerKnownOperationEvidence, ImplementationSelectionEvidence, OperationCandidate,
@@ -11,9 +11,33 @@ use bray_checker::{
 use bray_symbols::{SymbolKey, TypeId};
 
 use crate::compilation::{SemanticDataKind, SemanticQueryViolation};
-use crate::fact::{FactQueryError, OperationSelectionQueryKey};
+use crate::fact::FactQueryError;
 
 use super::query::operation_contract_failure;
+
+/// Identifies an operation within its source unit.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(in crate::compilation) struct OperationSubject {
+    unit: BoundUnitKey,
+    expression: BoundExpressionId,
+}
+
+impl OperationSubject {
+    pub(in crate::compilation) const fn new(
+        unit: BoundUnitKey,
+        expression: BoundExpressionId,
+    ) -> Self {
+        Self { unit, expression }
+    }
+
+    pub(in crate::compilation) const fn unit(&self) -> &BoundUnitKey {
+        &self.unit
+    }
+
+    pub(in crate::compilation) const fn expression(&self) -> BoundExpressionId {
+        self.expression
+    }
+}
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(in crate::compilation) struct OperationResolution {
@@ -98,7 +122,7 @@ impl ConversionPlan {
 
     pub(super) fn trait_backed(
         candidate: TraitOperationCandidate,
-        key: &OperationSelectionQueryKey,
+        key: &OperationSubject,
     ) -> Result<Self, FactQueryError> {
         let SelectedOperation::Conversion(conversion) = candidate.operation else {
             return Err(operation_contract_failure(

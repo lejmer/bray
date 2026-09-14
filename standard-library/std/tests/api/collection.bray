@@ -700,8 +700,9 @@ trusted func hash_map_preserves_owned_keys_and_values_across_every_teardown_path
             identity += 1;
         }
 
-        let mut cursor: std.collection.HashMapMoveCursor<OwnedHashValue, OwnedHashValue> =
-            partially_consumed(Iterable).iterate();
+        let mut cursor: std.collection.HashMapMoveCursor<OwnedHashValue, OwnedHashValue> = partially_consumed(
+            Iterable
+        ).iterate();
 
         let first: (OwnedHashValue, OwnedHashValue) = std.testing.assert_present(cursor.next());
 

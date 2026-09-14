@@ -1,17 +1,15 @@
 use std::collections::BTreeSet;
-use std::sync::Arc;
 
 use bray_binder::{BindingQueryContext, qualified_union_variant};
 use bray_bound_tree::{
     AnyBoundNodeId, BoundExpression, BoundExpressionId, BoundStructuredExpressionKind, BoundUnit,
-    BoundUnitKey, BoundWalkControl, BoundWalkEvent, BoundWalkOutcome, ExpressionTypeEntry,
-    ExpressionTypeResult, ExpressionTypeStatus, walk_bound_unit_view,
+    BoundUnitKey, BoundWalkControl, BoundWalkEvent, BoundWalkOutcome, walk_bound_unit_view,
 };
 use bray_checker::{
     CandidateSelection, DefaultSemanticSelector, ExpressionTypeEvidence, ExpressionTypeExpectation,
     ExpressionTypeInput, OperationCandidate, OperationSelectionRequest, SemanticSelector,
 };
-use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
+use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{AnySymbolId, TypeId};
 
 use super::super::Compilation;
@@ -21,54 +19,23 @@ use super::super::unit::semantic_unit_context_for;
 use crate::compilation::{
     SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
 };
-use crate::fact::{
-    CancellationToken, CompilationFactKey, FactQueryError, OperationSelectionQueryKey,
-};
+use crate::fact::{CancellationToken, FactQueryError};
 
-use super::model::OperationResolution;
+use super::model::{OperationResolution, OperationSubject};
 
 impl Compilation {
     pub(in crate::compilation) fn operation_inputs(
         &self,
         key: &BoundUnitKey,
         bound: &BoundUnit,
-        cancellation: &CancellationToken,
-    ) -> Result<(Vec<OperationResolution>, DiagnosticBag, bool), FactQueryError> {
-        let binding_context = self.binding_context_for(key, cancellation)?;
-        let expressions = operation_expressions(&binding_context, bound, cancellation)?;
-
-        let has_operations = !expressions.is_empty();
-        let mut resolutions = Vec::with_capacity(expressions.len());
-        let mut diagnostics = DiagnosticBag::new();
-
-        for expression in expressions {
-            // Each demand-driven operation selection owns the shared bound-unit identity.
-            let resolution =
-                self.operation_selection_with_cancellation(key.clone(), expression, cancellation)?;
-
-            diagnostics = diagnostics.merged(resolution.diagnostics());
-
-            if let Some(resolution) = resolution.value() {
-                // The query cache and the combined type input own this immutable resolution.
-                resolutions.push(resolution.clone());
-            }
-        }
-
-        Ok((resolutions, diagnostics, has_operations))
-    }
-
-    pub(in crate::compilation) fn additional_operation_inputs(
-        &self,
-        key: &BoundUnitKey,
-        bound: &BoundUnit,
         semantics: &bray_bound_tree::CheckedExpressionSemantics,
+        expressions: &[BoundExpressionId],
         existing: &[OperationResolution],
         cancellation: &CancellationToken,
     ) -> Result<(Vec<OperationResolution>, DiagnosticBag), FactQueryError> {
         let binding_context = self.binding_context_for(key, cancellation)?;
-        let expressions = operation_expressions(&binding_context, bound, cancellation)?;
 
-        let resolved = existing
+        let existing = existing
             .iter()
             .map(OperationResolution::expression)
             .collect::<BTreeSet<_>>();
@@ -76,21 +43,21 @@ impl Compilation {
         let mut resolutions = Vec::new();
         let mut diagnostics = DiagnosticBag::new();
 
-        for expression in expressions {
-            if resolved.contains(&expression)
-                || semantics.selections().expression(expression).is_some()
+        for &expression in expressions {
+            if semantics.selections().expression(expression).is_some()
+                && !existing.contains(&expression)
             {
                 continue;
             }
 
-            let operation_key = OperationSelectionQueryKey::new(key.clone(), expression);
+            // Operation diagnostics retain this shared bound-unit identity.
+            let operation_key = OperationSubject::new(key.clone(), expression);
 
             if let Some(resolution) = self.resolve_operation_selection(
                 &operation_key,
                 &binding_context,
                 bound,
                 semantics.types(),
-                semantics.selections(),
                 cancellation,
                 &mut diagnostics,
             )? {
@@ -101,69 +68,12 @@ impl Compilation {
         Ok((resolutions, diagnostics))
     }
 
-    pub(in crate::compilation) fn operation_selection_with_cancellation(
-        &self,
-        unit: BoundUnitKey,
-        expression: BoundExpressionId,
-        cancellation: &CancellationToken,
-    ) -> Result<Arc<DiagnosticResult<Option<OperationResolution>>>, FactQueryError> {
-        let key = OperationSelectionQueryKey::new(unit, expression);
-
-        // The cache map, runtime dependency graph, and computation share this query identity.
-        let cell = self.state.operation_selections.cell(key.clone())?;
-
-        let result = cell.get_or_compute(
-            &self.state.fact_runtime,
-            CompilationFactKey::OperationSelection(key.clone()),
-            cancellation,
-            || {
-                self.compute_operation_selection(&key, cancellation)
-                    .map(Arc::new)
-            },
-        )?;
-
-        Ok(Arc::clone(result))
-    }
-
-    fn compute_operation_selection(
-        &self,
-        key: &OperationSelectionQueryKey,
-        cancellation: &CancellationToken,
-    ) -> Result<DiagnosticResult<Option<OperationResolution>>, FactQueryError> {
-        // Independently cached prerequisite binding_context own the same shared bound-unit identity.
-        let bound = self.bound_unit_with_cancellation(key.unit().clone(), cancellation)?;
-
-        let semantics = self
-            .provisional_expression_semantics_with_cancellation(key.unit().clone(), cancellation)?;
-
-        let binding_context = self.binding_context_for(key.unit(), cancellation)?;
-
-        let mut diagnostics = bound.result().diagnostics().clone();
-
-        let resolution = self.resolve_operation_selection(
-            key,
-            &binding_context,
-            bound.result().value(),
-            semantics.result().value().types(),
-            semantics.result().value().selections(),
-            cancellation,
-            &mut diagnostics,
-        )?;
-
-        Ok(DiagnosticResult::new(resolution, diagnostics))
-    }
-
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "operation resolution keeps its exact unit, semantic input, and cancellation context explicit"
-    )]
     fn resolve_operation_selection(
         &self,
-        key: &OperationSelectionQueryKey,
+        key: &OperationSubject,
         binding_context: &CompilationBindingContext<'_>,
         unit: &BoundUnit,
         types: &bray_bound_tree::CheckedExpressionTypes,
-        selections: &bray_bound_tree::CheckedSemanticSelections,
         cancellation: &CancellationToken,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<OperationResolution>, FactQueryError> {
@@ -177,29 +87,27 @@ impl Compilation {
         let selection_kind =
             selection_kind_for(binding_context, unit, key.expression(), expression)?;
 
-        if selections.expression(key.expression()).is_some() {
-            return Ok(None);
-        }
+        if selection_kind != bray_bound_tree::SelectionKind::Construction {
+            for operand in expression.child_expressions() {
+                let result = types.expression(operand).ok_or_else(|| {
+                    expression_contract_failure(
+                        key.unit(),
+                        operand,
+                        SemanticQueryViolation::Missing(SemanticDataKind::Type),
+                    )
+                })?;
 
-        let Some(types) = self.operation_input_types(
-            key,
-            unit,
-            expression,
-            selection_kind,
-            types,
-            selections,
-            cancellation,
-            diagnostics,
-        )?
-        else {
-            return Ok(None);
-        };
+                if result.is_recovered() {
+                    return Ok(None);
+                }
+            }
+        }
 
         let resolution = match selection_kind {
             bray_bound_tree::SelectionKind::Member => self.resolve_member_operation(
                 binding_context,
                 unit,
-                &types,
+                types,
                 key.expression(),
                 diagnostics,
             )?,
@@ -207,7 +115,7 @@ impl Compilation {
                 let built_in = self.resolve_index_operation(
                     binding_context,
                     unit,
-                    &types,
+                    types,
                     key.expression(),
                     diagnostics,
                 )?;
@@ -218,7 +126,7 @@ impl Compilation {
                         key,
                         binding_context,
                         unit,
-                        &types,
+                        types,
                         cancellation,
                         diagnostics,
                     )?,
@@ -228,7 +136,7 @@ impl Compilation {
                 key,
                 binding_context,
                 unit,
-                &types,
+                types,
                 cancellation,
                 diagnostics,
             )?,
@@ -236,7 +144,7 @@ impl Compilation {
                 key,
                 binding_context,
                 unit,
-                &types,
+                types,
                 cancellation,
                 diagnostics,
             )?,
@@ -244,7 +152,7 @@ impl Compilation {
                 key,
                 binding_context,
                 unit,
-                &types,
+                types,
                 cancellation,
                 diagnostics,
             )?,
@@ -255,92 +163,13 @@ impl Compilation {
         Ok(resolution)
     }
 
-    fn operation_input_types(
-        &self,
-        key: &OperationSelectionQueryKey,
-        unit: &BoundUnit,
-        expression: &BoundExpression,
-        kind: bray_bound_tree::SelectionKind,
-        provisional: &bray_bound_tree::CheckedExpressionTypes,
-        provisional_selections: &bray_bound_tree::CheckedSemanticSelections,
-        cancellation: &CancellationToken,
-        diagnostics: &mut DiagnosticBag,
-    ) -> Result<Option<bray_bound_tree::CheckedExpressionTypes>, FactQueryError> {
-        let mut entries = provisional.entries().to_vec();
-
-        for operand in selection_operands(expression, kind) {
-            let result = provisional.expression(operand).ok_or_else(|| {
-                expression_contract_failure(
-                    key.unit(),
-                    operand,
-                    SemanticQueryViolation::Missing(SemanticDataKind::Type),
-                )
-            })?;
-
-            if !result.is_recovered() {
-                continue;
-            }
-
-            if kind == bray_bound_tree::SelectionKind::Construction {
-                continue;
-            }
-
-            if let Some(ty) = provisional_selections
-                .expression(operand)
-                .and_then(bray_bound_tree::SemanticSelection::result_type)
-            {
-                replace_expression_type(key, &mut entries, operand, ty)?;
-
-                continue;
-            }
-
-            let Some(operand_expression) = unit.view().expression(operand) else {
-                return Err(expression_contract_failure(
-                    key.unit(),
-                    operand,
-                    SemanticQueryViolation::Missing(SemanticDataKind::BoundExpression),
-                ));
-            };
-
-            if selection_kind(unit, operand, operand_expression).is_err() {
-                return Ok(None);
-            }
-
-            // Nested operation selection is an independent demand-driven query.
-            let resolution = self.operation_selection_with_cancellation(
-                key.unit().clone(),
-                operand,
-                cancellation,
-            )?;
-
-            *diagnostics = diagnostics.merged(resolution.diagnostics());
-
-            let Some(resolution) = resolution.value() else {
-                return Ok(None);
-            };
-
-            replace_expression_type(key, &mut entries, operand, resolution.result_type())?;
-        }
-
-        let types = bray_bound_tree::CheckedExpressionTypes::new(
-            provisional.unit(),
-            provisional.kind(),
-            entries,
-        );
-
-        Ok(Some(match provisional.callable_result_type() {
-            Some(result) => types.with_callable_result_type(result),
-            None => types,
-        }))
-    }
-
     #[expect(
         clippy::too_many_arguments,
         reason = "operation selection keeps lazy query inputs, cancellation, and diagnostics explicit"
     )]
     pub(super) fn select_operation(
         &self,
-        key: &OperationSelectionQueryKey,
+        key: &OperationSubject,
         binding_context: &CompilationBindingContext<'_>,
         unit: &BoundUnit,
         types: &bray_bound_tree::CheckedExpressionTypes,
@@ -409,31 +238,6 @@ impl Compilation {
             Some(operation),
         )))
     }
-}
-
-fn replace_expression_type(
-    key: &OperationSelectionQueryKey,
-    entries: &mut [ExpressionTypeEntry],
-    expression: BoundExpressionId,
-    ty: TypeId,
-) -> Result<(), FactQueryError> {
-    let Some(entry) = entries
-        .iter_mut()
-        .find(|entry| entry.expression() == expression)
-    else {
-        return Err(expression_contract_failure(
-            key.unit(),
-            expression,
-            SemanticQueryViolation::Missing(SemanticDataKind::Type),
-        ));
-    };
-
-    *entry = ExpressionTypeEntry::new(
-        expression,
-        ExpressionTypeResult::new(ty, ExpressionTypeStatus::Valid),
-    );
-
-    Ok(())
 }
 
 pub(in crate::compilation) fn selection_kind(
@@ -531,7 +335,7 @@ fn variant_construction_callees(
         .collect()
 }
 
-fn operation_expressions(
+pub(in crate::compilation) fn operation_expressions(
     binding_context: &CompilationBindingContext<'_>,
     unit: &BoundUnit,
     cancellation: &CancellationToken,
@@ -607,7 +411,7 @@ fn selection_kind_for(
 }
 
 pub(super) fn operation_contract_failure(
-    key: &OperationSelectionQueryKey,
+    key: &OperationSubject,
     violation: SemanticQueryViolation,
 ) -> FactQueryError {
     expression_contract_failure(key.unit(), key.expression(), violation)
@@ -640,19 +444,6 @@ pub(super) fn symbol_contract_failure(
     violation: SemanticQueryViolation,
 ) -> FactQueryError {
     SemanticQueryFailure::contract(SemanticQueryContext::Symbol(symbol), violation).into()
-}
-
-fn selection_operands(
-    expression: &BoundExpression,
-    kind: bray_bound_tree::SelectionKind,
-) -> impl Iterator<Item = BoundExpressionId> + '_ {
-    let operands: Vec<_> = if kind == bray_bound_tree::SelectionKind::Construction {
-        construction_operands(expression).collect()
-    } else {
-        expression.child_expressions().collect()
-    };
-
-    operands.into_iter()
 }
 
 pub(in crate::compilation) fn operation_type_input(
@@ -713,18 +504,18 @@ mod tests {
         AnySymbolId, FunctionSymbolId, SemanticValueStore, SymbolId, TypeData, TypeId,
     };
 
-    use super::{operation_contract_failure, symbol_contract_failure};
+    use super::{OperationSubject, operation_contract_failure, symbol_contract_failure};
     use crate::compilation::{
         SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
     };
-    use crate::fact::{FactQueryError, OperationSelectionQueryKey};
+    use crate::fact::FactQueryError;
     use crate::test_support::callable_body_key;
 
     #[test]
     fn operation_contract_failure_retains_unit_expression_and_violation() {
         let unit = callable_body_key(7);
         let expression = expression_id(BoundUnitId::new(11), &unit);
-        let key = OperationSelectionQueryKey::new(unit.clone(), expression);
+        let key = OperationSubject::new(unit.clone(), expression);
         let violation = SemanticQueryViolation::Missing(SemanticDataKind::BoundExpression);
 
         assert_eq!(

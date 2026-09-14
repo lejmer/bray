@@ -4185,6 +4185,197 @@ fn runtime_defaults_preserve_permanent_literal_borrows() {
 }
 
 #[test]
+fn defaulted_call_member_access_infers_source_and_imported_receivers() {
+    let declarations = r#"
+        public struct Flag
+        {
+            value: bool;
+        }
+
+        public struct Holder
+        {
+            flag: Flag;
+        }
+
+        @copy
+        public struct Reference
+        {
+            holder: &Holder;
+        }
+
+        public func projected(pos reference: Reference, flag: &Flag = &reference.holder.flag) -> &Flag
+        {
+            return flag;
+        }
+    "#;
+
+    let provider = compilation(&format!("module api;\n{declarations}"));
+    let mut failures = Vec::new();
+
+    for imported in [false, true] {
+        for annotated in [true, false] {
+            for direct in [false, true] {
+                let prefix = if imported { "example.package.api." } else { "" };
+
+                let holder_annotation = if annotated {
+                    format!(": {prefix}Holder")
+                } else {
+                    String::new()
+                };
+
+                let reference_annotation = if annotated {
+                    format!(": {prefix}Reference")
+                } else {
+                    String::new()
+                };
+
+                let access = if direct {
+                    format!("return {prefix}projected(reference).value;")
+                } else {
+                    format!("let result = {prefix}projected(reference);\nreturn result.value;")
+                };
+
+                let body = format!(
+                    r#"
+                    func check() -> bool
+                    {{
+                        let holder{holder_annotation} = {prefix}Holder
+                        {{
+                            flag = {prefix}Flag
+                            {{
+                                value = true,
+                            }},
+                        }};
+
+                        let reference{reference_annotation} = {prefix}Reference
+                        {{
+                            holder = &holder,
+                        }};
+
+                        {access}
+                    }}
+                "#
+                );
+
+                let consumer = if imported {
+                    execution_consumer(
+                        &provider,
+                        &format!("module app;\nusing example.package.api;\n{body}"),
+                    )
+                } else {
+                    compilation(&format!("module api;\n{declarations}\n{body}"))
+                };
+
+                let diagnostics = consumer.check_diagnostics();
+
+                if diagnostics.has_errors() {
+                    failures.push(format!("imported={imported}, annotated={annotated}, direct={direct}: {diagnostics:?}"));
+                }
+            }
+        }
+    }
+
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+#[test]
+fn member_access_distinguishes_trait_applications_from_value_arguments() {
+    let declarations = r#"
+        @copy
+        public struct Flag
+        {
+            value: bool;
+        }
+
+        public trait Reader<T>
+        {
+            func read() -> T;
+        }
+
+        public impl FlagReader = Flag(Reader<bool>)
+        {
+            func read() -> bool
+            {
+                return self.value;
+            }
+        }
+
+        public func identity(pos value: Flag) -> Flag
+        {
+            return value;
+        }
+
+        public func generic_identity<T>(pos value: T) -> T
+        {
+            return value;
+        }
+    "#;
+
+    let provider = compilation(&format!("module api;\n{declarations}"));
+
+    for imported in [false, true] {
+        let prefix = if imported {
+            "example.package.api."
+        } else {
+            "api."
+        };
+
+        for (expression, failure) in [
+            (format!("flag({prefix}Reader<bool>).read()"), None),
+            (format!("{prefix}identity(Reader).value"), None),
+            (
+                format!("{prefix}generic_identity<{prefix}Flag>(Reader).value"),
+                None,
+            ),
+            (
+                format!("{prefix}identity<{prefix}Flag>(Reader).value"),
+                Some(bray_diagnostics::DiagnosticKind::CheckingIncompatibleCandidate),
+            ),
+            (
+                format!("flag({prefix}Reader).read()"),
+                Some(bray_diagnostics::DiagnosticKind::BindingGenericArgumentCountMismatch),
+            ),
+            (
+                format!("{prefix}identity(true).value"),
+                Some(bray_diagnostics::DiagnosticKind::CheckingIncompatibleExpressionType),
+            ),
+        ] {
+            let body = format!(
+                r#"
+                func check(pos flag: {prefix}Flag) -> bool
+                {{
+                    let Reader = flag;
+
+                    return {expression};
+                }}
+            "#
+            );
+
+            let consumer = if imported {
+                execution_consumer(
+                    &provider,
+                    &format!(
+                        "module app;\nusing example.package.api;\nusing example.package.api.FlagReader;\n{body}"
+                    ),
+                )
+            } else {
+                compilation_from_sources([
+                    &format!("module api;\n{declarations}"),
+                    &format!("module app;\nusing api;\n{body}"),
+                ])
+            };
+
+            let diagnostics = consumer.check_diagnostics();
+
+            match failure {
+                Some(kind) => bray_testing::assert_goal_state_diagnostic_kind(&diagnostics, kind),
+                None => assert!(!diagnostics.has_errors(), "{body}\n{diagnostics:?}"),
+            }
+        }
+    }
+}
+
+#[test]
 fn imported_runtime_default_keeps_its_borrowed_result_type() {
     let provider = compilation(
         r#"

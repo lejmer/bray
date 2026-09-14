@@ -94,7 +94,6 @@ pub use expression::{
     ReturnExpressionSyntaxBuilder, SliceIndexOperationSyntax, SliceIndexOperationSyntaxBuilder,
     StructConstructionBodySyntax, StructConstructionBodySyntaxBuilder,
     StructFieldInitializerSyntax, StructFieldInitializerSyntaxBuilder,
-    TraitQualifiedMemberOperationSyntax, TraitQualifiedMemberOperationSyntaxBuilder,
     TrustBoundaryExpressionSyntax, TrustBoundaryExpressionSyntaxBuilder, TupleExpressionSyntax,
     TupleExpressionSyntaxBuilder, TypeFormConstructionExpressionSyntax,
     TypeFormConstructionExpressionSyntaxBuilder, UnitExpressionSyntax, UnitExpressionSyntaxBuilder,

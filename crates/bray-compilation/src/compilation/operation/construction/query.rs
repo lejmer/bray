@@ -7,13 +7,14 @@ use super::super::super::Compilation;
 use super::super::super::binder::CompilationBindingContext;
 use super::super::model::OperationResolution;
 use super::super::query::{construction_operands, operation_contract_failure};
+use crate::compilation::operation::OperationSubject;
 use crate::compilation::{SemanticDataKind, SemanticQueryViolation};
-use crate::fact::{CancellationToken, FactQueryError, OperationSelectionQueryKey};
+use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
     pub(in crate::compilation::operation) fn resolve_construction_operation(
         &self,
-        key: &OperationSelectionQueryKey,
+        key: &OperationSubject,
         binding_context: &CompilationBindingContext<'_>,
         unit: &bray_bound_tree::BoundUnit,
         types: &bray_bound_tree::CheckedExpressionTypes,

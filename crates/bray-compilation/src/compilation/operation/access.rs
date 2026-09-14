@@ -26,7 +26,7 @@ use bray_symbols::{
     TraitCallableMemberSymbolId, TraitConstraintDispatch, TypeAssociatedMemberOrigin, TypeData,
     TypeExpressionTemplate, TypeId,
 };
-use bray_syntax::{GenericArgumentSyntax, TraitApplicationSyntax};
+use bray_syntax::{GenericArgumentListSyntax, GenericArgumentSyntax};
 
 use super::super::Compilation;
 use super::super::binder::{
@@ -40,11 +40,12 @@ use super::super::implementation::{
 use super::super::substitution::{
     contextual_self_type, identity_substitution, substitution_for_owner,
 };
+use crate::compilation::operation::OperationSubject;
 use crate::compilation::{
     SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
     SemanticSymbolCategory,
 };
-use crate::fact::{CancellationToken, FactQueryError, OperationSelectionQueryKey};
+use crate::fact::{CancellationToken, FactQueryError};
 
 use super::model::{OperationResolution, TraitOperation, TraitOperationCandidate};
 use super::query::{
@@ -527,7 +528,7 @@ impl Compilation {
             operation_candidates.push(candidate);
         }
 
-        let key = OperationSelectionQueryKey::new(unit.key().clone(), expression);
+        let key = OperationSubject::new(unit.key().clone(), expression);
 
         self.select_operation(
             &key,
@@ -971,9 +972,45 @@ impl Compilation {
                 )
             })?;
 
-        let syntax = member
-            .trait_syntax()
-            .find_descendant::<TraitApplicationSyntax>(binding_context.syntax())
+        let reference = unit
+            .view()
+            .expression(member.trait_reference())
+            .ok_or_else(|| {
+                expression_contract_failure(
+                    unit.key(),
+                    member.trait_reference(),
+                    SemanticQueryViolation::Missing(SemanticDataKind::BoundExpression),
+                )
+            })?;
+
+        let BoundExpression::Name(reference) = reference else {
+            return Err(expression_contract_failure(
+                unit.key(),
+                member.trait_reference(),
+                SemanticQueryViolation::Unsupported(SemanticDataKind::BoundExpression),
+            ));
+        };
+
+        let bray_bound_tree::BoundReferenceTarget::Surface(AnySymbolId::Trait(definition)) =
+            reference.target()
+        else {
+            return Err(expression_contract_failure(
+                unit.key(),
+                member.trait_reference(),
+                SemanticQueryViolation::Unsupported(SemanticDataKind::TraitApplication),
+            ));
+        };
+
+        let anchor = reference.origin().source_anchor().syntax();
+
+        let syntax = binding_context
+            .syntax()
+            .find_node(
+                anchor.source_id(),
+                anchor.syntax_kind(),
+                anchor.full_range(),
+                anchor.is_recovered(),
+            )
             .ok_or_else(|| {
                 expression_contract_failure(
                     unit.key(),
@@ -982,9 +1019,24 @@ impl Compilation {
                 )
             })?;
 
+        let arguments = reference
+            .generic_argument_list()
+            .map(|anchor| {
+                anchor
+                    .find_descendant::<GenericArgumentListSyntax>(binding_context.syntax())
+                    .ok_or_else(|| {
+                        expression_contract_failure(
+                            unit.key(),
+                            member.trait_reference(),
+                            SemanticQueryViolation::Missing(SemanticDataKind::Syntax),
+                        )
+                    })
+            })
+            .transpose()?;
+
         let bound = type_binder(binding_context, owner)
             .map_err(binding_query_error)?
-            .bind_trait_application(&syntax)
+            .bind_trait_reference(definition, &syntax, arguments.as_ref())
             .map_err(binding_query_error)?;
 
         *diagnostics = diagnostics.merged(bound.diagnostics());
@@ -1447,7 +1499,7 @@ impl Compilation {
 
     pub(super) fn resolve_custom_index_operation(
         &self,
-        key: &OperationSelectionQueryKey,
+        key: &OperationSubject,
         binding_context: &CompilationBindingContext<'_>,
         unit: &bray_bound_tree::BoundUnit,
         types: &bray_bound_tree::CheckedExpressionTypes,

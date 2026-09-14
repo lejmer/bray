@@ -65,6 +65,17 @@ impl ExpressionBinder {
             return self.push_missing_error(binder);
         };
 
+        if let Some(member) = syntax.member_access_operations().next()
+            && let Some(subject) = syntax.expressions().next()
+            && let Some(call) = subject.call_operations().next()
+            && let Some(callee) = subject.expressions().next()
+        {
+            let callee = self.bind_expression(binder, scope, Some(&callee))?;
+            let call = self.bind_call(binder, scope, &call, callee)?;
+
+            return self.bind_call_member(binder, &member, call);
+        }
+
         let expression = if syntax
             .operator_token()
             .is_some_and(|token| token.kind() == SyntaxKind::MatchesKeyword)

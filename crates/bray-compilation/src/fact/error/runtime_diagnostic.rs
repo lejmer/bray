@@ -573,7 +573,6 @@ pub(super) fn compilation_fact_kind(value: &CompilationFactKey) -> &'static str 
         Value::GenericConstraintSatisfaction(_) => "generic_constraint_satisfaction",
         Value::ImplementationSelection(_) => "implementation_selection",
         Value::IterationSource(_) => "iteration_source",
-        Value::OperationSelection(_) => "operation_selection",
         Value::ImportedSemanticGraph(_) => "imported_semantic_graph",
         Value::ImportedSemanticRecord(_) => "imported_semantic_record",
         Value::ImportedConstantCallableBody(_) => "imported_constant_callable_body",

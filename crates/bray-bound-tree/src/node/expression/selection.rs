@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use bray_base::shared_slice;
-use bray_declarations::SyntaxAnchor;
 use bray_symbols::{
     AnyLocalSymbolId, AnySymbolId, LocalBindingSymbolId, NamedTypeSymbolId, SymbolName, TypeId,
 };
@@ -327,7 +326,7 @@ impl BoundMemberAccessExpression {
 pub struct BoundTraitQualifiedMemberExpression {
     origin: BoundNodeOrigin,
     receiver: BoundExpressionId,
-    trait_syntax: SyntaxAnchor,
+    trait_reference: BoundExpressionId,
     selector: Option<BoundMemberSelector>,
     ty: Option<TypeId>,
     is_recovered: bool,
@@ -338,7 +337,7 @@ impl BoundTraitQualifiedMemberExpression {
     pub const fn new(
         origin: BoundNodeOrigin,
         receiver: BoundExpressionId,
-        trait_syntax: SyntaxAnchor,
+        trait_reference: BoundExpressionId,
         selector: Option<BoundMemberSelector>,
         ty: Option<TypeId>,
         is_recovered: bool,
@@ -346,7 +345,7 @@ impl BoundTraitQualifiedMemberExpression {
         Self {
             origin,
             receiver,
-            trait_syntax,
+            trait_reference,
             selector,
             ty,
             is_recovered,
@@ -363,9 +362,9 @@ impl BoundTraitQualifiedMemberExpression {
         self.receiver
     }
 
-    /// Returns the exact trait-application syntax anchor.
-    pub const fn trait_syntax(&self) -> SyntaxAnchor {
-        self.trait_syntax
+    /// Returns the bound name identifying the trait and its generic arguments.
+    pub const fn trait_reference(&self) -> BoundExpressionId {
+        self.trait_reference
     }
 
     /// Returns the requested source member selector.

@@ -6,8 +6,9 @@ use bray_symbols::TypeId;
 use super::super::Compilation;
 use super::super::binder::CompilationBindingContext;
 use super::super::unit::semantic_unit_context_for;
+use crate::compilation::operation::OperationSubject;
 use crate::compilation::{SemanticDataKind, SemanticQueryViolation};
-use crate::fact::{CancellationToken, FactQueryError, OperationSelectionQueryKey};
+use crate::fact::{CancellationToken, FactQueryError};
 
 use super::model::{ConversionPlan, OperationResolution, TraitOperation};
 use super::query::{expression_type, operation_contract_failure, unit_contract_failure};
@@ -15,7 +16,7 @@ use super::query::{expression_type, operation_contract_failure, unit_contract_fa
 impl Compilation {
     pub(super) fn resolve_conversion_operation(
         &self,
-        key: &OperationSelectionQueryKey,
+        key: &OperationSubject,
         binding_context: &CompilationBindingContext<'_>,
         unit: &bray_bound_tree::BoundUnit,
         types: &bray_bound_tree::CheckedExpressionTypes,
@@ -75,7 +76,7 @@ impl Compilation {
 
     fn resolve_conversion_plan(
         &self,
-        key: &OperationSelectionQueryKey,
+        key: &OperationSubject,
         request: bray_checker::CheckerUnitView<
             '_,
             super::super::checker::CompilationCheckerContext<'_>,

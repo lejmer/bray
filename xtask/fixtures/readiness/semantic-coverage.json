@@ -75,14 +75,14 @@
     },
     {
       "name": "calls-and-overloads",
-      "production": ["operation_selection_with_cancellation"],
+      "production": ["resolve_operation_selection"],
       "diagnostic_source_tests": ["overloaded_call_reports_generic_argument_diagnostics_once"],
       "valid_source_tests": ["overload_narrowing_provides_context_before_literal_defaults"],
       "boundary_tests": [
         "indirect_calls_use_the_callable_type_contract_without_recovery",
         "exact_operator_candidates_publish_their_selected_target"
       ],
-      "published": ["OperationSelectionQueryKey"]
+      "published": ["CheckedSemanticSelections"]
     },
     {
       "name": "member-index-and-slice-access",

@@ -241,13 +241,6 @@ impl IterationSourceQueryKey {
     }
 }
 
-/// The exact compilation-local identity of one non-call operation selection.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub(crate) struct OperationSelectionQueryKey {
-    unit: BoundUnitKey,
-    expression: BoundExpressionId,
-}
-
 /// Complete identity of one independently requested code generation contribution.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct CodegenArtifactQueryKey {
@@ -314,20 +307,6 @@ impl CodegenArtifactQueryKey {
 
     pub(crate) const fn artifacts(&self) -> &BackendArtifactRequest {
         &self.artifacts
-    }
-}
-
-impl OperationSelectionQueryKey {
-    pub(crate) const fn new(unit: BoundUnitKey, expression: BoundExpressionId) -> Self {
-        Self { unit, expression }
-    }
-
-    pub(crate) const fn unit(&self) -> &BoundUnitKey {
-        &self.unit
-    }
-
-    pub(crate) const fn expression(&self) -> BoundExpressionId {
-        self.expression
     }
 }
 
@@ -528,7 +507,6 @@ pub(crate) enum CompilationFactKey {
     ImplementationSelection(ImplementationRequirementKey),
     /// The exact protocol operations selected for one iteration source occurrence.
     IterationSource(IterationSourceQueryKey),
-    OperationSelection(OperationSelectionQueryKey),
     /// Decoded and remapped semantics for one compiled dependency interface.
     ImportedSemanticGraph(ImportedInterfaceId),
     /// One exact decoded and remapped imported symbol-owned semantic record.
@@ -633,7 +611,6 @@ impl CompilationFactKey {
             | Self::ProvisionalExpressionSemantics(key)
             | Self::SymbolicConstantTerm(key) => Some(key),
             Self::IterationSource(key) => Some(key.unit()),
-            Self::OperationSelection(key) => Some(key.unit()),
             Self::TargetValidity(_)
             | Self::ModuleContributionGate(_)
             | Self::CallableTypeDirectives(_)

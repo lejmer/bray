@@ -356,8 +356,9 @@ trusted func ordered_collections_preserve_owning_values_through_cleanup() -> Res
             identity += 1;
         }
 
-        let mut cursor: std.collection.OrderedMapMoveCursor<OwnedOrderedValue, OwnedOrderedValue> =
-            partially_consumed(Iterable).iterate();
+        let mut cursor: std.collection.OrderedMapMoveCursor<OwnedOrderedValue, OwnedOrderedValue> = partially_consumed(
+            Iterable
+        ).iterate();
 
         let first: (OwnedOrderedValue, OwnedOrderedValue) = std.testing.assert_present(cursor.next());
 
