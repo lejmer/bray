@@ -9,10 +9,10 @@ Workspace commands select the Cargo workspace containing the current working dir
 This also applies when running a retained executable from a shared Cargo target directory. Run it from the checkout
 you intend to operate on, or one of that checkout's Cargo member directories.
 
-Cargo keeps intermediate build artifacts in each checkout's `target/cargo`, including compiled dependencies.
-This prevents Cargo's relative-path and timestamp checks from reusing another checkout's source artifacts.
-The first build in a checkout compiles its own dependencies. Returning to that checkout reuses them without cleaning
-or forcing a rebuild. Cargo's download cache and an explicitly shared LLVM installation remain shared.
+> Cargo keeps intermediate build artifacts in each checkout's `target/cargo`, including compiled dependencies.
+> This prevents Cargo's relative-path and timestamp checks from reusing another checkout's source artifacts.
+> The first build in a checkout compiles its own dependencies. Returning to that checkout reuses them without cleaning
+> or forcing a rebuild. Cargo's download cache and an explicitly shared LLVM installation remain shared.
 
 `CARGO_TARGET_DIR` and `--target-dir` still select final artifact destinations, including the separate native ThinLTO
 target. Shared destinations contain the most recently selected checkout's outputs. Serialize builds and consumption
