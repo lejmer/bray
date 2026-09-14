@@ -39,6 +39,90 @@ func run()
     };
 
     assert(core.atomic.load<usize, 1>(&COUNT) == 12);
+    nested_cleanup();
+    nested_replacement();
+}
+
+struct FailingGuard
+{
+    id: usize;
+
+    destruct()
+    {
+        let previous = core.atomic.load<usize, 1>(&COUNT);
+
+        core.atomic.store<usize, 4>(&COUNT, previous * 10 + self.id);
+
+        if self.id == 2
+        {
+            panic("nested cleanup");
+        }
+    }
+}
+
+struct Bundle
+{
+    guards: [[FailingGuard; 2]; 2];
+}
+
+func make_guard(pos id: usize) -> FailingGuard
+{
+    return FailingGuard
+    {
+        id = id
+    };
+}
+
+func pending_result() -> usize
+{
+    let guards = [[make_guard(1), make_guard(2)], [make_guard(3), make_guard(4)]];
+
+    return 99;
+}
+
+func nested_cleanup()
+{
+    core.atomic.store<usize, 4>(&COUNT, 0);
+
+    let result = catch
+    {
+        pending_result();
+        yield unit;
+    };
+
+    assert(result matches Error(_));
+    assert(core.atomic.load<usize, 1>(&COUNT) == 4321);
+}
+
+func nested_replacement()
+{
+    core.atomic.store<usize, 4>(&COUNT, 0);
+
+    {
+        let mut guards = box(
+            Bundle
+            {
+                guards = [[make_guard(1), make_guard(2)], [make_guard(3), make_guard(4)]]
+            }
+        );
+
+        let result = catch
+        {
+            guards = box(
+                Bundle
+                {
+                    guards = [[make_guard(5), make_guard(6)], [make_guard(7), make_guard(8)]]
+                }
+            );
+
+            yield unit;
+        };
+
+        assert(result matches Error(_));
+        assert(core.atomic.load<usize, 1>(&COUNT) == 4321);
+    };
+
+    assert(core.atomic.load<usize, 1>(&COUNT) == 43218765);
 }
 
 func guard_id(pos value: &box Guard) -> usize

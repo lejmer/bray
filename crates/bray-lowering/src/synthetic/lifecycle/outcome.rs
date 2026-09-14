@@ -40,7 +40,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
     pub(in crate::synthetic) fn resolve_lifecycle_sequence(
         &self,
         builder: &mut MirUnitBuilder,
-        mut block: MirBlockId,
+        block: MirBlockId,
         source: &MirSourceAnchor,
         operations: impl IntoIterator<Item = MirOperationKind>,
     ) -> Result<MirBlockId, C::Error> {
@@ -52,13 +52,9 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
         let outcome = self.cleanup_outcome(builder, block, source)?;
 
-        for operation in operations {
-            self.push_lifecycle_operation(builder, block, source, operation)?;
-
-            block = outcome
-                .check(builder, block, source)
-                .map_err(|cause| self.mir_error(source, cause))?;
-        }
+        let block = outcome
+            .resolve(builder, block, source, operations)
+            .map_err(|cause| self.mir_error(source, cause))?;
 
         self.finish_cleanup_outcome(builder, block, source, &outcome)
     }

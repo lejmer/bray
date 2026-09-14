@@ -15,7 +15,8 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         source: &MirSourceAnchor,
         task: MirPlace,
         runtime_abi: bray_runtime_interface::RuntimeAbiVersion,
-    ) -> Result<(), C::Error> {
+        outcome: &crate::cleanup_outcome::CleanupOutcome,
+    ) -> Result<bray_ir::MirBlockId, C::Error> {
         let values = self.context.semantic_values();
         let symbols = self.context.compiler_known_symbols();
 
@@ -88,15 +89,16 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             },
         )?;
 
-        self.push_lifecycle_operation(
-            builder,
-            block,
-            source,
-            MirOperationKind::Finalize(place.clone()),
-        )?;
-
-        self.push_lifecycle_operation(builder, block, source, MirOperationKind::Destroy(place))?;
-
-        Ok(())
+        outcome
+            .resolve(
+                builder,
+                block,
+                source,
+                [
+                    MirOperationKind::Finalize(place.clone()),
+                    MirOperationKind::Destroy(place),
+                ],
+            )
+            .map_err(|cause| self.mir_error(source, cause))
     }
 }

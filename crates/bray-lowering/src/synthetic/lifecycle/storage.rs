@@ -153,9 +153,9 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         reference: &MirHelperReference,
         place: &MirPlace,
         runtime_abi: bray_runtime_interface::RuntimeAbiVersion,
-    ) -> Result<bool, C::Error> {
+    ) -> Result<Option<bray_ir::MirBlockId>, C::Error> {
         let Some(ty) = reference.lifecycle_type() else {
-            return Ok(false);
+            return Ok(None);
         };
 
         let values = self.context.semantic_values();
@@ -169,7 +169,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             substitution,
         } = data.as_ref()
         else {
-            return Ok(false);
+            return Ok(None);
         };
 
         if let MirHelperReference::Destroy(_) = reference
@@ -218,11 +218,11 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 )),
             )?;
 
-            return Ok(true);
+            return Ok(Some(block));
         }
 
         let Some(role) = self.context.representation_role(*definition) else {
-            return Ok(false);
+            return Ok(None);
         };
 
         if role == RepresentationRole::String {
@@ -247,7 +247,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 )?;
             }
 
-            return Ok(true);
+            return Ok(Some(block));
         }
 
         if role == RepresentationRole::PanicReport {
@@ -283,16 +283,45 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     .map_err(|cause| self.mir_error(source, cause))?;
             }
 
-            return Ok(true);
+            return Ok(Some(block));
         }
 
         if role != RepresentationRole::Task {
-            return Ok(false);
+            return Ok(None);
         }
 
         match reference {
-            MirHelperReference::Finalize(_) | MirHelperReference::StaticFinalize(_) => {
-                self.push_task_resolution(builder, block, source, place.clone(), runtime_abi)?;
+            MirHelperReference::Finalize(_)
+            | MirHelperReference::StaticFinalize(_)
+            | MirHelperReference::Cleanup {
+                phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                ..
+            } => {
+                let outcome = self.cleanup_outcome(builder, block, source)?;
+
+                let block = self.push_task_resolution(
+                    builder,
+                    block,
+                    source,
+                    place.clone(),
+                    runtime_abi,
+                    &outcome,
+                )?;
+
+                if matches!(reference, MirHelperReference::Cleanup { .. }) {
+                    self.push_lifecycle_operation(
+                        builder,
+                        block,
+                        source,
+                        MirOperationKind::Async(MirAsyncOperation::DestroyTerminalTask {
+                            task: MirOperand::Move(place.clone()),
+                        }),
+                    )?;
+                }
+
+                return self
+                    .finish_cleanup_outcome(builder, block, source, &outcome)
+                    .map(Some);
             }
             MirHelperReference::Destroy(_) => {
                 self.push_lifecycle_operation(
@@ -321,21 +350,6 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     }),
                 )?;
             }
-            MirHelperReference::Cleanup {
-                phase: bray_ir::MirCleanupPhase::LifecycleResolution,
-                ..
-            } => {
-                self.push_task_resolution(builder, block, source, place.clone(), runtime_abi)?;
-
-                self.push_lifecycle_operation(
-                    builder,
-                    block,
-                    source,
-                    MirOperationKind::Async(MirAsyncOperation::DestroyTerminalTask {
-                        task: MirOperand::Move(place.clone()),
-                    }),
-                )?;
-            }
             MirHelperReference::AnonymousCallable(_)
             | MirHelperReference::DeclaredCallable(_)
             | MirHelperReference::CallableDefault(_)
@@ -356,7 +370,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             }
         }
 
-        Ok(true)
+        Ok(Some(block))
     }
 
     #[expect(

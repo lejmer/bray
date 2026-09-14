@@ -2,11 +2,13 @@
 
 #![forbid(unsafe_code)]
 
+mod cleanup_loop;
 mod cleanup_outcome;
 mod host;
 mod identity;
 mod input;
 mod lowering;
+mod operand;
 mod plan;
 mod result;
 mod synthetic;
