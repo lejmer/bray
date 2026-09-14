@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use bray_runtime_model::{ProtectedAsyncFrameId, ProtectedFrameStateId};
 
+use crate::incident::dispose_panic;
 use crate::{RunOutcome, TaskId};
 
 /// A cleanup failure transferred to the product host for reporting.
@@ -12,36 +13,15 @@ pub struct CleanupIncident {
     ordinal: u64,
     producer: CleanupIncidentProducer,
     origin: CleanupIncidentOrigin,
-    payload: Box<dyn Any + Send>,
+    payload: Option<Box<dyn Any + Send>>,
 }
 
 impl CleanupIncident {
-    fn new(
-        ordinal: u64,
-        producer: CleanupIncidentProducer,
-        origin: CleanupIncidentOrigin,
-        payload: impl Any + Send,
-    ) -> Self {
-        Self {
-            ordinal,
-            producer,
-            origin,
-            payload: Box::new(payload),
-        }
-    }
-
-    fn erased(
-        ordinal: u64,
-        producer: CleanupIncidentProducer,
-        origin: CleanupIncidentOrigin,
-        payload: Box<dyn Any + Send>,
-    ) -> Self {
-        Self {
-            ordinal,
-            producer,
-            origin,
-            payload,
-        }
+    pub(crate) fn dispose(&mut self) -> bray_runtime_abi::NativeRuntimeStatus {
+        self.payload.take().map_or(
+            bray_runtime_abi::NativeRuntimeStatus::SUCCESS,
+            dispose_panic,
+        )
     }
 
     /// Returns the deterministic encounter ordinal.
@@ -61,12 +41,23 @@ impl CleanupIncident {
 
     /// Returns whether the erased payload has one exact host representation.
     pub fn payload_is<T: Any>(&self) -> bool {
-        self.payload.is::<T>()
+        self.payload
+            .as_ref()
+            .is_some_and(|payload| payload.is::<T>())
     }
 
     /// Returns the host type identity carried by the erased payload descriptor.
     pub fn payload_type_id(&self) -> std::any::TypeId {
-        self.payload.as_ref().type_id()
+        self.payload
+            .as_ref()
+            .map(|payload| payload.as_ref().type_id())
+            .unwrap_or_else(|| unreachable!("live cleanup incident must own its payload"))
+    }
+}
+
+impl Drop for CleanupIncident {
+    fn drop(&mut self) {
+        self.dispose();
     }
 }
 
@@ -139,18 +130,7 @@ impl CleanupReportSink {
         origin: CleanupIncidentOrigin,
         payload: impl Any + Send,
     ) {
-        let mut state = self
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-
-        let ordinal = state.next_ordinal;
-
-        state.next_ordinal = state.next_ordinal.saturating_add(1);
-
-        state
-            .incidents
-            .push_back(CleanupIncident::new(ordinal, producer, origin, payload));
+        self.transfer_erased(producer, origin, Box::new(payload));
     }
 
     pub(crate) fn transfer_erased(
@@ -168,26 +148,35 @@ impl CleanupReportSink {
 
         state.next_ordinal = state.next_ordinal.saturating_add(1);
 
-        state
-            .incidents
-            .push_back(CleanupIncident::erased(ordinal, producer, origin, payload));
+        state.incidents.push_back(CleanupIncident {
+            ordinal,
+            producer,
+            origin,
+            payload: Some(payload),
+        });
     }
 
     /// Reports and removes every incident in transfer order.
+    ///
+    /// Callbacks receive detached incidents. Reentrant transfers join the next batch.
+    /// If a callback unwinds, the remaining detached incidents are released.
     pub fn drain(&self, mut report: impl FnMut(CleanupIncident)) {
         loop {
-            let incident = self
-                .state
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .incidents
-                .pop_front();
+            let incidents = std::mem::take(
+                &mut self
+                    .state
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .incidents,
+            );
 
-            let Some(incident) = incident else {
+            if incidents.is_empty() {
                 return;
-            };
+            }
 
-            report(incident);
+            for incident in incidents {
+                report(incident);
+            }
         }
     }
 

@@ -478,13 +478,19 @@ impl NativeRuntime {
     }
 
     pub(in crate::native) fn report_cleanup_incidents(&self) -> NativeRuntimeStatus {
-        let stderr = std::io::stderr();
-        let mut stderr = stderr.lock();
         let mut status = NativeRuntimeStatus::SUCCESS;
 
-        self.cleanup_reports.drain(|incident| {
-            if write_cleanup_incident_report(&mut stderr, &incident).is_err() {
+        self.cleanup_reports.drain(|mut incident| {
+            if write_cleanup_incident_report(&mut std::io::stderr().lock(), &incident).is_err()
+                && status.is_success()
+            {
                 status = NativeRuntimeStatus::RUNTIME_FAILURE;
+            }
+
+            let disposal = incident.dispose();
+
+            if status.is_success() {
+                status = disposal;
             }
         });
 

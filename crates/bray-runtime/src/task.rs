@@ -674,18 +674,18 @@ where
         if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
             frame.as_mut().broadcast_tasks();
         })) {
-            merge_cleanup_panic(&mut panic, payload);
+            RuntimePanic::record(&mut panic, payload);
         }
 
         if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
             frame.as_mut().resolve_lifecycle(FrameExit::RuntimeFailure);
         })) {
-            merge_cleanup_panic(&mut panic, payload);
+            RuntimePanic::record(&mut panic, payload);
         }
     }
 
     if let Err(payload) = catch_unwind(AssertUnwindSafe(|| drop(frame.take()))) {
-        merge_cleanup_panic(&mut panic, payload);
+        RuntimePanic::record(&mut panic, payload);
     }
 
     panic
@@ -711,14 +711,6 @@ fn merge_panic<T>(outcome: &mut RunOutcome<T>, payload: Box<dyn std::any::Any + 
         RunOutcome::Completed(_) | RunOutcome::Cancelled => {
             *outcome = RunOutcome::Panicked(RuntimePanic::from_payload(payload));
         }
-    }
-}
-
-fn merge_cleanup_panic(panic: &mut Option<RuntimePanic>, payload: Box<dyn std::any::Any + Send>) {
-    if let Some(panic) = panic {
-        panic.push_suppressed(payload);
-    } else {
-        *panic = Some(RuntimePanic::from_payload(payload));
     }
 }
 

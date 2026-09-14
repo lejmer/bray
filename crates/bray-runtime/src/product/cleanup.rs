@@ -6,7 +6,7 @@ use bray_runtime_abi::{
     NativeStaticFinalizerStatus, NativeStaticTransitionCallback, NativeTypeIdentity,
 };
 
-use super::incident::CleanupIncident;
+use crate::incident::OwnedCleanupIncident as CleanupIncident;
 
 pub(super) fn run_static_cleanup(
     prepare: NativeStaticTransitionCallback,

@@ -749,6 +749,21 @@ mod tests {
 
     thread_local! {
         static THREAD_CLEANUP_ORDER: Cell<usize> = const { Cell::new(0) };
+        static INCIDENT_PROVIDER: Cell<Option<&'static NativeProductHostDescriptor>> = const { Cell::new(None) };
+        static RELEASED_PROVIDER: Cell<Option<(NativeProductHostState, usize)>> = const { Cell::new(None) };
+    }
+
+    struct ProviderIncident(&'static NativeProductHostDescriptor);
+
+    impl Drop for ProviderIncident {
+        fn drop(&mut self) {
+            let provider = control(self.0, NativeProductHostOperation::OBSERVE);
+            RELEASED_PROVIDER.set(Some((provider.state(), provider.thread_attachments())));
+        }
+    }
+
+    fn panic_from_provider() -> ! {
+        std::panic::panic_any(ProviderIncident(INCIDENT_PROVIDER.get().unwrap()));
     }
 
     extern "C" fn access() -> usize {
@@ -774,12 +789,12 @@ mod tests {
     }
 
     extern "C-unwind" fn panicking_thread_cleanup(_: usize) -> NativeStaticFinalizerStatus {
-        panic!("test thread-static cleanup incident");
+        panic_from_provider();
     }
 
     extern "C-unwind" fn panicking_product_cleanup(_: usize) -> NativeStaticFinalizerStatus {
         record_product_phase(1);
-        panic!("test product-static cleanup incident");
+        panic_from_provider();
     }
 
     extern "C-unwind" fn continuing_product_cleanup(_: usize) -> NativeStaticFinalizerStatus {
@@ -1083,14 +1098,22 @@ mod tests {
 
         let panicking_identity = NativeStaticIdentity::new([41; 32]);
 
-        let descriptor = NativeProductHostDescriptor::new(
+        let descriptor = Box::leak(Box::new(NativeProductHostDescriptor::new(
             NativeProductIdentity::new([43; 32]),
             product_incident_entry,
             2,
+        )));
+
+        INCIDENT_PROVIDER.set(Some(descriptor));
+
+        let closed = control(descriptor, NativeProductHostOperation::CLOSE);
+
+        assert_eq!(
+            RELEASED_PROVIDER.take(),
+            Some((NativeProductHostState::CLOSING, 0))
         );
 
-        let closed = control(&descriptor, NativeProductHostOperation::CLOSE);
-
+        INCIDENT_PROVIDER.set(None);
         assert_eq!(closed.state(), NativeProductHostState::CLOSED);
         assert_eq!(closed.status(), NativeProductHostStatus::INCIDENTS);
         assert_eq!(closed.cleanup_incidents(), 1);
@@ -1194,6 +1217,8 @@ mod tests {
             detach_thread_static,
         );
 
+        INCIDENT_PROVIDER.set(Some(descriptor));
+
         let scope = bray_platform::RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("test thread must attach: {error:?}"));
 
@@ -1203,6 +1228,13 @@ mod tests {
         drop(scope);
 
         let observed = control(descriptor, NativeProductHostOperation::OBSERVE);
+
+        assert_eq!(
+            RELEASED_PROVIDER.take(),
+            Some((NativeProductHostState::OPEN, 1))
+        );
+
+        INCIDENT_PROVIDER.set(None);
 
         assert_eq!(THREAD_CLEANUP_ORDER.get(), 2);
         assert_eq!(observed.cleanup_incidents(), 1);

@@ -8,6 +8,7 @@ mod conformance;
 mod context;
 mod event;
 mod frame;
+mod incident;
 mod lane;
 #[doc(hidden)]
 pub mod native;
