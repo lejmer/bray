@@ -5466,35 +5466,177 @@ mod tests {
     fn recovered_pattern_projections_preserve_binding_diagnostics() {
         for (valid_source, occupied) in [
             (
-                "module app; struct Guard { id: usize; } func guard() {} func main(pos value: &box Guard) -> usize { return match value { case box(fresh) { yield fresh.id; } }; }",
+                r#"module app;
+
+struct Guard
+{
+    id: usize;
+}
+
+func guard() {}
+
+func main(pos value: &box Guard) -> usize
+{
+    return match value
+    {
+        case box(fresh) { yield fresh.id; }
+    };
+}
+"#,
                 "guard",
             ),
             (
-                "module app; struct Guard { id: usize; } func guard() {} func main(pos value: &box Guard?) -> usize { return match value { case box(?fresh) { yield fresh.id; } case _ { yield 0; } }; }",
+                r#"module app;
+
+struct Guard
+{
+    id: usize;
+}
+
+func guard() {}
+
+func main(pos value: &box Guard?) -> usize
+{
+    return match value
+    {
+        case box(?fresh) { yield fresh.id; }
+        case _ { yield 0; }
+    };
+}
+"#,
                 "guard",
             ),
             (
-                "module app; struct Guard { id: usize; } func guard() {} func main(pos value: &(Guard?, Guard?)) -> usize { return match value { case (?fresh, ?other) { yield other.id; } case _ { yield 0; } }; }",
+                r#"module app;
+
+struct Guard
+{
+    id: usize;
+}
+
+func guard() {}
+
+func main(pos value: &(Guard?, Guard?)) -> usize
+{
+    return match value
+    {
+        case(?fresh, ?other) { yield other.id; }
+        case _ { yield 0; }
+    };
+}
+"#,
                 "guard",
             ),
             (
-                "module app; struct Guard { id: usize; } func main(pos value: &(Guard?, Guard?)) -> usize { return match value { case (?first, ?fresh) { yield first.id; } case _ { yield 0; } }; }",
+                r#"module app;
+
+struct Guard
+{
+    id: usize;
+}
+
+func main(pos value: &(Guard?, Guard?)) -> usize
+{
+    return match value
+    {
+        case(?first, ?fresh) { yield first.id; }
+        case _ { yield 0; }
+    };
+}
+"#,
                 "first",
             ),
             (
-                "module app; struct Guard { id: usize; } func main(pos value: &[Guard?; 2]) -> usize { return match value { case [?first, ?fresh] { yield first.id; } case _ { yield 0; } }; }",
+                r#"module app;
+
+struct Guard
+{
+    id: usize;
+}
+
+func main(pos value: &[Guard?; 2]) -> usize
+{
+    return match value
+    {
+        case [?first, ?fresh] { yield first.id; }
+        case _ { yield 0; }
+    };
+}
+"#,
                 "first",
             ),
             (
-                "module app; struct Guard { id: usize; } union Choice { Pair(first: Guard, second: Guard); Empty; } func guard() {} func main(pos value: &Choice) -> usize { return match value { case Pair(first = fresh, second = other) { yield other.id; } case Empty { yield 0; } }; }",
+                r#"module app;
+
+struct Guard
+{
+    id: usize;
+}
+
+union Choice
+{
+    Pair(first: Guard, second: Guard);
+    Empty;
+}
+
+func guard() {}
+
+func main(pos value: &Choice) -> usize
+{
+    return match value
+    {
+        case Pair(first = fresh, second = other) { yield other.id; }
+        case Empty { yield 0; }
+    };
+}
+"#,
                 "guard",
             ),
             (
-                "module app; struct Guard { id: usize; } union Choice { Pair(first: Guard, second: Guard); Empty; } func main(pos value: &Choice) -> usize { return match value { case Pair(first = first, second = fresh) { yield first.id; } case Empty { yield 0; } }; }",
+                r#"module app;
+
+struct Guard
+{
+    id: usize;
+}
+
+union Choice
+{
+    Pair(first: Guard, second: Guard);
+    Empty;
+}
+
+func main(pos value: &Choice) -> usize
+{
+    return match value
+    {
+        case Pair(first = first, second = fresh) { yield first.id; }
+        case Empty { yield 0; }
+    };
+}
+"#,
                 "first",
             ),
             (
-                "module app; struct Guard { id: usize; } func guard() {} func main(pos value: &(Guard?, Guard?)) -> usize { if let (?fresh, ?other) = value { return other.id; } return 0; }",
+                r#"module app;
+
+struct Guard
+{
+    id: usize;
+}
+
+func guard() {}
+
+func main(pos value: &(Guard?, Guard?)) -> usize
+{
+    if let (?fresh, ?other) = value
+    {
+        return other.id;
+    }
+
+    return 0;
+}
+"#,
                 "guard",
             ),
         ] {
@@ -5549,7 +5691,22 @@ mod tests {
         use bray_checker::{CheckerOutcome, DefaultStorageFlowChecker, StorageFlowChecker};
 
         let compilation = compilation(
-            "module app; struct Guard { id: usize; } func main(pos value: &Guard?) -> usize { return match value { case ?guard { yield guard.id; } case none { yield 0; } }; }",
+            r#"module app;
+
+struct Guard
+{
+    id: usize;
+}
+
+func main(pos value: &Guard?) -> usize
+{
+    return match value
+    {
+        case ?guard { yield guard.id; }
+        case none { yield 0; }
+    };
+}
+"#,
         );
 
         assert!(compilation.check_diagnostics().is_empty());
