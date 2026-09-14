@@ -18,3 +18,4 @@ mod type_form;
 mod test_support;
 
 pub(in crate::parser) use grammar::EXPRESSION_START_KINDS;
+pub(in crate::parser) use operator::at_infix_operator;

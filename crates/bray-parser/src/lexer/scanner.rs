@@ -16,7 +16,7 @@ use super::trivia::{scan_leading_trivia, scan_trailing_trivia};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum LexerScanMode {
     Normal,
-    GenericClose,
+    TypePunctuation,
     TupleElementIndexAfterDot,
 }
 
@@ -65,19 +65,17 @@ pub(super) fn scan_token_at(
 fn scan_token_core(snapshot: &SourceSnapshot, start: TextSize, mode: LexerScanMode) -> TokenScan {
     match mode {
         LexerScanMode::Normal => scan_normal_token(snapshot, start),
-        LexerScanMode::GenericClose => scan_generic_close_or_normal(snapshot, start),
+        LexerScanMode::TypePunctuation => match first_character(snapshot, start) {
+            Some('>') => TokenScan::clean(make_scalar_token(SyntaxKind::GreaterToken, start, '>')),
+            Some('&') => {
+                TokenScan::clean(make_scalar_token(SyntaxKind::AmpersandToken, start, '&'))
+            }
+            _ => scan_normal_token(snapshot, start),
+        },
         LexerScanMode::TupleElementIndexAfterDot => {
             scan_tuple_element_index_or_normal(snapshot, start)
         }
     }
-}
-
-fn scan_generic_close_or_normal(snapshot: &SourceSnapshot, start: TextSize) -> TokenScan {
-    if first_character(snapshot, start) == Some('>') {
-        return TokenScan::clean(make_scalar_token(SyntaxKind::GreaterToken, start, '>'));
-    }
-
-    scan_normal_token(snapshot, start)
 }
 
 fn scan_normal_token(snapshot: &SourceSnapshot, start: TextSize) -> TokenScan {
@@ -166,6 +164,19 @@ fn scan_underscore_or_invalid_identifier(snapshot: &SourceSnapshot, start: TextS
 }
 
 fn scan_operator_or_punctuation_token(snapshot: &SourceSnapshot, start: TextSize) -> TokenScan {
+    // Type punctuation remains valid when lookahead precedes contextual splitting.
+    let repeated = match snapshot.bytes().get(text_size_to_usize(start)..) {
+        Some([b'&', b'&', b'&', ..]) => Some((SyntaxKind::AmpersandAmpersandToken, '&')),
+        Some([b'>', b'>', b'>', ..]) => Some((SyntaxKind::GreaterGreaterToken, '>')),
+        _ => None,
+    };
+
+    if let Some((kind, character)) = repeated {
+        let end = offset_after_character(offset_after_character(start, character), character);
+
+        return TokenScan::clean(make_token(kind, start, end));
+    }
+
     let end = operator_cluster_end(snapshot, start);
     let text = token_text(snapshot, TextRange::new(start, end));
 

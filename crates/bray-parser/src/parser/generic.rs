@@ -6,6 +6,7 @@ use bray_syntax::{
 };
 
 use super::delimiter::DelimiterDepth;
+use super::expression::at_infix_operator;
 use super::separated::{SeparatedListSpec, SeparatedListSyntaxSink, separated_list_recovery_kinds};
 use super::state::Parser;
 
@@ -39,8 +40,9 @@ const GENERIC_CONST_PARAMETER_TYPE_BOUNDARY_KINDS: [SyntaxKind; 11] = [
     SyntaxKind::EndOfFileToken,
 ];
 
-const GENERIC_ARGUMENT_START_KINDS: [SyntaxKind; 24] = [
+const GENERIC_ARGUMENT_START_KINDS: [SyntaxKind; 25] = [
     SyntaxKind::AmpersandToken,
+    SyntaxKind::AmpersandAmpersandToken,
     SyntaxKind::BangToken,
     SyntaxKind::BinaryIntegerLiteralToken,
     SyntaxKind::BoxKeyword,
@@ -271,9 +273,7 @@ impl Parser {
     }
 
     fn should_parse_generic_argument_as_expression(&mut self, terminators: &[SyntaxKind]) -> bool {
-        let kind = self.peek().kind();
-
-        if at_generic_argument_expression_only_start(kind) {
+        if at_generic_argument_expression_only_start(self.peek().kind()) {
             return true;
         }
 
@@ -285,6 +285,8 @@ impl Parser {
         terminators: &[SyntaxKind],
     ) -> bool {
         let mut depth = DelimiterDepth::default();
+        let mut groups = 0usize;
+        let mut prefix = SyntaxKind::OpenParenToken;
 
         loop {
             if self.at_generic_close() {
@@ -292,30 +294,61 @@ impl Parser {
                     return false;
                 }
 
-                depth.observe_grouping_or_angle(self.consume_generic_close().kind());
-
+                depth.observe_grouping_or_angle(self.consume_type_punctuation().kind());
                 continue;
-            }
-
-            if self.at(SyntaxKind::EndOfFileToken) {
-                return false;
             }
 
             let kind = self.peek().kind();
 
-            let at_outer_boundary = depth.is_at_root()
-                && (kind == SyntaxKind::CommaToken || terminators.contains(&kind));
-
-            if at_outer_boundary {
+            if kind == SyntaxKind::EndOfFileToken {
                 return false;
             }
 
-            if depth.is_at_root() && at_generic_argument_expression_operator(kind) {
-                return true;
+            if depth.is_at_root() {
+                let expects_operand = matches!(
+                    prefix,
+                    SyntaxKind::OpenParenToken
+                        | SyntaxKind::CommaToken
+                        | SyntaxKind::AmpersandToken
+                        | SyntaxKind::AmpersandAmpersandToken
+                        | SyntaxKind::BoxKeyword
+                        | SyntaxKind::MutKeyword
+                        | SyntaxKind::ArrowToken
+                );
+
+                if kind == SyntaxKind::OpenParenToken && expects_operand {
+                    groups += 1;
+                    prefix = self.consume().kind();
+                    continue;
+                }
+
+                if kind == SyntaxKind::CloseParenToken && groups > 0 {
+                    groups -= 1;
+                    prefix = self.consume().kind();
+                    continue;
+                }
+
+                if groups == 0 && (kind == SyntaxKind::CommaToken || terminators.contains(&kind)) {
+                    return false;
+                }
+
+                if kind != SyntaxKind::LessToken
+                    && at_infix_operator(kind)
+                    && !(expects_operand
+                        && matches!(
+                            kind,
+                            SyntaxKind::AmpersandToken | SyntaxKind::AmpersandAmpersandToken
+                        ))
+                {
+                    return true;
+                }
+
+                if kind != SyntaxKind::OpenBracketToken || prefix != SyntaxKind::BoxKeyword {
+                    prefix = kind;
+                }
             }
 
-            depth.observe_grouping_or_angle(kind);
-            self.consume();
+            depth.observe_grouping_or_angle(self.consume().kind());
         }
     }
 }
@@ -372,26 +405,6 @@ fn at_generic_argument_expression_only_start(kind: SyntaxKind) -> bool {
         )
 }
 
-fn at_generic_argument_expression_operator(kind: SyntaxKind) -> bool {
-    matches!(
-        kind,
-        SyntaxKind::AmpersandAmpersandToken
-            | SyntaxKind::BangEqualsToken
-            | SyntaxKind::CaretToken
-            | SyntaxKind::EqualsEqualsToken
-            | SyntaxKind::GreaterEqualsToken
-            | SyntaxKind::LessEqualsToken
-            | SyntaxKind::MinusToken
-            | SyntaxKind::PercentToken
-            | SyntaxKind::PipePipeToken
-            | SyntaxKind::PipeToken
-            | SyntaxKind::PlusToken
-            | SyntaxKind::SlashToken
-            | SyntaxKind::StarStarToken
-            | SyntaxKind::StarToken
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::DiagnosticKind;
@@ -401,6 +414,47 @@ mod tests {
 
     use super::super::state::Parser;
     use crate::test_support::{diagnostic_kinds, source};
+
+    #[test]
+    fn borrow_type_prefixes_do_not_hide_constant_conjunctions() {
+        for text in [
+            "< &&mut T, left && right>",
+            "< box &&T, &left && right>",
+            "< &mut &&T, (left && right)>",
+            "< box[Heap] &&T, [left] && right>",
+            "< (&&T, &&mut T), ((left && right))>",
+            "< [&&T; left && right], left & right>",
+            "< func(value: &&T) -> &&T requires(left && right), left << right>",
+            "< Container< &&T, left && right>, left @ right>",
+        ] {
+            let sources = source_store([text]);
+            let mut parser = Parser::new(source(&sources, 0));
+            let list = parser.parse_generic_argument_list();
+            let arguments = list.generic_arguments().collect::<Vec<_>>();
+
+            assert_eq!(arguments.len(), 2, "{text}: {:?}", parser.finish());
+            assert_eq!(arguments[0].type_expressions().count(), 1);
+            assert_eq!(arguments[1].expressions().count(), 1);
+            assert_eq!(list.full_text(), text);
+            assert!(parser.finish().is_empty(), "{text}");
+        }
+    }
+
+    #[test]
+    fn nested_storage_constants_parse_without_speculative_trees() {
+        let mut argument = "N".to_owned();
+
+        for _ in 0..12 {
+            argument = format!("box[ {argument} ](value) + 1");
+            let sources = source_store([format!("Array< {argument}>")]);
+            let parsed = crate::parse_type_expression_fragment(&source(&sources, 0));
+
+            assert!(!parsed.is_recovered());
+            assert!(parsed.diagnostics().is_empty());
+
+            assert_eq!(parsed.type_expression().generic_argument_lists().count(), 1);
+        }
+    }
 
     #[test]
     fn parser_parses_generic_parameter_lists() {

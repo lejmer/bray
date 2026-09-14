@@ -96,8 +96,8 @@ impl ParserCursor {
         self.token_source.consume_tuple_element_index_after_dot()
     }
 
-    pub(crate) fn consume_generic_close(&mut self) -> SyntaxToken {
-        self.token_source.consume_generic_close()
+    pub(crate) fn consume_type_punctuation(&mut self) -> SyntaxToken {
+        self.token_source.consume_type_punctuation()
     }
 
     pub(crate) fn at_generic_close(&self) -> bool {

@@ -8,6 +8,38 @@ use bray_parser::parse_source_unit;
 use bray_testing::test_source_snapshot;
 
 #[test]
+fn formats_nested_borrow_capabilities_and_logical_conjunction() {
+    for (input, expected) in [
+        ("& &bool", "&&bool"),
+        ("& &mut bool", "&&mut bool"),
+        ("&mut &bool", "&mut &bool"),
+        ("&mut &mut bool", "&mut &mut bool"),
+        ("&&&&bool", "&&&&bool"),
+    ] {
+        let source = format!(
+            "module app; func take(value: {input}) -> {input} {{ return value; }} func both(a: bool, b: bool) -> bool {{ return a&&b; }}"
+        );
+
+        let output = formatted(&source);
+
+        assert!(
+            output.text().contains(&format!("value: {expected}")),
+            "{}",
+            output.text()
+        );
+
+        assert!(
+            output.text().contains(&format!("-> {expected}")),
+            "{}",
+            output.text()
+        );
+
+        assert!(output.text().contains("return a && b;"));
+        assert_valid_and_idempotent(&output);
+    }
+}
+
+#[test]
 fn formats_representative_declarations_and_expressions() {
     let source = concat!(
         "module app;using std.io;",

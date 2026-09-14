@@ -752,7 +752,7 @@ fn runtime_default_storage_cannot_escape_source_or_imported_calls() {
                 return second;
             }
 
-            public consume func slot(second: &(&Flag) = &self.flag) -> &(&Flag)
+            public consume func slot(second: &&Flag = &self.flag) -> &&Flag
             {
                 return second;
             }
@@ -763,7 +763,7 @@ fn runtime_default_storage_cannot_escape_source_or_imported_calls() {
             return second;
         }
 
-        public func borrow_wrapped_slot(pos first: Wrapper, second: &(&Flag) = &first.flag) -> &(&Flag)
+        public func borrow_wrapped_slot(pos first: Wrapper, second: &&Flag = &first.flag) -> &&Flag
         {
             return second;
         }
@@ -778,7 +778,7 @@ fn runtime_default_storage_cannot_escape_source_or_imported_calls() {
             return second;
         }
 
-        public func borrow_slot(pos first: &bool, second: &(&bool) = &first) -> &(&bool)
+        public func borrow_slot(pos first: &bool, second: &&bool = &first) -> &&bool
         {
             return second;
         }
@@ -810,8 +810,8 @@ fn runtime_default_storage_cannot_escape_source_or_imported_calls() {
 
         public func borrow_array_slot(
             pos first: &[bool; 1],
-            second: &(&[bool; 1]) = &first,
-        ) -> &(&[bool; 1])
+            second: &&[bool; 1] = &first,
+        ) -> &&[bool; 1]
         {
             return second;
         }
@@ -855,7 +855,7 @@ fn runtime_default_storage_cannot_escape_source_or_imported_calls() {
         ),
         ("&bool", "borrow_field(owner)", true),
         ("&bool", "wrapped.selected()", true),
-        ("&(&Flag)", "wrapped.slot()", false),
+        ("&&Flag", "wrapped.slot()", false),
         (
             "&bool",
             r#"borrow_wrapped(Wrapper
@@ -865,18 +865,18 @@ fn runtime_default_storage_cannot_escape_source_or_imported_calls() {
             true,
         ),
         (
-            "&(&Flag)",
+            "&&Flag",
             r#"borrow_wrapped_slot(Wrapper
                     {
                         flag = owner,
                     })"#,
             false,
         ),
-        ("&(&bool)", "borrow_slot(caller)", false),
+        ("&&bool", "borrow_slot(caller)", false),
         ("&bool", "borrow_index(array)", true),
         ("&[bool]", "borrow_slice(array)", true),
         ("&bool", "borrow_owned_index(owned_array)", false),
-        ("&(&[bool; 1])", "borrow_array_slot(array)", false),
+        ("&&[bool; 1]", "borrow_array_slot(array)", false),
         ("&bool", "choose(first, second = caller)", true),
         ("bool", "evaluate(first)", true),
         (

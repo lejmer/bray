@@ -147,7 +147,7 @@ impl Parser {
     }
 }
 
-pub(in crate::parser::expression) fn at_infix_operator(kind: SyntaxKind) -> bool {
+pub(in crate::parser) fn at_infix_operator(kind: SyntaxKind) -> bool {
     infix_operator(kind).is_some()
 }
 

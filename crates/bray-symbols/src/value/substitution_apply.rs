@@ -125,7 +125,9 @@ impl SemanticValueStore {
         substitution: &GenericSubstitutionData,
     ) -> Result<super::TraitApplicationId, SemanticValueStoreError> {
         let application = self.trait_application_data(application)?;
-        let nested = self.substitute_generic_substitution_data(application.substitution(), substitution)?;
+
+        let nested =
+            self.substitute_generic_substitution_data(application.substitution(), substitution)?;
 
         self.intern_trait_application(TraitApplicationData::new(application.definition(), nested))
     }
@@ -688,7 +690,10 @@ impl SemanticValueStore {
                         let subject =
                             self.substitute_type_data(requirement.subject(), substitution)?;
 
-                        let application = self.substitute_trait_application_data(requirement.trait_application(), substitution)?;
+                        let application = self.substitute_trait_application_data(
+                            requirement.trait_application(),
+                            substitution,
+                        )?;
 
                         Ok::<_, SemanticValueStoreError>(crate::ImplementationRequirementKey::new(
                             subject,
