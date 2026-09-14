@@ -138,18 +138,20 @@ where
 
     let (copyable_types, copyability_diagnostics) = copyability.into_parts();
 
-    let (mutable_storage, authority_diagnostics) = match mutable_storage(request, storage) {
-        Ok(result) => result,
-        Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(CheckerQueryError::Infrastructure(error)) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
-        Err(CheckerQueryError::Upstream(error)) => {
-            return CheckerOutcome::UpstreamFailure(error);
-        }
-    };
-
-    let input = StorageFlowInput::new(request, storage, copyable_types, mutable_storage);
+    let (input, authority_diagnostics) =
+        match mutable_storage(request, storage).and_then(|(mutable, diagnostics)| {
+            StorageFlowInput::new(request, storage, copyable_types, mutable)
+                .map(|input| (input, diagnostics))
+        }) {
+            Ok(result) => result,
+            Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+            Err(CheckerQueryError::Infrastructure(error)) => {
+                return CheckerOutcome::InfrastructureFailure(error);
+            }
+            Err(CheckerQueryError::Upstream(error)) => {
+                return CheckerOutcome::UpstreamFailure(error);
+            }
+        };
 
     let owners = match storage_scope_owners(request).map_err(CheckerQueryError::with_upstream) {
         Ok(owners) => owners,
@@ -618,9 +620,11 @@ where
             return Ok(StorageOperationOutcome::borrow_conflict(conflict));
         }
 
-        if let Some(authority_access) = self.mutation_authority_access(plan, purpose)
+        if let Some(authority_access) =
+            self.input
+                .mutation_authority_access(plan, purpose, self.storage)
             && (!self.has_mutation_authority(authority_access)?
-                || !self.fields_allow_mutation(authority_access))
+                || !self.input.fields_allow_mutation(authority_access))
         {
             return Ok(StorageOperationOutcome::status(
                 StorageOperationStatus::MissingMutationAuthority,

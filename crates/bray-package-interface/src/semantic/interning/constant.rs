@@ -356,6 +356,24 @@ impl InternState {
             InterfaceConstantProjection::ArrayElement(id) => self
                 .constant_term_id(*id)
                 .map(ConstantProjectionKind::ArrayElement),
+            InterfaceConstantProjection::ArraySlice { lower, upper } => {
+                let mut bounds = [None, None];
+
+                for (destination, source) in bounds.iter_mut().zip([lower, upper]) {
+                    if let Some(source) = source {
+                        let Some(value) = self.constant_term_id(*source) else {
+                            return Ok(None);
+                        };
+
+                        *destination = Some(value);
+                    }
+                }
+
+                Some(ConstantProjectionKind::ArraySlice {
+                    lower: bounds[0],
+                    upper: bounds[1],
+                })
+            }
             InterfaceConstantProjection::ProductField(field) => {
                 Some(ConstantProjectionKind::ProductField(resolve_exact::<
                     StructFieldSymbolId,

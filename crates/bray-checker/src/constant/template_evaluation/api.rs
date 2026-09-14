@@ -4,10 +4,7 @@ use super::evaluator::TemplateEvaluator;
 use super::support::{TemplateEvaluationFailure, recovery_value};
 use crate::{CheckerOutcome, CheckerQueryError, CheckerRequestContext, ConstantCallRequest};
 use bray_bound_tree::{CheckedTemplate, CheckedTemplateKind};
-use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticLabel, DiagnosticLabelKind,
-    DiagnosticNote, DiagnosticNoteKind, SeverityKind,
-};
+use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId};
 use bray_source::SourceSpan;
 use bray_symbols::{
     ConcreteGenericSubstitutionId, ConstantValueId, ImplementationInstanceId, TypeId,
@@ -274,65 +271,7 @@ fn template_failure_diagnostic<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let mut diagnostic = problem.apply(Diagnostic::new(
-        DiagnosticId::new(0),
-        problem.kind(),
-        SeverityKind::Error,
-    ));
-
-    if let Some(span) = span {
-        diagnostic = diagnostic
-            .with_primary_span(span)
-            .with_label(DiagnosticLabel::primary(
-                DiagnosticLabelKind::InvalidConstantExpression,
-                span,
-            ));
-    }
-
-    match problem {
-        super::super::diagnostic::ConstantDiagnostic::Literal(
-            crate::ConstantLiteralError::NotRepresentable,
-        )
-        | super::super::diagnostic::ConstantDiagnostic::Operation {
-            error: super::super::operation::ConstantOperationError::NotRepresentable,
-            ..
-        } => {
-            diagnostic = diagnostic.with_arg(DiagnosticArg::actual_type(
-                crate::diagnostic::diagnostic_type(context, result_type)?,
-            ));
-        }
-        super::super::diagnostic::ConstantDiagnostic::Operation {
-            error: super::super::operation::ConstantOperationError::Invalid,
-            ..
-        } => {
-            diagnostic = diagnostic.with_note(DiagnosticNote::new(
-                DiagnosticNoteKind::ConstantExpressionMustBeEvaluable,
-            ));
-        }
-        super::super::diagnostic::ConstantDiagnostic::Literal(
-            crate::ConstantLiteralError::SizeLimitExceeded { .. },
-        )
-        | super::super::diagnostic::ConstantDiagnostic::Operation {
-            error: super::super::operation::ConstantOperationError::ResourceLimitExceeded { .. },
-            ..
-        }
-        | super::super::diagnostic::ConstantDiagnostic::Limit { .. } => {
-            diagnostic = diagnostic.with_note(DiagnosticNote::new(
-                DiagnosticNoteKind::ConstantEvaluationMustFitLimits,
-            ));
-        }
-        super::super::diagnostic::ConstantDiagnostic::Cycle { .. } => {}
-        super::super::diagnostic::ConstantDiagnostic::InvalidExpression
-        | super::super::diagnostic::ConstantDiagnostic::Literal(
-            crate::ConstantLiteralError::Invalid,
-        ) => return Err(crate::CheckerInfrastructureError::InvalidConstantEvaluationInput.into()),
-        super::super::diagnostic::ConstantDiagnostic::Operation {
-            error: super::super::operation::ConstantOperationError::DivisionByZero,
-            ..
-        } => {}
-    }
-
-    Ok(diagnostic)
+    problem.render(context, DiagnosticId::new(0), span, || Ok(result_type))
 }
 
 #[cfg(test)]

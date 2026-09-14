@@ -2,12 +2,11 @@ use std::sync::Arc;
 
 use bray_base::{shared_slice, sorted_unique_shared_slice};
 use bray_symbols::{
-    BorrowKind, ConstantBinaryOperation, ConstantTermId, ConstantUnaryOperation,
-    CurrentRunCancellation, DependencyContractTemplateId, GenericSubstitutionId,
-    LifecycleObligationKind, SymbolKey, SymbolKind, SymbolOrdinal, TypeId,
+    CurrentRunCancellation, DependencyContractTemplateId, LifecycleObligationKind, SymbolKey,
+    SymbolKind, SymbolOrdinal, TypeId,
 };
 
-use super::{CheckedTemplateInputId, CheckedTemplateNodeId, CheckedTemplateTemporaryId};
+use super::{CheckedTemplateNodeId, CheckedTemplateOperation};
 
 /// The declaration-owned semantic behavior represented by a checked template.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -306,165 +305,6 @@ impl CheckedTemplateConstantUsage {
     /// Returns elements produced through constant expansion.
     pub const fn expansions(self) -> u64 {
         self.expansions
-    }
-}
-
-/// The closed normalized operation vocabulary of a checked template.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum CheckedTemplateOperation {
-    /// Reads one explicitly declared contextual or generic input.
-    Input(CheckedTemplateInputId),
-    /// Materializes an already checked open or closed constant term.
-    Constant {
-        /// The checked open or closed constant term.
-        term: ConstantTermId,
-        /// Materialization work no longer recoverable from a closed value.
-        usage: CheckedTemplateConstantUsage,
-    },
-    /// Applies a selected unary constant operation.
-    Unary {
-        /// Exact checked operation.
-        operation: ConstantUnaryOperation,
-        /// Operand evaluated before the operation.
-        operand: CheckedTemplateNodeId,
-    },
-    /// Applies a selected binary constant operation.
-    Binary {
-        /// Exact checked operation.
-        operation: ConstantBinaryOperation,
-        /// Left operand evaluated first.
-        left: CheckedTemplateNodeId,
-        /// Right operand evaluated second unless the operation short-circuits.
-        right: CheckedTemplateNodeId,
-    },
-    /// Borrows one evaluated place with its checked capability.
-    Borrow {
-        /// Exact borrow capability.
-        kind: BorrowKind,
-        /// Place evaluated before creating the borrow.
-        operand: CheckedTemplateNodeId,
-    },
-    /// Reads a declaration-owned value through stable semantic identity.
-    Declaration {
-        /// Selected declaration.
-        declaration: SymbolKey,
-        /// Exact closed generic application when the declaration is selected explicitly.
-        substitution: Option<GenericSubstitutionId>,
-    },
-    /// Applies one selected callable or predicate with deterministic argument order.
-    Call {
-        /// The selected callable or predicate declaration.
-        callable: SymbolKey,
-        /// Ordered generic arguments applied to the callable declaration.
-        substitution: GenericSubstitutionId,
-        /// Arguments in exact evaluation and parameter order.
-        arguments: Arc<[CheckedTemplateNodeId]>,
-        /// The selected implementation witness when dispatch requires one.
-        implementation: Option<(SymbolKey, GenericSubstitutionId)>,
-    },
-    /// Applies an already checked semantic conversion.
-    Convert {
-        /// The converted value.
-        value: CheckedTemplateNodeId,
-        /// The checked destination type.
-        target: TypeId,
-    },
-    /// Constructs a tuple from values in element order.
-    Tuple(Arc<[CheckedTemplateNodeId]>),
-    /// Constructs an array from values in element order.
-    Array(Arc<[CheckedTemplateNodeId]>),
-    /// Projects a selected declaration-owned member from a value.
-    Project {
-        /// The projected subject.
-        subject: CheckedTemplateNodeId,
-        /// The selected field, payload, or associated declaration.
-        member: SymbolKey,
-    },
-    /// Evaluates a condition once and then exactly one selected branch.
-    Conditional {
-        /// The condition evaluated before either branch.
-        condition: CheckedTemplateNodeId,
-        /// The result evaluated only when the condition is true.
-        when_true: CheckedTemplateNodeId,
-        /// The result evaluated only when the condition is false.
-        when_false: CheckedTemplateNodeId,
-    },
-    /// Evaluates the left operand and evaluates the right operand only when required.
-    ShortCircuit {
-        /// The exact conjunction or disjunction evaluation rule.
-        kind: CheckedTemplateShortCircuitKind,
-        /// The operand evaluated first.
-        left: CheckedTemplateNodeId,
-        /// The operand evaluated conditionally.
-        right: CheckedTemplateNodeId,
-    },
-    /// Reads one explicitly materialized template-local temporary.
-    Temporary(CheckedTemplateTemporaryId),
-}
-
-impl CheckedTemplateOperation {
-    /// Creates a selected callable or predicate application with stable argument order.
-    pub fn call(
-        callable: SymbolKey,
-        substitution: GenericSubstitutionId,
-        arguments: impl IntoIterator<Item = CheckedTemplateNodeId>,
-        implementation: Option<(SymbolKey, GenericSubstitutionId)>,
-    ) -> Self {
-        Self::Call {
-            callable,
-            substitution,
-            arguments: shared_slice(arguments),
-            implementation,
-        }
-    }
-
-    /// Creates an ordered tuple construction.
-    pub fn tuple(elements: impl IntoIterator<Item = CheckedTemplateNodeId>) -> Self {
-        Self::Tuple(shared_slice(elements))
-    }
-
-    /// Creates an ordered array construction.
-    pub fn array(elements: impl IntoIterator<Item = CheckedTemplateNodeId>) -> Self {
-        Self::Array(shared_slice(elements))
-    }
-
-    pub(crate) fn try_for_each_node_reference<E>(
-        &self,
-        mut visit: impl FnMut(CheckedTemplateNodeId) -> Result<(), E>,
-    ) -> Result<(), E> {
-        match self {
-            Self::Call { arguments, .. } | Self::Tuple(arguments) | Self::Array(arguments) => {
-                for argument in arguments.iter() {
-                    visit(*argument)?;
-                }
-            }
-            Self::Convert { value, .. } => visit(*value)?,
-            Self::Unary { operand, .. } | Self::Borrow { operand, .. } => visit(*operand)?,
-            Self::Binary { left, right, .. } => {
-                visit(*left)?;
-                visit(*right)?;
-            }
-            Self::Project { subject, .. } => visit(*subject)?,
-            Self::Conditional {
-                condition,
-                when_true,
-                when_false,
-            } => {
-                visit(*condition)?;
-                visit(*when_true)?;
-                visit(*when_false)?;
-            }
-            Self::ShortCircuit { left, right, .. } => {
-                visit(*left)?;
-                visit(*right)?;
-            }
-            Self::Input(_)
-            | Self::Constant { .. }
-            | Self::Declaration { .. }
-            | Self::Temporary(_) => {}
-        }
-
-        Ok(())
     }
 }
 

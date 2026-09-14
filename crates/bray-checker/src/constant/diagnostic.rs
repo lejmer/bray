@@ -10,7 +10,7 @@ use super::operation::ConstantOperationError;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum ConstantDiagnostic {
-    InvalidExpression,
+    InvalidExpression(Option<bray_diagnostics::DiagnosticExpressionCategory>),
     Literal(ConstantLiteralError),
     Operation {
         operation: DiagnosticConstantOperation,
@@ -52,7 +52,7 @@ impl ConstantDiagnostic {
 
     pub(super) const fn kind(self) -> DiagnosticKind {
         match self {
-            Self::InvalidExpression | Self::Literal(ConstantLiteralError::Invalid) => {
+            Self::InvalidExpression(_) | Self::Literal(ConstantLiteralError::Invalid) => {
                 DiagnosticKind::CheckingInvalidConstantExpression
             }
             Self::Literal(ConstantLiteralError::NotRepresentable) => {
@@ -97,6 +97,79 @@ impl ConstantDiagnostic {
         }
     }
 
+    pub(super) fn render<C: crate::CheckerRequestContext + ?Sized>(
+        self,
+        context: &C,
+        id: bray_diagnostics::DiagnosticId,
+        span: Option<SourceSpan>,
+        result_type: impl FnOnce() -> Result<
+            bray_symbols::TypeId,
+            crate::CheckerQueryError<C::UpstreamError>,
+        >,
+    ) -> Result<Diagnostic, crate::CheckerQueryError<C::UpstreamError>> {
+        use bray_diagnostics::{
+            DiagnosticLabel, DiagnosticLabelKind, DiagnosticNote, DiagnosticNoteKind, SeverityKind,
+        };
+
+        let mut diagnostic = Diagnostic::new(id, self.kind(), SeverityKind::Error);
+
+        if let Some(span) = span {
+            diagnostic = diagnostic
+                .with_primary_span(span)
+                .with_label(DiagnosticLabel::primary(
+                    DiagnosticLabelKind::InvalidConstantExpression,
+                    span,
+                ));
+        }
+
+        diagnostic = self.apply(diagnostic);
+
+        let note = match self {
+            Self::InvalidExpression(Some(category)) => {
+                diagnostic = diagnostic.with_arg(DiagnosticArg::expression_category(category));
+
+                Some(DiagnosticNoteKind::ConstantExpressionMustBeEvaluable)
+            }
+            Self::InvalidExpression(None) | Self::Literal(ConstantLiteralError::Invalid) => {
+                return Err(
+                    crate::CheckerInfrastructureError::InvalidConstantEvaluationInput.into(),
+                );
+            }
+            Self::Literal(ConstantLiteralError::NotRepresentable)
+            | Self::Operation {
+                error: ConstantOperationError::NotRepresentable,
+                ..
+            } => {
+                diagnostic = diagnostic.with_arg(DiagnosticArg::actual_type(
+                    crate::diagnostic::diagnostic_type(context, result_type()?)?,
+                ));
+
+                None
+            }
+            Self::Operation {
+                error: ConstantOperationError::Invalid,
+                ..
+            } => Some(DiagnosticNoteKind::ConstantExpressionMustBeEvaluable),
+            Self::Literal(ConstantLiteralError::SizeLimitExceeded { .. })
+            | Self::Operation {
+                error: ConstantOperationError::ResourceLimitExceeded { .. },
+                ..
+            }
+            | Self::Limit { .. } => Some(DiagnosticNoteKind::ConstantEvaluationMustFitLimits),
+            Self::Cycle { .. }
+            | Self::Operation {
+                error: ConstantOperationError::DivisionByZero,
+                ..
+            } => None,
+        };
+
+        if let Some(note) = note {
+            diagnostic = diagnostic.with_note(DiagnosticNote::new(note));
+        }
+
+        Ok(diagnostic)
+    }
+
     pub(super) fn apply(self, diagnostic: Diagnostic) -> Diagnostic {
         match self {
             Self::Operation {
@@ -123,7 +196,7 @@ impl ConstantDiagnostic {
                     definition,
                 ))
             }
-            Self::InvalidExpression | Self::Literal(_) | Self::Cycle { .. } => diagnostic,
+            Self::InvalidExpression(_) | Self::Literal(_) | Self::Cycle { .. } => diagnostic,
         }
     }
 }

@@ -7,6 +7,7 @@ func run()
 {
     assert(composition.api.answer() == 42);
     runtime_default_storage();
+    custom_runtime_defaults();
     assert(identity(true));
     assert(conditional_completion());
     replace_owner();

@@ -178,6 +178,16 @@ impl<'a> SemanticExporter<'a> {
                                     self.constant_term_id(index)?,
                                 )
                             }
+                            ConstantProjectionKind::ArraySlice { lower, upper } => {
+                                InterfaceConstantProjection::ArraySlice {
+                                    lower: lower
+                                        .map(|bound| self.constant_term_id(bound))
+                                        .transpose()?,
+                                    upper: upper
+                                        .map(|bound| self.constant_term_id(bound))
+                                        .transpose()?,
+                                }
+                            }
                             ConstantProjectionKind::ProductField(field) => {
                                 InterfaceConstantProjection::ProductField(
                                     self.symbol_reference(field.into())?,

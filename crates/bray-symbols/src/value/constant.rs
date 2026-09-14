@@ -344,17 +344,44 @@ pub enum ConstantBinaryOperation {
 
 /// The exact projection applied to an open constant subject.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum ConstantProjectionKind {
+pub enum ConstantProjectionKind<
+    Term = ConstantTermId,
+    ProductField = StructFieldSymbolId,
+    UnionField = UnionPayloadFieldSymbolId,
+> {
     /// A tuple element by stable ordinal.
     TupleElement(SymbolOrdinal),
     /// An array element selected by a checked constant term.
-    ArrayElement(ConstantTermId),
+    ArrayElement(Term),
+    /// A half-open array slice with checked optional bounds.
+    ArraySlice {
+        /// Inclusive start. Absence means zero.
+        lower: Option<Term>,
+        /// Exclusive end. Absence means the subject length.
+        upper: Option<Term>,
+    },
     /// A named product field.
-    ProductField(StructFieldSymbolId),
+    ProductField(ProductField),
     /// A named union payload field.
-    UnionPayloadField(UnionPayloadFieldSymbolId),
+    UnionPayloadField(UnionField),
     /// The present value of a nullable subject.
     NullableValue,
+}
+
+impl<Term: Copy, ProductField, UnionField> ConstantProjectionKind<Term, ProductField, UnionField> {
+    /// Visits checked selector terms in evaluation order. Omitted bounds have no dependency.
+    pub fn term_references(&self) -> impl Iterator<Item = Term> {
+        match self {
+            Self::ArrayElement(index) => [Some(*index), None],
+            Self::ArraySlice { lower, upper } => [*lower, *upper],
+            Self::TupleElement(_)
+            | Self::ProductField(_)
+            | Self::UnionPayloadField(_)
+            | Self::NullableValue => [None, None],
+        }
+        .into_iter()
+        .flatten()
+    }
 }
 
 /// A checked projection from one open constant term.

@@ -1,13 +1,9 @@
 use std::sync::Arc;
 
 use bray_base::sorted_unique_shared_slice;
-use bray_bound_tree::{
-    CheckedTemplateConstantUsage, CheckedTemplateInputId, CheckedTemplateKind,
-    CheckedTemplateNodeId, CheckedTemplateShortCircuitKind, CheckedTemplateTemporaryId,
-};
+use bray_bound_tree::{CheckedTemplateKind, CheckedTemplateNodeId};
 use bray_symbols::{
-    BorrowKind, ConstantBinaryOperation, ConstantUnaryOperation, CurrentRunCancellation,
-    InterfaceSupportEntityId, LifecycleObligationKind, SymbolOrdinal,
+    CurrentRunCancellation, InterfaceSupportEntityId, LifecycleObligationKind, SymbolOrdinal,
 };
 
 use super::{
@@ -168,131 +164,22 @@ impl InterfaceCheckedTemplateBehavior {
     }
 }
 
-/// The closed normalized operation vocabulary of an interface template.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum InterfaceCheckedTemplateOperation {
-    /// Reads one explicitly declared contextual or generic input.
-    Input(CheckedTemplateInputId),
-    /// Materializes an already checked open or closed constant term.
-    Constant {
-        /// The checked open or closed constant term.
-        term: InterfaceConstantTermId,
-        /// Materialization work no longer recoverable from a closed value.
-        usage: CheckedTemplateConstantUsage,
-    },
-    /// Applies a selected unary constant operation.
-    Unary {
-        /// Exact checked operation.
-        operation: ConstantUnaryOperation,
-        /// Operand evaluated before the operation.
-        operand: CheckedTemplateNodeId,
-    },
-    /// Applies a selected binary constant operation.
-    Binary {
-        /// Exact checked operation.
-        operation: ConstantBinaryOperation,
-        /// Left operand evaluated first.
-        left: CheckedTemplateNodeId,
-        /// Right operand evaluated second unless the operation short-circuits.
-        right: CheckedTemplateNodeId,
-    },
-    /// Borrows one evaluated place with its checked capability.
-    Borrow {
-        /// Exact borrow capability.
-        kind: BorrowKind,
-        /// Place evaluated before creating the borrow.
-        operand: CheckedTemplateNodeId,
-    },
-    /// Reads a declaration-owned value.
-    Declaration {
-        /// Selected declaration.
-        declaration: InterfaceTemplateReference,
-        /// Exact closed generic application when the declaration is selected explicitly.
-        substitution: Option<InterfaceGenericSubstitutionId>,
-    },
-    /// Applies one selected callable or predicate with deterministic argument order.
-    Call {
-        /// The selected callable or predicate declaration.
-        callable: InterfaceTemplateReference,
-        /// Ordered generic arguments applied to the callable declaration.
-        substitution: InterfaceGenericSubstitutionId,
-        /// Arguments in exact evaluation and parameter order.
-        arguments: Arc<[CheckedTemplateNodeId]>,
-        /// The selected implementation witness when dispatch requires one.
-        implementation: Option<(
-            InterfaceImplementationReference,
-            InterfaceGenericSubstitutionId,
-        )>,
-    },
-    /// Applies an already checked semantic conversion.
-    Convert {
-        /// The converted value.
-        value: CheckedTemplateNodeId,
-        /// The checked destination type.
-        target: InterfaceTypeId,
-    },
-    /// Constructs a tuple from values in element order.
-    Tuple(Arc<[CheckedTemplateNodeId]>),
-    /// Constructs an array from values in element order.
-    Array(Arc<[CheckedTemplateNodeId]>),
-    /// Projects a selected declaration-owned member from a value.
-    Project {
-        /// The projected subject.
-        subject: CheckedTemplateNodeId,
-        /// The selected field, payload, or associated declaration.
-        member: InterfaceTemplateReference,
-    },
-    /// Evaluates a condition once and then exactly one selected branch.
-    Conditional {
-        /// The condition evaluated before either branch.
-        condition: CheckedTemplateNodeId,
-        /// The result evaluated only when the condition is true.
-        when_true: CheckedTemplateNodeId,
-        /// The result evaluated only when the condition is false.
-        when_false: CheckedTemplateNodeId,
-    },
-    /// Evaluates the left operand and conditionally evaluates the right operand.
-    ShortCircuit {
-        /// The exact conjunction or disjunction evaluation rule.
-        kind: CheckedTemplateShortCircuitKind,
-        /// The operand evaluated first.
-        left: CheckedTemplateNodeId,
-        /// The operand evaluated conditionally.
-        right: CheckedTemplateNodeId,
-    },
-    /// Reads one explicitly materialized template-local temporary.
-    Temporary(CheckedTemplateTemporaryId),
-}
+/// A checked-template operation whose semantic references belong to the interface graph.
+pub type InterfaceCheckedTemplateOperation = bray_bound_tree::CheckedTemplateOperation<
+    InterfaceConstantTermId,
+    InterfaceTypeId,
+    InterfaceTemplateReference,
+    InterfaceGenericSubstitutionId,
+    InterfaceImplementationReference,
+>;
 
-impl InterfaceCheckedTemplateOperation {
-    /// Creates a selected callable or predicate application with stable argument order.
-    pub fn call(
-        callable: InterfaceTemplateReference,
-        substitution: InterfaceGenericSubstitutionId,
-        arguments: impl IntoIterator<Item = CheckedTemplateNodeId>,
-        implementation: Option<(
-            InterfaceImplementationReference,
-            InterfaceGenericSubstitutionId,
-        )>,
-    ) -> Self {
-        Self::Call {
-            callable,
-            substitution,
-            arguments: arguments.into_iter().collect(),
-            implementation,
-        }
-    }
-
-    /// Creates an ordered tuple construction.
-    pub fn tuple(elements: impl IntoIterator<Item = CheckedTemplateNodeId>) -> Self {
-        Self::Tuple(elements.into_iter().collect())
-    }
-
-    /// Creates an ordered array construction.
-    pub fn array(elements: impl IntoIterator<Item = CheckedTemplateNodeId>) -> Self {
-        Self::Array(elements.into_iter().collect())
-    }
-}
+/// The checked custom-index selection using interface-local semantic references.
+pub type InterfaceCheckedTemplateIndexCall = bray_bound_tree::CheckedTemplateIndexCall<
+    InterfaceTemplateReference,
+    InterfaceGenericSubstitutionId,
+    InterfaceImplementationReference,
+    InterfaceTypeId,
+>;
 
 /// One typed normalized operation in deterministic dependency order.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]

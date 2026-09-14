@@ -391,6 +391,12 @@ fn remap_constant_term(
             if let InterfaceConstantProjection::ArrayElement(index) = kind {
                 *index = maps.constant_term_id(*index)?;
             }
+
+            if let InterfaceConstantProjection::ArraySlice { lower, upper } = kind {
+                for bound in [lower, upper].into_iter().flatten() {
+                    *bound = maps.constant_term_id(*bound)?;
+                }
+            }
         }
         InterfaceConstantTerm::IntegerLiteral { .. }
         | InterfaceConstantTerm::CallableArgument(_)

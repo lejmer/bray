@@ -19,8 +19,8 @@ use super::super::diagnostic::{ConstantDiagnostic, ConstantLimitKind, diagnostic
 use super::super::limits::{ConstantEvaluationLimits, EvaluationBudget};
 use super::super::operation::{fold_binary, fold_unary};
 use super::support::{
-    TemplateEvaluationFailure, constant_definition, operation_failure, recovery_value,
-    target_integer_width, template_index,
+    TemplateEvaluationFailure, constant_definition, integer_index, operation_failure,
+    recovery_value, target_integer_width, template_index,
 };
 use crate::representation::type_representation_for_context;
 use crate::{CheckerQueryError, CheckerRequestContext};
@@ -202,6 +202,38 @@ where
 
                 self.evaluate_projection(subject, member, ty)
             }
+            CheckedTemplateOperation::Index { call: Some(_), .. }
+            | CheckedTemplateOperation::Slice { call: Some(_), .. } => {
+                // Custom indexing reaches borrowed runtime storage, which cannot be a constant value.
+                Err(TemplateEvaluationFailure::invalid_expression(
+                    bray_diagnostics::DiagnosticExpressionCategory::Indexing,
+                ))
+            }
+            CheckedTemplateOperation::Index {
+                subject,
+                index,
+                call: None,
+            } => {
+                let subject = self.evaluate_node(*subject)?;
+                let index = self.evaluate_index_bound(*index)?;
+                let subject = self.constant_value(subject)?;
+
+                let ConstantValueKind::Array(elements) = subject.kind() else {
+                    return Err(TemplateEvaluationFailure::invalid_input());
+                };
+
+                elements.get(index).copied().ok_or_else(|| {
+                    TemplateEvaluationFailure::invalid_expression(
+                        bray_diagnostics::DiagnosticExpressionCategory::Indexing,
+                    )
+                })
+            }
+            CheckedTemplateOperation::Slice {
+                subject,
+                lower,
+                upper,
+                call: None,
+            } => self.evaluate_slice(*subject, *lower, *upper, ty),
             CheckedTemplateOperation::Conditional {
                 condition,
                 when_true,
@@ -237,6 +269,52 @@ where
                 self.evaluate_node(temporary.initializer())
             }
         }
+    }
+
+    fn evaluate_index_bound(
+        &mut self,
+        node: CheckedTemplateNodeId,
+    ) -> Result<usize, TemplateEvaluationFailure> {
+        let value = self.evaluate_node(node)?;
+        let value = self.constant_value(value)?;
+
+        integer_index(value.kind()).ok_or_else(TemplateEvaluationFailure::invalid_input)
+    }
+
+    fn evaluate_slice(
+        &mut self,
+        subject: CheckedTemplateNodeId,
+        lower: Option<CheckedTemplateNodeId>,
+        upper: Option<CheckedTemplateNodeId>,
+        ty: TypeId,
+    ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
+        let subject = self.evaluate_node(subject)?;
+        let subject = self.constant_value(subject)?;
+
+        let ConstantValueKind::Array(elements) = subject.kind() else {
+            return Err(TemplateEvaluationFailure::invalid_input());
+        };
+
+        let lower = lower
+            .map(|bound| self.evaluate_index_bound(bound))
+            .transpose()?;
+
+        let upper = upper
+            .map(|bound| self.evaluate_index_bound(bound))
+            .transpose()?;
+
+        let elements =
+            crate::constant::array::slice_elements(elements, lower, upper).ok_or_else(|| {
+                TemplateEvaluationFailure::invalid_expression(
+                    bray_diagnostics::DiagnosticExpressionCategory::Indexing,
+                )
+            })?;
+
+        self.budget
+            .try_charge_elements(elements.len())
+            .map_err(TemplateEvaluationFailure::Diagnostic)?;
+
+        self.intern_value(ty, ConstantValueKind::array(elements.iter().copied()))
     }
 
     fn evaluate_static_address(

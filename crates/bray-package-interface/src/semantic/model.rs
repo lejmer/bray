@@ -50,7 +50,8 @@ pub use support::{
 };
 pub use template::{
     InterfaceCheckedTemplate, InterfaceCheckedTemplateBehavior, InterfaceCheckedTemplateExecution,
-    InterfaceCheckedTemplateInput, InterfaceCheckedTemplateInputKind, InterfaceCheckedTemplateNode,
+    InterfaceCheckedTemplateIndexCall, InterfaceCheckedTemplateInput,
+    InterfaceCheckedTemplateInputKind, InterfaceCheckedTemplateNode,
     InterfaceCheckedTemplateOperation, InterfaceCheckedTemplateTemporary,
     InterfaceDeclarationTemplate,
 };

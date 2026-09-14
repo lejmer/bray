@@ -331,6 +331,17 @@ fn decode_operation(
             kind: decode_tag(read_u32(reader)?)?,
             operand: CheckedTemplateNodeId::new(read_u32(reader)?),
         }),
+        15 => Ok(InterfaceCheckedTemplateOperation::Index {
+            call: decode_index_call(reader, context)?,
+            subject: CheckedTemplateNodeId::new(read_u32(reader)?),
+            index: CheckedTemplateNodeId::new(read_u32(reader)?),
+        }),
+        16 => Ok(InterfaceCheckedTemplateOperation::Slice {
+            call: decode_index_call(reader, context)?,
+            subject: CheckedTemplateNodeId::new(read_u32(reader)?),
+            lower: read_optional_u32(reader)?.map(CheckedTemplateNodeId::new),
+            upper: read_optional_u32(reader)?.map(CheckedTemplateNodeId::new),
+        }),
         _ => Err(crate::semantic::codec::invalid_discriminant(
             crate::InterfaceValidationField::Template,
             raw,
@@ -389,6 +400,60 @@ fn decode_implementation_reference(
         _ => Err(crate::semantic::codec::invalid_discriminant(
             crate::InterfaceValidationField::Template,
             raw,
+        )),
+    }
+}
+
+fn decode_index_call(
+    reader: &mut WireReader<'_>,
+    context: &mut SemanticDecodeContext,
+) -> Result<
+    Option<std::sync::Arc<crate::InterfaceCheckedTemplateIndexCall>>,
+    InterfaceValidationError,
+> {
+    let present = read_u32(reader)?;
+
+    match present {
+        0 => Ok(None),
+        1 => {
+            let callable = decode_template_reference(reader, context)?;
+            let substitution = crate::InterfaceGenericSubstitutionId::new(read_u32(reader)?);
+            let borrow_kind = decode_tag(read_u32(reader)?)?;
+            let present = read_u32(reader)?;
+
+            let dispatch = match present {
+                1 => bray_bound_tree::CheckedTemplateIndexDispatch::Implementation(
+                    decode_implementation_reference(reader, context)?,
+                    crate::InterfaceGenericSubstitutionId::new(read_u32(reader)?),
+                ),
+                2 => bray_bound_tree::CheckedTemplateIndexDispatch::Constraint {
+                    owner: decode_template_reference(reader, context)?,
+                    ordinal: SymbolOrdinal::new(read_u32(reader)?),
+                },
+                3 => bray_bound_tree::CheckedTemplateIndexDispatch::TraitDefault {
+                    subject: crate::InterfaceTypeId::new(read_u32(reader)?),
+                    substitution: crate::InterfaceGenericSubstitutionId::new(read_u32(reader)?),
+                },
+                _ => {
+                    return Err(crate::semantic::codec::invalid_discriminant(
+                        crate::InterfaceValidationField::Template,
+                        present,
+                    ));
+                }
+            };
+
+            Ok(Some(std::sync::Arc::new(
+                crate::InterfaceCheckedTemplateIndexCall {
+                    callable,
+                    substitution,
+                    borrow_kind,
+                    dispatch,
+                },
+            )))
+        }
+        _ => Err(crate::semantic::codec::invalid_discriminant(
+            crate::InterfaceValidationField::Template,
+            present,
         )),
     }
 }
@@ -487,6 +552,72 @@ mod tests {
                     ..
                 }]
             ));
+        }
+    }
+
+    #[test]
+    fn custom_index_dispatch_payloads_preserve_witness_identity_and_missing_bounds() {
+        let (surface, semantics) = operation_fixture();
+
+        let original = &semantics.checked_templates()[0];
+
+        let owner =
+            InterfaceTemplateReference::Symbol(symbol_reference(&surface, SymbolKind::Function));
+
+        for dispatch in [
+            bray_bound_tree::CheckedTemplateIndexDispatch::Implementation(
+                InterfaceImplementationReference::Support(InterfaceSupportEntityId::new(1)),
+                crate::InterfaceGenericSubstitutionId::new(0),
+            ),
+            bray_bound_tree::CheckedTemplateIndexDispatch::Constraint {
+                owner: owner.clone(),
+                ordinal: SymbolOrdinal::new(7),
+            },
+            bray_bound_tree::CheckedTemplateIndexDispatch::TraitDefault {
+                subject: InterfaceTypeId::new(2),
+                substitution: crate::InterfaceGenericSubstitutionId::new(3),
+            },
+        ] {
+            for (lower, upper) in [
+                (None, None),
+                (Some(CheckedTemplateNodeId::new(1)), None),
+                (None, Some(CheckedTemplateNodeId::new(1))),
+            ] {
+                let mut nodes = original.nodes().to_vec();
+
+                nodes.push(InterfaceCheckedTemplateNode::new(
+                    InterfaceCheckedTemplateOperation::Slice {
+                        call: Some(std::sync::Arc::new(
+                            crate::InterfaceCheckedTemplateIndexCall {
+                                callable: owner.clone(),
+                                substitution: crate::InterfaceGenericSubstitutionId::new(0),
+                                borrow_kind: bray_symbols::BorrowKind::Mutable,
+                                dispatch: dispatch.clone(),
+                            },
+                        )),
+                        subject: CheckedTemplateNodeId::new(6),
+                        lower,
+                        upper,
+                    },
+                    InterfaceTypeId::new(0),
+                ));
+
+                let template = InterfaceCheckedTemplate::new(
+                    original.kind(),
+                    original.inputs().iter().cloned(),
+                    nodes,
+                    original.temporaries().iter().cloned(),
+                    original.result(),
+                    original.behavior().clone(),
+                );
+
+                let bytes = crate::semantic::codec::encoding::encode_template_payload(&template);
+
+                assert_eq!(
+                    super::decode_template_payload(&bytes, InterfaceValidationLimits::default()),
+                    Ok(template)
+                );
+            }
         }
     }
 
@@ -904,7 +1035,7 @@ mod tests {
     }
 
     #[test]
-    fn template_validation_rejects_borrow_kind_and_target_mismatches() {
+    fn template_validation_rejects_invalid_borrows_and_index_selections() {
         let (surface, semantics) = operation_fixture();
 
         let template = semantics.checked_templates()[0].clone();
@@ -972,6 +1103,113 @@ mod tests {
                 crate::InterfaceValidationField::Template
             ))
         );
+
+        for (operation, ty) in [
+            (
+                InterfaceCheckedTemplateOperation::Index {
+                    call: None,
+                    subject: CheckedTemplateNodeId::new(0),
+                    index: CheckedTemplateNodeId::new(1),
+                },
+                InterfaceTypeId::new(0),
+            ),
+            (
+                InterfaceCheckedTemplateOperation::Index {
+                    call: None,
+                    subject: CheckedTemplateNodeId::new(6),
+                    index: CheckedTemplateNodeId::new(15),
+                },
+                InterfaceTypeId::new(0),
+            ),
+            (
+                InterfaceCheckedTemplateOperation::Index {
+                    call: None,
+                    subject: CheckedTemplateNodeId::new(6),
+                    index: CheckedTemplateNodeId::new(1),
+                },
+                InterfaceTypeId::new(2),
+            ),
+            (
+                InterfaceCheckedTemplateOperation::Slice {
+                    call: None,
+                    subject: CheckedTemplateNodeId::new(6),
+                    lower: Some(CheckedTemplateNodeId::new(15)),
+                    upper: None,
+                },
+                InterfaceTypeId::new(5),
+            ),
+            (
+                InterfaceCheckedTemplateOperation::Slice {
+                    call: None,
+                    subject: CheckedTemplateNodeId::new(6),
+                    lower: None,
+                    upper: Some(CheckedTemplateNodeId::new(u32::MAX)),
+                },
+                InterfaceTypeId::new(5),
+            ),
+            (
+                InterfaceCheckedTemplateOperation::Slice {
+                    call: None,
+                    subject: CheckedTemplateNodeId::new(6),
+                    lower: None,
+                    upper: None,
+                },
+                InterfaceTypeId::new(0),
+            ),
+        ] {
+            let invalid = invalid_semantics(15, InterfaceCheckedTemplateNode::new(operation, ty));
+
+            assert_eq!(
+                encode_semantics(&invalid, &surface, InterfaceValidationLimits::default()),
+                Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Template
+                ))
+            );
+        }
+
+        for dispatch in [
+            bray_bound_tree::CheckedTemplateIndexDispatch::Constraint {
+                owner: InterfaceTemplateReference::Symbol(symbol_reference(
+                    &surface,
+                    SymbolKind::Module,
+                )),
+                ordinal: SymbolOrdinal::new(0),
+            },
+            bray_bound_tree::CheckedTemplateIndexDispatch::TraitDefault {
+                subject: InterfaceTypeId::new(0),
+                substitution: crate::InterfaceGenericSubstitutionId::new(0),
+            },
+            bray_bound_tree::CheckedTemplateIndexDispatch::Implementation(
+                InterfaceImplementationReference::Support(InterfaceSupportEntityId::new(0)),
+                crate::InterfaceGenericSubstitutionId::new(0),
+            ),
+        ] {
+            let invalid = invalid_semantics(
+                15,
+                InterfaceCheckedTemplateNode::new(
+                    InterfaceCheckedTemplateOperation::Index {
+                        subject: CheckedTemplateNodeId::new(6),
+                        index: CheckedTemplateNodeId::new(1),
+                        call: Some(std::sync::Arc::new(
+                            crate::InterfaceCheckedTemplateIndexCall {
+                                callable: InterfaceTemplateReference::Symbol(symbol_reference(
+                                    &surface,
+                                    SymbolKind::Function,
+                                )),
+                                substitution: crate::InterfaceGenericSubstitutionId::new(0),
+                                borrow_kind: bray_symbols::BorrowKind::Shared,
+                                dispatch,
+                            },
+                        )),
+                    },
+                    InterfaceTypeId::new(0),
+                ),
+            );
+
+            assert!(
+                encode_semantics(&invalid, &surface, InterfaceValidationLimits::default()).is_err()
+            );
+        }
     }
 
     #[test]
@@ -1309,6 +1547,32 @@ mod tests {
                 },
                 InterfaceTypeId::new(4),
             ),
+            InterfaceCheckedTemplateNode::new(
+                InterfaceCheckedTemplateOperation::Index {
+                    call: None,
+                    subject: CheckedTemplateNodeId::new(6),
+                    index: CheckedTemplateNodeId::new(1),
+                },
+                InterfaceTypeId::new(0),
+            ),
+            InterfaceCheckedTemplateNode::new(
+                InterfaceCheckedTemplateOperation::Slice {
+                    call: None,
+                    subject: CheckedTemplateNodeId::new(6),
+                    lower: None,
+                    upper: None,
+                },
+                InterfaceTypeId::new(5),
+            ),
+            InterfaceCheckedTemplateNode::new(
+                InterfaceCheckedTemplateOperation::Slice {
+                    call: None,
+                    subject: CheckedTemplateNodeId::new(16),
+                    lower: Some(CheckedTemplateNodeId::new(1)),
+                    upper: Some(CheckedTemplateNodeId::new(1)),
+                },
+                InterfaceTypeId::new(5),
+            ),
         ];
 
         let behavior = InterfaceCheckedTemplateBehavior::new(
@@ -1359,6 +1623,7 @@ mod tests {
                 kind: bray_symbols::BorrowKind::Mutable,
                 target: InterfaceTypeId::new(0),
             },
+            InterfaceType::Slice(InterfaceTypeId::new(0)),
         ];
 
         let support = [

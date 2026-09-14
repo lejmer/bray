@@ -390,6 +390,11 @@ pub(super) fn encode_constant_projection(
         InterfaceConstantProjection::ArrayElement(term) => {
             write_tagged_id(encoder, 2, term.raw());
         }
+        InterfaceConstantProjection::ArraySlice { lower, upper } => {
+            encoder.write_u32(6);
+            write_optional_u32(encoder, lower.map(|bound| bound.raw()));
+            write_optional_u32(encoder, upper.map(|bound| bound.raw()));
+        }
         InterfaceConstantProjection::ProductField(field) => {
             encoder.write_u32(3);
             write_symbol_reference(encoder, field);

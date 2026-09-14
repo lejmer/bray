@@ -276,6 +276,42 @@ where
         self.intern_term(ConstantTermData::Value(value))
     }
 
+    fn merge_call_diagnostics(
+        &mut self,
+        expression: BoundExpressionId,
+        diagnostics: &bray_diagnostics::DiagnosticBag,
+    ) -> Result<(), EvaluationFailure> {
+        if diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.primary_span().is_none())
+        {
+            let span = crate::diagnostic::expression_span(self.request, expression)
+                .map_err(EvaluationFailure::Infrastructure)?;
+
+            let anchored = diagnostics
+                .iter()
+                .map(|diagnostic| {
+                    if diagnostic.primary_span().is_some() {
+                        diagnostic.clone()
+                    } else {
+                        diagnostic.clone().with_primary_span(span).with_label(
+                            bray_diagnostics::DiagnosticLabel::primary(
+                                bray_diagnostics::DiagnosticLabelKind::InvalidConstantExpression,
+                                span,
+                            ),
+                        )
+                    }
+                })
+                .collect();
+
+            self.diagnostics = self.diagnostics.merged(&anchored);
+        } else {
+            self.diagnostics = self.diagnostics.merged(diagnostics);
+        }
+
+        Ok(())
+    }
+
     pub(super) fn evaluate_call_values(
         &mut self,
         expression: BoundExpressionId,
@@ -317,7 +353,7 @@ where
                     return Err(EvaluationFailure::invalid_input());
                 }
 
-                self.diagnostics = self.diagnostics.merged(result.diagnostics());
+                self.merge_call_diagnostics(expression, result.diagnostics())?;
 
                 Ok(value)
             }
@@ -327,7 +363,7 @@ where
             }),
             Ok(ConstantCallResolution::Ineligible(diagnostics)) => {
                 if diagnostics.has_errors() {
-                    self.diagnostics = self.diagnostics.merged(&diagnostics);
+                    self.merge_call_diagnostics(expression, &diagnostics)?;
 
                     return self
                         .recovery_value(result_type)

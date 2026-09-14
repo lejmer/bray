@@ -16,6 +16,14 @@ pub fn check_array_length(value: &IntegerConstant) -> Result<(), ArrayLengthErro
     Ok(())
 }
 
+pub(super) fn slice_elements<T>(
+    elements: &[T],
+    lower: Option<usize>,
+    upper: Option<usize>,
+) -> Option<&[T]> {
+    elements.get(lower.unwrap_or(0)..upper.unwrap_or(elements.len()))
+}
+
 #[cfg(test)]
 mod tests {
     use bray_symbols::{IntegerConstant, IntegerSign};

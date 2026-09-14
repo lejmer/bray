@@ -350,6 +350,11 @@ impl InterfaceSemantics {
             InterfaceConstantProjection::ArrayElement(id) => {
                 validate_index(id.to_index(), self.constant_terms.len())?;
             }
+            InterfaceConstantProjection::ArraySlice { lower, upper } => {
+                for bound in [lower, upper].into_iter().flatten() {
+                    validate_index(bound.to_index(), self.constant_terms.len())?;
+                }
+            }
             InterfaceConstantProjection::ProductField(symbol)
             | InterfaceConstantProjection::UnionPayloadField(symbol) => {
                 validate_symbol(symbol, symbol_count, dependency_count)?;

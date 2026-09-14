@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use bray_symbols::InterfaceSupportEntityId;
 
 use super::super::model::{
@@ -101,109 +99,13 @@ fn remap_checked_operation(
     support_base: u32,
     support_count: usize,
 ) -> Result<InterfaceCheckedTemplateOperation, InterfaceSemanticCommitError> {
-    let operation = match operation {
-        InterfaceCheckedTemplateOperation::Input(input) => {
-            InterfaceCheckedTemplateOperation::Input(*input)
-        }
-        InterfaceCheckedTemplateOperation::Constant { term, usage } => {
-            InterfaceCheckedTemplateOperation::Constant {
-                term: remap.constant_term(*term)?,
-                usage: *usage,
-            }
-        }
-        InterfaceCheckedTemplateOperation::Unary { operation, operand } => {
-            InterfaceCheckedTemplateOperation::Unary {
-                operation: *operation,
-                operand: *operand,
-            }
-        }
-        InterfaceCheckedTemplateOperation::Binary {
-            operation,
-            left,
-            right,
-        } => InterfaceCheckedTemplateOperation::Binary {
-            operation: *operation,
-            left: *left,
-            right: *right,
-        },
-        InterfaceCheckedTemplateOperation::Borrow { kind, operand } => {
-            InterfaceCheckedTemplateOperation::Borrow {
-                kind: *kind,
-                operand: *operand,
-            }
-        }
-        InterfaceCheckedTemplateOperation::Declaration {
-            declaration,
-            substitution,
-        } => InterfaceCheckedTemplateOperation::Declaration {
-            declaration: remap_template_reference(declaration, support_base, support_count)?,
-            substitution: substitution
-                .map(|substitution| remap.substitution(substitution))
-                .transpose()?,
-        },
-        InterfaceCheckedTemplateOperation::Call {
-            callable,
-            substitution,
-            arguments,
-            implementation,
-        } => InterfaceCheckedTemplateOperation::Call {
-            callable: remap_template_reference(callable, support_base, support_count)?,
-            substitution: remap.substitution(*substitution)?,
-            arguments: Arc::clone(arguments),
-            implementation: implementation
-                .as_ref()
-                .map(|(implementation, substitution)| {
-                    Ok((
-                        remap_implementation_reference(
-                            implementation,
-                            support_base,
-                            support_count,
-                        )?,
-                        remap.substitution(*substitution)?,
-                    ))
-                })
-                .transpose()?,
-        },
-        InterfaceCheckedTemplateOperation::Convert { value, target } => {
-            InterfaceCheckedTemplateOperation::Convert {
-                value: *value,
-                target: remap.ty(*target)?,
-            }
-        }
-        InterfaceCheckedTemplateOperation::Tuple(elements) => {
-            InterfaceCheckedTemplateOperation::Tuple(Arc::clone(elements))
-        }
-        InterfaceCheckedTemplateOperation::Array(elements) => {
-            InterfaceCheckedTemplateOperation::Array(Arc::clone(elements))
-        }
-        InterfaceCheckedTemplateOperation::Project { subject, member } => {
-            InterfaceCheckedTemplateOperation::Project {
-                subject: *subject,
-                member: remap_template_reference(member, support_base, support_count)?,
-            }
-        }
-        InterfaceCheckedTemplateOperation::Conditional {
-            condition,
-            when_true,
-            when_false,
-        } => InterfaceCheckedTemplateOperation::Conditional {
-            condition: *condition,
-            when_true: *when_true,
-            when_false: *when_false,
-        },
-        InterfaceCheckedTemplateOperation::ShortCircuit { kind, left, right } => {
-            InterfaceCheckedTemplateOperation::ShortCircuit {
-                kind: *kind,
-                left: *left,
-                right: *right,
-            }
-        }
-        InterfaceCheckedTemplateOperation::Temporary(temporary) => {
-            InterfaceCheckedTemplateOperation::Temporary(*temporary)
-        }
-    };
-
-    Ok(operation)
+    operation.try_map_references(
+        |term| remap.constant_term(*term),
+        |ty| remap.ty(*ty),
+        |reference| remap_template_reference(reference, support_base, support_count),
+        |substitution| remap.substitution(*substitution),
+        |reference| remap_implementation_reference(reference, support_base, support_count),
+    )
 }
 
 fn remap_template_reference(

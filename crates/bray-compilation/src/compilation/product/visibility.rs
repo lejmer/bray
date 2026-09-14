@@ -827,6 +827,11 @@ fn constant_term_exposes_internal(
                 ConstantProjectionKind::ArrayElement(index) => {
                     pending.push(SemanticValueDependency::ConstantTerm(index));
                 }
+                ConstantProjectionKind::ArraySlice { lower, upper } => {
+                    for bound in [lower, upper].into_iter().flatten() {
+                        pending.push(SemanticValueDependency::ConstantTerm(bound));
+                    }
+                }
                 ConstantProjectionKind::ProductField(field) => {
                     return Ok(source_symbol_is_not_publicly_reachable(
                         field.into(),

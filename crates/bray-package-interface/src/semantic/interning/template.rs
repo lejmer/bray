@@ -182,125 +182,25 @@ fn convert_operation(
     semantics: &InterfaceSemantics,
     symbols: &impl InterfaceSymbolResolver,
 ) -> Result<CheckedTemplateOperation, InterfaceSemanticInternError> {
-    match operation {
-        InterfaceCheckedTemplateOperation::Input(input) => {
-            Ok(CheckedTemplateOperation::Input(*input))
-        }
-        InterfaceCheckedTemplateOperation::Constant { term, usage } => state
-            .constant_term_id(*term)
-            .map(|term| CheckedTemplateOperation::Constant {
-                term,
-                usage: *usage,
-            })
-            .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph),
-        InterfaceCheckedTemplateOperation::Unary { operation, operand } => {
-            Ok(CheckedTemplateOperation::Unary {
-                operation: *operation,
-                operand: *operand,
-            })
-        }
-        InterfaceCheckedTemplateOperation::Binary {
-            operation,
-            left,
-            right,
-        } => Ok(CheckedTemplateOperation::Binary {
-            operation: *operation,
-            left: *left,
-            right: *right,
-        }),
-        InterfaceCheckedTemplateOperation::Borrow { kind, operand } => {
-            Ok(CheckedTemplateOperation::Borrow {
-                kind: *kind,
-                operand: *operand,
-            })
-        }
-        InterfaceCheckedTemplateOperation::Declaration {
-            declaration,
-            substitution,
-        } => Ok(CheckedTemplateOperation::Declaration {
-            declaration: template_key(semantics, declaration, symbols)?,
-            substitution: substitution
-                .map(|substitution| {
-                    state
-                        .substitution_id(substitution)
-                        .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)
-                })
-                .transpose()?,
-        }),
-        InterfaceCheckedTemplateOperation::Call {
-            callable,
-            substitution,
-            arguments,
-            implementation,
-        } => {
-            let substitution = state
+    operation.try_map_references(
+        |term| {
+            state
+                .constant_term_id(*term)
+                .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)
+        },
+        |ty| {
+            state
+                .type_id(*ty)
+                .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)
+        },
+        |reference| template_key(semantics, reference, symbols),
+        |substitution| {
+            state
                 .substitution_id(*substitution)
-                .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
-
-            let implementation = implementation
-                .as_ref()
-                .map(
-                    |(reference, substitution)| -> Result<_, InterfaceSemanticInternError> {
-                        let declaration = implementation_key(semantics, reference, symbols)?;
-
-                        let substitution = state
-                            .substitution_id(*substitution)
-                            .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
-
-                        Ok((declaration, substitution))
-                    },
-                )
-                .transpose()?;
-
-            Ok(CheckedTemplateOperation::call(
-                template_key(semantics, callable, symbols)?,
-                substitution,
-                arguments.iter().copied(),
-                implementation,
-            ))
-        }
-        InterfaceCheckedTemplateOperation::Convert { value, target } => {
-            let target = state
-                .type_id(*target)
-                .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
-
-            Ok(CheckedTemplateOperation::Convert {
-                value: *value,
-                target,
-            })
-        }
-        InterfaceCheckedTemplateOperation::Tuple(elements) => {
-            Ok(CheckedTemplateOperation::tuple(elements.iter().copied()))
-        }
-        InterfaceCheckedTemplateOperation::Array(elements) => {
-            Ok(CheckedTemplateOperation::array(elements.iter().copied()))
-        }
-        InterfaceCheckedTemplateOperation::Project { subject, member } => {
-            Ok(CheckedTemplateOperation::Project {
-                subject: *subject,
-                member: template_key(semantics, member, symbols)?,
-            })
-        }
-        InterfaceCheckedTemplateOperation::Conditional {
-            condition,
-            when_true,
-            when_false,
-        } => Ok(CheckedTemplateOperation::Conditional {
-            condition: *condition,
-            when_true: *when_true,
-            when_false: *when_false,
-        }),
-        InterfaceCheckedTemplateOperation::ShortCircuit { kind, left, right } => {
-            Ok(CheckedTemplateOperation::ShortCircuit {
-                kind: *kind,
-                left: *left,
-                right: *right,
-            })
-        }
-        InterfaceCheckedTemplateOperation::Temporary(temporary) => {
-            Ok(CheckedTemplateOperation::Temporary(*temporary))
-        }
-    }
+                .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)
+        },
+        |reference| implementation_key(semantics, reference, symbols),
+    )
 }
 
 fn convert_behavior(
