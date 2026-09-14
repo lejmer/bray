@@ -339,21 +339,14 @@ fn validate_operation_references(
     operation: &InterfaceCheckedTemplateOperation,
     node_index: usize,
 ) -> Result<(), InterfaceValidationError> {
+    operation.try_for_each_node_reference(|node| validate_prior_node(node, node_index))?;
+
     match operation {
         InterfaceCheckedTemplateOperation::Input(input) => {
             checked_index(compact_index(input.raw()), context.template.inputs().len())?;
         }
         InterfaceCheckedTemplateOperation::Constant { term, .. } => {
             validate_index(term.to_index(), context.semantics.constant_terms.len())?;
-        }
-        InterfaceCheckedTemplateOperation::Unary { operand, .. } => {
-            validate_prior_node(*operand, node_index)?;
-        }
-        InterfaceCheckedTemplateOperation::Binary { left, right, .. } => {
-            validate_prior_nodes(&[*left, *right], node_index)?;
-        }
-        InterfaceCheckedTemplateOperation::Borrow { operand, .. } => {
-            validate_prior_node(*operand, node_index)?;
         }
         InterfaceCheckedTemplateOperation::Declaration {
             declaration,
@@ -371,64 +364,74 @@ fn validate_operation_references(
         InterfaceCheckedTemplateOperation::Call {
             callable,
             substitution,
-            arguments,
             implementation,
+            ..
         } => {
-            let declaration_kind = validate_template_reference(context, callable)?;
+            validate_call_references(context, callable, *substitution, implementation.as_ref())?;
+        }
+        InterfaceCheckedTemplateOperation::Index { call, .. }
+        | InterfaceCheckedTemplateOperation::Slice { call, .. } => {
+            if let Some(call) = call {
+                validate_call_references(context, &call.callable, call.substitution, None)?;
 
-            if !declaration_kind.is_callable()
-                && !matches!(
-                    declaration_kind,
-                    SymbolKind::Predicate
-                        | SymbolKind::TraitPredicateMember
-                        | SymbolKind::TraitPredicateFulfillment
-                )
-            {
-                return Err(crate::semantic::codec::invalid_value(
-                    crate::InterfaceValidationField::Template,
-                ));
-            }
+                match &call.dispatch {
+                    bray_bound_tree::CheckedTemplateIndexDispatch::Implementation(
+                        implementation,
+                        substitution,
+                    ) => {
+                        validate_implementation_reference(context, implementation)?;
 
-            validate_index(
-                substitution.to_index(),
-                context.semantics.substitutions.len(),
-            )?;
+                        validate_index(
+                            substitution.to_index(),
+                            context.semantics.substitutions.len(),
+                        )?;
+                    }
+                    bray_bound_tree::CheckedTemplateIndexDispatch::Constraint { owner, .. } => {
+                        if !validate_template_reference(context, owner)?
+                            .supports_generic_substitutions()
+                        {
+                            return Err(crate::semantic::codec::invalid_value(
+                                crate::InterfaceValidationField::Template,
+                            ));
+                        }
+                    }
+                    bray_bound_tree::CheckedTemplateIndexDispatch::TraitDefault {
+                        subject,
+                        substitution,
+                    } => {
+                        validate_index(subject.to_index(), context.semantics.types.len())?;
 
-            validate_prior_nodes(arguments, node_index)?;
+                        let index = checked_index(
+                            compact_index(substitution.raw()),
+                            context.semantics.substitutions.len(),
+                        )?;
 
-            if let Some((implementation, substitution)) = implementation {
-                validate_implementation_reference(context, implementation)?;
-
-                validate_index(
-                    substitution.to_index(),
-                    context.semantics.substitutions.len(),
-                )?;
+                        if validate_symbol_kind(
+                            &context.semantics.substitutions[index].owner,
+                            context.surface,
+                        )? != SymbolKind::Trait
+                        {
+                            return Err(crate::semantic::codec::invalid_value(
+                                crate::InterfaceValidationField::Template,
+                            ));
+                        }
+                    }
+                }
             }
         }
-        InterfaceCheckedTemplateOperation::Convert { value, target } => {
-            validate_prior_node(*value, node_index)?;
+        InterfaceCheckedTemplateOperation::Convert { target, .. } => {
             validate_index(target.to_index(), context.semantics.types.len())?;
         }
-        InterfaceCheckedTemplateOperation::Tuple(elements) => {
-            validate_prior_nodes(elements, node_index)?;
-        }
-        InterfaceCheckedTemplateOperation::Array(elements) => {
-            validate_prior_nodes(elements, node_index)?;
-        }
-        InterfaceCheckedTemplateOperation::Project { subject, member } => {
-            validate_prior_node(*subject, node_index)?;
+        InterfaceCheckedTemplateOperation::Project { member, .. } => {
             validate_template_reference(context, member)?;
         }
-        InterfaceCheckedTemplateOperation::Conditional {
-            condition,
-            when_true,
-            when_false,
-        } => {
-            validate_prior_nodes(&[*condition, *when_true, *when_false], node_index)?;
-        }
-        InterfaceCheckedTemplateOperation::ShortCircuit { left, right, .. } => {
-            validate_prior_nodes(&[*left, *right], node_index)?;
-        }
+        InterfaceCheckedTemplateOperation::Unary { .. }
+        | InterfaceCheckedTemplateOperation::Binary { .. }
+        | InterfaceCheckedTemplateOperation::Borrow { .. }
+        | InterfaceCheckedTemplateOperation::Tuple(_)
+        | InterfaceCheckedTemplateOperation::Array(_)
+        | InterfaceCheckedTemplateOperation::Conditional { .. }
+        | InterfaceCheckedTemplateOperation::ShortCircuit { .. } => {}
         InterfaceCheckedTemplateOperation::Temporary(temporary) => {
             let temporary_index = checked_index(
                 compact_index(temporary.raw()),
@@ -497,6 +500,19 @@ fn validate_operation_type(
                 .iter()
                 .all(|node| node_type(template, *node) == Some(*element))
         }
+        InterfaceCheckedTemplateOperation::Index {
+            subject,
+            call: None,
+            ..
+        } => indexed_element_type(semantics, template, *subject) == Some(node.ty()),
+        InterfaceCheckedTemplateOperation::Slice {
+            subject,
+            call: None,
+            ..
+        } => {
+            matches!(type_at(semantics, node.ty()), Some(InterfaceType::Slice(element))
+                if indexed_element_type(semantics, template, *subject) == Some(*element))
+        }
         InterfaceCheckedTemplateOperation::Conditional {
             when_true,
             when_false,
@@ -515,7 +531,9 @@ fn validate_operation_type(
 
             template.temporaries()[temporary_index].ty() == node.ty()
         }
-        InterfaceCheckedTemplateOperation::Constant { .. }
+        InterfaceCheckedTemplateOperation::Index { call: Some(_), .. }
+        | InterfaceCheckedTemplateOperation::Slice { call: Some(_), .. }
+        | InterfaceCheckedTemplateOperation::Constant { .. }
         | InterfaceCheckedTemplateOperation::Declaration { .. }
         | InterfaceCheckedTemplateOperation::Call { .. }
         | InterfaceCheckedTemplateOperation::Project { .. } => true,
@@ -528,6 +546,66 @@ fn validate_operation_type(
     }
 
     Ok(())
+}
+
+fn validate_call_references(
+    context: TemplateValidationContext<'_>,
+    callable: &crate::InterfaceTemplateReference,
+    substitution: crate::InterfaceGenericSubstitutionId,
+    implementation: Option<&(
+        crate::InterfaceImplementationReference,
+        crate::InterfaceGenericSubstitutionId,
+    )>,
+) -> Result<(), InterfaceValidationError> {
+    let declaration_kind = validate_template_reference(context, callable)?;
+
+    if !declaration_kind.is_callable()
+        && !matches!(
+            declaration_kind,
+            SymbolKind::Predicate
+                | SymbolKind::TraitPredicateMember
+                | SymbolKind::TraitPredicateFulfillment
+        )
+    {
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Template,
+        ));
+    }
+
+    validate_index(
+        substitution.to_index(),
+        context.semantics.substitutions.len(),
+    )?;
+
+    if let Some((implementation, substitution)) = implementation {
+        validate_implementation_reference(context, implementation)?;
+
+        validate_index(
+            substitution.to_index(),
+            context.semantics.substitutions.len(),
+        )?;
+    }
+
+    Ok(())
+}
+
+fn indexed_element_type(
+    semantics: &InterfaceSemantics,
+    template: &InterfaceCheckedTemplate,
+    subject: CheckedTemplateNodeId,
+) -> Option<super::super::model::InterfaceTypeId> {
+    let mut ty = node_type(template, subject)?;
+
+    loop {
+        match type_at(semantics, ty)? {
+            InterfaceType::Borrow { target, .. }
+            | InterfaceType::OwnedIndirection { target, .. } => ty = *target,
+            InterfaceType::Array { element, .. } | InterfaceType::Slice(element) => {
+                return Some(*element);
+            }
+            _ => return None,
+        }
+    }
 }
 
 fn validate_template_reference(
@@ -595,17 +673,6 @@ fn validate_implementation_reference(
             Ok(())
         }
     }
-}
-
-fn validate_prior_nodes(
-    nodes: &[CheckedTemplateNodeId],
-    current: usize,
-) -> Result<(), InterfaceValidationError> {
-    for node in nodes {
-        validate_prior_node(*node, current)?;
-    }
-
-    Ok(())
 }
 
 fn validate_prior_node(

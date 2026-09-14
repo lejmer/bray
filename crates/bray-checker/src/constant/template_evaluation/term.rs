@@ -262,6 +262,39 @@ where
                 .and_then(|index| elements.get(index))
                 .copied()
         }
+        (
+            ConstantValueKind::Array(elements),
+            ConstantProjectionKind::ArraySlice { lower, upper },
+        ) => {
+            let mut bounds = [None, None];
+
+            for (destination, bound) in bounds.iter_mut().zip([lower, upper]) {
+                if let Some(bound) = bound {
+                    let bound = evaluator.evaluate_term(bound, ty)?;
+                    let bound = evaluator.constant_value(bound)?;
+
+                    *destination = Some(integer_index(bound.kind()).ok_or_else(|| {
+                        TemplateEvaluationFailure::invalid_expression(
+                            bray_diagnostics::DiagnosticExpressionCategory::Indexing,
+                        )
+                    })?);
+                }
+            }
+
+            let elements = crate::constant::array::slice_elements(elements, bounds[0], bounds[1])
+                .ok_or_else(|| {
+                TemplateEvaluationFailure::invalid_expression(
+                    bray_diagnostics::DiagnosticExpressionCategory::Indexing,
+                )
+            })?;
+
+            evaluator
+                .budget
+                .try_charge_elements(elements.len())
+                .map_err(TemplateEvaluationFailure::Diagnostic)?;
+
+            return evaluator.intern_value(ty, ConstantValueKind::array(elements.iter().copied()));
+        }
         (ConstantValueKind::Product(fields), ConstantProjectionKind::ProductField(field)) => fields
             .iter()
             .find(|entry| *entry.field() == field)
@@ -279,7 +312,14 @@ where
         _ => None,
     };
 
-    value.ok_or_else(TemplateEvaluationFailure::invalid_input)
+    value.ok_or_else(|| {
+        TemplateEvaluationFailure::invalid_expression(match projection.kind() {
+            ConstantProjectionKind::ArrayElement(_) | ConstantProjectionKind::ArraySlice { .. } => {
+                bray_diagnostics::DiagnosticExpressionCategory::Indexing
+            }
+            _ => bray_diagnostics::DiagnosticExpressionCategory::MemberAccess,
+        })
+    })
 }
 
 fn evaluate_definition_application<C>(

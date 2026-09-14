@@ -414,7 +414,7 @@ impl EvaluationFailure {
     pub(super) const fn invalid_expression(expression: BoundExpressionId) -> Self {
         Self::Source {
             expression,
-            diagnostic: ConstantDiagnostic::InvalidExpression,
+            diagnostic: ConstantDiagnostic::InvalidExpression(None),
         }
     }
 

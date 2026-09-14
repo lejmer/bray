@@ -47,7 +47,7 @@ use crate::compilation::{
 };
 use crate::fact::{CancellationToken, FactQueryError};
 
-use super::model::{OperationResolution, TraitOperation, TraitOperationCandidate};
+use super::model::{OperationResolution, TraitOperation};
 use super::query::{
     expression_contract_failure, expression_type, operation_contract_failure,
     symbol_contract_failure, unit_contract_failure,
@@ -1535,6 +1535,9 @@ impl Compilation {
             ));
         };
 
+        let source_subject = subject;
+        let subject = self.resolve_access_subject_type(binding_context, subject, diagnostics)?;
+
         let borrow_kind = custom_index_borrow_kind(unit, key.expression())?;
 
         let (role, trait_arguments, callable_parameters, operand_types) = match index.kind() {
@@ -1670,7 +1673,14 @@ impl Compilation {
             }
         }
 
-        let candidate = candidate.map(TraitOperationCandidate::into_candidate);
+        let candidate = candidate.map(|mut candidate| {
+            // The contract belongs to the reached type. Indexing accepts the receiver's borrow layers.
+            if let Some(receiver) = candidate.operand_types.first_mut() {
+                *receiver = source_subject;
+            }
+
+            candidate.into_candidate()
+        });
 
         self.select_operation(
             key,

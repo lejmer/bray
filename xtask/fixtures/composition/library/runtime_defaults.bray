@@ -62,22 +62,82 @@ public func forward_default<T>(pos value: &T, selected: &T = value) -> &T
     return selected;
 }
 
-func flag_element(pos flags: &[DefaultFlag; 1]) -> &DefaultFlag
-{
-    return &flags[0];
-}
-
-func flag_slice(pos flags: &[DefaultFlag; 1]) -> &[DefaultFlag]
-{
-    return &flags[..];
-}
-
-public func indexed_default(pos flags: &[DefaultFlag; 1], selected: &DefaultFlag = flag_element(flags)) -> &DefaultFlag
+public func indexed_default(pos flags: &[DefaultFlag; 1], selected: &DefaultFlag = &flags[0]) -> &DefaultFlag
 {
     return selected;
 }
 
-public func sliced_default(pos flags: &[DefaultFlag; 1], selected: &[DefaultFlag] = flag_slice(flags)) -> &[DefaultFlag]
+public func sliced_default(pos flags: &[DefaultFlag; 1], selected: &[DefaultFlag] = &flags[..]) -> &[DefaultFlag]
+{
+    return selected;
+}
+
+public struct IndexedFlags
+{
+    mut flag: DefaultFlag;
+}
+
+impl IndexedFlags(ElementIndex<i32>)
+{
+    type Output = DefaultFlag;
+
+    func index(pos selector: &i32) -> &DefaultFlag
+    {
+        return &self.flag;
+    }
+}
+
+impl IndexedFlags(MutableElementIndex<i32>)
+{
+    type Output = DefaultFlag;
+
+    mut func index(pos selector: &i32) -> &mut DefaultFlag
+    {
+        return &mut self.flag;
+    }
+}
+
+impl IndexedFlags(SliceIndex<i32>)
+{
+    type Output = DefaultFlag;
+
+    func slice(pos start: i32?, pos end: i32?) -> &DefaultFlag
+    {
+        return &self.flag;
+    }
+}
+
+public func custom_indexed_default(
+    pos flags: &IndexedFlags,
+    pos selector: i32,
+    selected: &DefaultFlag = &flags[selector]
+) -> &DefaultFlag
+{
+    return selected;
+}
+
+public func custom_sliced_default(
+    pos flags: &IndexedFlags,
+    pos start: i32,
+    selected: &DefaultFlag = &flags[start..]
+) -> &DefaultFlag
+{
+    return selected;
+}
+
+public func custom_mutable_default(
+    pos flags: &mut IndexedFlags,
+    pos selector: i32,
+    selected: &mut DefaultFlag = &mut flags[selector]
+) -> &mut DefaultFlag
+{
+    return selected;
+}
+
+public func bounded_slice_default(
+    pos flags: &[DefaultFlag; 2],
+    selected: &[DefaultFlag] = &flags[1..2]
+) -> &[DefaultFlag]
 {
     return selected;
 }

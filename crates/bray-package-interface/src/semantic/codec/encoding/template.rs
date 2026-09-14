@@ -203,6 +203,28 @@ fn encode_operation(encoder: &mut WireEncoder, operation: &InterfaceCheckedTempl
             encoder.write_u32(subject.raw());
             encode_template_reference(encoder, member);
         }
+        InterfaceCheckedTemplateOperation::Index {
+            subject,
+            index,
+            call,
+        } => {
+            encoder.write_u32(15);
+            encode_index_call(encoder, call.as_deref());
+            encoder.write_u32(subject.raw());
+            encoder.write_u32(index.raw());
+        }
+        InterfaceCheckedTemplateOperation::Slice {
+            subject,
+            lower,
+            upper,
+            call,
+        } => {
+            encoder.write_u32(16);
+            encode_index_call(encoder, call.as_deref());
+            encoder.write_u32(subject.raw());
+            write_optional_u32(encoder, lower.map(|node| node.raw()));
+            write_optional_u32(encoder, upper.map(|node| node.raw()));
+        }
         InterfaceCheckedTemplateOperation::Conditional {
             condition,
             when_true,
@@ -263,6 +285,47 @@ fn encode_implementation_reference(
         InterfaceImplementationReference::Support(entity) => {
             encoder.write_u32(2);
             encoder.write_u32(entity.raw());
+        }
+    }
+}
+
+fn encode_index_call(
+    encoder: &mut WireEncoder,
+    call: Option<&crate::InterfaceCheckedTemplateIndexCall>,
+) {
+    let Some(call) = call else {
+        encoder.write_u32(0);
+        return;
+    };
+
+    encoder.write_u32(1);
+
+    encode_template_reference(encoder, &call.callable);
+
+    encoder.write_u32(call.substitution.raw());
+    encoder.write_u32(call.borrow_kind.to_wire());
+
+    match &call.dispatch {
+        bray_bound_tree::CheckedTemplateIndexDispatch::Implementation(
+            implementation,
+            substitution,
+        ) => {
+            encoder.write_u32(1);
+            encode_implementation_reference(encoder, implementation);
+            encoder.write_u32(substitution.raw());
+        }
+        bray_bound_tree::CheckedTemplateIndexDispatch::Constraint { owner, ordinal } => {
+            encoder.write_u32(2);
+            encode_template_reference(encoder, owner);
+            encoder.write_u32(ordinal.raw());
+        }
+        bray_bound_tree::CheckedTemplateIndexDispatch::TraitDefault {
+            subject,
+            substitution,
+        } => {
+            encoder.write_u32(3);
+            encoder.write_u32(subject.raw());
+            encoder.write_u32(substitution.raw());
         }
     }
 }

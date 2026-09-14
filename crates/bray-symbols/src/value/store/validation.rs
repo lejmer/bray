@@ -2,8 +2,8 @@ use std::collections::HashSet;
 
 use super::{
     super::{
-        CallableInstanceData, ConstantProjectionKind, ConstantTermData, ConstantValueData,
-        ConstantValueKind, DependencyContractTemplateData, DependencyGuard, DependencyProjection,
+        CallableInstanceData, ConstantTermData, ConstantValueData, ConstantValueKind,
+        DependencyContractTemplateData, DependencyGuard, DependencyProjection,
         DependencyRequirement, DependencySubject, DependencySubjectRoot, GenericArgument,
         GenericSubstitutionData, GenericSubstitutionId, ImplementationInstanceData,
         SemanticValueStoreError, SemanticValueStoreId, TraitApplicationData, TraitApplicationId,
@@ -202,8 +202,8 @@ pub(super) fn validate_constant_term_data(
         ConstantTermData::Projection(projection) => {
             tables.constant_terms.get(store, projection.subject())?;
 
-            if let ConstantProjectionKind::ArrayElement(index) = projection.kind() {
-                tables.constant_terms.get(store, index)?;
+            for term in projection.kind().term_references() {
+                tables.constant_terms.get(store, term)?;
             }
         }
     }

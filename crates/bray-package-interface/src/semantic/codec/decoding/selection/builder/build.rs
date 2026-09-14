@@ -10,8 +10,8 @@ use crate::semantic::codec::decoding::selection::model::SelectedRecords;
 use crate::semantic::codec::decoding::selection::remap::remap_selected_records;
 use crate::semantic::codec::decoding::{bundle, contract, declaration, directory, surface, value};
 use crate::semantic::model::{
-    InterfaceConstantProjection, InterfaceConstantTerm, InterfaceConstantValueKind,
-    InterfaceDependencyGuard, InterfaceDependencyProjection, InterfaceDependencyRequirement,
+    InterfaceConstantTerm, InterfaceConstantValueKind, InterfaceDependencyGuard,
+    InterfaceDependencyProjection, InterfaceDependencyRequirement,
     InterfaceDependencyRequirementValue, InterfaceDependencySubject,
     InterfaceDependencySubjectRoot, InterfaceGenericArgument, InterfaceSemanticRecord,
     InterfaceSemanticRecordKind, InterfaceSemantics, InterfaceType,
@@ -833,8 +833,8 @@ impl<'bytes> SelectionBuilder<'bytes> {
             InterfaceConstantTerm::Projection { subject, kind } => {
                 self.enqueue(PendingRecord::ConstantTerm(subject.raw()));
 
-                if let InterfaceConstantProjection::ArrayElement(index) = kind {
-                    self.enqueue(PendingRecord::ConstantTerm(index.raw()));
+                for term in kind.term_references() {
+                    self.enqueue(PendingRecord::ConstantTerm(term.raw()));
                 }
             }
             InterfaceConstantTerm::IntegerLiteral { .. }

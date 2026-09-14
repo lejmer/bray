@@ -72,3 +72,34 @@ func runtime_default_storage()
     assert(indexed.value);
     assert(sliced[0].value);
 }
+
+func custom_runtime_defaults()
+{
+    let mut flags = composition.api.IndexedFlags
+    {
+        flag = composition.api.DefaultFlag
+        {
+            value = true
+        }
+    };
+
+    assert(composition.api.custom_indexed_default(&flags, 0).value);
+    assert(composition.api.custom_sliced_default(&flags, 0).value);
+    composition.api.custom_mutable_default(&mut flags, 0).value = false;
+    assert(!flags.flag.value);
+
+    let array = [
+        composition.api.DefaultFlag
+        {
+            value = false
+        },
+        composition.api.DefaultFlag
+        {
+            value = true
+        }
+    ];
+
+    let selected = composition.api.bounded_slice_default(&array);
+
+    assert(selected[0].value);
+}

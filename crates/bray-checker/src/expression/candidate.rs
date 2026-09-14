@@ -1397,7 +1397,7 @@ where
                             .get(&expression)
                             .ok_or_else(invalid_selection_input)?;
 
-                        mutable_projection &= member_allows_mutation(request, target.member());
+                        mutable_projection &= request.member_allows_mutation(target.member())?;
                     }
                     Some(BoundMemberSelector::TupleElement(_)) => {}
                     None => return Err(invalid_selection_input()),
@@ -1603,23 +1603,6 @@ where
         BoundReferenceTarget::Local(_) | BoundReferenceTarget::Surface(_) => {
             Ok(crate::ReceiverCapability::Owned)
         }
-    }
-}
-
-fn member_allows_mutation<C>(request: CheckerUnitView<'_, C>, member: AnySymbolId) -> bool
-where
-    C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
-{
-    match member {
-        AnySymbolId::StructField(field) => request
-            .symbols()
-            .struct_field(field)
-            .is_some_and(bray_symbols::StructFieldSymbol::allows_mutation),
-        AnySymbolId::UnionPayloadField(field) => request
-            .symbols()
-            .union_payload_field(field)
-            .is_some_and(bray_symbols::UnionPayloadFieldSymbol::allows_mutation),
-        _ => false,
     }
 }
 

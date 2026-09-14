@@ -395,11 +395,22 @@ where
                 })
                 .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
+            let mut receiver_type = receiver.ty();
+
+            while let TypeData::Borrow { target, .. } = request
+                .semantic_values()
+                .type_data(receiver_type)
+                .map_err(CheckerInfrastructureError::SemanticValueStore)?
+                .as_ref()
+            {
+                receiver_type = *target;
+            }
+
             required.push(RequiredTraitOperation::Callable {
                 role,
                 requirement: *requirement,
                 callable: *member,
-                receiver: receiver.ty(),
+                receiver: receiver_type,
                 parameter_types,
                 callable_result: RequiredCallableResult::Expression(callable_result),
                 receiver_mode: match borrow_kind {

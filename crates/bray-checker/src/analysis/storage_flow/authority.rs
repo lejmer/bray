@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{StorageBinding, StorageBindingTarget, StorageIdentityId, StoragePlan};
 use bray_diagnostics::DiagnosticBag;
@@ -11,6 +11,64 @@ use crate::{
     CheckerInfrastructureError, CheckerQueryError, CheckerQueryResult, CheckerRequestContext,
     CheckerSemanticQueryProvider, CheckerStorageFlowFailure, CheckerUnitView, SemanticUnitContext,
 };
+
+pub(super) fn immutable_field_accesses<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    storage: &StoragePlan,
+    input: &super::model::StorageFlowInput,
+) -> CheckerQueryResult<BTreeSet<bray_bound_tree::StorageAccessId>, C::UpstreamError> {
+    let mut checked = BTreeSet::new();
+    let mut immutable = BTreeSet::new();
+    let mut fields = BTreeMap::new();
+
+    for plan in storage.access_plans().iter().copied() {
+        let Some(access) = input.mutation_authority_access(plan, plan.purpose(), storage) else {
+            continue;
+        };
+
+        if !checked.insert(access) {
+            continue;
+        }
+
+        let Some(record) = storage.access(access) else {
+            continue;
+        };
+
+        let mut allowed = true;
+
+        for projection in record.projections() {
+            let field = match projection {
+                bray_bound_tree::StorageProjection::ProductField(field) => {
+                    bray_symbols::AnySymbolId::StructField(*field)
+                }
+                bray_bound_tree::StorageProjection::ActiveUnionPayloadField { field, .. } => {
+                    bray_symbols::AnySymbolId::UnionPayloadField(*field)
+                }
+                _ => continue,
+            };
+
+            let mutable = match fields.entry(field) {
+                std::collections::btree_map::Entry::Occupied(entry) => *entry.get(),
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    let mutable = request.member_allows_mutation(field)?;
+
+                    *entry.insert(mutable)
+                }
+            };
+
+            if !mutable {
+                allowed = false;
+                break;
+            }
+        }
+
+        if !allowed {
+            immutable.insert(access);
+        }
+    }
+
+    Ok(immutable)
+}
 
 pub(super) fn mutable_storage<C>(
     request: CheckerUnitView<'_, C>,

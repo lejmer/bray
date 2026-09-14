@@ -555,6 +555,10 @@ pub(super) fn decode_constant_projection(
         2 => Ok(InterfaceConstantProjection::ArrayElement(
             InterfaceConstantTermId::new(read_u32(reader)?),
         )),
+        6 => Ok(InterfaceConstantProjection::ArraySlice {
+            lower: read_optional_u32(reader)?.map(InterfaceConstantTermId::new),
+            upper: read_optional_u32(reader)?.map(InterfaceConstantTermId::new),
+        }),
         3 => Ok(InterfaceConstantProjection::ProductField(
             read_symbol_reference(reader, context)?,
         )),

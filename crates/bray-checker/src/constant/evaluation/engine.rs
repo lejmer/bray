@@ -6,10 +6,7 @@ use bray_bound_tree::{
     BoundBlockId, BoundExpression, BoundExpressionId, BoundOperator, BoundStructuredExpressionKind,
 };
 use bray_compiler_known::{IntegerRepresentation, NumericRepresentationKind};
-use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticLabel, DiagnosticLabelKind,
-    DiagnosticNote, DiagnosticNoteKind, SeverityKind,
-};
+use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId};
 use bray_symbols::{
     AnyLocalSymbolId, ConstantTermData, ConstantTermId, ConstantValueId, ConstantValueKind,
     RealConstantBits, TargetSizedIntegerType, TypeId,
@@ -21,7 +18,7 @@ use crate::constant::integer::integer_to_usize;
 use crate::constant::limits::EvaluationBudget;
 use crate::constant::literal::{normalize_integer_literal, parse_literal};
 use crate::constant::operation::negate_real;
-use crate::diagnostic::{diagnostic_id, diagnostic_type, expression_category, expression_span};
+use crate::diagnostic::{diagnostic_id, expression_category, expression_span};
 use crate::representation::type_representation;
 use crate::unit::semantic_input_failure;
 
@@ -355,66 +352,21 @@ where
 
     let span = expression_span(request, expression)?;
 
-    let mut diagnostic = problem.apply(
-        Diagnostic::new(id, problem.kind(), SeverityKind::Error)
-            .with_primary_span(span)
-            .with_label(DiagnosticLabel::primary(
-                DiagnosticLabelKind::InvalidConstantExpression,
-                span,
-            )),
-    );
-
-    match problem {
-        ConstantDiagnostic::InvalidExpression
+    let problem = match problem {
+        ConstantDiagnostic::InvalidExpression(None)
         | ConstantDiagnostic::Literal(crate::ConstantLiteralError::Invalid) => {
-            diagnostic = diagnostic
-                .with_arg(DiagnosticArg::expression_category(expression_category(
-                    bound,
-                )))
-                .with_note(DiagnosticNote::new(
-                    DiagnosticNoteKind::ConstantExpressionMustBeEvaluable,
-                ));
+            ConstantDiagnostic::InvalidExpression(Some(expression_category(bound)))
         }
-        ConstantDiagnostic::Literal(crate::ConstantLiteralError::NotRepresentable)
-        | ConstantDiagnostic::Operation {
-            error: crate::constant::operation::ConstantOperationError::NotRepresentable,
-            ..
-        } => {
-            let Some(result) = input.expression_types().expression(expression) else {
-                return Err(CheckerInfrastructureError::InvalidConstantEvaluationInput.into());
-            };
+        problem => problem,
+    };
 
-            diagnostic = diagnostic.with_arg(DiagnosticArg::actual_type(diagnostic_type(
-                request.context(),
-                result.ty(),
-            )?));
-        }
-        ConstantDiagnostic::Operation {
-            error: crate::constant::operation::ConstantOperationError::Invalid,
-            ..
-        } => {
-            diagnostic = diagnostic.with_note(DiagnosticNote::new(
-                DiagnosticNoteKind::ConstantExpressionMustBeEvaluable,
-            ));
-        }
-        ConstantDiagnostic::Literal(crate::ConstantLiteralError::SizeLimitExceeded { .. })
-        | ConstantDiagnostic::Operation {
-            error: crate::constant::operation::ConstantOperationError::ResourceLimitExceeded { .. },
-            ..
-        }
-        | ConstantDiagnostic::Limit { .. } => {
-            diagnostic = diagnostic.with_note(DiagnosticNote::new(
-                DiagnosticNoteKind::ConstantEvaluationMustFitLimits,
-            ));
-        }
-        ConstantDiagnostic::Operation {
-            error: crate::constant::operation::ConstantOperationError::DivisionByZero,
-            ..
-        }
-        | ConstantDiagnostic::Cycle { .. } => {}
-    }
-
-    Ok(diagnostic)
+    problem.render(request.context(), id, Some(span), || {
+        input
+            .expression_types()
+            .expression(expression)
+            .map(|result| result.ty())
+            .ok_or_else(|| CheckerInfrastructureError::InvalidConstantEvaluationInput.into())
+    })
 }
 
 fn block_diagnostic_anchor<C>(
@@ -699,7 +651,7 @@ where
             }
             Some(ConstantReferenceResolution::Invalid) => Err(EvaluationFailure::Source {
                 expression,
-                diagnostic: ConstantDiagnostic::InvalidExpression,
+                diagnostic: ConstantDiagnostic::InvalidExpression(None),
             }),
             None => Err(EvaluationFailure::invalid_expression(expression)),
         }

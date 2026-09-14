@@ -170,17 +170,9 @@ pub enum InterfaceConstantTerm {
     },
 }
 
-/// Durable projection operation used by an open constant term.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum InterfaceConstantProjection {
-    /// Tuple element ordinal.
-    TupleElement(SymbolOrdinal),
-    /// Array element selected by a checked term.
-    ArrayElement(InterfaceConstantTermId),
-    /// Named product field.
-    ProductField(InterfaceSymbolReference),
-    /// Named union payload field.
-    UnionPayloadField(InterfaceSymbolReference),
-    /// Present nullable value.
-    NullableValue,
-}
+/// Durable constant projection using interface-local semantic references.
+pub type InterfaceConstantProjection = bray_symbols::ConstantProjectionKind<
+    InterfaceConstantTermId,
+    InterfaceSymbolReference,
+    InterfaceSymbolReference,
+>;

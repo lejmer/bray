@@ -21,6 +21,12 @@ impl TemplateEvaluationFailure {
         Self::Infrastructure(CheckerInfrastructureError::InvalidConstantEvaluationInput)
     }
 
+    pub(super) const fn invalid_expression(
+        category: bray_diagnostics::DiagnosticExpressionCategory,
+    ) -> Self {
+        Self::Diagnostic(ConstantDiagnostic::InvalidExpression(Some(category)))
+    }
+
     pub(super) const fn semantic_value(error: bray_symbols::SemanticValueStoreError) -> Self {
         Self::Infrastructure(CheckerInfrastructureError::SemanticValueStore(error))
     }
@@ -72,7 +78,7 @@ pub(super) fn integer_index(value: &ConstantValueKind) -> Option<usize> {
         return None;
     };
 
-    value.to_u64().and_then(|value| usize::try_from(value).ok())
+    super::super::integer::integer_to_usize(value)
 }
 
 pub(super) fn template_index(raw: u32) -> Result<usize, TemplateEvaluationFailure> {

@@ -4,11 +4,11 @@ use bray_base::StableDigestHasher;
 use bray_binder::BindingQueryContext;
 use bray_codegen::{CodegenGenericArgument, CodegenValueKey};
 use bray_symbols::{
-    AnySymbolId, CallableInstanceId, CallablePhaseBehavior, ConstantProjection,
-    ConstantProjectionKind, ConstantTermData, ConstantTermId, ConstantValueId, ConstantValueKind,
-    DependencyContractTemplateId, DependencyGuard, DependencyProjection, DependencyRequirement,
-    DependencySubject, DependencySubjectRoot, GenericArgument, GenericSubstitutionId,
-    ImplementationInstanceId, SemanticValueStore, TraitApplicationId, TypeData, TypeId,
+    AnySymbolId, CallableInstanceId, CallablePhaseBehavior, ConstantTermData, ConstantTermId,
+    ConstantValueId, ConstantValueKind, DependencyContractTemplateId, DependencyGuard,
+    DependencyProjection, DependencyRequirement, DependencySubject, DependencySubjectRoot,
+    GenericArgument, GenericSubstitutionId, ImplementationInstanceId, SemanticValueStore,
+    TraitApplicationId, TypeData, TypeId,
 };
 
 use crate::compilation::binder::{CompilationBindingContext, binding_query_error};
@@ -202,7 +202,7 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
         Ok(())
     }
 
-    fn constant_term(&mut self, id: ConstantTermId) -> Result<(), FactQueryError> {
+    pub(super) fn constant_term(&mut self, id: ConstantTermId) -> Result<(), FactQueryError> {
         let data = self
             .values
             .constant_term_data(id)
@@ -718,35 +718,6 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
         Ok(())
     }
 
-    fn constant_projection(
-        &mut self,
-        projection: ConstantProjection,
-    ) -> Result<(), FactQueryError> {
-        self.constant_term(projection.subject())?;
-
-        match projection.kind() {
-            ConstantProjectionKind::TupleElement(ordinal) => {
-                self.tag(0);
-                self.ordinal(ordinal);
-            }
-            ConstantProjectionKind::ArrayElement(index) => {
-                self.tag(1);
-                self.constant_term(index)?;
-            }
-            ConstantProjectionKind::ProductField(field) => {
-                self.tag(2);
-                self.symbol(field.into())?;
-            }
-            ConstantProjectionKind::UnionPayloadField(field) => {
-                self.tag(3);
-                self.symbol(field.into())?;
-            }
-            ConstantProjectionKind::NullableValue => self.tag(4),
-        }
-
-        Ok(())
-    }
-
     fn constant_terms(&mut self, terms: &[ConstantTermId]) -> Result<(), FactQueryError> {
         self.length(terms.len());
 
@@ -767,7 +738,7 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
         Ok(())
     }
 
-    fn symbol(&mut self, id: AnySymbolId) -> Result<(), FactQueryError> {
+    pub(super) fn symbol(&mut self, id: AnySymbolId) -> Result<(), FactQueryError> {
         let key = self
             .binding_context
             .symbol_key(id)

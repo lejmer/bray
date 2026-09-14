@@ -166,6 +166,14 @@ pub trait CheckerRequestContext: Sync {
         Ok(self.symbols().structure(id))
     }
 
+    /// Returns a source or imported structure field declaration.
+    fn struct_field(
+        &self,
+        id: bray_symbols::StructFieldSymbolId,
+    ) -> CheckerQueryResult<Option<&bray_symbols::StructFieldSymbol>, Self::UpstreamError> {
+        Ok(self.symbols().struct_field(id))
+    }
+
     /// Returns a source or imported union declaration.
     fn union(
         &self,

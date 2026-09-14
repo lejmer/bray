@@ -212,7 +212,17 @@ impl SemanticUnifier<'_> {
                 Ok(false)
             }
             ConstantTermData::Projection(projection) => {
-                self.constant_contains_parameter(projection.subject(), parameter, visited)
+                if self.constant_contains_parameter(projection.subject(), parameter, visited)? {
+                    return Ok(true);
+                }
+
+                for term in projection.kind().term_references() {
+                    if self.constant_contains_parameter(term, parameter, visited)? {
+                        return Ok(true);
+                    }
+                }
+
+                Ok(false)
             }
             ConstantTermData::Value(_)
             | ConstantTermData::IntegerLiteral { .. }
@@ -238,5 +248,63 @@ impl SemanticUnifier<'_> {
         }
 
         Ok(false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SemanticUnifier;
+    use bray_symbols::{
+        ConstantProjection, ConstantProjectionKind, ConstantTermData,
+        GenericConstParameterSymbolId, SemanticValueStore, SymbolId,
+    };
+    use std::collections::BTreeSet;
+
+    #[test]
+    fn occurrence_checks_include_index_and_slice_bounds() {
+        let values = SemanticValueStore::try_new().unwrap();
+        let parameter = GenericConstParameterSymbolId::from_symbol_id(SymbolId::new(1));
+
+        let parameter_term = values
+            .intern_constant_term(ConstantTermData::Parameter(parameter))
+            .unwrap();
+
+        let subject = values
+            .intern_constant_term(ConstantTermData::array([]))
+            .unwrap();
+
+        let unifier = SemanticUnifier::new(&[], &[], &values);
+
+        for kind in [
+            ConstantProjectionKind::ArrayElement(parameter_term),
+            ConstantProjectionKind::ArraySlice {
+                lower: Some(parameter_term),
+                upper: None,
+            },
+            ConstantProjectionKind::ArraySlice {
+                lower: None,
+                upper: Some(parameter_term),
+            },
+        ] {
+            let term = values
+                .intern_constant_term(ConstantTermData::Projection(ConstantProjection::new(
+                    subject, kind,
+                )))
+                .unwrap();
+
+            assert_eq!(
+                unifier.constant_contains_parameter(term, parameter, &mut BTreeSet::new()),
+                Ok(true)
+            );
+
+            assert_eq!(
+                unifier.constant_contains_parameter(
+                    term,
+                    GenericConstParameterSymbolId::from_symbol_id(SymbolId::new(2)),
+                    &mut BTreeSet::new()
+                ),
+                Ok(false)
+            );
+        }
     }
 }

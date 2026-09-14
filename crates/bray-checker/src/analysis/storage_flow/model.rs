@@ -5,7 +5,7 @@ use bray_bound_tree::{
     CheckedRefinements, Liveness, StorageAccessId, StorageAccessPlan, StorageAccessPurpose,
     StorageIdentity, StorageIdentityId, StoragePlan,
 };
-use bray_symbols::TypeId;
+use bray_symbols::{BorrowKind, TypeId};
 
 use crate::storage::{StorageScopeOwners, local_initialization_destinations};
 use crate::{CheckerRequestContext, CheckerUnitView};
@@ -23,6 +23,7 @@ pub(super) struct StorageFlowInput {
     initialization_destinations: BTreeMap<BoundExpressionId, StorageIdentityId>,
     copyable_types: BTreeSet<TypeId>,
     mutable_storage: BTreeSet<StorageIdentityId>,
+    immutable_field_accesses: BTreeSet<StorageAccessId>,
 }
 
 impl StorageFlowInput {
@@ -31,7 +32,7 @@ impl StorageFlowInput {
         storage: &StoragePlan,
         copyable_types: BTreeSet<TypeId>,
         mutable_storage: BTreeSet<StorageIdentityId>,
-    ) -> Self
+    ) -> crate::CheckerQueryResult<Self, C::UpstreamError>
     where
         C: CheckerRequestContext + ?Sized,
     {
@@ -88,7 +89,10 @@ impl StorageFlowInput {
             input.definitions.entry(node).or_default().push(storage);
         }
 
-        input
+        input.immutable_field_accesses =
+            super::authority::immutable_field_accesses(request, storage, &input)?;
+
+        Ok(input)
     }
 
     pub(super) fn plans(&self, node: AnyBoundNodeId) -> &[StorageAccessPlan] {
@@ -115,6 +119,35 @@ impl StorageFlowInput {
 
     pub(super) fn type_is_copyable(&self, ty: TypeId) -> bool {
         self.copyable_types.contains(&ty)
+    }
+
+    pub(super) fn mutation_authority_access(
+        &self,
+        plan: StorageAccessPlan,
+        purpose: StorageAccessPurpose,
+        storage: &StoragePlan,
+    ) -> Option<StorageAccessId> {
+        match purpose {
+            StorageAccessPurpose::Write | StorageAccessPurpose::Assignment => Some(plan.access()),
+            StorageAccessPurpose::Borrow(BorrowKind::Mutable) => self
+                .borrow(plan)
+                .and_then(|borrow| storage.borrow_capability(borrow))
+                .map(|borrow| borrow.access()),
+            StorageAccessPurpose::Read
+            | StorageAccessPurpose::Initialize
+            | StorageAccessPurpose::Copy
+            | StorageAccessPurpose::Move
+            | StorageAccessPurpose::Borrow(BorrowKind::Shared)
+            | StorageAccessPurpose::ValueTransfer
+            | StorageAccessPurpose::Member
+            | StorageAccessPurpose::Index
+            | StorageAccessPurpose::Slice
+            | StorageAccessPurpose::Projection => None,
+        }
+    }
+
+    pub(super) fn fields_allow_mutation(&self, access: StorageAccessId) -> bool {
+        !self.immutable_field_accesses.contains(&access)
     }
 
     pub(super) fn storage_is_mutable(&self, storage: StorageIdentityId) -> bool {

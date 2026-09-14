@@ -361,6 +361,29 @@ impl HeaderMatcher<'_> {
                 ConstantProjectionKind::ArrayElement(pattern),
                 ConstantProjectionKind::ArrayElement(actual),
             ) => self.match_constant(pattern, actual),
+            (
+                ConstantProjectionKind::ArraySlice {
+                    lower: pattern_lower,
+                    upper: pattern_upper,
+                },
+                ConstantProjectionKind::ArraySlice {
+                    lower: actual_lower,
+                    upper: actual_upper,
+                },
+            ) => {
+                for (pattern, actual) in
+                    [(pattern_lower, actual_lower), (pattern_upper, actual_upper)]
+                {
+                    match (pattern, actual) {
+                        (Some(pattern), Some(actual))
+                            if self.match_constant(pattern, actual)? => {}
+                        (None, None) => {}
+                        _ => return Ok(false),
+                    }
+                }
+
+                Ok(true)
+            }
             (pattern, actual) => Ok(pattern == actual),
         }
     }
@@ -413,31 +436,58 @@ mod tests {
             Some(&bray_symbols::GenericArgument::Constant(value_term))
         );
 
-        let pattern_projection = values
-            .intern_constant_term(ConstantTermData::Projection(ConstantProjection::new(
-                pattern_call,
+        for (pattern_kind, actual_kind) in [
+            (
                 ConstantProjectionKind::ArrayElement(parameter_term),
-            )))
-            .unwrap_or_else(|error| panic!("pattern projection must be valid: {error:?}"));
-
-        let actual_projection = values
-            .intern_constant_term(ConstantTermData::Projection(ConstantProjection::new(
-                actual_call,
                 ConstantProjectionKind::ArrayElement(value_term),
-            )))
-            .unwrap_or_else(|error| panic!("actual projection must be valid: {error:?}"));
+            ),
+            (
+                ConstantProjectionKind::ArraySlice {
+                    lower: Some(parameter_term),
+                    upper: None,
+                },
+                ConstantProjectionKind::ArraySlice {
+                    lower: Some(value_term),
+                    upper: None,
+                },
+            ),
+            (
+                ConstantProjectionKind::ArraySlice {
+                    lower: None,
+                    upper: Some(parameter_term),
+                },
+                ConstantProjectionKind::ArraySlice {
+                    lower: None,
+                    upper: Some(value_term),
+                },
+            ),
+        ] {
+            let pattern_projection = values
+                .intern_constant_term(ConstantTermData::Projection(ConstantProjection::new(
+                    value_term,
+                    pattern_kind,
+                )))
+                .unwrap_or_else(|error| panic!("pattern projection must be valid: {error:?}"));
 
-        let mut projection_matcher = HeaderMatcher::new(&[parameter_id], &values);
+            let actual_projection = values
+                .intern_constant_term(ConstantTermData::Projection(ConstantProjection::new(
+                    value_term,
+                    actual_kind,
+                )))
+                .unwrap_or_else(|error| panic!("actual projection must be valid: {error:?}"));
 
-        assert_eq!(
-            projection_matcher.match_constant(pattern_projection, actual_projection),
-            Ok(true)
-        );
+            let mut projection_matcher = HeaderMatcher::new(&[parameter_id], &values);
 
-        assert_eq!(
-            projection_matcher.arguments.get(&parameter_id),
-            Some(&bray_symbols::GenericArgument::Constant(value_term))
-        );
+            assert_eq!(
+                projection_matcher.match_constant(pattern_projection, actual_projection),
+                Ok(true)
+            );
+
+            assert_eq!(
+                projection_matcher.arguments.get(&parameter_id),
+                Some(&bray_symbols::GenericArgument::Constant(value_term))
+            );
+        }
     }
 
     #[test]

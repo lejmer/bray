@@ -344,21 +344,6 @@ where
             return Err(EvaluationFailure::invalid_expression(expression));
         };
 
-        if let IndexTarget::Custom {
-            fulfillment,
-            witness,
-            ..
-        } = target
-        {
-            return self.evaluate_call(
-                expression,
-                *fulfillment,
-                Some(*witness),
-                structured.operands(),
-                ty,
-            );
-        }
-
         if matches!(target, IndexTarget::ArraySlice | IndexTarget::Slice) {
             return self.evaluate_slice(expression, structured, ty);
         }
@@ -417,6 +402,37 @@ where
         };
 
         let subject = self.evaluate(subject)?;
+
+        let bounds = structured
+            .slice_bounds()
+            .ok_or_else(|| EvaluationFailure::invalid_expression(expression))?;
+
+        let lower = bounds
+            .lower()
+            .map(|bound| self.evaluate(bound))
+            .transpose()?;
+
+        let upper = bounds
+            .upper()
+            .map(|bound| self.evaluate(bound))
+            .transpose()?;
+
+        let mut closed = true;
+
+        for term in [Some(subject), lower, upper].into_iter().flatten() {
+            closed &= self.term_value(term)?.is_some();
+        }
+
+        if !closed {
+            return self.intern_typed_term(
+                ty,
+                ConstantTermData::Projection(ConstantProjection::new(
+                    subject,
+                    ConstantProjectionKind::ArraySlice { lower, upper },
+                )),
+            );
+        }
+
         let subject = self.closed_value(subject, expression)?;
         let subject = self.constant_value(subject)?;
 
@@ -424,40 +440,28 @@ where
             return Err(EvaluationFailure::invalid_expression(expression));
         };
 
-        let bounds = structured
-            .slice_bounds()
+        let lower = lower
+            .map(|bound| {
+                let bound = self.closed_value(bound, expression)?;
+
+                self.array_count(expression, bound)
+            })
+            .transpose()?;
+
+        let upper = upper
+            .map(|bound| {
+                let bound = self.closed_value(bound, expression)?;
+
+                self.array_count(expression, bound)
+            })
+            .transpose()?;
+
+        let values = crate::constant::array::slice_elements(elements, lower, upper)
             .ok_or_else(|| EvaluationFailure::invalid_expression(expression))?;
-
-        let lower = self
-            .evaluate_slice_bound(expression, bounds.lower())?
-            .unwrap_or(0);
-
-        let upper = self
-            .evaluate_slice_bound(expression, bounds.upper())?
-            .unwrap_or(elements.len());
-
-        let Some(values) = elements.get(lower..upper) else {
-            return Err(EvaluationFailure::invalid_expression(expression));
-        };
 
         self.budget.charge_elements(expression, values.len())?;
 
         self.intern_value_term(ty, ConstantValueKind::array(values.iter().copied()))
-    }
-
-    fn evaluate_slice_bound(
-        &mut self,
-        expression: BoundExpressionId,
-        bound: Option<BoundExpressionId>,
-    ) -> Result<Option<usize>, EvaluationFailure> {
-        let Some(bound) = bound else {
-            return Ok(None);
-        };
-
-        let bound = self.evaluate(bound)?;
-        let bound = self.closed_value(bound, expression)?;
-
-        self.array_count(expression, bound).map(Some)
     }
 
     pub(super) fn evaluate_member_projection(

@@ -214,6 +214,23 @@ where
         self.context.union_payload_field(id)
     }
 
+    pub(crate) fn member_allows_mutation(
+        self,
+        member: bray_symbols::AnySymbolId,
+    ) -> CheckerQueryResult<bool, C::UpstreamError> {
+        Ok(match member {
+            bray_symbols::AnySymbolId::StructField(field) => self
+                .context
+                .struct_field(field)?
+                .is_some_and(bray_symbols::StructFieldSymbol::allows_mutation),
+            bray_symbols::AnySymbolId::UnionPayloadField(field) => self
+                .context
+                .union_payload_field(field)?
+                .is_some_and(bray_symbols::UnionPayloadFieldSymbol::allows_mutation),
+            _ => false,
+        })
+    }
+
     /// Returns target-available compiler-known identities and behavior roles.
     pub fn available_compiler_known_symbols(self) -> &'view AvailableCompilerKnownSymbols {
         self.context.available_compiler_known_symbols()
