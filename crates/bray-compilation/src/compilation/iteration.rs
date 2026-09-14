@@ -167,7 +167,7 @@ impl Compilation {
                     binding_context.semantic_values(),
                     selection.source(),
                     selection.source_type(),
-                    self.selected_target().target().integer_width_bits().get(),
+                    self.selected_target().target().profile().machine(),
                 )?;
 
                 Some(match exact_count {
@@ -345,7 +345,7 @@ fn iteration_exact_count(
     values: &bray_symbols::SemanticValueStore,
     source_expression: BoundExpressionId,
     source_type: TypeId,
-    usize_width_bits: u16,
+    machine: &bray_target::TargetMachineProperties,
 ) -> Result<Option<bray_symbols::ConstantTermId>, FactQueryError> {
     let source = values
         .type_data(source_type)
@@ -354,7 +354,7 @@ fn iteration_exact_count(
     match source.as_ref() {
         TypeData::Array { length, .. } => Ok(Some(*length)),
         TypeData::Named { .. } => {
-            range_literal_count(unit, literals, values, source_expression, usize_width_bits)
+            range_literal_count(unit, literals, values, source_expression, machine)
         }
         _ => Ok(None),
     }
@@ -365,7 +365,7 @@ fn range_literal_count(
     literals: &CheckedLiteralValues,
     values: &bray_symbols::SemanticValueStore,
     source: BoundExpressionId,
-    usize_width_bits: u16,
+    machine: &bray_target::TargetMachineProperties,
 ) -> Result<Option<bray_symbols::ConstantTermId>, FactQueryError> {
     let Some(BoundExpression::Structured(range)) = unit.view().expression(source) else {
         return Ok(None);
@@ -391,7 +391,7 @@ fn range_literal_count(
         return Ok(None);
     };
 
-    if !count_fits_target_usize(count, usize_width_bits) {
+    if !machine.fits_usize(count) {
         return Ok(None);
     }
 
@@ -474,10 +474,6 @@ fn half_open_integer_count(start: &IntegerConstant, end: &IntegerConstant) -> Op
     };
 
     Some(count)
-}
-
-fn count_fits_target_usize(count: u128, usize_width_bits: u16) -> bool {
-    usize_width_bits >= u128::BITS as u16 || count < (1_u128 << usize_width_bits)
 }
 
 fn iteration_subject_type(
@@ -916,16 +912,23 @@ mod tests {
 
     #[test]
     fn empty_literal_ranges_publish_zero_exact_cardinality() {
-        assert!(super::count_fits_target_usize(u64::MAX.into(), 64));
-
-        assert!(!super::count_fits_target_usize(
-            u128::from(u64::MAX) + 1,
-            64,
-        ));
-
-        for (bounds, expected) in [("4..4", 0), ("4..0", 0), ("-2..2", 4), ("2..(-2)", 0)] {
+        for (bounds, expected) in [
+            ("4..4", 0),
+            ("4..0", 0),
+            ("-2..2", 4),
+            ("2..(-2)", 0),
+            ("-2147483648..2147483647", u64::from(u32::MAX)),
+        ] {
             let source = format!(
-                "module app;\nfunc main()\n{{\n    for value in {bounds}\n    {{\n    }}\n}}\n"
+                r#"
+                module app;
+                func main()
+                {{
+                    for value in {bounds}
+                    {{
+                    }}
+                }}
+                "#
             );
 
             let compilation = compilation(&source);
