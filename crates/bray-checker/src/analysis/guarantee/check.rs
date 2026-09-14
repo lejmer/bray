@@ -10,9 +10,7 @@ use super::super::build::{
     ControlFlowGraphBuildOutcome, build_execution_control_flow_graph,
     build_storage_control_flow_graph,
 };
-use super::super::model::{
-    AnalysisEdgeKind, AnalysisExitKind, AnalysisOperationKind, AnalysisScopeExitPhase,
-};
+use super::super::model::{AnalysisEdgeKind, AnalysisExitKind, AnalysisOperationKind};
 use super::flow::analyze_execution_flow;
 use crate::execution_guarantees::{ExecutionCandidate, ExecutionProperty};
 use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView};
@@ -77,6 +75,7 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
         &literals,
         storage,
         contracts,
+        body.asynchronous(),
     ) {
         super::super::fixed_point::FixedPointOutcome::Complete(flow) => flow,
         super::super::fixed_point::FixedPointOutcome::Cancelled => {
@@ -89,19 +88,6 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
             return CheckerOutcome::complete(candidate, DiagnosticBag::new());
         }
     };
-
-    let mut candidate = ExecutionCandidate {
-        calls: reachable.calls(),
-        completion_dependencies: reachable.completion_dependencies(),
-        ..ExecutionCandidate::default()
-    };
-
-    super::operation::collect_preservation_dependencies(
-        candidate.calls.keys().copied(),
-        expressions.selections(),
-        memory,
-        &mut candidate.dependencies,
-    );
 
     let mut diagnostics = DiagnosticBag::new();
 
@@ -119,6 +105,18 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
             }
         };
     }
+
+    let mut candidate = checked!(reachable.candidate(
+        body.asynchronous(),
+        property == Some(ExecutionProperty::Total)
+    ));
+
+    super::operation::collect_preservation_dependencies(
+        candidate.calls.keys().copied(),
+        expressions.selections(),
+        memory,
+        &mut candidate.dependencies,
+    );
 
     let mut visited = BTreeSet::new();
 
@@ -144,42 +142,17 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
 
             let preserves = match operation.kind() {
                 AnalysisOperationKind::ScopeExit { block, exit, phase } => {
-                    let mut valid = true;
-
-                    for plan in body
-                        .asynchronous()
-                        .scope_exits()
-                        .iter()
-                        .filter(|plan| plan.scope() == block && plan.exit() == exit)
-                    {
-                        valid &= !plan.is_recovered() && plan.cancellation_broadcast().is_empty();
-
-                        if phase == AnalysisScopeExitPhase::LifecycleResolution {
-                            for access in plan.lifecycle_resolution() {
-                                let identity = storage.root_identity(*access);
-
-                                let parts = body
-                                    .asynchronous()
-                                    .storage_requirements()
-                                    .iter()
-                                    .find(|requirement| Some(requirement.identity()) == identity)
-                                    .and_then(|requirement| requirement.parts());
-
-                                valid &= checked!(super::cleanup::check_cleanup(
-                                    request,
-                                    storage,
-                                    *access,
-                                    parts,
-                                    property,
-                                    exit,
-                                    &mut candidate.dependencies,
-                                    &mut diagnostics
-                                ));
-                            }
-                        }
-                    }
-
-                    valid
+                    checked!(super::cleanup::check_scope_cleanup(
+                        request,
+                        storage,
+                        body.asynchronous(),
+                        block,
+                        exit,
+                        phase,
+                        property,
+                        &mut candidate.dependencies,
+                        &mut diagnostics
+                    ))
                 }
                 AnalysisOperationKind::Recovery(_)
                 | AnalysisOperationKind::Suspension { .. }

@@ -20,6 +20,7 @@ pub use model::{
 pub use normalize::execution_conditions;
 pub(crate) use normalize::{condition_literals, expression_condition, expression_place};
 pub use place::ExecutionPlace;
+pub(crate) use place::storage_binding_reference;
 pub use unsupported::check_execution_guarantees;
 
 pub use portable::{execution_condition_from_term, execution_condition_term};

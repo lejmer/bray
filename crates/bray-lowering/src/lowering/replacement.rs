@@ -199,6 +199,9 @@ impl Lowerer<'_> {
                     Self::retained_place(place),
                     guard,
                     None,
+                    self.input
+                        .lowering_plans()
+                        .finalizer_is_complete(plan.expression().into(), plan.access()),
                     None,
                 )
                 .map(|(block, _)| block);

@@ -164,6 +164,7 @@ impl Lowerer<'_> {
                     Self::retained_place(place),
                     None,
                     None,
+                    false,
                     None,
                 )?
                 .0;
@@ -196,6 +197,7 @@ impl Lowerer<'_> {
                     Self::retained_place(place),
                     None,
                     None,
+                    false,
                     None,
                 )?
                 .0;

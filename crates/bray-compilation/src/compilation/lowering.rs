@@ -154,6 +154,9 @@ impl Compilation {
 
         let semantic_values = self.semantic_value_store()?;
 
+        let completed =
+            self.completed_unit_cleanup(key, body.result().value().asynchronous(), cancellation)?;
+
         let lowering_plans = VerifiedLoweringPlans::try_new(
             unit.result().value(),
             storage.result().value(),
@@ -164,6 +167,7 @@ impl Compilation {
             self.available_compiler_known_symbols(),
             body.result().value().asynchronous(),
         )
+        .and_then(|plans| plans.with_completed_finalizers(completed))
         .map_err(LoweringInputError::from);
 
         let input = lowering_plans

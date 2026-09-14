@@ -48,6 +48,7 @@ impl Lowerer<'_> {
                         Self::retained_place(&place),
                         Some(guard),
                         part.plan.release(),
+                        false,
                         value,
                     )?;
                 }

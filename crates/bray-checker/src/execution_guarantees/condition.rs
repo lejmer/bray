@@ -17,6 +17,11 @@ pub enum ExecutionCondition {
     Result,
     /// The value produced by one runtime expression, without inventing its contents.
     Expression(bray_bound_tree::BoundExpressionId),
+    /// A retained receiver observed after one call completes normally.
+    PostState(
+        bray_bound_tree::BoundExpressionId,
+        bray_bound_tree::BoundReferenceTarget,
+    ),
     /// A selected built-in operation on other known values.
     Operation(BoundOperator, Arc<[ExecutionCondition]>),
     /// A checked predicate application, compared by declaration and selected arguments.
@@ -95,7 +100,11 @@ impl ExecutionCondition {
 
         while let Some(condition) = pending.pop() {
             match condition {
-                Self::Expression(candidate) if *candidate == expression => return true,
+                Self::Expression(candidate) | Self::PostState(candidate, _)
+                    if *candidate == expression =>
+                {
+                    return true;
+                }
                 Self::Operation(_, operands) | Self::Predicate(_, _, operands) => {
                     pending.extend(operands.iter())
                 }

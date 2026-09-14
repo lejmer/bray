@@ -1578,6 +1578,66 @@ fn execution_consumer(provider: &Compilation, source: &str) -> Compilation {
     crate::test_support::compilation_with_dependencies(source, [execution_dependency(provider)])
 }
 
+#[test]
+fn imported_finalizers_use_verified_entry_conditions() {
+    let provider = compilation(
+        r#"
+        module api;
+        public struct Value<T>
+        {
+            public ready: bool;
+            payload: T;
+
+            finalize()
+                when(self.ready) { executes(pure, total) }
+            {
+                if !self.ready
+                {
+                    panic("unfinished");
+                }
+            }
+        }
+    "#,
+    );
+
+    for (condition, completed) in [("value.ready", true), ("!value.ready", false)] {
+        let consumer = execution_consumer(
+            &provider,
+            &format!(
+                r#"
+            module app;
+            using example.package.api;
+            func root(pos value: example.package.api.Value<bool>)
+                requires({condition})
+            {{
+            }}
+        "#
+            ),
+        );
+
+        assert!(
+            !consumer.check_diagnostics().has_errors(),
+            "{:?}",
+            consumer.check_diagnostics()
+        );
+
+        let key = source_function_body_key(&consumer, "root");
+        let cancellation = crate::CancellationToken::new();
+
+        let body = consumer
+            .body_semantics_with_cancellation(key.clone(), &cancellation)
+            .unwrap();
+
+        let selected = consumer
+            .completed_unit_cleanup(&key, body.result().value().asynchronous(), &cancellation)
+            .unwrap();
+
+        assert_eq!(!selected.is_empty(), completed);
+        let lowered = consumer.lowered_unit(key).unwrap();
+        assert!(lowered.value().as_ref().unwrap().mir().is_some());
+    }
+}
+
 fn execution_dependency(provider: &Compilation) -> DependencyInterfaceInput {
     execution_bundle_dependency(export(provider))
 }

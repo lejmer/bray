@@ -50,6 +50,7 @@ pub struct VerifiedLoweringPlans<'unit> {
     scope_exits: BTreeMap<(BoundBlockId, AnyBoundNodeId), usize>,
     lifecycle_storage: BTreeSet<StorageIdentityId>,
     replacements: BTreeMap<BoundExpressionId, usize>,
+    completed: BTreeSet<(AnyBoundNodeId, bray_bound_tree::StorageAccessId)>,
 }
 
 impl<'unit> VerifiedLoweringPlans<'unit> {
@@ -161,7 +162,46 @@ impl<'unit> VerifiedLoweringPlans<'unit> {
             scope_exits,
             lifecycle_storage,
             replacements,
+            completed: BTreeSet::new(),
         })
+    }
+
+    /// Adds certified whole-value completion at existing cleanup sites.
+    /// Represented-part cleanup retains its separately selected obligations.
+    pub fn with_completed_finalizers(
+        mut self,
+        completed: BTreeSet<(AnyBoundNodeId, bray_bound_tree::StorageAccessId)>,
+    ) -> Result<Self, LoweringPlanFailure> {
+        for (node, access) in &completed {
+            let scope =
+                self.analysis.scope_exits().iter().any(|plan| {
+                    plan.exit() == *node && plan.lifecycle_resolution().contains(access)
+                });
+
+            let replacement = self.analysis.replacements().iter().any(|plan| {
+                AnyBoundNodeId::from(plan.expression()) == *node
+                    && plan.access() == *access
+                    && plan.parts().is_none()
+            });
+
+            if !scope && !replacement {
+                return Err(LoweringPlanFailure::analysis(
+                    LoweringPlanFailureCause::Unexpected,
+                ));
+            }
+        }
+
+        self.completed = completed;
+
+        Ok(self)
+    }
+
+    pub(crate) fn finalizer_is_complete(
+        &self,
+        node: AnyBoundNodeId,
+        access: bray_bound_tree::StorageAccessId,
+    ) -> bool {
+        self.completed.contains(&(node, access))
     }
 
     /// Returns the bound unit whose plan set was verified.

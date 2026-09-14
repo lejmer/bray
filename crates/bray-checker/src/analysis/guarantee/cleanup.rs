@@ -5,6 +5,57 @@ use crate::asynchronous::{ExecutionCleanupMode, execution_cleanup_dependencies};
 use crate::execution_guarantees::{ExecutionDependency, ExecutionProperty};
 use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "scope cleanup proof retains its checked location, property, and diagnostics"
+)]
+pub(super) fn check_scope_cleanup<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    storage: &StoragePlan,
+    cleanup: &bray_bound_tree::CheckedAsync,
+    scope: bray_bound_tree::BoundBlockId,
+    exit: AnyBoundNodeId,
+    phase: super::super::model::AnalysisScopeExitPhase,
+    property: ExecutionProperty,
+    dependencies: &mut Vec<ExecutionDependency>,
+    diagnostics: &mut DiagnosticBag,
+) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
+    let mut valid = true;
+
+    for plan in cleanup
+        .scope_exits()
+        .iter()
+        .filter(|plan| plan.scope() == scope && plan.exit() == exit)
+    {
+        valid &= !plan.is_recovered() && plan.cancellation_broadcast().is_empty();
+
+        if phase == super::super::model::AnalysisScopeExitPhase::LifecycleResolution {
+            for access in plan.lifecycle_resolution() {
+                let identity = storage.root_identity(*access);
+
+                let parts = cleanup
+                    .storage_requirements()
+                    .iter()
+                    .find(|requirement| Some(requirement.identity()) == identity)
+                    .and_then(|requirement| requirement.parts());
+
+                valid &= check_cleanup(
+                    request,
+                    storage,
+                    *access,
+                    parts,
+                    property,
+                    exit,
+                    dependencies,
+                    diagnostics,
+                )?;
+            }
+        }
+    }
+
+    Ok(valid)
+}
+
 pub(super) fn check_cleanup<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,

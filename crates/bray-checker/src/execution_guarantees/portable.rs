@@ -135,7 +135,9 @@ fn encode(
 
             return field_term(values, value, *field);
         }
-        ExecutionCondition::Unknown | ExecutionCondition::Expression(_) => return Ok(None),
+        ExecutionCondition::Unknown
+        | ExecutionCondition::Expression(_)
+        | ExecutionCondition::PostState(_, _) => return Ok(None),
     };
 
     values.intern_constant_term(data).map(Some)
