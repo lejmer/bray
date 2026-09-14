@@ -13,6 +13,7 @@ mod dependency;
 mod diagnostic;
 mod execution_guarantees;
 mod expression;
+mod lifecycle;
 mod memory;
 mod memory_diagnostics;
 mod outcome;
@@ -67,6 +68,7 @@ pub use execution_guarantees::{
     remap_execution_condition_inputs,
 };
 pub use expression::{NestedCallableEvidence, check_generic_arguments};
+pub use lifecycle::{LifecycleSelectionContext, LifecycleSelectionError, select_lifecycle_action};
 pub use outcome::{CheckerOutcome, ControlFlowCheckResult};
 pub use pattern::{
     GuardConstantEvidence, IterationPatternType, PatternCheckInput, PatternConstantEvidence,

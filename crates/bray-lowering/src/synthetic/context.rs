@@ -1,9 +1,8 @@
-use bray_compiler_known::{CompilerKnownDeclarationKey, RepresentationRole};
-use bray_ir::{MirCallableReference, MirStandardLibraryHelper};
+use bray_compiler_known::RepresentationRole;
+use bray_ir::MirStandardLibraryHelper;
 use bray_symbols::{
-    AvailableCompilerKnownSymbols, CallableExecution, CallableInstanceData, CallableSignature,
-    ConstantTermId, DeclaredTypeRepresentation, GenericSubstitutionId, NamedTypeSymbolId,
-    SemanticValueStore, TypeAssociatedLifecycleSlot, TypeExpressionTemplate, TypeId,
+    AvailableCompilerKnownSymbols, CallableInstanceData, ConstantTermId, NamedTypeSymbolId,
+    SemanticValueStore, TypeId,
 };
 
 use super::SyntheticLoweringError;
@@ -19,40 +18,12 @@ pub trait SyntheticLoweringContext {
     /// Returns exact compiler-known identities and representation contracts.
     fn compiler_known_symbols(&self) -> &AvailableCompilerKnownSymbols;
 
-    /// Resolves the callable, receiver argument type, completion type, and execution mode.
-    fn lifecycle_callable(
+    /// Returns the checker-selected local lifecycle action after substitution.
+    fn lifecycle_action(
         &self,
         ty: TypeId,
-        slot: TypeAssociatedLifecycleSlot,
-    ) -> Result<Option<(MirCallableReference, TypeId, TypeId, CallableExecution)>, Self::Error>;
-
-    /// Resolves one exact storage-policy method and its closed signature.
-    fn storage_callable(
-        &self,
-        storage: TypeId,
-        target: TypeId,
-        member: &CompilerKnownDeclarationKey,
-    ) -> Result<(MirCallableReference, CallableSignature), Self::Error>;
-
-    /// Resolves the checked stored representation without constructing MIR projections.
-    fn declared_representation(
-        &self,
-        definition: NamedTypeSymbolId,
-    ) -> Result<DeclaredTypeRepresentation, Self::Error>;
-
-    /// Resolves a member's type in the enclosing declaration specialization.
-    fn resolve_type(
-        &self,
-        template: &TypeExpressionTemplate,
-        substitution: GenericSubstitutionId,
-    ) -> Result<TypeId, Self::Error>;
-
-    /// Resolves the element of the recognized imported standard-library raw buffer, if applicable.
-    fn imported_raw_buffer_element(
-        &self,
-        definition: NamedTypeSymbolId,
-        substitution: GenericSubstitutionId,
-    ) -> Result<Option<TypeId>, Self::Error>;
+        phase: bray_bound_tree::LifecyclePhase,
+    ) -> Result<bray_bound_tree::LifecycleAction, Self::Error>;
 
     /// Returns the exact representation role of a source or imported type.
     fn representation_role(&self, definition: NamedTypeSymbolId) -> Option<RepresentationRole>;

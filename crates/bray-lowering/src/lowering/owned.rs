@@ -1,8 +1,7 @@
 use bray_bound_tree::{BoundCallResult, StorageProtocolCall};
 use bray_ir::{
-    MirBlockId, MirCall, MirCallTarget, MirCallableReference, MirOperand, MirOperationKind,
-    MirPlace, MirProjection, MirProjectionKind, MirSourceAnchor, MirStorageKind, MirStoreKind,
-    MirUnitBuildError,
+    MirBlockId, MirCallableReference, MirOperand, MirOperationKind, MirPlace, MirProjection,
+    MirProjectionKind, MirSourceAnchor, MirStorageKind, MirStoreKind,
 };
 use bray_symbols::{BorrowKind, CallableAbi, TypeData, TypeId};
 
@@ -130,42 +129,22 @@ impl Lowerer<'_> {
 
         let parameter = self.input.semantic_values().type_data(call.parameter())?;
 
-        let argument =
-            if let TypeData::Borrow { kind, .. } = parameter.as_ref() {
-                let commit = self.push_operation(
-                    block,
-                    Self::retained_source(source),
-                    MirOperationKind::Borrow {
-                        kind: *kind,
-                        place: policy,
-                    },
-                    Some(call.parameter()),
-                )?;
+        let borrow = match parameter.as_ref() {
+            TypeData::Borrow { kind, .. } => Some(*kind),
+            _ => None,
+        };
 
-                MirOperand::Value(commit.result().ok_or(
-                    MirUnitBuildError::MissingOperationResult(commit.operation()),
-                )?)
-            } else {
-                MirOperand::Move(policy)
-            };
-
-        let commit = self.push_operation(
-            block,
-            Self::retained_source(source),
-            MirOperationKind::Call(MirCall::protocol(
-                MirCallTarget::Direct(MirCallableReference::new(
-                    call.callable(),
-                    CallableAbi::Bray,
-                )),
-                BoundCallResult::Immediate(call.result()),
-                [argument],
-                [],
-            )),
-            Some(call.result()),
+        let value = crate::lifecycle_call::lower_lifecycle_call(
+            MirCallableReference::new(call.callable(), CallableAbi::Bray),
+            call.parameter(),
+            policy,
+            borrow,
+            BoundCallResult::Immediate(call.result()),
+            |operation, result| {
+                self.push_operation(block, Self::retained_source(source), operation, result)
+            },
         )?;
 
-        Ok(MirOperand::Value(commit.result().ok_or(
-            MirUnitBuildError::MissingOperationResult(commit.operation()),
-        )?))
+        Ok(MirOperand::Value(value))
     }
 }

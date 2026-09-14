@@ -1,7 +1,5 @@
 use bray_ir::MirCallableReference;
-use bray_symbols::{
-    CallableExecution, CallableSignature, TypeAssociatedLifecycleSlot, TypeData, TypeId,
-};
+use bray_symbols::{CallableSignature, TypeAssociatedLifecycleSlot, TypeData, TypeId};
 
 use super::super::support::receiver_codegen_type;
 use crate::compilation::CodegenPreparationError;
@@ -18,10 +16,7 @@ impl Compilation {
         ty: TypeId,
         slot: TypeAssociatedLifecycleSlot,
         cancellation: &CancellationToken,
-    ) -> Result<
-        Option<(MirCallableReference, TypeId, TypeId, CallableExecution)>,
-        CodegenPreparationError,
-    > {
+    ) -> Result<Option<bray_bound_tree::LifecycleCallable>, CodegenPreparationError> {
         let values = self.semantic_value_store()?;
 
         let data = values
@@ -77,12 +72,13 @@ impl Compilation {
             .into());
         };
 
-        Ok(Some((
-            MirCallableReference::new(*callable, callable_type.abi()),
+        Ok(Some(bray_bound_tree::LifecycleCallable {
+            callable: *callable,
+            abi: callable_type.abi(),
             receiver,
             result,
-            callable_type.execution(),
-        )))
+            execution: callable_type.execution(),
+        }))
     }
 
     pub(in crate::compilation::product::realization) fn storage_lifecycle_callable(

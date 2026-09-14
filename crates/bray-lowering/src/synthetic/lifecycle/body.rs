@@ -4,7 +4,7 @@ use bray_ir::{
     MirProjectionKind, MirSourceAnchor, MirStorageKind, MirTargetContract, MirTerminatorKind,
     MirUnit, MirUnitBuilder, MirUnitId, MirUnitKey,
 };
-use bray_symbols::{BorrowKind, TypeAssociatedLifecycleSlot, TypeData, TypeId};
+use bray_symbols::{BorrowKind, TypeData, TypeId};
 
 use super::super::{SyntheticLowerer, SyntheticLoweringContext, SyntheticLoweringError};
 
@@ -78,24 +78,15 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             MirHelperReference::StaticFinalize(ty) => {
                 let mut end = entry;
 
-                let return_value = if let Some(completed) = self
-                    .push_compiler_known_lifecycle_operations(
-                        &mut builder,
-                        entry,
-                        &source,
-                        reference,
-                        &place,
-                        target.runtime_abi(),
-                    )? {
-                    end = completed;
-
-                    None
-                } else if let Some(callable) = self
+                let action = self
                     .context
-                    .lifecycle_callable(*ty, TypeAssociatedLifecycleSlot::Finalizer)?
+                    .lifecycle_action(*ty, bray_bound_tree::LifecyclePhase::Finalize)?;
+
+                let return_value = if let bray_bound_tree::LifecycleAction::Call(callable) = action
                 {
-                    let returns_void = callable.3 == bray_symbols::CallableExecution::Synchronous
-                        && self.is_void_result(callable.2)?;
+                    let returns_void = callable.execution
+                        == bray_symbols::CallableExecution::Synchronous
+                        && self.is_void_result(callable.result)?;
 
                     let value = self.push_static_finalizer_call(
                         &mut builder,
@@ -107,6 +98,16 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
                     (!returns_void).then_some(MirOperand::Value(value))
                 } else {
+                    end = self.expand_lifecycle_action(
+                        &mut builder,
+                        entry,
+                        &source,
+                        bray_ir::MirGeneratedLifecycleRole::StaticFinalize,
+                        place,
+                        target.runtime_abi(),
+                        action,
+                    )?;
+
                     None
                 };
 
@@ -253,16 +254,14 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
 #[cfg(test)]
 mod tests {
-    use bray_compiler_known::{CompilerKnownDeclarationKey, RepresentationRole};
+    use bray_compiler_known::RepresentationRole;
     use bray_ir::{
-        MirCallableReference, MirCleanupPhase, MirGeneratedLifecycleKey, MirGeneratedLifecycleRole,
-        MirHelperReference, MirOperationKind, MirProjectionKind, MirStandardLibraryHelper,
-        MirUnitId, MirUnitKey,
+        MirCleanupPhase, MirGeneratedLifecycleKey, MirGeneratedLifecycleRole, MirHelperReference,
+        MirOperationKind, MirProjectionKind, MirStandardLibraryHelper, MirUnitId, MirUnitKey,
     };
     use bray_symbols::{
-        AvailableCompilerKnownSymbols, CallableExecution, CallableInstanceData, CallableSignature,
-        ConstantTermId, DeclaredTypeRepresentation, GenericSubstitutionId, NamedTypeSymbolId,
-        SemanticValueStore, TypeAssociatedLifecycleSlot, TypeData, TypeExpressionTemplate, TypeId,
+        AvailableCompilerKnownSymbols, CallableInstanceData, ConstantTermId, NamedTypeSymbolId,
+        SemanticValueStore, TypeData, TypeId,
     };
 
     use super::lower_lifecycle;
@@ -281,50 +280,32 @@ mod tests {
             panic!("tuple lowering must not query compiler-known declarations");
         }
 
-        fn lifecycle_callable(
+        fn lifecycle_action(
             &self,
             ty: TypeId,
-            _: TypeAssociatedLifecycleSlot,
-        ) -> Result<Option<(MirCallableReference, TypeId, TypeId, CallableExecution)>, Self::Error>
-        {
-            assert!(matches!(
-                self.0.type_data(ty).unwrap().as_ref(),
-                TypeData::Tuple(_) | TypeData::Nullable(_) | TypeData::Array { .. }
-            ));
+            phase: bray_bound_tree::LifecyclePhase,
+        ) -> Result<bray_bound_tree::LifecycleAction, Self::Error> {
+            use bray_bound_tree::{LifecycleAction, LifecyclePhase};
 
-            Ok(None)
-        }
+            if phase == LifecyclePhase::Finalize {
+                return Ok(LifecycleAction::None);
+            }
 
-        fn storage_callable(
-            &self,
-            _: TypeId,
-            _: TypeId,
-            _: &CompilerKnownDeclarationKey,
-        ) -> Result<(MirCallableReference, CallableSignature), Self::Error> {
-            panic!("tuple lowering must not select a storage policy");
-        }
+            if phase == LifecyclePhase::Resolve {
+                return Ok(LifecycleAction::Resolve);
+            }
 
-        fn declared_representation(
-            &self,
-            _: NamedTypeSymbolId,
-        ) -> Result<DeclaredTypeRepresentation, Self::Error> {
-            panic!("tuple lowering must not resolve declared representations");
-        }
-
-        fn resolve_type(
-            &self,
-            _: &TypeExpressionTemplate,
-            _: GenericSubstitutionId,
-        ) -> Result<TypeId, Self::Error> {
-            panic!("tuple lowering already has closed element types");
-        }
-
-        fn imported_raw_buffer_element(
-            &self,
-            _: NamedTypeSymbolId,
-            _: GenericSubstitutionId,
-        ) -> Result<Option<TypeId>, Self::Error> {
-            panic!("tuple lowering must not resolve imported buffers");
+            Ok(match self.0.type_data(ty).unwrap().as_ref() {
+                TypeData::Tuple(members) => {
+                    LifecycleAction::Members(std::sync::Arc::clone(members))
+                }
+                TypeData::Nullable(target) => LifecycleAction::Nullable(*target),
+                TypeData::Array { element, length } => LifecycleAction::Array {
+                    element: *element,
+                    length: *length,
+                },
+                _ => panic!("unexpected test lifecycle type"),
+            })
         }
 
         fn representation_role(&self, _: NamedTypeSymbolId) -> Option<RepresentationRole> {

@@ -10,6 +10,7 @@ mod declared_type;
 mod dependency;
 mod dependency_table;
 mod identity;
+mod lifecycle;
 mod literal;
 mod memory;
 mod node;
@@ -52,6 +53,7 @@ pub use dependency::{
     GuardedBoundDependencyRequirement, LifecycleObligationId, ScopedCapabilityId,
 };
 pub use dependency_table::{CheckedDependencyContracts, DependencyContractsBuildError};
+pub use lifecycle::{LifecycleAction, LifecycleCallable, LifecyclePhase};
 pub use literal::{
     CheckedLiteralValueEntry, CheckedLiteralValueTableBuildError, CheckedLiteralValues,
 };

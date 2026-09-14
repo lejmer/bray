@@ -569,13 +569,14 @@ impl Compilation {
                 self.lifecycle_callable(ty, TypeAssociatedLifecycleSlot::Finalizer, cancellation)?;
 
             let source = match callable {
-                Some((callable, ..)) => self
-                    .callable_body_key(callable.instance().definition())?
-                    .map(|key| {
-                        bray_ir::MirSourceAnchor::source(bray_bound_tree::BoundNodeOrigin::source(
-                            key.source(),
-                        ))
-                    }),
+                Some(callable) => {
+                    self.callable_body_key(callable.callable.definition())?
+                        .map(|key| {
+                            bray_ir::MirSourceAnchor::source(
+                                bray_bound_tree::BoundNodeOrigin::source(key.source()),
+                            )
+                        })
+                }
                 None => None,
             };
 
@@ -587,7 +588,9 @@ impl Compilation {
                         None,
                     ))
                 },
-                |(_, _, result, execution)| {
+                |bray_bound_tree::LifecycleCallable {
+                     result, execution, ..
+                 }| {
                     self.static_finalizer_result(result, cancellation)
                         .map(|(result, identity)| (execution, result, identity))
                 },

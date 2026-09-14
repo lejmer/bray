@@ -1,9 +1,9 @@
-use bray_compiler_known::{CompilerKnownDeclarationKey, RepresentationRole};
+use bray_compiler_known::RepresentationRole;
 use bray_ir::{
     MirGeneratedLifecycleRole, MirHelperReference, MirOperationId, MirSourceAnchor,
     MirUnitBuildError,
 };
-use bray_symbols::{CallableDefinitionId, SemanticValueStoreError, TypeData, TypeId};
+use bray_symbols::{CallableDefinitionId, SemanticValueStoreError, TypeId};
 
 /// A violated semantic-input or MIR-construction contract in a compiler-generated body.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -23,8 +23,6 @@ pub enum SyntheticLoweringError {
     MissingCallableResult(CallableDefinitionId),
     /// A generated memory operation lacks its required typed result.
     MissingTypeResult(TypeId),
-    /// An internal storage member key is malformed.
-    InvalidStorageMemberKey(String),
     /// The requested reference does not identify a supported synthetic helper.
     MissingHelper(MirHelperReference),
     /// The checked type has no supported synthetic lowering behavior.
@@ -33,13 +31,6 @@ pub enum SyntheticLoweringError {
     UnresolvedType(TypeId),
     /// A represented value cannot be processed in the requested lifecycle phase.
     UnsupportedLifecycleRole(MirGeneratedLifecycleRole),
-    /// A value with a borrowed or callable type reached represented-value teardown.
-    UnexpectedLifecycleType {
-        /// Type requested for teardown.
-        ty: TypeId,
-        /// Actual semantic type data.
-        actual: TypeData,
-    },
     /// A generated value-producing operation did not publish a result.
     MissingOperationResult {
         /// Exact generated body owner.
@@ -53,13 +44,6 @@ pub enum SyntheticLoweringError {
         role: RepresentationRole,
         /// Generic argument of a unary representation, when applicable.
         argument: Option<TypeId>,
-    },
-    /// A selected storage protocol method does not have its required single parameter.
-    StorageParameterCount {
-        /// Exact compiler-known storage member.
-        member: CompilerKnownDeclarationKey,
-        /// Actual selected parameter count.
-        actual: usize,
     },
     /// A represented member or element ordinal exceeds the MIR index range.
     LayoutOverflow(TypeId),

@@ -30,7 +30,9 @@ impl Compilation {
             .map_err(FactQueryError::SemanticValueStore)?;
 
         let result = if matches!(reference, MirHelperReference::StaticFinalize(_)) {
-            let Some((_, _, result, execution)) =
+            let Some(bray_bound_tree::LifecycleCallable {
+                result, execution, ..
+            }) =
                 self.lifecycle_callable(ty, TypeAssociatedLifecycleSlot::Finalizer, cancellation)?
             else {
                 return Ok(CodegenCallableSignature::new(

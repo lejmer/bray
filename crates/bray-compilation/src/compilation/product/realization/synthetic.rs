@@ -1,10 +1,10 @@
 use bray_compiler_known::{CompilerKnownDeclarationKey, RepresentationRole};
-use bray_ir::{MirCallableReference, MirStandardLibraryHelper};
+use bray_ir::MirStandardLibraryHelper;
 use bray_lowering::SyntheticLoweringContext;
 use bray_symbols::{
-    AvailableCompilerKnownSymbols, CallableExecution, CallableInstanceData, CallableSignature,
-    ConstantTermId, DeclaredTypeRepresentation, GenericSubstitutionId, NamedTypeSymbolId,
-    SemanticValueStore, TypeAssociatedLifecycleSlot, TypeExpressionTemplate, TypeId,
+    AvailableCompilerKnownSymbols, CallableInstanceData, ConstantTermId,
+    DeclaredTypeRepresentation, GenericSubstitutionId, NamedTypeSymbolId, SemanticValueStore,
+    TypeAssociatedLifecycleSlot, TypeExpressionTemplate, TypeId,
 };
 
 use crate::compilation::{CodegenPreparationError, Compilation};
@@ -40,12 +40,47 @@ impl SyntheticLoweringContext for CompilationSyntheticLoweringContext<'_> {
         self.compilation.available_compiler_known_symbols()
     }
 
+    fn lifecycle_action(
+        &self,
+        ty: TypeId,
+        phase: bray_bound_tree::LifecyclePhase,
+    ) -> Result<bray_bound_tree::LifecycleAction, Self::Error> {
+        bray_checker::select_lifecycle_action(self, ty, phase)
+    }
+
+    fn representation_role(&self, definition: NamedTypeSymbolId) -> Option<RepresentationRole> {
+        crate::compilation::foreign::compiler_known_representation(self.compilation, definition)
+    }
+
+    fn representation_type(&self, role: RepresentationRole) -> Result<TypeId, Self::Error> {
+        Ok(self.compilation.codegen_representation_type(role)?)
+    }
+
+    fn array_length(&self, length: ConstantTermId) -> Result<u64, Self::Error> {
+        super::support::closed_array_length(self.values, length)
+    }
+
+    fn standard_library_callable(
+        &self,
+        helper: MirStandardLibraryHelper,
+    ) -> Result<CallableInstanceData, Self::Error> {
+        self.compilation
+            .standard_library_helper_callable(helper, self.cancellation)
+    }
+}
+
+impl bray_checker::LifecycleSelectionContext for CompilationSyntheticLoweringContext<'_> {
+    type Error = CodegenPreparationError;
+
+    fn semantic_values(&self) -> &SemanticValueStore {
+        self.values
+    }
+
     fn lifecycle_callable(
         &self,
         ty: TypeId,
         slot: TypeAssociatedLifecycleSlot,
-    ) -> Result<Option<(MirCallableReference, TypeId, TypeId, CallableExecution)>, Self::Error>
-    {
+    ) -> Result<Option<bray_bound_tree::LifecycleCallable>, Self::Error> {
         self.compilation
             .lifecycle_callable(ty, slot, self.cancellation)
     }
@@ -55,9 +90,32 @@ impl SyntheticLoweringContext for CompilationSyntheticLoweringContext<'_> {
         storage: TypeId,
         target: TypeId,
         member: &CompilerKnownDeclarationKey,
-    ) -> Result<(MirCallableReference, CallableSignature), Self::Error> {
-        self.compilation
-            .storage_lifecycle_callable(storage, target, member, self.cancellation)
+    ) -> Result<bray_bound_tree::LifecycleCallable, Self::Error> {
+        let (callable, signature) = self.compilation.storage_lifecycle_callable(
+            storage,
+            target,
+            member,
+            self.cancellation,
+        )?;
+
+        let [parameter] = signature.parameters() else {
+            return Err(crate::compilation::ProductQueryFailure::count_mismatch(
+                // The failure owns the interned protocol identity after this query returns.
+                crate::compilation::ProductQueryContext::CompilerKnownDeclaration(member.clone()),
+                crate::compilation::ProductDataKind::CallableParameters,
+                1,
+                signature.parameters().len(),
+            )
+            .into());
+        };
+
+        Ok(bray_bound_tree::LifecycleCallable {
+            callable: callable.instance(),
+            abi: callable.abi(),
+            receiver: parameter.ty(),
+            result: signature.result(),
+            execution: bray_symbols::CallableExecution::Synchronous,
+        })
     }
 
     fn declared_representation(
@@ -68,7 +126,7 @@ impl SyntheticLoweringContext for CompilationSyntheticLoweringContext<'_> {
             .compilation
             .declared_type_representation_with_cancellation(definition, self.cancellation)?;
 
-        // Lowering retains the immutable Arc-backed representation after releasing the query result.
+        // Selection retains the immutable Arc-backed representation after releasing the query result.
         Ok(representation.value().clone())
     }
 
@@ -93,21 +151,5 @@ impl SyntheticLoweringContext for CompilationSyntheticLoweringContext<'_> {
 
     fn representation_role(&self, definition: NamedTypeSymbolId) -> Option<RepresentationRole> {
         crate::compilation::foreign::compiler_known_representation(self.compilation, definition)
-    }
-
-    fn representation_type(&self, role: RepresentationRole) -> Result<TypeId, Self::Error> {
-        Ok(self.compilation.codegen_representation_type(role)?)
-    }
-
-    fn array_length(&self, length: ConstantTermId) -> Result<u64, Self::Error> {
-        super::support::closed_array_length(self.values, length)
-    }
-
-    fn standard_library_callable(
-        &self,
-        helper: MirStandardLibraryHelper,
-    ) -> Result<CallableInstanceData, Self::Error> {
-        self.compilation
-            .standard_library_helper_callable(helper, self.cancellation)
     }
 }
