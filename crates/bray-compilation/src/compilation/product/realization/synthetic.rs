@@ -45,7 +45,24 @@ impl SyntheticLoweringContext for CompilationSyntheticLoweringContext<'_> {
         ty: TypeId,
         phase: bray_bound_tree::LifecyclePhase,
     ) -> Result<bray_bound_tree::LifecycleAction, Self::Error> {
-        bray_checker::select_lifecycle_action(self, ty, phase)
+        let action = bray_checker::select_lifecycle_action(self, ty, phase)?;
+
+        if phase == bray_bound_tree::LifecyclePhase::Finalize
+            && let bray_bound_tree::LifecycleAction::Call(callable) = action
+            && callable.execution == bray_symbols::CallableExecution::Synchronous
+            && callable.result
+                == self
+                    .compilation
+                    .codegen_representation_type(RepresentationRole::Unit)?
+            && self
+                .compilation
+                .pure_total_execution(callable.callable, None, self.cancellation)?
+                .is_some()
+        {
+            return Ok(bray_bound_tree::LifecycleAction::None);
+        }
+
+        Ok(action)
     }
 
     fn representation_role(&self, definition: NamedTypeSymbolId) -> Option<RepresentationRole> {

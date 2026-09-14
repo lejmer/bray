@@ -156,6 +156,16 @@ pub(crate) fn expression_condition(
         );
     }
 
+    if let Some(SemanticSelection::Operation(SelectedOperation::Construction(construction))) =
+        semantics.selections().expression(expression)
+        && matches!(
+            construction.target(),
+            bray_bound_tree::ConstructionTarget::UnionVariant(_)
+        )
+    {
+        return ExecutionCondition::Expression(expression);
+    }
+
     match bound {
         BoundExpression::Name(name) => {
             if let Some(value) = current.get(&name.target().into()) {

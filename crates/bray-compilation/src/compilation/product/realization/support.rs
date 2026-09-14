@@ -1998,6 +1998,64 @@ mod tests {
         );
     }
 
+    #[test]
+    fn completed_unit_finalizer_omits_only_its_invocation() {
+        for (guarantees, calls) in [
+            ("executes(pure, total)", 0),
+            ("executes(pure)", 1),
+            ("executes(total)", 1),
+            ("", 1),
+        ] {
+            let compilation = compilation(&format!(
+                r#"
+                module app;
+
+                struct Value
+                {{
+                    finalize()
+                        {guarantees}
+                    {{
+                    }}
+
+                    destruct()
+                    {{
+                    }}
+                }}
+                "#
+            ));
+
+            assert!(!compilation.check_diagnostics().has_errors());
+
+            let symbols = compilation.symbol_graph().unwrap();
+
+            let definition = symbols
+                .structures()
+                .iter()
+                .find(|value| value.origin() == SymbolOrigin::Source)
+                .unwrap();
+
+            let ty = named_type(
+                compilation.semantic_value_store().unwrap(),
+                NamedTypeSymbolId::Struct(definition.id()),
+            )
+            .unwrap();
+
+            let target = codegen_target(&compilation);
+
+            let finalized =
+                generated_lifecycle(&compilation, &target, MirHelperReference::Finalize(ty), 190);
+
+            assert_eq!(finalized.operations().iter().filter(|operation|
+                matches!(operation.kind(), MirOperationKind::Call(call) if matches!(call.target(), MirCallTarget::Direct(_)))).count(), calls);
+
+            let destroyed =
+                generated_lifecycle(&compilation, &target, MirHelperReference::Destroy(ty), 191);
+
+            assert_eq!(destroyed.operations().iter().filter(|operation|
+                matches!(operation.kind(), MirOperationKind::Call(call) if matches!(call.target(), MirCallTarget::Direct(_)))).count(), 1);
+        }
+    }
+
     fn codegen_target(compilation: &Compilation) -> CodegenTarget {
         compilation
             .selected_target()

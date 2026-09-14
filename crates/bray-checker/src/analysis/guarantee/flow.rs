@@ -20,8 +20,8 @@ pub(super) struct ExecutionState {
     pub(super) current: BTreeMap<crate::ExecutionPlace, ExecutionCondition>,
     expressions: BTreeMap<BoundExpressionId, ExecutionCondition>,
     pub(super) result: ExecutionCondition,
-    entries: BTreeMap<BoundExpressionId, crate::ExecutionCallEvidence>,
-    completion_dependencies: BTreeSet<crate::ExecutionCompletionDependency>,
+    pub(super) entries: BTreeMap<BoundExpressionId, crate::ExecutionCallEvidence>,
+    pub(super) completion_dependencies: BTreeSet<crate::ExecutionCompletionDependency>,
 }
 
 impl Default for ExecutionState {
@@ -38,14 +38,21 @@ impl Default for ExecutionState {
 }
 
 impl ExecutionState {
-    fn assign(&mut self, place: crate::ExecutionPlace, value: ExecutionCondition) {
+    pub(super) fn invalidate_cleanup(&mut self) {
+        // Cleanup can mutate observations through owned capabilities, just like an opaque call.
+        for value in self.current.values_mut() {
+            *value = ExecutionCondition::Unknown;
+        }
+    }
+
+    pub(super) fn assign(&mut self, place: crate::ExecutionPlace, value: ExecutionCondition) {
         self.current.retain(|observed, _| !place.contains(observed));
         self.current.insert(place, value);
     }
 }
 pub(super) struct ExecutionFlow<'a, 'view, C: CheckerRequestContext + ?Sized> {
-    domain: ExecutionFlowDomain<'a, 'view, C>,
-    states: FixedPointResult<Option<ExecutionState>>,
+    pub(super) domain: ExecutionFlowDomain<'a, 'view, C>,
+    pub(super) states: FixedPointResult<Option<ExecutionState>>,
 }
 
 pub(super) fn analyze_execution_flow<'a, 'view, C: CheckerRequestContext + ?Sized>(
@@ -56,6 +63,7 @@ pub(super) fn analyze_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
     literals: &'a BTreeMap<BoundExpressionId, ExecutionCondition>,
     storage: &'a bray_bound_tree::StoragePlan,
     contracts: &'a BTreeMap<BoundExpressionId, Vec<crate::ExecutionCompletionContract>>,
+    cleanup: &'a bray_bound_tree::CheckedAsync,
 ) -> FixedPointOutcome<ExecutionFlow<'a, 'view, C>> {
     let domain = ExecutionFlowDomain {
         graph,
@@ -65,6 +73,7 @@ pub(super) fn analyze_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
         literals,
         storage,
         contracts,
+        cleanup,
         invalidating: super::super::storage_invalidation::invalidating_operation_accesses(
             request,
             semantics.selections(),
@@ -84,42 +93,6 @@ pub(super) fn analyze_execution_flow<'a, 'view, C: CheckerRequestContext + ?Size
 }
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
-    pub(super) fn calls(&self) -> BTreeMap<AnyBoundNodeId, crate::ExecutionCallEvidence> {
-        let mut calls = BTreeMap::new();
-
-        for block in self.domain.graph.blocks() {
-            let Some(state) = self.output(block.id()) else {
-                continue;
-            };
-
-            for (expression, evidence) in state.entries {
-                if !block
-                    .operations()
-                    .iter()
-                    .filter_map(|id| self.domain.graph.operation(*id))
-                    .any(|operation| operation.kind().node() == expression.into())
-                {
-                    continue;
-                }
-
-                calls.entry(expression.into()).or_insert(evidence);
-            }
-        }
-
-        calls
-    }
-
-    pub(super) fn completion_dependencies(&self) -> Vec<crate::ExecutionCompletionDependency> {
-        self.domain
-            .graph
-            .blocks()
-            .iter()
-            .filter_map(|block| self.output(block.id()))
-            .flat_map(|state| state.completion_dependencies)
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .collect()
-    }
     pub(super) fn is_block_reachable(&self, block: AnalysisBlockId) -> bool {
         self.states.state(block).is_some_and(Option::is_some)
     }
@@ -143,14 +116,15 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
     }
 }
 
-struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Sized> {
-    graph: &'a ControlFlowGraph,
-    request: CheckerUnitView<'view, C>,
-    semantics: &'a CheckedExpressionSemantics,
+pub(super) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Sized> {
+    pub(super) graph: &'a ControlFlowGraph,
+    pub(super) request: CheckerUnitView<'view, C>,
+    pub(super) semantics: &'a CheckedExpressionSemantics,
     assumptions: &'a [ExecutionCondition],
     literals: &'a BTreeMap<BoundExpressionId, ExecutionCondition>,
-    storage: &'a bray_bound_tree::StoragePlan,
+    pub(super) storage: &'a bray_bound_tree::StoragePlan,
     contracts: &'a BTreeMap<BoundExpressionId, Vec<crate::ExecutionCompletionContract>>,
+    cleanup: &'a bray_bound_tree::CheckedAsync,
     invalidating: BTreeMap<AnyBoundNodeId, Box<[bray_bound_tree::StorageAccessId]>>,
 }
 
@@ -277,17 +251,27 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
 
         let result = ExecutionCondition::Expression(expression);
 
-        for contract in self.contracts.get(&expression).into_iter().flatten() {
-            if !entry.proves(&contract.entry) {
-                continue;
-            }
+        let contracts = self
+            .contracts
+            .get(&expression)
+            .into_iter()
+            .flatten()
+            .filter(|contract| entry.proves(&contract.entry))
+            .collect::<Vec<_>>();
 
+        let post_state = self.receiver_post_state(state, expression, call, &contracts);
+
+        for contract in contracts {
             for (postcondition, source) in &contract.postconditions {
-                // TODO(BRA-500): Preserve receiver and argument post-state facts across selected calls.
-                let condition =
-                    postcondition.substitute(&|_| ExecutionCondition::Unknown, &result, &mut {
-                        crate::ExecutionCondition::WORK_LIMIT
-                    });
+                let condition = postcondition.substitute(
+                    &|input| {
+                        input
+                            .value_in(&post_state)
+                            .unwrap_or(ExecutionCondition::Unknown)
+                    },
+                    &result,
+                    &mut { crate::ExecutionCondition::WORK_LIMIT },
+                );
 
                 if condition == ExecutionCondition::Unknown {
                     continue;
@@ -308,13 +292,44 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
         state.expressions.insert(expression, result);
     }
 
-    fn operation(
+    pub(super) fn operation(
         &self,
         state: &mut ExecutionState,
         operation: super::super::model::AnalysisOperationKind,
     ) {
+        if let super::super::model::AnalysisOperationKind::ScopeExit { block, exit, phase } =
+            operation
+        {
+            if self.cleanup.scope_exits().iter().any(|plan| {
+                plan.scope() == block
+                    && plan.exit() == exit
+                    && match phase {
+                        super::super::model::AnalysisScopeExitPhase::TaskCancellationBroadcast => {
+                            !plan.cancellation_broadcast().is_empty()
+                        }
+                        super::super::model::AnalysisScopeExitPhase::LifecycleResolution => {
+                            !plan.lifecycle_resolution().is_empty()
+                        }
+                    }
+            }) {
+                state.invalidate_cleanup();
+            }
+
+            return;
+        }
+
         match operation.node() {
             AnyBoundNodeId::Expression(expression) => {
+                if self.cleanup.replacements().iter().any(|plan| {
+                    plan.expression() == expression
+                        && matches!(
+                            plan.cleanup(),
+                            bray_bound_tree::AsyncStorageCleanupRequirement::Cleanup(_)
+                        )
+                }) {
+                    state.invalidate_cleanup();
+                }
+
                 if !matches!(
                     operation,
                     super::super::model::AnalysisOperationKind::Call {
@@ -427,20 +442,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 continue;
             }
 
-            let reference = match target {
-                bray_bound_tree::StorageBindingTarget::Local(id) => {
-                    BoundReferenceTarget::Local((*id).into())
-                }
-                bray_bound_tree::StorageBindingTarget::Parameter(id) => {
-                    BoundReferenceTarget::Surface((*id).into())
-                }
-                bray_bound_tree::StorageBindingTarget::Receiver(id) => {
-                    BoundReferenceTarget::Surface((*id).into())
-                }
-                bray_bound_tree::StorageBindingTarget::AnonymousParameter(id) => {
-                    BoundReferenceTarget::Local((*id).into())
-                }
-                _ => continue,
+            let Some(reference) = crate::execution_guarantees::storage_binding_reference(*target)
+            else {
+                continue;
             };
 
             for invalidated in accesses {
@@ -450,28 +454,11 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                     continue;
                 }
 
-                let mut changed = crate::ExecutionPlace::from(reference);
-
-                for projection in self
+                let changed = self
                     .storage
                     .resolved_projections(*invalidated)
-                    .into_iter()
-                    .flatten()
-                {
-                    match projection {
-                        bray_bound_tree::StorageProjection::ProductField(field) => {
-                            changed = changed.field((*field).into())
-                        }
-                        bray_bound_tree::StorageProjection::ActiveUnionPayloadField {
-                            field,
-                            ..
-                        } => changed = changed.field((*field).into()),
-                        _ => {
-                            changed = reference.into();
-                            break;
-                        }
-                    }
-                }
+                    .and_then(|path| crate::ExecutionPlace::from(reference).project(path))
+                    .unwrap_or_else(|| reference.into());
 
                 for (place, value) in &mut state.current {
                     if place.overlaps(&changed) {

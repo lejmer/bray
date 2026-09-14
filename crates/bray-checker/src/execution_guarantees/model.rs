@@ -64,6 +64,15 @@ pub struct ExecutionDependency {
 /// Locally checked behavior whose dependencies still require certification.
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct ExecutionCandidate {
+    pub(crate) cleanup: std::collections::BTreeMap<
+        (AnyBoundNodeId, bray_bound_tree::StorageAccessId),
+        (
+            bray_symbols::CallableInstanceData,
+            bray_symbols::TypeId,
+            ExecutionCallEvidence,
+        ),
+    >,
+    pub(crate) result_variant: Option<bray_symbols::UnionVariantSymbolId>,
     pub(crate) completion_dependencies: Vec<ExecutionCompletionDependency>,
     pub(crate) calls: std::collections::BTreeMap<AnyBoundNodeId, ExecutionCallEvidence>,
     pub(crate) failure: Option<SourceSpan>,
@@ -71,6 +80,31 @@ pub struct ExecutionCandidate {
 }
 
 impl ExecutionCandidate {
+    /// Returns finalizers and the value evidence available at their cleanup sites.
+    /// Each candidate still requires execution and completion-dependency certification.
+    pub fn cleanup_candidates(
+        &self,
+    ) -> impl Iterator<
+        Item = (
+            AnyBoundNodeId,
+            bray_bound_tree::StorageAccessId,
+            bray_symbols::CallableInstanceData,
+            bray_symbols::TypeId,
+            &ExecutionCallEvidence,
+        ),
+    > {
+        self.cleanup
+            .iter()
+            .map(|((node, access), (callable, result, evidence))| {
+                (*node, *access, *callable, *result, evidence)
+            })
+    }
+
+    /// Returns the union variant constructed on every reachable normal exit in this domain.
+    pub const fn result_variant(&self) -> Option<bray_symbols::UnionVariantSymbolId> {
+        self.result_variant
+    }
+
     /// Returns completion predicates whose proof is required by this candidate.
     pub fn completion_dependencies(&self) -> &[ExecutionCompletionDependency] {
         &self.completion_dependencies
@@ -134,6 +168,14 @@ pub struct ExecutionCallEvidence {
 }
 
 impl ExecutionCallEvidence {
+    pub(crate) fn intersect(&mut self, other: &Self) {
+        self.assumptions
+            .retain(|condition| other.assumptions.contains(condition));
+
+        self.arguments
+            .retain(|place, value| other.arguments.get(place) == Some(value));
+    }
+
     /// Whether every callee-entry condition follows from the captured argument values.
     pub fn proves(&self, conditions: &[super::ExecutionCondition]) -> bool {
         conditions.iter().all(|condition| {

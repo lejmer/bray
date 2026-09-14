@@ -1,3 +1,4 @@
+mod completion;
 mod condition;
 mod conformance;
 mod export;

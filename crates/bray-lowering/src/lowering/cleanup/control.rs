@@ -329,8 +329,14 @@ impl Lowerer<'_> {
                     .unwrap_or_default();
 
                 if parts.is_empty() {
-                    (block, value) =
-                        self.push_guarded_cleanup(block, source, phase, place, guard, None, value)?;
+                    let completed = self
+                        .input
+                        .lowering_plans()
+                        .finalizer_is_complete(plan.exit(), *access);
+
+                    (block, value) = self.push_guarded_cleanup(
+                        block, source, phase, place, guard, None, completed, value,
+                    )?;
                 } else {
                     (block, value) = self.guarded_cleanup_region(
                         block,
@@ -361,6 +367,7 @@ impl Lowerer<'_> {
         place: bray_ir::MirPlace,
         guard: Option<bray_ir::MirPlace>,
         release: Option<bray_bound_tree::StorageProtocolCall>,
+        completed: bool,
         value: Option<(bray_ir::MirValueId, TypeId)>,
     ) -> Result<(MirBlockId, Option<(bray_ir::MirValueId, TypeId)>), LoweringError> {
         self.guarded_cleanup_region(
@@ -370,7 +377,7 @@ impl Lowerer<'_> {
             guard,
             value,
             |lowerer, block, place, value| {
-                lowerer.push_cleanup_action(block, source, phase, place, release)?;
+                lowerer.push_cleanup_action(block, source, phase, place, release, completed)?;
 
                 let block = if let Some(outcome) = &lowerer.cleanup_outcome {
                     outcome.check(&mut lowerer.builder, block, source)?
@@ -466,6 +473,7 @@ impl Lowerer<'_> {
         phase: MirCleanupPhase,
         place: bray_ir::MirPlace,
         release: Option<bray_bound_tree::StorageProtocolCall>,
+        completed: bool,
     ) -> Result<(), LoweringError> {
         if let Some(release) = release {
             self.set_storage_initialized(block, source, &place, false)?;
@@ -474,7 +482,11 @@ impl Lowerer<'_> {
             self.push_operation(
                 block,
                 Self::retained_source(source),
-                MirOperationKind::Cleanup { phase, place },
+                if completed && phase == MirCleanupPhase::LifecycleResolution {
+                    MirOperationKind::Destroy(place)
+                } else {
+                    MirOperationKind::Cleanup { phase, place }
+                },
                 None,
             )?;
         }

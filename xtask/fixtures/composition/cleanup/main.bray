@@ -2,9 +2,23 @@ module composition.cleanup;
 
 static COUNT: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
 
+static DEFAULTS: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+func default_observation() -> usize
+{
+    let previous = core.atomic.load<usize, 1>(&DEFAULTS);
+
+    core.atomic.store<usize, 4>(&DEFAULTS, previous + 1);
+    return previous;
+}
+
 struct Guard
 {
     id: usize;
+    observation: usize = default_observation();
+
+    finalize()
+        executes(pure, total) {}
 
     destruct()
     {
@@ -39,6 +53,7 @@ func run()
     };
 
     assert(core.atomic.load<usize, 1>(&COUNT) == 12);
+    assert(core.atomic.load<usize, 1>(&DEFAULTS) == 2);
     nested_cleanup();
     nested_replacement();
 }
@@ -63,6 +78,9 @@ struct FailingGuard
 struct Bundle
 {
     guards: [[FailingGuard; 2]; 2];
+
+    finalize()
+        executes(pure, total) {}
 }
 
 func make_guard(pos id: usize) -> FailingGuard
@@ -75,7 +93,10 @@ func make_guard(pos id: usize) -> FailingGuard
 
 func pending_result() -> usize
 {
-    let guards = [[make_guard(1), make_guard(2)], [make_guard(3), make_guard(4)]];
+    let bundle = Bundle
+    {
+        guards = [[make_guard(1), make_guard(2)], [make_guard(3), make_guard(4)]]
+    };
 
     return 99;
 }

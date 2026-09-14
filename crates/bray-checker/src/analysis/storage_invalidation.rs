@@ -84,10 +84,11 @@ pub(super) fn invalidating_operation_accesses<C: CheckerRequestContext + ?Sized>
 }
 
 const fn access_invalidates_refinements(purpose: StorageAccessPurpose) -> bool {
+    // Write checks the destination while evaluating its address. Assignment invalidates
+    // the old value after the right-hand side and replacement cleanup have run.
     matches!(
         purpose,
-        StorageAccessPurpose::Write
-            | StorageAccessPurpose::Initialize
+        StorageAccessPurpose::Initialize
             | StorageAccessPurpose::Move
             | StorageAccessPurpose::ValueTransfer
             | StorageAccessPurpose::Assignment

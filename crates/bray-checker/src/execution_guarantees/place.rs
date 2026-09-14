@@ -20,6 +20,40 @@ impl From<BoundReferenceTarget> for ExecutionPlace {
 }
 
 impl ExecutionPlace {
+    pub(crate) fn storage(
+        storage: &bray_bound_tree::StoragePlan,
+        access: bray_bound_tree::StorageAccessId,
+    ) -> Option<Self> {
+        let identity = storage.root_identity(access)?;
+
+        let root = storage.bindings().iter().find_map(|(target, binding)| {
+            (*binding == bray_bound_tree::StorageBinding::Identity(identity))
+                .then(|| storage_binding_reference(*target))
+                .flatten()
+        })?;
+
+        Self::from(root).project(storage.resolved_projections(access)?)
+    }
+
+    pub(crate) fn project(
+        mut self,
+        projections: &[bray_bound_tree::StorageProjection],
+    ) -> Option<Self> {
+        for projection in projections {
+            match projection {
+                bray_bound_tree::StorageProjection::ProductField(field) => {
+                    self = self.field((*field).into());
+                }
+                bray_bound_tree::StorageProjection::ActiveUnionPayloadField { field, .. } => {
+                    self = self.field((*field).into());
+                }
+                _ => return None,
+            }
+        }
+
+        Some(self)
+    }
+
     pub(crate) fn value_in(
         &self,
         values: &std::collections::BTreeMap<Self, super::ExecutionCondition>,
@@ -57,5 +91,25 @@ impl ExecutionPlace {
 
     pub(crate) fn overlaps(&self, other: &Self) -> bool {
         self.contains(other) || other.contains(self)
+    }
+}
+
+pub(crate) fn storage_binding_reference(
+    target: bray_bound_tree::StorageBindingTarget,
+) -> Option<BoundReferenceTarget> {
+    match target {
+        bray_bound_tree::StorageBindingTarget::Local(id) => {
+            Some(BoundReferenceTarget::Local(id.into()))
+        }
+        bray_bound_tree::StorageBindingTarget::Parameter(id) => {
+            Some(BoundReferenceTarget::Surface(id.into()))
+        }
+        bray_bound_tree::StorageBindingTarget::Receiver(id) => {
+            Some(BoundReferenceTarget::Surface(id.into()))
+        }
+        bray_bound_tree::StorageBindingTarget::AnonymousParameter(id) => {
+            Some(BoundReferenceTarget::Local(id.into()))
+        }
+        _ => None,
     }
 }
