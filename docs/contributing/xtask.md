@@ -53,6 +53,9 @@ Regenerate the Rust source and digest derived from the checked-in compiler-known
 cargo xtask compiler-known generate
 ```
 
+Generation rejects an executable whose embedded catalog definitions differ from the selected checkout. Rebuild xtask
+from that checkout before retrying. No generated files are written when the inputs differ.
+
 Check whether the generated files are current without changing them:
 
 ```text

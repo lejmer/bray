@@ -60,7 +60,12 @@ mod tests {
         let root = parent.join(name);
         fs::create_dir_all(root.join("xtask/src")).unwrap();
         fs::create_dir_all(root.join("toolchains")).unwrap();
-        fs::write(root.join("Cargo.toml"), "[workspace]\nmembers = [\"xtask\"]\n").unwrap();
+
+        fs::write(
+            root.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"xtask\"]\n",
+        )
+        .unwrap();
 
         fs::write(
             root.join("xtask/Cargo.toml"),
@@ -98,7 +103,12 @@ mod tests {
         let error = root_from(directory.path()).unwrap_err();
 
         assert!(error.contains("Cargo.toml"), "{error}");
-        assert!(error.contains("could not locate the Cargo workspace"), "{error}");
+
+        assert!(
+            error.contains("could not locate the Cargo workspace"),
+            "{error}"
+        );
+
         assert!(error.contains("[workspace"), "{error}");
     }
 
@@ -117,7 +127,11 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let error = root_from(directory.path()).unwrap_err();
 
-        assert!(error.contains("could not locate the Cargo workspace"), "{error}");
+        assert!(
+            error.contains("could not locate the Cargo workspace"),
+            "{error}"
+        );
+
         assert!(error.contains("Cargo.toml"), "{error}");
     }
 }

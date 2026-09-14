@@ -25,7 +25,7 @@ fn main() {
     let digest = match catalog_digest::source_digest(
         catalog_revision::CatalogGrammarRevision::SUPPORTED,
         MANIFEST,
-        &catalog_directory,
+        |relative_path| std::fs::read(catalog_directory.join(relative_path)),
     ) {
         Ok(digest) => digest,
         Err(error) => panic!("failed to hash compiler-known catalog sources: {error}"),

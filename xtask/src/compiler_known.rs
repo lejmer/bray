@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use bray_compiler_known::generate_catalog_output;
+use bray_compiler_known::{CatalogGenerationError, generate_catalog_output};
 
 use crate::{command, workspace};
 
@@ -58,12 +58,19 @@ fn check_command(arguments: impl Iterator<Item = String>) -> Result<(), String> 
 }
 
 fn generate(check: bool) -> Result<(), String> {
+    let root = workspace::root()?;
+    let catalog = root.join("crates/bray-compiler-known/catalog");
+
     let output = crate::progress::run("Generating the compiler-known catalog", || {
-        generate_catalog_output()
-            .map_err(|error| format!("compiler-known catalog generation failed: {error}"))
+        generate_catalog_output(&catalog).map_err(|error| match error {
+            CatalogGenerationError::InputMismatch(path) => format!(
+                "catalog input {} differs from this executable. Rebuild xtask from this checkout",
+                path.display()
+            ),
+            error => format!("compiler-known catalog generation failed: {error}"),
+        })
     })?;
 
-    let root = workspace::root()?;
     let digest = format!("{}\n", output.source_digest());
 
     let files = [

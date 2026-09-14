@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use bray_parser::{
     DeclarationFragmentContext, DeclarationFragmentSyntax, parse_declaration_fragment,
@@ -26,14 +26,22 @@ pub enum CatalogGenerationError {
     /// Catalog parsing or structural validation failed.
     Catalog(CatalogDiagnostics),
     /// One canonical catalog input could not be read for digesting.
-    Io(std::io::Error),
+    Io {
+        /// Input that could not be read.
+        path: PathBuf,
+        /// Filesystem failure.
+        error: std::io::Error,
+    },
+    /// The selected catalog input differs from the executable's embedded inventory.
+    InputMismatch(PathBuf),
 }
 
 impl std::fmt::Display for CatalogGenerationError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Catalog(diagnostics) => write!(formatter, "{diagnostics:#?}"),
-            Self::Io(error) => error.fmt(formatter),
+            Self::Io { path, error } => write!(formatter, "{}: {error}", path.display()),
+            Self::InputMismatch(_) => write!(formatter, "{self:?}"),
         }
     }
 }
@@ -43,12 +51,6 @@ impl std::error::Error for CatalogGenerationError {}
 impl From<CatalogDiagnostics> for CatalogGenerationError {
     fn from(diagnostics: CatalogDiagnostics) -> Self {
         Self::Catalog(diagnostics)
-    }
-}
-
-impl From<std::io::Error> for CatalogGenerationError {
-    fn from(error: std::io::Error) -> Self {
-        Self::Io(error)
     }
 }
 
@@ -77,20 +79,43 @@ impl GeneratedCatalogOutput {
     }
 }
 
-/// Parses, validates, and deterministically renders the canonical catalog.
-pub fn generate_catalog_output() -> Result<GeneratedCatalogOutput, CatalogGenerationError> {
-    let mut validator = BrayFragmentValidator::default();
-    let mut catalog = build_catalog(generator_input_inventory(), &mut validator)?;
+/// Parses, validates, and deterministically renders the selected catalog.
+///
+/// The directory's inputs must match this executable's embedded inventory.
+pub fn generate_catalog_output(
+    catalog_directory: &Path,
+) -> Result<GeneratedCatalogOutput, CatalogGenerationError> {
+    let manifest_path = catalog_directory.join("catalog.braydef-manifest");
 
-    let (declaration_surfaces, type_surfaces) = validator.into_surfaces();
+    if read_input(&manifest_path)? != MANIFEST.as_bytes() {
+        return Err(CatalogGenerationError::InputMismatch(manifest_path));
+    }
 
-    let catalog_directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("catalog");
+    let inventory = generator_input_inventory();
+    let mut sources = inventory.sources().iter();
 
     let digest = source_digest(
         crate::CatalogGrammarRevision::SUPPORTED,
         MANIFEST,
-        &catalog_directory,
+        |relative_path| {
+            let path = catalog_directory.join(relative_path);
+            let contents = read_input(&path)?;
+
+            if sources
+                .next()
+                .is_none_or(|source| source.text().as_bytes() != contents)
+            {
+                return Err(CatalogGenerationError::InputMismatch(path));
+            }
+
+            Ok(contents)
+        },
     )?;
+
+    let mut validator = BrayFragmentValidator::default();
+    let mut catalog = build_catalog(inventory, &mut validator)?;
+
+    let (declaration_surfaces, type_surfaces) = validator.into_surfaces();
 
     catalog.declaration_surfaces = declaration_surfaces.into();
     catalog.type_surfaces = type_surfaces.into();
@@ -99,6 +124,13 @@ pub fn generate_catalog_output() -> Result<GeneratedCatalogOutput, CatalogGenera
         rust_source: render_catalog(&catalog, crate::CatalogGrammarRevision::SUPPORTED, &digest),
         grammar_revision: crate::CatalogGrammarRevision::SUPPORTED,
         source_digest: digest,
+    })
+}
+
+fn read_input(path: &Path) -> Result<Vec<u8>, CatalogGenerationError> {
+    std::fs::read(path).map_err(|error| CatalogGenerationError::Io {
+        path: path.to_owned(),
+        error,
     })
 }
 
@@ -438,23 +470,75 @@ fn collect_surface_elements(
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
+    use std::path::{Path, PathBuf};
 
     use bray_syntax::SyntaxKind;
 
-    use super::{generate_catalog_output, render_catalog};
+    use super::{CatalogGenerationError, MANIFEST, generate_catalog_output, render_catalog};
     use crate::{
         CATALOG_GRAMMAR_REVISION, CATALOG_SOURCE_DIGEST, COMPILER_KNOWN_CATALOG,
         CatalogSurfaceElement, generator_input_inventory,
     };
 
+    fn catalog_directory() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("catalog")
+    }
+
+    #[test]
+    fn generation_uses_selected_inputs_and_rejects_mismatched_executables() {
+        let directory = tempfile::tempdir().unwrap();
+
+        for source in generator_input_inventory().sources() {
+            let path = directory.path().join(source.relative_path());
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, source.text()).unwrap();
+        }
+
+        let catalog = directory.path().join("catalog");
+        let manifest = catalog.join("catalog.braydef-manifest");
+        std::fs::write(&manifest, MANIFEST).unwrap();
+
+        assert_eq!(
+            generate_catalog_output(&catalog).unwrap(),
+            generate_catalog_output(&catalog_directory()).unwrap()
+        );
+
+        for path in [manifest, catalog.join("ambient/fundamentals.braydef")] {
+            let original = std::fs::read(&path).unwrap();
+            std::fs::write(&path, b"different input").unwrap();
+
+            let error = generate_catalog_output(&catalog).unwrap_err();
+
+            let CatalogGenerationError::InputMismatch(actual) = error else {
+                panic!("expected input mismatch, got {error:?}");
+            };
+
+            assert_eq!(actual, path);
+            std::fs::write(path, original).unwrap();
+        }
+    }
+
+    #[test]
+    fn missing_selected_inputs_preserve_the_path_and_filesystem_error() {
+        let directory = tempfile::tempdir().unwrap();
+        let error = generate_catalog_output(directory.path()).unwrap_err();
+
+        let CatalogGenerationError::Io { path, error } = error else {
+            panic!("expected input failure, got {error:?}");
+        };
+
+        assert_eq!(path, directory.path().join("catalog.braydef-manifest"));
+        assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+    }
+
     #[test]
     fn generation_is_byte_deterministic() {
-        let first = match generate_catalog_output() {
+        let first = match generate_catalog_output(&catalog_directory()) {
             Ok(output) => output,
             Err(diagnostics) => panic!("catalog generation failed: {diagnostics:#?}"),
         };
 
-        let second = match generate_catalog_output() {
+        let second = match generate_catalog_output(&catalog_directory()) {
             Ok(output) => output,
             Err(diagnostics) => panic!("catalog generation failed: {diagnostics:#?}"),
         };
@@ -467,7 +551,7 @@ mod tests {
 
     #[test]
     fn published_catalog_matches_fresh_generation() {
-        let output = match generate_catalog_output() {
+        let output = match generate_catalog_output(&catalog_directory()) {
             Ok(output) => output,
             Err(diagnostics) => panic!("catalog generation failed: {diagnostics:#?}"),
         };
