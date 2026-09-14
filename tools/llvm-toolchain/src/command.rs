@@ -80,7 +80,6 @@ fn fetch() -> Result<(), ToolchainError> {
         &manifest.version,
         package,
         &manifest.source,
-        &workspace_root.join("tools/llvm-toolchain/native/lld"),
     )?;
 
     println!("{}", active.display());
@@ -266,7 +265,6 @@ fn install_archive(
     version: &str,
     package: &ToolchainPackage,
     source: &ToolchainSource,
-    native_sources: &Path,
 ) -> Result<(), ToolchainError> {
     let active = root.join(ACTIVE_DIRECTORY);
     let staging = root.join(format!("active-{}.partial", std::process::id()));
@@ -276,15 +274,8 @@ fn install_archive(
 
     fs::create_dir_all(&staging).map_err(|error| ToolchainError::io("create", &staging, error))?;
 
-    if let Err(error) = prepare_staging(
-        &staging,
-        archive,
-        source_archive,
-        version,
-        package,
-        source,
-        native_sources,
-    ) {
+    if let Err(error) = prepare_staging(&staging, archive, source_archive, version, package, source)
+    {
         return cleanup_after_failure(root, &staging, error);
     }
 
@@ -329,7 +320,6 @@ fn prepare_staging(
     version: &str,
     package: &ToolchainPackage,
     source: &ToolchainSource,
-    native_sources: &Path,
 ) -> Result<(), ToolchainError> {
     let output = Command::new("tar")
         .arg("-xJf")
@@ -354,7 +344,7 @@ fn prepare_staging(
 
     let identity = crate::instrumentation::identity(version, &source.sha256);
 
-    crate::instrumentation::install(staging, source_archive, version, &identity, native_sources)
+    crate::instrumentation::install(staging, source_archive, version, &identity)
         .map_err(ToolchainError::Instrumentation)?;
 
     write_marker(staging, version, package, source)
