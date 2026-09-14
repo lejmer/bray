@@ -1,7 +1,7 @@
 pub(crate) fn run_static_finalizer(
     frame: bray_runtime_abi::NativeInactiveFrame,
     resolve: bray_runtime_abi::NativeStaticFinalizerResolveCallback,
-) -> Vec<crate::product::CleanupIncident> {
+) -> Vec<crate::incident::OwnedCleanupIncident> {
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     use bray_runtime_abi::{NativeRootHandle, NativeRunState};
@@ -10,15 +10,15 @@ pub(crate) fn run_static_finalizer(
         let allocation = runtime.allocate();
 
         let Some(task) = allocation.task() else {
-            return vec![crate::product::CleanupIncident::runtime_failure()];
+            return vec![crate::incident::OwnedCleanupIncident::runtime_failure()];
         };
 
         if !runtime.start(task, frame.into_protected()).is_success() {
-            return vec![crate::product::CleanupIncident::runtime_failure()];
+            return vec![crate::incident::OwnedCleanupIncident::runtime_failure()];
         }
 
         let Some(root) = NativeRootHandle::new(task.raw()) else {
-            return vec![crate::product::CleanupIncident::runtime_failure()];
+            return vec![crate::incident::OwnedCleanupIncident::runtime_failure()];
         };
 
         let outcome = runtime.observe_root(root);
@@ -30,50 +30,50 @@ pub(crate) fn run_static_finalizer(
 
                 match catch_unwind(AssertUnwindSafe(|| resolve(outcome.payload(), destination))) {
                     Ok(status) => crate::product::incidents_from_status(status, incident),
-                    Err(payload) => vec![crate::product::CleanupIncident::panic(payload)],
+                    Err(payload) => vec![crate::incident::OwnedCleanupIncident::panic(payload)],
                 }
             }
             NativeRunState::PANICKED => {
                 let _ = super::export::bray_runtime_panic_reporting(outcome.payload());
 
-                vec![crate::product::CleanupIncident::runtime_failure()]
+                vec![crate::incident::OwnedCleanupIncident::runtime_failure()]
             }
             NativeRunState::CANCELLED
             | NativeRunState::PENDING
             | NativeRunState::RUNTIME_FAILURE => {
-                vec![crate::product::CleanupIncident::runtime_failure()]
+                vec![crate::incident::OwnedCleanupIncident::runtime_failure()]
             }
-            _ => vec![crate::product::CleanupIncident::runtime_failure()],
+            _ => vec![crate::incident::OwnedCleanupIncident::runtime_failure()],
         };
 
         if !runtime.resolve_root_completion(root).is_success() {
-            incidents.push(crate::product::CleanupIncident::runtime_failure());
+            incidents.push(crate::incident::OwnedCleanupIncident::runtime_failure());
         }
 
         incidents
     })
-    .unwrap_or_else(|_| vec![crate::product::CleanupIncident::runtime_failure()]);
+    .unwrap_or_else(|_| vec![crate::incident::OwnedCleanupIncident::runtime_failure()]);
 
     incidents
 }
 
 pub(crate) fn with_static_cleanup_runtime<T>(
     callback: impl FnOnce() -> T,
-) -> (T, Vec<crate::product::CleanupIncident>) {
+) -> (T, Vec<crate::incident::OwnedCleanupIncident>) {
     with_selected_static_cleanup_runtime(None, callback)
 }
 
 pub(crate) fn with_retained_static_cleanup_runtime<T>(
     runtime: &super::state::RetainedRuntime,
     callback: impl FnOnce() -> T,
-) -> (T, Vec<crate::product::CleanupIncident>) {
+) -> (T, Vec<crate::incident::OwnedCleanupIncident>) {
     with_selected_static_cleanup_runtime(Some(runtime), callback)
 }
 
 fn with_selected_static_cleanup_runtime<T>(
     runtime: Option<&super::state::RetainedRuntime>,
     callback: impl FnOnce() -> T,
-) -> (T, Vec<crate::product::CleanupIncident>) {
+) -> (T, Vec<crate::incident::OwnedCleanupIncident>) {
     let mut callback = Some(callback);
     let mut result = None;
     let mut incidents = Vec::new();
@@ -101,7 +101,7 @@ fn with_selected_static_cleanup_runtime<T>(
     }
 
     if !runtime_succeeded {
-        incidents.push(crate::product::CleanupIncident::runtime_failure());
+        incidents.push(crate::incident::OwnedCleanupIncident::runtime_failure());
     }
 
     let Some(result) = result else {

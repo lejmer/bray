@@ -118,8 +118,11 @@ pub enum FrameExit {
 }
 
 /// Opaque owned panic crossing a protected runtime boundary.
+///
+/// Disposal visits the primary before suppressed failures, including nested runtime reports,
+/// without recursive descent. Opaque payload destructors control their own internal disposal.
 pub struct RuntimePanic {
-    primary: Box<dyn Any + Send>,
+    primary: Option<Box<dyn Any + Send>>,
     suppressed: Vec<Box<dyn Any + Send>>,
 }
 
@@ -131,7 +134,9 @@ impl RuntimePanic {
 
     /// Returns whether the primary panic payload has the requested Rust type.
     pub fn primary_is<T: Any>(&self) -> bool {
-        self.primary.is::<T>()
+        self.primary
+            .as_ref()
+            .is_some_and(|payload| payload.is::<T>())
     }
 
     /// Returns the number of later panics retained behind the primary panic.
@@ -141,13 +146,38 @@ impl RuntimePanic {
 
     pub(crate) fn from_payload(payload: Box<dyn Any + Send>) -> Self {
         Self {
-            primary: payload,
+            primary: Some(payload),
             suppressed: Vec::new(),
         }
     }
 
+    pub(crate) fn take_payloads(
+        &mut self,
+    ) -> impl DoubleEndedIterator<Item = Box<dyn Any + Send>> + use<> {
+        self.primary
+            .take()
+            .into_iter()
+            .chain(std::mem::take(&mut self.suppressed))
+    }
+
     pub(crate) fn push_suppressed(&mut self, payload: Box<dyn Any + Send>) {
         self.suppressed.push(payload);
+    }
+
+    pub(crate) fn record(panic: &mut Option<Self>, payload: Box<dyn Any + Send>) {
+        if let Some(panic) = panic {
+            panic.push_suppressed(payload);
+        } else {
+            *panic = Some(Self::from_payload(payload));
+        }
+    }
+}
+
+impl Drop for RuntimePanic {
+    fn drop(&mut self) {
+        for payload in self.take_payloads() {
+            crate::incident::dispose_panic(payload);
+        }
     }
 }
 

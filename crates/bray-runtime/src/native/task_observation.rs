@@ -1,5 +1,4 @@
 use std::alloc::{Layout, alloc_zeroed, dealloc};
-use std::any::Any;
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -11,6 +10,7 @@ use bray_runtime_abi::{
 };
 
 use super::state::{current_native_task, runtime_failure, with_runtime};
+use crate::RuntimePanic;
 
 const TASK_OBSERVATION_FRAME_IDENTITY: [u8; 32] = *b"bray.task.observation.frame.v1\0\0";
 
@@ -111,7 +111,7 @@ impl TaskObservation {
             return;
         };
 
-        let mut incident: Option<Box<dyn Any + Send>> = None;
+        let mut incident = None;
 
         match TemporaryRunResult::new(self.layout) {
             Ok(storage) => match transfer_outcome(outcome, storage.address(), self.layout) {
@@ -119,27 +119,24 @@ impl TaskObservation {
                     for cleanup in [self.cancellation, self.lifecycle].into_iter().flatten() {
                         if let Err(found) =
                             catch_unwind(AssertUnwindSafe(|| cleanup(storage.pointer())))
-                            && incident.is_none()
                         {
-                            incident = Some(found);
+                            RuntimePanic::record(&mut incident, found);
                         }
                     }
                 }
-                Err(status) => incident = Some(Box::new(status)),
+                Err(status) => RuntimePanic::record(&mut incident, Box::new(status)),
             },
-            Err(status) => incident = Some(Box::new(status)),
+            Err(status) => RuntimePanic::record(&mut incident, Box::new(status)),
         }
 
-        if let Err(found) = destroy_task(self.task)
-            && incident.is_none()
-        {
-            incident = Some(Box::new(found));
+        if let Err(found) = destroy_task(self.task) {
+            RuntimePanic::record(&mut incident, Box::new(found));
         }
 
         self.consumed.store(true, Ordering::Release);
 
         if let Some(incident) = incident {
-            resume_unwind(incident);
+            resume_unwind(Box::new(incident));
         }
     }
 }
@@ -379,11 +376,82 @@ fn failure_progress() -> NativeFrameProgress {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::RefCell;
+    use std::panic::{AssertUnwindSafe, catch_unwind, panic_any};
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
     use bray_runtime_abi::{
         NativeRunOutcome, NativeRunResultLayout, NativeRunState, NativeRuntimeStatus,
     };
 
-    use super::transfer_outcome;
+    use super::{TaskObservation, transfer_outcome};
+
+    thread_local! {
+        static CLEANUP_EVENTS: RefCell<Vec<(&'static str, u8)>> = const { RefCell::new(Vec::new()) };
+    }
+
+    struct CleanupFailure(u8);
+
+    impl Drop for CleanupFailure {
+        fn drop(&mut self) {
+            CLEANUP_EVENTS.with_borrow_mut(|events| events.push(("release", self.0)));
+        }
+    }
+
+    extern "C-unwind" fn failing_cancellation(_: *mut u8) {
+        CLEANUP_EVENTS.with_borrow_mut(|events| events.push(("cleanup", 1)));
+        panic_any(CleanupFailure(1));
+    }
+
+    extern "C-unwind" fn failing_lifecycle(_: *mut u8) {
+        CLEANUP_EVENTS.with_borrow_mut(|events| events.push(("cleanup", 2)));
+        panic_any(CleanupFailure(2));
+    }
+
+    #[test]
+    fn cleanup_retains_secondary_failures_until_the_original_is_disposed() {
+        let completed = 42_u64;
+
+        let observation = TaskObservation {
+            task: bray_runtime_abi::NativeTaskHandle::new(1).unwrap(),
+            layout: result_layout(),
+            cancellation: Some(failing_cancellation),
+            lifecycle: Some(failing_lifecycle),
+            request_cancellation: false,
+            owner: AtomicU64::new(0),
+            consumed: AtomicBool::new(false),
+            outcome: Mutex::new(Some(NativeRunOutcome::new(
+                NativeRunState::COMPLETED,
+                (&raw const completed).addr(),
+            ))),
+        };
+
+        let failure =
+            catch_unwind(AssertUnwindSafe(|| observation.resolve_owned_task())).unwrap_err();
+
+        let failure = failure.downcast::<crate::RuntimePanic>().unwrap();
+
+        assert!(failure.primary_is::<CleanupFailure>());
+        assert_eq!(failure.suppressed_count(), 2);
+        assert!(observation.consumed.load(Ordering::Acquire));
+        CLEANUP_EVENTS.with_borrow(|events| assert_eq!(*events, [("cleanup", 1), ("cleanup", 2)]));
+
+        drop(failure);
+        observation.resolve_owned_task();
+
+        CLEANUP_EVENTS.with_borrow(|events| {
+            assert_eq!(
+                *events,
+                [
+                    ("cleanup", 1),
+                    ("cleanup", 2),
+                    ("release", 1),
+                    ("release", 2),
+                ]
+            )
+        });
+    }
 
     const COMPLETED_TAG: u8 = 3;
     const PANICKED_TAG: u8 = 5;
