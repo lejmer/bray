@@ -446,11 +446,11 @@ mod tests {
                     r#"
                     module app;
 
-                    type A<T> = Container< {ty}>;
-                    type B<T> = Container<Box<List<Map< {ty}>>>>;
-                    type C<T> = box[Store< {ty}>] {ty};
-                    type D<T> = [{ty}];
-                    type E<T> = ({ty}, {ty});
+                    func a<T>(value: Container< {ty}>) {{}}
+                    func b<T>(value: Container<Box<List<Map< {ty}>>>>) {{}}
+                    func c<T>(value: box[Store< {ty}>] {ty}) {{}}
+                    func d<T>(value: [{ty}]) {{}}
+                    func e<T>(value: ({ty}, {ty})) {{}}
                 "#
                 ),
             ] {
@@ -458,6 +458,15 @@ mod tests {
                 let parsed = crate::parse_source_unit(&source(&sources, 0));
 
                 assert_eq!(parsed.source_unit().full_text(), text);
+                assert!(!parsed.source_unit().is_recovered(), "{text}");
+
+                assert!(
+                    parsed
+                        .source_unit()
+                        .function_declarations()
+                        .next()
+                        .is_some()
+                );
 
                 assert!(
                     parsed.diagnostics().is_empty(),

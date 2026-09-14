@@ -1,8 +1,10 @@
 use bray_diagnostics::DiagnosticBag;
 use bray_source::{SourceSnapshot, TextSize};
-use bray_syntax::{SyntaxKind, SyntaxToken};
+use bray_syntax::SyntaxToken;
 
 use super::scanner::{LexerScanMode, scan_token_at};
+use super::text::first_character;
+use super::trivia::scan_leading_trivia;
 
 /// Controls whether a lexer token source stores tokens produced for lookahead.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
@@ -142,10 +144,9 @@ impl LexerTokenSource {
     }
 
     pub(crate) fn at_generic_close(&self) -> bool {
-        scan_token_at(&self.snapshot, self.cursor, LexerScanMode::TypePunctuation)
-            .into_token()
-            .kind()
-            == SyntaxKind::GreaterToken
+        let leading = scan_leading_trivia(&self.snapshot, self.cursor);
+
+        first_character(&self.snapshot, leading.end()) == Some('>')
     }
 
     fn cached_lookahead(&mut self, distance: usize) -> SyntaxToken {
@@ -657,6 +658,42 @@ mod tests {
         );
 
         assert_eq!(source.peek().kind(), SyntaxKind::GreaterToken);
+    }
+
+    #[test]
+    fn generic_close_probe_preserves_cursor_and_deferred_diagnostics() {
+        for policy in [
+            LexerCachePolicy::CacheTokens,
+            LexerCachePolicy::DoNotCacheTokens,
+        ] {
+            for (text, expected) in [
+                (" /* c */ >==", true),
+                ("\r>", false),
+                ("&&T", false),
+                ("/*", false),
+            ] {
+                let mut source = LexerTokenSource::with_cache_policy(snapshot(text), policy);
+                let offset = source.current_offset();
+
+                assert_eq!(source.at_generic_close(), expected, "{text}");
+                assert_eq!(source.current_offset(), offset);
+                assert!(source.diagnostics().is_empty());
+
+                if expected {
+                    assert_eq!(
+                        source.consume_type_punctuation().kind(),
+                        SyntaxKind::GreaterToken
+                    );
+                } else {
+                    source.consume();
+                }
+
+                assert_eq!(
+                    !source.diagnostics().is_empty(),
+                    text == "\r>" || text == "/*"
+                );
+            }
+        }
     }
 
     #[test]

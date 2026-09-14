@@ -45,24 +45,6 @@ impl Parser {
         decision
     }
 
-    /// Keeps a speculative parse and its cursor only when it produces a result.
-    pub(super) fn try_parse<T>(
-        &mut self,
-        parse: impl FnOnce(&mut Parser) -> Option<T>,
-    ) -> Option<T> {
-        let checkpoint = self.cursor.checkpoint();
-        let mut fork = self.fork_from_checkpoint(&checkpoint);
-        let result = parse(&mut fork);
-
-        if result.is_some() {
-            *self = fork;
-        } else {
-            self.cursor.absorb_lexical_diagnostics_from(&fork.cursor);
-        }
-
-        result
-    }
-
     fn fork_from_checkpoint(&self, checkpoint: &ParserCursorCheckpoint) -> Self {
         Self {
             // Forked parsers share immutable source text with the main parser.
@@ -131,20 +113,11 @@ impl Parser {
     }
 
     pub(super) fn consume_if(&mut self, kind: SyntaxKind) -> Option<SyntaxToken> {
-        if !self.at(kind) {
-            return None;
-        }
-
-        Some(self.cursor.consume())
+        self.cursor.consume_if(kind)
     }
 
     pub(super) fn consume(&mut self) -> SyntaxToken {
-        let kind = self.peek().kind();
-
-        match self.consume_if(kind) {
-            Some(token) => token,
-            None => panic!("parser token changed between peek and consume"),
-        }
+        self.cursor.consume()
     }
 
     pub(super) fn consume_tuple_element_index_after_dot(&mut self) -> SyntaxToken {

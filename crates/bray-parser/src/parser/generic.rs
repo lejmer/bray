@@ -1,10 +1,12 @@
 use bray_syntax::{
     GenericArgumentListSyntax, GenericArgumentListSyntaxBuilder, GenericArgumentSyntax,
     GenericConstParameterSyntax, GenericParameterListSyntax, GenericParameterListSyntaxBuilder,
-    GenericTypeParameterSyntax, SyntaxKind, SyntaxToken, TypeExpressionSyntax,
-    TypeFormArgumentListSyntax, TypeFormArgumentListSyntaxBuilder, TypeFormArgumentSyntax,
+    GenericTypeParameterSyntax, SyntaxKind, SyntaxToken, TypeFormArgumentListSyntax,
+    TypeFormArgumentListSyntaxBuilder, TypeFormArgumentSyntax,
 };
 
+use super::delimiter::DelimiterDepth;
+use super::expression::at_infix_operator;
 use super::separated::{SeparatedListSpec, SeparatedListSyntaxSink, separated_list_recovery_kinds};
 use super::state::Parser;
 
@@ -201,12 +203,14 @@ impl Parser {
         let start = self.peek().full_range().start();
         let mut builder = GenericArgumentSyntax::builder(self.syntax_source(), start);
 
-        if let Some(ty) = self.try_parse_type_argument(Parser::at_generic_argument_boundary) {
-            builder.push_type_expression(ty);
-        } else {
+        if self.should_parse_generic_argument_as_expression(&GENERIC_ARGUMENT_LIST_TERMINATORS) {
             let mut at_boundary = Parser::at_generic_argument_boundary;
 
             builder.push_expression(self.parse_non_assignment_expression_until(&mut at_boundary));
+        } else {
+            let mut at_boundary = Parser::at_generic_argument_boundary;
+
+            builder.push_type_expression(self.parse_type_expression_until(&mut at_boundary));
         }
 
         builder.build()
@@ -241,12 +245,14 @@ impl Parser {
         let start = self.peek().full_range().start();
         let mut builder = TypeFormArgumentSyntax::builder(self.syntax_source(), start);
 
-        if let Some(ty) = self.try_parse_type_argument(Parser::at_type_form_argument_boundary) {
-            builder.push_type_expression(ty);
-        } else {
+        if self.should_parse_generic_argument_as_expression(&TYPE_FORM_ARGUMENT_LIST_TERMINATORS) {
             let mut at_boundary = Parser::at_type_form_argument_boundary;
 
             builder.push_expression(self.parse_non_assignment_expression_until(&mut at_boundary));
+        } else {
+            let mut at_boundary = Parser::at_type_form_argument_boundary;
+
+            builder.push_type_expression(self.parse_type_expression_until(&mut at_boundary));
         }
 
         builder.build()
@@ -266,19 +272,84 @@ impl Parser {
         self.at(SyntaxKind::CommaToken) || self.at_any(&TYPE_FORM_ARGUMENT_LIST_TERMINATORS)
     }
 
-    fn try_parse_type_argument(
-        &mut self,
-        mut at_boundary: fn(&mut Parser) -> bool,
-    ) -> Option<TypeExpressionSyntax> {
+    fn should_parse_generic_argument_as_expression(&mut self, terminators: &[SyntaxKind]) -> bool {
         if at_generic_argument_expression_only_start(self.peek().kind()) {
-            return None;
+            return true;
         }
 
-        self.try_parse(|parser| {
-            let ty = parser.parse_type_expression_until(&mut at_boundary);
+        self.scan_ahead(|scan| scan.scan_generic_argument_has_expression_operator(terminators))
+    }
 
-            at_boundary(parser).then_some(ty)
-        })
+    fn scan_generic_argument_has_expression_operator(
+        &mut self,
+        terminators: &[SyntaxKind],
+    ) -> bool {
+        let mut depth = DelimiterDepth::default();
+        let mut groups = 0usize;
+        let mut prefix = SyntaxKind::OpenParenToken;
+
+        loop {
+            if self.at_generic_close() {
+                if depth.is_at_root() {
+                    return false;
+                }
+
+                depth.observe_grouping_or_angle(self.consume_type_punctuation().kind());
+                continue;
+            }
+
+            let kind = self.peek().kind();
+
+            if kind == SyntaxKind::EndOfFileToken {
+                return false;
+            }
+
+            if depth.is_at_root() {
+                let expects_operand = matches!(
+                    prefix,
+                    SyntaxKind::OpenParenToken
+                        | SyntaxKind::CommaToken
+                        | SyntaxKind::AmpersandToken
+                        | SyntaxKind::AmpersandAmpersandToken
+                        | SyntaxKind::BoxKeyword
+                        | SyntaxKind::MutKeyword
+                        | SyntaxKind::ArrowToken
+                );
+
+                if kind == SyntaxKind::OpenParenToken && expects_operand {
+                    groups += 1;
+                    prefix = self.consume().kind();
+                    continue;
+                }
+
+                if kind == SyntaxKind::CloseParenToken && groups > 0 {
+                    groups -= 1;
+                    prefix = self.consume().kind();
+                    continue;
+                }
+
+                if groups == 0 && (kind == SyntaxKind::CommaToken || terminators.contains(&kind)) {
+                    return false;
+                }
+
+                if kind != SyntaxKind::LessToken
+                    && at_infix_operator(kind)
+                    && !(expects_operand
+                        && matches!(
+                            kind,
+                            SyntaxKind::AmpersandToken | SyntaxKind::AmpersandAmpersandToken
+                        ))
+                {
+                    return true;
+                }
+
+                if kind != SyntaxKind::OpenBracketToken || prefix != SyntaxKind::BoxKeyword {
+                    prefix = kind;
+                }
+            }
+
+            depth.observe_grouping_or_angle(self.consume().kind());
+        }
     }
 }
 
@@ -351,6 +422,10 @@ mod tests {
             "< box &&T, &left && right>",
             "< &mut &&T, (left && right)>",
             "< box[Heap] &&T, [left] && right>",
+            "< (&&T, &&mut T), ((left && right))>",
+            "< [&&T; left && right], left & right>",
+            "< func(value: &&T) -> &&T requires(left && right), left << right>",
+            "< Container< &&T, left && right>, left @ right>",
         ] {
             let sources = source_store([text]);
             let mut parser = Parser::new(source(&sources, 0));
@@ -362,6 +437,22 @@ mod tests {
             assert_eq!(arguments[1].expressions().count(), 1);
             assert_eq!(list.full_text(), text);
             assert!(parser.finish().is_empty(), "{text}");
+        }
+    }
+
+    #[test]
+    fn nested_storage_constants_parse_without_speculative_trees() {
+        let mut argument = "N".to_owned();
+
+        for _ in 0..12 {
+            argument = format!("box[ {argument} ](value) + 1");
+            let sources = source_store([format!("Array< {argument}>")]);
+            let parsed = crate::parse_type_expression_fragment(&source(&sources, 0));
+
+            assert!(!parsed.is_recovered());
+            assert!(parsed.diagnostics().is_empty());
+
+            assert_eq!(parsed.type_expression().generic_argument_lists().count(), 1);
         }
     }
 
