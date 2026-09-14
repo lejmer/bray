@@ -308,6 +308,121 @@ fn execution_guarantees_export_only_certified_evidence() {
 }
 
 #[test]
+fn abstract_trait_results_survive_package_interfaces() {
+    let provider = compilation(
+        r#"
+        module api;
+
+        public trait Project
+        {
+            func project() -> &bool;
+
+            func next() -> &Self
+            {
+                return &self;
+            }
+        }
+
+        public func forward<T>(pos value: &T, pos repeat: bool = false) -> &bool with(T: Project)
+        {
+            if repeat
+            {
+                return forward<T>(value, false);
+            }
+
+            return value.project();
+        }
+
+        public func forward_loop<T>(pos value: &T, pos repeat: bool = false) -> &bool with(T: Project)
+        {
+            let mut current: &T = value;
+            let mut pending = repeat;
+
+            while pending
+            {
+                current = current.next();
+                pending = false;
+            }
+
+            return current.project();
+        }
+    "#,
+    );
+
+    for forward in ["forward", "forward_loop"] {
+        for (body, valid) in [
+            (
+                r#"
+            func caller(pos value: &Holder) -> &bool
+            {
+                return example.package.api.forward(value);
+            }
+        "#,
+                true,
+            ),
+            (
+                r#"
+            func caller() -> &bool
+            {
+                let local = Holder
+                {
+                    value = true,
+                };
+
+                return example.package.api.forward(&local);
+            }
+        "#,
+                false,
+            ),
+        ] {
+            let source = format!(
+                r#"
+            module app;
+
+            using example.package.api.Project;
+            using example.package.api.forward;
+
+            struct Holder
+            {{
+                value: bool;
+            }}
+
+            impl HolderProject = Holder(example.package.api.Project)
+            {{
+                func project() -> &bool
+                {{
+                    return &self.value;
+                }}
+            }}
+
+            {body}
+        "#
+            );
+
+            let source = source.replace("api.forward", &format!("api.{forward}"));
+            let consumer = execution_consumer(&provider, &source);
+
+            let flow = consumer
+                .storage_flow(source_function_body_key(&consumer, "caller"))
+                .unwrap();
+
+            if valid {
+                assert!(
+                    !flow.diagnostics().has_errors(),
+                    "{source}: {:?}",
+                    flow.diagnostics()
+                );
+            } else {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    flow.diagnostics(),
+                    bray_diagnostics::DiagnosticKind::CheckingEscapingStorageDependency,
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn returned_values_preserve_imported_generic_dependencies() {
     let provider = compilation(
         r#"

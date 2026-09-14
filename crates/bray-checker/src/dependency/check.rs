@@ -107,8 +107,8 @@ where
                     &value_inputs,
                 ) {
                     Ok(contracts) => {
-                        if let Some(root) = contracts.escaping_default_inputs.first().copied() {
-                            let diagnostic = super::defaults::escaping_default_diagnostic(
+                        if let Some(root) = contracts.escaping_evaluation_inputs.first().copied() {
+                            let diagnostic = super::defaults::escaping_evaluation_diagnostic(
                                 request,
                                 entry.expression(),
                                 call,
@@ -166,6 +166,15 @@ where
             Err(DependencyContractInstantiationError::Resolution(CheckerQueryError::Upstream(
                 error,
             ))) => return CheckerOutcome::UpstreamFailure(error),
+            Err(DependencyContractInstantiationError::UnresolvedWitness) => {
+                return CheckerOutcome::InfrastructureFailure(
+                    CheckerInfrastructureError::StorageFlow(
+                        CheckerStorageFlowFailure::UnresolvedDependencyWitness {
+                            expression: entry.expression(),
+                        },
+                    ),
+                );
+            }
             Err(DependencyContractInstantiationError::ForeignUnit) => {
                 return CheckerOutcome::InfrastructureFailure(
                     CheckerInfrastructureError::StorageFlow(
@@ -176,39 +185,8 @@ where
         }
     }
 
-    for (expression, node) in request.unit().tree().expressions() {
-        let child_requirements = node
-            .child_expressions()
-            .flat_map(|child| {
-                expression_requirements
-                    .get(&child)
-                    .into_iter()
-                    .flatten()
-                    .cloned()
-            })
-            .collect::<Vec<_>>();
-
-        expression_requirements
-            .entry(expression)
-            .or_default()
-            .extend(child_requirements);
-
-        let child_deferred_requirements = node
-            .child_expressions()
-            .flat_map(|child| {
-                deferred_expression_requirements
-                    .get(&child)
-                    .into_iter()
-                    .flatten()
-                    .cloned()
-            })
-            .collect::<Vec<_>>();
-
-        deferred_expression_requirements
-            .entry(expression)
-            .or_default()
-            .extend(child_deferred_requirements);
-    }
+    inherit_child_requirements(request, &mut expression_requirements);
+    inherit_child_requirements(request, &mut deferred_expression_requirements);
 
     let expressions = request.unit().tree().expressions().map(|(expression, _)| {
         let requirements = expression_requirements
@@ -264,4 +242,30 @@ where
     };
 
     CheckerOutcome::Complete(DiagnosticResult::new(contracts, diagnostics))
+}
+
+fn inherit_child_requirements<C: CheckerRequestContext + ?Sized>(
+    request: CheckerUnitView<'_, C>,
+    expression_requirements: &mut BTreeMap<
+        bray_bound_tree::BoundExpressionId,
+        Vec<BoundDependencyRequirement>,
+    >,
+) {
+    for (expression, node) in request.unit().tree().expressions() {
+        let child_requirements = node
+            .child_expressions()
+            .flat_map(|child| {
+                expression_requirements
+                    .get(&child)
+                    .into_iter()
+                    .flatten()
+                    .cloned()
+            })
+            .collect::<Vec<_>>();
+
+        expression_requirements
+            .entry(expression)
+            .or_default()
+            .extend(child_requirements);
+    }
 }

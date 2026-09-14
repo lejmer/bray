@@ -27,6 +27,9 @@ pub const fn diagnostic_semantic_value_failure(
                 actual: actual.symbol_id().raw(),
             }
         }
+        Error::InvalidDependencyVariable { depth, ordinal } => {
+            DiagnosticSemanticValueFailure::InvalidDependencyVariable { depth, ordinal }
+        }
         Error::OpenSubstitution => DiagnosticSemanticValueFailure::OpenSubstitution,
     }
 }

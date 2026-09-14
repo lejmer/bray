@@ -15,6 +15,8 @@ pub enum InterfaceDependencySubjectRoot {
     Parameter(SymbolOrdinal),
     /// Callable result.
     Result,
+    /// Storage owned by the evaluation producing the result.
+    EvaluationStorage,
     /// Scoped capability ordinal.
     ScopedCapability(SymbolOrdinal),
     /// Selected implementation witness.
@@ -50,6 +52,11 @@ pub struct InterfaceDependencySubject {
 }
 
 impl InterfaceDependencySubject {
+    /// Returns the formal root of this subject.
+    pub const fn subject_root(&self) -> &InterfaceDependencySubjectRoot {
+        &self.root
+    }
+
     /// Creates one formal dependency subject.
     pub fn new(
         root: InterfaceDependencySubjectRoot,
@@ -83,6 +90,43 @@ pub struct InterfaceDependencyRequirement {
 }
 
 impl InterfaceDependencyRequirement {
+    /// Creates a finite group of dependency equations.
+    pub fn fixed_point(
+        definitions: impl IntoIterator<Item = impl IntoIterator<Item = InterfaceDependencyRequirement>>,
+        result: impl IntoIterator<Item = InterfaceDependencyRequirement>,
+    ) -> Self {
+        Self {
+            value: InterfaceDependencyRequirementValue::FixedPoint {
+                definitions: bray_base::shared_slice(
+                    definitions.into_iter().map(sorted_unique_shared_slice),
+                ),
+                result: sorted_unique_shared_slice(result),
+            },
+        }
+    }
+
+    /// Refers to an enclosing dependency equation.
+    pub const fn variable(depth: u32, ordinal: SymbolOrdinal) -> Self {
+        Self {
+            value: InterfaceDependencyRequirementValue::Variable { depth, ordinal },
+        }
+    }
+
+    /// Creates a deferred result relation with normalized inputs.
+    pub fn result_call(
+        callable: super::InterfaceCallableInstanceId,
+        requirement: Option<(super::InterfaceTypeId, super::InterfaceTraitApplicationId)>,
+        inputs: impl IntoIterator<Item = InterfaceDependencyCallInput>,
+    ) -> Self {
+        Self {
+            value: InterfaceDependencyRequirementValue::ResultCall {
+                callable,
+                requirement,
+                inputs: sorted_unique_shared_slice(inputs),
+            },
+        }
+    }
+
     /// Creates one direct portable dependency requirement.
     pub const fn new(
         subject: InterfaceDependencySubject,
@@ -110,6 +154,29 @@ impl InterfaceDependencyRequirement {
 /// Direct or guarded portable dependency requirement payload.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum InterfaceDependencyRequirementValue {
+    /// Finite equations for dependencies carried around a local control-flow cycle.
+    FixedPoint {
+        /// Equation values, addressed by variable ordinal.
+        definitions: Arc<[Arc<[InterfaceDependencyRequirement]>]>,
+        /// Dependencies selected from the equation group.
+        result: Arc<[InterfaceDependencyRequirement]>,
+    },
+    /// A reference to an enclosing finite equation group.
+    Variable {
+        /// Number of intervening equation groups.
+        depth: u32,
+        /// Equation ordinal in the selected group.
+        ordinal: SymbolOrdinal,
+    },
+    /// A deferred callable result, optionally awaiting implementation selection.
+    ResultCall {
+        /// Callable instance.
+        callable: super::InterfaceCallableInstanceId,
+        /// Subject and trait application selecting an implementation, when needed.
+        requirement: Option<(super::InterfaceTypeId, super::InterfaceTraitApplicationId)>,
+        /// Enclosing dependencies mapped to callable inputs.
+        inputs: Arc<[InterfaceDependencyCallInput]>,
+    },
     /// Unconditional requirement.
     Direct {
         /// Formal subject.
@@ -124,6 +191,29 @@ pub enum InterfaceDependencyRequirementValue {
         /// Nested requirements.
         requirements: Arc<[InterfaceDependencyRequirement]>,
     },
+}
+
+/// One input supplied to an unresolved result relation.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct InterfaceDependencyCallInput {
+    pub(crate) root: InterfaceDependencySubjectRoot,
+    pub(crate) values: Arc<[InterfaceDependencyRequirement]>,
+    pub(crate) storage: Arc<[InterfaceDependencyRequirement]>,
+}
+
+impl InterfaceDependencyCallInput {
+    /// Creates the normalized value and storage dependencies for one input.
+    pub fn new(
+        root: InterfaceDependencySubjectRoot,
+        values: impl IntoIterator<Item = InterfaceDependencyRequirement>,
+        storage: impl IntoIterator<Item = InterfaceDependencyRequirement>,
+    ) -> Self {
+        Self {
+            root,
+            values: sorted_unique_shared_slice(values),
+            storage: sorted_unique_shared_slice(storage),
+        }
+    }
 }
 
 /// Portable semantic state required by a dependency contract.

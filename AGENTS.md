@@ -38,6 +38,16 @@ Every failure path must preserve the most specific known cause through error and
 
 If the task involves writing code, read and follow [coding-conventions.md](docs/contributing/coding-conventions.md).
 
+Optimize for the maintainability of the whole system, not just completion of the current task.
+1. Understand the existing design before extending it. Examine how the requested behavior fits the surrounding system. Look for existing mechanisms that can express it and for design problems that would otherwise force more special cases.
+2. Prefer changes that reduce the number of things we must understand. Consider representations, concepts, conversions, policies and execution paths, not only duplicated lines. Sharing helpers is useful, but does not justify unnecessary machinery.
+3. Replace mechanisms completely within the chosen scope. When introducing a better representation or approach, identify what it replaces and remove the superseded machinery. Do not leave parallel implementations, forwarding layers or compatibility scaffolding without a demonstrated requirement.
+4. Make code growth earn its place. New functionality may require more code. Explain what necessary capability the growth buys and why a simpler implementation is insufficient. Measure production code and tests separately. Moving code, compressing formatting, weakening behavior or deleting useful tests does not count as simplification.
+5. Use implementation difficulties to reconsider the design. Unexpected layers, repeated conversions, accumulating exceptions or substantially greater scope are reasons to revisit the approach. Do not automatically solve each difficulty by adding another mechanism.
+6. Keep the work bounded without protecting a poor design. Simplify the mechanisms involved in the task. Do not turn every task into a codebase-wide rewrite, but do not preserve an unnecessary mechanism merely because replacing it crosses files or modules.
+7. Preserve the agreement across context changes. Keep a short task record with the behavioral requirements, baseline, design hypothesis, expected removals, growth constraints and reasons to reconsider. Re-read it after compaction. Do not silently revise these commitments to match the implementation.
+8. Evaluate correctness and structural improvement separately. Passing tests, satisfying acceptance criteria and completing review are necessary. Also assess whether the resulting system has fewer unnecessary concepts and whether its remaining complexity is justified.
+
 Review blank lines only for semantic paragraph structure: separate statements when their purpose changes, and keep statements together when they form one conceptual group. Mechanically decidable blank-line enforcement belongs to the automated style command rather than manual agent review.
 
 ## Refactoring modules

@@ -18,6 +18,8 @@ pub enum DependencySubjectRoot {
     Parameter(SymbolOrdinal),
     /// The callable result.
     Result,
+    /// Storage owned by the evaluation whose returned contract is being inferred.
+    EvaluationStorage,
     /// A scoped declaration capability by stable ordinal.
     ScopedCapability(SymbolOrdinal),
     /// A required selected implementation witness.
@@ -159,6 +161,20 @@ impl GuardedDependencyRequirement {
 /// One direct or guarded portable dependency requirement.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DependencyRequirement {
+    /// Finite equations for dependencies carried around a local control-flow cycle.
+    FixedPoint {
+        /// Equation values, addressed by variable ordinal.
+        definitions: Arc<[Arc<[DependencyRequirement]>]>,
+        /// Dependencies selected from the equation group.
+        result: Arc<[DependencyRequirement]>,
+    },
+    /// A reference to an enclosing finite equation group.
+    Variable {
+        /// Number of intervening equation groups.
+        depth: u32,
+        /// Equation ordinal in the selected group.
+        ordinal: SymbolOrdinal,
+    },
     /// An unconditional requirement on one formal subject.
     Direct {
         /// Formal subject carrying the dependency.
@@ -168,9 +184,87 @@ pub enum DependencyRequirement {
     },
     /// Requirements active only while a semantic guard holds.
     Guarded(GuardedDependencyRequirement),
+    /// A deferred callable result, optionally awaiting implementation selection.
+    ResultCall {
+        /// The declaration and its generic arguments.
+        callable: super::CallableInstanceId,
+        /// The subject and trait application selecting an implementation, when needed.
+        requirement: Option<crate::ImplementationRequirementKey>,
+        /// Dependencies of each actual input in the enclosing contract.
+        inputs: Arc<[DependencyCallInput]>,
+    },
+}
+
+/// The storage and value dependencies supplied to one symbolic result call.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct DependencyCallInput {
+    root: DependencySubjectRoot,
+    values: Arc<[DependencyRequirement]>,
+    storage: Arc<[DependencyRequirement]>,
+}
+
+impl DependencyCallInput {
+    /// Creates an input with independently normalized value and storage requirements.
+    pub fn new(
+        root: DependencySubjectRoot,
+        values: impl IntoIterator<Item = DependencyRequirement>,
+        storage: impl IntoIterator<Item = DependencyRequirement>,
+    ) -> Self {
+        Self {
+            root,
+            values: sorted_unique_shared_slice(values),
+            storage: sorted_unique_shared_slice(storage),
+        }
+    }
+
+    /// Returns the receiver or parameter being supplied.
+    pub const fn root(&self) -> DependencySubjectRoot {
+        self.root
+    }
+
+    /// Returns dependencies carried by the supplied value.
+    pub fn values(&self) -> &[DependencyRequirement] {
+        &self.values
+    }
+
+    /// Returns dependencies keeping the supplied storage alive.
+    pub fn storage(&self) -> &[DependencyRequirement] {
+        &self.storage
+    }
 }
 
 impl DependencyRequirement {
+    /// Creates a finite group of dependency equations.
+    pub fn fixed_point(
+        definitions: impl IntoIterator<Item = impl IntoIterator<Item = DependencyRequirement>>,
+        result: impl IntoIterator<Item = DependencyRequirement>,
+    ) -> Self {
+        Self::FixedPoint {
+            definitions: bray_base::shared_slice(
+                definitions.into_iter().map(sorted_unique_shared_slice),
+            ),
+            result: sorted_unique_shared_slice(result),
+        }
+    }
+
+    /// Refers to an enclosing dependency equation.
+    pub const fn variable(depth: u32, ordinal: SymbolOrdinal) -> Self {
+        Self::Variable { depth, ordinal }
+    }
+
+    /// Creates a deferred result relation with normalized inputs.
+    pub fn result_call(
+        callable: super::CallableInstanceId,
+        requirement: Option<crate::ImplementationRequirementKey>,
+        inputs: impl IntoIterator<Item = DependencyCallInput>,
+    ) -> Self {
+        Self::ResultCall {
+            callable,
+            requirement,
+            inputs: sorted_unique_shared_slice(inputs),
+        }
+    }
+
     /// Creates an unconditional requirement.
     pub fn direct(subject: DependencySubject, kind: DependencyRequirementKind) -> Self {
         Self::Direct { subject, kind }

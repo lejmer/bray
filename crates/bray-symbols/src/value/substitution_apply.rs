@@ -37,6 +37,32 @@ impl SemanticValueStore {
         self.substitute_dependency_contract_data(contract, &substitution)
     }
 
+    /// Reports whether a generic parameter occurs anywhere in a dependency contract.
+    pub fn dependency_contract_uses_parameter(
+        &self,
+        template: super::DependencyContractTemplateId,
+        owner: GenericOwnerId,
+        parameter: GenericParameterSymbolId,
+    ) -> Result<bool, SemanticValueStoreError> {
+        // Substitution is structural and does not evaluate terms. Replacing one parameter with a
+        // closed value detects every occurrence using the same traversal as contract instantiation.
+        let replacement = match parameter {
+            GenericParameterSymbolId::Type(_) => {
+                GenericArgument::Type(self.intern_type(TypeData::tuple([]))?)
+            }
+            GenericParameterSymbolId::Const(_) => {
+                GenericArgument::Constant(self.intern_constant_term(ConstantTermData::tuple([]))?)
+            }
+        };
+
+        let substitution = GenericSubstitutionData::try_new(owner, [parameter], [replacement])
+            .map_err(|_| SemanticValueStoreError::OpenSubstitution)?;
+
+        let substitution = self.intern_generic_substitution(substitution)?;
+
+        Ok(self.substitute_dependency_contract(template, substitution)? != template)
+    }
+
     /// Applies one generic substitution throughout a canonical constant term.
     pub fn substitute_constant_term(
         &self,
@@ -88,10 +114,18 @@ impl SemanticValueStore {
         application: super::TraitApplicationId,
         substitution: GenericSubstitutionId,
     ) -> Result<super::TraitApplicationId, SemanticValueStoreError> {
-        let application = self.trait_application_data(application)?;
+        let substitution = self.generic_substitution_data(substitution)?;
 
-        let nested =
-            self.substitute_generic_substitution(application.substitution(), substitution)?;
+        self.substitute_trait_application_data(application, &substitution)
+    }
+
+    fn substitute_trait_application_data(
+        &self,
+        application: super::TraitApplicationId,
+        substitution: &GenericSubstitutionData,
+    ) -> Result<super::TraitApplicationId, SemanticValueStoreError> {
+        let application = self.trait_application_data(application)?;
+        let nested = self.substitute_generic_substitution_data(application.substitution(), substitution)?;
 
         self.intern_trait_application(TraitApplicationData::new(application.definition(), nested))
     }
@@ -585,12 +619,92 @@ impl SemanticValueStore {
         self.intern_dependency_contract_template(DependencyContractTemplateData::new(requirements))
     }
 
+    fn substitute_dependency_call_inputs(
+        &self,
+        inputs: &[super::DependencyCallInput],
+        substitution: &GenericSubstitutionData,
+    ) -> Result<Vec<super::DependencyCallInput>, SemanticValueStoreError> {
+        inputs
+            .iter()
+            .map(|input| {
+                Ok(super::DependencyCallInput::new(
+                    input.root(),
+                    input
+                        .values()
+                        .iter()
+                        .map(|value| self.substitute_dependency_requirement(value, substitution))
+                        .collect::<Result<Vec<_>, SemanticValueStoreError>>()?,
+                    input
+                        .storage()
+                        .iter()
+                        .map(|value| self.substitute_dependency_requirement(value, substitution))
+                        .collect::<Result<Vec<_>, SemanticValueStoreError>>()?,
+                ))
+            })
+            .collect::<Result<Vec<_>, SemanticValueStoreError>>()
+    }
+
     fn substitute_dependency_requirement(
         &self,
         requirement: &DependencyRequirement,
         substitution: &GenericSubstitutionData,
     ) -> Result<DependencyRequirement, SemanticValueStoreError> {
         match requirement {
+            DependencyRequirement::FixedPoint {
+                definitions,
+                result,
+            } => {
+                let definitions = definitions
+                    .iter()
+                    .map(|definition| {
+                        definition
+                            .iter()
+                            .map(|value| {
+                                self.substitute_dependency_requirement(value, substitution)
+                            })
+                            .collect::<Result<Vec<_>, _>>()
+                    })
+                    .collect::<Result<Vec<_>, SemanticValueStoreError>>()?;
+
+                let result = result
+                    .iter()
+                    .map(|value| self.substitute_dependency_requirement(value, substitution))
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                Ok(DependencyRequirement::fixed_point(definitions, result))
+            }
+            DependencyRequirement::Variable { depth, ordinal } => {
+                Ok(DependencyRequirement::variable(*depth, *ordinal))
+            }
+            DependencyRequirement::ResultCall {
+                callable,
+                requirement,
+                inputs,
+            } => {
+                let callable = self.substitute_callable_instance_data(*callable, substitution)?;
+
+                let requirement = requirement
+                    .map(|requirement| {
+                        let subject =
+                            self.substitute_type_data(requirement.subject(), substitution)?;
+
+                        let application = self.substitute_trait_application_data(requirement.trait_application(), substitution)?;
+
+                        Ok::<_, SemanticValueStoreError>(crate::ImplementationRequirementKey::new(
+                            subject,
+                            application,
+                        ))
+                    })
+                    .transpose()?;
+
+                let inputs = self.substitute_dependency_call_inputs(inputs, substitution)?;
+
+                Ok(DependencyRequirement::result_call(
+                    callable,
+                    requirement,
+                    inputs,
+                ))
+            }
             DependencyRequirement::Direct { subject, kind } => Ok(DependencyRequirement::direct(
                 self.substitute_dependency_subject(subject, substitution)?,
                 *kind,
@@ -699,6 +813,68 @@ mod tests {
         FunctionSymbolId, GenericConstParameterSymbolId, GenericOwnerId, GenericParameterSymbolId,
         GenericTypeParameterSymbolId, SymbolId, SymbolOrdinal,
     };
+
+    #[test]
+    fn dependency_parameter_occurrences_include_types_nested_in_constants() {
+        let store = SemanticValueStore::try_new().unwrap();
+        let ty_parameter = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(2));
+        let unused = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(3));
+        let count = GenericConstParameterSymbolId::from_symbol_id(SymbolId::new(4));
+
+        let owner = GenericOwnerId::try_new(AnySymbolId::from(FunctionSymbolId::from_symbol_id(
+            SymbolId::new(1),
+        )))
+        .unwrap();
+
+        let ty = store
+            .intern_type(TypeData::TypeParameter(ty_parameter))
+            .unwrap();
+
+        let value = store
+            .intern_constant_value(ConstantValueData::new(ty, ConstantValueKind::Error))
+            .unwrap();
+
+        let value = store
+            .intern_constant_term(ConstantTermData::Value(value))
+            .unwrap();
+
+        let count_term = store
+            .intern_constant_term(ConstantTermData::Parameter(count))
+            .unwrap();
+
+        let template = store
+            .intern_dependency_contract_template(DependencyContractTemplateData::new([
+                DependencyRequirement::guarded(
+                    DependencyGuard::NullablePresent(DependencySubject::root(
+                        DependencySubjectRoot::Receiver,
+                    )),
+                    [DependencyRequirement::direct(
+                        DependencySubject::new(
+                            DependencySubjectRoot::Parameter(SymbolOrdinal::new(0)),
+                            [
+                                DependencyProjection::Element(value),
+                                DependencyProjection::Element(count_term),
+                            ],
+                        ),
+                        DependencyRequirementKind::ValueDependencies,
+                    )],
+                ),
+            ]))
+            .unwrap();
+
+        for (parameter, expected) in [
+            (GenericParameterSymbolId::Type(ty_parameter), true),
+            (GenericParameterSymbolId::Const(count), true),
+            (GenericParameterSymbolId::Type(unused), false),
+        ] {
+            assert_eq!(
+                store
+                    .dependency_contract_uses_parameter(template, owner, parameter)
+                    .unwrap(),
+                expected
+            );
+        }
+    }
 
     #[test]
     fn substitutions_apply_to_types_retained_by_constant_values() {

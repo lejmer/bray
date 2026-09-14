@@ -443,6 +443,9 @@ pub enum DiagnosticStorageFlowFailure {
     },
     FlowConstruction(&'static str),
     ForeignDependencyContract,
+    UnresolvedDependencyWitness {
+        expression: DiagnosticCheckerNode,
+    },
     DependencyContractsConstruction(&'static str),
     AsyncConstruction(&'static str),
     MissingAwaitDependencyContract {

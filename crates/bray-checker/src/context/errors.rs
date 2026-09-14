@@ -397,6 +397,8 @@ pub enum CheckerStorageFlowFailure {
     FlowConstruction(StorageFlowBuildError),
     /// A selected call or iteration produced a dependency contract for another source body.
     ForeignDependencyContract,
+    /// A call reached concrete dependency checking without its selected witness.
+    UnresolvedDependencyWitness { expression: BoundExpressionId },
     /// Durable dependency-contract construction rejected an exact invariant.
     DependencyContractsConstruction(DependencyContractsBuildError),
     /// Durable async-analysis construction rejected an exact invariant.

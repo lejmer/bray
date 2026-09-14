@@ -112,6 +112,7 @@ where
             DependencySubjectRoot::Receiver => Some(receiver),
             DependencySubjectRoot::Result => Some(result),
             DependencySubjectRoot::Parameter(_)
+            | DependencySubjectRoot::EvaluationStorage
             | DependencySubjectRoot::ScopedCapability(_)
             | DependencySubjectRoot::ImplementationWitness(_)
             | DependencySubjectRoot::ProductStatic(_)
@@ -162,6 +163,7 @@ where
                 }
             }
             DependencySubjectRoot::Result
+            | DependencySubjectRoot::EvaluationStorage
             | DependencySubjectRoot::ScopedCapability(_)
             | DependencySubjectRoot::ImplementationWitness(_)
             | DependencySubjectRoot::ProductStatic(_)

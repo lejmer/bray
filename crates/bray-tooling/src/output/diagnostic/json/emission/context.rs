@@ -374,6 +374,10 @@ pub(in crate::output::diagnostic::json) fn semantic_value_failure_context(
             text_field("actual_owner_kind", actual_kind),
             count_field("actual_owner", actual),
         ]),
+        Failure::InvalidDependencyVariable { depth, ordinal } => {
+            context.push(count_field("depth", depth));
+            context.push(count_field("ordinal", ordinal));
+        }
         Failure::OpenSubstitution => {}
     }
 

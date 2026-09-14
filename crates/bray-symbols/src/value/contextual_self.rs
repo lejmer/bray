@@ -133,6 +133,152 @@ impl SemanticValueStore {
         self.intern_trait_application(TraitApplicationData::new(data.definition(), substitution))
     }
 
+    /// Replaces a declaration's `Self` in symbolic returned-value dependencies.
+    pub fn substitute_contextual_self_in_dependency_contract(
+        &self,
+        contract: super::DependencyContractTemplateId,
+        context: SelfTypeContext,
+        replacement: TypeId,
+    ) -> Result<super::DependencyContractTemplateId, SemanticValueStoreError> {
+        let template = self.dependency_contract_template_data(contract)?;
+
+        let requirements = self.substitute_contextual_dependency_requirements(
+            template.requirements(),
+            context,
+            replacement,
+        )?;
+
+        self.intern_dependency_contract_template(super::DependencyContractTemplateData::new(
+            requirements,
+        ))
+    }
+
+    fn substitute_contextual_call_inputs(
+        &self,
+        inputs: &[super::DependencyCallInput],
+        context: SelfTypeContext,
+        replacement: TypeId,
+    ) -> Result<Vec<super::DependencyCallInput>, SemanticValueStoreError> {
+        inputs
+            .iter()
+            .map(|input| {
+                Ok(super::DependencyCallInput::new(
+                    input.root(),
+                    self.substitute_contextual_dependency_requirements(
+                        input.values(),
+                        context,
+                        replacement,
+                    )?,
+                    self.substitute_contextual_dependency_requirements(
+                        input.storage(),
+                        context,
+                        replacement,
+                    )?,
+                ))
+            })
+            .collect::<Result<Vec<_>, SemanticValueStoreError>>()
+    }
+
+    fn substitute_contextual_dependency_requirements(
+        &self,
+        requirements: &[super::DependencyRequirement],
+        context: SelfTypeContext,
+        replacement: TypeId,
+    ) -> Result<Vec<super::DependencyRequirement>, SemanticValueStoreError> {
+        // Unchanged direct subjects and guards retain their immutable shared snapshots.
+        requirements
+            .iter()
+            .map(|item| match item {
+                super::DependencyRequirement::FixedPoint {
+                    definitions,
+                    result,
+                } => {
+                    let definitions = definitions
+                        .iter()
+                        .map(|definition| {
+                            self.substitute_contextual_dependency_requirements(
+                                definition,
+                                context,
+                                replacement,
+                            )
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+
+                    let result = self.substitute_contextual_dependency_requirements(
+                        result,
+                        context,
+                        replacement,
+                    )?;
+
+                    Ok(super::DependencyRequirement::fixed_point(
+                        definitions,
+                        result,
+                    ))
+                }
+                super::DependencyRequirement::Variable { depth, ordinal } => {
+                    Ok(super::DependencyRequirement::variable(*depth, *ordinal))
+                }
+                super::DependencyRequirement::ResultCall {
+                    callable,
+                    requirement,
+                    inputs,
+                } => {
+                    let callable = self.callable_instance_data(*callable)?;
+
+                    let substitution = self.substitute_contextual_self_in_substitution(
+                        callable.substitution(),
+                        context,
+                        replacement,
+                    )?;
+
+                    let callable = self.intern_callable_instance(
+                        super::CallableInstanceData::new(callable.definition(), substitution),
+                    )?;
+
+                    let requirement = requirement
+                        .map(|requirement| {
+                            let subject = self.substitute_contextual_self(
+                                requirement.subject(),
+                                context,
+                                replacement,
+                            )?;
+
+                            let application = self.substitute_contextual_self_in_application(
+                                requirement.trait_application(),
+                                context,
+                                replacement,
+                            )?;
+
+                            Ok::<_, SemanticValueStoreError>(
+                                crate::ImplementationRequirementKey::new(subject, application),
+                            )
+                        })
+                        .transpose()?;
+
+                    let inputs =
+                        self.substitute_contextual_call_inputs(inputs, context, replacement)?;
+
+                    Ok(super::DependencyRequirement::result_call(
+                        callable,
+                        requirement,
+                        inputs,
+                    ))
+                }
+                super::DependencyRequirement::Guarded(guarded) => {
+                    Ok(super::DependencyRequirement::guarded(
+                        guarded.guard().clone(),
+                        self.substitute_contextual_dependency_requirements(
+                            guarded.requirements(),
+                            context,
+                            replacement,
+                        )?,
+                    ))
+                }
+                super::DependencyRequirement::Direct { .. } => Ok(item.clone()),
+            })
+            .collect()
+    }
+
     /// Replaces one declaration context's `Self` throughout a generic substitution.
     pub fn substitute_contextual_self_in_substitution(
         &self,

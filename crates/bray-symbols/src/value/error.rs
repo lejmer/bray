@@ -36,4 +36,11 @@ pub enum SemanticValueStoreError {
     },
     /// An open or recovery substitution was requested as a concrete substitution.
     OpenSubstitution,
+    /// A returned-dependency reference does not name an enclosing equation.
+    InvalidDependencyVariable {
+        /// Number of enclosing equation groups to skip.
+        depth: u32,
+        /// Equation ordinal within the selected group.
+        ordinal: u32,
+    },
 }

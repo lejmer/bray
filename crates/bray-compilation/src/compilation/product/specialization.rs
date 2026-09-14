@@ -30,7 +30,7 @@ use super::super::implementation::{
 };
 use super::super::substitution::named_type;
 use super::realization::{
-    codegen_instance_contextual_self, substitute_contextual_self,
+    codegen_instance_contextual_self, substitute_callable_instance, substitute_contextual_self,
     substitute_contextual_self_in_application, substitute_contextual_self_in_substitution,
 };
 use super::specialization_identity::encoding::structural_type_identity;
@@ -753,8 +753,21 @@ impl Compilation {
 
         let contextual_self_witness = callable.uses_trait_default().then_some(witness);
 
-        self.concrete_codegen_callable_with_context(
+        let member = substitute_callable_instance(
+            &values,
+            demand.reference().instance(),
+            Some(owner_substitution),
+            contextual_self,
+        )?;
+
+        let selected = super::super::implementation::instantiate_implementation_member(
+            &binding_context,
             callable.instance(),
+            member,
+        )?;
+
+        self.concrete_codegen_callable_with_context(
+            selected,
             witnesses,
             contextual_self_witness,
             target,
@@ -954,8 +967,21 @@ impl Compilation {
 
         let contextual_self_witness = callable.uses_trait_default().then_some(witness);
 
-        self.concrete_codegen_callable_with_context(
+        let member = substitute_callable_instance(
+            &values,
+            demand.reference().instance(),
+            Some(owner_substitution),
+            contextual_self,
+        )?;
+
+        let selected = super::super::implementation::instantiate_implementation_member(
+            &binding_context,
             callable.instance(),
+            member,
+        )?;
+
+        self.concrete_codegen_callable_with_context(
+            selected,
             witnesses,
             contextual_self_witness,
             target,
@@ -1213,17 +1239,12 @@ impl Compilation {
         let binding_context = self.binding_context(cancellation)?;
         let contextual_self = codegen_instance_contextual_self(&binding_context, owner)?;
 
-        let substitution = match owner.substitution() {
-            Some(owner_substitution) => values
-                .substitute_generic_substitution(callable.substitution(), owner_substitution)
-                .map_err(FactQueryError::SemanticValueStore)?,
-            None => callable.substitution(),
-        };
-
-        let substitution =
-            substitute_contextual_self_in_substitution(&values, substitution, contextual_self)?;
-
-        let callable = CallableInstanceData::new(callable.definition(), substitution);
+        let callable = substitute_callable_instance(
+            &values,
+            *callable,
+            owner.substitution(),
+            contextual_self,
+        )?;
 
         let witnesses = self.concrete_codegen_forwarded_constraint_witnesses(
             owner,

@@ -187,6 +187,8 @@ pub enum DependencyContractInstantiationError<E> {
     Resolution(E),
     /// A resolver returned a bound selection owned by another checked semantic unit.
     ForeignUnit,
+    /// A result relation still requires a selected implementation witness.
+    UnresolvedWitness,
 }
 
 impl<E> DependencyContractInstantiationError<E> {
@@ -198,6 +200,7 @@ impl<E> DependencyContractInstantiationError<E> {
         match self {
             Self::Resolution(error) => DependencyContractInstantiationError::Resolution(map(error)),
             Self::ForeignUnit => DependencyContractInstantiationError::ForeignUnit,
+            Self::UnresolvedWitness => DependencyContractInstantiationError::UnresolvedWitness,
         }
     }
 }
@@ -444,6 +447,11 @@ where
     C: DependencyContractInstantiationContext,
 {
     match requirement {
+        DependencyRequirement::ResultCall { .. }
+        | DependencyRequirement::FixedPoint { .. }
+        | DependencyRequirement::Variable { .. } => {
+            Err(DependencyContractInstantiationError::UnresolvedWitness)
+        }
         DependencyRequirement::Direct { subject, kind } => {
             let subject = context
                 .resolve_subject(subject, *kind)

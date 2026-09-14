@@ -314,6 +314,71 @@ pub(in crate::compilation) fn implementation_callable_instance(
     }
 }
 
+/// Transfers a trait member's inferred arguments to the selected implementation's parameters.
+pub(in crate::compilation) fn instantiate_implementation_member(
+    binding_context: &CompilationBindingContext<'_>,
+    selected: CallableInstanceData,
+    member: CallableInstanceData,
+) -> Result<CallableInstanceData, FactQueryError> {
+    let values = binding_context.semantic_values();
+
+    let member_substitution = values
+        .generic_substitution_data(member.substitution())
+        .map_err(FactQueryError::SemanticValueStore)?;
+
+    let selected_substitution = values
+        .generic_substitution_data(selected.substitution())
+        .map_err(FactQueryError::SemanticValueStore)?;
+
+    let member_parameters = binding_context
+        .resolve_symbol_query(SymbolQueryRequest::<
+            bray_symbols::GenericDeclarationTemplateQuery,
+        >::new(member_substitution.owner()))
+        .map_err(binding_query_error)?;
+
+    let selected_parameters = binding_context
+        .resolve_symbol_query(SymbolQueryRequest::<
+            bray_symbols::GenericDeclarationTemplateQuery,
+        >::new(selected_substitution.owner()))
+        .map_err(binding_query_error)?;
+
+    let arguments = member_parameters
+        .value()
+        .parameters()
+        .iter()
+        .map(
+            |parameter| match member_substitution.argument_for(*parameter) {
+                Some(argument) => Ok(argument),
+                None => values
+                    .intern_generic_parameter_argument(*parameter)
+                    .map_err(FactQueryError::SemanticValueStore),
+            },
+        )
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let substitution = GenericSubstitutionData::try_new(
+        selected_substitution.owner(),
+        selected_parameters.value().parameters().iter().copied(),
+        arguments,
+    )
+    .map_err(
+        |cause| crate::compilation::SemanticQueryFailure::GenericSubstitution {
+            owner: Some(selected_substitution.owner()),
+            cause,
+        },
+    )?;
+
+    let substitution = values
+        .intern_generic_substitution(substitution)
+        .map_err(FactQueryError::SemanticValueStore)?;
+
+    callable_instance(
+        values,
+        selected.definition().symbol(),
+        [selected.substitution(), substitution],
+    )
+}
+
 pub(in crate::compilation) fn callable_instance(
     values: &bray_symbols::SemanticValueStore,
     callable: AnySymbolId,

@@ -88,7 +88,11 @@ pub(super) fn assert_parameter_dependency_contract(
             {
                 Some(*kind)
             }
-            DependencyRequirement::Direct { .. } | DependencyRequirement::Guarded(_) => None,
+            DependencyRequirement::Direct { .. }
+            | DependencyRequirement::Guarded(_)
+            | DependencyRequirement::ResultCall { .. }
+            | DependencyRequirement::FixedPoint { .. }
+            | DependencyRequirement::Variable { .. } => None,
         })
         .collect::<Vec<_>>();
 

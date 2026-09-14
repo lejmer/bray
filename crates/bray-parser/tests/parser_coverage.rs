@@ -12,6 +12,7 @@ struct CoverageRow {
 fn parser_coverage_matrix_matches_syntax_grammar_nonterminals() {
     let root = workspace_root();
     let grammar = read_workspace_file(&root, "docs/language/syntax-grammar.ebnf");
+
     let coverage = read_workspace_file(
         &root,
         "crates/bray-parser/tests/fixtures/parser-coverage.md",

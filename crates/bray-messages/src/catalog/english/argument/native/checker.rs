@@ -542,6 +542,10 @@ fn format_storage_flow_failure(failure: bray_diagnostics::DiagnosticStorageFlowF
             "could not retain the ownership result for this source body because {}",
             format_storage_flow_construction(reason),
         ),
+        Failure::UnresolvedDependencyWitness { expression } => format!(
+            "could not determine which values the highlighted {} retains through its trait implementation",
+            format_checker_node_kind(expression.kind()),
+        ),
         Failure::ForeignDependencyContract => {
             "selected a call or iteration dependency belonging to another source body".to_owned()
         }

@@ -927,6 +927,11 @@ where
                 &mut diagnostics,
             )?;
 
+            let candidate = match member.and_then(bray_bound_tree::MemberTarget::trait_dispatch) {
+                Some(dispatch) => candidate.with_trait_dispatch(dispatch),
+                None => candidate,
+            };
+
             candidates.push(candidate.with_implementation_selections(selections));
         }
     }

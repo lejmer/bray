@@ -421,6 +421,10 @@ fn semantic_value_detail(
             context.push(text_field("actual_kind", actual_kind));
             context.push(text_field("actual", actual.to_string()));
         }
+        Failure::InvalidDependencyVariable { depth, ordinal } => {
+            context.push(text_field("depth", depth.to_string()));
+            context.push(text_field("ordinal", ordinal.to_string()));
+        }
         Failure::OpenSubstitution => {}
     }
 

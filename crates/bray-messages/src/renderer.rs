@@ -733,6 +733,9 @@ mod tests {
             )),
             CheckerFailure::StorageFlow(StorageFlowFailure::FlowConstruction("future_reason")),
             CheckerFailure::StorageFlow(StorageFlowFailure::ForeignDependencyContract),
+            CheckerFailure::StorageFlow(StorageFlowFailure::UnresolvedDependencyWitness {
+                expression,
+            }),
             CheckerFailure::StorageFlow(StorageFlowFailure::DependencyContractsConstruction(
                 "invalid_borrow",
             )),

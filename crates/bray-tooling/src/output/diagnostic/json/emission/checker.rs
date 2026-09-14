@@ -415,6 +415,14 @@ fn push_storage_flow_failure(
         Failure::FlowConstruction(problem) => {
             push_storage_problem(fields, "flow_construction", problem);
         }
+        Failure::UnresolvedDependencyWitness { expression } => {
+            fields.push(text_field(
+                "storage_flow_failure",
+                "unresolved_dependency_witness",
+            ));
+
+            push_node(fields, "expression", expression);
+        }
         Failure::ForeignDependencyContract => {
             fields.push(text_field(
                 "storage_flow_failure",

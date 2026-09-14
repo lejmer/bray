@@ -438,6 +438,13 @@ fn semantic_content_problem_json(
                 problem_count("actual_owner", *actual),
             ],
         ),
+        Problem::InvalidDependencyVariable { depth, ordinal } => problem(
+            "semantic_content_invalid_dependency_variable",
+            [
+                problem_count("depth", *depth),
+                problem_count("ordinal", *ordinal),
+            ],
+        ),
         Problem::OpenSubstitution => problem("semantic_content_open_substitution", []),
     }
 }

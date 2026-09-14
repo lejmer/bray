@@ -531,6 +531,13 @@ pub enum DiagnosticSemanticContentProblem {
         actual: u32,
     },
     OpenSubstitution,
+    /// A returned-dependency reference does not name an enclosing equation.
+    InvalidDependencyVariable {
+        /// Number of enclosing equation groups to skip.
+        depth: u32,
+        /// Equation ordinal within the selected group.
+        ordinal: u32,
+    },
 }
 
 /// Locale-neutral exact checked-template contract violation.

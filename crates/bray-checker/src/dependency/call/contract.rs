@@ -20,7 +20,7 @@ pub(crate) struct InstantiatedCallContracts {
     invocation: BoundDependencyContract,
     result: BoundDependencyContract,
     deferred: Option<BoundDependencyContract>,
-    pub(crate) escaping_default_inputs: Vec<DependencySubjectRoot>,
+    pub(crate) escaping_evaluation_inputs: Vec<DependencySubjectRoot>,
 }
 
 impl InstantiatedCallContracts {
@@ -69,11 +69,26 @@ where
     let mut result_context = CallInstantiationContext::new(request, storage, expression, call);
     result_context.set_result_values(values);
 
-    instantiated.result =
-        BoundDependencyContract::try_instantiate(&template.template, &mut result_context)
-            .map_err(|error| error.map_resolution(CheckerQueryError::Infrastructure))?;
+    let concrete = DependencyContractTemplateData::new(
+        template
+            .template
+            .requirements()
+            .iter()
+            .filter(|requirement| {
+                !matches!(
+                    requirement,
+                    DependencyRequirement::ResultCall { .. }
+                        | DependencyRequirement::FixedPoint { .. }
+                        | DependencyRequirement::Variable { .. }
+                )
+            })
+            .cloned(),
+    );
 
-    instantiated.escaping_default_inputs = template.escaping_default_inputs;
+    instantiated.result = BoundDependencyContract::try_instantiate(&concrete, &mut result_context)
+        .map_err(|error| error.map_resolution(CheckerQueryError::Infrastructure))?;
+
+    instantiated.escaping_evaluation_inputs = template.escaping_evaluation_inputs;
 
     if crate::dependency::opaque_result(call)
         && let Some(bray_bound_tree::BoundExpression::Call(bound)) =
@@ -266,7 +281,7 @@ where
         .transpose()?;
 
     Ok(InstantiatedCallContracts {
-        escaping_default_inputs: Vec::new(),
+        escaping_evaluation_inputs: Vec::new(),
         invocation,
         result: BoundDependencyContract::new([]),
         deferred,

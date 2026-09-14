@@ -871,6 +871,32 @@ impl<'bytes> SelectionBuilder<'bytes> {
 
         while let Some(requirement) = pending.pop() {
             match &requirement.value {
+                InterfaceDependencyRequirementValue::Variable { .. } => {}
+                InterfaceDependencyRequirementValue::FixedPoint {
+                    definitions,
+                    result,
+                } => pending.extend(
+                    definitions
+                        .iter()
+                        .flat_map(|definition| definition.iter())
+                        .chain(result.iter()),
+                ),
+                InterfaceDependencyRequirementValue::ResultCall {
+                    callable,
+                    requirement,
+                    inputs,
+                } => {
+                    self.enqueue(PendingRecord::CallableInstance(callable.raw()));
+
+                    if let Some((subject, application)) = requirement {
+                        self.enqueue(PendingRecord::Type(subject.raw()));
+                        self.enqueue(PendingRecord::TraitApplication(application.raw()));
+                    }
+
+                    for input in inputs.iter() {
+                        pending.extend(input.values.iter().chain(input.storage.iter()));
+                    }
+                }
                 InterfaceDependencyRequirementValue::Direct { subject, .. } => {
                     self.include_dependency_subject(subject);
                 }

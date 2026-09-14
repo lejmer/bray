@@ -391,6 +391,30 @@ fn standard_library_package_identity() -> CheckerQueryResult<PackageIdentity> {
 impl CheckerRequestContext for CompilationCheckerContext<'_> {
     type UpstreamError = FactQueryError;
 
+    fn result_dispatch_requirement(
+        &self,
+        dispatch: bray_symbols::TraitConstraintDispatch,
+    ) -> CheckerQueryResult<ImplementationRequirementKey> {
+        super::result_dependencies::result_dispatch_requirement(&self.binding_context, dispatch)
+    }
+
+    fn result_witness_callable(
+        &self,
+        callable: bray_symbols::CallableInstanceId,
+        requirement: ImplementationRequirementKey,
+    ) -> CheckerQueryResult<
+        Option<(
+            bray_symbols::CallableInstanceData,
+            bray_symbols::SelfTypeContext,
+        )>,
+    > {
+        super::result_dependencies::result_witness_callable(
+            &self.binding_context,
+            callable,
+            requirement,
+        )
+    }
+
     fn callable_result_dependencies(
         &self,
         callable: bray_symbols::CallableSymbolId,
@@ -867,7 +891,9 @@ fn checker_syntax_source(
     Ok(CheckerSource::new(span, text))
 }
 
-fn checker_binder_error(error: BindingQueryError<FactQueryError>) -> CheckerQueryError {
+pub(in crate::compilation) fn checker_binder_error(
+    error: BindingQueryError<FactQueryError>,
+) -> CheckerQueryError {
     match error {
         BindingQueryError::Cancelled => CheckerQueryError::Cancelled,
         BindingQueryError::CheckerInfrastructure(error) => CheckerQueryError::Infrastructure(error),

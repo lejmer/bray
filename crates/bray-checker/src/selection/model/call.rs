@@ -256,6 +256,16 @@ impl CallableCandidate {
         self
     }
 
+    /// Preserves abstract member dispatch after generic arguments are inferred.
+    pub(crate) fn with_trait_dispatch(
+        mut self,
+        dispatch: bray_symbols::TraitConstraintDispatch,
+    ) -> Self {
+        self.resolution = self.resolution.with_trait_dispatch(dispatch);
+
+        self
+    }
+
     /// Supplies typed implementation-selection results used by the callable target.
     pub fn with_implementation_selections(
         mut self,
