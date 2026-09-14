@@ -9,14 +9,11 @@ use crate::{
     CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
 };
 
-pub(super) fn abstract_result<C: CheckerRequestContext + ?Sized>(
+pub(super) fn deferred_result<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     call: &SelectedCall,
-) -> Result<Option<DependencyContractTemplateId>, CheckerQueryError<C::UpstreamError>> {
-    let Some(dispatch) = call.resolution().trait_dispatch() else {
-        return Ok(None);
-    };
-
+    requirement: Option<bray_symbols::ImplementationRequirementKey>,
+) -> Result<DependencyContractTemplateData, CheckerQueryError<C::UpstreamError>> {
     let BoundCallableTarget::Declaration(instance) = call.target() else {
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
     };
@@ -26,21 +23,9 @@ pub(super) fn abstract_result<C: CheckerRequestContext + ?Sized>(
         .intern_callable_instance(instance)
         .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
-    let requirement = request.context().result_dispatch_requirement(dispatch)?;
-
-    let inputs = call_inputs(call);
-
-    let template = DependencyContractTemplateData::new([DependencyRequirement::witness_call(
-        callable,
-        requirement,
-        inputs,
-    )]);
-
-    request
-        .semantic_values()
-        .intern_dependency_contract_template(template)
-        .map(Some)
-        .map_err(|error| CheckerInfrastructureError::SemanticValueStore(error).into())
+    Ok(DependencyContractTemplateData::new([
+        DependencyRequirement::result_call(callable, requirement, call_inputs(call)),
+    ]))
 }
 
 fn call_inputs(call: &SelectedCall) -> Vec<DependencyCallInput> {
@@ -70,27 +55,6 @@ fn call_inputs(call: &SelectedCall) -> Vec<DependencyCallInput> {
             )
         })
         .collect()
-}
-
-pub(super) fn recursive_result<C: CheckerRequestContext + ?Sized>(
-    request: CheckerUnitView<'_, C>,
-    call: &SelectedCall,
-) -> Result<super::defaults::CallResultDependencies, CheckerQueryError<C::UpstreamError>> {
-    let BoundCallableTarget::Declaration(instance) = call.target() else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
-    };
-
-    let callable = request
-        .semantic_values()
-        .intern_callable_instance(instance)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
-
-    let template = DependencyContractTemplateData::new([DependencyRequirement::recursive_call(
-        callable,
-        call_inputs(call),
-    )]);
-
-    super::defaults::expand_result_defaults(request, call, &template)
 }
 
 pub(super) fn instantiate_template<C: CheckerRequestContext + ?Sized>(
@@ -124,7 +88,7 @@ struct EquationFrame {
     changed: bool,
 }
 
-struct WitnessResultResolver<'a, C: CheckerRequestContext + ?Sized> {
+struct ResultResolver<'a, C: CheckerRequestContext + ?Sized> {
     request: CheckerUnitView<'a, C>,
     active: std::collections::BTreeSet<super::parameters::ResultKey>,
     results: std::collections::BTreeMap<super::parameters::ResultKey, Vec<DependencyRequirement>>,
@@ -138,7 +102,7 @@ pub(super) fn resolve<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     requirements: &[DependencyRequirement],
 ) -> Result<Vec<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
-    let mut resolver = WitnessResultResolver {
+    let mut resolver = ResultResolver {
         request,
         active: Default::default(),
         results: Default::default(),
@@ -158,7 +122,7 @@ pub(super) fn resolve<C: CheckerRequestContext + ?Sized>(
     }
 }
 
-impl<C: CheckerRequestContext + ?Sized> WitnessResultResolver<'_, C> {
+impl<C: CheckerRequestContext + ?Sized> ResultResolver<'_, C> {
     fn selected_result(
         &mut self,
         key: super::parameters::ResultKey,
@@ -320,51 +284,53 @@ impl<C: CheckerRequestContext + ?Sized> WitnessResultResolver<'_, C> {
                 DependencyRequirement::Variable { depth, ordinal } => {
                     result.extend(self.variable(*depth, *ordinal)?)
                 }
-                DependencyRequirement::RecursiveCall { callable, inputs } => {
-                    let selected = request
-                        .semantic_values()
-                        .callable_instance_data(*callable)
-                        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
-
-                    match request
-                        .semantic_values()
-                        .require_concrete_substitution(selected.substitution())
-                    {
-                        Ok(_) => {}
-                        Err(bray_symbols::SemanticValueStoreError::OpenSubstitution) => {
-                            result.push(item.clone());
-                            continue;
-                        }
-                        Err(error) => {
-                            return Err(
-                                CheckerInfrastructureError::SemanticValueStore(error).into()
-                            );
-                        }
-                    }
-
-                    let resolved = self.selected_result((*selected, None))?;
-
-                    let mapped = map_call_inputs(&resolved, inputs)
-                        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
-
-                    result.extend(self.requirements(&mapped)?);
-                }
-                DependencyRequirement::WitnessCall {
+                DependencyRequirement::ResultCall {
                     callable,
                     requirement,
                     inputs,
                 } => {
-                    let Some((selected, context)) = request
-                        .context()
-                        .result_witness_callable(*callable, *requirement)?
-                    else {
-                        // The enclosing portable contract retains the unresolved witness expression.
-                        result.push(item.clone());
-                        continue;
+                    let key = match requirement {
+                        Some(requirement) => {
+                            let Some((selected, context)) = request
+                                .context()
+                                .result_witness_callable(*callable, *requirement)?
+                            else {
+                                // The enclosing contract retains the unresolved selection.
+                                result.push(item.clone());
+                                continue;
+                            };
+
+                            (selected, Some((context, requirement.subject())))
+                        }
+                        None => {
+                            let selected = request
+                                .semantic_values()
+                                .callable_instance_data(*callable)
+                                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+
+                            match request
+                                .semantic_values()
+                                .require_concrete_substitution(selected.substitution())
+                            {
+                                Ok(_) => {}
+                                Err(bray_symbols::SemanticValueStoreError::OpenSubstitution) => {
+                                    result.push(item.clone());
+
+                                    continue;
+                                }
+                                Err(error) => {
+                                    return Err(CheckerInfrastructureError::SemanticValueStore(
+                                        error,
+                                    )
+                                    .into());
+                                }
+                            }
+
+                            (*selected, None)
+                        }
                     };
 
-                    let resolved =
-                        self.selected_result((selected, Some((context, requirement.subject()))))?;
+                    let resolved = self.selected_result(key)?;
 
                     let mapped = map_call_inputs(&resolved, inputs)
                         .map_err(CheckerInfrastructureError::SemanticValueStore)?;

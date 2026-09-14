@@ -50,7 +50,7 @@ pub(super) fn solve_parameters<C: CheckerRequestContext + ?Sized, K: Copy + Ord>
                     .and_then(|callable| values.intern_callable_instance(callable))
                     .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
-                requirements.push(DependencyRequirement::recursive_call(callable, []));
+                requirements.push(DependencyRequirement::result_call(callable, None, []));
             }
 
             let template = values

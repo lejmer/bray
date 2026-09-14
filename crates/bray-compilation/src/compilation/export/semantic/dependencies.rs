@@ -111,29 +111,26 @@ impl<'a> SemanticExporter<'a> {
                     result,
                 ))
             }
-            DependencyRequirement::RecursiveCall { callable, inputs } => {
-                let callable = self.callable_instance_id(*callable)?;
-                let inputs = self.dependency_call_inputs(inputs)?;
-
-                Ok(InterfaceDependencyRequirement::recursive_call(
-                    callable, inputs,
-                ))
-            }
-            DependencyRequirement::WitnessCall {
+            DependencyRequirement::ResultCall {
                 callable,
                 requirement,
                 inputs,
             } => {
                 let callable = self.callable_instance_id(*callable)?;
-                let subject = self.type_id(requirement.subject())?;
-                let application = self.trait_application_id(requirement.trait_application())?;
+
+                let requirement = match requirement {
+                    Some(requirement) => Some((
+                        self.type_id(requirement.subject())?,
+                        self.trait_application_id(requirement.trait_application())?,
+                    )),
+                    None => None,
+                };
 
                 let inputs = self.dependency_call_inputs(inputs)?;
 
-                Ok(InterfaceDependencyRequirement::witness_call(
+                Ok(InterfaceDependencyRequirement::result_call(
                     callable,
-                    subject,
-                    application,
+                    requirement,
                     inputs,
                 ))
             }

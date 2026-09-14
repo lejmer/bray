@@ -112,31 +112,16 @@ impl InterfaceDependencyRequirement {
         }
     }
 
-    /// Creates a deferred recursive result relation.
-    pub fn recursive_call(
+    /// Creates a deferred result relation with normalized inputs.
+    pub fn result_call(
         callable: super::InterfaceCallableInstanceId,
+        requirement: Option<(super::InterfaceTypeId, super::InterfaceTraitApplicationId)>,
         inputs: impl IntoIterator<Item = InterfaceDependencyCallInput>,
     ) -> Self {
         Self {
-            value: InterfaceDependencyRequirementValue::RecursiveCall {
+            value: InterfaceDependencyRequirementValue::ResultCall {
                 callable,
-                inputs: sorted_unique_shared_slice(inputs),
-            },
-        }
-    }
-
-    /// Creates a result relation awaiting implementation selection.
-    pub fn witness_call(
-        callable: super::InterfaceCallableInstanceId,
-        subject: super::InterfaceTypeId,
-        application: super::InterfaceTraitApplicationId,
-        inputs: impl IntoIterator<Item = InterfaceDependencyCallInput>,
-    ) -> Self {
-        Self {
-            value: InterfaceDependencyRequirementValue::WitnessCall {
-                callable,
-                subject,
-                application,
+                requirement,
                 inputs: sorted_unique_shared_slice(inputs),
             },
         }
@@ -183,21 +168,12 @@ pub enum InterfaceDependencyRequirementValue {
         /// Equation ordinal in the selected group.
         ordinal: SymbolOrdinal,
     },
-    /// A recursive declaration result retained without unfolding its body.
-    RecursiveCall {
-        /// Recursive callable instance.
+    /// A deferred callable result, optionally awaiting implementation selection.
+    ResultCall {
+        /// Callable instance.
         callable: super::InterfaceCallableInstanceId,
-        /// Enclosing dependencies supplied to the recursive call.
-        inputs: Arc<[InterfaceDependencyCallInput]>,
-    },
-    /// Returned dependencies awaiting an exact selected witness.
-    WitnessCall {
-        /// Abstract callable instance.
-        callable: super::InterfaceCallableInstanceId,
-        /// Implementation subject type.
-        subject: super::InterfaceTypeId,
-        /// Exact trait application.
-        application: super::InterfaceTraitApplicationId,
+        /// Subject and trait application selecting an implementation, when needed.
+        requirement: Option<(super::InterfaceTypeId, super::InterfaceTraitApplicationId)>,
         /// Enclosing dependencies mapped to callable inputs.
         inputs: Arc<[InterfaceDependencyCallInput]>,
     },

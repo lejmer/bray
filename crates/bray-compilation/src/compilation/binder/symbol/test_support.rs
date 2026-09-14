@@ -90,8 +90,7 @@ pub(super) fn assert_parameter_dependency_contract(
             }
             DependencyRequirement::Direct { .. }
             | DependencyRequirement::Guarded(_)
-            | DependencyRequirement::WitnessCall { .. }
-            | DependencyRequirement::RecursiveCall { .. }
+            | DependencyRequirement::ResultCall { .. }
             | DependencyRequirement::FixedPoint { .. }
             | DependencyRequirement::Variable { .. } => None,
         })

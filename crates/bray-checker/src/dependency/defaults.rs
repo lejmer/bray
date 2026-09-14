@@ -52,27 +52,16 @@ pub(crate) fn expand_result_defaults<C: CheckerRequestContext + ?Sized>(
             continue;
         }
 
-        if let DependencyRequirement::RecursiveCall { callable, inputs } = requirement {
-            result.push(DependencyRequirement::recursive_call(
-                callable,
-                expand_call_inputs(request, call, &inputs)?,
-            ));
-
-            continue;
-        }
-
-        if let DependencyRequirement::WitnessCall {
+        if let DependencyRequirement::ResultCall {
             callable,
             requirement,
             inputs,
         } = requirement
         {
-            let inputs = expand_call_inputs(request, call, &inputs)?;
-
-            result.push(DependencyRequirement::witness_call(
+            result.push(DependencyRequirement::result_call(
                 callable,
                 requirement,
-                inputs,
+                expand_call_inputs(request, call, &inputs)?,
             ));
 
             continue;

@@ -314,24 +314,23 @@ pub(super) fn decode_dependency_requirement(
                 result,
             ))
         }
-        4 => {
+        3 | 4 => {
             let callable = crate::InterfaceCallableInstanceId::new(read_u32(reader)?);
+
+            let requirement = if raw == 3 {
+                Some((
+                    crate::InterfaceTypeId::new(read_u32(reader)?),
+                    crate::InterfaceTraitApplicationId::new(read_u32(reader)?),
+                ))
+            } else {
+                None
+            };
+
             let inputs = decode_dependency_call_inputs(reader, limits, context, depth)?;
 
-            Ok(InterfaceDependencyRequirement::recursive_call(
-                callable, inputs,
-            ))
-        }
-        3 => {
-            let callable = crate::InterfaceCallableInstanceId::new(read_u32(reader)?);
-            let subject = crate::InterfaceTypeId::new(read_u32(reader)?);
-            let application = crate::InterfaceTraitApplicationId::new(read_u32(reader)?);
-            let inputs = decode_dependency_call_inputs(reader, limits, context, depth)?;
-
-            Ok(InterfaceDependencyRequirement::witness_call(
+            Ok(InterfaceDependencyRequirement::result_call(
                 callable,
-                subject,
-                application,
+                requirement,
                 inputs,
             ))
         }
@@ -541,10 +540,12 @@ mod tests {
         let decoded = decode_words(&words, InterfaceValidationLimits::default()).unwrap();
 
         let expected =
-            InterfaceDependencyContract::new([InterfaceDependencyRequirement::witness_call(
+            InterfaceDependencyContract::new([InterfaceDependencyRequirement::result_call(
                 crate::InterfaceCallableInstanceId::new(2),
-                crate::InterfaceTypeId::new(3),
-                crate::InterfaceTraitApplicationId::new(4),
+                Some((
+                    crate::InterfaceTypeId::new(3),
+                    crate::InterfaceTraitApplicationId::new(4),
+                )),
                 [crate::InterfaceDependencyCallInput::new(
                     InterfaceDependencySubjectRoot::Receiver,
                     [InterfaceDependencyRequirement::new(

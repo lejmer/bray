@@ -65,8 +65,7 @@ fn requirement_reaches_exact_thread(requirement: &bray_symbols::DependencyRequir
             .chain(result.iter())
             .any(requirement_reaches_exact_thread),
         bray_symbols::DependencyRequirement::Variable { .. } => false,
-        bray_symbols::DependencyRequirement::WitnessCall { inputs, .. }
-        | bray_symbols::DependencyRequirement::RecursiveCall { inputs, .. } => {
+        bray_symbols::DependencyRequirement::ResultCall { inputs, .. } => {
             inputs.iter().any(|input| {
                 input
                     .values()
@@ -162,8 +161,7 @@ fn collect_witness_requirements(
             }
         }
         bray_symbols::DependencyRequirement::Variable { .. } => {}
-        bray_symbols::DependencyRequirement::WitnessCall { inputs, .. }
-        | bray_symbols::DependencyRequirement::RecursiveCall { inputs, .. } => {
+        bray_symbols::DependencyRequirement::ResultCall { inputs, .. } => {
             for nested in inputs
                 .iter()
                 .flat_map(|input| input.values().iter().chain(input.storage()))
@@ -238,8 +236,7 @@ fn collect_static_requirement_dependencies(
             }
         }
         bray_symbols::DependencyRequirement::Variable { .. } => {}
-        bray_symbols::DependencyRequirement::WitnessCall { inputs, .. }
-        | bray_symbols::DependencyRequirement::RecursiveCall { inputs, .. } => {
+        bray_symbols::DependencyRequirement::ResultCall { inputs, .. } => {
             for nested in inputs
                 .iter()
                 .flat_map(|input| input.values().iter().chain(input.storage()))

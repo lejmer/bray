@@ -107,11 +107,12 @@ impl ResultParameters {
         let values = request.semantic_values();
 
         super::super::equations::map_requirements(requirements, 0, &mut |item, _| {
-            let (callable, inputs) = match item {
-                DependencyRequirement::RecursiveCall { callable, inputs }
-                | DependencyRequirement::WitnessCall {
-                    callable, inputs, ..
-                } => (*callable, inputs),
+            let (callable, requirement, inputs) = match item {
+                DependencyRequirement::ResultCall {
+                    callable,
+                    requirement,
+                    inputs,
+                } => (*callable, requirement, inputs),
                 _ => return None,
             };
 
@@ -125,11 +126,11 @@ impl ResultParameters {
                     .callable_instance_data(callable)
                     .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
-                let target = if let DependencyRequirement::WitnessCall { requirement, .. } = item {
+                let target = if let Some(requirement) = requirement {
                     let Some(target) = witness_target(request, key, callable, *requirement)? else {
-                        return Ok(vec![DependencyRequirement::witness_call(
+                        return Ok(vec![DependencyRequirement::result_call(
                             callable,
-                            *requirement,
+                            Some(*requirement),
                             inputs,
                         )]);
                     };
@@ -142,16 +143,19 @@ impl ResultParameters {
                 let concrete = instantiate(
                     request,
                     key,
-                    DependencyRequirement::recursive_call(
+                    DependencyRequirement::result_call(
                         values
                             .intern_callable_instance(target.0)
                             .map_err(CheckerInfrastructureError::SemanticValueStore)?,
+                        None,
                         [],
                     ),
                 )?;
 
-                let Some(DependencyRequirement::RecursiveCall {
-                    callable: concrete, ..
+                let Some(DependencyRequirement::ResultCall {
+                    requirement: None,
+                    callable: concrete,
+                    ..
                 }) = concrete.requirements().first()
                 else {
                     return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
@@ -162,6 +166,7 @@ impl ResultParameters {
                     .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
                 let target_key = (self.selection.key(request, *concrete)?, target.1);
+
                 pending.push((target_key, target.0));
                 edges.push((target.0, target_key));
 
@@ -169,14 +174,11 @@ impl ResultParameters {
                     .and_then(|callable| values.intern_callable_instance(callable))
                     .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
-                let local = match item {
-                    DependencyRequirement::WitnessCall { requirement, .. } => {
-                        DependencyRequirement::witness_call(empty, *requirement, inputs)
-                    }
-                    _ => DependencyRequirement::recursive_call(empty, inputs),
-                };
-
-                Ok(vec![local])
+                Ok(vec![DependencyRequirement::result_call(
+                    empty,
+                    *requirement,
+                    inputs,
+                )])
             })())
         })
     }
@@ -191,11 +193,13 @@ fn witness_target<C: CheckerRequestContext + ?Sized>(
     let selection = instantiate(
         request,
         key,
-        DependencyRequirement::witness_call(callable, requirement, []),
+        DependencyRequirement::result_call(callable, Some(requirement), []),
     )?;
 
-    let Some(DependencyRequirement::WitnessCall { requirement, .. }) =
-        selection.requirements().first()
+    let Some(DependencyRequirement::ResultCall {
+        requirement: Some(requirement),
+        ..
+    }) = selection.requirements().first()
     else {
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
     };

@@ -447,8 +447,7 @@ where
     C: DependencyContractInstantiationContext,
 {
     match requirement {
-        DependencyRequirement::WitnessCall { .. }
-        | DependencyRequirement::RecursiveCall { .. }
+        DependencyRequirement::ResultCall { .. }
         | DependencyRequirement::FixedPoint { .. }
         | DependencyRequirement::Variable { .. } => {
             Err(DependencyContractInstantiationError::UnresolvedWitness)

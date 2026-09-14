@@ -73,30 +73,30 @@ impl InternState {
 
                     DependencyRequirement::fixed_point(converted, result)
                 }
-                InterfaceDependencyRequirementValue::RecursiveCall { callable, inputs } => {
+                InterfaceDependencyRequirementValue::ResultCall {
+                    callable,
+                    requirement,
+                    inputs,
+                } => {
                     let Some(callable) = self.callable_instance_id(*callable) else {
                         return Ok(None);
                     };
 
-                    let Some(converted) = self.convert_dependency_call_inputs(inputs, symbols)?
-                    else {
-                        return Ok(None);
-                    };
+                    let requirement = match requirement {
+                        Some((subject, application)) => {
+                            let (Some(subject), Some(application)) = (
+                                self.type_id(*subject),
+                                self.trait_application_id(*application),
+                            ) else {
+                                return Ok(None);
+                            };
 
-                    DependencyRequirement::recursive_call(callable, converted)
-                }
-                InterfaceDependencyRequirementValue::WitnessCall {
-                    callable,
-                    subject,
-                    application,
-                    inputs,
-                } => {
-                    let (Some(callable), Some(subject), Some(application)) = (
-                        self.callable_instance_id(*callable),
-                        self.type_id(*subject),
-                        self.trait_application_id(*application),
-                    ) else {
-                        return Ok(None);
+                            Some(bray_symbols::ImplementationRequirementKey::new(
+                                subject,
+                                application,
+                            ))
+                        }
+                        None => None,
                     };
 
                     let Some(converted) = self.convert_dependency_call_inputs(inputs, symbols)?
@@ -104,11 +104,7 @@ impl InternState {
                         return Ok(None);
                     };
 
-                    DependencyRequirement::witness_call(
-                        callable,
-                        bray_symbols::ImplementationRequirementKey::new(subject, application),
-                        converted,
-                    )
+                    DependencyRequirement::result_call(callable, requirement, converted)
                 }
                 InterfaceDependencyRequirementValue::Direct { subject, kind } => {
                     let Some(subject) = self.convert_dependency_subject(subject, symbols)? else {

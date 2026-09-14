@@ -39,8 +39,7 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
             .filter_map(|requirement| match requirement {
                 DependencyRequirement::Direct { subject, .. } => Some(subject),
                 DependencyRequirement::Guarded(_)
-                | DependencyRequirement::WitnessCall { .. }
-                | DependencyRequirement::RecursiveCall { .. }
+                | DependencyRequirement::ResultCall { .. }
                 | DependencyRequirement::FixedPoint { .. }
                 | DependencyRequirement::Variable { .. } => None,
             })

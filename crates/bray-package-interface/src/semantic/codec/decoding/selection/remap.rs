@@ -420,19 +420,17 @@ fn remap_dependency_requirement(
                 }
             }
         }
-        InterfaceDependencyRequirementValue::RecursiveCall { callable, inputs } => {
-            *callable = maps.callable_instance_id(*callable)?;
-            remap_dependency_call_inputs(inputs, maps)?;
-        }
-        InterfaceDependencyRequirementValue::WitnessCall {
+        InterfaceDependencyRequirementValue::ResultCall {
             callable,
-            subject,
-            application,
+            requirement,
             inputs,
         } => {
             *callable = maps.callable_instance_id(*callable)?;
-            *subject = maps.type_id(*subject)?;
-            *application = maps.trait_application_id(*application)?;
+
+            if let Some((subject, application)) = requirement {
+                *subject = maps.type_id(*subject)?;
+                *application = maps.trait_application_id(*application)?;
+            }
 
             remap_dependency_call_inputs(inputs, maps)?;
         }

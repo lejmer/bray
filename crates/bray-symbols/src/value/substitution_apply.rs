@@ -114,10 +114,18 @@ impl SemanticValueStore {
         application: super::TraitApplicationId,
         substitution: GenericSubstitutionId,
     ) -> Result<super::TraitApplicationId, SemanticValueStoreError> {
-        let application = self.trait_application_data(application)?;
+        let substitution = self.generic_substitution_data(substitution)?;
 
-        let nested =
-            self.substitute_generic_substitution(application.substitution(), substitution)?;
+        self.substitute_trait_application_data(application, &substitution)
+    }
+
+    fn substitute_trait_application_data(
+        &self,
+        application: super::TraitApplicationId,
+        substitution: &GenericSubstitutionData,
+    ) -> Result<super::TraitApplicationId, SemanticValueStoreError> {
+        let application = self.trait_application_data(application)?;
+        let nested = self.substitute_generic_substitution_data(application.substitution(), substitution)?;
 
         self.intern_trait_application(TraitApplicationData::new(application.definition(), nested))
     }
@@ -668,36 +676,32 @@ impl SemanticValueStore {
             DependencyRequirement::Variable { depth, ordinal } => {
                 Ok(DependencyRequirement::variable(*depth, *ordinal))
             }
-            DependencyRequirement::RecursiveCall { callable, inputs } => {
-                let callable = self.substitute_callable_instance_data(*callable, substitution)?;
-                let inputs = self.substitute_dependency_call_inputs(inputs, substitution)?;
-
-                Ok(DependencyRequirement::recursive_call(callable, inputs))
-            }
-            DependencyRequirement::WitnessCall {
+            DependencyRequirement::ResultCall {
                 callable,
                 requirement,
                 inputs,
             } => {
                 let callable = self.substitute_callable_instance_data(*callable, substitution)?;
-                let subject = self.substitute_type_data(requirement.subject(), substitution)?;
-                let application = self.trait_application_data(requirement.trait_application())?;
 
-                let nested = self.substitute_generic_substitution_data(
-                    application.substitution(),
-                    substitution,
-                )?;
+                let requirement = requirement
+                    .map(|requirement| {
+                        let subject =
+                            self.substitute_type_data(requirement.subject(), substitution)?;
 
-                let application = self.intern_trait_application(TraitApplicationData::new(
-                    application.definition(),
-                    nested,
-                ))?;
+                        let application = self.substitute_trait_application_data(requirement.trait_application(), substitution)?;
+
+                        Ok::<_, SemanticValueStoreError>(crate::ImplementationRequirementKey::new(
+                            subject,
+                            application,
+                        ))
+                    })
+                    .transpose()?;
 
                 let inputs = self.substitute_dependency_call_inputs(inputs, substitution)?;
 
-                Ok(DependencyRequirement::witness_call(
+                Ok(DependencyRequirement::result_call(
                     callable,
-                    crate::ImplementationRequirementKey::new(subject, application),
+                    requirement,
                     inputs,
                 ))
             }

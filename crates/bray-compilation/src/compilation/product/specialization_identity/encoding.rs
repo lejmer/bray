@@ -600,20 +600,19 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
                     self.dependency_requirements(requirements)?;
                 }
             }
-            DependencyRequirement::RecursiveCall { callable, inputs } => {
-                self.tag(3);
-                self.callable_instance(*callable)?;
-                self.dependency_call_inputs(inputs)?;
-            }
-            DependencyRequirement::WitnessCall {
+            DependencyRequirement::ResultCall {
                 callable,
                 requirement,
                 inputs,
             } => {
-                self.tag(2);
+                self.tag(if requirement.is_some() { 2 } else { 3 });
                 self.callable_instance(*callable)?;
-                self.ty(requirement.subject())?;
-                self.trait_application(requirement.trait_application())?;
+
+                if let Some(requirement) = requirement {
+                    self.ty(requirement.subject())?;
+                    self.trait_application(requirement.trait_application())?;
+                }
+
                 self.dependency_call_inputs(inputs)?;
             }
             DependencyRequirement::Direct { subject, kind } => {
@@ -864,7 +863,10 @@ mod tests {
                     match item {
                         DependencyRequirement::FixedPoint { definitions, .. } => pending
                             .extend(definitions.iter().flat_map(|definition| definition.iter())),
-                        DependencyRequirement::WitnessCall { .. } => {
+                        DependencyRequirement::ResultCall {
+                            requirement: Some(_),
+                            ..
+                        } => {
                             witness = Some(item);
                             break;
                         }
@@ -872,9 +874,9 @@ mod tests {
                     }
                 }
 
-                let DependencyRequirement::WitnessCall {
+                let DependencyRequirement::ResultCall {
                     callable,
-                    requirement,
+                    requirement: Some(requirement),
                     inputs,
                 } = witness.unwrap()
                 else {
@@ -901,7 +903,11 @@ mod tests {
 
                     let contract = values
                         .intern_dependency_contract_template(DependencyContractTemplateData::new([
-                            DependencyRequirement::witness_call(*callable, *requirement, inputs),
+                            DependencyRequirement::result_call(
+                                *callable,
+                                Some(*requirement),
+                                inputs,
+                            ),
                         ]))
                         .unwrap();
 

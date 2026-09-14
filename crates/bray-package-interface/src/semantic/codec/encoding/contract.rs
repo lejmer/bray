@@ -173,25 +173,24 @@ pub(super) fn encode_dependency_requirement(
                 }
             }
         }
-        InterfaceDependencyRequirementValue::RecursiveCall { callable, inputs } => {
-            encoder.write_u32(4);
-            encoder.write_u32(callable.raw());
-            encode_dependency_call_inputs(encoder, inputs);
-        }
-        InterfaceDependencyRequirementValue::WitnessCall {
+        InterfaceDependencyRequirementValue::ResultCall {
             callable,
-            subject,
-            application,
+            requirement,
             inputs,
         } => {
-            encoder.write_u32(3);
+            encoder.write_u32(if requirement.is_some() { 3 } else { 4 });
             encoder.write_u32(callable.raw());
-            encoder.write_u32(subject.raw());
-            encoder.write_u32(application.raw());
+
+            if let Some((subject, application)) = requirement {
+                encoder.write_u32(subject.raw());
+                encoder.write_u32(application.raw());
+            }
+
             encode_dependency_call_inputs(encoder, inputs);
         }
         InterfaceDependencyRequirementValue::Direct { subject, kind } => {
             encoder.write_u32(1);
+
             encode_dependency_subject(encoder, subject);
             encode_dependency_requirement_kind(encoder, *kind);
         }
@@ -200,6 +199,7 @@ pub(super) fn encode_dependency_requirement(
             requirements,
         } => {
             encoder.write_u32(2);
+
             encode_dependency_guard(encoder, guard);
             write_count(encoder, requirements.len());
 

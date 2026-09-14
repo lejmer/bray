@@ -408,18 +408,14 @@ impl InterfaceSemantics {
 
                 scopes.pop();
             }
-            InterfaceDependencyRequirementValue::RecursiveCall { callable, inputs }
-            | InterfaceDependencyRequirementValue::WitnessCall {
-                callable, inputs, ..
+            InterfaceDependencyRequirementValue::ResultCall {
+                callable,
+                requirement,
+                inputs,
             } => {
                 validate_index(callable.to_index(), self.callable_instances.len())?;
 
-                if let InterfaceDependencyRequirementValue::WitnessCall {
-                    subject,
-                    application,
-                    ..
-                } = &requirement.value
-                {
+                if let Some((subject, application)) = requirement {
                     validate_index(subject.to_index(), self.types.len())?;
                     validate_index(application.to_index(), self.trait_applications.len())?;
                 }

@@ -24,7 +24,9 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
         };
 
         let template = if recursive {
-            crate::dependency::witness::recursive_result(self.request, call)?
+            let template = crate::dependency::witness::deferred_result(self.request, call, None)?;
+
+            crate::dependency::defaults::expand_result_defaults(self.request, call, &template)?
         } else {
             crate::dependency::call_result_template(self.request, call, |callable| {
                 self.callees

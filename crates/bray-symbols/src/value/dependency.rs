@@ -184,19 +184,12 @@ pub enum DependencyRequirement {
     },
     /// Requirements active only while a semantic guard holds.
     Guarded(GuardedDependencyRequirement),
-    /// A recursive declaration result retained without repeatedly unfolding its body.
-    RecursiveCall {
-        /// The recursive declaration and its generic arguments.
+    /// A deferred callable result, optionally awaiting implementation selection.
+    ResultCall {
+        /// The declaration and its generic arguments.
         callable: super::CallableInstanceId,
-        /// Dependencies supplied to the recursive call.
-        inputs: Arc<[DependencyCallInput]>,
-    },
-    /// Returned dependencies awaiting an exact implementation witness.
-    WitnessCall {
-        /// The abstract member and its generic arguments.
-        callable: super::CallableInstanceId,
-        /// The exact subject and trait application selecting the implementation.
-        requirement: crate::ImplementationRequirementKey,
+        /// The subject and trait application selecting an implementation, when needed.
+        requirement: Option<crate::ImplementationRequirementKey>,
         /// Dependencies of each actual input in the enclosing contract.
         inputs: Arc<[DependencyCallInput]>,
     },
@@ -259,24 +252,13 @@ impl DependencyRequirement {
         Self::Variable { depth, ordinal }
     }
 
-    /// Creates a deferred recursive result with normalized inputs.
-    pub fn recursive_call(
+    /// Creates a deferred result relation with normalized inputs.
+    pub fn result_call(
         callable: super::CallableInstanceId,
+        requirement: Option<crate::ImplementationRequirementKey>,
         inputs: impl IntoIterator<Item = DependencyCallInput>,
     ) -> Self {
-        Self::RecursiveCall {
-            callable,
-            inputs: sorted_unique_shared_slice(inputs),
-        }
-    }
-
-    /// Creates a symbolic result relation with inputs in deterministic order.
-    pub fn witness_call(
-        callable: super::CallableInstanceId,
-        requirement: crate::ImplementationRequirementKey,
-        inputs: impl IntoIterator<Item = DependencyCallInput>,
-    ) -> Self {
-        Self::WitnessCall {
+        Self::ResultCall {
             callable,
             requirement,
             inputs: sorted_unique_shared_slice(inputs),

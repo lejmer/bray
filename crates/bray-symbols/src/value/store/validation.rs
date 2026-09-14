@@ -332,25 +332,20 @@ pub(super) fn validate_dependency_template_data(
                 );
             }
             DependencyRequirement::Variable { .. } => {}
-            DependencyRequirement::RecursiveCall { callable, inputs } => {
-                tables.callable_instances.get(store, *callable)?;
-
-                for input in inputs.iter() {
-                    pending.extend(input.values());
-                    pending.extend(input.storage());
-                }
-            }
-            DependencyRequirement::WitnessCall {
+            DependencyRequirement::ResultCall {
                 callable,
                 requirement,
                 inputs,
             } => {
                 tables.callable_instances.get(store, *callable)?;
-                tables.types.get(store, requirement.subject())?;
 
-                tables
-                    .trait_applications
-                    .get(store, requirement.trait_application())?;
+                if let Some(requirement) = requirement {
+                    tables.types.get(store, requirement.subject())?;
+
+                    tables
+                        .trait_applications
+                        .get(store, requirement.trait_application())?;
+                }
 
                 for input in inputs.iter() {
                     pending.extend(input.values());
@@ -401,8 +396,7 @@ fn validate_dependency_variables(
 
                 scopes.pop();
             }
-            DependencyRequirement::WitnessCall { inputs, .. }
-            | DependencyRequirement::RecursiveCall { inputs, .. } => {
+            DependencyRequirement::ResultCall { inputs, .. } => {
                 for input in inputs.iter() {
                     validate_dependency_variables(input.values(), scopes)?;
                     validate_dependency_variables(input.storage(), scopes)?;

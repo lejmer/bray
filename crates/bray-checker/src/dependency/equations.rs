@@ -29,21 +29,15 @@ pub(super) fn map_requirements<E>(
                         .collect::<Result<Vec<_>, _>>()?,
                     map_requirements(result, depth.saturating_add(1), transform)?,
                 ),
-                DependencyRequirement::WitnessCall {
+                DependencyRequirement::ResultCall {
                     callable,
                     requirement,
                     inputs,
-                } => DependencyRequirement::witness_call(
+                } => DependencyRequirement::result_call(
                     *callable,
                     *requirement,
                     map_inputs(inputs, depth, transform)?,
                 ),
-                DependencyRequirement::RecursiveCall { callable, inputs } => {
-                    DependencyRequirement::recursive_call(
-                        *callable,
-                        map_inputs(inputs, depth, transform)?,
-                    )
-                }
                 DependencyRequirement::Guarded(guarded) => DependencyRequirement::guarded(
                     guarded.guard().clone(),
                     map_requirements(guarded.requirements(), depth, transform)?,
@@ -139,8 +133,7 @@ pub(super) fn has_variables(requirements: &[DependencyRequirement], local_only: 
                     .chain(result.iter())
                     .map(|requirement| (requirement, binders.saturating_add(1))),
             ),
-            DependencyRequirement::WitnessCall { inputs, .. }
-            | DependencyRequirement::RecursiveCall { inputs, .. } => pending.extend(
+            DependencyRequirement::ResultCall { inputs, .. } => pending.extend(
                 inputs
                     .iter()
                     .flat_map(|input| input.values().iter().chain(input.storage()))

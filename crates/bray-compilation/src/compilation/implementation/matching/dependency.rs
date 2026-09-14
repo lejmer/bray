@@ -126,42 +126,36 @@ impl HeaderMatcher<'_> {
                 Ok(true)
             }
             (
-                DependencyRequirement::RecursiveCall {
-                    callable: pattern,
-                    inputs: pattern_inputs,
-                },
-                DependencyRequirement::RecursiveCall {
-                    callable: actual,
-                    inputs: actual_inputs,
-                },
-            ) => {
-                if !self.match_callable_instance(*pattern, *actual)? {
-                    return Ok(false);
-                }
-
-                self.match_dependency_call_inputs(pattern_inputs, actual_inputs)
-            }
-            (
-                DependencyRequirement::WitnessCall {
+                DependencyRequirement::ResultCall {
                     callable: pattern_callable,
                     requirement: pattern_requirement,
                     inputs: pattern_inputs,
                 },
-                DependencyRequirement::WitnessCall {
+                DependencyRequirement::ResultCall {
                     callable: actual_callable,
                     requirement: actual_requirement,
                     inputs: actual_inputs,
                 },
             ) => {
-                if !self.match_callable_instance(*pattern_callable, *actual_callable)?
-                    || !self
-                        .match_type(pattern_requirement.subject(), actual_requirement.subject())?
-                    || !self.match_trait_application(
-                        pattern_requirement.trait_application(),
-                        actual_requirement.trait_application(),
-                    )?
+                if pattern_requirement.is_some() != actual_requirement.is_some()
+                    || !self.match_callable_instance(*pattern_callable, *actual_callable)?
                 {
                     return Ok(false);
+                }
+
+                match (pattern_requirement, actual_requirement) {
+                    (Some(pattern), Some(actual)) => {
+                        if !self.match_type(pattern.subject(), actual.subject())?
+                            || !self.match_trait_application(
+                                pattern.trait_application(),
+                                actual.trait_application(),
+                            )?
+                        {
+                            return Ok(false);
+                        }
+                    }
+                    (None, None) => {}
+                    _ => return Ok(false),
                 }
 
                 self.match_dependency_call_inputs(pattern_inputs, actual_inputs)

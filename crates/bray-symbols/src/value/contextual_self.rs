@@ -218,27 +218,7 @@ impl SemanticValueStore {
                 super::DependencyRequirement::Variable { depth, ordinal } => {
                     Ok(super::DependencyRequirement::variable(*depth, *ordinal))
                 }
-                super::DependencyRequirement::RecursiveCall { callable, inputs } => {
-                    let callable = self.callable_instance_data(*callable)?;
-
-                    let substitution = self.substitute_contextual_self_in_substitution(
-                        callable.substitution(),
-                        context,
-                        replacement,
-                    )?;
-
-                    let callable = self.intern_callable_instance(
-                        super::CallableInstanceData::new(callable.definition(), substitution),
-                    )?;
-
-                    let inputs =
-                        self.substitute_contextual_call_inputs(inputs, context, replacement)?;
-
-                    Ok(super::DependencyRequirement::recursive_call(
-                        callable, inputs,
-                    ))
-                }
-                super::DependencyRequirement::WitnessCall {
+                super::DependencyRequirement::ResultCall {
                     callable,
                     requirement,
                     inputs,
@@ -255,24 +235,32 @@ impl SemanticValueStore {
                         super::CallableInstanceData::new(callable.definition(), substitution),
                     )?;
 
-                    let subject = self.substitute_contextual_self(
-                        requirement.subject(),
-                        context,
-                        replacement,
-                    )?;
+                    let requirement = requirement
+                        .map(|requirement| {
+                            let subject = self.substitute_contextual_self(
+                                requirement.subject(),
+                                context,
+                                replacement,
+                            )?;
 
-                    let application = self.substitute_contextual_self_in_application(
-                        requirement.trait_application(),
-                        context,
-                        replacement,
-                    )?;
+                            let application = self.substitute_contextual_self_in_application(
+                                requirement.trait_application(),
+                                context,
+                                replacement,
+                            )?;
+
+                            Ok::<_, SemanticValueStoreError>(
+                                crate::ImplementationRequirementKey::new(subject, application),
+                            )
+                        })
+                        .transpose()?;
 
                     let inputs =
                         self.substitute_contextual_call_inputs(inputs, context, replacement)?;
 
-                    Ok(super::DependencyRequirement::witness_call(
+                    Ok(super::DependencyRequirement::result_call(
                         callable,
-                        crate::ImplementationRequirementKey::new(subject, application),
+                        requirement,
                         inputs,
                     ))
                 }

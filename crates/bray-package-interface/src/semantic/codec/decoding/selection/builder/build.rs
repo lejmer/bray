@@ -881,22 +881,17 @@ impl<'bytes> SelectionBuilder<'bytes> {
                         .flat_map(|definition| definition.iter())
                         .chain(result.iter()),
                 ),
-                InterfaceDependencyRequirementValue::RecursiveCall { callable, inputs } => {
-                    self.enqueue(PendingRecord::CallableInstance(callable.raw()));
-
-                    for input in inputs.iter() {
-                        pending.extend(input.values.iter().chain(input.storage.iter()));
-                    }
-                }
-                InterfaceDependencyRequirementValue::WitnessCall {
+                InterfaceDependencyRequirementValue::ResultCall {
                     callable,
-                    subject,
-                    application,
+                    requirement,
                     inputs,
                 } => {
                     self.enqueue(PendingRecord::CallableInstance(callable.raw()));
-                    self.enqueue(PendingRecord::Type(subject.raw()));
-                    self.enqueue(PendingRecord::TraitApplication(application.raw()));
+
+                    if let Some((subject, application)) = requirement {
+                        self.enqueue(PendingRecord::Type(subject.raw()));
+                        self.enqueue(PendingRecord::TraitApplication(application.raw()));
+                    }
 
                     for input in inputs.iter() {
                         pending.extend(input.values.iter().chain(input.storage.iter()));

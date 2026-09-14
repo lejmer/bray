@@ -93,11 +93,12 @@ fn selection_requirements(
     edges: &mut Vec<(CallableInstanceData, CallableDefinitionId)>,
 ) -> Result<Vec<DependencyRequirement>, SemanticValueStoreError> {
     super::super::equations::map_requirements(requirements, 0, &mut |item, _| {
-        let (callable, inputs) = match item {
-            DependencyRequirement::RecursiveCall { callable, inputs }
-            | DependencyRequirement::WitnessCall {
-                callable, inputs, ..
-            } => (*callable, inputs),
+        let (callable, requirement, inputs) = match item {
+            DependencyRequirement::ResultCall {
+                callable,
+                requirement,
+                inputs,
+            } => (*callable, requirement, inputs),
             _ => return None,
         };
 
@@ -112,20 +113,17 @@ fn selection_requirements(
             let empty =
                 values.intern_callable_instance(retain_parameters(values, *callable, None)?)?;
 
-            let local = match item {
-                DependencyRequirement::WitnessCall { requirement, .. } => {
-                    // Member arguments do not select the implementation. Its result is inspected separately.
-                    DependencyRequirement::witness_call(empty, *requirement, inputs)
-                }
-                _ => {
-                    pending.push(*callable);
-                    edges.push((*callable, callable.definition()));
+            // Member arguments do not select the implementation. Its result is inspected separately.
+            if requirement.is_none() {
+                pending.push(*callable);
+                edges.push((*callable, callable.definition()));
+            }
 
-                    DependencyRequirement::recursive_call(empty, inputs)
-                }
-            };
-
-            Ok(vec![local])
+            Ok(vec![DependencyRequirement::result_call(
+                empty,
+                *requirement,
+                inputs,
+            )])
         })())
     })
 }
