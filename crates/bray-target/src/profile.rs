@@ -94,11 +94,10 @@ impl TargetProfile {
     ) -> Result<Self, TargetProfileBuildError> {
         let pointer_alignment = u64::from(machine.pointer_alignment_bytes().get());
         let stack_alignment = u64::from(machine.stack_alignment_bytes().get());
-        let maximum_usize = maximum_usize(machine.pointer_width_bits().get());
         let alignments = properties.alignments();
 
-        if alignments.max_storage().get() > maximum_usize
-            || alignments.max_allocation().get() > maximum_usize
+        if !machine.fits_usize(u128::from(alignments.max_storage().get()))
+            || !machine.fits_usize(u128::from(alignments.max_allocation().get()))
         {
             return Err(TargetProfileBuildError::TargetPropertyNotRepresentable);
         }
@@ -198,14 +197,6 @@ impl TargetProfile {
     /// Returns one language-defined target property.
     pub fn property(&self, kind: TargetPropertyKind) -> TargetPropertyValue<'_> {
         TargetPropertyValue::for_profile(self, kind)
-    }
-}
-
-const fn maximum_usize(pointer_width_bits: u16) -> u64 {
-    if pointer_width_bits >= u64::BITS as u16 {
-        u64::MAX
-    } else {
-        (1_u64 << pointer_width_bits) - 1
     }
 }
 
