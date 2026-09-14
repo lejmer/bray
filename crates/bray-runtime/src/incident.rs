@@ -252,13 +252,22 @@ mod tests {
     }
 
     extern "C-unwind" fn reentrant_report(payload: usize) -> NativeRuntimeStatus {
-        REENTRANT.with_borrow(|sink| transfer(sink.as_ref().unwrap(), Box::new(Release(3))));
+        REENTRANT.with_borrow(|sink| {
+            let sink = sink.as_ref().unwrap();
+            transfer(sink, Box::new(Release(3)));
+            sink.drain(|_| panic!("nested reporting must defer to the active drain"));
+        });
 
         report(payload)
     }
 
     extern "C-unwind" fn reentrant_destroy(payload: usize) {
-        REENTRANT.with_borrow(|sink| transfer(sink.as_ref().unwrap(), Box::new(Release(4))));
+        REENTRANT.with_borrow(|sink| {
+            let sink = sink.as_ref().unwrap();
+            transfer(sink, Box::new(Release(4)));
+            sink.drain(|_| panic!("nested release must defer to the active drain"));
+        });
+
         destroy(payload);
     }
 
@@ -329,6 +338,35 @@ mod tests {
         drop(failure);
 
         assert_eq!(events(), [("panic release", 4)]);
+
+        transfer(&sink, Box::new(Release(5)));
+        sink.drain(drop);
+        assert_eq!(events(), [("panic release", 5)]);
+        assert_eq!(sink.pending_count(), 0);
+    }
+
+    #[test]
+    fn concurrent_drain_leaves_pending_incidents_to_the_active_drain() {
+        let sink = CleanupReportSink::new();
+        transfer(&sink, Box::new(()));
+        transfer(&sink, Box::new(()));
+        let mut ordinals = Vec::new();
+
+        sink.drain(|incident| {
+            ordinals.push(incident.ordinal());
+
+            if incident.ordinal() == 0 {
+                std::thread::scope(|scope| {
+                    scope.spawn(|| {
+                        transfer(&sink, Box::new(()));
+                        sink.drain(|_| panic!("concurrent drain must defer to the active drain"));
+                    });
+                });
+            }
+        });
+
+        assert_eq!(ordinals, [0, 1, 2]);
+        assert_eq!(sink.pending_count(), 0);
     }
 
     #[test]

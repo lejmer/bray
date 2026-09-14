@@ -115,6 +115,20 @@ pub struct CleanupReportSink {
 struct CleanupReportState {
     next_ordinal: u64,
     incidents: VecDeque<CleanupIncident>,
+    draining: bool,
+}
+
+struct CleanupDrain<'a>(Option<&'a Mutex<CleanupReportState>>);
+
+impl Drop for CleanupDrain<'_> {
+    fn drop(&mut self) {
+        if let Some(state) = self.0 {
+            state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .draining = false;
+        }
+    }
 }
 
 impl CleanupReportSink {
@@ -159,20 +173,39 @@ impl CleanupReportSink {
     /// Reports and removes every incident in transfer order.
     ///
     /// Callbacks receive detached incidents. Reentrant transfers join the next batch.
+    /// Nested or concurrent drains leave reporting to the active drain.
     /// If a callback unwinds, the remaining detached incidents are released.
     pub fn drain(&self, mut report: impl FnMut(CleanupIncident)) {
-        loop {
-            let incidents = std::mem::take(
-                &mut self
-                    .state
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .incidents,
-            );
+        {
+            let mut state = self
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-            if incidents.is_empty() {
+            if state.draining {
                 return;
             }
+
+            state.draining = true;
+        }
+
+        let mut drain = CleanupDrain(Some(&self.state));
+
+        loop {
+            let incidents = {
+                let mut state = self
+                    .state
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+                if state.incidents.is_empty() {
+                    state.draining = false;
+                    drain.0 = None;
+                    return;
+                }
+
+                std::mem::take(&mut state.incidents)
+            };
 
             for incident in incidents {
                 report(incident);
