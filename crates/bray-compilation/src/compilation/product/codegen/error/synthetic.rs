@@ -30,9 +30,6 @@ impl From<SyntheticLoweringError> for CodegenPreparationError {
                 ProductDataKind::OperationResultType,
             )
             .into(),
-            SyntheticLoweringError::InvalidStorageMemberKey(key) => {
-                ProductQueryFailure::InvalidCompilerKnownDeclarationKey { key }.into()
-            }
             SyntheticLoweringError::MissingHelper(reference) => {
                 Self::MissingHelperInstance(reference)
             }
@@ -40,14 +37,6 @@ impl From<SyntheticLoweringError> for CodegenPreparationError {
             SyntheticLoweringError::UnresolvedType(ty) => Self::UnresolvedType(ty),
             SyntheticLoweringError::UnsupportedLifecycleRole(role) => {
                 ProductQueryFailure::UnsupportedLifecycleRole { role }.into()
-            }
-            SyntheticLoweringError::UnexpectedLifecycleType { ty, actual } => {
-                ProductQueryFailure::UnexpectedSemanticType {
-                    ty,
-                    expected: ProductValueKind::LifecycleRepresentableType,
-                    actual,
-                }
-                .into()
             }
             SyntheticLoweringError::MissingOperationResult { source, operation } => {
                 ProductQueryFailure::missing(
@@ -68,16 +57,30 @@ impl From<SyntheticLoweringError> for CodegenPreparationError {
                 )
                 .into()
             }
-            SyntheticLoweringError::StorageParameterCount { member, actual } => {
-                ProductQueryFailure::count_mismatch(
-                    ProductQueryContext::CompilerKnownDeclaration(member),
-                    ProductDataKind::CallableParameters,
-                    1,
+            SyntheticLoweringError::LayoutOverflow(ty) => Self::LayoutOverflow(ty),
+        }
+    }
+}
+
+impl From<bray_checker::LifecycleSelectionError> for CodegenPreparationError {
+    fn from(error: bray_checker::LifecycleSelectionError) -> Self {
+        match error {
+            bray_checker::LifecycleSelectionError::InvalidStorageMemberKey(key) => {
+                ProductQueryFailure::InvalidCompilerKnownDeclarationKey { key }.into()
+            }
+            bray_checker::LifecycleSelectionError::SemanticValue(cause) => {
+                FactQueryError::SemanticValueStore(cause).into()
+            }
+            bray_checker::LifecycleSelectionError::UnsupportedType(ty) => Self::UnsupportedType(ty),
+            bray_checker::LifecycleSelectionError::UnresolvedType(ty) => Self::UnresolvedType(ty),
+            bray_checker::LifecycleSelectionError::UnexpectedType { ty, actual } => {
+                ProductQueryFailure::UnexpectedSemanticType {
+                    ty,
+                    expected: ProductValueKind::LifecycleRepresentableType,
                     actual,
-                )
+                }
                 .into()
             }
-            SyntheticLoweringError::LayoutOverflow(ty) => Self::LayoutOverflow(ty),
         }
     }
 }

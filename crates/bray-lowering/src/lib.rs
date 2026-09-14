@@ -7,6 +7,7 @@ mod cleanup_outcome;
 mod host;
 mod identity;
 mod input;
+mod lifecycle_call;
 mod lowering;
 mod operand;
 mod plan;

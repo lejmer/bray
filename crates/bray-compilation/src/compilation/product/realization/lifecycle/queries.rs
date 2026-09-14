@@ -1,7 +1,5 @@
-use bray_ir::MirCallableReference;
-use bray_symbols::{
-    CallableExecution, CallableSignature, TypeAssociatedLifecycleSlot, TypeData, TypeId,
-};
+use bray_bound_tree::LifecycleCallable;
+use bray_symbols::{TypeAssociatedLifecycleSlot, TypeData, TypeId};
 
 use super::super::support::receiver_codegen_type;
 use crate::compilation::CodegenPreparationError;
@@ -18,10 +16,7 @@ impl Compilation {
         ty: TypeId,
         slot: TypeAssociatedLifecycleSlot,
         cancellation: &CancellationToken,
-    ) -> Result<
-        Option<(MirCallableReference, TypeId, TypeId, CallableExecution)>,
-        CodegenPreparationError,
-    > {
+    ) -> Result<Option<LifecycleCallable>, CodegenPreparationError> {
         let values = self.semantic_value_store()?;
 
         let data = values
@@ -77,12 +72,13 @@ impl Compilation {
             .into());
         };
 
-        Ok(Some((
-            MirCallableReference::new(*callable, callable_type.abi()),
+        Ok(Some(LifecycleCallable {
+            callable: *callable,
+            abi: callable_type.abi(),
             receiver,
             result,
-            callable_type.execution(),
-        )))
+            execution: callable_type.execution(),
+        }))
     }
 
     pub(in crate::compilation::product::realization) fn storage_lifecycle_callable(
@@ -91,7 +87,7 @@ impl Compilation {
         target: TypeId,
         member: &CompilerKnownDeclarationKey,
         cancellation: &CancellationToken,
-    ) -> Result<(MirCallableReference, CallableSignature), CodegenPreparationError> {
+    ) -> Result<LifecycleCallable, CodegenPreparationError> {
         let binding_context = self.binding_context(cancellation)?;
 
         let selected = crate::compilation::operation::selected_storage_callable(
@@ -129,10 +125,23 @@ impl Compilation {
             .into());
         };
 
-        // The generated MIR owns this Arc-backed signature after releasing the query result.
-        Ok((
-            MirCallableReference::new(*callable, callable_type.abi()),
-            signature.clone(),
-        ))
+        let [parameter] = signature.parameters() else {
+            return Err(ProductQueryFailure::count_mismatch(
+                // The failure owns the protocol identity after this query returns.
+                ProductQueryContext::CompilerKnownDeclaration(member.clone()),
+                ProductDataKind::CallableParameters,
+                1,
+                signature.parameters().len(),
+            )
+            .into());
+        };
+
+        Ok(LifecycleCallable {
+            callable: *callable,
+            abi: callable_type.abi(),
+            receiver: parameter.ty(),
+            result: signature.result(),
+            execution: bray_symbols::CallableExecution::Synchronous,
+        })
     }
 }
