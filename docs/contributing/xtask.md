@@ -5,6 +5,10 @@ with `cargo xtask`. LLVM provisioning uses the dependency-light `cargo llvm` com
 compiler crates can be built. These commands are contributor and release-engineering tools rather than user-facing Bray
 Tack commands.
 
+Workspace commands select the Cargo workspace containing the current working directory and require a Bray checkout.
+This also applies when running a retained executable from a shared Cargo target directory. Run it from the checkout
+you intend to operate on, or one of that checkout's Cargo member directories.
+
 Materially long workflows print bounded phase starts and completions to standard error. Repeated work reports a stable
 item count, and child compiler progress remains visible while machine-readable command output stays on standard output.
 
