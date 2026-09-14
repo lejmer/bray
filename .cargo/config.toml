@@ -1,3 +1,6 @@
+[build]
+build-dir = "{workspace-root}/target/cargo"
+
 [alias]
 llvm = "run --package bray-llvm-toolchain --release --"
 xtask = "run --package xtask --release --"
