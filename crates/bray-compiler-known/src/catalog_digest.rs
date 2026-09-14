@@ -1,12 +1,10 @@
-use std::path::Path;
-
 use crate::catalog_revision::CatalogGrammarRevision;
 
-pub(crate) fn source_digest(
+pub(crate) fn source_digest<T: AsRef<[u8]>, E>(
     grammar_revision: CatalogGrammarRevision,
     manifest: &str,
-    catalog_directory: &Path,
-) -> Result<String, std::io::Error> {
+    mut read_source: impl FnMut(&str) -> Result<T, E>,
+) -> Result<String, E> {
     let mut hasher = blake3::Hasher::new();
 
     hasher.update(b"bray compiler-known catalog\0");
@@ -14,11 +12,11 @@ pub(crate) fn source_digest(
     hasher.update(manifest.as_bytes());
 
     for relative_path in manifest_paths(manifest) {
-        let contents = std::fs::read(catalog_directory.join(relative_path))?;
+        let contents = read_source(relative_path)?;
 
         hasher.update(relative_path.as_bytes());
         hasher.update(&[0]);
-        hasher.update(&contents);
+        hasher.update(contents.as_ref());
         hasher.update(&[0]);
     }
 

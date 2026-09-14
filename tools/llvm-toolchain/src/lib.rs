@@ -8,3 +8,4 @@ mod process;
 mod workspace;
 
 pub use command::{run, tool_path};
+pub use workspace::root as workspace_root;

@@ -1,14 +1,7 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
-pub(crate) fn root() -> Result<PathBuf, String> {
-    let xtask = Path::new(env!("CARGO_MANIFEST_DIR"));
-
-    xtask
-        .parent()
-        .map(Path::to_path_buf)
-        .ok_or_else(|| "xtask manifest directory has no workspace parent".to_owned())
-}
+pub(crate) use bray_llvm_toolchain::workspace_root as root;
 
 pub(crate) fn cargo_target(root: &Path) -> PathBuf {
     cargo_target_from(root, std::env::var_os("CARGO_TARGET_DIR"))

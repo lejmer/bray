@@ -11,18 +11,22 @@ use crate::process::output_detail;
 
 const BUILD_DIRECTORY: &str = "bray-lld-build";
 const SOURCE_DIRECTORY: &str = "source";
-const BUILD_INPUTS: [&[u8]; 5] = [
-    include_bytes!("instrumentation.rs"),
-    include_bytes!("../native/lld/main.cpp"),
-    include_bytes!("../native/lld/manifest.cpp"),
-    include_bytes!("../native/lld/telemetry.cpp"),
-    include_bytes!("../native/lld/telemetry.h"),
+const NATIVE_SOURCES: [(&str, &[u8]); 4] = [
+    ("main.cpp", include_bytes!("../native/lld/main.cpp")),
+    ("manifest.cpp", include_bytes!("../native/lld/manifest.cpp")),
+    (
+        "telemetry.cpp",
+        include_bytes!("../native/lld/telemetry.cpp"),
+    ),
+    ("telemetry.h", include_bytes!("../native/lld/telemetry.h")),
 ];
 
 pub(crate) fn digest() -> String {
     let mut digest = StableDigestHasher::new();
 
-    for input in BUILD_INPUTS {
+    for input in std::iter::once(include_bytes!("instrumentation.rs").as_slice())
+        .chain(NATIVE_SOURCES.map(|(_, contents)| contents))
+    {
         digest.write_usize(input.len());
         digest.write(input);
     }
@@ -47,7 +51,6 @@ pub(crate) fn install(
     source_archive: &Path,
     version: &str,
     identity: &str,
-    native_sources: &Path,
 ) -> Result<(), InstrumentationError> {
     let build = toolchain.join(BUILD_DIRECTORY);
 
@@ -60,7 +63,7 @@ pub(crate) fn install(
         .map_err(|error| InstrumentationError::io("create", &build, error))?;
 
     let result = prepare_sources(&build, source_archive, version)
-        .and_then(|source| build_linker(toolchain, &source, native_sources, &build, identity));
+        .and_then(|source| build_linker(toolchain, &source, &build, identity));
 
     let cleanup = fs::remove_dir_all(&build)
         .map_err(|error| InstrumentationError::io("remove", &build, error));
@@ -103,10 +106,11 @@ fn prepare_sources(
 fn build_linker(
     toolchain: &Path,
     source: &Path,
-    native_sources: &Path,
     build: &Path,
     identity: &str,
 ) -> Result<(), InstrumentationError> {
+    write_native_sources(build)?;
+
     let flavor = host_flavor();
     let flavor_source = source.join("lld").join(flavor.source_directory());
     let options = flavor_source.join("Options.inc");
@@ -139,14 +143,13 @@ fn build_linker(
     let mut objects = Vec::new();
 
     for (name, source_path) in [
-        ("main", native_sources.join("main.cpp")),
-        ("telemetry", native_sources.join("telemetry.cpp")),
+        ("main", build.join("main.cpp")),
+        ("telemetry", build.join("telemetry.cpp")),
         ("lto", lto_source),
     ] {
         objects.push(compile(
             toolchain,
             source,
-            native_sources,
             build,
             name,
             &source_path,
@@ -158,15 +161,25 @@ fn build_linker(
         objects.push(compile(
             toolchain,
             source,
-            native_sources,
             build,
             "manifest",
-            &native_sources.join("manifest.cpp"),
+            &build.join("manifest.cpp"),
             identity,
         )?);
     }
 
     link(toolchain, build, flavor, &objects)
+}
+
+fn write_native_sources(build: &Path) -> Result<(), InstrumentationError> {
+    for (name, contents) in NATIVE_SOURCES {
+        let path = build.join(name);
+
+        fs::write(&path, contents)
+            .map_err(|error| InstrumentationError::io("write", &path, error))?;
+    }
+
+    Ok(())
 }
 
 fn instrument_lto_source(path: &Path) -> Result<(), InstrumentationError> {
@@ -213,7 +226,6 @@ fn replace_once(
 fn compile(
     toolchain: &Path,
     source_root: &Path,
-    native_sources: &Path,
     build: &Path,
     name: &str,
     source: &Path,
@@ -229,7 +241,7 @@ fn compile(
         command.arg(format!("/DBRAY_LLD_TOOLCHAIN_IDENTITY=\"{identity}\""));
         command.arg(source);
 
-        for include in include_directories(toolchain, source_root, native_sources) {
+        for include in include_directories(toolchain, source_root, build) {
             command.arg(format!("/I{}", include.display()));
         }
 
@@ -248,7 +260,7 @@ fn compile(
 
         command.arg(source);
 
-        for include in include_directories(toolchain, source_root, native_sources) {
+        for include in include_directories(toolchain, source_root, build) {
             command.arg("-I").arg(include);
         }
 
@@ -260,9 +272,9 @@ fn compile(
     Ok(object)
 }
 
-fn include_directories(toolchain: &Path, source: &Path, native_sources: &Path) -> [PathBuf; 4] {
+fn include_directories(toolchain: &Path, source: &Path, build: &Path) -> [PathBuf; 4] {
     [
-        native_sources.to_path_buf(),
+        build.to_path_buf(),
         source.join("lld"),
         source.join("lld/include"),
         toolchain.join("include"),
@@ -543,6 +555,44 @@ impl fmt::Display for InstrumentationError {
 #[cfg(test)]
 mod tests {
     use super::{HostFlavor, InstrumentationError, digest, identity, instrument_lto_source};
+
+    #[test]
+    fn staged_native_sources_match_the_authenticated_inputs() {
+        use std::hash::Hasher;
+
+        use bray_base::{StableDigestHasher, lowercase_hex};
+
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("temporary directory must be available: {error}"));
+
+        super::write_native_sources(directory.path())
+            .unwrap_or_else(|error| panic!("native sources must be staged: {error}"));
+
+        let mut staged_digest = StableDigestHasher::new();
+        let implementation = include_bytes!("instrumentation.rs");
+
+        staged_digest.write_usize(implementation.len());
+        staged_digest.write(implementation);
+
+        for name in ["main.cpp", "manifest.cpp", "telemetry.cpp", "telemetry.h"] {
+            let contents = std::fs::read(directory.path().join(name))
+                .unwrap_or_else(|error| panic!("staged {name} must be readable: {error}"));
+
+            staged_digest.write_usize(contents.len());
+            staged_digest.write(&contents);
+        }
+
+        assert_eq!(lowercase_hex(&staged_digest.finalize()), digest());
+
+        assert_eq!(
+            super::include_directories(
+                &directory.path().join("toolchain"),
+                &directory.path().join("llvm-source"),
+                directory.path()
+            )[0],
+            directory.path()
+        );
+    }
 
     #[test]
     fn instrumentation_digest_authenticates_every_build_input() {
