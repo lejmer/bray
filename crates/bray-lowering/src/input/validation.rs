@@ -23,15 +23,14 @@ pub(super) fn validate_literal_target(
     Ok(())
 }
 
+#[cfg(test)]
 pub(super) fn validate_literal_values(
     literals: &CheckedLiteralValues,
     values: &SemanticValueStore,
-) -> Result<(), LoweringInputError> {
+) {
     for entry in literals.entries() {
-        values.constant_value_data(entry.value())?;
+        values.constant_value_data(entry.value());
     }
-
-    Ok(())
 }
 
 pub(super) fn validate_constant_reference_values(
@@ -72,7 +71,7 @@ pub(super) fn validate_constant_reference_values(
             ));
         };
 
-        let value_type = values.constant_value_data(*value)?.ty();
+        let value_type = values.constant_value_data(*value).ty();
 
         if expression_type.ty() != value_type {
             return Err(LoweringInputError::InvalidInputContents(

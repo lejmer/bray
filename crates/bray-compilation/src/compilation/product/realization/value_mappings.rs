@@ -10,7 +10,7 @@ use bray_symbols::ConstantTermData;
 use super::super::super::{CodegenPreparationError, Compilation};
 use super::super::specialization::{ConcreteCodegenCallee, ConcreteCodegenReachability};
 use crate::compilation::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
-use crate::fact::{CancellationToken, FactQueryError};
+use crate::fact::CancellationToken;
 
 impl Compilation {
     pub(super) fn codegen_callables(
@@ -78,9 +78,7 @@ impl Compilation {
         pending.extend(additional.into_iter().map(|value| (value, None)));
 
         while let Some((value, representation)) = pending.pop() {
-            let data = values
-                .constant_value_data(value)
-                .map_err(FactQueryError::SemanticValueStore)?;
+            let data = values.constant_value_data(value);
 
             let representation = representation.unwrap_or_else(|| data.ty());
             let key = (value, representation);
@@ -133,9 +131,7 @@ impl Compilation {
                 let term = self
                     .substitute_codegen_constant_term(template_term, realization.substitution())?;
 
-                let data = values
-                    .constant_term_data(term)
-                    .map_err(FactQueryError::SemanticValueStore)?;
+                let data = values.constant_term_data(term);
 
                 let ConstantTermData::Value(value) = data.as_ref() else {
                     return Err(CodegenPreparationError::OpenConstantTerm(term));

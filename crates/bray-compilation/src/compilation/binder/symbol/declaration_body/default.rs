@@ -445,7 +445,7 @@ fn runtime_default_behavior(
     result_dependencies: bray_symbols::DependencyContractTemplateId,
     body: &bray_bound_tree::CheckedBodyBehavior,
 ) -> BindingQueryResult<RuntimeDefaultBehavior> {
-    let ownership = runtime_default_ownership(context, result)?;
+    let ownership = runtime_default_ownership(context, result);
 
     Ok(RuntimeDefaultBehavior::new(
         ownership,
@@ -530,7 +530,7 @@ fn imported_runtime_default_behavior(
         })
         .collect::<BindingQueryResult<Vec<_>>>()?;
 
-    let ownership = runtime_default_ownership(context, result)?;
+    let ownership = runtime_default_ownership(context, result);
 
     Ok(RuntimeDefaultBehavior::new(
         ownership,
@@ -557,16 +557,13 @@ fn imported_template_symbol(
 fn runtime_default_ownership(
     context: &CompilationBindingContext<'_>,
     result: TypeId,
-) -> BindingQueryResult<RuntimeDefaultOwnership> {
-    let result = context
-        .semantic_values()
-        .type_data(result)
-        .map_err(crate::compilation::binder::semantic_value_binding_error)?;
+) -> RuntimeDefaultOwnership {
+    let result = context.semantic_values().type_data(result);
 
-    Ok(match result.as_ref() {
+    match result.as_ref() {
         TypeData::Borrow { kind, .. } => RuntimeDefaultOwnership::Borrowed(*kind),
         _ => RuntimeDefaultOwnership::Owned,
-    })
+    }
 }
 
 fn checked_template_result(

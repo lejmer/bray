@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use bray_symbols::{
     CallableParameterName, CallablePosition, CallableSignatureTemplate, GenericParameterSymbolId,
-    SemanticValueStore, SemanticValueStoreError, TypeData, TypeExpressionTemplate,
+    SemanticValueStore, TypeData, TypeExpressionTemplate,
 };
 
 use super::semantic::SemanticUnifier;
@@ -13,13 +13,13 @@ pub(in crate::compilation) fn callable_selection_surfaces_overlap(
     right: &CallableSignatureTemplate,
     right_generic_parameters: &[GenericParameterSymbolId],
     values: &SemanticValueStore,
-) -> Result<bool, SemanticValueStoreError> {
-    let Some(left_parameters) = selection_parameters(left, values)? else {
-        return Ok(false);
+) -> bool {
+    let Some(left_parameters) = selection_parameters(left, values) else {
+        return false;
     };
 
-    let Some(right_parameters) = selection_parameters(right, values)? else {
-        return Ok(false);
+    let Some(right_parameters) = selection_parameters(right, values) else {
+        return false;
     };
 
     match (left.receiver(), right.receiver()) {
@@ -28,11 +28,11 @@ pub(in crate::compilation) fn callable_selection_surfaces_overlap(
             let mut unifier =
                 SemanticUnifier::new(left_generic_parameters, right_generic_parameters, values);
 
-            if !unifier.types_may_overlap(left_receiver.ty(), right_receiver.ty())? {
-                return Ok(false);
+            if !unifier.types_may_overlap(left_receiver.ty(), right_receiver.ty()) {
+                return false;
             }
         }
-        (None, Some(_)) | (Some(_), None) => return Ok(false),
+        (None, Some(_)) | (Some(_), None) => return false,
     }
 
     let left_positional = positional_prefix_len(&left_parameters);
@@ -48,12 +48,12 @@ pub(in crate::compilation) fn callable_selection_surfaces_overlap(
             &right_parameters,
             positional_count,
             &mut unifier,
-        )? {
-            return Ok(true);
+        ) {
+            return true;
         }
     }
 
-    Ok(false)
+    false
 }
 
 #[derive(Clone)]
@@ -66,7 +66,7 @@ struct SelectionParameter {
 fn selection_parameters(
     signature: &CallableSignatureTemplate,
     values: &SemanticValueStore,
-) -> Result<Option<Vec<SelectionParameter>>, SemanticValueStoreError> {
+) -> Option<Vec<SelectionParameter>> {
     // Selection parameters own shallow Arc-backed templates beyond the borrowed signature match.
     let parameters = match signature.callable_type() {
         TypeExpressionTemplate::Callable(callable) => callable
@@ -79,10 +79,10 @@ fn selection_parameters(
             })
             .collect(),
         TypeExpressionTemplate::Resolved(ty) => {
-            let ty = values.type_data(*ty)?;
+            let ty = values.type_data(*ty);
 
             let TypeData::Callable(callable) = ty.as_ref() else {
-                return Ok(None);
+                return None;
             };
 
             callable
@@ -95,10 +95,10 @@ fn selection_parameters(
                 })
                 .collect()
         }
-        _ => return Ok(None),
+        _ => return None,
     };
 
-    Ok(Some(parameters))
+    Some(parameters)
 }
 
 fn positional_prefix_len(parameters: &[SelectionParameter]) -> usize {
@@ -113,9 +113,9 @@ fn call_shape_may_overlap(
     right: &[SelectionParameter],
     positional_count: usize,
     unifier: &mut SemanticUnifier<'_>,
-) -> Result<bool, SemanticValueStoreError> {
+) -> bool {
     if left.len() != right.len() {
-        return Ok(false);
+        return false;
     }
 
     for (left, right) in left
@@ -123,8 +123,8 @@ fn call_shape_may_overlap(
         .take(positional_count)
         .zip(right.iter().take(positional_count))
     {
-        if !unifier.type_templates_may_overlap(&left.ty, &right.ty)? {
-            return Ok(false);
+        if !unifier.type_templates_may_overlap(&left.ty, &right.ty) {
+            return false;
         }
     }
 
@@ -142,23 +142,22 @@ fn call_shape_may_overlap(
         || right_named.len() != right.len() - positional_count
         || left_named.keys().ne(right_named.keys())
     {
-        return Ok(false);
+        return false;
     }
 
     for ((_, left), (_, right)) in left_named.iter().zip(&right_named) {
-        if !unifier.type_templates_may_overlap(left, right)? {
-            return Ok(false);
+        if !unifier.type_templates_may_overlap(left, right) {
+            return false;
         }
     }
 
-    Ok(true)
+    true
 }
 
 #[cfg(test)]
 mod tests {
     use bray_symbols::{
-        CallableSignatureTemplate, SemanticValueStore, SemanticValueStoreError, TypeData,
-        TypeExpressionTemplate,
+        CallableSignatureTemplate, SemanticValueStore, TypeData, TypeExpressionTemplate,
     };
 
     use super::callable_selection_surfaces_overlap;
@@ -182,12 +181,11 @@ mod tests {
             TypeExpressionTemplate::Resolved(foreign),
         );
 
-        assert_eq!(
-            callable_selection_surfaces_overlap(&signature, &[], &signature, &[], &target),
-            Err(SemanticValueStoreError::ForeignId {
-                expected: target.id(),
-                actual: source.id(),
-            })
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                callable_selection_surfaces_overlap(&signature, &[], &signature, &[], &target)
+            }))
+            .is_err()
         );
     }
 }

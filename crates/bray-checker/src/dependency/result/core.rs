@@ -91,7 +91,7 @@ where
         let mut changed = false;
 
         for (id, expression) in request.unit().tree().expressions() {
-            let sources = inference.expression_sources(id, expression)?;
+            let sources = inference.expression_sources(id, expression);
             let values = inference.expression_values(id, expression)?;
 
             changed |= extend(inference.sources.entry(id).or_default(), sources);
@@ -255,7 +255,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                         self.locals.get(&binding).cloned().unwrap_or_default()
                     }
                     _ => self
-                        .expression_sources(id, expression)?
+                        .expression_sources(id, expression)
                         .into_iter()
                         .map(|subject| {
                             DependencyRequirement::direct(
@@ -317,7 +317,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                         DependencyRequirementKind::StorageAlive
                     };
 
-                    let mut sources = self.expression_sources(id, expression)?;
+                    let mut sources = self.expression_sources(id, expression);
 
                     if sources.is_empty()
                         && let Some(receiver) = reborrowed
@@ -364,7 +364,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
         expression: &BoundExpression,
         receiver: BoundExpressionId,
     ) -> Result<BTreeSet<DependencyRequirement>, CheckerQueryError<C::UpstreamError>> {
-        let sources = self.expression_sources(id, expression)?;
+        let sources = self.expression_sources(id, expression);
 
         if sources.is_empty() {
             return Ok(self.values.get(&receiver).cloned().unwrap_or_default());

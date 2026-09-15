@@ -97,7 +97,7 @@ mod tests {
 
     #[test]
     fn semantic_value_failures_survive_upstream_widening() {
-        let error = SemanticValueStoreError::UnknownId {
+        let error = SemanticValueStoreError::CapacityExhausted {
             kind: SemanticValueKind::Type,
         };
 

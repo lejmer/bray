@@ -43,9 +43,7 @@ pub(super) fn operation_callable_type(
             )
         }
         TypeExpressionTemplate::Resolved(ty) => {
-            let data = values
-                .type_data(*ty)
-                .map_err(FactQueryError::SemanticValueStore)?;
+            let data = values.type_data(*ty);
 
             let TypeData::Callable(callable) = data.as_ref() else {
                 return Err(symbol_contract_failure(

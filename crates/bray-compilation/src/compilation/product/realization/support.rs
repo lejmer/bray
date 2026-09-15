@@ -143,9 +143,7 @@ pub(super) fn atomic_representation_for_type(
 ) -> Result<Option<TargetAtomicRepresentation>, CodegenPreparationError> {
     let values = compilation.semantic_value_store()?;
 
-    let data = values
-        .type_data(ty)
-        .map_err(FactQueryError::SemanticValueStore)?;
+    let data = values.type_data(ty);
 
     let TypeData::Named { definition, .. } = data.as_ref() else {
         return Ok(None);
@@ -236,16 +234,12 @@ pub(in crate::compilation::product) fn closed_array_length(
     values: &SemanticValueStore,
     term_id: bray_symbols::ConstantTermId,
 ) -> Result<u64, CodegenPreparationError> {
-    let term = values
-        .constant_term_data(term_id)
-        .map_err(FactQueryError::SemanticValueStore)?;
+    let term = values.constant_term_data(term_id);
 
     match term.as_ref() {
         ConstantTermData::Typed { term, .. } => closed_array_length(values, *term),
         ConstantTermData::Value(value) => {
-            let data = values
-                .constant_value_data(*value)
-                .map_err(FactQueryError::SemanticValueStore)?;
+            let data = values.constant_value_data(*value);
 
             let ConstantValueKind::Integer(value) = data.kind() else {
                 return Err(CodegenPreparationError::InvalidArrayLength(term_id));
@@ -569,9 +563,7 @@ pub(super) fn is_void_result(
 ) -> Result<bool, FactQueryError> {
     let values = compilation.semantic_value_store()?;
 
-    let data = values
-        .type_data(ty)
-        .map_err(FactQueryError::SemanticValueStore)?;
+    let data = values.type_data(ty);
 
     let TypeData::Named { definition, .. } = data.as_ref() else {
         return Ok(false);
@@ -934,10 +926,7 @@ mod tests {
             .expect("mutable receiver must resolve");
 
         assert_eq!(
-            values
-                .type_data(shared)
-                .expect("shared type must resolve")
-                .as_ref(),
+            values.type_data(shared).as_ref(),
             &TypeData::Borrow {
                 kind: BorrowKind::Shared,
                 target: receiver,
@@ -945,10 +934,7 @@ mod tests {
         );
 
         assert_eq!(
-            values
-                .type_data(mutable)
-                .expect("mutable type must resolve")
-                .as_ref(),
+            values.type_data(mutable).as_ref(),
             &TypeData::Borrow {
                 kind: BorrowKind::Mutable,
                 target: receiver,
@@ -1970,10 +1956,13 @@ mod tests {
             83,
         );
 
-        assert!(broadcast.blocks().iter().any(|block| {
-            matches!(block.terminator().kind(), MirTerminatorKind::ContinueCleanup(edge)
+        assert!(
+            broadcast.blocks().iter().any(|block| {
+                matches!(block.terminator().kind(), MirTerminatorKind::ContinueCleanup(edge)
                 if !edge.edge().arguments().is_empty())
-        }), "storage borrow panic must transfer its report out of cleanup broadcast");
+            }),
+            "storage borrow panic must transfer its report out of cleanup broadcast"
+        );
     }
 
     #[test]

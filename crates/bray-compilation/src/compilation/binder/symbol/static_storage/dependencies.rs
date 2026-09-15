@@ -23,8 +23,7 @@ pub(super) fn validate_static_dependency_duration(
 
     let contract = context
         .semantic_values()
-        .dependency_contract_template_data(contract)
-        .map_err(crate::compilation::binder::semantic_value_binding_error)?;
+        .dependency_contract_template_data(contract);
 
     if !contract
         .requirements()
@@ -106,8 +105,7 @@ pub(super) fn static_dependencies_from_contract(
 ) -> BindingQueryResult<Vec<StaticSymbolId>> {
     let contract = context
         .semantic_values()
-        .dependency_contract_template_data(contract)
-        .map_err(crate::compilation::binder::semantic_value_binding_error)?;
+        .dependency_contract_template_data(contract);
 
     let mut dependencies = Vec::new();
 
@@ -127,8 +125,7 @@ pub(super) fn witness_requirements_from_contract(
 ) -> BindingQueryResult<Vec<bray_symbols::SymbolKey>> {
     let contract = context
         .semantic_values()
-        .dependency_contract_template_data(contract)
-        .map_err(crate::compilation::binder::semantic_value_binding_error)?;
+        .dependency_contract_template_data(contract);
 
     let mut requirements = Vec::new();
 
@@ -200,8 +197,7 @@ fn collect_witness_subject_requirement(
 
     let instance = context
         .semantic_values()
-        .implementation_instance_data(witness)
-        .map_err(crate::compilation::binder::semantic_value_binding_error)?;
+        .implementation_instance_data(witness);
 
     let key = context
         .symbols()

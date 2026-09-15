@@ -252,10 +252,7 @@ fn symbol_inspection_failure(
         }
         SymbolInspectionRenderError::Symbol => DiagnosticSymbolInspectionFailure::Symbol,
         SymbolInspectionRenderError::SymbolCycle => DiagnosticSymbolInspectionFailure::SymbolCycle,
-        SymbolInspectionRenderError::Type(error) => type_error_detail(error).map_or(
-            DiagnosticSymbolInspectionFailure::Type,
-            DiagnosticSymbolInspectionFailure::Detail,
-        ),
+        SymbolInspectionRenderError::Type(_) => DiagnosticSymbolInspectionFailure::Type,
         SymbolInspectionRenderError::UnsupportedRelationship => {
             DiagnosticSymbolInspectionFailure::UnsupportedRelationship
         }
@@ -280,14 +277,8 @@ fn bound_inspection_failure(error: BoundInspectionRenderError) -> DiagnosticBoun
             DiagnosticBoundInspectionFailure::Detail(source_overflow_detail(error))
         }
         BoundInspectionRenderError::Symbol => DiagnosticBoundInspectionFailure::Symbol,
-        BoundInspectionRenderError::Type(error) => type_error_detail(error).map_or(
-            DiagnosticBoundInspectionFailure::Type,
-            DiagnosticBoundInspectionFailure::Detail,
-        ),
-        BoundInspectionRenderError::Selection(error) => selection_error_detail(error).map_or(
-            DiagnosticBoundInspectionFailure::Selection,
-            DiagnosticBoundInspectionFailure::Detail,
-        ),
+        BoundInspectionRenderError::Type(_) => DiagnosticBoundInspectionFailure::Type,
+        BoundInspectionRenderError::Selection(_) => DiagnosticBoundInspectionFailure::Selection,
         BoundInspectionRenderError::Capacity { resource, actual } => {
             DiagnosticBoundInspectionFailure::Detail(capacity_detail(resource, actual))
         }
@@ -350,30 +341,6 @@ fn source_error_detail(
     }
 }
 
-fn type_error_detail(
-    error: super::types::TypeInspectionError,
-) -> Option<DiagnosticInspectionFailureDetail> {
-    match error {
-        super::types::TypeInspectionError::Depth => None,
-        super::types::TypeInspectionError::SemanticValue(error) => {
-            Some(semantic_value_detail(error))
-        }
-    }
-}
-
-fn selection_error_detail(
-    error: super::bound::SelectionInspectionError,
-) -> Option<DiagnosticInspectionFailureDetail> {
-    match error {
-        super::bound::SelectionInspectionError::InvalidConstraintDispatch
-        | super::bound::SelectionInspectionError::Local => None,
-        super::bound::SelectionInspectionError::SemanticValue(error) => {
-            Some(semantic_value_detail(error))
-        }
-        super::bound::SelectionInspectionError::Type(error) => type_error_detail(error),
-    }
-}
-
 fn mir_model_error_detail(
     error: super::lowered::MirInspectionModelError,
 ) -> Option<DiagnosticInspectionFailureDetail> {
@@ -387,48 +354,8 @@ fn mir_model_error_detail(
         Error::MissingOperation => Some(inspection_detail("mir_inspection_missing_operation", [])),
         Error::MissingSymbol => Some(inspection_detail("mir_inspection_missing_symbol", [])),
         Error::Source(error) => source_error_detail(error),
-        Error::Type(error) => type_error_detail(error),
+        Error::Type(_) => None,
     }
-}
-
-fn semantic_value_detail(
-    error: bray_symbols::SemanticValueStoreError,
-) -> DiagnosticInspectionFailureDetail {
-    use bray_diagnostics::DiagnosticSemanticValueFailure as Failure;
-
-    let failure = bray_compilation::diagnostic_semantic_value_failure(error);
-    let mut context = vec![text_field("cause", failure.as_str())];
-
-    match failure {
-        Failure::ForeignId {
-            expected_store,
-            actual_store,
-        } => {
-            context.push(text_field("expected_store", expected_store.to_string()));
-            context.push(text_field("actual_store", actual_store.to_string()));
-        }
-        Failure::UnknownId { kind } | Failure::CapacityExhausted { kind } => {
-            context.push(text_field("value_kind", kind));
-        }
-        Failure::GenericOwnerMismatch {
-            expected_kind,
-            expected,
-            actual_kind,
-            actual,
-        } => {
-            context.push(text_field("expected_kind", expected_kind));
-            context.push(text_field("expected", expected.to_string()));
-            context.push(text_field("actual_kind", actual_kind));
-            context.push(text_field("actual", actual.to_string()));
-        }
-        Failure::InvalidDependencyVariable { depth, ordinal } => {
-            context.push(text_field("depth", depth.to_string()));
-            context.push(text_field("ordinal", ordinal.to_string()));
-        }
-        Failure::OpenSubstitution => {}
-    }
-
-    DiagnosticInspectionFailureDetail::new("inspection_semantic_value", context)
 }
 
 fn inspection_detail<const N: usize>(

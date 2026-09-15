@@ -399,7 +399,7 @@ Before finishing a change:
 - Verify hardcoded user-facing English text was not introduced.
 - Verify diagnostics use structured message IDs and typed arguments.
 - Verify error handling uses explicit error types and boundary error conversion.
-- Verify production paths do not use `unwrap()` or `expect()`.
+- Verify impossible internal states use contextual assertions or panics, and legitimate failures retain typed errors.
 - Verify clones are necessary and documented when required by policy.
 - Verify conversions and casts are validated and justified.
 - Verify concurrency code does not introduce accidental shared mutable state or hold locks too long.

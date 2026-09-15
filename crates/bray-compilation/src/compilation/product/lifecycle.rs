@@ -165,9 +165,7 @@ impl Compilation {
 
         let values = self.semantic_value_store()?;
 
-        let data = values
-            .type_data(ty)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let data = values.type_data(ty);
 
         let needs = match data.as_ref() {
             TypeData::Named {
@@ -457,8 +455,7 @@ impl Compilation {
 
         let substitution = self
             .semantic_value_store()?
-            .generic_substitution_data(substitution_id)
-            .map_err(FactQueryError::SemanticValueStore)?;
+            .generic_substitution_data(substitution_id);
 
         let [binding] = substitution.bindings() else {
             return Err(ProductQueryFailure::count_mismatch(

@@ -393,10 +393,7 @@ where
             continue;
         };
 
-        let data = request
-            .semantic_values()
-            .type_data(expectation.ty())
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        let data = request.semantic_values().type_data(expectation.ty());
 
         if is_contextual_numeric_literal(request, expectation.expression())
             && let TypeData::Nullable(contained) = data.as_ref()

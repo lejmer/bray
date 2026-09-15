@@ -221,9 +221,9 @@ impl Lowerer<'_> {
     ) -> Result<TypeId, LoweringError> {
         let values = self.input.semantic_values();
 
-        let application = values.trait_application_data(requirement.trait_application())?;
+        let application = values.trait_application_data(requirement.trait_application());
 
-        let substitution = values.generic_substitution_data(application.substitution())?;
+        let substitution = values.generic_substitution_data(application.substitution());
 
         let [binding] = substitution.bindings() else {
             return Err(LoweringError::SemanticValueUnavailable);

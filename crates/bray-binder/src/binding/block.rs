@@ -224,7 +224,7 @@ where
                 self.unit_mut().activate_local(scope, symbol)?;
 
                 if let Some(ty) = declared_type.ty() {
-                    self.record_value_type(BoundReferenceTarget::Local(symbol.into()), ty)?;
+                    self.record_value_type(BoundReferenceTarget::Local(symbol.into()), ty);
                 }
 
                 Some(symbol)
@@ -566,8 +566,8 @@ mod tests {
             scope: bray_symbols::LocalScopeId,
             syntax: Option<&ExpressionSyntax>,
         ) -> BindingResult<bray_bound_tree::BoundExpressionId, C::UpstreamError> {
-            let values = binder.unit().local_symbols_named(scope, "value")?.len();
-            let constants = binder.unit().local_symbols_named(scope, "local")?.len();
+            let values = binder.unit().local_symbols_named(scope, "value").len();
+            let constants = binder.unit().local_symbols_named(scope, "local").len();
 
             self.visible_names.push((values, constants));
 

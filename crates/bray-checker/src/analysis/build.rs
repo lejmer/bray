@@ -123,10 +123,6 @@ where
         CheckerUnitRoot::ExpressionSequence(root) => builder.build_block(root, entry),
     };
 
-    if let Some(error) = builder.infrastructure_failure {
-        return ControlFlowGraphBuildOutcome::InfrastructureFailure(error);
-    }
-
     let Some(completion) = completion else {
         return ControlFlowGraphBuildOutcome::Cancelled;
     };
@@ -158,7 +154,6 @@ where
     pub(super) scopes: Vec<BoundBlockId>,
     checked_storage: Option<&'view StoragePlan>,
     selections: Option<&'view bray_bound_tree::CheckedSemanticSelections>,
-    infrastructure_failure: Option<CheckerInfrastructureError>,
     pub(super) cleanup_scopes: std::collections::BTreeSet<BoundBlockId>,
     pub(super) dependency_failures: DependencyFailureMode,
     pub(super) completion_semantics: Option<(
@@ -210,7 +205,6 @@ where
             scopes: Vec::new(),
             checked_storage,
             selections,
-            infrastructure_failure: None,
             cleanup_scopes,
             dependency_failures: DependencyFailureMode::PotentialExits,
             completion_semantics: None,
@@ -776,12 +770,6 @@ where
         self.selections
     }
 
-    pub(super) fn record_infrastructure_failure(&mut self, error: CheckerInfrastructureError) {
-        if self.infrastructure_failure.is_none() {
-            self.infrastructure_failure = Some(error);
-        }
-    }
-
     fn cancelled(&self) -> bool {
         self.request.is_cancelled()
     }
@@ -810,12 +798,13 @@ mod tests {
     use bray_symbols::{
         CallableDefinitionId, CallableInstanceData, GenericArgument, GenericOwnerId,
         GenericParameterSymbolId, GenericSubstitutionData, NamedTypeSymbolId, SemanticValueStore,
-        SemanticValueStoreError, TypeCallableMemberSymbolId, TypeData, TypeId, UnionSymbolId,
+        TypeCallableMemberSymbolId, TypeData, TypeId, UnionSymbolId,
     };
 
     use super::{
         ControlFlowGraphBuildOutcome, build_control_flow_graph, build_storage_control_flow_graph,
     };
+    use crate::CheckerUnitView;
     use crate::analysis::model::ControlFlowGraph;
     use crate::analysis::model::{
         AnalysisEdgeKind, AnalysisExitKind, AnalysisOperationKind, AnalysisScopeExitPhase,
@@ -826,7 +815,6 @@ mod tests {
         callable_unit, error_type, push_block as push_bound_block, push_callable, push_expression,
         recovered_tree, semantic_values,
     };
-    use crate::{CheckerInfrastructureError, CheckerOutcome, CheckerUnitView};
 
     #[test]
     fn recovered_nodes_produce_typed_recovery_operations_edges_and_exits() {
@@ -1380,29 +1368,24 @@ mod tests {
         let values = SemanticValueStore::try_new()
             .unwrap_or_else(|error| panic!("request semantic values must initialize: {error:?}"));
 
-        let expected = SemanticValueStoreError::ForeignId {
-            expected: values.id(),
-            actual: foreign_values.id(),
-        };
-
         let context = TestCheckerContext::new(false).with_semantic_values(values);
 
         let request = CheckerUnitView::new(&unit, &entry, &context)
             .unwrap_or_else(|error| panic!("matching test roots must produce a view: {error:?}"));
 
-        assert!(matches!(
-            build_control_flow_graph(request),
-            ControlFlowGraphBuildOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::SemanticValueStore(error)
-            ) if error == expected
-        ));
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build_control_flow_graph(
+                request
+            )))
+            .is_err()
+        );
 
-        assert!(matches!(
-            crate::analysis::check::check_control_flow(request),
-            CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::SemanticValueStore(error)
-            ) if error == expected
-        ));
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                crate::analysis::check::check_control_flow(request)
+            }))
+            .is_err()
+        );
     }
 
     #[test]

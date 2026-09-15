@@ -32,8 +32,8 @@ impl HeaderMatcher<'_> {
             return Ok(true);
         }
 
-        let pattern = self.values.dependency_contract_template_data(pattern)?;
-        let actual = self.values.dependency_contract_template_data(actual)?;
+        let pattern = self.values.dependency_contract_template_data(pattern);
+        let actual = self.values.dependency_contract_template_data(actual);
 
         self.match_dependency_requirements(pattern.requirements(), actual.requirements())
     }

@@ -32,10 +32,7 @@ impl<'a> SemanticExporter<'a> {
             id,
             bray_package_interface::InterfaceSemanticTableKind::ConstantTerm,
             {
-                let data = self
-                    .values
-                    .constant_term_data(id)
-                    .map_err(super::super::semantic_value_export_error)?;
+                let data = self.values.constant_term_data(id);
 
                 let term = match data.as_ref() {
                     ConstantTermData::Typed { term, ty } => InterfaceConstantTerm::Typed {
@@ -271,10 +268,7 @@ impl<'a> SemanticExporter<'a> {
         ),
         PackageInterfaceExportError,
     > {
-        let data = self
-            .values
-            .implementation_instance_data(instance)
-            .map_err(super::super::semantic_value_export_error)?;
+        let data = self.values.implementation_instance_data(instance);
 
         Ok((
             bray_package_interface::InterfaceImplementationReference::Symbol(
@@ -298,10 +292,7 @@ impl<'a> SemanticExporter<'a> {
             id,
             bray_package_interface::InterfaceSemanticTableKind::ConstantValue,
             {
-                let data = self
-                    .values
-                    .constant_value_data(id)
-                    .map_err(super::super::semantic_value_export_error)?;
+                let data = self.values.constant_value_data(id);
 
                 let kind = match data.kind() {
                     ConstantValueKind::Error | ConstantValueKind::StaticAddress(_) => {

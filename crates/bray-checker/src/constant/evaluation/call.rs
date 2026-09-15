@@ -137,7 +137,7 @@ where
             return Ok(operand);
         }
 
-        let Some(operand) = self.term_value(operand)? else {
+        let Some(operand) = self.term_value(operand) else {
             return match conversion.target() {
                 ConversionTarget::Identity => Ok(operand),
                 ConversionTarget::CallableContract => {
@@ -168,7 +168,7 @@ where
         };
 
         let value = self.convert_value(expression, conversion, operand)?;
-        let data = self.constant_value(value)?;
+        let data = self.request.semantic_values().constant_value_data(value);
 
         if data.ty() != ty {
             return Err(EvaluationFailure::invalid_input());
@@ -347,7 +347,7 @@ where
                     .charge_usage(expression, result.value().usage())?;
 
                 let value = result.value().value();
-                let value_data = self.constant_value(value)?;
+                let value_data = self.request.semantic_values().constant_value_data(value);
 
                 if value_data.ty() != result_type {
                     return Err(EvaluationFailure::invalid_input());

@@ -1028,7 +1028,8 @@ mod tests {
         );
 
         let function =
-            super::declare_symbol(&module, &protected, request.target(), false, &mut types).unwrap();
+            super::declare_symbol(&module, &protected, request.target(), false, &mut types)
+                .unwrap();
 
         let noalias = inkwell::attributes::Attribute::get_named_enum_kind_id("noalias");
 

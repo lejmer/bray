@@ -78,9 +78,7 @@ fn normalize_type(
         return Ok(normalized);
     }
 
-    let data = values
-        .type_data(ty)
-        .map_err(FactQueryError::SemanticValueStore)?;
+    let data = values.type_data(ty);
 
     let normalized = match data.as_ref() {
         TypeData::Error | TypeData::TypeParameter(_) | TypeData::ContextualSelf(_) => ty,
@@ -237,9 +235,7 @@ fn canonical_equal_type(
     let canonical = component
         .into_iter()
         .map(|candidate| {
-            let data = values
-                .type_data(candidate)
-                .map_err(FactQueryError::SemanticValueStore)?;
+            let data = values.type_data(candidate);
 
             let is_projection =
                 matches!(data.as_ref(), TypeData::TypeValuedMemberProjection { .. });
@@ -261,9 +257,7 @@ fn normalize_application(
     constraints: &[(GenericOwnerId, CheckedConstraint)],
     active: &mut BTreeSet<TypeId>,
 ) -> Result<bray_symbols::TraitApplicationId, FactQueryError> {
-    let application = values
-        .trait_application_data(application)
-        .map_err(FactQueryError::SemanticValueStore)?;
+    let application = values.trait_application_data(application);
 
     let substitution =
         normalize_substitution(values, application.substitution(), constraints, active)?;
@@ -282,9 +276,7 @@ fn normalize_substitution(
     constraints: &[(GenericOwnerId, CheckedConstraint)],
     active: &mut BTreeSet<TypeId>,
 ) -> Result<bray_symbols::GenericSubstitutionId, FactQueryError> {
-    let substitution = values
-        .generic_substitution_data(substitution)
-        .map_err(FactQueryError::SemanticValueStore)?;
+    let substitution = values.generic_substitution_data(substitution);
 
     let (parameters, arguments): (Vec<_>, Vec<_>) = substitution
         .bindings()

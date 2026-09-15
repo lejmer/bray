@@ -171,7 +171,7 @@ impl<'unit> Lowerer<'unit> {
                 BoundUnitRoot::CallableBody { .. } | BoundUnitRoot::AnonymousCallable { .. }
             ) && match self.input.expression_types().callable_result_type() {
                 Some(result) => {
-                    self.type_representation(result)?
+                    self.type_representation(result)
                         != Some(bray_compiler_known::RepresentationRole::Unit)
                 }
                 None => false,

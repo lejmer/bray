@@ -170,7 +170,6 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlow<'_, '_, C> {
 
         if selected.diagnostics().has_errors()
             || !matches!(request.semantic_values().type_data(signature.callable_type())
-                .map_err(crate::CheckerInfrastructureError::SemanticValueStore).map_err(CheckerQueryError::Infrastructure)?
                 .as_ref(), TypeData::Callable(callable) if callable.execution() == CallableExecution::Synchronous)
         {
             return Ok(None);

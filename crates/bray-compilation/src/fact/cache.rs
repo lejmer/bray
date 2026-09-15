@@ -8,8 +8,8 @@ use std::fmt;
 
 use super::{
     CancellationToken, CompilationFactKey, EvaluationCommit, FactQueryError, FactRuntime,
-    FactRuntimeFailure, FactTaskIdentity, PublicationIdentity, PublicationState, QueryPriority,
-    QueryPriorityDemand, SharedCancellation, SynchronizationComponent,
+    FactRuntimeFailure, FactTaskIdentity, QueryPriority, QueryPriorityDemand, SharedCancellation,
+    SynchronizationComponent,
 };
 use crate::profile::CompilationProfileOutcome;
 
@@ -99,41 +99,21 @@ impl<T> FactCell<T> {
             .map(|publication| &publication.value)
     }
 
-    pub(crate) fn get_if_published(
-        &self,
-        key: &CompilationFactKey,
-    ) -> Result<Option<&T>, FactQueryError> {
+    pub(crate) fn get_if_published(&self, key: &CompilationFactKey) -> Option<&T> {
         // Acquire pairs with final Release publication after the dependency record commits.
         if !self.storage.published.load(Ordering::Acquire) {
-            return Ok(None);
+            return None;
         }
 
-        // Runtime failures own their keys after this borrowed cell request returns.
-        let Some(publication) = self.storage.publication.get() else {
-            return Err(FactRuntimeFailure::PublicationMismatch {
-                requested: PublicationIdentity {
-                    task: None,
-                    fact: key.clone(),
-                },
-                actual: PublicationState::PublishedFlagWithoutValue,
-            }
-            .into());
-        };
+        let publication = self
+            .storage
+            .publication
+            .get()
+            .expect("published fact flag requires an immutable value");
 
-        if publication.key.as_ref() != key {
-            return Err(FactRuntimeFailure::PublicationMismatch {
-                requested: PublicationIdentity {
-                    task: None,
-                    fact: key.clone(),
-                },
-                actual: PublicationState::Ready {
-                    fact: Some(publication.key.as_ref().clone()),
-                },
-            }
-            .into());
-        }
+        assert_eq!(publication.key.as_ref(), key, "published fact key mismatch");
 
-        Ok(Some(&publication.value))
+        Some(&publication.value)
     }
 
     #[cfg(test)]
@@ -164,10 +144,7 @@ impl<T> FactCell<T> {
     }
 
     pub(super) fn is_ready_for(&self, key: &CompilationFactKey) -> bool {
-        // Snapshot reuse is conservative and cannot return a query error. An unreadable cell is
-        // treated as nonreusable and fallible access still reports the exact failure.
-        self.get_if_published(key)
-            .is_ok_and(|value| value.is_some())
+        self.get_if_published(key).is_some()
     }
 
     pub(super) fn is_vacant(&self) -> bool {
@@ -316,7 +293,7 @@ impl<T> FactCell<T> {
 
         let mut query_request = profile.map(|(profile, query)| profile.start_query_request(query));
 
-        if let Some(value) = self.get_if_published(&key)? {
+        if let Some(value) = self.get_if_published(&key) {
             runtime.check_request_cycle(&cycle_key)?;
             cancellation.check()?;
             runtime.record_completed_request(&key)?;
@@ -344,7 +321,7 @@ impl<T> FactCell<T> {
                 FactCellState::Ready => {
                     record_cache_outcome(&mut query_request, true);
 
-                    let value = self.published_value(&key)?;
+                    let value = self.published_value(&key);
 
                     runtime.record_completed_request(&key)?;
 
@@ -431,19 +408,7 @@ impl<T> FactCell<T> {
                     cancellation: shared_cancellation,
                     priority: shared_priority,
                 } => {
-                    if computing_key.as_ref() != &key {
-                        return Err(FactRuntimeFailure::PublicationMismatch {
-                            requested: PublicationIdentity {
-                                task: None,
-                                fact: key.clone(),
-                            },
-                            actual: PublicationState::Computing {
-                                task: *task,
-                                fact: computing_key.as_ref().clone(),
-                            },
-                        }
-                        .into());
-                    }
+                    assert_eq!(computing_key.as_ref(), &key, "computing fact key mismatch");
 
                     let task = *task;
                     let shared_cancellation = shared_cancellation.clone();
@@ -539,48 +504,22 @@ impl<T> FactCell<T> {
                     task: Some(task),
                 })?;
 
-        if !matches!(
-            &*state,
-            FactCellState::Computing {
-                task: active_task,
-                key: active_key,
-                ..
-            } if *active_task == task && active_key.as_ref() == key.as_ref()
-        ) {
-            return Err(FactRuntimeFailure::PublicationMismatch {
-                requested: PublicationIdentity {
-                    task: Some(task),
-                    fact: key.as_ref().clone(),
-                },
-                actual: publication_state(&state, self.storage.publication.get()),
-            }
-            .into());
-        }
+        assert!(
+            matches!(
+                &*state,
+                FactCellState::Computing { task: active_task, key: active_key, .. }
+                    if *active_task == task && active_key.as_ref() == key.as_ref()
+            ),
+            "publication for task {task:?}, fact {key:?} contradicts {state:?}"
+        );
 
-        // The requested identity must remain available if OnceLock reports an existing value.
-        let requested_key = Arc::clone(&key);
-
-        if self
-            .storage
-            .publication
-            .set(FactCellPublication { key, value })
-            .is_err()
-        {
-            return Err(FactRuntimeFailure::PublicationMismatch {
-                requested: PublicationIdentity {
-                    task: Some(task),
-                    fact: requested_key.as_ref().clone(),
-                },
-                actual: PublicationState::Ready {
-                    fact: self
-                        .storage
-                        .publication
-                        .get()
-                        .map(|publication| publication.key.as_ref().clone()),
-                },
-            }
-            .into());
-        }
+        assert!(
+            self.storage
+                .publication
+                .set(FactCellPublication { key, value })
+                .is_ok(),
+            "fact may only publish once for task {task:?}"
+        );
 
         commit.commit();
 
@@ -591,42 +530,17 @@ impl<T> FactCell<T> {
 
         self.storage.changed.notify_all();
 
-        let Some(publication) = self.storage.publication.get() else {
-            return Err(FactRuntimeFailure::PublicationMismatch {
-                requested: PublicationIdentity {
-                    task: Some(task),
-                    fact: requested_key.as_ref().clone(),
-                },
-                actual: PublicationState::Ready { fact: None },
-            }
-            .into());
-        };
-
-        Ok(&publication.value)
+        Ok(&self
+            .storage
+            .publication
+            .get()
+            .expect("fact was just published")
+            .value)
     }
 
-    fn published_value(&self, key: &CompilationFactKey) -> Result<&T, FactQueryError> {
-        // A mismatch can escape the borrowed lookup and therefore owns the observed key state.
-        let Some(value) = self.get_if_published(key)? else {
-            let state = self.storage.state.lock().map_err(|_| {
-                FactRuntimeFailure::SynchronizationPoisoned {
-                    component: SynchronizationComponent::FactCell,
-                    fact: Some(key.clone()),
-                    task: None,
-                }
-            })?;
-
-            return Err(FactRuntimeFailure::PublicationMismatch {
-                requested: PublicationIdentity {
-                    task: None,
-                    fact: key.clone(),
-                },
-                actual: publication_state(&state, self.storage.publication.get()),
-            }
-            .into());
-        };
-
-        Ok(value)
+    fn published_value(&self, key: &CompilationFactKey) -> &T {
+        self.get_if_published(key)
+            .expect("ready fact must have a published value")
     }
 
     #[cfg(test)]
@@ -692,23 +606,6 @@ impl<T> FactCell<T> {
         };
 
         self.storage.changed.notify_all();
-    }
-}
-
-fn publication_state<T>(
-    state: &FactCellState,
-    publication: Option<&FactCellPublication<T>>,
-) -> PublicationState {
-    // Error payloads retain the state after the cache lock is released.
-    match state {
-        FactCellState::Vacant => PublicationState::Vacant,
-        FactCellState::Computing { task, key, .. } => PublicationState::Computing {
-            task: *task,
-            fact: key.as_ref().clone(),
-        },
-        FactCellState::Ready => PublicationState::Ready {
-            fact: publication.map(|publication| publication.key.as_ref().clone()),
-        },
     }
 }
 
@@ -809,7 +706,7 @@ mod tests {
     use crate::fact::task::FactTaskContext;
     use crate::fact::{
         CancellationToken, CompilationFactKey, FactQueryError, FactRuntime, FactRuntimeFailure,
-        PublicationState, SynchronizationComponent,
+        SynchronizationComponent,
     };
     use crate::test_support::FactTestGate;
     use crate::{
@@ -1252,28 +1149,17 @@ mod tests {
             || Ok(1_u32),
         );
 
-        let mismatched = cell.get_or_compute(
-            &runtime,
-            CompilationFactKey::DeclarationTable,
-            &cancellation,
-            || Ok(2_u32),
-        );
+        let mismatched = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            cell.get_or_compute(
+                &runtime,
+                CompilationFactKey::DeclarationTable,
+                &cancellation,
+                || Ok(2_u32),
+            )
+        }));
 
         assert_eq!(first, Ok(&1));
-
-        assert!(matches!(
-            mismatched,
-            Err(FactQueryError::Runtime(error))
-                if matches!(
-                    error.cause(),
-                    FactRuntimeFailure::PublicationMismatch {
-                        actual: PublicationState::Ready {
-                            fact: Some(CompilationFactKey::SyntaxTree),
-                        },
-                        ..
-                    }
-                )
-        ));
+        assert!(mismatched.is_err());
 
         assert_eq!(cell.get(), Some(&1));
     }
@@ -1741,25 +1627,18 @@ mod tests {
 
         assert_eq!(parent.set_test_observer(observer), Ok(()));
 
-        let result = parent.get_or_compute(&runtime, parent_key.clone(), &cancellation, || {
-            child.get_or_compute(&runtime, child_key, &cancellation, || Ok(1_u32))?;
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            parent.get_or_compute(&runtime, parent_key.clone(), &cancellation, || {
+                child.get_or_compute(&runtime, child_key, &cancellation, || Ok(1_u32))?;
 
-            Ok(2_u32)
-        });
+                Ok(2_u32)
+            })
+        }));
 
-        assert!(matches!(
-            result,
-            Err(FactQueryError::Runtime(error))
-                if matches!(
-                    error.cause(),
-                    FactRuntimeFailure::PublicationMismatch {
-                        actual: PublicationState::Vacant,
-                        ..
-                    }
-                )
-        ));
+        assert!(result.is_err());
 
-        assert_eq!(runtime.dependencies(&parent_key), Ok(None));
+        runtime.assert_no_dependency_record_after_unwind(&parent_key);
+        assert!(parent.get().is_none());
     }
 
     #[test]

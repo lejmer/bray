@@ -123,7 +123,7 @@ impl Compilation {
                     binding_context.semantic_values(),
                     actual.callable_type(),
                     expected.ty(),
-                )?
+                )
             {
                 let anchor = name.origin().source_anchor().syntax();
                 let span = SourceSpan::new(anchor.source_id(), anchor.full_range());

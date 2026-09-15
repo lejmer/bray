@@ -45,9 +45,6 @@ pub(super) fn lowering_input_failure(
         LoweringInputError::InvalidInputContents(input) => {
             Kind::InvalidInputContents(lowering_input_kind(*input))
         }
-        LoweringInputError::SemanticValue(error) => {
-            Kind::SemanticValue(crate::fact::diagnostic_semantic_value_failure(*error))
-        }
         LoweringInputError::InvalidStorageOperation(expression) => {
             Kind::InvalidStorageOperation(bound_identity(expression.unit(), expression.ordinal()))
         }

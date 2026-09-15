@@ -12,108 +12,10 @@ pub struct FactCycle {
     facts: Box<[CompilationFactKey]>,
 }
 
-/// Exact retained values for one imported executable template mismatch.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct ImportedExecutableTemplateMismatch {
-    interface: bray_symbols::ImportedInterfaceId,
-    symbol: bray_symbols::InterfaceSymbolId,
-    template: bray_ir::MirExecutableTemplateId,
-    expected_unit: bray_ir::MirUnitId,
-    actual_unit: bray_ir::MirUnitId,
-    expected_key: bray_ir::MirUnitKey,
-    actual_key: bray_ir::MirUnitKey,
-    expected_target: bray_ir::MirTargetContract,
-    actual_target: bray_ir::MirTargetContract,
-}
-
-/// One exact missing relationship in imported-interface query state.
+/// A resource limit encountered while loading imported interfaces.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum ImportedQueryFailure {
-    MissingDependencyInput(bray_symbols::ImportedInterfaceId),
-    MissingLoadedInterface(bray_symbols::ImportedInterfaceId),
-    MissingLoadedImplementation(bray_symbols::ImportedInterfaceId),
-    MissingLoadedSurface(bray_symbols::ImportedInterfaceId),
-    MissingLoadedSemanticGraph(bray_symbols::ImportedInterfaceId),
-    MissingSemanticGraph(crate::fact::ImportedSemanticRecordKey),
-    MissingInterfaceSurface(crate::fact::ImportedSemanticRecordKey),
-    MissingInterfaceSymbol(crate::fact::ImportedSemanticRecordKey),
-    MissingImportedSymbol(crate::fact::ImportedSemanticRecordKey),
-    MissingLoadedInterfaceViews(bray_symbols::ImportedInterfaceId),
-    MissingCurrentInterface(bray_symbols::ImportedInterfaceId),
-    MissingResolvedSymbol(bray_symbols::ImportedSemanticAddress),
-    ExecutableTemplateMismatch(Box<ImportedExecutableTemplateMismatch>),
     InterfaceCapacityExceeded(usize),
-}
-
-impl ImportedExecutableTemplateMismatch {
-    pub(crate) fn new(
-        interface: bray_symbols::ImportedInterfaceId,
-        symbol: bray_symbols::InterfaceSymbolId,
-        template: bray_ir::MirExecutableTemplateId,
-        expected_unit: bray_ir::MirUnitId,
-        actual_unit: bray_ir::MirUnitId,
-        expected_key: bray_ir::MirUnitKey,
-        actual_key: bray_ir::MirUnitKey,
-        expected_target: bray_ir::MirTargetContract,
-        actual_target: bray_ir::MirTargetContract,
-    ) -> Self {
-        Self {
-            interface,
-            symbol,
-            template,
-            expected_unit,
-            actual_unit,
-            expected_key,
-            actual_key,
-            expected_target,
-            actual_target,
-        }
-    }
-
-    /// Returns the loaded interface containing the imported declaration.
-    pub const fn interface(&self) -> bray_symbols::ImportedInterfaceId {
-        self.interface
-    }
-
-    /// Returns the interface-local declaration whose executable template was inspected.
-    pub const fn symbol(&self) -> bray_symbols::InterfaceSymbolId {
-        self.symbol
-    }
-
-    /// Returns the executable template whose retained contract was inconsistent.
-    pub const fn template(&self) -> bray_ir::MirExecutableTemplateId {
-        self.template
-    }
-
-    /// Returns the MIR unit required by the imported executable address.
-    pub const fn expected_unit(&self) -> bray_ir::MirUnitId {
-        self.expected_unit
-    }
-
-    /// Returns the MIR unit retained by the executable template.
-    pub const fn actual_unit(&self) -> bray_ir::MirUnitId {
-        self.actual_unit
-    }
-
-    /// Returns the MIR unit key required by the imported executable address.
-    pub const fn expected_key(&self) -> &bray_ir::MirUnitKey {
-        &self.expected_key
-    }
-
-    /// Returns the MIR unit key retained by the executable template.
-    pub const fn actual_key(&self) -> &bray_ir::MirUnitKey {
-        &self.actual_key
-    }
-
-    /// Returns the MIR target contract required by the imported executable address.
-    pub const fn expected_target(&self) -> &bray_ir::MirTargetContract {
-        &self.expected_target
-    }
-
-    /// Returns the MIR target contract retained by the executable template.
-    pub const fn actual_target(&self) -> &bray_ir::MirTargetContract {
-        &self.actual_target
-    }
 }
 
 impl FactCycle {
@@ -174,8 +76,8 @@ mod tests {
     use bray_diagnostics::{DiagnosticFailureValue, DiagnosticSemanticValueFailure};
     use bray_source::{SourceId, SourceVersion};
     use bray_symbols::{
-        FunctionSymbolId, GenericOwnerId, GenericSubstitutionShapeError, SemanticValueKind,
-        SemanticValueStore, SemanticValueStoreCreateError, SemanticValueStoreError, SymbolId,
+        GenericSubstitutionShapeError, SemanticValueKind, SemanticValueStoreCreateError,
+        SemanticValueStoreError,
     };
 
     use super::{CompilationFactKey, FactCycle, FactQueryError, ImportedQueryFailure};
@@ -244,75 +146,15 @@ mod tests {
 
     #[test]
     fn semantic_value_failures_retain_every_leaf_payload() {
-        let first = SemanticValueStore::try_new()
-            .unwrap_or_else(|error| panic!("first semantic store must build: {error:?}"));
-
-        let second = SemanticValueStore::try_new()
-            .unwrap_or_else(|error| panic!("second semantic store must build: {error:?}"));
-
-        let foreign = SemanticValueStoreError::ForeignId {
-            expected: first.id(),
-            actual: second.id(),
-        };
-
-        assert_eq!(
-            diagnostic_semantic_value_failure(foreign),
-            DiagnosticSemanticValueFailure::ForeignId {
-                expected_store: first.id().raw(),
-                actual_store: second.id().raw(),
-            }
-        );
-
-        assert_eq!(
-            FactQueryError::from(foreign),
-            FactQueryError::SemanticValueStore(foreign)
-        );
-
-        let unknown = SemanticValueStoreError::UnknownId {
-            kind: SemanticValueKind::Type,
-        };
-
         let capacity = SemanticValueStoreError::CapacityExhausted {
             kind: SemanticValueKind::ConstantTerm,
         };
-
-        assert_eq!(
-            diagnostic_semantic_value_failure(unknown),
-            DiagnosticSemanticValueFailure::UnknownId { kind: "type" }
-        );
 
         assert_eq!(
             diagnostic_semantic_value_failure(capacity),
             DiagnosticSemanticValueFailure::CapacityExhausted {
                 kind: "constant_term",
             }
-        );
-
-        let expected_symbol = FunctionSymbolId::from_symbol_id(SymbolId::new(1));
-        let actual_symbol = FunctionSymbolId::from_symbol_id(SymbolId::new(2));
-
-        let expected = GenericOwnerId::try_new(expected_symbol.into())
-            .unwrap_or_else(|| panic!("function must be a generic owner"));
-
-        let actual = GenericOwnerId::try_new(actual_symbol.into())
-            .unwrap_or_else(|| panic!("function must be a generic owner"));
-
-        assert_eq!(
-            diagnostic_semantic_value_failure(SemanticValueStoreError::GenericOwnerMismatch {
-                expected,
-                actual
-            }),
-            DiagnosticSemanticValueFailure::GenericOwnerMismatch {
-                expected_kind: expected_symbol.kind().as_str(),
-                expected: expected_symbol.symbol_id().raw(),
-                actual_kind: actual_symbol.kind().as_str(),
-                actual: actual_symbol.symbol_id().raw(),
-            }
-        );
-
-        assert_eq!(
-            diagnostic_semantic_value_failure(SemanticValueStoreError::OpenSubstitution),
-            DiagnosticSemanticValueFailure::OpenSubstitution
         );
 
         assert_eq!(
@@ -546,20 +388,11 @@ impl From<bray_symbols::SemanticValueStoreError> for FactQueryError {
 
 impl From<bray_symbols::CallableSignatureTemplateError> for FactQueryError {
     fn from(error: bray_symbols::CallableSignatureTemplateError) -> Self {
-        match error {
-            bray_symbols::CallableSignatureTemplateError::SemanticValue(error) => {
-                Self::SemanticValueStore(error)
-            }
-            error @ (bray_symbols::CallableSignatureTemplateError::InvalidCallableType
-            | bray_symbols::CallableSignatureTemplateError::ParameterCountMismatch
-            | bray_symbols::CallableSignatureTemplateError::ParameterIdentityMismatch) => {
-                SemanticQueryFailure::CallableSignature {
-                    callable: None,
-                    cause: error,
-                }
-                .into()
-            }
+        SemanticQueryFailure::CallableSignature {
+            callable: None,
+            cause: error,
         }
+        .into()
     }
 }
 

@@ -141,7 +141,7 @@ impl Lowerer<'_> {
         )?;
 
         for (index, projection) in projections.iter().copied().enumerate() {
-            source_type = self.append_projection_dereferences(source_type, &mut lowered)?;
+            source_type = self.append_projection_dereferences(source_type, &mut lowered);
 
             let result_type = self.projection_result_type(identity, &projections[..=index])?;
 
@@ -185,7 +185,7 @@ impl Lowerer<'_> {
             source_type = result_type;
         }
 
-        source_type = self.append_reached_dereference(source_type, reached_type, &mut lowered)?;
+        source_type = self.append_reached_dereference(source_type, reached_type, &mut lowered);
 
         Ok(LoweredPlace::Continuing {
             block: current,
@@ -397,7 +397,7 @@ impl Lowerer<'_> {
         };
 
         for (index, projection) in projections.iter().copied().enumerate() {
-            source_type = self.append_projection_dereferences(source_type, &mut lowered)?;
+            source_type = self.append_projection_dereferences(source_type, &mut lowered);
 
             let Some(kind) = static_projection_kind(projection) else {
                 return Err(LoweringError::UnsupportedStorageAccess(id));
@@ -410,8 +410,7 @@ impl Lowerer<'_> {
         }
 
         if project_borrowed_root {
-            source_type =
-                self.append_reached_dereference(source_type, reached_type, &mut lowered)?;
+            source_type = self.append_reached_dereference(source_type, reached_type, &mut lowered);
         }
 
         Ok(MirPlace::new(root.storage(), lowered, source_type))

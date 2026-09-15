@@ -538,7 +538,7 @@ fn semantic_values_internal_dependency(
 
         let internal = match dependency {
             SemanticValueDependency::Type(ty) => {
-                type_exposes_internal(ty, &mut pending, semantic_values, symbols, declarations)?
+                type_exposes_internal(ty, &mut pending, semantic_values, symbols, declarations)
             }
             SemanticValueDependency::ConstantTerm(term) => constant_term_exposes_internal(
                 term,
@@ -546,9 +546,9 @@ fn semantic_values_internal_dependency(
                 semantic_values,
                 symbols,
                 declarations,
-            )?,
+            ),
             SemanticValueDependency::Substitution(substitution) => {
-                substitution_exposes_internal_value(substitution, &mut pending, semantic_values)?
+                substitution_exposes_internal_value(substitution, &mut pending, semantic_values)
             }
             SemanticValueDependency::TraitApplication(application) => {
                 trait_application_exposes_internal(
@@ -557,7 +557,7 @@ fn semantic_values_internal_dependency(
                     semantic_values,
                     symbols,
                     declarations,
-                )?
+                )
             }
             SemanticValueDependency::Implementation(implementation) => {
                 implementation_exposes_internal(
@@ -584,10 +584,8 @@ fn type_exposes_internal(
     semantic_values: &SemanticValueStore,
     symbols: &SymbolGraph,
     declarations: &DeclarationTable,
-) -> Result<Option<AnySymbolId>, FactQueryError> {
-    let data = semantic_values
-        .type_data(ty)
-        .map_err(FactQueryError::SemanticValueStore)?;
+) -> Option<AnySymbolId> {
+    let data = semantic_values.type_data(ty);
 
     match data.as_ref() {
         TypeData::Error => {}
@@ -597,7 +595,7 @@ fn type_exposes_internal(
         } => {
             if source_symbol_is_not_publicly_reachable(definition.into_any(), declarations, symbols)
             {
-                return Ok(Some(definition.into_any()));
+                return Some(definition.into_any());
             }
 
             pending.push(SemanticValueDependency::Substitution(*substitution));
@@ -609,7 +607,7 @@ fn type_exposes_internal(
             member,
         } => {
             if source_symbol_is_not_publicly_reachable((*member).into(), declarations, symbols) {
-                return Ok(Some((*member).into()));
+                return Some((*member).into());
             }
 
             pending.push(SemanticValueDependency::Type(*subject));
@@ -650,17 +648,15 @@ fn type_exposes_internal(
         }
     }
 
-    Ok(None)
+    None
 }
 
 fn substitution_exposes_internal_value(
     substitution: GenericSubstitutionId,
     pending: &mut Vec<SemanticValueDependency>,
     semantic_values: &SemanticValueStore,
-) -> Result<Option<AnySymbolId>, FactQueryError> {
-    let substitution = semantic_values
-        .generic_substitution_data(substitution)
-        .map_err(FactQueryError::SemanticValueStore)?;
+) -> Option<AnySymbolId> {
+    let substitution = semantic_values.generic_substitution_data(substitution);
 
     pending.extend(
         substitution
@@ -672,7 +668,7 @@ fn substitution_exposes_internal_value(
             }),
     );
 
-    Ok(None)
+    None
 }
 
 fn constant_term_exposes_internal(
@@ -681,10 +677,8 @@ fn constant_term_exposes_internal(
     semantic_values: &SemanticValueStore,
     symbols: &SymbolGraph,
     declarations: &DeclarationTable,
-) -> Result<Option<AnySymbolId>, FactQueryError> {
-    let data = semantic_values
-        .constant_term_data(term)
-        .map_err(FactQueryError::SemanticValueStore)?;
+) -> Option<AnySymbolId> {
+    let data = semantic_values.constant_term_data(term);
 
     match data.as_ref() {
         ConstantTermData::Typed { term, ty } => {
@@ -692,9 +686,7 @@ fn constant_term_exposes_internal(
             pending.push(SemanticValueDependency::Type(*ty));
         }
         ConstantTermData::Value(value) => {
-            let value = semantic_values
-                .constant_value_data(*value)
-                .map_err(FactQueryError::SemanticValueStore)?;
+            let value = semantic_values.constant_value_data(*value);
 
             pending.push(SemanticValueDependency::Type(value.ty()));
         }
@@ -702,12 +694,12 @@ fn constant_term_exposes_internal(
         ConstantTermData::CallableArgument(_) => {}
         ConstantTermData::Parameter(_) => {}
         ConstantTermData::TargetProperty(constant) => {
-            return Ok(source_symbol_is_not_publicly_reachable(
+            return source_symbol_is_not_publicly_reachable(
                 (*constant).into(),
                 declarations,
                 symbols,
             )
-            .then_some((*constant).into()));
+            .then_some((*constant).into());
         }
         ConstantTermData::Unary { operand, .. } => {
             pending.push(SemanticValueDependency::ConstantTerm(*operand));
@@ -735,18 +727,18 @@ fn constant_term_exposes_internal(
             if let Some(internal) =
                 constant_fields_expose_internal(fields, pending, symbols, declarations)
             {
-                return Ok(Some(internal));
+                return Some(internal);
             }
         }
         ConstantTermData::Union { variant, fields } => {
             if source_symbol_is_not_publicly_reachable((*variant).into(), declarations, symbols) {
-                return Ok(Some((*variant).into()));
+                return Some((*variant).into());
             }
 
             if let Some(internal) =
                 constant_fields_expose_internal(fields, pending, symbols, declarations)
             {
-                return Ok(Some(internal));
+                return Some(internal);
             }
         }
         ConstantTermData::DefinitionApplication {
@@ -756,7 +748,7 @@ fn constant_term_exposes_internal(
         } => {
             if source_symbol_is_not_publicly_reachable(definition.into_any(), declarations, symbols)
             {
-                return Ok(Some(definition.into_any()));
+                return Some(definition.into_any());
             }
 
             pending.push(SemanticValueDependency::Substitution(*substitution));
@@ -770,16 +762,14 @@ fn constant_term_exposes_internal(
             selected_implementation,
             arguments,
         } => {
-            let callable = semantic_values
-                .callable_instance_data(*callable)
-                .map_err(FactQueryError::SemanticValueStore)?;
+            let callable = semantic_values.callable_instance_data(*callable);
 
             if source_symbol_is_not_publicly_reachable(
                 callable.definition().symbol(),
                 declarations,
                 symbols,
             ) {
-                return Ok(Some(callable.definition().symbol()));
+                return Some(callable.definition().symbol());
             }
 
             pending.push(SemanticValueDependency::Substitution(
@@ -806,7 +796,7 @@ fn constant_term_exposes_internal(
                 declarations,
                 symbols,
             ) {
-                return Ok(Some(predicate.definition().into_any()));
+                return Some(predicate.definition().into_any());
             }
 
             pending.push(SemanticValueDependency::Substitution(
@@ -833,20 +823,20 @@ fn constant_term_exposes_internal(
                     }
                 }
                 ConstantProjectionKind::ProductField(field) => {
-                    return Ok(source_symbol_is_not_publicly_reachable(
+                    return source_symbol_is_not_publicly_reachable(
                         field.into(),
                         declarations,
                         symbols,
                     )
-                    .then_some(field.into()));
+                    .then_some(field.into());
                 }
                 ConstantProjectionKind::UnionPayloadField(field) => {
-                    return Ok(source_symbol_is_not_publicly_reachable(
+                    return source_symbol_is_not_publicly_reachable(
                         field.into(),
                         declarations,
                         symbols,
                     )
-                    .then_some(field.into()));
+                    .then_some(field.into());
                 }
                 ConstantProjectionKind::TupleElement(_) | ConstantProjectionKind::NullableValue => {
                 }
@@ -854,7 +844,7 @@ fn constant_term_exposes_internal(
         }
     }
 
-    Ok(None)
+    None
 }
 
 fn constant_fields_expose_internal<I>(
@@ -885,24 +875,22 @@ fn trait_application_exposes_internal(
     semantic_values: &SemanticValueStore,
     symbols: &SymbolGraph,
     declarations: &DeclarationTable,
-) -> Result<Option<AnySymbolId>, FactQueryError> {
-    let application = semantic_values
-        .trait_application_data(application)
-        .map_err(FactQueryError::SemanticValueStore)?;
+) -> Option<AnySymbolId> {
+    let application = semantic_values.trait_application_data(application);
 
     if source_symbol_is_not_publicly_reachable(
         application.definition().into(),
         declarations,
         symbols,
     ) {
-        return Ok(Some(application.definition().into()));
+        return Some(application.definition().into());
     }
 
     pending.push(SemanticValueDependency::Substitution(
         application.substitution(),
     ));
 
-    Ok(None)
+    None
 }
 
 fn implementation_exposes_internal(
@@ -912,9 +900,7 @@ fn implementation_exposes_internal(
     symbols: &SymbolGraph,
     declarations: &DeclarationTable,
 ) -> Result<Option<AnySymbolId>, FactQueryError> {
-    let implementation = semantic_values
-        .implementation_instance_data(implementation)
-        .map_err(FactQueryError::SemanticValueStore)?;
+    let implementation = semantic_values.implementation_instance_data(implementation);
 
     if source_symbol_is_not_publicly_reachable(
         implementation.definition().into_any(),

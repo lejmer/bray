@@ -117,15 +117,7 @@ where
             return Ok(CleanupShape::BOTH);
         }
 
-        let data = self
-            .request
-            .semantic_values()
-            .type_data(ty)
-            .map_err(|error| {
-                CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
-                    error,
-                ))
-            })?;
+        let data = self.request.semantic_values().type_data(ty);
 
         let shape = match data.as_ref() {
             TypeData::Error => CleanupShape {
@@ -197,12 +189,7 @@ where
                 let substitution = self
                     .request
                     .semantic_values()
-                    .generic_substitution_data(substitution)
-                    .map_err(|error| {
-                        CheckerQueryError::Infrastructure(
-                            CheckerInfrastructureError::SemanticValueStore(error),
-                        )
-                    })?;
+                    .generic_substitution_data(substitution);
 
                 self.aggregate(substitution.bindings().iter().filter_map(|binding| {
                     match binding.argument() {

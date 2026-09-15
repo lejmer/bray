@@ -1,28 +1,12 @@
 use bray_compiler_known::RepresentationRole;
 use bray_declarations::SyntaxAnchor;
 use bray_source::SourceSpan;
-use bray_symbols::{AnySymbolId, IntegerConstant, SymbolGraph};
+use bray_symbols::{AnySymbolId, SymbolGraph};
 
 use crate::compilation::{
     SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
 };
 use crate::fact::FactQueryError;
-
-pub(super) fn checked_integer(
-    values: &bray_symbols::SemanticValueStore,
-    term: bray_symbols::ConstantTermId,
-) -> Result<Option<u64>, FactQueryError> {
-    checked_integer_constant(values, term).map(|value| value.and_then(|value| value.to_u64()))
-}
-
-pub(super) fn checked_integer_constant(
-    values: &bray_symbols::SemanticValueStore,
-    term: bray_symbols::ConstantTermId,
-) -> Result<Option<IntegerConstant>, FactQueryError> {
-    values
-        .constant_term_integer(term)
-        .map_err(FactQueryError::SemanticValueStore)
-}
 
 pub(super) fn integer_role(text: &str) -> Option<RepresentationRole> {
     match text {

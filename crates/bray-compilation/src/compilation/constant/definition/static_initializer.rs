@@ -52,13 +52,13 @@ impl Compilation {
         let types = substitute_expression_types(
             self.semantic_value_store()?,
             semantics.result().value().types(),
-            instance.substitution().substitution(),
+            instance.substitution(),
         )?;
 
         let (references, dependency_diagnostics) = self.concrete_call_references(
             bound.result().value(),
             semantics.result().value().selections(),
-            instance.substitution().substitution(),
+            instance.substitution(),
             None,
             &BTreeMap::new(),
             limits,

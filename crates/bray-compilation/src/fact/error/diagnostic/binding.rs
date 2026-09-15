@@ -6,7 +6,6 @@ use super::diagnostic_context::{
 use super::diagnostic_semantic_value_failure;
 use super::semantic_diagnostic::{
     callable_signature_reason, generic_substitution_reason, push_generic_substitution_failure,
-    push_semantic_value_failure,
 };
 
 pub(crate) fn diagnostic_binding_failure(
@@ -208,13 +207,7 @@ fn diagnostic_nested_binding_failure(
         Error::Construction(error) => return diagnostic_bound_unit_construction_failure(error),
         Error::Assembly(error) => return diagnostic_bound_unit_assembly_failure(error),
         Error::CallableSignature(cause) => {
-            let mut context = Vec::new();
-
-            if let bray_symbols::CallableSignatureTemplateError::SemanticValue(cause) = cause {
-                push_semantic_value_failure(&mut context, *cause);
-            }
-
-            return (callable_signature_reason(cause), context);
+            return (callable_signature_reason(cause), Vec::new());
         }
         Error::GenericSubstitution(cause) => {
             let mut context = Vec::new();
@@ -489,91 +482,15 @@ fn push_receiver_context_flags(
 
 const fn local_symbol_build_reason(error: bray_symbols::LocalSymbolBuildError) -> &'static str {
     match error {
-        bray_symbols::LocalSymbolBuildError::ForeignRegion => {
-            "binding_construction_local_symbol_foreign_region"
-        }
-        bray_symbols::LocalSymbolBuildError::UnknownScope => {
-            "binding_construction_local_symbol_unknown_scope"
-        }
-        bray_symbols::LocalSymbolBuildError::UnknownAnonymousCallable => {
-            "binding_construction_local_symbol_unknown_anonymous_callable"
-        }
-        bray_symbols::LocalSymbolBuildError::UnknownLocalSymbol => {
-            "binding_construction_local_symbol_unknown_local_symbol"
-        }
-        bray_symbols::LocalSymbolBuildError::MissingParentScope => {
-            "binding_construction_local_symbol_missing_parent_scope"
-        }
-        bray_symbols::LocalSymbolBuildError::RootHasParentScope => {
-            "binding_construction_local_symbol_root_has_parent_scope"
-        }
-        bray_symbols::LocalSymbolBuildError::DuplicateRootScope => {
-            "binding_construction_local_symbol_duplicate_root_scope"
-        }
-        bray_symbols::LocalSymbolBuildError::MissingRootScope => {
-            "binding_construction_local_symbol_missing_root_scope"
-        }
-        bray_symbols::LocalSymbolBuildError::SymbolOutsideScope => {
-            "binding_construction_local_symbol_outside_scope"
-        }
-        bray_symbols::LocalSymbolBuildError::DuplicatePostconditionResult => {
-            "binding_construction_local_symbol_duplicate_postcondition_result"
-        }
-        bray_symbols::LocalSymbolBuildError::InvalidScopeBoundary => {
-            "binding_construction_local_symbol_invalid_scope_boundary"
-        }
-        bray_symbols::LocalSymbolBuildError::InvalidAnonymousCallableScope => {
-            "binding_construction_local_symbol_invalid_anonymous_callable_scope"
-        }
-        bray_symbols::LocalSymbolBuildError::AnonymousCallableScopeAlreadyAssigned => {
-            "binding_construction_local_symbol_anonymous_callable_scope_already_assigned"
-        }
-        bray_symbols::LocalSymbolBuildError::AnonymousCallableParameterScopeMismatch => {
-            "binding_construction_local_symbol_anonymous_callable_parameter_scope_mismatch"
-        }
-        bray_symbols::LocalSymbolBuildError::SymbolHasNoOrdinaryName => {
-            "binding_construction_local_symbol_has_no_ordinary_name"
-        }
         bray_symbols::LocalSymbolBuildError::CapacityExceeded => {
             "binding_construction_local_symbol_capacity_exceeded"
-        }
-        bray_symbols::LocalSymbolBuildError::MissingSyntaxAnchor => {
-            "binding_construction_local_symbol_missing_syntax_anchor"
         }
     }
 }
 
 const fn local_symbol_build_cause(error: bray_symbols::LocalSymbolBuildError) -> &'static str {
     match error {
-        bray_symbols::LocalSymbolBuildError::ForeignRegion => "foreign_region",
-        bray_symbols::LocalSymbolBuildError::UnknownScope => "unknown_scope",
-        bray_symbols::LocalSymbolBuildError::UnknownAnonymousCallable => {
-            "unknown_anonymous_callable"
-        }
-        bray_symbols::LocalSymbolBuildError::UnknownLocalSymbol => "unknown_local_symbol",
-        bray_symbols::LocalSymbolBuildError::MissingParentScope => "missing_parent_scope",
-        bray_symbols::LocalSymbolBuildError::RootHasParentScope => "root_has_parent_scope",
-        bray_symbols::LocalSymbolBuildError::DuplicateRootScope => "duplicate_root_scope",
-        bray_symbols::LocalSymbolBuildError::MissingRootScope => "missing_root_scope",
-        bray_symbols::LocalSymbolBuildError::SymbolOutsideScope => "symbol_outside_scope",
-        bray_symbols::LocalSymbolBuildError::DuplicatePostconditionResult => {
-            "duplicate_postcondition_result"
-        }
-        bray_symbols::LocalSymbolBuildError::InvalidScopeBoundary => "invalid_scope_boundary",
-        bray_symbols::LocalSymbolBuildError::InvalidAnonymousCallableScope => {
-            "invalid_anonymous_callable_scope"
-        }
-        bray_symbols::LocalSymbolBuildError::AnonymousCallableScopeAlreadyAssigned => {
-            "anonymous_callable_scope_already_assigned"
-        }
-        bray_symbols::LocalSymbolBuildError::AnonymousCallableParameterScopeMismatch => {
-            "anonymous_callable_parameter_scope_mismatch"
-        }
-        bray_symbols::LocalSymbolBuildError::SymbolHasNoOrdinaryName => {
-            "symbol_has_no_ordinary_name"
-        }
         bray_symbols::LocalSymbolBuildError::CapacityExceeded => "capacity_exceeded",
-        bray_symbols::LocalSymbolBuildError::MissingSyntaxAnchor => "missing_syntax_anchor",
     }
 }
 

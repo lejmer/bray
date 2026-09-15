@@ -48,7 +48,6 @@ pub(in crate::output::diagnostic::json) fn lowering_input_failure_context(
     use bray_diagnostics::DiagnosticLoweringInputFailureKind as Failure;
 
     match failure.kind() {
-        Failure::SemanticValue(failure) => semantic_value_failure_context(failure),
         Failure::ForeignInput {
             input,
             expected_unit,

@@ -76,10 +76,7 @@ where
         return Ok(None);
     };
 
-    let result_data = request
-        .semantic_values()
-        .type_data(result.ty())
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    let result_data = request.semantic_values().type_data(result.ty());
 
     let TypeData::Array {
         element,
@@ -175,10 +172,7 @@ fn diagnostic_array_length<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let exact = request
-        .semantic_values()
-        .constant_term_integer(term)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    let exact = request.semantic_values().constant_term_integer(term);
 
     Ok(exact.and_then(|value| value.to_u64()).map_or(
         DiagnosticArrayLength::Symbolic,

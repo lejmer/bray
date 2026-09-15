@@ -13,7 +13,6 @@ use bray_symbols::{
     ConstantInstanceKey, ConstantValueId, GenericSubstitutionId,
 };
 
-use crate::compilation::substitution::empty_substitution;
 use crate::compilation::{
     SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
 };
@@ -106,9 +105,7 @@ pub(in crate::compilation::constant) fn call_parameter_values(
     let mut resolved = BTreeMap::new();
 
     for ((parameter, expected), value) in parameters.into_iter().zip(arguments.iter().copied()) {
-        let actual = values
-            .constant_value_data(value)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let actual = values.constant_value_data(value);
 
         if actual.ty() != expected {
             return Err(SemanticQueryFailure::contract(
@@ -321,17 +318,6 @@ pub(in crate::compilation) fn constant_definition_id(
         }
         _ => None,
     }
-}
-
-pub(in crate::compilation) fn empty_concrete_substitution(
-    values: &bray_symbols::SemanticValueStore,
-    definition: AnyConstantDefinitionId,
-) -> Result<bray_symbols::ConcreteGenericSubstitutionId, FactQueryError> {
-    let substitution = empty_substitution(values, definition.into_any())?;
-
-    values
-        .require_concrete_substitution(substitution)
-        .map_err(FactQueryError::SemanticValueStore)
 }
 
 pub(super) const fn selected_implementation_for_reference(

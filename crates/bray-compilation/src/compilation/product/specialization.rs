@@ -342,9 +342,7 @@ impl Compilation {
                 let witnesses = selected_witnesses
                     .iter()
                     .map(|witness| {
-                        let data = values
-                            .implementation_instance_data(*witness)
-                            .map_err(FactQueryError::SemanticValueStore)?;
+                        let data = values.implementation_instance_data(*witness);
 
                         let nested = match owner_substitution {
                             Some(owner) => values
@@ -368,7 +366,7 @@ impl Compilation {
             }
             StaticReferenceSelection::Closed(instance) => (
                 instance.template(),
-                instance.substitution().substitution(),
+                instance.substitution(),
                 instance.selected_witnesses().to_vec(),
                 instance.target().clone(),
             ),
@@ -376,16 +374,8 @@ impl Compilation {
 
         let substitution = self.realize_codegen_substitution(substitution)?;
 
-        let concrete_substitution = values
-            .require_concrete_substitution(substitution)
-            .map_err(FactQueryError::SemanticValueStore)?;
-
-        let instance = StaticInstanceKey::new(
-            template,
-            concrete_substitution,
-            witnesses.iter().copied(),
-            target,
-        );
+        let instance =
+            StaticInstanceKey::new(template, substitution, witnesses.iter().copied(), target);
 
         let specialization = self.codegen_specialization(substitution)?;
         let witnesses = self.concrete_codegen_witnesses(witnesses, cancellation)?;
@@ -576,12 +566,6 @@ impl Compilation {
         let substitution =
             substitute_contextual_self_in_substitution(&values, substitution, contextual_self)?;
 
-        if owner.substitution().is_none() {
-            values
-                .require_concrete_substitution(substitution)
-                .map_err(FactQueryError::SemanticValueStore)?;
-        }
-
         let callable = CallableInstanceData::new(callable.definition(), substitution);
 
         witnesses.extend(self.concrete_codegen_forwarded_constraint_witnesses(
@@ -672,10 +656,7 @@ impl Compilation {
         let requirement = ImplementationRequirementKey::new(subject, application);
 
         let contextual_requirement = matches!(
-            values
-                .type_data(subject)
-                .map_err(FactQueryError::SemanticValueStore)?
-                .as_ref(),
+            values.type_data(subject).as_ref(),
             TypeData::ContextualSelf(_)
         );
 
@@ -718,16 +699,12 @@ impl Compilation {
             .into());
         }
 
-        let implementation = values
-            .implementation_instance_data(witness)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let implementation = values.implementation_instance_data(witness);
 
         let fulfillments =
             implementation_fulfillments(&binding_context, implementation.definition())?;
 
-        let application_data = values
-            .trait_application_data(application)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let application_data = values.trait_application_data(application);
 
         let callable = implementation_callable_instance(
             &binding_context,
@@ -928,16 +905,12 @@ impl Compilation {
             return Ok(ConcreteCodegenCallee::Intrinsic(intrinsic));
         };
 
-        let implementation = values
-            .implementation_instance_data(witness)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let implementation = values.implementation_instance_data(witness);
 
         let fulfillments =
             implementation_fulfillments(&binding_context, implementation.definition())?;
 
-        let application = values
-            .trait_application_data(application)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let application = values.trait_application_data(application);
 
         let callable = implementation_callable_instance(
             &binding_context,
@@ -1072,9 +1045,7 @@ impl Compilation {
     ) -> Result<Vec<ImplementationInstanceId>, CodegenPreparationError> {
         let values = self.semantic_value_store()?;
 
-        let instance = values
-            .implementation_instance_data(implementation)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let instance = values.implementation_instance_data(implementation);
 
         let owner = GenericOwnerId::try_new(instance.definition().into_any()).ok_or_else(|| {
             ProductQueryFailure::missing(
@@ -1173,9 +1144,7 @@ impl Compilation {
                 .substitute_trait_application(application, substitution)
                 .map_err(FactQueryError::SemanticValueStore)?;
 
-            let application_data = values
-                .trait_application_data(application)
-                .map_err(FactQueryError::SemanticValueStore)?;
+            let application_data = values.trait_application_data(application);
 
             if bray_checker::built_in_trait_constraint_outcome(&context, subject, application)
                 .map_err(FactQueryError::from)?
@@ -1202,9 +1171,7 @@ impl Compilation {
         witnesses
             .iter()
             .map(|witness| -> Result<_, CodegenPreparationError> {
-                let data = values
-                    .implementation_instance_data(*witness)
-                    .map_err(FactQueryError::SemanticValueStore)?;
+                let data = values.implementation_instance_data(*witness);
 
                 let substitution = values
                     .substitute_generic_substitution(data.substitution(), owner_substitution)
@@ -1262,9 +1229,7 @@ impl Compilation {
     ) -> Result<GenericSubstitutionId, CodegenPreparationError> {
         let values = self.semantic_value_store()?;
 
-        let data = values
-            .generic_substitution_data(substitution)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let data = values.generic_substitution_data(substitution);
 
         let arguments = data
             .bindings()
@@ -1291,10 +1256,6 @@ impl Compilation {
             .intern_generic_substitution(realized)
             .map_err(FactQueryError::SemanticValueStore)?;
 
-        values
-            .require_concrete_substitution(realized)
-            .map_err(FactQueryError::SemanticValueStore)?;
-
         Ok(realized)
     }
 
@@ -1304,9 +1265,7 @@ impl Compilation {
     ) -> Result<bray_symbols::ConstantTermId, CodegenPreparationError> {
         let values = self.semantic_value_store()?;
 
-        let data = values
-            .constant_term_data(term)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let data = values.constant_term_data(term);
 
         let ConstantTermData::IntegerLiteral { ty, value } = data.as_ref() else {
             return Ok(term);
@@ -1354,13 +1313,7 @@ impl Compilation {
         let mut concrete = BTreeMap::new();
 
         for witness in witnesses {
-            let data = values
-                .implementation_instance_data(witness)
-                .map_err(FactQueryError::SemanticValueStore)?;
-
-            values
-                .require_concrete_substitution(data.substitution())
-                .map_err(FactQueryError::SemanticValueStore)?;
+            let data = values.implementation_instance_data(witness);
 
             let definition =
                 self.portable_codegen_symbol_key(&binding_context, data.definition().into_any())?;

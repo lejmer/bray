@@ -279,7 +279,6 @@ mod tests {
                     *obligation == bray_checker::ExecutionObligation::Property(Total, None)
                         && values
                             .generic_substitution_data(instance.substitution())
-                            .unwrap()
                             .bindings()
                             .len()
                             == 1

@@ -2,84 +2,11 @@ use bray_diagnostics::{DiagnosticFailureField, DiagnosticFailureValue};
 
 use super::diagnostic_context::{boolean_field, count_field, target_endianness, text_field};
 
-#[derive(Clone, Copy)]
-pub(crate) enum TargetContractSide {
-    Expected,
-    Actual,
-}
-
 struct TargetPropertyFieldNames {
     name: &'static str,
     boolean: &'static str,
     natural: &'static str,
     text: &'static str,
-}
-
-impl TargetContractSide {
-    const fn property_field_names(self) -> TargetPropertyFieldNames {
-        match self {
-            Self::Expected => TargetPropertyFieldNames {
-                name: "expected_target_property_name",
-                boolean: "expected_target_property_boolean",
-                natural: "expected_target_property_natural",
-                text: "expected_target_property_text",
-            },
-            Self::Actual => TargetPropertyFieldNames {
-                name: "actual_target_property_name",
-                boolean: "actual_target_property_boolean",
-                natural: "actual_target_property_natural",
-                text: "actual_target_property_text",
-            },
-        }
-    }
-}
-
-pub(crate) fn push_mir_target_contract(
-    context: &mut Vec<DiagnosticFailureField>,
-    side: TargetContractSide,
-    target: &bray_ir::MirTargetContract,
-) {
-    let machine = target.machine();
-    let version = target.runtime_abi();
-
-    let names = match side {
-        TargetContractSide::Expected => [
-            "expected_target_identity",
-            "expected_target_architecture",
-            "expected_target_object_format",
-            "expected_target_endianness",
-            "expected_target_pointer_width_bits",
-            "expected_target_pointer_alignment_bytes",
-            "expected_target_stack_alignment_bytes",
-            "expected_runtime_abi_major",
-            "expected_runtime_abi_minor",
-        ],
-        TargetContractSide::Actual => [
-            "actual_target_identity",
-            "actual_target_architecture",
-            "actual_target_object_format",
-            "actual_target_endianness",
-            "actual_target_pointer_width_bits",
-            "actual_target_pointer_alignment_bytes",
-            "actual_target_stack_alignment_bytes",
-            "actual_runtime_abi_major",
-            "actual_runtime_abi_minor",
-        ],
-    };
-
-    context.extend([
-        text_field(names[0], target.identity().as_str()),
-        text_field(names[1], machine.architecture().as_str()),
-        text_field(names[2], machine.object_format().as_str()),
-        text_field(names[3], target_endianness(machine.endianness())),
-        count_field(names[4], u64::from(machine.pointer_width_bits().get())),
-        count_field(names[5], u64::from(machine.pointer_alignment_bytes().get())),
-        count_field(names[6], u64::from(machine.stack_alignment_bytes().get())),
-        count_field(names[7], u64::from(version.major())),
-        count_field(names[8], u64::from(version.minor())),
-    ]);
-
-    push_target_properties(context, side, target.profile().properties());
 }
 
 pub(crate) fn push_selected_target_properties(
@@ -124,16 +51,6 @@ pub(crate) fn push_target_profile(
     ]);
 
     push_selected_target_properties(context, target.properties());
-}
-
-fn push_target_properties(
-    context: &mut Vec<DiagnosticFailureField>,
-    side: TargetContractSide,
-    properties: &bray_target::TargetProperties,
-) {
-    let names = side.property_field_names();
-
-    push_target_properties_with_names(context, &names, properties);
 }
 
 fn push_target_properties_with_names(
@@ -447,38 +364,30 @@ fn push_text_property(
 mod tests {
     use bray_diagnostics::{DiagnosticFailureField, DiagnosticFailureValue};
 
-    use super::{TargetContractSide, push_mir_target_contract};
+    use super::push_target_profile;
 
     #[test]
-    fn mir_target_contract_context_preserves_machine_runtime_and_typed_properties() {
-        let target = bray_ir::MirTargetContract::new(
-            bray_target::test_support::test_target_profile(),
-            bray_runtime_interface::RuntimeAbiVersion::new(3, 7),
-        );
+    fn target_profile_context_preserves_machine_and_typed_properties() {
+        let target = bray_target::test_support::test_target_profile();
 
         let mut fields = Vec::new();
 
-        push_mir_target_contract(&mut fields, TargetContractSide::Expected, &target);
+        push_target_profile(&mut fields, &target);
 
-        let leading_names: Vec<_> = fields[..9].iter().map(|field| field.name()).collect();
+        let leading_names: Vec<_> = fields[..7].iter().map(|field| field.name()).collect();
 
         assert_eq!(
             leading_names,
             [
-                "expected_target_identity",
-                "expected_target_architecture",
-                "expected_target_object_format",
-                "expected_target_endianness",
-                "expected_target_pointer_width_bits",
-                "expected_target_pointer_alignment_bytes",
-                "expected_target_stack_alignment_bytes",
-                "expected_runtime_abi_major",
-                "expected_runtime_abi_minor",
+                "target_identity",
+                "target_architecture",
+                "target_object_format",
+                "target_endianness",
+                "target_pointer_width_bits",
+                "target_pointer_alignment_bytes",
+                "target_stack_alignment_bytes",
             ]
         );
-
-        assert_eq!(fields[7].value(), &DiagnosticFailureValue::Count(3));
-        assert_eq!(fields[8].value(), &DiagnosticFailureValue::Count(7));
 
         assert_eq!(
             property_value(&fields, "identity.vendor"),
@@ -487,7 +396,7 @@ mod tests {
     }
 
     #[test]
-    fn mir_target_contract_context_exposes_the_concrete_changed_property() {
+    fn target_profile_context_exposes_the_concrete_changed_property() {
         let baseline = bray_target::test_support::test_target_profile();
 
         let changed = bray_target::TargetProfile::try_new(
@@ -500,19 +409,11 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("changed test target profile must be valid: {error:?}"));
 
-        let version = bray_runtime_interface::RuntimeAbiVersion::new(3, 7);
-        let baseline = bray_ir::MirTargetContract::new(baseline, version);
-        let changed = bray_ir::MirTargetContract::new(changed, version);
         let mut baseline_fields = Vec::new();
         let mut changed_fields = Vec::new();
 
-        push_mir_target_contract(
-            &mut baseline_fields,
-            TargetContractSide::Expected,
-            &baseline,
-        );
-
-        push_mir_target_contract(&mut changed_fields, TargetContractSide::Expected, &changed);
+        push_target_profile(&mut baseline_fields, &baseline);
+        push_target_profile(&mut changed_fields, &changed);
 
         assert_eq!(
             property_value(&baseline_fields, "operation.raw_memory"),
@@ -532,7 +433,7 @@ mod tests {
         fields
             .windows(2)
             .find_map(|fields| match (fields[0].name(), fields[0].value()) {
-                ("expected_target_property_name", DiagnosticFailureValue::Text(name))
+                ("target_property_name", DiagnosticFailureValue::Text(name))
                     if name == property =>
                 {
                     Some(fields[1].value())

@@ -177,7 +177,7 @@ where
             ));
         };
 
-        let Some(representation) = type_representation(self.request, input_type)? else {
+        let Some(representation) = type_representation(self.request, input_type) else {
             return Ok(None);
         };
 

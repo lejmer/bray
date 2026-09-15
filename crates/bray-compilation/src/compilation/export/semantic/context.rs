@@ -389,10 +389,7 @@ impl<'a> SemanticExporter<'a> {
             id,
             bray_package_interface::InterfaceSemanticTableKind::Type,
             {
-                let data = self
-                    .values
-                    .type_data(id)
-                    .map_err(super::super::semantic_value_export_error)?;
+                let data = self.values.type_data(id);
 
                 let ty = match data.as_ref() {
                     TypeData::Error => return Err(incomplete_type()),

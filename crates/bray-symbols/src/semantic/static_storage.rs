@@ -4,9 +4,8 @@ use bray_base::{shared_slice, sorted_unique_shared_slice};
 use bray_target::TargetIdentity;
 
 use crate::{
-    ConcreteGenericSubstitutionId, DependencyContractTemplateId, GenericSubstitutionId,
-    ImplementationInstanceId, LifecycleObligationKind, StaticSymbolId, SymbolKey,
-    TypeExpressionTemplate,
+    DependencyContractTemplateId, GenericSubstitutionId, ImplementationInstanceId,
+    LifecycleObligationKind, StaticSymbolId, SymbolKey, TypeExpressionTemplate,
 };
 
 /// The owner domain of one static declaration instance.
@@ -64,7 +63,7 @@ impl StaticReferenceSelection {
     pub const fn substitution(&self) -> GenericSubstitutionId {
         match self {
             Self::Open { substitution, .. } => *substitution,
-            Self::Closed(instance) => instance.substitution().substitution(),
+            Self::Closed(instance) => instance.substitution(),
         }
     }
 
@@ -167,7 +166,7 @@ impl StaticInstanceTemplate {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StaticInstanceKey {
     template: StaticInstanceTemplateId,
-    substitution: ConcreteGenericSubstitutionId,
+    substitution: GenericSubstitutionId,
     selected_witnesses: Arc<[ImplementationInstanceId]>,
     target: TargetIdentity,
 }
@@ -176,7 +175,7 @@ impl StaticInstanceKey {
     /// Creates one closed identity from its exact semantic inputs.
     pub fn new(
         template: StaticInstanceTemplateId,
-        substitution: ConcreteGenericSubstitutionId,
+        substitution: GenericSubstitutionId,
         selected_witnesses: impl IntoIterator<Item = ImplementationInstanceId>,
         target: TargetIdentity,
     ) -> Self {
@@ -194,7 +193,7 @@ impl StaticInstanceKey {
     }
 
     /// Returns the exact normalized closed substitution.
-    pub const fn substitution(&self) -> ConcreteGenericSubstitutionId {
+    pub const fn substitution(&self) -> GenericSubstitutionId {
         self.substitution
     }
 

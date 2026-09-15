@@ -38,9 +38,7 @@ pub(super) fn solve_parameters<C: CheckerRequestContext + ?Sized, K: Copy + Ord>
                 return Err(CheckerQueryError::Cancelled);
             }
 
-            let local = values
-                .dependency_contract_template_data(node.local)
-                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+            let local = values.dependency_contract_template_data(node.local);
 
             // Extend this node's immutable local terms with the current callee approximation.
             let mut requirements = local.requirements().to_vec();
@@ -59,9 +57,7 @@ pub(super) fn solve_parameters<C: CheckerRequestContext + ?Sized, K: Copy + Ord>
                 ))
                 .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
-            let substitution = values
-                .generic_substitution_data(node.callable.substitution())
-                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+            let substitution = values.generic_substitution_data(node.callable.substitution());
 
             for binding in substitution.bindings() {
                 if values
@@ -91,7 +87,7 @@ pub(super) fn retain_parameters(
     callable: CallableInstanceData,
     parameters: Option<&Parameters>,
 ) -> Result<CallableInstanceData, SemanticValueStoreError> {
-    let substitution = values.generic_substitution_data(callable.substitution())?;
+    let substitution = values.generic_substitution_data(callable.substitution());
 
     let retained = substitution
         .bindings()
@@ -106,7 +102,7 @@ pub(super) fn retain_parameters(
         retained.iter().map(|binding| binding.parameter()),
         retained.iter().map(|binding| binding.argument()),
     )
-    .map_err(|_| SemanticValueStoreError::OpenSubstitution)?;
+    .expect("substitution preserves parameter kinds and arity");
 
     let substitution = values.intern_generic_substitution(substitution)?;
 

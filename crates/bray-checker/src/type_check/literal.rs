@@ -249,7 +249,7 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     let Some(component) =
-        type_representation(request, ty)?.and_then(RepresentationRole::complex_component)
+        type_representation(request, ty).and_then(RepresentationRole::complex_component)
     else {
         return Ok(None);
     };

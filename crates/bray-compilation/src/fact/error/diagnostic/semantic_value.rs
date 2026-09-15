@@ -6,31 +6,9 @@ pub const fn diagnostic_semantic_value_failure(
     use bray_symbols::SemanticValueStoreError as Error;
 
     match error {
-        Error::ForeignId { expected, actual } => DiagnosticSemanticValueFailure::ForeignId {
-            expected_store: expected.raw(),
-            actual_store: actual.raw(),
-        },
-        Error::UnknownId { kind } => DiagnosticSemanticValueFailure::UnknownId {
-            kind: diagnostic_semantic_value_kind(kind),
-        },
         Error::CapacityExhausted { kind } => DiagnosticSemanticValueFailure::CapacityExhausted {
             kind: diagnostic_semantic_value_kind(kind),
         },
-        Error::GenericOwnerMismatch { expected, actual } => {
-            let expected = expected.symbol();
-            let actual = actual.symbol();
-
-            DiagnosticSemanticValueFailure::GenericOwnerMismatch {
-                expected_kind: expected.kind().as_str(),
-                expected: expected.symbol_id().raw(),
-                actual_kind: actual.kind().as_str(),
-                actual: actual.symbol_id().raw(),
-            }
-        }
-        Error::InvalidDependencyVariable { depth, ordinal } => {
-            DiagnosticSemanticValueFailure::InvalidDependencyVariable { depth, ordinal }
-        }
-        Error::OpenSubstitution => DiagnosticSemanticValueFailure::OpenSubstitution,
     }
 }
 

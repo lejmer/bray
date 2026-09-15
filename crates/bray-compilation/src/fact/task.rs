@@ -144,20 +144,17 @@ impl FactTaskContext {
             return Err(self.invalid_state(TaskOperation::RecordInput, state.phase));
         }
 
-        match state.inputs.insert(key.clone(), fingerprint) {
-            Some(previous) if previous != fingerprint => {
-                // The task error owns stable input and fact identities after releasing its lock.
-                Err(FactRuntimeFailure::InputFingerprintMismatch {
-                    input: key.clone(),
-                    expected: previous,
-                    actual: fingerprint,
-                    task: self.identity(),
-                    fact: self.key().clone(),
-                }
-                .into())
-            }
-            _ => Ok(()),
+        if let Some(previous) = state.inputs.insert(key.clone(), fingerprint) {
+            assert_eq!(
+                previous,
+                fingerprint,
+                "input {key:?} changed during fact {:?}, task {:?}",
+                self.key(),
+                self.identity()
+            );
         }
+
+        Ok(())
     }
 
     fn record_fixed_input(&self, bit: u32) -> Result<(), FactQueryError> {
@@ -201,16 +198,6 @@ impl FactTaskContext {
             operation,
             expected: FactTaskPhase::Recording,
             actual,
-            task: self.identity(),
-            fact: self.key().clone(),
-        }
-        .into()
-    }
-
-    fn missing_input_fingerprint(&self, key: &CompilationInputKey) -> FactQueryError {
-        // The failure can cross worker and query boundaries after this task-local borrow ends.
-        FactRuntimeFailure::MissingInputFingerprint {
-            input: key.clone(),
             task: self.identity(),
             fact: self.key().clone(),
         }
@@ -280,9 +267,13 @@ pub(crate) fn record_input(
             return context.record_fixed_input(bit);
         }
 
-        let Some(fingerprint) = fingerprint else {
-            return Err(context.missing_input_fingerprint(key));
-        };
+        let fingerprint = fingerprint.unwrap_or_else(|| {
+            panic!(
+                "input {key:?} has no fingerprint for fact {:?}, task {:?}",
+                context.key(),
+                context.identity()
+            )
+        });
 
         context.record_input(key, fingerprint)
     })
@@ -578,6 +569,31 @@ mod tests {
     }
 
     #[test]
+    fn repeated_input_fingerprints_must_be_stable() {
+        let fact = CompilationFactKey::CheckDiagnostics;
+        let input = CompilationInputKey::Source(SourceId::new(7));
+
+        let context = FactTaskContext::with_cycle_key(
+            RuntimeIdentity(6),
+            FactTaskIdentity(8),
+            fact.clone(),
+            fact.clone(),
+        );
+
+        let first = crate::fact::fact_fingerprint(&fact, &1_u8);
+        let changed = crate::fact::fact_fingerprint(&fact, &2_u8);
+        context.record_input(&input, first).unwrap();
+        context.record_input(&input, first).unwrap();
+
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                context.record_input(&input, changed)
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
     fn missing_input_fingerprints_retain_task_and_input_identity() {
         let fact = CompilationFactKey::CheckDiagnostics;
         let input = CompilationInputKey::Source(SourceId::new(7));
@@ -589,22 +605,18 @@ mod tests {
             fact,
         );
 
-        let error = match context.run(|| record_input(RuntimeIdentity(6), &input, None)) {
-            Ok(()) => panic!("a dynamic input requires a fingerprint"),
-            Err(error) => error,
-        };
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            context.run(|| record_input(RuntimeIdentity(6), &input, None))
+        }))
+        .expect_err("missing input identity is a compiler invariant");
 
-        assert!(matches!(
-            error,
-            FactQueryError::Runtime(error)
-                if matches!(
-                    error.cause(),
-                    FactRuntimeFailure::MissingInputFingerprint {
-                        input: CompilationInputKey::Source(source),
-                        task: FactTaskIdentity(8),
-                        fact: CompilationFactKey::CheckDiagnostics,
-                    } if *source == SourceId::new(7)
-                )
-        ));
+        let message = panic
+            .downcast_ref::<String>()
+            .expect("contextual panic has a message");
+
+        assert!(message.contains("CheckDiagnostics"));
+        assert!(message.contains("Source"));
+        assert!(message.contains("7"));
+        assert!(message.contains("FactTaskIdentity(8)"));
     }
 }

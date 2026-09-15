@@ -385,9 +385,9 @@ impl<'unit> VerifiedLoweringPlans<'unit> {
         values: &bray_symbols::SemanticValueStore,
     ) -> Result<(), crate::LoweringInputError> {
         for (owner, kind, call) in self.storage.owned_borrows() {
-            let owner = values.type_data(owner)?;
+            let owner = values.type_data(owner);
 
-            if !storage_protocol_call_matches(values, self.symbols, &owner, call, Some(kind))? {
+            if !storage_protocol_call_matches(values, self.symbols, &owner, call, Some(kind)) {
                 return Err(
                     LoweringPlanFailure::analysis(LoweringPlanFailureCause::Contradictory).into(),
                 );
@@ -397,8 +397,7 @@ impl<'unit> VerifiedLoweringPlans<'unit> {
         for requirement in self.analysis.storage_requirements() {
             for part in requirement.parts().into_iter().flatten() {
                 for projection in part.projections() {
-                    let source = values.type_data(projection.source_type())?;
-                    values.type_data(projection.result_type())?;
+                    let source = values.type_data(projection.source_type());
 
                     if !cleanup_projection_matches_type(*projection, &source) {
                         return Err(LoweringPlanFailure::storage_requirement(
@@ -416,7 +415,7 @@ impl<'unit> VerifiedLoweringPlans<'unit> {
                             &source,
                             call,
                             Some(bray_symbols::BorrowKind::Mutable),
-                        )?
+                        )
                     {
                         return Err(LoweringPlanFailure::storage_requirement(
                             LoweringPlanFailureCause::Contradictory,
@@ -437,10 +436,10 @@ impl<'unit> VerifiedLoweringPlans<'unit> {
                         storage_protocol_call_matches(
                             values,
                             self.symbols,
-                            values.type_data(owner)?.as_ref(),
+                            values.type_data(owner).as_ref(),
                             call,
                             None,
-                        )?
+                        )
                     } else {
                         false
                     };
@@ -471,20 +470,19 @@ fn storage_protocol_call_matches(
     owner: &bray_symbols::TypeData,
     call: bray_bound_tree::StorageProtocolCall,
     borrow: Option<bray_symbols::BorrowKind>,
-) -> Result<bool, bray_symbols::SemanticValueStoreError> {
+) -> bool {
     use bray_symbols::TypeData;
 
     let TypeData::OwnedIndirection { storage, target } = owner else {
-        return Ok(false);
+        return false;
     };
 
-    let parameter = values.type_data(call.parameter())?;
-    let result = values.type_data(call.result())?;
-    let signature = values.type_data(call.callable_type())?;
-    values.generic_substitution_data(call.callable().substitution())?;
+    let parameter = values.type_data(call.parameter());
+    let result = values.type_data(call.result());
+    let signature = values.type_data(call.callable_type());
 
     let TypeData::Callable(signature) = signature.as_ref() else {
-        return Ok(false);
+        return false;
     };
 
     if signature.abi() != bray_symbols::CallableAbi::Bray
@@ -498,17 +496,17 @@ fn storage_protocol_call_matches(
             != Some(call.parameter())
         || signature.result() != call.result()
     {
-        return Ok(false);
+        return false;
     }
 
-    Ok(if let Some(borrow) = borrow {
+    if let Some(borrow) = borrow {
         matches!(parameter.as_ref(), TypeData::Borrow { kind, target } if *kind == borrow && target == storage)
             && matches!(result.as_ref(), TypeData::Borrow { kind, target: result } if *kind == borrow && result == target)
     } else {
         call.parameter() == *storage
             && matches!(result.as_ref(), TypeData::Named { definition: bray_symbols::NamedTypeSymbolId::Struct(definition), .. }
                 if symbols.symbol_representation(*definition) == Some(bray_compiler_known::RepresentationRole::Unit))
-    })
+    }
 }
 
 fn cleanup_projection_matches_type(
@@ -741,21 +739,17 @@ mod tests {
             let call = StorageProtocolCall::new(callable, signature, parameter, result);
 
             assert_eq!(
-                super::storage_protocol_call_matches(&values, symbols, &owner, call, borrow)
-                    .unwrap(),
+                super::storage_protocol_call_matches(&values, symbols, &owner, call, borrow),
                 valid
             );
 
-            assert!(
-                !super::storage_protocol_call_matches(
-                    &values,
-                    symbols,
-                    &TypeData::Nullable(target),
-                    call,
-                    borrow
-                )
-                .unwrap()
-            );
+            assert!(!super::storage_protocol_call_matches(
+                &values,
+                symbols,
+                &TypeData::Nullable(target),
+                call,
+                borrow
+            ));
         }
 
         for (parameters, result, abi, execution, variadic) in [
@@ -821,30 +815,24 @@ mod tests {
 
             let call = StorageProtocolCall::new(callable, signature, policy_borrow, target_borrow);
 
-            assert!(
-                !super::storage_protocol_call_matches(
-                    &values,
-                    symbols,
-                    &owner,
-                    call,
-                    Some(BorrowKind::Mutable)
-                )
-                .unwrap()
-            );
-        }
-
-        let call = StorageProtocolCall::new(callable, policy, policy_borrow, target_borrow);
-
-        assert!(
-            !super::storage_protocol_call_matches(
+            assert!(!super::storage_protocol_call_matches(
                 &values,
                 symbols,
                 &owner,
                 call,
                 Some(BorrowKind::Mutable)
-            )
-            .unwrap()
-        );
+            ));
+        }
+
+        let call = StorageProtocolCall::new(callable, policy, policy_borrow, target_borrow);
+
+        assert!(!super::storage_protocol_call_matches(
+            &values,
+            symbols,
+            &owner,
+            call,
+            Some(BorrowKind::Mutable)
+        ));
     }
 
     #[test]

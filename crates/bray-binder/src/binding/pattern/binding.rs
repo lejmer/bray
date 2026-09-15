@@ -83,19 +83,12 @@ macro_rules! define_pattern_binder {
             // Pending identities and coherent lookup independently retain shared name text.
             let pending_names = coherent
                 .iter()
-                .filter_map(|(name, binding)| {
-                    self.unit()
-                        .local_symbol_syntax_anchor((*binding).into())
-                        .ok()
-                        .map(|anchor| {
-                            (
-                                name.clone(),
-                                bray_source::SourceSpan::new(
-                                    anchor.source_id(),
-                                    anchor.full_range(),
-                                ),
-                            )
-                        })
+                .map(|(name, binding)| {
+                    let anchor = self.unit().local_symbol_syntax_anchor((*binding).into());
+                    (
+                        name.clone(),
+                        bray_source::SourceSpan::new(anchor.source_id(), anchor.full_range()),
+                    )
                 })
                 .collect::<BTreeMap<_, _>>();
 
@@ -200,7 +193,7 @@ macro_rules! define_pattern_binder {
             };
 
             if let Some(binding) = direct_binding {
-                self.record_value_type(BoundReferenceTarget::Local(binding.into()), input_type)?;
+                self.record_value_type(BoundReferenceTarget::Local(binding.into()), input_type);
             }
 
             let direct_bindings = direct_binding.into_iter().collect::<Vec<_>>();
@@ -436,7 +429,7 @@ where
             resolved.push(bindings);
         }
 
-        if self.type_is_error(input_type)? {
+        if self.type_is_error(input_type) {
             // Subject-dependent names remain provisional until the checker resolves variants.
             return Ok((true, resolved.into_iter().flatten().collect()));
         }
@@ -510,7 +503,7 @@ where
                 mode,
                 PatternBindingMode::MatchObserve | PatternBindingMode::MatchConsume
             )
-            && self.type_is_error(input_type)?;
+            && self.type_is_error(input_type);
 
         let result = if let Some(token) = syntax.bare_name_token() {
             self.bind_pattern_identifier(
@@ -553,12 +546,14 @@ where
         })
     }
 
-    fn type_is_error(&self, ty: TypeId) -> BindingResult<bool, C::UpstreamError> {
-        self.binding_context()
-            .semantic_values()
-            .type_data(ty)
-            .map(|data| matches!(data.as_ref(), bray_symbols::TypeData::Error))
-            .map_err(BindingError::SemanticValue)
+    fn type_is_error(&self, ty: TypeId) -> bool {
+        matches!(
+            self.binding_context()
+                .semantic_values()
+                .type_data(ty)
+                .as_ref(),
+            bray_symbols::TypeData::Error
+        )
     }
 
     fn report_incoherent_alternative_pattern(&mut self, syntax: &impl SourceSyntaxNode) {

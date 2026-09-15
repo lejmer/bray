@@ -12,7 +12,7 @@ impl SemanticValueStore {
         context: SelfTypeContext,
         replacement: TypeId,
     ) -> Result<TypeId, SemanticValueStoreError> {
-        let data = self.type_data(ty)?;
+        let data = self.type_data(ty);
 
         if matches!(data.as_ref(), TypeData::ContextualSelf(candidate) if *candidate == context) {
             return Ok(replacement);
@@ -122,7 +122,7 @@ impl SemanticValueStore {
         context: SelfTypeContext,
         replacement: TypeId,
     ) -> Result<TraitApplicationId, SemanticValueStoreError> {
-        let data = self.trait_application_data(application)?;
+        let data = self.trait_application_data(application);
 
         let substitution = self.substitute_contextual_self_in_substitution(
             data.substitution(),
@@ -140,7 +140,7 @@ impl SemanticValueStore {
         context: SelfTypeContext,
         replacement: TypeId,
     ) -> Result<super::DependencyContractTemplateId, SemanticValueStoreError> {
-        let template = self.dependency_contract_template_data(contract)?;
+        let template = self.dependency_contract_template_data(contract);
 
         let requirements = self.substitute_contextual_dependency_requirements(
             template.requirements(),
@@ -223,7 +223,7 @@ impl SemanticValueStore {
                     requirement,
                     inputs,
                 } => {
-                    let callable = self.callable_instance_data(*callable)?;
+                    let callable = self.callable_instance_data(*callable);
 
                     let substitution = self.substitute_contextual_self_in_substitution(
                         callable.substitution(),
@@ -286,7 +286,7 @@ impl SemanticValueStore {
         context: SelfTypeContext,
         replacement: TypeId,
     ) -> Result<GenericSubstitutionId, SemanticValueStoreError> {
-        let data = self.generic_substitution_data(substitution)?;
+        let data = self.generic_substitution_data(substitution);
 
         let arguments = data
             .bindings()
@@ -304,7 +304,7 @@ impl SemanticValueStore {
             data.bindings().iter().map(|binding| binding.parameter()),
             arguments,
         )
-        .map_err(|_| SemanticValueStoreError::OpenSubstitution)?;
+        .expect("substitution preserves parameter kinds and arity");
 
         self.intern_generic_substitution(substituted)
     }
@@ -340,9 +340,7 @@ mod tests {
             .substitute_contextual_self(subject, context, replacement)
             .unwrap_or_else(|error| panic!("contextual substitution failed: {error:?}"));
 
-        let data = store
-            .type_data(substituted)
-            .unwrap_or_else(|error| panic!("substituted type missing: {error:?}"));
+        let data = store.type_data(substituted);
 
         assert_eq!(data.as_ref(), &TypeData::Nullable(replacement));
     }

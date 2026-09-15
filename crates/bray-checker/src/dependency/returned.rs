@@ -76,9 +76,7 @@ pub(crate) fn call_result_template<C: CheckerRequestContext + ?Sized>(
         _ => template,
     };
 
-    let template = store
-        .dependency_contract_template_data(template)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    let template = store.dependency_contract_template_data(template);
 
     let template = DependencyContractTemplateData::new(super::witness::resolve(
         request,
@@ -138,10 +136,7 @@ impl super::ValueInputs {
                 continue;
             };
 
-            let data = request
-                .semantic_values()
-                .type_data(ty.ty())
-                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+            let data = request.semantic_values().type_data(ty.ty());
 
             if !matches!(data.as_ref(), bray_symbols::TypeData::Borrow { .. }) {
                 continue;

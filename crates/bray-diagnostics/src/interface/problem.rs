@@ -514,29 +514,8 @@ pub enum DiagnosticInterfaceSymbolReference {
 /// Locale-neutral exact compiled semantic-content contract violation.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticSemanticContentProblem {
-    ForeignId {
-        expected: u64,
-        actual: u64,
-    },
-    UnknownId {
-        value_kind: DiagnosticSemanticValueKind,
-    },
     CapacityExhausted {
         value_kind: DiagnosticSemanticValueKind,
-    },
-    GenericOwnerMismatch {
-        expected_kind: DiagnosticInterfaceSymbolKind,
-        expected: u32,
-        actual_kind: DiagnosticInterfaceSymbolKind,
-        actual: u32,
-    },
-    OpenSubstitution,
-    /// A returned-dependency reference does not name an enclosing equation.
-    InvalidDependencyVariable {
-        /// Number of enclosing equation groups to skip.
-        depth: u32,
-        /// Equation ordinal within the selected group.
-        ordinal: u32,
     },
 }
 

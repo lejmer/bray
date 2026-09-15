@@ -201,7 +201,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 .push_block_parameter(terminal, source.clone(), report_type)
                 .map_err(invalid)?;
 
-            Some(std::mem::replace(report, bray_ir::MirOperand::Value(parameter)))
+            Some(std::mem::replace(
+                report,
+                bray_ir::MirOperand::Value(parameter),
+            ))
         } else {
             None
         };

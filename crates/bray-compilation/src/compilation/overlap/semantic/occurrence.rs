@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use bray_symbols::{
     ConstantTermData, ConstantTermId, GenericArgument, GenericConstParameterSymbolId,
-    GenericSubstitutionId, GenericTypeParameterSymbolId, SemanticValueStoreError, TypeData, TypeId,
+    GenericSubstitutionId, GenericTypeParameterSymbolId, TypeData, TypeId,
 };
 
 use super::SemanticUnifier;
@@ -13,15 +13,15 @@ impl SemanticUnifier<'_> {
         ty: TypeId,
         parameter: GenericTypeParameterSymbolId,
         visited: &mut BTreeSet<TypeId>,
-    ) -> Result<bool, SemanticValueStoreError> {
+    ) -> bool {
         if !visited.insert(ty) {
-            return Ok(false);
+            return false;
         }
 
-        let ty = self.values.type_data(ty)?;
+        let ty = self.values.type_data(ty);
 
         match ty.as_ref() {
-            TypeData::TypeParameter(candidate) => Ok(*candidate == parameter),
+            TypeData::TypeParameter(candidate) => *candidate == parameter,
             TypeData::Named { substitution, .. } => {
                 self.substitution_contains_type_parameter(*substitution, parameter, visited)
             }
@@ -30,11 +30,11 @@ impl SemanticUnifier<'_> {
                 application,
                 ..
             } => {
-                if self.type_contains_parameter(*subject, parameter, visited)? {
-                    return Ok(true);
+                if self.type_contains_parameter(*subject, parameter, visited) {
+                    return true;
                 }
 
-                let application = self.values.trait_application_data(*application)?;
+                let application = self.values.trait_application_data(*application);
 
                 self.substitution_contains_type_parameter(
                     application.substitution(),
@@ -44,12 +44,12 @@ impl SemanticUnifier<'_> {
             }
             TypeData::Tuple(elements) => {
                 for element in &**elements {
-                    if self.type_contains_parameter(*element, parameter, visited)? {
-                        return Ok(true);
+                    if self.type_contains_parameter(*element, parameter, visited) {
+                        return true;
                     }
                 }
 
-                Ok(false)
+                false
             }
             TypeData::Array { element, .. }
             | TypeData::FlexibleArray(element)
@@ -62,7 +62,7 @@ impl SemanticUnifier<'_> {
                 self.type_contains_parameter(*target, parameter, visited)
             }
             TypeData::TraitView(application) => {
-                let application = self.values.trait_application_data(*application)?;
+                let application = self.values.trait_application_data(*application);
 
                 self.substitution_contains_type_parameter(
                     application.substitution(),
@@ -71,22 +71,22 @@ impl SemanticUnifier<'_> {
                 )
             }
             TypeData::OwnedIndirection { storage, target } => {
-                if self.type_contains_parameter(*storage, parameter, visited)? {
-                    return Ok(true);
+                if self.type_contains_parameter(*storage, parameter, visited) {
+                    return true;
                 }
 
                 self.type_contains_parameter(*target, parameter, visited)
             }
             TypeData::Callable(callable) => {
                 for callable_parameter in callable.parameters() {
-                    if self.type_contains_parameter(callable_parameter.ty(), parameter, visited)? {
-                        return Ok(true);
+                    if self.type_contains_parameter(callable_parameter.ty(), parameter, visited) {
+                        return true;
                     }
                 }
 
                 self.type_contains_parameter(callable.result(), parameter, visited)
             }
-            TypeData::Error | TypeData::ContextualSelf(_) => Ok(false),
+            TypeData::Error | TypeData::ContextualSelf(_) => false,
         }
     }
 
@@ -95,18 +95,18 @@ impl SemanticUnifier<'_> {
         substitution: GenericSubstitutionId,
         parameter: GenericTypeParameterSymbolId,
         visited: &mut BTreeSet<TypeId>,
-    ) -> Result<bool, SemanticValueStoreError> {
-        let substitution = self.values.generic_substitution_data(substitution)?;
+    ) -> bool {
+        let substitution = self.values.generic_substitution_data(substitution);
 
         for binding in substitution.bindings() {
             if let GenericArgument::Type(ty) = binding.argument()
-                && self.type_contains_parameter(ty, parameter, visited)?
+                && self.type_contains_parameter(ty, parameter, visited)
             {
-                return Ok(true);
+                return true;
             }
         }
 
-        Ok(false)
+        false
     }
 
     pub(super) fn constant_contains_parameter(
@@ -114,56 +114,56 @@ impl SemanticUnifier<'_> {
         term: ConstantTermId,
         parameter: GenericConstParameterSymbolId,
         visited: &mut BTreeSet<ConstantTermId>,
-    ) -> Result<bool, SemanticValueStoreError> {
+    ) -> bool {
         if !visited.insert(term) {
-            return Ok(false);
+            return false;
         }
 
-        let term = self.values.constant_term_data(term)?;
+        let term = self.values.constant_term_data(term);
 
         match term.as_ref() {
             ConstantTermData::Typed { term, .. } => {
                 self.constant_contains_parameter(*term, parameter, visited)
             }
-            ConstantTermData::Parameter(candidate) => Ok(*candidate == parameter),
+            ConstantTermData::Parameter(candidate) => *candidate == parameter,
             ConstantTermData::Unary { operand, .. }
             | ConstantTermData::Conversion { operand, .. }
             | ConstantTermData::NullablePresent(operand) => {
                 self.constant_contains_parameter(*operand, parameter, visited)
             }
             ConstantTermData::Binary { left, right, .. } => {
-                if self.constant_contains_parameter(*left, parameter, visited)? {
-                    return Ok(true);
+                if self.constant_contains_parameter(*left, parameter, visited) {
+                    return true;
                 }
 
                 self.constant_contains_parameter(*right, parameter, visited)
             }
             ConstantTermData::Tuple(elements) | ConstantTermData::Array(elements) => {
                 for element in &**elements {
-                    if self.constant_contains_parameter(*element, parameter, visited)? {
-                        return Ok(true);
+                    if self.constant_contains_parameter(*element, parameter, visited) {
+                        return true;
                     }
                 }
 
-                Ok(false)
+                false
             }
             ConstantTermData::Product(fields) => {
                 for field in &**fields {
-                    if self.constant_contains_parameter(*field.value(), parameter, visited)? {
-                        return Ok(true);
+                    if self.constant_contains_parameter(*field.value(), parameter, visited) {
+                        return true;
                     }
                 }
 
-                Ok(false)
+                false
             }
             ConstantTermData::Union { fields, .. } => {
                 for field in &**fields {
-                    if self.constant_contains_parameter(*field.value(), parameter, visited)? {
-                        return Ok(true);
+                    if self.constant_contains_parameter(*field.value(), parameter, visited) {
+                        return true;
                     }
                 }
 
-                Ok(false)
+                false
             }
             ConstantTermData::DefinitionApplication { substitution, .. } => {
                 self.substitution_contains_const_parameter(*substitution, parameter, visited)
@@ -173,23 +173,23 @@ impl SemanticUnifier<'_> {
                 arguments,
                 ..
             } => {
-                let callable = self.values.callable_instance_data(*callable)?;
+                let callable = self.values.callable_instance_data(*callable);
 
                 if self.substitution_contains_const_parameter(
                     callable.substitution(),
                     parameter,
                     visited,
-                )? {
-                    return Ok(true);
+                ) {
+                    return true;
                 }
 
                 for argument in &**arguments {
-                    if self.constant_contains_parameter(*argument, parameter, visited)? {
-                        return Ok(true);
+                    if self.constant_contains_parameter(*argument, parameter, visited) {
+                        return true;
                     }
                 }
 
-                Ok(false)
+                false
             }
             ConstantTermData::PredicateCall {
                 predicate,
@@ -199,35 +199,35 @@ impl SemanticUnifier<'_> {
                     predicate.substitution(),
                     parameter,
                     visited,
-                )? {
-                    return Ok(true);
+                ) {
+                    return true;
                 }
 
                 for argument in &**arguments {
-                    if self.constant_contains_parameter(*argument, parameter, visited)? {
-                        return Ok(true);
+                    if self.constant_contains_parameter(*argument, parameter, visited) {
+                        return true;
                     }
                 }
 
-                Ok(false)
+                false
             }
             ConstantTermData::Projection(projection) => {
-                if self.constant_contains_parameter(projection.subject(), parameter, visited)? {
-                    return Ok(true);
+                if self.constant_contains_parameter(projection.subject(), parameter, visited) {
+                    return true;
                 }
 
                 for term in projection.kind().term_references() {
-                    if self.constant_contains_parameter(term, parameter, visited)? {
-                        return Ok(true);
+                    if self.constant_contains_parameter(term, parameter, visited) {
+                        return true;
                     }
                 }
 
-                Ok(false)
+                false
             }
             ConstantTermData::Value(_)
             | ConstantTermData::IntegerLiteral { .. }
             | ConstantTermData::CallableArgument(_)
-            | ConstantTermData::TargetProperty(_) => Ok(false),
+            | ConstantTermData::TargetProperty(_) => false,
         }
     }
 
@@ -236,18 +236,18 @@ impl SemanticUnifier<'_> {
         substitution: GenericSubstitutionId,
         parameter: GenericConstParameterSymbolId,
         visited: &mut BTreeSet<ConstantTermId>,
-    ) -> Result<bool, SemanticValueStoreError> {
-        let substitution = self.values.generic_substitution_data(substitution)?;
+    ) -> bool {
+        let substitution = self.values.generic_substitution_data(substitution);
 
         for binding in substitution.bindings() {
             if let GenericArgument::Constant(term) = binding.argument()
-                && self.constant_contains_parameter(term, parameter, visited)?
+                && self.constant_contains_parameter(term, parameter, visited)
             {
-                return Ok(true);
+                return true;
             }
         }
 
-        Ok(false)
+        false
     }
 }
 
@@ -294,7 +294,7 @@ mod tests {
 
             assert_eq!(
                 unifier.constant_contains_parameter(term, parameter, &mut BTreeSet::new()),
-                Ok(true)
+                true
             );
 
             assert_eq!(
@@ -303,7 +303,7 @@ mod tests {
                     GenericConstParameterSymbolId::from_symbol_id(SymbolId::new(2)),
                     &mut BTreeSet::new()
                 ),
-                Ok(false)
+                false
             );
         }
     }

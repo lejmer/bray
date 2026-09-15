@@ -183,10 +183,6 @@ pub fn resolve_type_expression_template(
                 return Ok(None);
             };
 
-            values
-                .constant_term_data(length)
-                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
-
             TypeData::Array { element, length }
         }
         TypeExpressionTemplate::FlexibleArray(element) => {
@@ -313,9 +309,6 @@ pub fn resolve_callable_signature_template(
         template
             .parameter_type_templates(values)
             .map_err(|error| match error {
-                bray_symbols::CallableSignatureTemplateError::SemanticValue(error) => {
-                    CheckerInfrastructureError::SemanticValueStore(error)
-                }
                 bray_symbols::CallableSignatureTemplateError::InvalidCallableType
                 | bray_symbols::CallableSignatureTemplateError::ParameterCountMismatch
                 | bray_symbols::CallableSignatureTemplateError::ParameterIdentityMismatch => {
@@ -409,10 +402,6 @@ fn resolve_arguments(
                 let Some(term) = constants.term(occurrence.key()) else {
                     return Ok(None);
                 };
-
-                values
-                    .constant_term_data(term)
-                    .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
                 GenericArgument::Constant(term)
             }
@@ -549,10 +538,6 @@ mod tests {
         };
 
         let data = values.type_data(resolved);
-
-        let Ok(data) = data else {
-            panic!("resolved array type must exist");
-        };
 
         assert_eq!(data.as_ref(), &TypeData::Array { element, length });
     }

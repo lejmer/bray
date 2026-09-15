@@ -96,11 +96,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         callable: bray_bound_tree::LifecycleCallable,
         result: bray_bound_tree::BoundCallResult,
     ) -> Result<bray_ir::MirValueId, C::Error> {
-        let receiver = self
-            .context
-            .semantic_values()
-            .type_data(callable.receiver)
-            .map_err(SyntheticLoweringError::SemanticValue)?;
+        let receiver = self.context.semantic_values().type_data(callable.receiver);
 
         let borrow = match receiver.as_ref() {
             TypeData::Borrow { kind, .. } => Some(*kind),

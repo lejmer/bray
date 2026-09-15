@@ -347,9 +347,7 @@ fn iteration_exact_count(
     source_type: TypeId,
     machine: &bray_target::TargetMachineProperties,
 ) -> Result<Option<bray_symbols::ConstantTermId>, FactQueryError> {
-    let source = values
-        .type_data(source_type)
-        .map_err(FactQueryError::SemanticValueStore)?;
+    let source = values.type_data(source_type);
 
     match source.as_ref() {
         TypeData::Array { length, .. } => Ok(Some(*length)),
@@ -411,9 +409,7 @@ fn range_literal_integer(
     expression: BoundExpressionId,
 ) -> Result<Option<IntegerConstant>, FactQueryError> {
     if let Some(value) = literals.expression(expression) {
-        let value = values
-            .constant_value_data(value)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let value = values.constant_value_data(value);
 
         return Ok(match value.kind() {
             ConstantValueKind::Integer(integer) => Some(integer.clone()),
@@ -542,13 +538,11 @@ fn iteration_candidate(
         ))
         .map_err(FactQueryError::SemanticValueStore)?;
 
-    let iterable_application = values
-        .trait_application_data(iterable.requirement.trait_application())
-        .map_err(FactQueryError::SemanticValueStore)?;
+    let iterable_application =
+        values.trait_application_data(iterable.requirement.trait_application());
 
-    let iterator_application = values
-        .trait_application_data(iterator.requirement.trait_application())
-        .map_err(FactQueryError::SemanticValueStore)?;
+    let iterator_application =
+        values.trait_application_data(iterator.requirement.trait_application());
 
     let iterate_member = callable_instance(
         values,
@@ -684,19 +678,19 @@ mod tests {
         };
 
         assert_eq!(
-            values.type_data(shared).as_deref(),
-            Ok(&TypeData::Borrow {
+            values.type_data(shared).as_ref(),
+            &TypeData::Borrow {
                 kind: BorrowKind::Shared,
                 target: source,
-            })
+            }
         );
 
         assert_eq!(
-            values.type_data(mutable).as_deref(),
-            Ok(&TypeData::Borrow {
+            values.type_data(mutable).as_ref(),
+            &TypeData::Borrow {
                 kind: BorrowKind::Mutable,
                 target: source,
-            })
+            }
         );
 
         assert_eq!(
@@ -816,7 +810,6 @@ mod tests {
                 RepresentationRole::Range,
                 range_type,
             )
-            .unwrap_or_else(|error| panic!("range element must read: {error:?}"))
             .unwrap_or_else(|| panic!("range type must retain its element"));
 
         assert_eq!(
@@ -827,7 +820,6 @@ mod tests {
                         .semantic_value_store()
                         .unwrap_or_else(|error| panic!("semantic values must publish: {error:?}"))
                         .type_data(element)
-                        .unwrap_or_else(|error| panic!("element type must publish: {error:?}"))
                         .as_ref()
                     {
                         TypeData::Named {
@@ -856,9 +848,7 @@ mod tests {
             .semantic_value_store()
             .unwrap_or_else(|error| panic!("semantic values must publish: {error:?}"));
 
-        let count = values
-            .constant_term_data(count)
-            .unwrap_or_else(|error| panic!("range cardinality must publish: {error:?}"));
+        let count = values.constant_term_data(count);
 
         assert!(matches!(
             count.as_ref(),
@@ -959,9 +949,7 @@ mod tests {
                 .semantic_value_store()
                 .unwrap_or_else(|error| panic!("{bounds} values must publish: {error:?}"));
 
-            let count = values
-                .constant_term_data(count)
-                .unwrap_or_else(|error| panic!("{bounds} cardinality must publish: {error:?}"));
+            let count = values.constant_term_data(count);
 
             assert!(matches!(
                 count.as_ref(),
@@ -1097,8 +1085,7 @@ mod tests {
 
         let application = binding_context
             .semantic_values()
-            .trait_application_data(application)
-            .unwrap_or_else(|error| panic!("Iterable application must be available: {error:?}"));
+            .trait_application_data(application);
 
         assert_eq!(application.definition(), protocol.iterable_trait());
 
@@ -1156,13 +1143,11 @@ mod tests {
 
         let iterable_witness = binding_context
             .semantic_values()
-            .implementation_instance_data(selected.iterable_witness())
-            .unwrap_or_else(|error| panic!("Iterable witness must be available: {error:?}"));
+            .implementation_instance_data(selected.iterable_witness());
 
         let iterator_witness = binding_context
             .semantic_values()
-            .implementation_instance_data(selected.iterator_witness())
-            .unwrap_or_else(|error| panic!("Iterator witness must be available: {error:?}"));
+            .implementation_instance_data(selected.iterator_witness());
 
         assert_ne!(iterable_witness.definition(), iterator_witness.definition());
 
@@ -1230,14 +1215,8 @@ mod tests {
             .unwrap_or_else(|| panic!("iteration binding reference must have a final type"));
 
         assert_eq!(
-            binding_context
-                .semantic_values()
-                .type_data(actual)
-                .unwrap_or_else(|error| panic!("actual type must be available: {error:?}")),
-            binding_context
-                .semantic_values()
-                .type_data(element_type)
-                .unwrap_or_else(|error| panic!("element type must be available: {error:?}")),
+            binding_context.semantic_values().type_data(actual),
+            binding_context.semantic_values().type_data(element_type),
             "{:?}",
             types.diagnostics()
         );

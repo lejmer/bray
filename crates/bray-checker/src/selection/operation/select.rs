@@ -292,9 +292,9 @@ where
         ));
     }
 
-    validate_operation_instances(request, &operation)?;
+    validate_operation_instances(&operation)?;
 
-    if !implementation_selections_match(request, &operation, evidence)? {
+    if !implementation_selections_match(&operation, evidence)? {
         return Ok(CandidateCheck::Incompatible(
             SelectionCandidateRejectionReason::RequiredImplementation,
         ));
@@ -467,13 +467,6 @@ fn operation_is_valid<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    if let Some(result_type) = operation.result_type() {
-        request
-            .semantic_values()
-            .type_data(result_type)
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
-    }
-
     match operation {
         SelectedOperation::Conversion(conversion) => {
             let Some(BoundExpression::Conversion(source)) = request.view().expression(expression)

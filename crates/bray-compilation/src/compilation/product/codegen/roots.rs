@@ -293,9 +293,7 @@ impl Compilation {
 
         let values = self.semantic_value_store()?;
 
-        let application = values
-            .trait_application_data(header.trait_application())
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let application = values.trait_application_data(header.trait_application());
 
         let implementation_substitution = empty_substitution(values, implementation.into_any())?;
 

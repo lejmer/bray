@@ -140,13 +140,6 @@ pub enum CheckedLiteralValueTableBuildError {
     MissingExpressionType(BoundExpressionId),
     /// A literal expression has no adapted value.
     MissingLiteralValue(BoundExpressionId),
-    /// The semantic value store rejected the literal's constant value identity.
-    SemanticValue {
-        /// The literal expression whose value could not be read.
-        expression: BoundExpressionId,
-        /// The exact semantic value store failure.
-        error: bray_symbols::SemanticValueStoreError,
-    },
     /// The adapted value and expression have different semantic types.
     ValueTypeMismatch(BoundExpressionId),
     /// More than one value was supplied for the same expression occurrence.
@@ -176,9 +169,7 @@ fn validate_entry(
         ));
     };
 
-    let value = values
-        .constant_value_data(entry.value())
-        .map_err(|error| CheckedLiteralValueTableBuildError::SemanticValue { expression, error })?;
+    let value = values.constant_value_data(entry.value());
 
     if !checked_type.is_recovered() && value.ty() != checked_type.ty() {
         return Err(CheckedLiteralValueTableBuildError::ValueTypeMismatch(
@@ -191,9 +182,7 @@ fn validate_entry(
 
 #[cfg(test)]
 mod tests {
-    use bray_symbols::{
-        ConstantValueData, ConstantValueKind, SemanticValueStore, SemanticValueStoreError, TypeData,
-    };
+    use bray_symbols::{ConstantValueData, ConstantValueKind, SemanticValueStore, TypeData};
 
     use super::{
         CheckedLiteralValueEntry, CheckedLiteralValueTableBuildError, CheckedLiteralValues,
@@ -331,21 +320,17 @@ mod tests {
 
         let width = std::num::NonZeroU16::new(64).unwrap_or(std::num::NonZeroU16::MIN);
 
-        assert_eq!(
-            CheckedLiteralValues::try_new(
-                &unit,
-                &types,
-                &values,
-                width,
-                [CheckedLiteralValueEntry::new(expression, foreign_value)],
-            ),
-            Err(CheckedLiteralValueTableBuildError::SemanticValue {
-                expression,
-                error: SemanticValueStoreError::ForeignId {
-                    expected: values.id(),
-                    actual: foreign.id(),
-                },
-            })
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                CheckedLiteralValues::try_new(
+                    &unit,
+                    &types,
+                    &values,
+                    width,
+                    [CheckedLiteralValueEntry::new(expression, foreign_value)],
+                )
+            }))
+            .is_err()
         );
     }
 }

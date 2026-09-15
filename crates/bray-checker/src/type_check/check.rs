@@ -193,26 +193,18 @@ where
             continue;
         }
 
-        let element = match request
+        let Some(element) = request
             .available_compiler_known_symbols()
             .unary_representation_argument(
                 request.semantic_values(),
                 RepresentationRole::Range,
                 result.ty(),
-            ) {
-            Ok(Some(element)) => element,
-            Ok(None) => continue,
-            Err(error) => {
-                return CheckerOutcome::InfrastructureFailure(
-                    CheckerInfrastructureError::SemanticValueStore(error),
-                );
-            }
+            )
+        else {
+            continue;
         };
 
-        let role = match type_representation(request, element) {
-            Ok(role) => role,
-            Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-        };
+        let role = type_representation(request, element);
 
         if role
             .and_then(RepresentationRole::integer_representation)
@@ -1768,9 +1760,7 @@ mod tests {
             panic!("catch expression must produce a named Result type");
         };
 
-        let substitution = semantic_values()
-            .generic_substitution_data(substitution)
-            .unwrap_or_else(|error| panic!("Result substitution must be available: {error:?}"));
+        let substitution = semantic_values().generic_substitution_data(substitution);
 
         let arguments = substitution
             .bindings()

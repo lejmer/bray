@@ -1169,7 +1169,7 @@ mod tests {
             panic!("test surface name must be valid");
         };
 
-        assert_eq!(unit.insert_surface_name(root, name, recovered), Ok(()));
+        unit.insert_surface_name(root, name, recovered);
 
         let context = PathBindingContext::new(root, module, owner, NameAccess::Internal);
         let mut binder = Binder::new(&binding_context, unit);

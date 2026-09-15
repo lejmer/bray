@@ -888,10 +888,7 @@ func identity<T>(value: T) -> T
             Err(error) => panic!("semantic value store should be available: {error:?}"),
         };
 
-        let substitution = match values.generic_substitution_data(*substitution) {
-            Ok(substitution) => substitution,
-            Err(error) => panic!("subject substitution should resolve: {error:?}"),
-        };
+        let substitution = values.generic_substitution_data(*substitution);
 
         let [binding] = substitution.bindings() else {
             panic!("implementation subject should bind one generic argument");
@@ -1616,13 +1613,10 @@ impl Subject(Provides)
             TypeData::Named { .. }
         ));
 
-        assert!(
-            compilation
-                .semantic_value_store()
-                .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}"))
-                .trait_application_data(*application)
-                .is_ok()
-        );
+        compilation
+            .semantic_value_store()
+            .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}"))
+            .trait_application_data(*application);
 
         assert_eq!(
             symbols.trait_type_member(*member).map(|value| value.id()),

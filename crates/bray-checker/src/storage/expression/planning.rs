@@ -402,8 +402,7 @@ where
         let data = self
             .request
             .semantic_values()
-            .type_data(destination_type.ty())
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+            .type_data(destination_type.ty());
 
         match data.as_ref() {
             TypeData::Borrow {
@@ -720,11 +719,7 @@ where
                     return Ok(None);
                 }
 
-                let data = self
-                    .request
-                    .semantic_values()
-                    .type_data(receiver.ty())
-                    .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+                let data = self.request.semantic_values().type_data(receiver.ty());
 
                 Ok(match (structured.kind(), data.as_ref()) {
                     (

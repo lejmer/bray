@@ -12,7 +12,7 @@ impl HeaderMatcher<'_> {
         pattern: ConstantTermId,
         actual: ConstantTermId,
     ) -> Result<bool, SemanticValueStoreError> {
-        let pattern_data = self.values.constant_term_data(pattern)?;
+        let pattern_data = self.values.constant_term_data(pattern);
 
         if let ConstantTermData::Parameter(parameter) = pattern_data.as_ref() {
             let parameter = GenericParameterSymbolId::Const(*parameter);
@@ -26,7 +26,7 @@ impl HeaderMatcher<'_> {
             return Ok(true);
         }
 
-        let actual_data = self.values.constant_term_data(actual)?;
+        let actual_data = self.values.constant_term_data(actual);
 
         if let ConstantTermData::Value(actual) = actual_data.as_ref() {
             return self.match_closed_constant(pattern_data.as_ref(), *actual);
@@ -193,7 +193,7 @@ impl HeaderMatcher<'_> {
         actual: ConstantValueId,
     ) -> Result<bool, SemanticValueStoreError> {
         let actual_id = actual;
-        let actual = self.values.constant_value_data(actual_id)?;
+        let actual = self.values.constant_value_data(actual_id);
 
         match (pattern, actual.kind()) {
             (ConstantTermData::Value(pattern), _) => Ok(*pattern == actual_id),
@@ -288,8 +288,8 @@ impl HeaderMatcher<'_> {
             return Ok(true);
         }
 
-        let pattern = self.values.callable_instance_data(pattern)?;
-        let actual = self.values.callable_instance_data(actual)?;
+        let pattern = self.values.callable_instance_data(pattern);
+        let actual = self.values.callable_instance_data(actual);
 
         if pattern.definition() != actual.definition() {
             return Ok(false);
@@ -319,8 +319,8 @@ impl HeaderMatcher<'_> {
             return Ok(true);
         }
 
-        let pattern = self.values.implementation_instance_data(pattern)?;
-        let actual = self.values.implementation_instance_data(actual)?;
+        let pattern = self.values.implementation_instance_data(pattern);
+        let actual = self.values.implementation_instance_data(actual);
 
         if pattern.definition() != actual.definition() {
             return Ok(false);
@@ -506,17 +506,13 @@ mod tests {
 
         let child_term = constant_value_term(&values);
 
-        let child = values
-            .constant_term_data(child_term)
-            .unwrap_or_else(|error| panic!("closed child term must resolve: {error:?}"));
+        let child = values.constant_term_data(child_term);
 
         let ConstantTermData::Value(child) = child.as_ref() else {
             panic!("test child must be a closed value");
         };
 
-        let child_data = values
-            .constant_value_data(*child)
-            .unwrap_or_else(|error| panic!("closed child value must resolve: {error:?}"));
+        let child_data = values.constant_value_data(*child);
 
         let aggregate = values
             .intern_constant_value(ConstantValueData::new(

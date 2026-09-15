@@ -129,9 +129,7 @@ impl Compilation {
 
         let values = self.semantic_value_store()?;
 
-        let data = values
-            .type_data(result)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let data = values.type_data(result);
 
         let TypeData::Named {
             definition,
@@ -147,9 +145,7 @@ impl Compilation {
             _ => return Ok(false),
         }
 
-        let substitution = values
-            .generic_substitution_data(*substitution)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let substitution = values.generic_substitution_data(*substitution);
 
         let [success, _] = substitution.bindings() else {
             return Ok(false);
@@ -159,9 +155,7 @@ impl Compilation {
             return Ok(false);
         };
 
-        let success = values
-            .type_data(success)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let success = values.type_data(success);
 
         let TypeData::Named { definition, .. } = success.as_ref() else {
             return Ok(false);

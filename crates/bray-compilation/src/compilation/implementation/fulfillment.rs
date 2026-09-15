@@ -72,9 +72,7 @@ pub(in crate::compilation) fn implementation_instance_requirement(
 ) -> Result<ImplementationRequirementKey, FactQueryError> {
     let values = binding_context.semantic_values();
 
-    let instance = values
-        .implementation_instance_data(instance)
-        .map_err(FactQueryError::SemanticValueStore)?;
+    let instance = values.implementation_instance_data(instance);
 
     let coherence = binding_context
         .resolve_symbol_query(SymbolQueryRequest::<ImplementationCoherenceQuery>::new(
@@ -322,13 +320,9 @@ pub(in crate::compilation) fn instantiate_implementation_member(
 ) -> Result<CallableInstanceData, FactQueryError> {
     let values = binding_context.semantic_values();
 
-    let member_substitution = values
-        .generic_substitution_data(member.substitution())
-        .map_err(FactQueryError::SemanticValueStore)?;
+    let member_substitution = values.generic_substitution_data(member.substitution());
 
-    let selected_substitution = values
-        .generic_substitution_data(selected.substitution())
-        .map_err(FactQueryError::SemanticValueStore)?;
+    let selected_substitution = values.generic_substitution_data(selected.substitution());
 
     let member_parameters = binding_context
         .resolve_symbol_query(SymbolQueryRequest::<

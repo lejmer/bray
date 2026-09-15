@@ -16,10 +16,13 @@ pub(super) fn invalidating_operation_accesses<C: CheckerRequestContext + ?Sized>
     for plan in storage.access_plans().iter().filter(|plan| {
         if plan.purpose() == StorageAccessPurpose::ValueTransfer
             && storage.access(plan.access()).is_some_and(|access| {
-                request
-                    .semantic_values()
-                    .type_data(access.reached_type())
-                    .is_ok_and(|ty| matches!(ty.as_ref(), TypeData::Borrow { .. }))
+                matches!(
+                    request
+                        .semantic_values()
+                        .type_data(access.reached_type())
+                        .as_ref(),
+                    TypeData::Borrow { .. }
+                )
             })
         {
             return false;
@@ -59,10 +62,10 @@ pub(super) fn invalidating_operation_accesses<C: CheckerRequestContext + ?Sized>
                     storage.identity(identity),
                     Some(bray_bound_tree::StorageIdentity::LocalOwned(_))
                 ) && storage.identity_type(identity).is_none_or(|ty| {
-                    !request
-                        .semantic_values()
-                        .type_data(ty)
-                        .is_ok_and(|ty| !matches!(ty.as_ref(), TypeData::Borrow { .. }))
+                    matches!(
+                        request.semantic_values().type_data(ty).as_ref(),
+                        TypeData::Borrow { .. }
+                    )
                 })
             })
         });

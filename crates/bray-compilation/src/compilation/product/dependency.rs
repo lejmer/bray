@@ -631,9 +631,8 @@ fn push_witness_dependencies(
     witness: SelectedImplementationWitness,
     dependencies: &mut Vec<AnySymbolId>,
 ) -> Result<Option<AnySymbolId>, FactQueryError> {
-    let application = semantic_values
-        .trait_application_data(witness.requirement().trait_application())
-        .map_err(FactQueryError::SemanticValueStore)?;
+    let application =
+        semantic_values.trait_application_data(witness.requirement().trait_application());
 
     dependencies.push(application.definition().into());
 

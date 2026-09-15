@@ -1,4 +1,4 @@
-use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
+use crate::{CheckerRequestContext, CheckerUnitView};
 use bray_symbols::TypeData;
 use std::collections::BTreeMap;
 
@@ -242,10 +242,7 @@ pub(crate) fn independent_value_type<C: CheckerRequestContext + ?Sized>(
             continue;
         }
 
-        let data = request
-            .semantic_values()
-            .type_data(ty)
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        let data = request.semantic_values().type_data(ty);
 
         let (definition, substitution) = match data.as_ref() {
             TypeData::Nullable(element) | TypeData::Array { element, .. } => {
@@ -287,8 +284,7 @@ pub(crate) fn independent_value_type<C: CheckerRequestContext + ?Sized>(
         if role == Some(bray_compiler_known::RepresentationRole::Result) {
             let arguments = request
                 .semantic_values()
-                .generic_substitution_data(substitution)
-                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+                .generic_substitution_data(substitution);
 
             pending.extend(arguments.bindings().iter().filter_map(
                 |binding| match binding.argument() {

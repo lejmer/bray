@@ -79,7 +79,7 @@ where
     ) -> Result<ConstantTermId, EvaluationFailure> {
         let operand = self.evaluate(operand)?;
 
-        let Some(value) = self.term_value(operand)? else {
+        let Some(value) = self.term_value(operand) else {
             let Some(operation) = unary_term_operation(operation) else {
                 return Err(EvaluationFailure::invalid_expression(expression));
             };
@@ -87,10 +87,9 @@ where
             return self.intern_typed_term(ty, ConstantTermData::Unary { operation, operand });
         };
 
-        let value = self.constant_value(value)?;
+        let value = self.request.semantic_values().constant_value_data(value);
 
-        let representation =
-            type_representation(self.request, ty).map_err(EvaluationFailure::Infrastructure)?;
+        let representation = type_representation(self.request, ty);
 
         let target_width = self.target_integer_width(representation);
 
@@ -117,8 +116,8 @@ where
         }
 
         let right = self.evaluate(right)?;
-        let left_value = self.term_value(left)?;
-        let right_value = self.term_value(right)?;
+        let left_value = self.term_value(left);
+        let right_value = self.term_value(right);
 
         let (Some(left_value), Some(right_value)) = (left_value, right_value) else {
             let Some(operation) = binary_term_operation(operation) else {
@@ -135,8 +134,15 @@ where
             );
         };
 
-        let left_value = self.constant_value(left_value)?;
-        let right_value = self.constant_value(right_value)?;
+        let left_value = self
+            .request
+            .semantic_values()
+            .constant_value_data(left_value);
+
+        let right_value = self
+            .request
+            .semantic_values()
+            .constant_value_data(right_value);
 
         let kind = fold_binary(
             operation,
@@ -165,11 +171,11 @@ where
             return Ok(None);
         }
 
-        let Some(left) = self.term_value(left)? else {
+        let Some(left) = self.term_value(left) else {
             return Ok(None);
         };
 
-        let left = self.constant_value(left)?;
+        let left = self.request.semantic_values().constant_value_data(left);
 
         let ConstantValueKind::Boolean(left) = left.kind() else {
             return Err(EvaluationFailure::invalid_expression(expression));
@@ -230,7 +236,7 @@ where
         conversion: &bray_bound_tree::SelectedConversion,
         value: ConstantValueId,
     ) -> Result<ConstantValueId, EvaluationFailure> {
-        let data = self.constant_value(value)?;
+        let data = self.request.semantic_values().constant_value_data(value);
 
         if data.ty() != conversion.source_type() {
             return Err(EvaluationFailure::invalid_input());
@@ -244,7 +250,6 @@ where
             ConversionTarget::NullablePresent => ConstantValueKind::NullablePresent(value),
             ConversionTarget::BuiltInScalar | ConversionTarget::CVariadicPromotion => {
                 let Some(target) = type_representation(self.request, conversion.target_type())
-                    .map_err(EvaluationFailure::Infrastructure)?
                 else {
                     return Err(EvaluationFailure::invalid_expression(expression));
                 };
@@ -295,7 +300,6 @@ where
         children: &[bray_bound_tree::SelectedConversion],
     ) -> Result<ConstantValueKind, EvaluationFailure> {
         let target_is_complex = type_representation(self.request, target)
-            .map_err(EvaluationFailure::Infrastructure)?
             .is_some_and(|role| role.numeric_kind() == Some(NumericRepresentationKind::Complex));
 
         match value {
@@ -365,7 +369,7 @@ where
         let index = self.evaluate(*index)?;
 
         let (Some(subject_value), Some(index_value)) =
-            (self.term_value(subject)?, self.term_value(index)?)
+            (self.term_value(subject), self.term_value(index))
         else {
             return self.intern_typed_term(
                 ty,
@@ -376,7 +380,10 @@ where
             );
         };
 
-        let subject_value = self.constant_value(subject_value)?;
+        let subject_value = self
+            .request
+            .semantic_values()
+            .constant_value_data(subject_value);
 
         let ConstantValueKind::Array(elements) = subject_value.kind() else {
             return Err(EvaluationFailure::invalid_expression(expression));
@@ -420,7 +427,7 @@ where
         let mut closed = true;
 
         for term in [Some(subject), lower, upper].into_iter().flatten() {
-            closed &= self.term_value(term)?.is_some();
+            closed &= self.term_value(term).is_some();
         }
 
         if !closed {
@@ -434,7 +441,7 @@ where
         }
 
         let subject = self.closed_value(subject, expression)?;
-        let subject = self.constant_value(subject)?;
+        let subject = self.request.semantic_values().constant_value_data(subject);
 
         let ConstantValueKind::Array(elements) = subject.kind() else {
             return Err(EvaluationFailure::invalid_expression(expression));
@@ -500,7 +507,7 @@ where
 
         let receiver = self.evaluate(member.receiver())?;
 
-        if self.term_value(receiver)?.is_none() {
+        if self.term_value(receiver).is_none() {
             return self.intern_typed_term(
                 ty,
                 ConstantTermData::Projection(ConstantProjection::new(receiver, projection)),
@@ -508,7 +515,7 @@ where
         }
 
         let receiver = self.closed_value(receiver, expression)?;
-        let receiver = self.constant_value(receiver)?;
+        let receiver = self.request.semantic_values().constant_value_data(receiver);
 
         let value = match (receiver.kind(), projection) {
             (ConstantValueKind::Tuple(elements), ConstantProjectionKind::TupleElement(ordinal)) => {
@@ -534,7 +541,7 @@ where
             return Err(EvaluationFailure::invalid_expression(expression));
         };
 
-        let value_data = self.constant_value(value)?;
+        let value_data = self.request.semantic_values().constant_value_data(value);
 
         if value_data.ty() != ty {
             return Err(EvaluationFailure::invalid_input());
@@ -677,7 +684,7 @@ where
         let mut values = Vec::with_capacity(fields.len());
 
         for field in fields {
-            let Some(value) = self.term_value(*field.value())? else {
+            let Some(value) = self.term_value(*field.value()) else {
                 return Ok(None);
             };
 

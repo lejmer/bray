@@ -123,7 +123,6 @@ pub(super) fn substitute_requirement_trait_application(
 ) -> Result<TraitApplicationId, FactQueryError> {
     let trait_substitution = values
         .trait_application_data(containing_trait)
-        .map_err(FactQueryError::SemanticValueStore)?
         .substitution();
 
     let requirement = values

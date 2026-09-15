@@ -8,10 +8,7 @@ use bray_diagnostics::{
 use bray_lowering::{LoweringError, LoweringInputError};
 use bray_messages::DiagnosticRenderer;
 use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
-use bray_symbols::{
-    PackageIdentity, ProductIdentity, SemanticValueKind, SemanticValueStore,
-    SemanticValueStoreError,
-};
+use bray_symbols::{PackageIdentity, ProductIdentity, SemanticValueKind, SemanticValueStoreError};
 use bray_testing::assert_goal_state_diagnostic_kind;
 
 use super::context::failure_detail;
@@ -140,17 +137,6 @@ fn native_product_evaluation_failures_preserve_specific_reasons() {
         TextRange::new(TextSize::new(10), TextSize::new(20)),
     );
 
-    let first_store = SemanticValueStore::try_new()
-        .unwrap_or_else(|error| panic!("first semantic store must build: {error:?}"));
-
-    let second_store = SemanticValueStore::try_new()
-        .unwrap_or_else(|error| panic!("second semantic store must build: {error:?}"));
-
-    let foreign = SemanticValueStoreError::ForeignId {
-        expected: first_store.id(),
-        actual: second_store.id(),
-    };
-
     let capacity = SemanticValueStoreError::CapacityExhausted {
         kind: SemanticValueKind::ConstantValue,
     };
@@ -195,21 +181,6 @@ fn native_product_evaluation_failures_preserve_specific_reasons() {
             )),
             Kind::EvaluationLoweringInput(DiagnosticLoweringInputFailure::new(
                 DiagnosticLoweringInputFailureKind::InvalidPatternInput,
-                source,
-            )),
-        ),
-        (
-            FactQueryError::LoweringInput(LocatedLoweringFailure::new(
-                LoweringInputError::SemanticValue(foreign),
-                source,
-            )),
-            Kind::EvaluationLoweringInput(DiagnosticLoweringInputFailure::new(
-                DiagnosticLoweringInputFailureKind::SemanticValue(
-                    DiagnosticSemanticValueFailure::ForeignId {
-                        expected_store: first_store.id().raw(),
-                        actual_store: second_store.id().raw(),
-                    },
-                ),
                 source,
             )),
         ),

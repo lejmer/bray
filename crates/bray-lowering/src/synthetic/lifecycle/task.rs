@@ -22,7 +22,6 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
         let completion = symbols
             .unary_representation_argument(values, RepresentationRole::Task, task.ty())
-            .map_err(SyntheticLoweringError::SemanticValue)?
             .ok_or_else(|| SyntheticLoweringError::MissingRepresentation {
                 role: RepresentationRole::Task,
                 argument: Some(task.ty()),

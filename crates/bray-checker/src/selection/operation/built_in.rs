@@ -24,8 +24,7 @@ where
 {
     let application = request
         .semantic_values()
-        .trait_application_data(application)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        .trait_application_data(application);
 
     let Some(contract) = CompilerKnownOperationRole::ALL
         .iter()
@@ -41,8 +40,7 @@ where
 
     let substitution = request
         .semantic_values()
-        .generic_substitution_data(application.substitution())
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        .generic_substitution_data(application.substitution());
 
     if contract.role() == CompilerKnownOperationRole::PlainConversion {
         let [binding] = substitution.bindings() else {
@@ -58,7 +56,7 @@ where
         return Ok(conversion.map(|_| ProofOutcome::Proven));
     }
 
-    let role = type_representation_for_context(request, subject)?;
+    let role = type_representation_for_context(request, subject);
 
     let operands_match = match substitution.bindings() {
         [] => true,
@@ -82,7 +80,7 @@ pub fn built_in_operator_supported<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    Ok(type_representation_for_context(request, subject)?
+    Ok(type_representation_for_context(request, subject)
         .is_some_and(|role| representation_supports_operator(role, operator)))
 }
 
@@ -98,8 +96,7 @@ where
 {
     let application_data = request
         .semantic_values()
-        .trait_application_data(application)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        .trait_application_data(application);
 
     let Some(contract) = CompilerKnownOperationRole::ALL
         .iter()

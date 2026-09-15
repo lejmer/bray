@@ -422,7 +422,6 @@ where
     }
 
     let Some(()) = visit_selected_witnesses(
-        request,
         candidate.resolution(),
         candidate.implementation_selections(),
         on_witness,
@@ -455,13 +454,11 @@ where
         BoundCallableTarget::Declaration(callable) => request
             .semantic_values()
             .generic_substitution_data(callable.substitution())
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?
             .bindings()
             .len(),
         BoundCallableTarget::Predicate(predicate) => request
             .semantic_values()
             .generic_substitution_data(predicate.substitution())
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?
             .bindings()
             .len(),
         BoundCallableTarget::Anonymous(_) | BoundCallableTarget::Indirect(_) => 0,
@@ -520,15 +517,11 @@ fn callable_surface_is_consistent(
     }
 }
 
-fn visit_selected_witnesses<C>(
-    request: CheckerUnitView<'_, C>,
+fn visit_selected_witnesses(
     resolution: &bray_bound_tree::BoundResolvedCall,
     evidence: &[ImplementationSelectionEvidence],
     on_witness: &mut impl FnMut(SelectedImplementationWitness),
-) -> Result<Option<()>, CheckerInfrastructureError>
-where
-    C: CheckerRequestContext + ?Sized,
-{
+) -> Result<Option<()>, CheckerInfrastructureError> {
     if evidence
         .windows(2)
         .any(|pair| pair[0].requirement() == pair[1].requirement())
@@ -544,11 +537,6 @@ where
         let ImplementationSelection::Selected(witness) = selection.selection() else {
             return Ok(None);
         };
-
-        request
-            .semantic_values()
-            .implementation_instance_data(*witness)
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
         if resolution
             .implementation_witnesses()
@@ -577,10 +565,7 @@ fn callable_type<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let data = request
-        .semantic_values()
-        .type_data(callable_type)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    let data = request.semantic_values().type_data(callable_type);
 
     let TypeData::Callable(_) = data.as_ref() else {
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
@@ -623,7 +608,7 @@ where
         return Ok(ReceiverApplicability::Recovered);
     }
 
-    if !receiver_type_supports(request, actual_type.ty(), expected.ty())? {
+    if !receiver_type_supports(request, actual_type.ty(), expected.ty()) {
         return Ok(ReceiverApplicability::Incompatible(
             SelectionCandidateRejectionReason::ReceiverType {
                 provided: actual_type.ty(),
@@ -656,23 +641,20 @@ fn receiver_type_supports<C>(
     request: CheckerUnitView<'_, C>,
     actual: bray_symbols::TypeId,
     expected: bray_symbols::TypeId,
-) -> Result<bool, CheckerInfrastructureError>
+) -> bool
 where
     C: CheckerRequestContext + ?Sized,
 {
     if actual == expected {
-        return Ok(true);
+        return true;
     }
 
-    let data = request
-        .semantic_values()
-        .type_data(actual)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    let data = request.semantic_values().type_data(actual);
 
-    Ok(matches!(
+    matches!(
         data.as_ref(),
         TypeData::Borrow { target, .. } if *target == expected
-    ))
+    )
 }
 
 const fn receiver_capability_supports(actual: ReceiverCapability, expected: ReceiverMode) -> bool {
@@ -749,7 +731,7 @@ fn map_arguments(
         };
 
         let expected = parameters[parameter_index].ty();
-        let conversion = argument_conversion(request, actual.ty(), expected)?;
+        let conversion = argument_conversion(request, actual.ty(), expected);
 
         if !actual.is_recovered() && conversion.is_none() {
             let ordinal = super::capacity::selection_ordinal_u64(source_ordinal)?;
@@ -855,27 +837,22 @@ fn argument_conversion<C>(
     request: CheckerUnitView<'_, C>,
     actual: bray_symbols::TypeId,
     expected: bray_symbols::TypeId,
-) -> Result<Option<SelectedConversion>, CheckerInfrastructureError>
+) -> Option<SelectedConversion>
 where
     C: CheckerRequestContext + ?Sized,
 {
     if actual == expected {
-        return Ok(Some(SelectedConversion::new(
+        return Some(SelectedConversion::new(
             actual,
             expected,
             ConversionTarget::Identity,
-        )));
+        ));
     }
 
-    let data = request
-        .semantic_values()
-        .type_data(expected)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    let data = request.semantic_values().type_data(expected);
 
-    Ok(
-        matches!(data.as_ref(), TypeData::Nullable(contained) if *contained == actual)
-            .then(|| SelectedConversion::new(actual, expected, ConversionTarget::NullablePresent)),
-    )
+    matches!(data.as_ref(), TypeData::Nullable(contained) if *contained == actual)
+        .then(|| SelectedConversion::new(actual, expected, ConversionTarget::NullablePresent))
 }
 
 fn map_argument_parameter_indices_for_diagnostic(

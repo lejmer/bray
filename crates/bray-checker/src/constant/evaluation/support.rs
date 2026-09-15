@@ -133,21 +133,13 @@ where
             return Ok(term);
         }
 
-        let target = self
-            .request
-            .semantic_values()
-            .type_data(target_type)
-            .map_err(|error| {
-                EvaluationFailure::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
-                    error,
-                ))
-            })?;
+        let target = self.request.semantic_values().type_data(target_type);
 
         if !matches!(target.as_ref(), TypeData::Nullable(contained) if *contained == source_type) {
             return Err(EvaluationFailure::invalid_input());
         }
 
-        match self.term_value(term)? {
+        match self.term_value(term) {
             Some(value) => {
                 self.intern_value_term(target_type, ConstantValueKind::NullablePresent(value))
             }
@@ -177,21 +169,10 @@ where
         self.intern_term(ConstantTermData::typed(term, ty))
     }
 
-    pub(super) fn term_value(
-        &self,
-        term: ConstantTermId,
-    ) -> Result<Option<ConstantValueId>, EvaluationFailure> {
-        let data = self
-            .request
-            .semantic_values()
-            .constant_term_data(term)
-            .map_err(|error| {
-                EvaluationFailure::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
-                    error,
-                ))
-            })?;
+    pub(super) fn term_value(&self, term: ConstantTermId) -> Option<ConstantValueId> {
+        let data = self.request.semantic_values().constant_term_data(term);
 
-        Ok(match data.as_ref() {
+        match data.as_ref() {
             ConstantTermData::Typed { term, .. } => return self.term_value(*term),
             ConstantTermData::Value(value) => Some(*value),
             ConstantTermData::IntegerLiteral { .. }
@@ -210,7 +191,7 @@ where
             | ConstantTermData::Call { .. }
             | ConstantTermData::PredicateCall { .. }
             | ConstantTermData::Projection(_) => None,
-        })
+        }
     }
 
     pub(super) fn closed_value(
@@ -218,7 +199,7 @@ where
         term: ConstantTermId,
         expression: BoundExpressionId,
     ) -> Result<ConstantValueId, EvaluationFailure> {
-        self.term_value(term)?
+        self.term_value(term)
             .ok_or_else(|| EvaluationFailure::invalid_expression(expression))
     }
 
@@ -227,7 +208,7 @@ where
         term: ConstantTermId,
         expression: Option<BoundExpressionId>,
     ) -> Result<ConstantValueId, EvaluationFailure> {
-        let Some(value) = self.term_value(term)? else {
+        let Some(value) = self.term_value(term) else {
             return match expression {
                 Some(expression) => Err(EvaluationFailure::invalid_expression(expression)),
                 None => Err(EvaluationFailure::invalid_input()),
@@ -248,7 +229,7 @@ where
     ) -> Result<(), EvaluationFailure> {
         self.observe_cancellation()?;
 
-        let data = self.constant_value(value)?;
+        let data = self.request.semantic_values().constant_value_data(value);
 
         match data.kind() {
             ConstantValueKind::Integer(integer) => {
@@ -305,7 +286,6 @@ where
         expression: BoundExpressionId,
     ) -> Result<IntegerRepresentation, EvaluationFailure> {
         let role = type_representation(self.request, ty)
-            .map_err(EvaluationFailure::Infrastructure)?
             .ok_or_else(|| EvaluationFailure::invalid_expression(expression))?;
 
         if let Some(representation) = role.integer_representation() {
@@ -318,21 +298,13 @@ where
 
         let values = self.request.semantic_values();
 
-        let data = values.type_data(ty).map_err(|error| {
-            EvaluationFailure::Infrastructure(CheckerInfrastructureError::SemanticValueStore(error))
-        })?;
+        let data = values.type_data(ty);
 
         let TypeData::Named { substitution, .. } = data.as_ref() else {
             return Err(EvaluationFailure::invalid_expression(expression));
         };
 
-        let substitution = values
-            .generic_substitution_data(*substitution)
-            .map_err(|error| {
-                EvaluationFailure::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
-                    error,
-                ))
-            })?;
+        let substitution = values.generic_substitution_data(*substitution);
 
         let [binding] = substitution.bindings() else {
             return Err(EvaluationFailure::invalid_expression(expression));
@@ -343,23 +315,8 @@ where
         };
 
         type_representation(self.request, value_type)
-            .map_err(EvaluationFailure::Infrastructure)?
             .and_then(bray_compiler_known::RepresentationRole::integer_representation)
             .ok_or_else(|| EvaluationFailure::invalid_expression(expression))
-    }
-
-    pub(super) fn constant_value(
-        &self,
-        value: ConstantValueId,
-    ) -> Result<std::sync::Arc<ConstantValueData>, EvaluationFailure> {
-        self.request
-            .semantic_values()
-            .constant_value_data(value)
-            .map_err(|error| {
-                EvaluationFailure::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
-                    error,
-                ))
-            })
     }
 
     pub(super) fn target_integer_width(

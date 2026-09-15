@@ -23,7 +23,7 @@ use super::super::Compilation;
 use super::super::binder::{self, CompilationBindingContext};
 use super::super::checker::checker_query_error;
 use super::super::substitution::named_type;
-use super::support::{checked_integer, checked_integer_constant, integer_role, symbol_span};
+use super::support::{integer_role, symbol_span};
 use crate::compilation::{
     SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
 };
@@ -416,13 +416,12 @@ impl TypeRepresentationContext for CompilationTypeRepresentationContext<'_> {
             .embedded_constant_term_with_cancellation(occurrence, self.cancellation)
             .map_err(checker_query_error)?;
 
-        let value = checked_integer(
-            self.compilation
-                .semantic_value_store()
-                .map_err(checker_query_error)?,
-            *checked.value(),
-        )
-        .map_err(checker_query_error)?;
+        let value = self
+            .compilation
+            .semantic_value_store()
+            .map_err(checker_query_error)?
+            .constant_term_integer(*checked.value())
+            .and_then(|value| value.to_u64());
 
         Ok(DiagnosticResult::new(value, checked.diagnostics().clone()))
     }
@@ -447,13 +446,11 @@ impl TypeRepresentationContext for CompilationTypeRepresentationContext<'_> {
             .embedded_constant_term_with_cancellation(occurrence, self.cancellation)
             .map_err(checker_query_error)?;
 
-        let value = checked_integer_constant(
-            self.compilation
-                .semantic_value_store()
-                .map_err(checker_query_error)?,
-            *checked.value(),
-        )
-        .map_err(checker_query_error)?;
+        let value = self
+            .compilation
+            .semantic_value_store()
+            .map_err(checker_query_error)?
+            .constant_term_integer(*checked.value());
 
         Ok(DiagnosticResult::new(value, checked.diagnostics().clone()))
     }

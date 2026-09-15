@@ -7,7 +7,7 @@ use super::diagnostic_context::{
     text_list_field,
 };
 
-use crate::fact::{CompilationFactKey, CompilationInputKey, FactRuntimeError, FactRuntimeFailure};
+use crate::fact::{CompilationFactKey, FactRuntimeError, FactRuntimeFailure};
 
 pub(crate) fn diagnostic_fact_runtime_failure(
     error: &FactRuntimeError,
@@ -111,61 +111,11 @@ pub(crate) fn diagnostic_fact_runtime_failure(
                 text_field("cause", local_state_failure_key(*cause)),
             ],
         ),
-        Failure::MissingInputFingerprint { input, task, fact } => {
-            let mut context = vec![
-                text_field("input_kind", compilation_input_kind(input)),
-                identity_field("input_identity", input),
-                task_field("task", *task),
-            ];
-
-            push_fact(&mut context, "fact_kind", "fact_identity", fact);
-
-            ("missing_input_fingerprint", context)
-        }
-        Failure::InputFingerprintMismatch {
-            input,
-            expected,
-            actual,
-            task,
-            fact,
-        } => {
-            let mut context = vec![
-                text_field("input_kind", compilation_input_kind(input)),
-                identity_field("input_identity", input),
-                identity_field("expected_fingerprint", expected),
-                identity_field("actual_fingerprint", actual),
-                task_field("task", *task),
-            ];
-
-            push_fact(&mut context, "fact_kind", "fact_identity", fact);
-
-            ("input_fingerprint_mismatch", context)
-        }
-        Failure::PublicationMismatch { requested, actual } => {
-            publication_mismatch_context(requested, actual)
-        }
         Failure::AbandonedComputation { task, fact } => {
             let mut context = vec![task_field("task", *task)];
             push_fact(&mut context, "fact_kind", "fact_identity", fact);
 
             ("abandoned_computation", context)
-        }
-        Failure::MissingDependencyRecord {
-            task,
-            fact,
-            dependency,
-        } => {
-            let mut context = vec![task_field("task", *task)];
-            push_fact(&mut context, "fact_kind", "fact_identity", fact);
-
-            push_fact(
-                &mut context,
-                "dependency_kind",
-                "dependency_identity",
-                dependency,
-            );
-
-            ("missing_dependency_record", context)
         }
         Failure::InvalidWaitGraph {
             requester,
@@ -293,25 +243,6 @@ fn invalid_task_context(
     ("invalid_task_context", context)
 }
 
-fn publication_mismatch_context(
-    requested: &crate::fact::PublicationIdentity,
-    actual: &crate::fact::PublicationState,
-) -> (&'static str, Vec<DiagnosticFailureField>) {
-    let mut context = Vec::new();
-    push_optional_task(&mut context, "requested_task", requested.task);
-
-    push_fact(
-        &mut context,
-        "requested_fact_kind",
-        "requested_fact_identity",
-        &requested.fact,
-    );
-
-    push_publication_state(&mut context, actual);
-
-    ("publication_mismatch", context)
-}
-
 fn missing_cycle_context(
     runtime: usize,
     fact: &CompilationFactKey,
@@ -328,36 +259,6 @@ fn missing_cycle_context(
     context.push(identity_list_field("active_fact_identities", active.iter()));
 
     ("missing_cycle", context)
-}
-
-fn push_publication_state(
-    context: &mut Vec<DiagnosticFailureField>,
-    state: &crate::fact::PublicationState,
-) {
-    use crate::fact::PublicationState as State;
-
-    match state {
-        State::Vacant => context.push(text_field("actual_state", "vacant")),
-        State::Computing { task, fact } => {
-            context.push(text_field("actual_state", "computing"));
-            context.push(task_field("actual_task", *task));
-
-            push_fact(context, "actual_fact_kind", "actual_fact_identity", fact);
-        }
-        State::Ready { fact } => {
-            context.push(text_field("actual_state", "ready"));
-
-            push_optional_fact(
-                context,
-                "actual_fact_kind",
-                "actual_fact_identity",
-                fact.as_ref(),
-            );
-        }
-        State::PublishedFlagWithoutValue => {
-            context.push(text_field("actual_state", "published_flag_without_value"));
-        }
-    }
 }
 
 fn push_fact(
@@ -504,32 +405,6 @@ fn cancellation_state_key(value: crate::fact::CancellationStateKind) -> &'static
     }
 }
 
-fn compilation_input_kind(value: &CompilationInputKey) -> &'static str {
-    use CompilationInputKey as Value;
-
-    match value {
-        Value::PackageIdentity => "package_identity",
-        Value::PackageSourceAuthority => "package_source_authority",
-        Value::SourceSet => "source_set",
-        Value::Source(_) => "source",
-        Value::SourceDiagnostics => "source_diagnostics",
-        Value::ProductKind => "product_kind",
-        Value::SelectedTarget => "selected_target",
-        Value::NativeLinkInputs => "native_link_inputs",
-        Value::SemanticRecursionLimit => "semantic_recursion_limit",
-        Value::SemanticPairwiseLimit => "semantic_pairwise_limit",
-        Value::DependencySet => "dependency_set",
-        Value::DependencyInterface(_) => "dependency_interface",
-        Value::DependencyImplementation(_) => "dependency_implementation",
-        Value::PlatformServices => "platform_services",
-        Value::RuntimeRoles => "runtime_roles",
-        Value::PackageInterfaceExport => "package_interface_export",
-        Value::CodegenConfiguration => "codegen_configuration",
-        Value::StandardLibrary => "standard_library",
-        Value::StandardLibraryProviders => "standard_library_providers",
-    }
-}
-
 pub(super) fn compilation_fact_kind(value: &CompilationFactKey) -> &'static str {
     use CompilationFactKey as Value;
 
@@ -602,48 +477,7 @@ mod tests {
     use bray_diagnostics::DiagnosticFailureValue;
 
     use super::diagnostic_fact_runtime_failure;
-    use crate::fact::{
-        CompilationFactKey, FactRuntimeError, FactRuntimeFailure, FactTaskIdentity, HostIoFailure,
-        PublicationIdentity, PublicationState, WorkerPoolKind,
-    };
-
-    #[test]
-    fn runtime_diagnostics_preserve_structured_publication_identities() {
-        let error = FactRuntimeError::from(FactRuntimeFailure::PublicationMismatch {
-            requested: PublicationIdentity {
-                task: Some(FactTaskIdentity(17)),
-                fact: CompilationFactKey::SyntaxTree,
-            },
-            actual: PublicationState::Computing {
-                task: FactTaskIdentity(23),
-                fact: CompilationFactKey::SymbolGraph,
-            },
-        });
-
-        let diagnostic = diagnostic_fact_runtime_failure(&error);
-
-        assert_eq!(diagnostic.reason(), "publication_mismatch");
-
-        assert_eq!(
-            field_text(&diagnostic, "requested_fact_kind"),
-            "syntax_tree"
-        );
-
-        assert_eq!(field_count(&diagnostic, "requested_task"), 17);
-        assert_eq!(field_text(&diagnostic, "actual_state"), "computing");
-        assert_eq!(field_text(&diagnostic, "actual_fact_kind"), "symbol_graph");
-        assert_eq!(field_count(&diagnostic, "actual_task"), 23);
-
-        assert!(matches!(
-            field(&diagnostic, "requested_fact_identity"),
-            DiagnosticFailureValue::Identity(_)
-        ));
-
-        assert!(matches!(
-            field(&diagnostic, "actual_fact_identity"),
-            DiagnosticFailureValue::Identity(_)
-        ));
-    }
+    use crate::fact::{FactRuntimeError, FactRuntimeFailure, HostIoFailure, WorkerPoolKind};
 
     #[test]
     fn worker_pool_diagnostics_preserve_exact_host_io_cause() {
@@ -696,13 +530,5 @@ mod tests {
         };
 
         value
-    }
-
-    fn field_count(diagnostic: &bray_diagnostics::DiagnosticFactRuntimeFailure, name: &str) -> u64 {
-        let DiagnosticFailureValue::Count(value) = field(diagnostic, name) else {
-            panic!("diagnostic field {name} must contain a count")
-        };
-
-        *value
     }
 }

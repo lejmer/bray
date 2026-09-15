@@ -86,7 +86,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 {
                     let returns_void = callable.execution
                         == bray_symbols::CallableExecution::Synchronous
-                        && self.is_void_result(callable.result)?;
+                        && self.is_void_result(callable.result);
 
                     let (completed, value) = self.push_static_finalizer_call(
                         &mut builder,
@@ -160,21 +160,17 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             .map_err(|cause| self.mir_error(&source, cause))
     }
 
-    fn is_void_result(&self, ty: TypeId) -> Result<bool, C::Error> {
-        let data = self
-            .context
-            .semantic_values()
-            .type_data(ty)
-            .map_err(SyntheticLoweringError::SemanticValue)?;
+    fn is_void_result(&self, ty: TypeId) -> bool {
+        let data = self.context.semantic_values().type_data(ty);
 
         let TypeData::Named { definition, .. } = data.as_ref() else {
-            return Ok(false);
+            return false;
         };
 
-        Ok(matches!(
+        matches!(
             self.context.representation_role(*definition),
             Some(RepresentationRole::Unit | RepresentationRole::Never)
-        ))
+        )
     }
 
     #[expect(
@@ -301,7 +297,7 @@ mod tests {
                 return Ok(LifecycleAction::Resolve);
             }
 
-            Ok(match self.0.type_data(ty).unwrap().as_ref() {
+            Ok(match self.0.type_data(ty).as_ref() {
                 TypeData::Tuple(members) => {
                     LifecycleAction::Members(std::sync::Arc::clone(members))
                 }
@@ -333,7 +329,7 @@ mod tests {
         }
 
         fn array_length(&self, length: ConstantTermId) -> Result<u64, Self::Error> {
-            let length = self.0.constant_term_data(length).unwrap();
+            let length = self.0.constant_term_data(length);
 
             let bray_symbols::ConstantTermData::IntegerLiteral { value, .. } = length.as_ref()
             else {

@@ -61,9 +61,6 @@ pub(super) fn format_english_lowering_input_failure(
         Failure::InvalidInputContents(_) => {
             "generating executable code for the highlighted declaration because required analysis refers to another declaration".to_owned()
         }
-        Failure::SemanticValue(failure) => {
-            return format_english_semantic_value_failure(failure);
-        }
         Failure::InvalidStorageOperation(_) => {
             "generating ownership-safe code for the highlighted expression because its read, borrow, move, or write behavior is unavailable".to_owned()
         }

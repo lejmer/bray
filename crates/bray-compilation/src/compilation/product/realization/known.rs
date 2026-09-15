@@ -10,7 +10,7 @@ use super::super::super::{CodegenPreparationError, Compilation};
 use super::support::{
     atomic_representation_for_type, atomic_storage_role, pointer_mapping, scalar_mapping,
 };
-use crate::fact::{CancellationToken, FactQueryError};
+use crate::fact::CancellationToken;
 
 impl Compilation {
     #[expect(
@@ -53,9 +53,7 @@ impl Compilation {
         if role == RepresentationRole::Atomic {
             let values = self.semantic_value_store()?;
 
-            let substitution = values
-                .generic_substitution_data(substitution)
-                .map_err(FactQueryError::SemanticValueStore)?;
+            let substitution = values.generic_substitution_data(substitution);
 
             let [binding] = substitution.bindings() else {
                 return Err(CodegenPreparationError::UnresolvedType(ty));
@@ -130,7 +128,6 @@ impl Compilation {
                 let element = self
                     .available_compiler_known_symbols()
                     .unary_representation_argument(values, role, ty)
-                    .map_err(FactQueryError::SemanticValueStore)?
                     .ok_or(CodegenPreparationError::UnresolvedType(ty))?;
 
                 self.codegen_type(element, target, cancellation, mappings, pending)?;
@@ -148,7 +145,6 @@ impl Compilation {
                 let element = self
                     .available_compiler_known_symbols()
                     .unary_representation_argument(self.semantic_value_store()?, role, ty)
-                    .map_err(FactQueryError::SemanticValueStore)?
                     .ok_or(CodegenPreparationError::UnresolvedType(ty))?;
 
                 self.codegen_aggregate_type(
@@ -271,8 +267,7 @@ impl Compilation {
     ) -> Result<Option<CodegenTypeMapping>, CodegenPreparationError> {
         let substitution = self
             .semantic_value_store()?
-            .generic_substitution_data(substitution)
-            .map_err(FactQueryError::SemanticValueStore)?;
+            .generic_substitution_data(substitution);
 
         let [binding] = substitution.bindings() else {
             return Err(CodegenPreparationError::UnresolvedType(ty));

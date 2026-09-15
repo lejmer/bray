@@ -60,4 +60,3 @@ unsafe_code = "deny"
 
 [workspace.lints.clippy]
 unwrap_used = "deny"
-expect_used = "deny"

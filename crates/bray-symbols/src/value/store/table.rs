@@ -1,6 +1,5 @@
 use std::{collections::HashMap, sync::Arc};
 
-use super::super::SemanticValueKind;
 use super::super::{
     CallableInstanceData, CallableInstanceId, ConstantTermData, ConstantTermId, ConstantValueData,
     ConstantValueId, DependencyContractTemplateData, DependencyContractTemplateId,
@@ -74,45 +73,23 @@ where
         Ok(I::from_value_id(id))
     }
 
-    pub(super) fn get(
-        &self,
-        store: SemanticValueStoreId,
-        id: I,
-    ) -> Result<&T, SemanticValueStoreError> {
-        let id = id.value_id();
-
-        self.entries
-            .get(&id)
-            .map(AsRef::as_ref)
-            .ok_or_else(|| missing_id(store, id, I::KIND))
+    pub(super) fn get(&self, store: SemanticValueStoreId, id: I) -> &T {
+        self.entry(store, id)
     }
 
-    pub(super) fn get_shared(
-        &self,
-        store: SemanticValueStoreId,
-        id: I,
-    ) -> Result<Arc<T>, SemanticValueStoreError> {
-        let id = id.value_id();
-
-        self.entries
-            .get(&id)
-            .map(Arc::clone)
-            .ok_or_else(|| missing_id(store, id, I::KIND))
-    }
-}
-
-fn missing_id(
-    expected: SemanticValueStoreId,
-    id: SemanticValueId,
-    kind: SemanticValueKind,
-) -> SemanticValueStoreError {
-    let actual = id.store();
-
-    if actual != expected {
-        return SemanticValueStoreError::ForeignId { expected, actual };
+    pub(super) fn get_shared(&self, store: SemanticValueStoreId, id: I) -> Arc<T> {
+        Arc::clone(self.entry(store, id))
     }
 
-    SemanticValueStoreError::UnknownId { kind }
+    fn entry(&self, store: SemanticValueStoreId, id: I) -> &Arc<T> {
+        self.entries.get(&id.value_id()).unwrap_or_else(|| {
+            panic!(
+                "semantic {:?} ID {:?} is absent from store {store:?}",
+                I::KIND,
+                id.value_id()
+            )
+        })
+    }
 }
 
 #[derive(Clone)]

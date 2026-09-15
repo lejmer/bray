@@ -66,13 +66,9 @@ pub(super) fn result_witness_callable(
         return Ok(None);
     };
 
-    let instance = values
-        .implementation_instance_data(*witness)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    let instance = values.implementation_instance_data(*witness);
 
-    let abstract_callable = values
-        .callable_instance_data(callable)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    let abstract_callable = values.callable_instance_data(callable);
 
     let member = bray_symbols::TraitCallableMemberSymbolId::try_from_any(
         abstract_callable.definition().symbol(),
@@ -82,9 +78,7 @@ pub(super) fn result_witness_callable(
     let fulfillments = implementation_fulfillments(binding_context, instance.definition())
         .map_err(checker_query_error)?;
 
-    let application = values
-        .trait_application_data(requirement.trait_application())
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    let application = values.trait_application_data(requirement.trait_application());
 
     let selected = implementation_callable_instance(
         binding_context,

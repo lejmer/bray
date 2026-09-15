@@ -659,10 +659,7 @@ mod tests {
             Some(bray_symbols::CurrentRunCancellation::MayEnter)
         );
 
-        let contextual = match store.type_data(imported.types()[1]) {
-            Ok(contextual) => contextual,
-            Err(error) => panic!("contextual Self type must be interned: {error:?}"),
-        };
+        let contextual = store.type_data(imported.types()[1]);
 
         assert_eq!(
             contextual.as_ref(),
@@ -671,20 +668,14 @@ mod tests {
             )))
         );
 
-        let generator = match store.type_data(imported.types()[2]) {
-            Ok(generator) => generator,
-            Err(error) => panic!("generator type must be interned: {error:?}"),
-        };
+        let generator = store.type_data(imported.types()[2]);
 
         assert_eq!(
             generator.as_ref(),
             &TypeData::Generator(imported.types()[0])
         );
 
-        let callable = match store.type_data(imported.types()[3]) {
-            Ok(callable) => callable,
-            Err(error) => panic!("callable type must be interned: {error:?}"),
-        };
+        let callable = store.type_data(imported.types()[3]);
 
         let TypeData::Callable(callable) = callable.as_ref() else {
             panic!("fourth imported type must be callable");
@@ -772,9 +763,7 @@ mod tests {
             .intern(&store, &resolver(&surface))
             .unwrap_or_else(|error| panic!("semantic interning failed: {error:?}"));
 
-        let term = store
-            .constant_term_data(imported.constant_terms()[0])
-            .unwrap_or_else(|error| panic!("constant term must be interned: {error:?}"));
+        let term = store.constant_term_data(imported.constant_terms()[0]);
 
         assert!(matches!(
             term.as_ref(),
@@ -824,9 +813,7 @@ mod tests {
             .intern(&store, &resolver(&surface))
             .unwrap_or_else(|error| panic!("semantic interning failed: {error:?}"));
 
-        let term = store
-            .constant_term_data(imported.constant_terms()[1])
-            .unwrap_or_else(|error| panic!("constant term must be interned: {error:?}"));
+        let term = store.constant_term_data(imported.constant_terms()[1]);
 
         assert!(matches!(
             term.as_ref(),
@@ -911,9 +898,7 @@ mod tests {
             .intern(&store, &resolver(&surface))
             .unwrap_or_else(|error| panic!("aggregate semantic interning failed: {error:?}"));
 
-        let product = store
-            .constant_value_data(imported.constant_values()[1])
-            .unwrap_or_else(|error| panic!("product constant must be interned: {error:?}"));
+        let product = store.constant_value_data(imported.constant_values()[1]);
 
         let ConstantValueKind::Product(fields) = product.kind() else {
             panic!("second aggregate constant must remain a product");
@@ -925,9 +910,7 @@ mod tests {
                 && *field.value() == imported.constant_values()[0]
         ));
 
-        let union = store
-            .constant_term_data(imported.constant_terms()[2])
-            .unwrap_or_else(|error| panic!("union term must be interned: {error:?}"));
+        let union = store.constant_term_data(imported.constant_terms()[2]);
 
         assert!(matches!(
             union.as_ref(),

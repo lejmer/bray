@@ -30,18 +30,14 @@ where
         .try_charge_step()
         .map_err(TemplateEvaluationFailure::Diagnostic)?;
 
-    let data = evaluator
-        .context
-        .semantic_values()
-        .constant_term_data(term)
-        .map_err(TemplateEvaluationFailure::semantic_value)?;
+    let data = evaluator.context.semantic_values().constant_term_data(term);
 
     match data.as_ref() {
         ConstantTermData::Typed { term, ty } => {
             let ty = evaluator
                 .context
                 .semantic_values()
-                .substitute_type(*ty, evaluator.substitution.substitution())
+                .substitute_type(*ty, evaluator.substitution)
                 .map_err(TemplateEvaluationFailure::semantic_value)?;
 
             evaluator.evaluate_term(*term, ty)
@@ -59,8 +55,16 @@ where
         } => {
             let left = evaluator.evaluate_term(*left, ty)?;
             let right = evaluator.evaluate_term(*right, ty)?;
-            let left = evaluator.constant_value(left)?;
-            let right = evaluator.constant_value(right)?;
+
+            let left = evaluator
+                .context
+                .semantic_values()
+                .constant_value_data(left);
+
+            let right = evaluator
+                .context
+                .semantic_values()
+                .constant_value_data(right);
 
             let kind = fold_binary(
                 binary_operator(*operation),
@@ -80,7 +84,7 @@ where
             let target = evaluator
                 .context
                 .semantic_values()
-                .substitute_type(*target, evaluator.substitution.substitution())
+                .substitute_type(*target, evaluator.substitution)
                 .map_err(TemplateEvaluationFailure::semantic_value)?;
 
             evaluator.evaluate_conversion(operand, target)
@@ -175,8 +179,7 @@ where
             let callable = evaluator
                 .context
                 .semantic_values()
-                .callable_instance_data(*callable)
-                .map_err(TemplateEvaluationFailure::semantic_value)?;
+                .callable_instance_data(*callable);
 
             let arguments = arguments
                 .iter()
@@ -245,7 +248,11 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     let subject = evaluator.evaluate_term(projection.subject(), ty)?;
-    let subject = evaluator.constant_value(subject)?;
+
+    let subject = evaluator
+        .context
+        .semantic_values()
+        .constant_value_data(subject);
 
     let value = match (subject.kind(), projection.kind()) {
         (ConstantValueKind::Tuple(elements), ConstantProjectionKind::TupleElement(ordinal)) => {
@@ -256,7 +263,11 @@ where
         }
         (ConstantValueKind::Array(elements), ConstantProjectionKind::ArrayElement(index)) => {
             let index = evaluator.evaluate_term(index, ty)?;
-            let index = evaluator.constant_value(index)?;
+
+            let index = evaluator
+                .context
+                .semantic_values()
+                .constant_value_data(index);
 
             integer_index(index.kind())
                 .and_then(|index| elements.get(index))
@@ -271,7 +282,11 @@ where
             for (destination, bound) in bounds.iter_mut().zip([lower, upper]) {
                 if let Some(bound) = bound {
                     let bound = evaluator.evaluate_term(bound, ty)?;
-                    let bound = evaluator.constant_value(bound)?;
+
+                    let bound = evaluator
+                        .context
+                        .semantic_values()
+                        .constant_value_data(bound);
 
                     *destination = Some(integer_index(bound.kind()).ok_or_else(|| {
                         TemplateEvaluationFailure::invalid_expression(
@@ -332,12 +347,6 @@ fn evaluate_definition_application<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let substitution = evaluator
-        .context
-        .semantic_values()
-        .require_concrete_substitution(substitution)
-        .map_err(TemplateEvaluationFailure::semantic_value)?;
-
     let result = evaluator
         .resolver
         .resolve_constant(

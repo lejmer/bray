@@ -140,9 +140,7 @@ where
 
         insert_named_surface(binder, scope, parameter, "self")?;
 
-        binder
-            .record_value_type(BoundReferenceTarget::Surface(parameter), ty)
-            .map_err(BoundUnitBindingError::SemanticValue)?;
+        binder.record_value_type(BoundReferenceTarget::Surface(parameter), ty);
     }
 
     if parameter_count == 0 {
@@ -169,9 +167,7 @@ where
         insert_named_surface(binder, scope, parameter, name.as_str())?;
 
         if let Some(ty) = ty.resolved_type() {
-            binder
-                .record_value_type(BoundReferenceTarget::Surface(parameter), ty)
-                .map_err(BoundUnitBindingError::SemanticValue)?;
+            binder.record_value_type(BoundReferenceTarget::Surface(parameter), ty);
         }
     }
 
@@ -187,9 +183,7 @@ where
 {
     let values = binder.binding_context().semantic_values();
 
-    let data = values
-        .type_data(ty)
-        .map_err(BoundUnitBindingError::SemanticValue)?;
+    let data = values.type_data(ty);
 
     let TypeData::ContextualSelf(SelfTypeContext::NamedType(definition)) = data.as_ref() else {
         return Ok(ty);
@@ -253,10 +247,9 @@ where
         symbol,
     })?;
 
-    binder
-        .unit_mut()
-        .insert_surface_name(scope, name, symbol)
-        .map_err(BoundUnitBindingError::Construction)
+    binder.unit_mut().insert_surface_name(scope, name, symbol);
+
+    Ok(())
 }
 
 pub(super) fn error_type<C>(
@@ -328,16 +321,7 @@ pub(super) fn map_binding_error<Upstream>(
 fn map_signature_error<Upstream>(
     error: CallableSignatureTemplateError,
 ) -> BoundUnitBindingError<Upstream> {
-    match error {
-        CallableSignatureTemplateError::SemanticValue(error) => {
-            BoundUnitBindingError::SemanticValue(error)
-        }
-        error @ (CallableSignatureTemplateError::InvalidCallableType
-        | CallableSignatureTemplateError::ParameterCountMismatch
-        | CallableSignatureTemplateError::ParameterIdentityMismatch) => {
-            BoundUnitBindingError::Binding(BindingError::CallableSignature(error))
-        }
-    }
+    BoundUnitBindingError::Binding(BindingError::CallableSignature(error))
 }
 
 pub(super) fn map_assembly_error<Upstream>(

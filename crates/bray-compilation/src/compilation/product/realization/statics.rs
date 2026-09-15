@@ -22,7 +22,7 @@ use super::super::specialization::{
 use super::names::generated_symbol_name;
 use super::support::{operation_result_type, signature_types};
 use crate::compilation::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
-use crate::fact::{CancellationToken, FactQueryError};
+use crate::fact::CancellationToken;
 
 pub(super) struct ConcreteStaticRealization {
     pub(super) key: CodegenStaticInstanceKey,
@@ -61,9 +61,7 @@ impl Compilation {
     ) -> Result<(ExecutableEntryResult, Option<[u8; 32]>), CodegenPreparationError> {
         let values = self.semantic_value_store()?;
 
-        let data = values
-            .type_data(ty)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let data = values.type_data(ty);
 
         let TypeData::Named {
             definition,
@@ -95,9 +93,7 @@ impl Compilation {
 
                 let substitution_id = *substitution;
 
-                let substitution = values
-                    .generic_substitution_data(substitution_id)
-                    .map_err(FactQueryError::SemanticValueStore)?;
+                let substitution = values.generic_substitution_data(substitution_id);
 
                 let [success, error] = substitution.bindings() else {
                     return Err(ProductQueryFailure::count_mismatch(
@@ -118,9 +114,7 @@ impl Compilation {
                     .into());
                 };
 
-                let success = values
-                    .type_data(success_type)
-                    .map_err(FactQueryError::SemanticValueStore)?;
+                let success = values.type_data(success_type);
 
                 let TypeData::Named { definition, .. } = success.as_ref() else {
                     return Err(ProductQueryFailure::UnexpectedSemanticType {
@@ -517,7 +511,7 @@ impl Compilation {
         let initializer = ConcreteCodegenInstance::static_initializer(
             initializer_template,
             declaration,
-            instance.substitution().substitution(),
+            instance.substitution(),
             specialization.clone(),
             &witnesses,
             owner.key().target().clone(),
@@ -556,7 +550,7 @@ impl Compilation {
 
         let ty = self.resolve_codegen_type(
             template.value().declared_type(),
-            instance.substitution().substitution(),
+            instance.substitution(),
             cancellation,
         )?;
 
@@ -706,9 +700,7 @@ impl Compilation {
         let mut relocations = BTreeMap::new();
 
         while let Some(value) = pending.pop() {
-            let data = values
-                .constant_value_data(value)
-                .map_err(FactQueryError::SemanticValueStore)?;
+            let data = values.constant_value_data(value);
 
             let capacity = match capacities.entry(data.ty()) {
                 std::collections::btree_map::Entry::Occupied(entry) => *entry.get(),

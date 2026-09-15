@@ -74,7 +74,7 @@ where
 
         if pattern.kind() == BoundPatternKind::Discard {
             let transfers_borrow = checked.operation() == PatternOperation::Consume
-                && self.type_is_borrow(checked.input_type())?;
+                && self.type_is_borrow(checked.input_type());
 
             if checked.operation() == PatternOperation::Consume {
                 self.bind_owned_pattern_storage(
@@ -166,8 +166,8 @@ where
 
         let target = StorageBindingTarget::Local(binding);
 
-        let transfers_borrow = checked.operation() == PatternOperation::Consume
-            && self.type_is_borrow(checked.ty())?;
+        let transfers_borrow =
+            checked.operation() == PatternOperation::Consume && self.type_is_borrow(checked.ty());
 
         if let Some(alternatives) = self.alternative_pattern_bindings.get_mut(&binding) {
             for accesses in alternatives {
@@ -185,7 +185,7 @@ where
                         checked.is_recovered(),
                     )?;
 
-                    if self.type_is_borrow(checked.ty())?
+                    if self.type_is_borrow(checked.ty())
                         && self
                             .request
                             .view()
@@ -274,17 +274,10 @@ where
         Ok(())
     }
 
-    fn type_is_borrow(
-        &self,
-        ty: bray_symbols::TypeId,
-    ) -> Result<bool, PlanError<C::UpstreamError>> {
-        let data = self
-            .request
-            .semantic_values()
-            .type_data(ty)
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    fn type_is_borrow(&self, ty: bray_symbols::TypeId) -> bool {
+        let data = self.request.semantic_values().type_data(ty);
 
-        Ok(matches!(data.as_ref(), TypeData::Borrow { .. }))
+        matches!(data.as_ref(), TypeData::Borrow { .. })
     }
 
     fn install_alternative_bindings(

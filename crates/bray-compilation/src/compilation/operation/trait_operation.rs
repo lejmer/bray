@@ -283,8 +283,7 @@ impl Compilation {
 
         let instance = binding_context
             .semantic_values()
-            .implementation_instance_data(*witness)
-            .map_err(FactQueryError::SemanticValueStore)?;
+            .implementation_instance_data(*witness);
 
         let fulfillments = implementation_fulfillments(binding_context, instance.definition())?;
 
@@ -315,8 +314,7 @@ impl Compilation {
 
         let trait_application = binding_context
             .semantic_values()
-            .trait_application_data(requirement.trait_application())
-            .map_err(FactQueryError::SemanticValueStore)?;
+            .trait_application_data(requirement.trait_application());
 
         let member_instance = callable_instance(
             binding_context.semantic_values(),
@@ -439,8 +437,7 @@ impl Compilation {
     ) -> Result<Option<TraitOperationCandidate>, FactQueryError> {
         let application = binding_context
             .semantic_values()
-            .trait_application_data(requirement.trait_application())
-            .map_err(FactQueryError::SemanticValueStore)?;
+            .trait_application_data(requirement.trait_application());
 
         let member_instance = callable_instance(
             binding_context.semantic_values(),

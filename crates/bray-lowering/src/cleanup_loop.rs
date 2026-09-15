@@ -241,12 +241,10 @@ mod tests {
                        stored: &BTreeMap<_, u64>| match operand {
             MirOperand::Value(value) => temporaries[value],
             MirOperand::Copy(place) => stored[&place.storage()],
-            MirOperand::Constant { value, .. } => {
-                match values.constant_value_data(*value).unwrap().kind() {
-                    ConstantValueKind::Integer(value) => value.to_u64().unwrap(),
-                    other => panic!("unexpected loop constant: {other:?}"),
-                }
-            }
+            MirOperand::Constant { value, .. } => match values.constant_value_data(*value).kind() {
+                ConstantValueKind::Integer(value) => value.to_u64().unwrap(),
+                other => panic!("unexpected loop constant: {other:?}"),
+            },
             other => panic!("unexpected loop operand: {other:?}"),
         };
 

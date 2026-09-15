@@ -203,8 +203,5 @@ fn local_symbols(
         panic!("test root scope must validate: {error:?}");
     }
 
-    match symbols.finish() {
-        Ok(symbols) => symbols,
-        Err(error) => panic!("test local symbols must validate: {error:?}"),
-    }
+    symbols.finish()
 }

@@ -147,10 +147,7 @@ pub(crate) fn expression_unit(
         panic!("test root scope must validate: {error:?}");
     }
 
-    let symbols = match symbols.finish() {
-        Ok(symbols) => symbols,
-        Err(error) => panic!("test symbols must validate: {error:?}"),
-    };
+    let symbols = symbols.finish();
 
     let unit = match BoundUnit::try_new(
         key,

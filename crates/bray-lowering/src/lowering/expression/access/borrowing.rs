@@ -21,7 +21,7 @@ impl Lowerer<'_> {
         let source = self.source(expression.origin());
         let result_type = self.expression_type(id)?;
 
-        let result_data = self.input.semantic_values().type_data(result_type)?;
+        let result_data = self.input.semantic_values().type_data(result_type);
 
         let TypeData::Borrow {
             kind: result_kind,
@@ -39,7 +39,7 @@ impl Lowerer<'_> {
             return Err(LoweringError::UnsupportedExpression(id));
         };
 
-        if let Some(value) = self.static_string_literal_borrow(*operand, kind, result_type)? {
+        if let Some(value) = self.static_string_literal_borrow(*operand, kind, result_type) {
             return Ok(LoweredExpression::continuing(current, Some(value), source));
         }
 
@@ -112,7 +112,7 @@ impl Lowerer<'_> {
                     .and_then(|identity| lowerer.input.storage_plan().storage_type(identity));
 
                 let parameter_borrow = if let Some(ty) = parameter_type {
-                    let data = lowerer.input.semantic_values().type_data(ty)?;
+                    let data = lowerer.input.semantic_values().type_data(ty);
 
                     match data.as_ref() {
                         TypeData::Borrow { target, .. } => Some((ty, *target)),
@@ -142,7 +142,7 @@ impl Lowerer<'_> {
                 }
 
                 place_type =
-                    lowerer.append_reached_dereference(place_type, target, &mut projections)?;
+                    lowerer.append_reached_dereference(place_type, target, &mut projections);
 
                 let place = MirPlace::new(place.storage(), projections, place_type);
 
@@ -188,7 +188,7 @@ impl Lowerer<'_> {
 
         let source = self.expression_source(operand)?;
 
-        if let Some(value) = self.static_string_literal_borrow(operand, kind, result_type)? {
+        if let Some(value) = self.static_string_literal_borrow(operand, kind, result_type) {
             return Ok(LoweredExpression::continuing(current, Some(value), source));
         }
 
@@ -200,34 +200,34 @@ impl Lowerer<'_> {
         expression: BoundExpressionId,
         kind: BorrowKind,
         result_type: TypeId,
-    ) -> Result<Option<MirOperand>, LoweringError> {
+    ) -> Option<MirOperand> {
         if kind != BorrowKind::Shared {
-            return Ok(None);
+            return None;
         }
 
         let Some(value) = self.input.literal_values().expression(expression) else {
-            return Ok(None);
+            return None;
         };
 
-        let data = self.input.semantic_values().constant_value_data(value)?;
+        let data = self.input.semantic_values().constant_value_data(value);
 
-        let representation = self.input.semantic_values().type_data(result_type)?;
+        let representation = self.input.semantic_values().type_data(result_type);
 
         let TypeData::Borrow { target, .. } = representation.as_ref() else {
-            return Ok(None);
+            return None;
         };
 
         let ConstantValueKind::String(_) = data.kind() else {
-            return Ok(None);
+            return None;
         };
 
         if data.ty() != *target {
-            return Ok(None);
+            return None;
         }
 
-        Ok(Some(MirOperand::Constant {
+        Some(MirOperand::Constant {
             value,
             ty: result_type,
-        }))
+        })
     }
 }

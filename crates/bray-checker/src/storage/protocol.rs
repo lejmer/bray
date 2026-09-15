@@ -46,17 +46,9 @@ impl<C: CheckerRequestContext + ?Sized> super::plan::Planner<'_, C> {
         &mut self,
         owner: bray_symbols::TypeId,
     ) -> Result<bool, super::plan::PlanError<C::UpstreamError>> {
-        let owner = self
-            .request
-            .semantic_values()
-            .unborrowed_type(owner)
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        let owner = self.request.semantic_values().unborrowed_type(owner);
 
-        let data = self
-            .request
-            .semantic_values()
-            .type_data(owner)
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        let data = self.request.semantic_values().type_data(owner);
 
         let TypeData::OwnedIndirection { storage, target } = data.as_ref() else {
             return Ok(false);

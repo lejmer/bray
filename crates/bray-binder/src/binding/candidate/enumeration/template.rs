@@ -172,8 +172,7 @@ where
 
     let inherited = context
         .semantic_values()
-        .generic_substitution_data(inherited)
-        .map_err(BindingQueryError::SemanticValue)?;
+        .generic_substitution_data(inherited);
 
     let (inherited_declaration, inherited_diagnostics) = resolve_symbol_query_value::<
         _,

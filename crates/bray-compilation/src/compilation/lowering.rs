@@ -481,7 +481,6 @@ fn lowering_input_failure_source(error: &LoweringInputError, unit: &BoundUnit) -
         | LoweringInputError::InputKindMismatch { .. }
         | LoweringInputError::InvalidPatternInput
         | LoweringInputError::InvalidInputContents(_)
-        | LoweringInputError::SemanticValue(_)
         | LoweringInputError::StorageOperationCountMismatch { .. }
         | LoweringInputError::LiteralTargetWidthMismatch { .. }
         | LoweringInputError::ExecutableHostRequiresSyntheticInput
@@ -1246,13 +1245,9 @@ mod tests {
         assert_eq!(constants.len(), 2);
 
         for (value, ty) in constants {
-            let ty = values
-                .type_data(ty)
-                .unwrap_or_else(|error| panic!("borrow type must be available: {error:?}"));
+            let ty = values.type_data(ty);
 
-            let value = values
-                .constant_value_data(value)
-                .unwrap_or_else(|error| panic!("borrowed literal must be available: {error:?}"));
+            let value = values.constant_value_data(value);
 
             let TypeData::Borrow {
                 kind: BorrowKind::Shared,
@@ -1388,13 +1383,9 @@ mod tests {
             .semantic_value_store()
             .unwrap_or_else(|error| panic!("parallel values must be available: {error:?}"));
 
-        let serial_type = serial_values
-            .type_data(*serial_type)
-            .unwrap_or_else(|error| panic!("serial type must be available: {error:?}"));
+        let serial_type = serial_values.type_data(*serial_type);
 
-        let parallel_type = parallel_values
-            .type_data(*parallel_type)
-            .unwrap_or_else(|error| panic!("parallel type must be available: {error:?}"));
+        let parallel_type = parallel_values.type_data(*parallel_type);
 
         let (
             TypeData::Named {
@@ -1417,13 +1408,9 @@ mod tests {
             parallel_values.generic_substitution_data(*parallel_substitution)
         );
 
-        let serial_constant = serial_values
-            .constant_value_data(*serial_value)
-            .unwrap_or_else(|error| panic!("serial constant must be available: {error:?}"));
+        let serial_constant = serial_values.constant_value_data(*serial_value);
 
-        let parallel_constant = parallel_values
-            .constant_value_data(*parallel_value)
-            .unwrap_or_else(|error| panic!("parallel constant must be available: {error:?}"));
+        let parallel_constant = parallel_values.constant_value_data(*parallel_value);
 
         assert_eq!(serial_constant.kind(), parallel_constant.kind());
     }
@@ -1934,7 +1921,7 @@ async func partial(pos values: [[Guard; 2]; 2], pos index: usize, pos pending: F
                 let mut dimensions = 0;
 
                 loop {
-                    let data = values.type_data(ty).unwrap();
+                    let data = values.type_data(ty);
 
                     match data.as_ref() {
                         TypeData::Array { element, .. } => {
@@ -3769,9 +3756,7 @@ func main() -> i32?
             .semantic_value_store()
             .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}"));
 
-        let ty = values
-            .type_data(place.ty())
-            .unwrap_or_else(|error| panic!("nullable storage type must be available: {error:?}"));
+        let ty = values.type_data(place.ty());
 
         assert!(matches!(ty.as_ref(), TypeData::Nullable(_)));
     }

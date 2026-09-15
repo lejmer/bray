@@ -4632,9 +4632,7 @@ fn imported_runtime_default_keeps_its_borrowed_result_type() {
         .semantic_value_store()
         .unwrap_or_else(|error| panic!("semantic values must exist: {error:?}"));
 
-    let result = store
-        .type_data(surface.result())
-        .unwrap_or_else(|error| panic!("default result type must exist: {error:?}"));
+    let result = store.type_data(surface.result());
 
     assert!(matches!(
         result.as_ref(),
@@ -4719,7 +4717,7 @@ fn indexed_constant_templates_evaluate_after_import() {
             let values = consumer.semantic_value_store().unwrap();
 
             let substitution =
-                crate::compilation::constant::empty_concrete_substitution(values, definition)
+                crate::compilation::substitution::empty_substitution(values, definition.into_any())
                     .unwrap();
 
             let result = consumer
@@ -4730,7 +4728,7 @@ fn indexed_constant_templates_evaluate_after_import() {
                 ))
                 .unwrap();
 
-            let result = values.constant_value_data(result.value().value()).unwrap();
+            let result = values.constant_value_data(result.value().value());
 
             assert_eq!(
                 result.kind(),

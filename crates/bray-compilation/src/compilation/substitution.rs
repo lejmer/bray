@@ -59,9 +59,7 @@ pub(super) fn substitution_for_owner(
     let mut arguments = Vec::new();
 
     for substitution in substitutions {
-        let substitution = values
-            .generic_substitution_data(substitution)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let substitution = values.generic_substitution_data(substitution);
 
         for binding in substitution.bindings() {
             parameters.push(binding.parameter());

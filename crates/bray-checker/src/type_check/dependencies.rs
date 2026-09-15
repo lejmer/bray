@@ -61,5 +61,5 @@ pub(super) fn numeric_kind<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    Ok(type_representation(request, ty)?.and_then(RepresentationRole::numeric_kind))
+    Ok(type_representation(request, ty).and_then(RepresentationRole::numeric_kind))
 }

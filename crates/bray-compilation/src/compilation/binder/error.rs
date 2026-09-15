@@ -283,7 +283,7 @@ mod tests {
 
     #[test]
     fn semantic_value_causes_survive_binding_query_boundaries() {
-        let cause = SemanticValueStoreError::UnknownId {
+        let cause = SemanticValueStoreError::CapacityExhausted {
             kind: SemanticValueKind::Type,
         };
 

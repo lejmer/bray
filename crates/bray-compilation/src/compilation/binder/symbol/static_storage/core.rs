@@ -383,10 +383,7 @@ fn static_type_lifecycle_dependencies(
         return Ok(Vec::new());
     };
 
-    let data = context
-        .semantic_values()
-        .type_data(ty)
-        .map_err(crate::compilation::binder::semantic_value_binding_error)?;
+    let data = context.semantic_values().type_data(ty);
 
     let TypeData::Named { definition, .. } = data.as_ref() else {
         return Ok(Vec::new());
@@ -736,9 +733,8 @@ mod tests {
             .semantic_value_store()
             .unwrap_or_else(|error| panic!("semantic values must publish: {error:?}"));
 
-        let dependency = values
-            .dependency_contract_template_data(template.value().dependency_contract())
-            .unwrap_or_else(|error| panic!("dependency contract must publish: {error:?}"));
+        let dependency =
+            values.dependency_contract_template_data(template.value().dependency_contract());
 
         assert!(dependency.requirements().iter().any(|requirement| {
             matches!(
@@ -780,9 +776,8 @@ mod tests {
             .semantic_value_store()
             .unwrap_or_else(|error| panic!("semantic values must publish: {error:?}"));
 
-        let dependency = values
-            .dependency_contract_template_data(template.value().dependency_contract())
-            .unwrap_or_else(|error| panic!("dependency contract must publish: {error:?}"));
+        let dependency =
+            values.dependency_contract_template_data(template.value().dependency_contract());
 
         assert!(dependency.requirements().iter().any(|requirement| {
             matches!(

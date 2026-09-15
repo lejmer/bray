@@ -131,7 +131,7 @@ where
             )
         })?;
 
-    let parsed = match parse_atomic_arguments(request, arguments)? {
+    let parsed = match parse_atomic_arguments(request, arguments) {
         Some(parsed) => parsed,
         None => {
             add_invalid_atomic_order_diagnostic(request, expression, operation, diagnostics)?;
@@ -334,36 +334,24 @@ enum AtomicGenericArgument {
 fn parse_atomic_arguments<C>(
     request: CheckerUnitView<'_, C>,
     arguments: &[GenericArgument],
-) -> Result<
-    Option<Vec<AtomicGenericArgument>>,
-    CheckerOutcome<CheckedMemoryOperations, C::UpstreamError>,
->
+) -> Option<Vec<AtomicGenericArgument>>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let parsed = arguments
+    arguments
         .iter()
         .map(|argument| match argument {
-            GenericArgument::Type(ty) => Ok(Some(AtomicGenericArgument::Type(*ty))),
+            GenericArgument::Type(ty) => Some(AtomicGenericArgument::Type(*ty)),
             GenericArgument::Constant(term) => {
-                let value = request
-                    .semantic_values()
-                    .constant_term_integer(*term)
-                    .map_err(|error| {
-                        CheckerOutcome::InfrastructureFailure(
-                            CheckerInfrastructureError::SemanticValueStore(error),
-                        )
-                    })?;
+                let value = request.semantic_values().constant_term_integer(*term);
 
-                Ok(value
+                value
                     .and_then(|value| value.to_u64())
                     .and_then(MemoryOrder::from_u64)
-                    .map(AtomicGenericArgument::Order))
+                    .map(AtomicGenericArgument::Order)
             }
         })
-        .collect::<Result<Option<Vec<_>>, _>>()?;
-
-    Ok(parsed)
+        .collect()
 }
 
 fn operation_representation<C>(
@@ -405,8 +393,7 @@ where
         return Ok(None);
     }
 
-    let role = crate::representation::type_representation(request, value)
-        .map_err(CheckerOutcome::InfrastructureFailure)?;
+    let role = crate::representation::type_representation(request, value);
 
     if let Some(role) = role {
         pending.remove(&value);
@@ -427,14 +414,7 @@ where
         }));
     }
 
-    let data = request
-        .semantic_values()
-        .type_data(value)
-        .map_err(|error| {
-            CheckerOutcome::InfrastructureFailure(CheckerInfrastructureError::SemanticValueStore(
-                error,
-            ))
-        })?;
+    let data = request.semantic_values().type_data(value);
 
     if matches!(data.as_ref(), TypeData::TypeParameter(_)) {
         pending.remove(&value);

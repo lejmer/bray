@@ -6,9 +6,7 @@ use crate::{CheckerOutcome, CheckerQueryError, CheckerRequestContext, ConstantCa
 use bray_bound_tree::{CheckedTemplate, CheckedTemplateKind};
 use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId};
 use bray_source::SourceSpan;
-use bray_symbols::{
-    ConcreteGenericSubstitutionId, ConstantValueId, ImplementationInstanceId, TypeId,
-};
+use bray_symbols::{ConstantValueId, GenericSubstitutionId, ImplementationInstanceId, TypeId};
 
 /// Evaluates one source-independent checked const-callable body.
 pub fn evaluate_constant_callable_template<C>(
@@ -21,17 +19,7 @@ pub fn evaluate_constant_callable_template<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let substitution = match context
-        .semantic_values()
-        .require_concrete_substitution(request.callable().substitution())
-    {
-        Ok(substitution) => substitution,
-        Err(error) => {
-            return CheckerOutcome::InfrastructureFailure(
-                crate::CheckerInfrastructureError::SemanticValueStore(error),
-            );
-        }
-    };
+    let substitution = request.callable().substitution();
 
     let limits = request.limits();
 
@@ -103,7 +91,7 @@ where
 pub fn evaluate_generic_constraint_template<C>(
     context: &C,
     template: &CheckedTemplate,
-    substitution: ConcreteGenericSubstitutionId,
+    substitution: GenericSubstitutionId,
     result_type: TypeId,
     resolver: &dyn ConstantTemplateResolver<UpstreamError = C::UpstreamError>,
     diagnostic_span: Option<SourceSpan>,
@@ -136,7 +124,7 @@ where
 pub fn evaluate_constant_definition_template<C>(
     context: &C,
     template: &CheckedTemplate,
-    substitution: ConcreteGenericSubstitutionId,
+    substitution: GenericSubstitutionId,
     result_type: TypeId,
     resolver: &dyn ConstantTemplateResolver<UpstreamError = C::UpstreamError>,
     diagnostic_span: Option<SourceSpan>,
@@ -162,7 +150,7 @@ pub fn evaluate_static_initializer_template<C>(
     context: &C,
     template: &CheckedTemplate,
     kind: CheckedTemplateKind,
-    substitution: ConcreteGenericSubstitutionId,
+    substitution: GenericSubstitutionId,
     result_type: TypeId,
     resolver: &dyn ConstantTemplateResolver<UpstreamError = C::UpstreamError>,
     diagnostic_span: Option<SourceSpan>,
@@ -201,7 +189,7 @@ fn evaluate_closed_template<C>(
     context: &C,
     template: &CheckedTemplate,
     kind: CheckedTemplateKind,
-    substitution: ConcreteGenericSubstitutionId,
+    substitution: GenericSubstitutionId,
     result_type: TypeId,
     resolver: &dyn ConstantTemplateResolver<UpstreamError = C::UpstreamError>,
     diagnostic_span: Option<SourceSpan>,
@@ -631,9 +619,7 @@ mod tests {
 
         assert!(outcome.diagnostics().is_empty());
 
-        let result = values
-            .constant_value_data(outcome.value().value())
-            .unwrap_or_else(|error| panic!("result value must exist: {error:?}"));
+        let result = values.constant_value_data(outcome.value().value());
 
         assert_eq!(result.ty(), outer_type);
 
@@ -701,10 +687,6 @@ mod tests {
         let substitution = values
             .intern_generic_substitution(substitution)
             .unwrap_or_else(|error| panic!("empty substitution must intern: {error:?}"));
-
-        let substitution = values
-            .require_concrete_substitution(substitution)
-            .unwrap_or_else(|error| panic!("empty substitution must be concrete: {error:?}"));
 
         let outcome = evaluate_generic_constraint_template(
             &TestCheckerContext::new(false),

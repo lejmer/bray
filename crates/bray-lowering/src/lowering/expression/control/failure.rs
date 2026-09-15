@@ -35,7 +35,7 @@ impl Lowerer<'_> {
         let source = self.source(expression.origin());
         let result_type = self.expression_type(id)?;
 
-        if self.constant_boolean(&condition)? == Some(false) {
+        if self.constant_boolean(&condition) == Some(false) {
             self.finish_assertion_failure(id, expression, current, &source)?;
 
             return Ok(LoweredExpression::terminated(source));

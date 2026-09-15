@@ -219,7 +219,7 @@ where
         mut access: bray_bound_tree::StorageAccessId,
     ) -> Result<bool, CheckerInfrastructureError> {
         loop {
-            if self.projected_storage_borrow_kind(access)?.is_some() {
+            if self.projected_storage_borrow_kind(access).is_some() {
                 return Ok(true);
             }
 

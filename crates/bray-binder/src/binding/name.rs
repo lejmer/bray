@@ -141,7 +141,7 @@ where
     C: BindingQueryContext + ?Sized,
 {
     let anchor = match name {
-        ResolvedName::Local(symbol) => binder.unit().local_symbol_syntax_anchor(symbol).ok()?,
+        ResolvedName::Local(symbol) => binder.unit().local_symbol_syntax_anchor(symbol),
         ResolvedName::Surface(symbol) => binder
             .binding_context()
             .symbols()

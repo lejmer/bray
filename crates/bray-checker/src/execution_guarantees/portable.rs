@@ -185,10 +185,10 @@ fn decode(
 
     *budget = remaining;
 
-    Ok(match values.constant_term_data(term)?.as_ref() {
+    Ok(match values.constant_term_data(term).as_ref() {
         ConstantTermData::Typed { term, .. } => decode(values, *term, inputs, budget)?,
         ConstantTermData::Value(value) => {
-            let value = values.constant_value_data(*value)?;
+            let value = values.constant_value_data(*value);
 
             match value.kind() {
                 ConstantValueKind::Boolean(value) => ExecutionCondition::Boolean(*value),

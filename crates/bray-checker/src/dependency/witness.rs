@@ -75,9 +75,7 @@ pub(super) fn instantiate_template<C: CheckerRequestContext + ?Sized>(
         None => template,
     };
 
-    values
-        .dependency_contract_template_data(template)
-        .map_err(|error| CheckerInfrastructureError::SemanticValueStore(error).into())
+    Ok(values.dependency_contract_template_data(template))
 }
 
 struct EquationFrame {
@@ -211,23 +209,24 @@ impl<C: CheckerRequestContext + ?Sized> ResultResolver<'_, C> {
             selected = selected.and_then(|scope| self.equations[scope].parent);
         }
 
-        let invalid = || {
-            CheckerInfrastructureError::SemanticValueStore(
-                bray_symbols::SemanticValueStoreError::InvalidDependencyVariable {
-                    depth,
-                    ordinal: ordinal.raw(),
-                },
+        let scope = selected.unwrap_or_else(|| {
+            panic!(
+                "dependency variable {depth}:{} has no enclosing equation",
+                ordinal.raw()
             )
-        };
-
-        let scope = selected.ok_or_else(invalid)?;
+        });
 
         // Keep the definition alive while recursive evaluation mutates the frame stack.
         let definition = self.equations[scope]
             .definitions
-            .get(usize::try_from(ordinal.raw()).map_err(|_| invalid())?)
+            .get(usize::try_from(ordinal.raw()).expect("dependency ordinal must fit host"))
             .cloned()
-            .ok_or_else(invalid)?;
+            .unwrap_or_else(|| {
+                panic!(
+                    "dependency variable {depth}:{} has no definition",
+                    ordinal.raw()
+                )
+            });
 
         if !self.equations[scope].active.insert(ordinal.raw()) {
             return super::equations::shift_variables(
@@ -303,27 +302,15 @@ impl<C: CheckerRequestContext + ?Sized> ResultResolver<'_, C> {
                             (selected, Some((context, requirement.subject())))
                         }
                         None => {
-                            let selected = request
-                                .semantic_values()
-                                .callable_instance_data(*callable)
-                                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+                            let selected =
+                                request.semantic_values().callable_instance_data(*callable);
 
-                            match request
+                            if !request
                                 .semantic_values()
-                                .require_concrete_substitution(selected.substitution())
+                                .substitution_is_concrete(selected.substitution())
                             {
-                                Ok(_) => {}
-                                Err(bray_symbols::SemanticValueStoreError::OpenSubstitution) => {
-                                    result.push(item.clone());
-
-                                    continue;
-                                }
-                                Err(error) => {
-                                    return Err(CheckerInfrastructureError::SemanticValueStore(
-                                        error,
-                                    )
-                                    .into());
-                                }
+                                result.push(item.clone());
+                                continue;
                             }
 
                             (*selected, None)

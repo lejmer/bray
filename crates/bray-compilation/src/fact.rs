@@ -18,17 +18,17 @@ mod unit_identity;
 
 pub use cancellation::CancellationToken;
 pub use completion::SymbolCompletionError;
+pub use error::ImportedQueryFailure;
 pub(crate) use error::diagnostic_context;
 pub use error::{
     FactCycle, FactQueryError, LocatedLoweringFailure, diagnostic_semantic_value_failure,
 };
-pub use error::{ImportedExecutableTemplateMismatch, ImportedQueryFailure};
 pub(crate) use error::{
-    TargetContractSide, callable_signature_reason, diagnostic_binding_failure,
-    diagnostic_checker_failure, diagnostic_cycle_failure, diagnostic_fact_runtime_failure,
+    callable_signature_reason, diagnostic_binding_failure, diagnostic_checker_failure,
+    diagnostic_cycle_failure, diagnostic_fact_runtime_failure,
     diagnostic_generic_substitution_failure, diagnostic_semantic_context_failure,
     diagnostic_semantic_query_failure, diagnostic_symbol_graph_failure,
-    generic_substitution_reason, push_generic_substitution_failure, push_mir_target_contract,
+    generic_substitution_reason, push_generic_substitution_failure,
     push_selected_target_properties, push_semantic_value_failure,
 };
 pub use key::ImportedSemanticRecordKey;
@@ -59,9 +59,8 @@ pub(crate) use runtime::FactEvaluationTestObserver;
 pub(crate) use runtime::{EvaluationCommit, FactRuntime};
 pub(crate) use runtime_error::{
     CancellationStateKind, CapacityResource, FactRuntimeFailure, FactTaskPhase, HostIoFailure,
-    LocalStateFailure, PublicationIdentity, PublicationState, SchedulerCounter,
-    SchedulerLocalOperation, SynchronizationComponent, TaskContextIdentity, TaskLocalOperation,
-    TaskOperation, WorkerPoolKind,
+    LocalStateFailure, SchedulerCounter, SchedulerLocalOperation, SynchronizationComponent,
+    TaskContextIdentity, TaskLocalOperation, TaskOperation, WorkerPoolKind,
 };
 pub(crate) use symbol::SymbolQueryCache;
 pub(crate) use task::{FactTaskIdentity, RuntimeIdentity};

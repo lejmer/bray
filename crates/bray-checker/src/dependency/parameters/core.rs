@@ -65,9 +65,7 @@ impl ResultParameters {
                 .context()
                 .callable_result_dependencies(callable.definition().callable_symbol())?;
 
-            let template = values
-                .dependency_contract_template_data(template)
-                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+            let template = values.dependency_contract_template_data(template);
 
             let mut edges = Vec::new();
 
@@ -122,9 +120,7 @@ impl ResultParameters {
                         self.local_requirements(request, key, requirements, pending, edges)
                     })?;
 
-                let original = values
-                    .callable_instance_data(callable)
-                    .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+                let original = values.callable_instance_data(callable);
 
                 let target = if let Some(requirement) = requirement {
                     let Some(target) = witness_target(request, key, callable, *requirement)? else {
@@ -161,9 +157,7 @@ impl ResultParameters {
                     return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
                 };
 
-                let concrete = values
-                    .callable_instance_data(*concrete)
-                    .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+                let concrete = values.callable_instance_data(*concrete);
 
                 let target_key = (self.selection.key(request, *concrete)?, target.1);
 

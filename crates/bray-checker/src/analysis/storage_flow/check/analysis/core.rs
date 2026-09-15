@@ -609,7 +609,7 @@ where
 
         if purpose == StorageAccessPurpose::Move
             && self.access_uses_borrow(operation_access)?
-            && !self.type_is_borrow(access.reached_type())?
+            && !self.type_is_borrow(access.reached_type())
         {
             return Ok(StorageOperationOutcome::status(
                 StorageOperationStatus::MissingOwnership,

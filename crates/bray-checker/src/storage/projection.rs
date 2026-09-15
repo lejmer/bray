@@ -39,15 +39,9 @@ pub(crate) fn projected_value_type<C: CheckerRequestContext + ?Sized>(
     owner: TypeId,
     projection: DependencyProjection,
 ) -> Result<DiagnosticResult<Option<TypeId>>, CheckerQueryError<C::UpstreamError>> {
-    let owner = request
-        .semantic_values()
-        .unborrowed_type(owner)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    let owner = request.semantic_values().unborrowed_type(owner);
 
-    let data = request
-        .semantic_values()
-        .type_data(owner)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    let data = request.semantic_values().type_data(owner);
 
     let mut diagnostics = DiagnosticBag::new();
 

@@ -333,7 +333,7 @@ impl Lowerer<'_> {
         // Lowering mutates the MIR builder after consulting this immutable checked selection.
         let selection = self.iteration_selection(id)?.clone();
         let source = self.expression_source(id)?;
-        let range_cursor = self.is_range_type(selection.cursor_type())?;
+        let range_cursor = self.is_range_type(selection.cursor_type());
 
         let direct_range_source = is_range_iterate_hook(
             self.input
@@ -594,7 +594,6 @@ impl Lowerer<'_> {
                 RepresentationRole::Range,
                 cursor_type,
             )
-            .map_err(LoweringError::SemanticValue)?
             .ok_or(LoweringError::MissingSemanticSelection(id))?;
 
         let result_type = self.expression_type(id)?;
@@ -662,11 +661,11 @@ impl Lowerer<'_> {
         ))
     }
 
-    fn is_range_type(&self, ty: bray_symbols::TypeId) -> Result<bool, LoweringError> {
-        let data = self.input.semantic_values().type_data(ty)?;
+    fn is_range_type(&self, ty: bray_symbols::TypeId) -> bool {
+        let data = self.input.semantic_values().type_data(ty);
 
         let bray_symbols::TypeData::Named { definition, .. } = data.as_ref() else {
-            return Ok(false);
+            return false;
         };
 
         let role = match definition {
@@ -680,7 +679,7 @@ impl Lowerer<'_> {
                 .symbol_representation(*definition),
         };
 
-        Ok(role == Some(RepresentationRole::Range))
+        role == Some(RepresentationRole::Range)
     }
 
     fn iteration_selection(

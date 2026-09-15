@@ -132,8 +132,7 @@ pub(crate) fn expand_result_defaults<C: CheckerRequestContext + ?Sized>(
 
         let template = request
             .semantic_values()
-            .dependency_contract_template_data(template)
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+            .dependency_contract_template_data(template);
 
         pending.extend(
             super::witness::resolve(request, template.requirements())?
@@ -246,10 +245,7 @@ fn default_borrows_argument_storage<C: CheckerRequestContext + ?Sized>(
     };
 
     for projection in subject.projections() {
-        let data = request
-            .semantic_values()
-            .type_data(ty)
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        let data = request.semantic_values().type_data(ty);
 
         if matches!(data.as_ref(), bray_symbols::TypeData::Borrow { .. }) {
             return Ok(false);

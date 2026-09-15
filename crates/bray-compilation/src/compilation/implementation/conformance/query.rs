@@ -135,9 +135,7 @@ impl Compilation {
             .into());
         };
 
-        let trait_application_data = values
-            .trait_application_data(trait_application)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let trait_application_data = values.trait_application_data(trait_application);
 
         let trait_symbol = symbols
             .trait_symbol(trait_application_data.definition())
@@ -1215,9 +1213,7 @@ fn subject_lifecycle_fulfillments(
     BTreeMap<MemberSlot, (bray_symbols::AnySymbolId, bray_symbols::CallableSymbolId)>,
     FactQueryError,
 > {
-    let subject = values
-        .type_data(subject)
-        .map_err(FactQueryError::SemanticValueStore)?;
+    let subject = values.type_data(subject);
 
     let bray_symbols::TypeData::Named { definition, .. } = subject.as_ref() else {
         return Ok(BTreeMap::new());

@@ -261,7 +261,7 @@ mod tests {
 
     #[test]
     fn fact_query_export_preserves_direct_and_nested_semantic_value_failures() {
-        let semantic = SemanticValueStoreError::UnknownId {
+        let semantic = SemanticValueStoreError::CapacityExhausted {
             kind: SemanticValueKind::Type,
         };
 

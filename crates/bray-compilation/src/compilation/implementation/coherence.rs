@@ -93,9 +93,7 @@ impl Compilation {
                 continue;
             }
 
-            let application = values
-                .trait_application_data(header.trait_application())
-                .map_err(FactQueryError::SemanticValueStore)?;
+            let application = values.trait_application_data(header.trait_application());
 
             by_trait
                 .entry(application.definition())
@@ -149,9 +147,7 @@ impl Compilation {
                         return Ok(diagnostics);
                     }
 
-                    if implementation_headers_overlap(left, right, values)
-                        .map_err(FactQueryError::SemanticValueStore)?
-                    {
+                    if implementation_headers_overlap(left, right, values) {
                         let left_context = self.implementation_diagnostic_context(
                             left,
                             symbols,
@@ -191,9 +187,7 @@ impl Compilation {
                         continue;
                     }
 
-                    if implementation_subjects_overlap(left, right, values)
-                        .map_err(FactQueryError::SemanticValueStore)?
-                    {
+                    if implementation_subjects_overlap(left, right, values) {
                         requires_family.push((*left, *right));
                     }
                 }
@@ -254,8 +248,7 @@ impl Compilation {
 
         let application = self
             .semantic_value_store()?
-            .trait_application_data(header.trait_application())
-            .map_err(FactQueryError::SemanticValueStore)?;
+            .trait_application_data(header.trait_application());
 
         let trait_definition =
             symbol_diagnostic_identity(symbols, imported, application.definition().into())?;
@@ -401,9 +394,7 @@ impl Compilation {
                     )
                 })?;
 
-                let actual = header
-                    .family_key(values)
-                    .map_err(FactQueryError::SemanticValueStore)?;
+                let actual = header.family_key(values);
 
                 let Some(actual) = actual else {
                     resolved.diagnostics.add(implementation_overload_diagnostic(
