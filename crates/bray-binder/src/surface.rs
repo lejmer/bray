@@ -227,7 +227,7 @@ where
 
     let value = bind(&mut binder, path).map_err(binding_error)?;
 
-    let output = binder.finish().map_err(BindingQueryError::Construction)?;
+    let output = binder.finish();
 
     let (_, diagnostics, _) = output.into_parts();
 
@@ -248,7 +248,6 @@ fn bound_unit_error<Upstream>(
         crate::BoundUnitBindingError::Upstream(error) => BindingQueryError::Upstream(error),
         crate::BoundUnitBindingError::Construction(error) => BindingQueryError::Construction(error),
         crate::BoundUnitBindingError::Binding(error) => BindingQueryError::Binding(error),
-        crate::BoundUnitBindingError::Assembly(error) => BindingQueryError::Assembly(error),
         crate::BoundUnitBindingError::InvalidUnitKey => BindingQueryError::DependencyUnavailable,
         crate::BoundUnitBindingError::MissingSyntax { source } => {
             BindingQueryError::MissingSyntax { source }
@@ -280,7 +279,6 @@ fn binding_error<Upstream>(error: BindingError<Upstream>) -> BindingQueryError<U
         BindingError::SemanticValue(error) => BindingQueryError::SemanticValue(error),
         BindingError::Upstream(error) => BindingQueryError::Upstream(error),
         BindingError::Construction(error) => BindingQueryError::Construction(error),
-        BindingError::Assembly(error) => BindingQueryError::Assembly(error),
         error @ (BindingError::DependencyUnavailable
         | BindingError::MissingSyntax { .. }
         | BindingError::MissingOwner { .. }

@@ -12,8 +12,8 @@ use super::template::{TemplateResolution, resolve_type_template};
 use crate::representation::representation_type;
 use crate::type_check::{SessionProgress, intrinsic_representation_role};
 use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
-    ExpressionTypeEvidence, ExpressionTypeExpectation, ExpressionTypeInput,
+    CheckerQueryError, CheckerRequestContext, CheckerUnitView, ExpressionTypeEvidence,
+    ExpressionTypeExpectation, ExpressionTypeInput,
 };
 
 pub(super) struct PreparedDeclaredTypes {
@@ -290,7 +290,10 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     let Some(expression) = request.view().expression(expression) else {
-        return Err(CheckerInfrastructureError::InvalidExpressionTypeInput { expression }.into());
+        panic!(
+            "expression {:?} must have a committed node and inference input",
+            expression
+        );
     };
 
     if let Some(ty) = expression.ty() {

@@ -178,10 +178,6 @@ fn native_product_failure_keys_are_unique_and_domain_named() {
             ),
             source,
         )),
-        Kind::SemanticContextFailure(crate::DiagnosticEvaluationFailureDetail::new(
-            "semantic_context_failure",
-            [],
-        )),
         Kind::CheckingInfrastructureFailure,
         Kind::CodegenTargetUnsupportedProfile,
         Kind::CodegenTargetEmptyTriple,

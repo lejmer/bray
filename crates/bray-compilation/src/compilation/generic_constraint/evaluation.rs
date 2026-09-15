@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use bray_binder::semantic_unit_context;
 use bray_bound_tree::{
     BoundBlockItem, BoundExpressionId, BoundSourceAnchor, BoundUnit, BoundUnitKey, BoundUnitRoot,
 };
@@ -21,7 +22,7 @@ use bray_symbols::{
 use super::super::Compilation;
 use super::super::checker::{CompilationCheckerContext, checker_result};
 use super::super::substitution::identity_substitution;
-use super::super::unit::semantic_unit_context_for;
+
 use super::context::type_template_context;
 use crate::compilation::{
     SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
@@ -270,14 +271,10 @@ impl Compilation {
             self.binding_context_for(bound.result().value().key(), cancellation)?,
         );
 
-        let semantic_context =
-            semantic_unit_context_for(context.symbols(), bound.result().value())?;
+        let semantic_context = semantic_unit_context(context.symbols(), bound.result().value());
 
-        let request = super::super::unit::checker_unit_view(
-            bound.result().value(),
-            &semantic_context,
-            &context,
-        )?;
+        let request =
+            bray_checker::CheckerUnitView::new(bound.result().value(), &semantic_context, &context);
 
         let resolver =
             super::super::constant::CompilationConstantCallResolver::new(self, cancellation);

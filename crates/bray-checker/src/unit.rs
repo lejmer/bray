@@ -16,14 +16,12 @@ use crate::{
     CheckerSemanticQueryProvider, CheckerSource, ImplementationHookResolution, SemanticUnitContext,
 };
 
-/// A validated read-only view of one bound unit for focused checker services.
+/// A read-only view of one bound unit for focused checker services.
 pub struct CheckerUnitView<'view, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
     unit: &'view BoundUnit,
-    view: BoundUnitView<'view>,
-    root: CheckerUnitRoot,
     semantic_context: &'view SemanticUnitContext,
     context: &'view C,
 }
@@ -50,13 +48,6 @@ pub enum CheckerUnitRoot {
     ExpressionSequence(BoundBlockId),
 }
 
-/// An inconsistency that prevents construction of a checker unit view.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum CheckerUnitViewError {
-    /// The semantic context does not identify the supplied bound unit.
-    SemanticContextMismatch,
-}
-
 impl CheckerUnitRoot {
     const fn from_bound_root(root: BoundUnitRoot) -> Self {
         match root {
@@ -74,34 +65,37 @@ where
 {
     /// Creates a read-only checker view over one canonical bound unit.
     ///
-    /// Returns an error when the semantic context does not describe that unit.
+    /// The semantic context must describe the supplied bound unit.
     pub fn new(
         unit: &'view BoundUnit,
         semantic_context: &'view SemanticUnitContext,
         context: &'view C,
-    ) -> Result<Self, CheckerUnitViewError> {
-        if semantic_context.kind() != unit.key().kind()
-            || semantic_context.key() != unit.key()
-            || !context.semantic_context_matches(unit, semantic_context)
-        {
-            return Err(CheckerUnitViewError::SemanticContextMismatch);
-        }
+    ) -> Self {
+        assert_eq!(
+            semantic_context.kind(),
+            unit.key().kind(),
+            "checker context category must match the requested bound unit"
+        );
 
-        Ok(Self {
+        assert_eq!(
+            semantic_context.key(),
+            unit.key(),
+            "checker context must describe the requested bound unit"
+        );
+
+        Self {
             unit,
-            view: unit.view(),
-            root: CheckerUnitRoot::from_bound_root(unit.root()),
             semantic_context,
             context,
-        })
+        }
     }
 
     pub(crate) fn anonymous_callable_unit(self, call: BoundExpressionId) -> Option<BoundUnitKey> {
-        let BoundExpression::Call(call) = self.view.expression(call)? else {
+        let BoundExpression::Call(call) = self.view().expression(call)? else {
             return None;
         };
 
-        let BoundExpression::AnonymousCallable(callable) = self.view.expression(call.callee())?
+        let BoundExpression::AnonymousCallable(callable) = self.view().expression(call.callee())?
         else {
             return None;
         };
@@ -111,8 +105,8 @@ where
     }
 
     /// Returns the read-only bound unit view to analyze.
-    pub const fn view(self) -> BoundUnitView<'view> {
-        self.view
+    pub fn view(self) -> BoundUnitView<'view> {
+        self.unit.view()
     }
 
     /// Returns the canonical bound unit being analyzed.
@@ -122,7 +116,7 @@ where
 
     /// Returns the exact bound root to analyze.
     pub const fn root(self) -> CheckerUnitRoot {
-        self.root
+        CheckerUnitRoot::from_bound_root(self.unit.root())
     }
 
     /// Returns the category-specific semantic inputs active at unit entry.
@@ -376,90 +370,29 @@ where
     }
 }
 
-pub(crate) fn semantic_input_failure<C, const N: usize>(
+pub(crate) fn assert_unit_inputs<C, const N: usize>(
     request: CheckerUnitView<'_, C>,
     inputs: [(
-        crate::CheckerInputKind,
+        &str,
         (bray_bound_tree::BoundUnitId, bray_bound_tree::BoundUnitKind),
     ); N],
-) -> Option<CheckerInfrastructureError>
-where
+) where
     C: CheckerRequestContext + ?Sized,
 {
-    incompatible_input(request, inputs).map(
-        |(input, expected_unit, expected_kind, actual_unit, actual_kind)| {
-            CheckerInfrastructureError::IncompatibleInput {
-                input,
-                expected_unit,
-                expected_kind,
-                actual_unit,
-                actual_kind,
-            }
-        },
-    )
-}
+    let expected = (request.unit().unit(), request.unit().key().kind());
 
-pub(crate) fn storage_flow_input_failure<C, const N: usize>(
-    request: CheckerUnitView<'_, C>,
-    inputs: [(
-        crate::StorageFlowInputKind,
-        (bray_bound_tree::BoundUnitId, bray_bound_tree::BoundUnitKind),
-    ); N],
-) -> Option<CheckerInfrastructureError>
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    incompatible_input(request, inputs).map(
-        |(input, expected_unit, expected_kind, actual_unit, actual_kind)| {
-            CheckerInfrastructureError::StorageFlow(
-                crate::CheckerStorageFlowFailure::IncompatibleInput {
-                    input,
-                    expected_unit,
-                    expected_kind,
-                    actual_unit,
-                    actual_kind,
-                },
-            )
-        },
-    )
-}
-
-fn incompatible_input<C, I, const N: usize>(
-    request: CheckerUnitView<'_, C>,
-    inputs: [(
-        I,
-        (bray_bound_tree::BoundUnitId, bray_bound_tree::BoundUnitKind),
-    ); N],
-) -> Option<(
-    I,
-    bray_bound_tree::BoundUnitId,
-    bray_bound_tree::BoundUnitKind,
-    bray_bound_tree::BoundUnitId,
-    bray_bound_tree::BoundUnitKind,
-)>
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    let expected_unit = request.unit().unit();
-    let expected_kind = request.unit().key().kind();
-
-    inputs
-        .into_iter()
-        .find_map(|(input, (actual_unit, actual_kind))| {
-            (actual_unit != expected_unit || actual_kind != expected_kind).then_some((
-                input,
-                expected_unit,
-                expected_kind,
-                actual_unit,
-                actual_kind,
-            ))
-        })
+    for (input, actual) in inputs {
+        assert_eq!(
+            actual, expected,
+            "checker input {input} must describe the requested bound unit"
+        );
+    }
 }
 
 pub(crate) fn expression_block_owners<C>(
     request: CheckerUnitView<'_, C>,
     expressions: impl IntoIterator<Item = BoundExpressionId>,
-) -> Result<BTreeMap<BoundBlockId, BoundExpressionId>, CheckerInfrastructureError>
+) -> BTreeMap<BoundBlockId, BoundExpressionId>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -467,11 +400,14 @@ where
 
     for expression in expressions {
         if request.is_cancelled() {
-            return Ok(owners);
+            return owners;
         }
 
         let Some(bound) = request.view().expression(expression) else {
-            return Err(CheckerInfrastructureError::InvalidExpressionTypeInput { expression });
+            panic!(
+                "expression {:?} must have a committed node and inference input",
+                expression
+            );
         };
 
         for block in bound.child_blocks() {
@@ -479,16 +415,15 @@ where
         }
     }
 
-    Ok(owners)
+    owners
 }
 
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::BoundUnitId;
 
-    use super::{CheckerUnitRoot, CheckerUnitView, semantic_input_failure};
+    use super::{CheckerUnitRoot, CheckerUnitView, assert_unit_inputs};
     use crate::test_support::{TestCheckerContext, callable_entry, expression_unit};
-    use crate::{CheckerInfrastructureError, CheckerInputKind};
 
     #[test]
     fn views_are_send_and_sync() {
@@ -499,33 +434,18 @@ mod tests {
     }
 
     #[test]
-    fn semantic_input_failures_preserve_both_unit_identities() {
+    #[should_panic(expected = "checker input expression types must describe")]
+    fn semantic_input_mismatch_exposes_both_unit_identities() {
         let (unit, _) = expression_unit(BoundUnitId::new(7), |_, _| Vec::new());
 
         let entry = callable_entry(unit.key());
         let context = TestCheckerContext::new(false);
 
-        let request = CheckerUnitView::new(&unit, &entry, &context)
-            .unwrap_or_else(|error| panic!("test checker unit view must be valid: {error:?}"));
+        let request = CheckerUnitView::new(&unit, &entry, &context);
 
         let actual_unit = BoundUnitId::new(11);
         let actual_kind = unit.key().kind();
 
-        assert_eq!(
-            semantic_input_failure(
-                request,
-                [(
-                    CheckerInputKind::ExpressionTypes,
-                    (actual_unit, actual_kind)
-                )]
-            ),
-            Some(CheckerInfrastructureError::IncompatibleInput {
-                input: CheckerInputKind::ExpressionTypes,
-                expected_unit: unit.unit(),
-                expected_kind: unit.key().kind(),
-                actual_unit,
-                actual_kind,
-            })
-        );
+        assert_unit_inputs(request, [("expression types", (actual_unit, actual_kind))]);
     }
 }

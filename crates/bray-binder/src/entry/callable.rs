@@ -1,75 +1,22 @@
 use bray_bound_tree::{
-    BoundCallableBody, BoundCallableBodyId, BoundNodeOrigin, BoundUnitId, BoundUnitKey,
+    BoundCallableBody, BoundNodeOrigin, BoundUnitId, BoundUnitKey, BoundUnitRoot,
 };
 use bray_symbols::{CallableExecution, CallableSignatureQuery};
 use bray_syntax::{CallableBodyBlockExpressionSyntax, LambdaExpressionSyntax};
 
 use super::BoundUnitBindingError;
 use super::support::{
-    anchored_descendant, error_type, map_assembly_error, map_binding_error, missing_syntax,
-    push_callable_inputs,
+    anchored_descendant, error_type, map_binding_error, missing_syntax, push_callable_inputs,
 };
-use crate::binder::BinderOutput;
-use crate::publication::{
-    assemble_anonymous_callable, assemble_callable_body, direct_nested_units,
-};
+use crate::publication::assemble_bound_unit;
 use crate::{BindingQueryContext, BoundUnitComputation, SymbolQueryProvider};
 
-/// A bound declared callable body ready to complete its semantic unit.
-pub struct PendingBoundCallableBody {
-    output: BinderOutput,
-    nested_units: Vec<BoundUnitKey>,
-    execution: CallableExecution,
-    root: BoundCallableBodyId,
-}
-
-impl PendingBoundCallableBody {
-    /// Returns directly nested anonymous callable keys in canonical source order.
-    pub fn nested_units(&self) -> &[BoundUnitKey] {
-        &self.nested_units
-    }
-
-    /// Completes and returns the bound callable unit.
-    pub fn finish<Upstream>(self) -> Result<BoundUnitComputation, BoundUnitBindingError<Upstream>> {
-        assemble_callable_body(self.output, self.nested_units, self.execution, self.root)
-            .map_err(map_assembly_error)
-    }
-}
-
-/// A bound anonymous callable ready to complete its semantic unit.
-pub struct PendingBoundAnonymousCallable {
-    output: BinderOutput,
-    nested_units: Vec<BoundUnitKey>,
-    callable: bray_symbols::AnonymousCallableSymbolId,
-    execution: CallableExecution,
-    root: BoundCallableBodyId,
-}
-
-impl PendingBoundAnonymousCallable {
-    /// Returns directly nested anonymous callable keys in canonical source order.
-    pub fn nested_units(&self) -> &[BoundUnitKey] {
-        &self.nested_units
-    }
-
-    /// Completes and returns the bound anonymous callable unit.
-    pub fn finish<Upstream>(self) -> Result<BoundUnitComputation, BoundUnitBindingError<Upstream>> {
-        assemble_anonymous_callable(
-            self.output,
-            self.nested_units,
-            self.callable,
-            self.execution,
-            self.root,
-        )
-        .map_err(map_assembly_error)
-    }
-}
-
-/// Binds one declared callable body.
+/// Binds one declared callable body into its completed semantic unit.
 pub fn bind_callable_body<C>(
     binding_context: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
-) -> Result<PendingBoundCallableBody, BoundUnitBindingError<C::UpstreamError>>
+) -> Result<BoundUnitComputation, BoundUnitBindingError<C::UpstreamError>>
 where
     C: BindingQueryContext + ?Sized,
     C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>,
@@ -112,18 +59,15 @@ where
         .map_err(crate::unit::BoundUnitConstructionError::from)
         .map_err(BoundUnitBindingError::Construction)?;
 
-    let output = binder
-        .finish()
-        .map_err(BoundUnitBindingError::Construction)?;
+    let output = binder.finish();
 
-    let nested_units = direct_nested_units(output.unit().key(), output.dependencies());
-
-    Ok(PendingBoundCallableBody {
+    Ok(assemble_bound_unit(
         output,
-        nested_units,
-        execution,
-        root,
-    })
+        BoundUnitRoot::CallableBody {
+            execution,
+            body: root,
+        },
+    ))
 }
 
 /// Binds one independently analyzed anonymous callable.
@@ -131,7 +75,7 @@ pub fn bind_anonymous_callable<C>(
     binding_context: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
-) -> Result<PendingBoundAnonymousCallable, BoundUnitBindingError<C::UpstreamError>>
+) -> Result<BoundUnitComputation, BoundUnitBindingError<C::UpstreamError>>
 where
     C: BindingQueryContext + ?Sized,
 {
@@ -177,26 +121,23 @@ where
         CallableExecution::Synchronous
     };
 
-    let output = binder
-        .finish()
-        .map_err(BoundUnitBindingError::Construction)?;
+    let output = binder.finish();
 
-    let nested_units = direct_nested_units(output.unit().key(), output.dependencies());
-
-    Ok(PendingBoundAnonymousCallable {
+    Ok(assemble_bound_unit(
         output,
-        nested_units,
-        callable,
-        execution,
-        root,
-    })
+        BoundUnitRoot::AnonymousCallable {
+            callable,
+            execution,
+            body: root,
+        },
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::bind_callable_body;
+    use crate::BindingQueryContext;
     use crate::query::test_support::TestFixture;
-    use crate::{BindingQueryContext, SemanticUnitContextError};
 
     #[test]
     fn production_callable_binding_publishes_a_bound_unit() {
@@ -214,29 +155,17 @@ mod tests {
 
         let key = binder.unit().key().clone();
 
-        let pending = match bind_callable_body(
+        let computation = match bind_callable_body(
             &binding_context,
             bray_bound_tree::BoundUnitId::new(40),
             key,
         ) {
-            Ok(pending) => pending,
+            Ok(computation) => computation,
             Err(error) => panic!("source callable body must bind: {error:?}"),
         };
 
-        let computation = match pending.finish::<std::convert::Infallible>() {
-            Ok(computation) => computation,
-            Err(error) => panic!("source callable body must finalize: {error:?}"),
-        };
-
-        let entry = match crate::semantic_unit_context(
-            binding_context.symbols(),
-            computation.result().value(),
-        ) {
-            Ok(entry) => entry,
-            Err(error) => {
-                panic!("source callable body must establish checker entry: {error:?}")
-            }
-        };
+        let entry =
+            crate::semantic_unit_context(binding_context.symbols(), computation.result().value());
 
         assert_eq!(
             computation.result().value().unit(),
@@ -248,7 +177,8 @@ mod tests {
     }
 
     #[test]
-    fn missing_semantic_context_owners_retain_the_exact_unit() {
+    #[should_panic(expected = "must have an owner in its symbol graph")]
+    fn missing_semantic_context_owners_expose_the_producer_bug() {
         let primary = TestFixture::from_source(concat!(
             "module app;\n",
             "const size: i32 = 1;\n",
@@ -263,18 +193,13 @@ mod tests {
 
         let key = binder.unit().key().clone();
 
-        let pending = match bind_callable_body(
+        let computation = match bind_callable_body(
             &binding_context,
             bray_bound_tree::BoundUnitId::new(41),
             key,
         ) {
-            Ok(pending) => pending,
-            Err(error) => panic!("source callable body must bind: {error:?}"),
-        };
-
-        let computation = match pending.finish::<std::convert::Infallible>() {
             Ok(computation) => computation,
-            Err(error) => panic!("source callable body must finalize: {error:?}"),
+            Err(error) => panic!("source callable body must bind: {error:?}"),
         };
 
         let foreign = TestFixture::from_source(concat!(
@@ -285,13 +210,6 @@ mod tests {
             "}\n",
         ));
 
-        let expected_unit = computation.result().value().key().clone();
-
-        assert_eq!(
-            crate::semantic_unit_context(foreign.context().symbols(), computation.result().value()),
-            Err(SemanticUnitContextError::MissingOwner {
-                unit: expected_unit,
-            })
-        );
+        crate::semantic_unit_context(foreign.context().symbols(), computation.result().value());
     }
 }

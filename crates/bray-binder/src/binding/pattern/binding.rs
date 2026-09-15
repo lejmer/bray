@@ -304,7 +304,7 @@ where
 
         state.pending_names.insert(name.clone(), span);
 
-        if !name_is_available(self, state.context, syntax.source(), &token)? {
+        if !name_is_available(self, state.context, syntax.source(), &token) {
             return Ok(None);
         }
 
@@ -366,7 +366,7 @@ where
             let span =
                 bray_source::SourceSpan::new(first_anchor.source_id(), first_anchor.full_range());
 
-            if !name_text_is_available(self, context, name.as_str(), span)? {
+            if !name_text_is_available(self, context, name.as_str(), span) {
                 continue;
             }
 
@@ -484,7 +484,7 @@ where
 
                 self.record_contextual_pattern_binding(scope, name, *binding, owner);
             } else {
-                self.unit_mut().activate_local(scope, *binding)?;
+                self.unit_mut().activate_local(scope, *binding);
             }
         }
 
@@ -648,10 +648,7 @@ mod tests {
         assert_eq!(pattern.children().len(), 2);
         assert_eq!(bound.bindings().len(), 1);
 
-        let result = match binder.finish() {
-            Ok(result) => result,
-            Err(error) => panic!("case pattern identities must freeze: {error:?}"),
-        };
+        let result = binder.finish();
 
         let [binding] = result.unit().local_symbols().bindings() else {
             panic!("coherent alternatives must publish one logical binding");
@@ -699,9 +696,7 @@ mod tests {
             Err(error) => panic!("assignment target must build: {error:?}"),
         };
 
-        if let Err(error) = binder.unit_mut().activate_local(root, existing) {
-            panic!("assignment target must activate: {error:?}");
-        }
+        binder.unit_mut().activate_local(root, existing);
 
         let context =
             crate::binding::test_support::internal_path_context(binder.binding_context(), root);
@@ -733,10 +728,7 @@ mod tests {
 
         assert!(bound.bindings().is_empty());
 
-        let result = match binder.finish() {
-            Ok(result) => result,
-            Err(error) => panic!("assignment pattern must freeze: {error:?}"),
-        };
+        let result = binder.finish();
 
         assert_eq!(result.unit().local_symbols().bindings().len(), 1);
     }
@@ -790,10 +782,7 @@ mod tests {
 
         assert!(bound.bindings().is_empty());
 
-        let result = match binder.finish() {
-            Ok(result) => result,
-            Err(error) => panic!("incoherent pattern recovery must freeze: {error:?}"),
-        };
+        let result = binder.finish();
 
         bray_testing::assert_goal_state_diagnostic_kind(
             result.diagnostics(),

@@ -1,14 +1,10 @@
 use std::sync::Arc;
 
-use bray_symbols::{
-    AnonymousCallableSymbolId, CallableExecution, LocalSymbolRegionKey, LocalSymbolRegionRole,
-    LocalSymbolSnapshot, SymbolKind, SymbolQueryKind,
-};
+use bray_symbols::{AnonymousCallableSymbolId, CallableExecution, LocalSymbolSnapshot};
 
 use crate::{
-    AnyBoundNodeId, BoundBlockId, BoundCallableBodyId, BoundExpressionId, BoundNodeKind, BoundTree,
-    BoundUnitId, BoundUnitIdentity, BoundUnitKey, BoundUnitKeyData, BoundUnitKind, BoundUnitView,
-    DeclaredBoundUnitKey,
+    AnyBoundNodeId, BoundBlockId, BoundCallableBodyId, BoundExpressionId, BoundTree, BoundUnitId,
+    BoundUnitIdentity, BoundUnitKey, BoundUnitKind, BoundUnitView,
 };
 
 /// One immutable bound semantic unit and its exact root.
@@ -22,35 +18,32 @@ pub struct BoundUnit {
 }
 
 impl BoundUnit {
-    /// Creates a bound unit after validating its root, identities, and nested units.
-    pub fn try_new(
+    /// Publishes one completed bound unit, including source-error recovery nodes.
+    ///
+    /// The producer must supply the matching local snapshot and directly nested keys in
+    /// unique source order. The root must belong to this tree and match the unit category.
+    pub fn new(
         key: BoundUnitKey,
         tree: BoundTree,
         local_symbols: LocalSymbolSnapshot,
         nested_units: impl IntoIterator<Item = BoundUnitKey>,
         root: BoundUnitRoot,
-    ) -> Result<Self, BoundUnitBuildError> {
-        validate_root(key.kind(), &tree, &local_symbols, root)?;
+    ) -> Self {
+        assert_eq!(
+            local_symbols.region().raw(),
+            tree.unit().raw(),
+            "bound unit and local snapshot must share identity for {key:?}"
+        );
 
-        if local_symbols.region().raw() != tree.unit().raw() {
-            return Err(BoundUnitBuildError::LocalSymbolRegionMismatch);
-        }
+        assert_root(key.kind(), &tree, &local_symbols, root);
 
-        if !local_region_matches(&key, local_symbols.key()) {
-            return Err(BoundUnitBuildError::LocalSymbolRegionMismatch);
-        }
-
-        let nested_units = nested_units.into_iter().collect::<Arc<[_]>>();
-
-        validate_nested_units(&key, &nested_units)?;
-
-        Ok(Self {
+        Self {
             key,
             tree,
             local_symbols,
-            nested_units,
+            nested_units: nested_units.into_iter().collect(),
             root,
-        })
+        }
     }
 
     /// Returns this unit's stable semantic key.
@@ -130,72 +123,27 @@ impl From<BoundUnitRoot> for AnyBoundNodeId {
     }
 }
 
-/// A contract violation that prevents creation of a bound unit.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum BoundUnitBuildError {
-    /// The root category does not match the semantic unit key.
-    RootKindMismatch,
-    /// The category-specific root does not name a node in the bound tree.
-    MissingRoot {
-        /// The unit owning the immutable bound tree.
-        unit: BoundUnitId,
-        /// The exact category of root required by the unit.
-        kind: BoundNodeKind,
-    },
-    /// The local snapshot key does not correspond to the semantic unit key.
-    LocalSymbolRegionMismatch,
-    /// The anonymous callable belongs to another local-symbol region.
-    AnonymousCallableRegionMismatch {
-        /// The region owned by the bound unit's local snapshot.
-        expected: bray_symbols::LocalSymbolRegionId,
-        /// The region carried by the anonymous callable ID.
-        actual: bray_symbols::LocalSymbolRegionId,
-    },
-    /// The anonymous callable does not resolve in the local-symbol snapshot.
-    MissingAnonymousCallable {
-        /// The exact callable that failed typed snapshot lookup.
-        callable: AnonymousCallableSymbolId,
-    },
-    /// A nested key is not an anonymous callable directly enclosed by this unit.
-    InvalidNestedUnit {
-        /// The position of the invalid nested key.
-        index: usize,
-    },
-    /// Nested keys are not unique and in canonical source order.
-    NonCanonicalNestedUnits {
-        /// The first position that is not strictly ordered after its predecessor.
-        index: usize,
-    },
-}
-
-fn validate_root(
+fn assert_root(
     kind: BoundUnitKind,
     tree: &BoundTree,
     local_symbols: &LocalSymbolSnapshot,
     root: BoundUnitRoot,
-) -> Result<(), BoundUnitBuildError> {
-    match (kind, root) {
+) {
+    let exists = match (kind, root) {
         (BoundUnitKind::CallableBody, BoundUnitRoot::CallableBody { body, .. }) => {
-            validate_callable_root(tree, body)
+            tree.callable_body(body).is_some()
         }
         (
             BoundUnitKind::AnonymousCallable,
             BoundUnitRoot::AnonymousCallable { callable, body, .. },
         ) => {
-            validate_callable_root(tree, body)?;
+            assert!(
+                local_symbols.anonymous_callable(callable).is_some(),
+                "anonymous root {callable:?} must belong to local snapshot {:?}",
+                local_symbols.region()
+            );
 
-            if callable.region() != local_symbols.region() {
-                return Err(BoundUnitBuildError::AnonymousCallableRegionMismatch {
-                    expected: local_symbols.region(),
-                    actual: callable.region(),
-                });
-            }
-
-            if local_symbols.anonymous_callable(callable).is_none() {
-                return Err(BoundUnitBuildError::MissingAnonymousCallable { callable });
-            }
-
-            Ok(())
+            tree.callable_body(body).is_some()
         }
         (
             BoundUnitKind::RuntimeDefault
@@ -204,170 +152,19 @@ fn validate_root(
             | BoundUnitKind::PredicateDefinition
             | BoundUnitKind::TargetGate,
             BoundUnitRoot::Expression(expression),
-        ) => validate_expression_root(tree, expression),
+        ) => tree.expression(expression).is_some(),
         (
             BoundUnitKind::Constraint | BoundUnitKind::ContractClause,
             BoundUnitRoot::ExpressionSequence(block),
-        ) => validate_block_root(tree, block),
-        _ => Err(BoundUnitBuildError::RootKindMismatch),
-    }
-}
-
-fn validate_callable_root(
-    tree: &BoundTree,
-    root: BoundCallableBodyId,
-) -> Result<(), BoundUnitBuildError> {
-    if tree.callable_body(root).is_none() {
-        return Err(BoundUnitBuildError::MissingRoot {
-            unit: tree.unit(),
-            kind: BoundNodeKind::CallableBody,
-        });
-    }
-
-    Ok(())
-}
-
-fn validate_expression_root(
-    tree: &BoundTree,
-    root: BoundExpressionId,
-) -> Result<(), BoundUnitBuildError> {
-    if tree.expression(root).is_none() {
-        return Err(BoundUnitBuildError::MissingRoot {
-            unit: tree.unit(),
-            kind: BoundNodeKind::Expression,
-        });
-    }
-
-    Ok(())
-}
-
-fn validate_block_root(tree: &BoundTree, root: BoundBlockId) -> Result<(), BoundUnitBuildError> {
-    if tree.block(root).is_none() {
-        return Err(BoundUnitBuildError::MissingRoot {
-            unit: tree.unit(),
-            kind: BoundNodeKind::Block,
-        });
-    }
-
-    Ok(())
-}
-
-fn local_region_matches(key: &BoundUnitKey, actual: &LocalSymbolRegionKey) -> bool {
-    match key.data() {
-        BoundUnitKeyData::CallableBody(declared) => {
-            declared_region_matches(declared, LocalSymbolRegionRole::CallableBody, actual)
-        }
-        BoundUnitKeyData::AnonymousCallable(_) => anonymous_region_matches(key, actual),
-        BoundUnitKeyData::RuntimeDefault(declared) => {
-            let Some(query_kind) = runtime_default_query_kind(declared.owner().kind()) else {
-                return false;
-            };
-
-            declared_region_matches(
-                declared,
-                LocalSymbolRegionRole::DeclarationQuery(query_kind),
-                actual,
-            )
-        }
-        BoundUnitKeyData::ConstantTemplate(declared) => declared_region_matches(
-            declared,
-            LocalSymbolRegionRole::DeclarationQuery(SymbolQueryKind::ConstantDefinition),
-            actual,
-        ),
-        BoundUnitKeyData::EmbeddedConstant(declared) => {
-            declared_region_matches(declared, LocalSymbolRegionRole::EmbeddedConstant, actual)
-        }
-        BoundUnitKeyData::PredicateDefinition(declared) => declared_region_matches(
-            declared,
-            LocalSymbolRegionRole::DeclarationQuery(SymbolQueryKind::PredicateDefinition),
-            actual,
-        ),
-        BoundUnitKeyData::Constraint(declared) => declared_region_matches(
-            declared,
-            LocalSymbolRegionRole::DeclarationQuery(SymbolQueryKind::GenericConstraints),
-            actual,
-        ),
-        BoundUnitKeyData::ContractClause(declared) => declared_region_matches(
-            declared,
-            LocalSymbolRegionRole::DeclarationQuery(SymbolQueryKind::CallableContracts),
-            actual,
-        ),
-        BoundUnitKeyData::TargetGate(declared) => {
-            declared_region_matches(declared, LocalSymbolRegionRole::TargetGate, actual)
-        }
-    }
-}
-
-fn declared_region_matches(
-    key: &DeclaredBoundUnitKey,
-    role: LocalSymbolRegionRole,
-    actual: &LocalSymbolRegionKey,
-) -> bool {
-    actual.owner() == key.owner()
-        && actual.role() == role
-        && actual.anchors() == [key.source().syntax()]
-        && actual.ordinal().is_none()
-}
-
-fn anonymous_region_matches(key: &BoundUnitKey, actual: &LocalSymbolRegionKey) -> bool {
-    let mut anchors = Vec::new();
-    let mut current = key;
-
-    let owner = loop {
-        match current.data() {
-            BoundUnitKeyData::AnonymousCallable(anonymous) => {
-                anchors.push(anonymous.source().syntax());
-                current = anonymous.enclosing();
-            }
-            BoundUnitKeyData::CallableBody(declared)
-            | BoundUnitKeyData::RuntimeDefault(declared)
-            | BoundUnitKeyData::ConstantTemplate(declared)
-            | BoundUnitKeyData::EmbeddedConstant(declared)
-            | BoundUnitKeyData::PredicateDefinition(declared)
-            | BoundUnitKeyData::Constraint(declared)
-            | BoundUnitKeyData::ContractClause(declared)
-            | BoundUnitKeyData::TargetGate(declared) => break declared.owner(),
-        }
+        ) => tree.block(block).is_some(),
+        _ => panic!("bound root {root:?} must match unit kind {kind:?}"),
     };
 
-    anchors.reverse();
-
-    actual.owner() == owner
-        && actual.role() == LocalSymbolRegionRole::AnonymousCallable
-        && actual.anchors() == anchors
-        && actual.ordinal().is_none()
-}
-
-const fn runtime_default_query_kind(owner: SymbolKind) -> Option<SymbolQueryKind> {
-    match owner {
-        SymbolKind::CallableParameterDefaultProvider => {
-            Some(SymbolQueryKind::CallableParameterDefault)
-        }
-        SymbolKind::StructFieldDefaultProvider => Some(SymbolQueryKind::StructFieldDefault),
-        SymbolKind::UnionPayloadDefaultProvider => Some(SymbolQueryKind::UnionPayloadFieldDefault),
-        _ => None,
-    }
-}
-
-fn validate_nested_units(
-    enclosing: &BoundUnitKey,
-    nested_units: &[BoundUnitKey],
-) -> Result<(), BoundUnitBuildError> {
-    for (index, nested) in nested_units.iter().enumerate() {
-        let BoundUnitKeyData::AnonymousCallable(anonymous) = nested.data() else {
-            return Err(BoundUnitBuildError::InvalidNestedUnit { index });
-        };
-
-        if anonymous.enclosing() != enclosing {
-            return Err(BoundUnitBuildError::InvalidNestedUnit { index });
-        }
-
-        if index > 0 && nested_units[index - 1].source() >= nested.source() {
-            return Err(BoundUnitBuildError::NonCanonicalNestedUnits { index });
-        }
-    }
-
-    Ok(())
+    assert!(
+        exists,
+        "bound root {root:?} must be committed in unit {:?}",
+        tree.unit()
+    );
 }
 
 #[cfg(test)]
@@ -378,7 +175,7 @@ mod tests {
         LocalSymbolSnapshot, LocalSymbolSnapshotBuilder, SymbolKind,
     };
 
-    use super::{BoundUnit, BoundUnitBuildError, BoundUnitRoot};
+    use super::{BoundUnit, BoundUnitRoot};
     use crate::test_support::{source_anchor, source_anchor_with_version, symbol_key};
     use crate::{
         BoundCallableBody, BoundCallableBodyId, BoundNodeOrigin, BoundTree, BoundTreeBuilder,
@@ -394,7 +191,7 @@ mod tests {
             source_anchor_with_version(key.source().source_version().raw() + 1),
         );
 
-        let unit = match BoundUnit::try_new(
+        let unit = BoundUnit::new(
             key.clone(),
             tree,
             locals,
@@ -403,10 +200,7 @@ mod tests {
                 execution: bray_symbols::CallableExecution::Synchronous,
                 body: root,
             },
-        ) {
-            Ok(unit) => unit,
-            Err(error) => panic!("valid bound unit must publish: {error:?}"),
-        };
+        );
 
         assert_eq!(unit.key(), &key);
         assert_eq!(unit.unit(), BoundUnitId::new(20));
@@ -427,18 +221,17 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "must match unit kind")]
     fn bound_units_reject_mismatched_root_categories() {
         let (key, tree, locals, _) = callable_parts(21);
 
-        let result = BoundUnit::try_new(
+        BoundUnit::new(
             key,
             tree,
             locals,
             [],
             BoundUnitRoot::Expression(crate::BoundExpressionId::from_slot(BoundUnitId::new(21), 0)),
         );
-
-        assert_eq!(result, Err(BoundUnitBuildError::RootKindMismatch));
     }
 
     #[test]
@@ -447,39 +240,32 @@ mod tests {
 
         let (_, _, locals, foreign_root) = callable_parts(23);
 
-        let foreign_root_result = BoundUnit::try_new(
-            key.clone(),
-            tree.clone(),
-            local_snapshot(22, key.declared_owner().clone()),
-            [],
-            BoundUnitRoot::CallableBody {
-                execution: bray_symbols::CallableExecution::Synchronous,
-                body: foreign_root,
-            },
+        assert!(
+            std::panic::catch_unwind(|| BoundUnit::new(
+                key.clone(),
+                tree.clone(),
+                local_snapshot(22, key.declared_owner().clone()),
+                [],
+                BoundUnitRoot::CallableBody {
+                    execution: bray_symbols::CallableExecution::Synchronous,
+                    body: foreign_root
+                },
+            ))
+            .is_err()
         );
 
-        assert_eq!(
-            foreign_root_result,
-            Err(BoundUnitBuildError::MissingRoot {
-                unit: BoundUnitId::new(22),
-                kind: crate::BoundNodeKind::CallableBody,
-            })
-        );
-
-        let local_result = BoundUnit::try_new(
-            key,
-            tree,
-            locals,
-            [],
-            BoundUnitRoot::CallableBody {
-                execution: bray_symbols::CallableExecution::Synchronous,
-                body: BoundCallableBodyId::from_slot(BoundUnitId::new(22), 0),
-            },
-        );
-
-        assert_eq!(
-            local_result,
-            Err(BoundUnitBuildError::LocalSymbolRegionMismatch)
+        assert!(
+            std::panic::catch_unwind(|| BoundUnit::new(
+                key,
+                tree,
+                locals,
+                [],
+                BoundUnitRoot::CallableBody {
+                    execution: bray_symbols::CallableExecution::Synchronous,
+                    body: BoundCallableBodyId::from_slot(BoundUnitId::new(22), 0)
+                },
+            ))
+            .is_err()
         );
     }
 

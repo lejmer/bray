@@ -1,4 +1,3 @@
-use bray_binder::SemanticUnitContextError;
 use bray_checker::CheckerInfrastructureError;
 use bray_lowering::{LoweringError, LoweringInputError};
 use bray_source::SourceSpan;
@@ -301,7 +300,6 @@ pub enum FactQueryError {
     /// The uninitialized-storage initializer result cannot be retained as a compile-time value.
     UninitInitializerResultUnavailable,
     /// Semantic-context construction found an inconsistent bound unit.
-    SemanticUnitContext(SemanticUnitContextError),
     /// Semantic checking could not complete because a typed dependency was unavailable.
     CheckerInfrastructure(CheckerInfrastructureError),
     /// Binding or semantic compilation violated an exact query contract.
@@ -460,9 +458,6 @@ impl std::fmt::Display for FactQueryError {
             }
             Self::UninitInitializerResultUnavailable => formatter
                 .write_str("the uninitialized-storage initializer result cannot be retained"),
-            Self::SemanticUnitContext(error) => {
-                write!(formatter, "semantic unit context failed: {error:?}")
-            }
             Self::CheckerInfrastructure(error) => {
                 write!(
                     formatter,

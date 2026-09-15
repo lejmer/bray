@@ -320,8 +320,8 @@ impl<'binding_context, C: BindingQueryContext + ?Sized> Binder<'binding_context,
         *checkpoint.control_targets == self.control_targets
     }
 
-    pub(crate) fn finish(self) -> Result<BinderOutput, BoundUnitConstructionError> {
-        let unit = self.unit.finish()?;
+    pub(crate) fn finish(self) -> BinderOutput {
+        let unit = self.unit.finish();
         let diagnostics = DiagnosticBag::from(self.diagnostics);
 
         let dependencies = self
@@ -330,11 +330,11 @@ impl<'binding_context, C: BindingQueryContext + ?Sized> Binder<'binding_context,
             .collect::<Vec<_>>()
             .into_boxed_slice();
 
-        Ok(BinderOutput {
+        BinderOutput {
             unit,
             diagnostics,
             dependencies,
-        })
+        }
     }
 }
 
@@ -347,6 +347,7 @@ pub(crate) struct BinderOutput {
 }
 
 impl BinderOutput {
+    #[cfg(test)]
     pub(crate) const fn unit(&self) -> &BoundUnitConstructionResult {
         &self.unit
     }
@@ -356,6 +357,7 @@ impl BinderOutput {
         &self.diagnostics
     }
 
+    #[cfg(test)]
     pub(crate) const fn dependencies(&self) -> &[BinderDependency] {
         &self.dependencies
     }
@@ -425,7 +427,7 @@ mod tests {
 
         let abandoned = push_binding(binder.unit_mut(), root, unit_fixture.first, false);
 
-        assert_eq!(binder.unit_mut().activate_local(root, abandoned), Ok(()));
+        binder.unit_mut().activate_local(root, abandoned);
 
         let Ok(known_type) = binding_context
             .semantic_values()
@@ -456,12 +458,9 @@ mod tests {
         let reused = push_binding(binder.unit_mut(), root, unit_fixture.first, false);
 
         assert_eq!(reused, abandoned);
-        assert_eq!(binder.unit_mut().activate_local(root, reused), Ok(()));
+        binder.unit_mut().activate_local(root, reused);
 
-        let result = match binder.finish() {
-            Ok(result) => result,
-            Err(error) => panic!("binder must freeze: {error:?}"),
-        };
+        let result = binder.finish();
 
         assert!(result.diagnostics().is_empty());
         assert!(result.dependencies().is_empty());
@@ -537,10 +536,7 @@ mod tests {
 
         assert!(binder.rollback(checkpoint));
 
-        let result = match binder.finish() {
-            Ok(result) => result,
-            Err(error) => panic!("binder must freeze: {error:?}"),
-        };
+        let result = binder.finish();
 
         assert_eq!(
             result.dependencies(),

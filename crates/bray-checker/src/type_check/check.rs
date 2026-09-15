@@ -145,8 +145,9 @@ where
 
     for expression in finished.unresolved {
         let Some(bound_expression) = request.view().expression(expression) else {
-            return CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::InvalidExpressionTypeInput { expression },
+            panic!(
+                "expression {:?} must have a committed node and inference input",
+                expression
             );
         };
 
@@ -336,9 +337,8 @@ mod tests {
         unselected_name_expression as unselected_name,
     };
     use crate::{
-        CheckerInfrastructureError, CheckerOutcome, CheckerUnitView, DefaultExpressionTypeChecker,
-        ExpressionTypeChecker, ExpressionTypeEvidence, ExpressionTypeExpectation,
-        ExpressionTypeInput,
+        CheckerOutcome, CheckerUnitView, DefaultExpressionTypeChecker, ExpressionTypeChecker,
+        ExpressionTypeEvidence, ExpressionTypeExpectation, ExpressionTypeInput,
     };
 
     fn two_element_tuple_unit(
@@ -444,18 +444,14 @@ mod tests {
         let entry = callable_entry(unit.key());
         let context = crate::test_support::TestCheckerContext::new(false);
 
-        let Ok(request) = CheckerUnitView::new(&unit, &entry, &context) else {
-            panic!("test checker unit view must be valid");
-        };
+        let request = CheckerUnitView::new(&unit, &entry, &context);
 
         let Ok(SessionProgress::Complete(mut session)) = ExpressionTypeSession::begin(request)
         else {
             panic!("expression type session must start");
         };
 
-        session
-            .add_evidence(expressions[0], operand_type)
-            .unwrap_or_else(|error| panic!("leaf evidence must be valid: {error:?}"));
+        session.add_evidence(expressions[0], operand_type);
 
         assert!(matches!(
             session.propagate(),
@@ -471,9 +467,7 @@ mod tests {
 
         assert_eq!(session.expression_type(expressions[1]), None);
 
-        session
-            .add_evidence(expressions[1], child_type)
-            .unwrap_or_else(|error| panic!("child selection must be valid: {error:?}"));
+        session.add_evidence(expressions[1], child_type);
 
         assert!(matches!(
             session.propagate(),
@@ -482,9 +476,7 @@ mod tests {
 
         assert_eq!(session.expression_type(expressions[2]), None);
 
-        session
-            .add_evidence(expressions[2], parent_type)
-            .unwrap_or_else(|error| panic!("parent selection must be valid: {error:?}"));
+        session.add_evidence(expressions[2], parent_type);
 
         assert!(matches!(
             session.propagate(),
@@ -1516,8 +1508,7 @@ mod tests {
         let entry = callable_entry(unit.key());
         let context = crate::test_support::TestCheckerContext::new(false);
 
-        let request = CheckerUnitView::new(&unit, &entry, &context)
-            .unwrap_or_else(|error| panic!("test checker unit view must be valid: {error:?}"));
+        let request = CheckerUnitView::new(&unit, &entry, &context);
 
         let result_type =
             crate::representation::representation_type(request, RepresentationRole::ScalarU8)
@@ -1652,8 +1643,7 @@ mod tests {
         let entry = callable_entry(fixture.unit.key());
         let context = crate::test_support::TestCheckerContext::new(false);
 
-        let request = CheckerUnitView::new(&fixture.unit, &entry, &context)
-            .unwrap_or_else(|error| panic!("test checker view must be valid: {error:?}"));
+        let request = CheckerUnitView::new(&fixture.unit, &entry, &context);
 
         let unit_type =
             crate::representation::representation_type(request, RepresentationRole::Unit)
@@ -1777,8 +1767,7 @@ mod tests {
         let entry = callable_entry(unit.key());
         let context = crate::test_support::TestCheckerContext::new(false);
 
-        let request = CheckerUnitView::new(&unit, &entry, &context)
-            .unwrap_or_else(|error| panic!("test checker view must be valid: {error:?}"));
+        let request = CheckerUnitView::new(&unit, &entry, &context);
 
         let panic_report =
             crate::representation::representation_type(request, RepresentationRole::PanicReport)
@@ -1912,7 +1901,8 @@ mod tests {
     }
 
     #[test]
-    fn foreign_type_inputs_fail_without_publishing_partial_results() {
+    #[should_panic(expected = "must have a committed node and inference input")]
+    fn foreign_type_inputs_expose_an_internal_request_bug() {
         let (unit, _) = expression_unit(BoundUnitId::new(45), |tree, origin| {
             vec![push_expression(tree, literal(origin, None))]
         });
@@ -1928,20 +1918,9 @@ mod tests {
         let entry = callable_entry(key);
         let context = crate::test_support::TestCheckerContext::new(false);
 
-        let Ok(request) = CheckerUnitView::new(&unit, &entry, &context) else {
-            panic!("test checker unit view must be valid");
-        };
+        let request = CheckerUnitView::new(&unit, &entry, &context);
 
-        let outcome = DefaultExpressionTypeChecker.check_expression_types(request, &input);
-
-        assert_eq!(
-            outcome.infrastructure_failure(),
-            Some(CheckerInfrastructureError::InvalidExpressionTypeInput {
-                expression: foreign[0],
-            })
-        );
-
-        assert_eq!(outcome.result(), None);
+        DefaultExpressionTypeChecker.check_expression_types(request, &input);
     }
 
     #[test]
@@ -1953,9 +1932,7 @@ mod tests {
         let entry = callable_entry(unit.key());
         let context = crate::test_support::TestCheckerContext::new(true);
 
-        let Ok(request) = CheckerUnitView::new(&unit, &entry, &context) else {
-            panic!("test checker unit view must be valid");
-        };
+        let request = CheckerUnitView::new(&unit, &entry, &context);
 
         let outcome = DefaultExpressionTypeChecker
             .check_expression_types(request, &ExpressionTypeInput::new());
@@ -1975,9 +1952,7 @@ mod tests {
         let entry = callable_entry(unit.key());
         let context = crate::test_support::TestCheckerContext::cancelling_after(8);
 
-        let Ok(request) = CheckerUnitView::new(&unit, &entry, &context) else {
-            panic!("test checker unit view must be valid");
-        };
+        let request = CheckerUnitView::new(&unit, &entry, &context);
 
         let outcome = DefaultExpressionTypeChecker
             .check_expression_types(request, &ExpressionTypeInput::new());

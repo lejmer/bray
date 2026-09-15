@@ -68,8 +68,7 @@ where
             context.module(),
             name,
             context.access(),
-        )
-        .map_err(crate::BindingQueryError::Construction)?;
+        );
 
         if assignment {
             return Ok(lookup.map(

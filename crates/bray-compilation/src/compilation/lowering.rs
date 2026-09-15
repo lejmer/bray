@@ -426,11 +426,10 @@ impl Compilation {
             identity_substitution(binding_context.semantic_values(), owner, &parameters)?;
 
         let BoundUnitRoot::Expression(initializer) = unit.root() else {
-            return Err(super::semantic_error::SemanticQueryFailure::BoundUnit {
-                unit: key.clone(),
-                cause: bray_bound_tree::BoundUnitBuildError::RootKindMismatch,
-            }
-            .into());
+            panic!(
+                "initializer unit {key:?} must have an expression root, got {:?}",
+                unit.root()
+            );
         };
 
         let ty = expression_types

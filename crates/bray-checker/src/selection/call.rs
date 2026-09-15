@@ -13,10 +13,9 @@ use bray_symbols::{
     ImplementationSelection, ReceiverMode, TypeData,
 };
 
-use crate::unit::semantic_input_failure;
+use crate::unit::assert_unit_inputs;
 use crate::{
-    CheckerInfrastructureError, CheckerInputKind, CheckerQueryError, CheckerRequestContext,
-    CheckerUnitView,
+    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
 };
 
 use super::{
@@ -57,7 +56,12 @@ where
         return Ok(None);
     }
 
-    let mode = validate_unit(request, types, input)?;
+    assert_unit_inputs(
+        request,
+        [("expression types", (types.unit(), types.kind()))],
+    );
+
+    let mode = callable_selection_mode(request, input);
 
     if candidates
         .windows(2)
@@ -186,7 +190,12 @@ where
         return Ok(None);
     }
 
-    let mode = validate_unit(request, types, input)?;
+    assert_unit_inputs(
+        request,
+        [("expression types", (types.unit(), types.kind()))],
+    );
+
+    let mode = callable_selection_mode(request, input);
     let mut viable = Vec::new();
 
     let candidate_input = CandidateInput {
@@ -1018,106 +1027,74 @@ fn expression_type(
         .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)
 }
 
-fn validate_unit<C>(
+fn callable_selection_mode<C>(
     request: CheckerUnitView<'_, C>,
-    types: &CheckedExpressionTypes,
     input: &CallableSelectionRequest,
-) -> Result<CallableSelectionMode, CheckerInfrastructureError>
+) -> CallableSelectionMode
 where
     C: CheckerRequestContext + ?Sized,
 {
-    if let Some(error) = semantic_input_failure(
-        request,
-        [(
-            CheckerInputKind::ExpressionTypes,
-            (types.unit(), types.kind()),
-        )],
-    ) {
-        return Err(error);
-    }
-
     let Some(bray_bound_tree::BoundExpression::Call(call)) =
         request.view().expression(input.expression())
     else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        panic!(
+            "callable selection {:?} must name a committed call",
+            input.expression()
+        );
     };
 
-    if call.arguments() != input.arguments() {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
-    }
+    let callee = request
+        .view()
+        .expression(call.callee())
+        .expect("committed call must have a callee");
 
-    if call.generic_arguments() != input.generic_arguments() {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
-    }
-
-    let Some(callee) = request.view().expression(call.callee()) else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
-    };
-
-    callable_selection_mode(callee, input)
-}
-
-fn callable_selection_mode(
-    callee: &bray_bound_tree::BoundExpression,
-    input: &CallableSelectionRequest,
-) -> Result<CallableSelectionMode, CheckerInfrastructureError> {
     let is_overload = match callee {
         bray_bound_tree::BoundExpression::MemberAccess(member) => {
-            member_selection_is_overload(input, member.receiver())?
+            member_selection_is_overload(input, member.receiver())
         }
         bray_bound_tree::BoundExpression::TraitQualifiedMember(member) => {
-            member_selection_is_overload(input, member.receiver())?
-        }
-        bray_bound_tree::BoundExpression::Name(name) => {
-            validate_non_member_request(input)?;
-
-            matches!(
-                name.target(),
-                bray_bound_tree::BoundReferenceTarget::Surface(symbol)
-                    if symbol.kind() == bray_symbols::SymbolKind::CallableOverload
-            )
+            member_selection_is_overload(input, member.receiver())
         }
         _ => {
-            validate_non_member_request(input)?;
+            assert!(
+                input.callee_member().is_none() && input.receiver().is_none(),
+                "non-member call {:?} cannot carry a member receiver",
+                input.expression()
+            );
 
-            false
+            matches!(callee, bray_bound_tree::BoundExpression::Name(name) if matches!(name.target(), bray_bound_tree::BoundReferenceTarget::Surface(symbol) if symbol.kind() == bray_symbols::SymbolKind::CallableOverload))
         }
     };
 
-    Ok(if is_overload {
+    if is_overload {
         CallableSelectionMode::Overload
     } else {
         CallableSelectionMode::Direct
-    })
+    }
 }
 
 fn member_selection_is_overload(
     input: &CallableSelectionRequest,
     receiver: bray_bound_tree::BoundExpressionId,
-) -> Result<bool, CheckerInfrastructureError> {
+) -> bool {
     let Some(member) = input.callee_member() else {
-        return if input.receiver().is_none() {
-            Ok(false)
-        } else {
-            Err(CheckerInfrastructureError::InvalidSemanticSelectionInput)
-        };
+        assert!(
+            input.receiver().is_none(),
+            "unselected member call {:?} cannot carry a receiver",
+            input.expression()
+        );
+
+        return false;
     };
 
-    if input.receiver().map(super::ReceiverSelection::expression) != Some(receiver) {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
-    }
+    assert_eq!(
+        input.receiver().map(super::ReceiverSelection::expression),
+        Some(receiver),
+        "member call {:?} must retain its bound receiver",
+        input.expression()
+    );
 
-    Ok(member.member().kind() == bray_symbols::SymbolKind::CallableOverload)
-}
-
-fn validate_non_member_request(
-    input: &CallableSelectionRequest,
-) -> Result<(), CheckerInfrastructureError> {
-    if input.callee_member().is_some() || input.receiver().is_some() {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
-    }
-
-    Ok(())
+    member.member().kind() == bray_symbols::SymbolKind::CallableOverload
 }
 
 #[cfg(test)]
@@ -1303,10 +1280,7 @@ mod tests {
         let context = TestCheckerContext::new(false);
         let entry = callable_entry(fixture.unit.key());
 
-        let request = match CheckerUnitView::new(&fixture.unit, &entry, &context) {
-            Ok(request) => request,
-            Err(error) => panic!("generic call selection request must validate: {error:?}"),
-        };
+        let request = CheckerUnitView::new(&fixture.unit, &entry, &context);
 
         assert!(matches!(
             super::generic_arguments_are_compatible(request, &[generic_argument], target),
@@ -1320,15 +1294,13 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "must retain its bound receiver")]
     fn method_requests_require_the_bound_callee_receiver() {
         let fixture = method_call_fixture(BoundUnitId::new(78));
         let context = TestCheckerContext::new(false);
         let entry = callable_entry(fixture.unit.key());
 
-        let request = match CheckerUnitView::new(&fixture.unit, &entry, &context) {
-            Ok(request) => request,
-            Err(error) => panic!("method selection request must validate: {error:?}"),
-        };
+        let request = CheckerUnitView::new(&fixture.unit, &entry, &context);
 
         let member = FunctionSymbolId::from_symbol_id(SymbolId::new(4));
 
@@ -1344,12 +1316,7 @@ mod tests {
             [],
         );
 
-        assert_eq!(
-            super::select(request, &fixture.types, input),
-            Err(crate::CheckerQueryError::Infrastructure(
-                crate::CheckerInfrastructureError::InvalidSemanticSelectionInput,
-            ))
-        );
+        let _ = super::select(request, &fixture.types, input);
     }
 
     #[test]
@@ -1799,10 +1766,7 @@ mod tests {
     ) -> crate::CheckerOutcome<CandidateSelection<SelectedCall>> {
         let entry = callable_entry(unit.key());
 
-        let request = match CheckerUnitView::new(unit, &entry, context) {
-            Ok(request) => request,
-            Err(error) => panic!("call selection request must be valid: {error:?}"),
-        };
+        let request = CheckerUnitView::new(unit, &entry, context);
 
         DefaultSemanticSelector.select_callable(request, types, input)
     }

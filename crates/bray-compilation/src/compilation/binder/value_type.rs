@@ -1,10 +1,8 @@
 use crate::compilation::binder::BindingQueryResult;
-use bray_binder::{
-    BindingError, BindingQueryContext, BindingQueryError, BoundUnitConstructionError,
-};
+use bray_binder::{BindingError, BindingQueryContext, BindingQueryError};
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundBlockItem, BoundExpression, BoundReferenceTarget, BoundTreeBuildError,
-    BoundUnit, BoundWalkControl, BoundWalkEvent, BoundWalkOutcome, DeclaredValueTypeConstraint,
+    AnyBoundNodeId, BoundBlockItem, BoundExpression, BoundReferenceTarget, BoundUnit,
+    BoundWalkControl, BoundWalkEvent, BoundWalkOutcome, DeclaredValueTypeConstraint,
     DeclaredValueTypeConstraintKind, DeclaredValueTypeEvidence, DeclaredValueTypeTemplates,
     DeclaredValueTypeTerm, walk_bound_unit_view,
 };
@@ -101,7 +99,9 @@ impl<'binding> DeclaredValueTypeBinding<'binding> {
             BoundWalkOutcome::Stopped => Err(BindingQueryError::Binding(
                 BindingError::BoundWalkStopped(root),
             )),
-            BoundWalkOutcome::MissingNode(node) => Err(missing_bound_node(node)),
+            BoundWalkOutcome::MissingNode(node) => {
+                panic!("committed bound node {node:?} must exist")
+            }
         }
     }
 
@@ -113,7 +113,7 @@ impl<'binding> DeclaredValueTypeBinding<'binding> {
                     .unit
                     .tree()
                     .pattern(id)
-                    .ok_or_else(|| missing_bound_node(id.into()))?;
+                    .unwrap_or_else(|| panic!("committed bound node {id:?} must exist"));
 
                 for binding in pattern.bindings() {
                     self.add_constraint(
@@ -138,7 +138,7 @@ impl<'binding> DeclaredValueTypeBinding<'binding> {
             .unit
             .tree()
             .expression(id)
-            .ok_or_else(|| missing_bound_node(id.into()))?;
+            .unwrap_or_else(|| panic!("committed bound node {id:?} must exist"));
 
         match expression {
             BoundExpression::Name(name) => {
@@ -172,7 +172,7 @@ impl<'binding> DeclaredValueTypeBinding<'binding> {
             .unit
             .tree()
             .block(id)
-            .ok_or_else(|| missing_bound_node(id.into()))?;
+            .unwrap_or_else(|| panic!("committed bound node {id:?} must exist"));
 
         for item in block.items() {
             match item {
@@ -290,13 +290,4 @@ impl<'binding> DeclaredValueTypeBinding<'binding> {
 
 pub(super) const fn local_value(symbol: AnyLocalSymbolId) -> DeclaredValueTypeTerm {
     DeclaredValueTypeTerm::Value(BoundReferenceTarget::Local(symbol))
-}
-
-fn missing_bound_node(node: AnyBoundNodeId) -> BindingQueryError<crate::fact::FactQueryError> {
-    BindingQueryError::Construction(BoundUnitConstructionError::BoundTree(
-        BoundTreeBuildError::MissingNode {
-            kind: node.kind(),
-            slot: node.ordinal(),
-        },
-    ))
 }

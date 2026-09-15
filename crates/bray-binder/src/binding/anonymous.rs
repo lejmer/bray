@@ -20,7 +20,7 @@ where
         self.check_cancellation()?;
 
         let source = self.anonymous_source(syntax);
-        let unit = self.unit().nested_anonymous_callable_key(source)?;
+        let unit = self.unit().nested_anonymous_callable_key(source);
 
         // The dependency set and caller retain the same Arc-backed immutable unit key.
         self.record_dependency(BinderDependency::Unit(unit.clone()));
@@ -148,9 +148,7 @@ mod tests {
             Err(error) => panic!("test enclosing binding must build: {error:?}"),
         };
 
-        if let Err(error) = binder.unit_mut().activate_local(root, captured) {
-            panic!("test enclosing binding must activate: {error:?}");
-        }
+        binder.unit_mut().activate_local(root, captured);
 
         let nested_key = match binder.bind_anonymous_callable_reference(&lambda) {
             Ok(key) => key,
@@ -159,10 +157,7 @@ mod tests {
 
         assert_eq!(nested_key.kind(), BoundUnitKind::AnonymousCallable);
 
-        let outer = match binder.finish() {
-            Ok(result) => result,
-            Err(error) => panic!("anonymous reference must freeze: {error:?}"),
-        };
+        let outer = binder.finish();
 
         assert_eq!(
             outer.dependencies(),
@@ -200,8 +195,7 @@ mod tests {
             Some(module.id()),
             "captured",
             crate::lookup::NameAccess::Internal,
-        )
-        .expect("lookup metadata must remain available");
+        );
 
         assert_eq!(capture_lookup, MemberLookupResult::NotFound);
 
@@ -212,18 +206,14 @@ mod tests {
             Some(module.id()),
             "value",
             crate::lookup::NameAccess::Internal,
-        )
-        .expect("lookup metadata must remain available");
+        );
 
         assert!(matches!(
             parameter_lookup,
             MemberLookupResult::Found(crate::lookup::ResolvedName::Local(_))
         ));
 
-        let nested = match binder.finish() {
-            Ok(result) => result,
-            Err(error) => panic!("anonymous boundary must freeze: {error:?}"),
-        };
+        let nested = binder.finish();
 
         let Some(callable) = nested
             .unit()

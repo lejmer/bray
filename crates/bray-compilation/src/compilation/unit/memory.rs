@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
+use bray_binder::semantic_unit_context;
 use bray_bound_tree::{BoundUnitKey, CheckedMemoryOperations};
 use bray_checker::{DefaultMemoryOperationChecker, MemoryOperationChecker};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 
-use super::{checker_unit_view, semantic_unit_context_for};
 use crate::compilation::checker::checker_result;
 use crate::compilation::state::Compilation;
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitResult};
@@ -29,9 +29,13 @@ impl Compilation {
                 let context = self.checker_context_for(&key, cancellation)?;
 
                 let semantic_context =
-                    semantic_unit_context_for(context.symbols(), bound.result().value())?;
+                    semantic_unit_context(context.symbols(), bound.result().value());
 
-                let unit = checker_unit_view(bound.result().value(), &semantic_context, &context)?;
+                let unit = bray_checker::CheckerUnitView::new(
+                    bound.result().value(),
+                    &semantic_context,
+                    &context,
+                );
 
                 let result =
                     checker_result(DefaultMemoryOperationChecker.check_memory_operations(

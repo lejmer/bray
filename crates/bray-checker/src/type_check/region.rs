@@ -74,9 +74,10 @@ where
 
     for block in blocks {
         let Some(bound) = request.view().block(*block) else {
-            return Err(CheckerInfrastructureError::InvalidBoundNode {
-                node: AnyBoundNodeId::from(*block),
-            });
+            panic!(
+                "bound node {:?} must belong to the committed tree and checked inputs",
+                AnyBoundNodeId::from(*block)
+            );
         };
 
         let Some(owner) = block_owners.get(block).copied() else {
@@ -123,7 +124,7 @@ where
         );
     }
 
-    let break_variables = collect_break_variables(request, expressions, variables)?;
+    let break_variables = collect_break_variables(request, expressions, variables);
 
     Ok(ExpressionTypeRegions {
         block_owners,
@@ -136,7 +137,7 @@ fn collect_break_variables<C>(
     request: CheckerUnitView<'_, C>,
     expressions: &[BoundExpressionId],
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
-) -> Result<BTreeMap<SyntaxAnchor, InferenceTypeId>, CheckerInfrastructureError>
+) -> BTreeMap<SyntaxAnchor, InferenceTypeId>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -148,9 +149,10 @@ where
         };
 
         let Some(bound) = request.view().expression(*expression) else {
-            return Err(CheckerInfrastructureError::InvalidBoundNode {
-                node: (*expression).into(),
-            });
+            panic!(
+                "bound node {:?} must belong to the committed tree and checked inputs",
+                (*expression)
+            );
         };
 
         let target = match bound {
@@ -172,5 +174,5 @@ where
         }
     }
 
-    Ok(regions)
+    regions
 }

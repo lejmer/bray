@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use bray_binder::semantic_unit_context;
 use bray_bound_tree::CheckedTemplateKind;
 use bray_checker::{
     ConstantEvaluationInput, ConstantEvaluationLimits, ConstantEvaluator, DefaultConstantEvaluator,
@@ -15,7 +16,7 @@ use crate::compilation::checker::checker_result;
 use crate::compilation::constant::call::{
     CompilationConstantCallResolver, CompilationConstantTemplateResolver,
 };
-use crate::compilation::unit::semantic_unit_context_for;
+
 use crate::compilation::{
     SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
 };
@@ -46,8 +47,7 @@ impl Compilation {
         let semantics = self.expression_semantics_with_cancellation(key.clone(), cancellation)?;
         let context = self.checker_context_for(&key, cancellation)?;
 
-        let semantic_context =
-            semantic_unit_context_for(context.symbols(), bound.result().value())?;
+        let semantic_context = semantic_unit_context(context.symbols(), bound.result().value());
 
         let types = substitute_expression_types(
             self.semantic_value_store()?,
@@ -73,11 +73,8 @@ impl Compilation {
             .with_static_address_borrows()
             .with_limits(limits);
 
-        let unit = crate::compilation::unit::checker_unit_view(
-            bound.result().value(),
-            &semantic_context,
-            &context,
-        )?;
+        let unit =
+            bray_checker::CheckerUnitView::new(bound.result().value(), &semantic_context, &context);
 
         let evaluated = checker_result(
             DefaultConstantEvaluator.evaluate_constant_with_references(unit, &input),

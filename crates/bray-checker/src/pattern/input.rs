@@ -7,8 +7,6 @@ use bray_bound_tree::{
 };
 use bray_symbols::{ConstantTermId, ConstantValueId, TypeExpressionTemplate, TypeId};
 
-use crate::CheckerPatternInputFailure;
-
 /// The selected element type supplied to one iteration pattern.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct IterationPatternType {
@@ -98,13 +96,14 @@ impl GuardConstantEvidence {
 }
 
 /// Contextual types unavailable from the bound unit alone.
+///
+/// Repeated evidence for a pattern or guard must agree. Conflicting compiler facts panic at insertion.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PatternCheckInput {
     iteration_patterns: Arc<[IterationPatternType]>,
     declared_patterns: BTreeMap<BoundPatternId, TypeExpressionTemplate>,
     constant_patterns: BTreeMap<BoundPatternId, PatternConstantEvidence>,
     constant_guards: BTreeMap<BoundExpressionId, ConstantValueId>,
-    failure: Option<CheckerPatternInputFailure>,
 }
 
 impl Default for PatternCheckInput {
@@ -121,7 +120,6 @@ impl PatternCheckInput {
             declared_patterns: BTreeMap::new(),
             constant_patterns: BTreeMap::new(),
             constant_guards: BTreeMap::new(),
-            failure: None,
         }
     }
 
@@ -145,15 +143,12 @@ impl PatternCheckInput {
             // The check input owns templates independently of the borrowed declaration query.
             let template = evidence.template().clone();
 
-            if self
-                .declared_patterns
-                .insert(pattern, template)
-                .is_some_and(|current| current != *evidence.template())
-            {
-                self.failure.get_or_insert(
-                    CheckerPatternInputFailure::ConflictingDeclaredPattern { pattern },
-                );
-            }
+            let previous = self.declared_patterns.insert(pattern, template);
+
+            assert!(
+                previous.is_none_or(|previous| previous == *evidence.template()),
+                "pattern {pattern:?} must have one declared type template"
+            );
         }
 
         self
@@ -165,17 +160,13 @@ impl PatternCheckInput {
         patterns: impl IntoIterator<Item = PatternConstantEvidence>,
     ) -> Self {
         for evidence in patterns {
-            if self
-                .constant_patterns
-                .insert(evidence.pattern(), evidence)
-                .is_some_and(|current| current != evidence)
-            {
-                self.failure.get_or_insert(
-                    CheckerPatternInputFailure::ConflictingConstantPattern {
-                        pattern: evidence.pattern(),
-                    },
-                );
-            }
+            let previous = self.constant_patterns.insert(evidence.pattern(), evidence);
+
+            assert!(
+                previous.is_none_or(|previous| previous == evidence),
+                "pattern {:?} must have one constant value",
+                evidence.pattern()
+            );
         }
 
         self
@@ -187,16 +178,15 @@ impl PatternCheckInput {
         guards: impl IntoIterator<Item = GuardConstantEvidence>,
     ) -> Self {
         for evidence in guards {
-            if self
+            let previous = self
                 .constant_guards
-                .insert(evidence.guard(), evidence.value())
-                .is_some_and(|current| current != evidence.value())
-            {
-                self.failure
-                    .get_or_insert(CheckerPatternInputFailure::ConflictingGuard {
-                        expression: evidence.guard(),
-                    });
-            }
+                .insert(evidence.guard(), evidence.value());
+
+            assert!(
+                previous.is_none_or(|previous| previous == evidence.value()),
+                "guard {:?} must have one constant value",
+                evidence.guard()
+            );
         }
 
         self
@@ -217,10 +207,6 @@ impl PatternCheckInput {
     pub(super) fn constant_guards(&self) -> &BTreeMap<BoundExpressionId, ConstantValueId> {
         &self.constant_guards
     }
-
-    pub(super) const fn failure(&self) -> Option<CheckerPatternInputFailure> {
-        self.failure
-    }
 }
 
 #[cfg(test)]
@@ -229,13 +215,13 @@ mod tests {
     use bray_symbols::{ConstantValueData, ConstantValueKind};
 
     use super::{GuardConstantEvidence, PatternCheckInput};
-    use crate::CheckerPatternInputFailure;
     use crate::test_support::{
         error_type, expression_unit, integer_literal_expression, push_expression, semantic_values,
     };
 
     #[test]
-    fn conflicting_constant_evidence_is_rejected_deterministically() {
+    #[should_panic(expected = "must have one constant value")]
+    fn conflicting_constant_evidence_exposes_the_request_bug() {
         let values = semantic_values();
         let ty = error_type();
 
@@ -261,14 +247,9 @@ mod tests {
             .intern_constant_value(ConstantValueData::new(ty, ConstantValueKind::Boolean(true)))
             .unwrap_or_else(|error| panic!("second test constant must intern: {error:?}"));
 
-        let input = PatternCheckInput::new().with_constant_guards([
+        PatternCheckInput::new().with_constant_guards([
             GuardConstantEvidence::new(*guard, first_value),
             GuardConstantEvidence::new(*guard, second_value),
         ]);
-
-        assert_eq!(
-            input.failure(),
-            Some(CheckerPatternInputFailure::ConflictingGuard { expression: *guard })
-        );
     }
 }

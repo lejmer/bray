@@ -25,14 +25,13 @@ pub(super) struct PreparedPatternReferences {
 
 pub(super) fn pattern_binding_reference_expressions<C>(
     request: CheckerUnitView<'_, C>,
-) -> Result<BTreeSet<bray_bound_tree::BoundExpressionId>, CheckerInfrastructureError>
+) -> BTreeSet<bray_bound_tree::BoundExpressionId>
 where
     C: CheckerRequestContext + ?Sized,
 {
     let mut expressions = BTreeSet::new();
-    let mut missing = None;
 
-    walk_bound_unit_view(request.view(), request.unit().root(), |event| {
+    let outcome = walk_bound_unit_view(request.view(), request.unit().root(), |event| {
         let BoundWalkEvent::Enter(AnyBoundNodeId::Expression(expression)) = event else {
             return BoundWalkControl::Continue;
         };
@@ -48,22 +47,20 @@ where
             }
             Some(_) => {}
             None => {
-                missing = Some(expression);
-
-                return BoundWalkControl::Stop;
+                panic!("visited expression {expression:?} must be committed");
             }
         }
 
         BoundWalkControl::Continue
     });
 
-    if let Some(expression) = missing {
-        return Err(CheckerInfrastructureError::InvalidBoundNode {
-            node: expression.into(),
-        });
-    }
+    assert_eq!(
+        outcome,
+        bray_bound_tree::BoundWalkOutcome::Completed,
+        "pattern binding traversal must visit a committed unit"
+    );
 
-    Ok(expressions)
+    expressions
 }
 
 pub(super) fn prepare_pattern_binding_references<C>(
@@ -85,12 +82,13 @@ where
 
     for expression in &expressions {
         let Some(bound) = request.view().expression(*expression) else {
-            return Err(CheckerInfrastructureError::InvalidBoundNode {
-                node: (*expression).into(),
-            });
+            panic!(
+                "bound node {:?} must belong to the committed tree and checked inputs",
+                (*expression)
+            );
         };
 
-        let binding_id = pattern_binding_id(*expression, bound)?;
+        let binding_id = pattern_binding_id(*expression, bound);
 
         if let Some(binding_type) = patterns.binding_type(binding_id) {
             evidence.push(ExpressionTypeEvidence::new(*expression, binding_type.ty()));
@@ -114,9 +112,10 @@ where
         };
 
         let Some(pattern) = patterns.pattern(reference.pattern()) else {
-            return Err(CheckerInfrastructureError::InvalidBoundNode {
-                node: reference.pattern().into(),
-            });
+            panic!(
+                "bound node {:?} must belong to the committed tree and checked inputs",
+                reference.pattern()
+            );
         };
 
         if pattern.target().is_none() || pattern.is_recovered() {
@@ -159,7 +158,7 @@ pub(super) fn resolved_pattern_binding_evidence<C>(
     request: CheckerUnitView<'_, C>,
     patterns: &CheckedPatterns,
     expressions: &BTreeSet<bray_bound_tree::BoundExpressionId>,
-) -> Result<Vec<ExpressionTypeEvidence>, CheckerInfrastructureError>
+) -> Vec<ExpressionTypeEvidence>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -167,12 +166,13 @@ where
 
     for expression in expressions {
         let Some(bound) = request.view().expression(*expression) else {
-            return Err(CheckerInfrastructureError::InvalidBoundNode {
-                node: (*expression).into(),
-            });
+            panic!(
+                "bound node {:?} must belong to the committed tree and checked inputs",
+                (*expression)
+            );
         };
 
-        let binding = pattern_binding_id(*expression, bound)?;
+        let binding = pattern_binding_id(*expression, bound);
 
         let Some(binding_type) = patterns.binding_type(binding) else {
             continue;
@@ -183,29 +183,31 @@ where
         }
     }
 
-    Ok(evidence)
+    evidence
 }
 
 fn pattern_binding_id(
     expression: bray_bound_tree::BoundExpressionId,
     bound: &BoundExpression,
-) -> Result<bray_symbols::LocalBindingSymbolId, CheckerInfrastructureError> {
+) -> bray_symbols::LocalBindingSymbolId {
     match bound {
         BoundExpression::Name(name) => {
             let BoundReferenceTarget::Local(bray_symbols::AnyLocalSymbolId::Binding(binding)) =
                 name.target()
             else {
-                return Err(CheckerInfrastructureError::InvalidBoundNode {
-                    node: expression.into(),
-                });
+                panic!(
+                    "bound node {:?} must belong to the committed tree and checked inputs",
+                    expression
+                );
             };
 
-            Ok(binding)
+            binding
         }
-        BoundExpression::PatternReference(reference) => Ok(reference.binding()),
-        _ => Err(CheckerInfrastructureError::InvalidBoundNode {
-            node: expression.into(),
-        }),
+        BoundExpression::PatternReference(reference) => reference.binding(),
+        _ => panic!(
+            "bound node {:?} must belong to the committed tree and checked inputs",
+            expression
+        ),
     }
 }
 

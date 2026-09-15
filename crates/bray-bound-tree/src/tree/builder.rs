@@ -1,30 +1,14 @@
 use crate::{
-    AnyBoundNodeId, BoundBlock, BoundBlockId, BoundCallableBody, BoundCallableBodyId,
-    BoundExpression, BoundExpressionId, BoundNodeKind, BoundPattern, BoundPatternId, BoundTree,
-    BoundUnitId, BoundUnitKey, BoundUnitView,
+    BoundBlock, BoundBlockId, BoundCallableBody, BoundCallableBodyId, BoundExpression,
+    BoundExpressionId, BoundNodeKind, BoundPattern, BoundPatternId, BoundTree, BoundUnitId,
+    BoundUnitKey, BoundUnitView,
 };
 
 /// A typed failure while committing a node to a per-unit bound-tree builder.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum BoundTreeBuildError {
     /// The requested node category cannot represent another node.
     ArenaCapacityExceeded(BoundNodeKind),
-    /// A node relationship refers to a different bound unit.
-    ForeignNode {
-        /// The unit being constructed.
-        expected: BoundUnitId,
-        /// The unit owning the referenced node.
-        actual: BoundUnitId,
-        /// The category of the referenced node.
-        kind: BoundNodeKind,
-    },
-    /// A node relationship refers to a node that has not been added.
-    MissingNode {
-        /// The category of the missing node.
-        kind: BoundNodeKind,
-        /// The missing node position.
-        slot: u32,
-    },
 }
 
 /// A checkpoint in one bound-tree builder.
@@ -70,15 +54,30 @@ impl BoundTreeBuilder {
         expression: BoundExpression,
     ) -> Result<BoundExpressionId, BoundTreeBuildError> {
         for child in expression.child_expressions() {
-            self.validate_expression_id(child)?;
+            assert!(
+                self.expression(child).is_some(),
+                "bound expression relationship {:?} must be committed in unit {:?}",
+                child,
+                self.unit
+            );
         }
 
         for block in expression.child_blocks() {
-            self.validate_block_id(block)?;
+            assert!(
+                self.block(block).is_some(),
+                "bound block relationship {:?} must be committed in unit {:?}",
+                block,
+                self.unit
+            );
         }
 
         for pattern in expression.child_patterns() {
-            self.validate_pattern_id(pattern)?;
+            assert!(
+                self.pattern(pattern).is_some(),
+                "bound pattern relationship {:?} must be committed in unit {:?}",
+                pattern,
+                self.unit
+            );
         }
 
         let slot = next_slot(self.expressions.len(), BoundNodeKind::Expression)?;
@@ -94,12 +93,22 @@ impl BoundTreeBuilder {
         pattern: BoundPattern,
     ) -> Result<BoundPatternId, BoundTreeBuildError> {
         for child in pattern.children() {
-            self.validate_pattern_id(*child)?;
+            assert!(
+                self.pattern(*child).is_some(),
+                "bound pattern relationship {:?} must be committed in unit {:?}",
+                *child,
+                self.unit
+            );
         }
 
         for entry in pattern.entries() {
             if let Some(child) = entry.pattern() {
-                self.validate_pattern_id(child)?;
+                assert!(
+                    self.pattern(child).is_some(),
+                    "bound pattern relationship {:?} must be committed in unit {:?}",
+                    child,
+                    self.unit
+                );
             }
         }
 
@@ -114,11 +123,21 @@ impl BoundTreeBuilder {
     pub fn push_block(&mut self, block: BoundBlock) -> Result<BoundBlockId, BoundTreeBuildError> {
         for item in block.items() {
             if let Some(pattern) = item.pattern() {
-                self.validate_pattern_id(pattern)?;
+                assert!(
+                    self.pattern(pattern).is_some(),
+                    "bound pattern relationship {:?} must be committed in unit {:?}",
+                    pattern,
+                    self.unit
+                );
             }
 
             if let Some(expression) = item.expression() {
-                self.validate_expression_id(expression)?;
+                assert!(
+                    self.expression(expression).is_some(),
+                    "bound expression relationship {:?} must be committed in unit {:?}",
+                    expression,
+                    self.unit
+                );
             }
         }
 
@@ -135,7 +154,12 @@ impl BoundTreeBuilder {
         body: BoundCallableBody,
     ) -> Result<BoundCallableBodyId, BoundTreeBuildError> {
         if let Some(block) = body.block_id() {
-            self.validate_block_id(block)?;
+            assert!(
+                self.block(block).is_some(),
+                "bound block relationship {:?} must be committed in unit {:?}",
+                block,
+                self.unit
+            );
         }
 
         let slot = next_slot(self.callable_bodies.len(), BoundNodeKind::CallableBody)?;
@@ -226,70 +250,10 @@ impl BoundTreeBuilder {
     pub(crate) fn callable_body(&self, id: BoundCallableBodyId) -> Option<&BoundCallableBody> {
         entry(self.unit, id.unit(), id.to_index(), &self.callable_bodies)
     }
-
-    fn validate_expression_id(&self, id: BoundExpressionId) -> Result<(), BoundTreeBuildError> {
-        validate_id(
-            self.unit,
-            id.unit(),
-            id.to_index(),
-            AnyBoundNodeId::from(id).slot(),
-            self.expressions.len(),
-            BoundNodeKind::Expression,
-        )
-    }
-
-    fn validate_pattern_id(&self, id: BoundPatternId) -> Result<(), BoundTreeBuildError> {
-        validate_id(
-            self.unit,
-            id.unit(),
-            id.to_index(),
-            AnyBoundNodeId::from(id).slot(),
-            self.patterns.len(),
-            BoundNodeKind::Pattern,
-        )
-    }
-
-    fn validate_block_id(&self, id: BoundBlockId) -> Result<(), BoundTreeBuildError> {
-        validate_id(
-            self.unit,
-            id.unit(),
-            id.to_index(),
-            AnyBoundNodeId::from(id).slot(),
-            self.blocks.len(),
-            BoundNodeKind::Block,
-        )
-    }
 }
 
 fn next_slot(length: usize, kind: BoundNodeKind) -> Result<u32, BoundTreeBuildError> {
     u32::try_from(length).map_err(|_| BoundTreeBuildError::ArenaCapacityExceeded(kind))
-}
-
-fn validate_id(
-    expected_unit: BoundUnitId,
-    actual_unit: BoundUnitId,
-    index: Option<usize>,
-    slot: u32,
-    length: usize,
-    kind: BoundNodeKind,
-) -> Result<(), BoundTreeBuildError> {
-    if actual_unit != expected_unit {
-        return Err(BoundTreeBuildError::ForeignNode {
-            expected: expected_unit,
-            actual: actual_unit,
-            kind,
-        });
-    }
-
-    let Some(index) = index else {
-        return Err(BoundTreeBuildError::MissingNode { kind, slot });
-    };
-
-    if index >= length {
-        return Err(BoundTreeBuildError::MissingNode { kind, slot });
-    }
-
-    Ok(())
 }
 
 fn entry<T>(
@@ -307,11 +271,11 @@ fn entry<T>(
 
 #[cfg(test)]
 mod tests {
-    use super::{BoundTreeBuildError, BoundTreeBuilder};
+    use super::BoundTreeBuilder;
     use crate::test_support::{error_expression, source_anchor};
     use crate::{
-        BoundBlock, BoundBlockItem, BoundExpressionId, BoundNodeKind, BoundNodeOrigin,
-        BoundPattern, BoundPatternEntry, BoundPatternEntryKind, BoundPatternId, BoundPatternKind,
+        BoundBlock, BoundBlockItem, BoundExpressionId, BoundNodeOrigin, BoundPattern,
+        BoundPatternEntry, BoundPatternEntryKind, BoundPatternId, BoundPatternKind,
         BoundPatternMode, BoundUnitId,
     };
 
@@ -342,13 +306,9 @@ mod tests {
             true,
         );
 
-        assert_eq!(
-            builder.push_block(foreign),
-            Err(BoundTreeBuildError::ForeignNode {
-                expected: unit,
-                actual: BoundUnitId::new(2),
-                kind: BoundNodeKind::Expression,
-            })
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| builder.push_block(foreign)))
+                .is_err()
         );
 
         let missing = BoundBlock::new(
@@ -359,12 +319,9 @@ mod tests {
             true,
         );
 
-        assert_eq!(
-            builder.push_block(missing),
-            Err(BoundTreeBuildError::MissingNode {
-                kind: BoundNodeKind::Expression,
-                slot: 0,
-            })
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| builder.push_block(missing)))
+                .is_err()
         );
     }
 
@@ -386,13 +343,11 @@ mod tests {
             BoundPatternEntryKind::Pattern(BoundPatternId::from_slot(BoundUnitId::new(4), 0)),
         )]);
 
-        assert_eq!(
-            builder.push_pattern(pattern),
-            Err(BoundTreeBuildError::ForeignNode {
-                expected: unit,
-                actual: BoundUnitId::new(4),
-                kind: BoundNodeKind::Pattern,
-            })
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                || builder.push_pattern(pattern)
+            ))
+            .is_err()
         );
     }
 

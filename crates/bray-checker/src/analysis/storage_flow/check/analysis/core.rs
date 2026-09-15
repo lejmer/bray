@@ -20,10 +20,10 @@ use bray_symbols::{AnySymbolId, BorrowKind, CallableSignatureQuery};
 
 use crate::diagnostic::diagnostic_id;
 use crate::storage::{StorageScopeOwners, storage_scope_owners};
-use crate::unit::storage_flow_input_failure;
+use crate::unit::assert_unit_inputs;
 use crate::{
     CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
-    CheckerSemanticQueryProvider, CheckerStorageFlowFailure, CheckerUnitView, StorageFlowInputKind,
+    CheckerSemanticQueryProvider, CheckerStorageFlowFailure, CheckerUnitView,
 };
 
 use super::super::availability::storage_is_recovered;
@@ -51,33 +51,19 @@ pub(crate) fn check_storage_flow<C>(
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
-    if let Some(error) = storage_flow_input_failure(
+    assert_unit_inputs(
         request,
         [
             (
-                StorageFlowInputKind::SemanticSelections,
+                "semantic selections",
                 (selections.unit(), selections.kind()),
             ),
-            (
-                StorageFlowInputKind::StoragePlan,
-                (storage.unit(), storage.kind()),
-            ),
-            (
-                StorageFlowInputKind::Liveness,
-                (liveness.unit(), liveness.kind()),
-            ),
-            (
-                StorageFlowInputKind::Refinements,
-                (refinements.unit(), refinements.kind()),
-            ),
-            (
-                StorageFlowInputKind::MemoryOperations,
-                (memory.unit(), memory.kind()),
-            ),
+            ("storage plan", (storage.unit(), storage.kind())),
+            ("liveness", (liveness.unit(), liveness.kind())),
+            ("refinements", (refinements.unit(), refinements.kind())),
+            ("memory operations", (memory.unit(), memory.kind())),
         ],
-    ) {
-        return CheckerOutcome::InfrastructureFailure(error);
-    }
+    );
 
     let graph = match build_storage_control_flow_graph(request, storage, selections, None) {
         ControlFlowGraphBuildOutcome::Complete(graph) => graph,

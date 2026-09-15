@@ -30,7 +30,7 @@ pub fn test_bound_unit_with_declaration(unit: u32, declaration: u32) -> BoundUni
         Err(error) => panic!("test callable body must fit: {error:?}"),
     };
 
-    match BoundUnit::try_new(
+    BoundUnit::new(
         key,
         tree.finish(),
         local_symbols,
@@ -39,10 +39,7 @@ pub fn test_bound_unit_with_declaration(unit: u32, declaration: u32) -> BoundUni
             execution: bray_symbols::CallableExecution::Synchronous,
             body: root,
         },
-    ) {
-        Ok(unit) => unit,
-        Err(error) => panic!("test bound unit must validate: {error:?}"),
-    }
+    )
 }
 
 /// Builds one runtime-default unit through a caller-provided expression fixture.
@@ -75,16 +72,13 @@ fn test_expression_unit(
     let mut tree = BoundTreeBuilder::new(BoundUnitId::new(unit));
     let root = build(&mut tree, origin);
 
-    match BoundUnit::try_new(
+    BoundUnit::new(
         key,
         tree.finish(),
         local_symbols,
         [],
         BoundUnitRoot::Expression(root),
-    ) {
-        Ok(unit) => unit,
-        Err(error) => panic!("test expression unit must validate: {error:?}"),
-    }
+    )
 }
 
 fn callable_unit_identity(unit: u32, declaration: u32) -> (BoundUnitKey, LocalSymbolSnapshot) {

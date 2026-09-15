@@ -152,7 +152,10 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     let Some(expression) = request.view().expression(expression) else {
-        return Err(CheckerInfrastructureError::InvalidExpressionTypeInput { expression });
+        panic!(
+            "expression {:?} must have a committed node and inference input",
+            expression
+        );
     };
 
     source_span(request, expression.origin())
@@ -194,9 +197,10 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     let Some(pattern) = request.view().pattern(pattern) else {
-        return Err(CheckerInfrastructureError::InvalidBoundNode {
-            node: pattern.into(),
-        });
+        panic!(
+            "bound node {:?} must belong to the committed tree and checked inputs",
+            pattern
+        );
     };
 
     source_span(request, pattern.origin())

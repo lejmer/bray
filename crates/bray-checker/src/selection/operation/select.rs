@@ -1,13 +1,11 @@
 use bray_bound_tree::{
-    BoundExpression, BoundExpressionId, BoundStructuredExpressionKind, CheckedExpressionTypes,
-    ConstructionTarget, ExpressionTypeResult, SelectedConstruction, SelectedOperation,
-    SelectionKind,
+    BoundExpression, BoundExpressionId, CheckedExpressionTypes, ConstructionTarget,
+    ExpressionTypeResult, SelectedConstruction, SelectedOperation, SelectionKind,
 };
 
-use crate::unit::semantic_input_failure;
+use crate::unit::assert_unit_inputs;
 use crate::{
-    CheckerInfrastructureError, CheckerInputKind, CheckerQueryError, CheckerRequestContext,
-    CheckerUnitView,
+    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
 };
 
 use super::super::{
@@ -32,7 +30,16 @@ where
         return Ok(None);
     }
 
-    validate_request(request, types, &input)?;
+    assert_unit_inputs(
+        request,
+        [("expression types", (types.unit(), types.kind()))],
+    );
+
+    assert_ne!(
+        input.kind(),
+        SelectionKind::Callable,
+        "operation selection must use a non-call request"
+    );
 
     let OperationSelectionRequest {
         expression,
@@ -313,135 +320,6 @@ where
     }
 
     Ok(CandidateCheck::Applicable(operation))
-}
-
-fn validate_request<C>(
-    request: CheckerUnitView<'_, C>,
-    types: &CheckedExpressionTypes,
-    input: &OperationSelectionRequest,
-) -> Result<(), CheckerInfrastructureError>
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    if let Some(error) = semantic_input_failure(
-        request,
-        [(
-            CheckerInputKind::ExpressionTypes,
-            (types.unit(), types.kind()),
-        )],
-    ) {
-        return Err(error);
-    }
-
-    if input.kind() == SelectionKind::Callable || !expression_matches_request(request, input) {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
-    }
-
-    Ok(())
-}
-
-fn expression_matches_request<C>(
-    request: CheckerUnitView<'_, C>,
-    input: &OperationSelectionRequest,
-) -> bool
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    let Some(expression) = request.view().expression(input.expression()) else {
-        return false;
-    };
-
-    let category_matches = match (input.kind(), expression) {
-        (
-            SelectionKind::Member,
-            BoundExpression::MemberAccess(_) | BoundExpression::TraitQualifiedMember(_),
-        )
-        | (
-            SelectionKind::Operator,
-            BoundExpression::Unary(_) | BoundExpression::Binary(_) | BoundExpression::Assignment(_),
-        ) => true,
-        (SelectionKind::Index, BoundExpression::Structured(expression)) => matches!(
-            expression.kind(),
-            BoundStructuredExpressionKind::ElementIndex | BoundStructuredExpressionKind::SliceIndex
-        ),
-        (SelectionKind::Construction, BoundExpression::StructConstruction(_)) => true,
-        (
-            SelectionKind::Construction,
-            BoundExpression::LeadingDotVariant(_)
-            | BoundExpression::UnqualifiedVariant(_)
-            | BoundExpression::MemberAccess(_),
-        ) => true,
-        (SelectionKind::Construction, BoundExpression::Call(call)) => {
-            union_variant_reference(request, call.callee())
-        }
-        (SelectionKind::Construction, BoundExpression::BoxConstruction(_)) => true,
-        (SelectionKind::Conversion, BoundExpression::Conversion(_)) => true,
-        (SelectionKind::Implementation, _) => true,
-        _ => false,
-    };
-
-    if !category_matches {
-        return false;
-    }
-
-    if input.kind() == SelectionKind::Implementation {
-        return input.operands().is_empty();
-    }
-
-    source_operands(expression, input.kind())
-        .is_some_and(|operands| operands.into_iter().eq(input.operands().iter().copied()))
-}
-
-fn source_operands(
-    expression: &BoundExpression,
-    kind: SelectionKind,
-) -> Option<Vec<BoundExpressionId>> {
-    match expression {
-        BoundExpression::StructConstruction(construction) => Some(
-            construction
-                .fields()
-                .iter()
-                .map(bray_bound_tree::BoundStructFieldInitializer::expression)
-                .collect(),
-        ),
-        BoundExpression::Call(call) if kind == SelectionKind::Construction => Some(
-            call.arguments()
-                .iter()
-                .map(bray_bound_tree::BoundArgument::expression)
-                .collect(),
-        ),
-        BoundExpression::LeadingDotVariant(_)
-        | BoundExpression::UnqualifiedVariant(_)
-        | BoundExpression::MemberAccess(_)
-            if kind == SelectionKind::Construction =>
-        {
-            Some(Vec::new())
-        }
-        _ => Some(expression.child_expressions().collect()),
-    }
-}
-
-fn union_variant_reference<C>(
-    request: CheckerUnitView<'_, C>,
-    expression: BoundExpressionId,
-) -> bool
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    match request.view().expression(expression) {
-        Some(
-            BoundExpression::LeadingDotVariant(_)
-            | BoundExpression::UnqualifiedVariant(_)
-            | BoundExpression::MemberAccess(_),
-        ) => true,
-        Some(BoundExpression::Name(name)) => matches!(
-            name.target(),
-            bray_bound_tree::BoundReferenceTarget::Surface(
-                bray_symbols::AnySymbolId::UnionVariant(_)
-            )
-        ),
-        _ => false,
-    }
 }
 
 fn expression_types(
@@ -1284,10 +1162,7 @@ mod tests {
     ) -> crate::CheckerOutcome<CandidateSelection<SelectedOperation>> {
         let entry = callable_entry(unit.key());
 
-        let request = match CheckerUnitView::new(unit, &entry, context) {
-            Ok(request) => request,
-            Err(error) => panic!("operation selection request must be valid: {error:?}"),
-        };
+        let request = CheckerUnitView::new(unit, &entry, context);
 
         DefaultSemanticSelector.select_operation(request, types, input)
     }

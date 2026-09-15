@@ -10,7 +10,7 @@ use bray_symbols::{
 };
 use bray_syntax::GenericArgumentListSyntax;
 
-use super::support::{checker_unit_view, unit_contract_failure};
+use super::support::unit_contract_failure;
 use crate::compilation::binder::{binding_query_error, type_binder};
 use crate::compilation::checker::checker_result;
 use crate::compilation::state::Compilation;
@@ -45,7 +45,7 @@ impl Compilation {
                 )
             })?;
 
-        let unit = checker_unit_view(bound, semantic_context, checker_context)?;
+        let unit = bray_checker::CheckerUnitView::new(bound, semantic_context, checker_context);
 
         let mut entries = Vec::new();
         let mut diagnostics = DiagnosticBag::new();

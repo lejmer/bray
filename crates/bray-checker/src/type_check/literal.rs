@@ -483,9 +483,7 @@ mod tests {
         let entry = callable_entry(unit.key());
         let context = TestCheckerContext::new(false);
 
-        let Ok(request) = CheckerUnitView::new(&unit, &entry, &context) else {
-            panic!("literal test request must be valid");
-        };
+        let request = CheckerUnitView::new(&unit, &entry, &context);
 
         let Ok(SessionProgress::Complete(mut session)) = ExpressionTypeSession::begin(request)
         else {
@@ -780,9 +778,7 @@ mod tests {
         let entry = callable_entry(unit.key());
         let context = TestCheckerContext::new(false);
 
-        let Ok(request) = CheckerUnitView::new(unit, &entry, &context) else {
-            panic!("literal test request must be valid");
-        };
+        let request = CheckerUnitView::new(unit, &entry, &context);
 
         match representation_type(request, role) {
             Ok(ty) => ty,

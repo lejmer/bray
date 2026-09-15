@@ -40,7 +40,7 @@ pub use behavior::{
     BodyBehaviorCall, BodyBehaviorContributions, BodyBehaviorPhase, CheckedBodyBehavior,
     TrustedCapabilityUse,
 };
-pub use bound_unit::{BoundUnit, BoundUnitBuildError, BoundUnitRoot};
+pub use bound_unit::{BoundUnit, BoundUnitRoot};
 pub use control::{CheckedControlFlow, ControlCompletion, ControlCompletionKind};
 pub use declared_type::{
     DeclaredValueTypeConstraint, DeclaredValueTypeConstraintKind, DeclaredValueTypeEvidence,

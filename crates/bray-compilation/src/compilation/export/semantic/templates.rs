@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use bray_binder::semantic_unit_context;
 use bray_bound_tree::BoundUnitKey;
 use bray_checker::{
     CheckerUnitView, ConstantChecker, ConstantEvaluationInput, ConstantEvaluationLimits,
@@ -19,7 +20,6 @@ use bray_symbols::{
 use super::super::PackageInterfaceExportError;
 use crate::compilation::Compilation;
 use crate::compilation::checker::{CompilationCheckerContext, checker_result};
-use crate::compilation::unit::semantic_unit_context_for;
 
 use super::context::{CheckedConstantExpression, SemanticExporter};
 
@@ -180,15 +180,9 @@ pub(super) fn checked_constraint_expression(
             .map_err(|error| super::super::fact_query_export_error(error))?,
     );
 
-    let semantic_context = semantic_unit_context_for(context.symbols(), bound.result().value())
-        .map_err(super::super::fact_query_export_error)?;
+    let semantic_context = semantic_unit_context(context.symbols(), bound.result().value());
 
-    let request = CheckerUnitView::new(bound.result().value(), &semantic_context, &context)
-        .map_err(|error| {
-            super::super::checker_infrastructure_export_error(
-                bray_checker::CheckerInfrastructureError::InvalidUnitView(error),
-            )
-        })?;
+    let request = CheckerUnitView::new(bound.result().value(), &semantic_context, &context);
 
     let resolver = crate::compilation::constant::CompilationConstantCallResolver::new(
         compilation,

@@ -192,15 +192,11 @@ impl Compilation {
                 ..
             } = nested_bound.result().value().root()
             else {
-                failure = Some(
-                    crate::compilation::SemanticQueryFailure::BoundUnit {
-                        unit: callable.unit().clone(),
-                        cause: bray_bound_tree::BoundUnitBuildError::RootKindMismatch,
-                    }
-                    .into(),
+                panic!(
+                    "anonymous callable unit {:?} must have an anonymous root, got {:?}",
+                    callable.unit(),
+                    nested_bound.result().value().root()
                 );
-
-                return BoundWalkControl::Stop;
             };
 
             let nested = match self.declared_value_type_templates_with_cancellation(

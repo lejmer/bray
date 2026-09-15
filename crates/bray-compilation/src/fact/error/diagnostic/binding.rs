@@ -61,7 +61,6 @@ pub(crate) fn diagnostic_binding_failure(
         }
         Error::Construction(error) => diagnostic_bound_unit_construction_failure(error),
         Error::Binding(error) => diagnostic_nested_binding_failure(error),
-        Error::Assembly(error) => diagnostic_bound_unit_assembly_failure(error),
     };
 
     DiagnosticBindingFailure::new(reason, context)
@@ -111,58 +110,6 @@ fn diagnostic_bound_unit_construction_failure(
                 local_symbol_build_cause(*error),
             )],
         ),
-        Error::LocalAlreadyActivated(symbol) => {
-            let mut context = vec![identity_field("local_symbol", symbol)];
-            context.push(text_field("local_symbol_kind", symbol.kind().as_str()));
-
-            ("binding_construction_local_already_activated", context)
-        }
-        Error::UnknownSurfaceSymbol(symbol) => {
-            let mut context = Vec::new();
-            push_symbol(&mut context, "symbol_kind", "symbol", *symbol);
-
-            ("binding_construction_unknown_surface_symbol", context)
-        }
-        Error::AnonymousCallableBoundaryMismatch => (
-            "binding_construction_anonymous_callable_boundary_mismatch",
-            Vec::new(),
-        ),
-        Error::AnonymousCallableAlreadyAssigned {
-            introduction_scope,
-            ordinal,
-        } => {
-            let mut context = vec![identity_field("introduction_scope", introduction_scope)];
-
-            if let Some(ordinal) = ordinal {
-                context.push(count_field("ordinal", u64::from(ordinal.raw())));
-            }
-
-            (
-                "binding_construction_anonymous_callable_already_assigned",
-                context,
-            )
-        }
-        Error::AnonymousCallableParameterAlreadyAssigned { callable, ordinal } => (
-            "binding_construction_anonymous_callable_parameter_already_assigned",
-            vec![
-                identity_field("callable", callable),
-                count_field("ordinal", u64::from(ordinal.raw())),
-            ],
-        ),
-        Error::AnonymousCallableSourceMismatch { expected, actual } => (
-            "binding_construction_anonymous_callable_source_mismatch",
-            vec![
-                count_field("expected_source", u64::from(expected.raw())),
-                count_field("actual_source", u64::from(actual.raw())),
-            ],
-        ),
-        Error::AnonymousCallableSourceVersionMismatch { expected, actual } => (
-            "binding_construction_anonymous_callable_source_version_mismatch",
-            vec![
-                count_field("expected_source_version", expected.raw()),
-                count_field("actual_source_version", actual.raw()),
-            ],
-        ),
     }
 }
 
@@ -176,25 +123,6 @@ fn diagnostic_bound_tree_build_failure(
             "binding_construction_bound_tree_capacity_exceeded",
             vec![text_field("node_kind", kind.as_str())],
         ),
-        Error::ForeignNode {
-            expected,
-            actual,
-            kind,
-        } => (
-            "binding_construction_bound_tree_foreign_node",
-            vec![
-                count_field("expected_unit", u64::from(expected.raw())),
-                count_field("actual_unit", u64::from(actual.raw())),
-                text_field("node_kind", kind.as_str()),
-            ],
-        ),
-        Error::MissingNode { kind, slot } => (
-            "binding_construction_bound_tree_missing_node",
-            vec![
-                text_field("node_kind", kind.as_str()),
-                count_field("node_slot", u64::from(slot)),
-            ],
-        ),
     }
 }
 
@@ -205,7 +133,6 @@ fn diagnostic_nested_binding_failure(
 
     match error {
         Error::Construction(error) => return diagnostic_bound_unit_construction_failure(error),
-        Error::Assembly(error) => return diagnostic_bound_unit_assembly_failure(error),
         Error::CallableSignature(cause) => {
             return (callable_signature_reason(cause), Vec::new());
         }
@@ -256,10 +183,9 @@ fn diagnostic_nested_binding_failure(
         Error::ImportedPackageUnavailable(_) => "binding_imported_package_unavailable",
         Error::ImportedPathUnavailable { .. } => "binding_imported_path_unavailable",
         Error::BoundWalkStopped(_) => "binding_bound_walk_stopped",
-        Error::Construction(_)
-        | Error::Assembly(_)
-        | Error::CallableSignature(_)
-        | Error::GenericSubstitution(_) => unreachable!("nested causes return above"),
+        Error::Construction(_) | Error::CallableSignature(_) | Error::GenericSubstitution(_) => {
+            unreachable!("nested causes return above")
+        }
     };
 
     let mut context = Vec::new();
@@ -393,7 +319,6 @@ fn push_nested_binding_context(
         | Error::UnresolvedTypeTemplate
         | Error::CompilerKnownHeapStoragePolicyUnavailable
         | Error::Construction(_)
-        | Error::Assembly(_)
         | Error::CallableSignature(_)
         | Error::GenericSubstitution(_) => {}
     }
@@ -420,53 +345,6 @@ fn push_syntax_anchor(
         "source_end",
         u64::from(source.full_range().end().bytes()),
     ));
-}
-
-fn diagnostic_bound_unit_assembly_failure(
-    error: &bray_binder::BoundUnitAssemblyError,
-) -> (&'static str, Vec<DiagnosticFailureField>) {
-    let bray_binder::BoundUnitAssemblyError::InvalidBoundUnit(error) = error;
-
-    diagnostic_bound_unit_build_failure(*error)
-}
-
-fn diagnostic_bound_unit_build_failure(
-    error: bray_bound_tree::BoundUnitBuildError,
-) -> (&'static str, Vec<DiagnosticFailureField>) {
-    use bray_bound_tree::BoundUnitBuildError as Error;
-
-    match error {
-        Error::RootKindMismatch => ("binding_assembly_root_kind_mismatch", Vec::new()),
-        Error::MissingRoot { unit, kind } => (
-            "binding_assembly_missing_root",
-            vec![
-                count_field("unit", u64::from(unit.raw())),
-                text_field("root_kind", kind.as_str()),
-            ],
-        ),
-        Error::LocalSymbolRegionMismatch => {
-            ("binding_assembly_local_symbol_region_mismatch", Vec::new())
-        }
-        Error::AnonymousCallableRegionMismatch { expected, actual } => (
-            "binding_assembly_anonymous_callable_region_mismatch",
-            vec![
-                count_field("expected_region", u64::from(expected.raw())),
-                count_field("actual_region", u64::from(actual.raw())),
-            ],
-        ),
-        Error::MissingAnonymousCallable { callable } => (
-            "binding_assembly_missing_anonymous_callable",
-            vec![identity_field("callable", &callable)],
-        ),
-        Error::InvalidNestedUnit { index } => (
-            "binding_assembly_invalid_nested_unit",
-            vec![natural_field("index", index)],
-        ),
-        Error::NonCanonicalNestedUnits { index } => (
-            "binding_assembly_non_canonical_nested_units",
-            vec![natural_field("index", index)],
-        ),
-    }
 }
 
 fn push_receiver_context_flags(

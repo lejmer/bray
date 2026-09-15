@@ -30,23 +30,11 @@ pub enum DiagnosticCheckerFailure {
     UninitInitializerResultUnavailable,
     ImportedExecutableTemplateMismatch,
     CompilerKnownRepresentationUnavailable(&'static str),
-    InvalidExpressionTypeInput {
-        expression: DiagnosticCheckerNode,
-    },
-    IncompatibleInput {
-        input: &'static str,
-        expected_unit: u32,
-        expected_kind: &'static str,
-        actual_unit: u32,
-        actual_kind: &'static str,
-    },
     CheckedConstantTerms {
         owner: DiagnosticCheckerSymbol,
         source: bray_source::SourceSpan,
     },
     LiteralValue(DiagnosticLiteralValueFailure),
-    PatternInput(DiagnosticPatternInputFailure),
-    ConstantInput(DiagnosticConstantInputFailure),
     ConstantEvaluation(DiagnosticConstantEvaluationFailure),
     ConstantOperation(DiagnosticCheckerConstantOperationFailure),
     SelectionInputCapacityExceeded {
@@ -96,11 +84,7 @@ pub enum DiagnosticCheckerFailure {
     InvalidBodySemantics,
     /// Correlated semantic results describe different bound units or unit categories.
     SemanticSnapshot(DiagnosticSemanticSnapshotFailure),
-    InvalidBoundNode {
-        node: DiagnosticCheckerNode,
-    },
     ExpressionTypeCapacityExceeded,
-    InvalidUnitView(&'static str),
 }
 
 /// Exact generic-substitution shape failure retained across compiler boundaries.
@@ -245,21 +229,6 @@ pub enum DiagnosticLiteralValueFailure {
     DuplicateExpression(DiagnosticCheckerNode),
 }
 
-/// Exact pattern-input conflict retained across compiler boundaries.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum DiagnosticPatternInputFailure {
-    ConflictingDeclaredPattern(DiagnosticCheckerNode),
-    ConflictingConstantPattern(DiagnosticCheckerNode),
-    ConflictingGuard(DiagnosticCheckerNode),
-}
-
-/// Exact constant-input conflict retained across compiler boundaries.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum DiagnosticConstantInputFailure {
-    ConflictingReference(DiagnosticCheckerNode),
-    ConflictingLocalTerm(DiagnosticCheckerLocal),
-}
-
 /// Exact constant-evaluation contract failure retained across compiler boundaries.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticConstantEvaluationFailure {
@@ -379,12 +348,8 @@ impl DiagnosticCheckerFailure {
             Self::CompilerKnownRepresentationUnavailable(_) => {
                 "checker_compiler_known_representation_unavailable"
             }
-            Self::InvalidExpressionTypeInput { .. } => "checker_invalid_expression_type_input",
-            Self::IncompatibleInput { .. } => "checker_incompatible_input",
             Self::CheckedConstantTerms { .. } => "checker_checked_constant_terms",
             Self::LiteralValue(_) => "checker_literal_value_failure",
-            Self::PatternInput(_) => "checker_pattern_input_failure",
-            Self::ConstantInput(_) => "checker_constant_input_failure",
             Self::ConstantEvaluation(_) => "checker_constant_evaluation_failure",
             Self::ConstantOperation(_) => "checker_constant_operation_failure",
             Self::SelectionInputCapacityExceeded { .. } => {
@@ -424,9 +389,7 @@ impl DiagnosticCheckerFailure {
             Self::InvalidStorageOperation { .. } => "checker_invalid_storage_operation",
             Self::InvalidBodySemantics => "checker_invalid_body_semantics",
             Self::SemanticSnapshot(_) => "checker_semantic_snapshot_failure",
-            Self::InvalidBoundNode { .. } => "checker_invalid_bound_node",
             Self::ExpressionTypeCapacityExceeded => "checker_expression_type_capacity_exceeded",
-            Self::InvalidUnitView(_) => "checker_invalid_unit_view",
         }
     }
 }
@@ -434,13 +397,6 @@ impl DiagnosticCheckerFailure {
 /// Exact storage-flow contract failure retained across compiler boundaries.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticStorageFlowFailure {
-    IncompatibleInput {
-        input: &'static str,
-        expected_unit: u32,
-        expected_kind: &'static str,
-        actual_unit: u32,
-        actual_kind: &'static str,
-    },
     FlowConstruction(&'static str),
     ForeignDependencyContract,
     UnresolvedDependencyWitness {

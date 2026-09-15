@@ -2,7 +2,7 @@ use bray_binder::{
     BinderDependency, BindingQueryContext, BoundUnitBindingError, BoundUnitComputation,
     bind_anonymous_callable, bind_callable_body, bind_constant_template, bind_constraint,
     bind_contract_clause, bind_embedded_constant, bind_expression_candidates,
-    bind_predicate_definition, bind_runtime_default, bind_target_gate, semantic_unit_context,
+    bind_predicate_definition, bind_runtime_default, bind_target_gate,
 };
 use bray_bound_tree::{
     AnyBoundNodeId, BoundUnit, BoundUnitKey, BoundUnitKind, BoundWalkControl, BoundWalkEvent,
@@ -10,12 +10,10 @@ use bray_bound_tree::{
     CheckedSemanticSelections, DeclaredValueTypeTemplates, StoragePlan, walk_bound_unit_view,
 };
 use bray_checker::{
-    CheckerInfrastructureError, CheckerUnitView, ControlFlowChecker, DefaultControlFlowChecker,
-    DefaultPatternChecker, DefaultStoragePlanner, ExpressionCandidateSet, PatternCheckInput,
-    PatternChecker, SemanticUnitContext, StoragePlanner,
+    ControlFlowChecker, DefaultControlFlowChecker, DefaultPatternChecker, DefaultStoragePlanner,
+    ExpressionCandidateSet, PatternCheckInput, PatternChecker, SemanticUnitContext, StoragePlanner,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
-use bray_symbols::SymbolGraph;
 
 use crate::compilation::binder::{
     CompilationBindingContext, binding_error, binding_query_error, type_scope,
@@ -29,44 +27,16 @@ pub(super) fn bind_unit(
     key: BoundUnitKey,
 ) -> Result<BoundUnitComputation, BoundUnitBindingError<FactQueryError>> {
     match key.kind() {
-        BoundUnitKind::CallableBody => bind_callable_body(binding_context, unit, key)?.finish(),
-        BoundUnitKind::AnonymousCallable => {
-            bind_anonymous_callable(binding_context, unit, key)?.finish()
-        }
-        BoundUnitKind::RuntimeDefault => bind_runtime_default(binding_context, unit, key)?.finish(),
-        BoundUnitKind::ConstantTemplate => {
-            bind_constant_template(binding_context, unit, key)?.finish()
-        }
-        BoundUnitKind::EmbeddedConstant => {
-            bind_embedded_constant(binding_context, unit, key)?.finish()
-        }
-        BoundUnitKind::PredicateDefinition => {
-            bind_predicate_definition(binding_context, unit, key)?.finish()
-        }
-        BoundUnitKind::Constraint => bind_constraint(binding_context, unit, key)?.finish(),
-        BoundUnitKind::ContractClause => bind_contract_clause(binding_context, unit, key)?.finish(),
-        BoundUnitKind::TargetGate => bind_target_gate(binding_context, unit, key)?.finish(),
+        BoundUnitKind::CallableBody => bind_callable_body(binding_context, unit, key),
+        BoundUnitKind::AnonymousCallable => bind_anonymous_callable(binding_context, unit, key),
+        BoundUnitKind::RuntimeDefault => bind_runtime_default(binding_context, unit, key),
+        BoundUnitKind::ConstantTemplate => bind_constant_template(binding_context, unit, key),
+        BoundUnitKind::EmbeddedConstant => bind_embedded_constant(binding_context, unit, key),
+        BoundUnitKind::PredicateDefinition => bind_predicate_definition(binding_context, unit, key),
+        BoundUnitKind::Constraint => bind_constraint(binding_context, unit, key),
+        BoundUnitKind::ContractClause => bind_contract_clause(binding_context, unit, key),
+        BoundUnitKind::TargetGate => bind_target_gate(binding_context, unit, key),
     }
-}
-
-pub(in crate::compilation) fn semantic_unit_context_for(
-    symbols: &SymbolGraph,
-    bound: &BoundUnit,
-) -> Result<SemanticUnitContext, FactQueryError> {
-    semantic_unit_context(symbols, bound).map_err(FactQueryError::SemanticUnitContext)
-}
-
-pub(in crate::compilation) fn checker_unit_view<'view, C>(
-    bound: &'view BoundUnit,
-    semantic_context: &'view SemanticUnitContext,
-    context: &'view C,
-) -> Result<CheckerUnitView<'view, C>, FactQueryError>
-where
-    C: bray_checker::CheckerRequestContext + ?Sized,
-{
-    CheckerUnitView::new(bound, semantic_context, context).map_err(|error| {
-        FactQueryError::CheckerInfrastructure(CheckerInfrastructureError::InvalidUnitView(error))
-    })
 }
 
 pub(super) fn check_control_flow(
@@ -80,7 +50,7 @@ pub(super) fn check_control_flow(
     ),
     FactQueryError,
 > {
-    let unit = checker_unit_view(bound, semantic_context, context)?;
+    let unit = bray_checker::CheckerUnitView::new(bound, semantic_context, context);
 
     let result = checker_result(DefaultControlFlowChecker.check_control_flow(unit))?
         .map(|result| result.into_control_flow());
@@ -177,7 +147,7 @@ pub(super) fn check_patterns(
     types: &CheckedExpressionTypes,
     input: &PatternCheckInput,
 ) -> Result<DiagnosticResult<CheckedPatterns>, FactQueryError> {
-    let unit = checker_unit_view(bound, semantic_context, context)?;
+    let unit = bray_checker::CheckerUnitView::new(bound, semantic_context, context);
 
     checker_result(DefaultPatternChecker.check_patterns(unit, types, input))
 }
@@ -191,7 +161,7 @@ pub(super) fn plan_storage(
     patterns: &CheckedPatterns,
     selections: &CheckedSemanticSelections,
 ) -> Result<DiagnosticResult<StoragePlan>, FactQueryError> {
-    let unit = checker_unit_view(bound, semantic_context, context)?;
+    let unit = bray_checker::CheckerUnitView::new(bound, semantic_context, context);
 
     checker_result(DefaultStoragePlanner.plan_storage(
         unit,
@@ -237,8 +207,5 @@ pub(super) fn map_binding_error(error: BoundUnitBindingError<FactQueryError>) ->
             FactQueryError::Binding(BoundUnitBindingError::Construction(error))
         }
         BoundUnitBindingError::Binding(error) => binding_error(error),
-        BoundUnitBindingError::Assembly(error) => {
-            FactQueryError::Binding(BoundUnitBindingError::Assembly(error))
-        }
     }
 }

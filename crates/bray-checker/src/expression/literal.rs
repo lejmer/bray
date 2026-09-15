@@ -16,10 +16,10 @@ use crate::constant::{
 };
 use crate::diagnostic::{diagnostic_id, diagnostic_type, expression_span};
 use crate::representation::type_representation;
-use crate::unit::semantic_input_failure;
+use crate::unit::assert_unit_inputs;
 use crate::{
-    CheckerInfrastructureError, CheckerInputKind, CheckerLiteralValueFailure, CheckerOutcome,
-    CheckerQueryError, CheckerRequestContext, CheckerUnitView,
+    CheckerInfrastructureError, CheckerLiteralValueFailure, CheckerOutcome, CheckerQueryError,
+    CheckerRequestContext, CheckerUnitView,
 };
 
 pub(crate) fn check_literal_values<C>(
@@ -29,15 +29,10 @@ pub(crate) fn check_literal_values<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    if let Some(error) = semantic_input_failure(
+    assert_unit_inputs(
         request,
-        [(
-            CheckerInputKind::ExpressionTypes,
-            (types.unit(), types.kind()),
-        )],
-    ) {
-        return CheckerOutcome::InfrastructureFailure(error);
-    }
+        [("expression types", (types.unit(), types.kind()))],
+    );
 
     let target_width = request.selected_target().machine().pointer_width_bits();
     let mut remaining_bytes = ConstantEvaluationLimits::default().literal_bytes();
@@ -55,8 +50,9 @@ where
         };
 
         let Some(result) = types.expression(expression) else {
-            return CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::InvalidExpressionTypeInput { expression },
+            panic!(
+                "expression {:?} must have a committed node and inference input",
+                expression
             );
         };
 

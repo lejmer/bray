@@ -77,8 +77,7 @@ where
                 | BindingQueryError::MissingModule { .. }
                 | BindingQueryError::InvalidSurfaceName { .. }
                 | BindingQueryError::Construction(_)
-                | BindingQueryError::Binding(_)
-                | BindingQueryError::Assembly(_)),
+                | BindingQueryError::Binding(_)),
             ) => return Err(error),
         }
     };

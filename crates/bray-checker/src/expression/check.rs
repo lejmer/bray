@@ -23,11 +23,11 @@ use crate::expression::check_literal_values;
 use crate::type_check::{
     ExpressionTypeSession, SessionProgress, finish_expression_types_with_deferred,
 };
-use crate::unit::semantic_input_failure;
+use crate::unit::assert_unit_inputs;
 use crate::{
-    CheckerInfrastructureError, CheckerInputKind, CheckerOutcome, CheckerQueryError,
-    CheckerRequestContext, CheckerSemanticQueryProvider, CheckerUnitView, ExpressionCandidateSet,
-    ExpressionTypeEvidence, NestedCallableEvidence, PatternCheckInput,
+    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
+    CheckerSemanticQueryProvider, CheckerUnitView, ExpressionCandidateSet, ExpressionTypeEvidence,
+    NestedCallableEvidence, PatternCheckInput,
 };
 
 pub(crate) fn check_expression_semantics<C>(
@@ -53,25 +53,20 @@ where
         + CheckerSemanticQueryProvider<UnionPayloadFieldTypeQuery>
         + ?Sized,
 {
-    if let Some(error) = semantic_input_failure(
+    assert_unit_inputs(
         request,
         [(
-            CheckerInputKind::DeclaredValueTypes,
+            "declared value types",
             (declared_types.unit(), declared_types.kind()),
         )],
-    ) {
-        return CheckerOutcome::InfrastructureFailure(error);
-    }
+    );
 
     // Provisional checks need an owned enrichment while the caller retains its reusable input.
     let pattern_input = pattern_input
         .clone()
         .with_declared_pattern_types(declared_types);
 
-    let pending = match pattern_binding_reference_expressions(request) {
-        Ok(pending) => pending,
-        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-    };
+    let pending = pattern_binding_reference_expressions(request);
 
     if pending.is_empty() {
         return check_expression_semantics_once(
@@ -118,10 +113,7 @@ where
             }
         };
 
-        let resolved = match resolved_pattern_binding_evidence(request, &patterns, &deferred) {
-            Ok(resolved) => resolved,
-            Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-        };
+        let resolved = resolved_pattern_binding_evidence(request, &patterns, &deferred);
 
         if resolved.is_empty() {
             break patterns;
@@ -296,7 +288,7 @@ where
     session.apply_input(operation_input)?;
 
     for evidence in supplemental_evidence {
-        session.add_evidence(evidence.expression(), evidence.ty())?;
+        session.add_evidence(evidence.expression(), evidence.ty());
     }
 
     built_in_operator::apply_evidence(request, prepared.built_in_operators(), &mut session)?;
@@ -349,7 +341,7 @@ where
             continue;
         };
 
-        session.add_evidence(expression, completion)?;
+        session.add_evidence(expression, completion);
     }
 
     Ok(())
@@ -491,10 +483,7 @@ mod tests {
         let context = TestCheckerContext::new(false);
         let semantic_context = callable_entry(unit.key());
 
-        let request = match CheckerUnitView::new(&unit, &semantic_context, &context) {
-            Ok(request) => request,
-            Err(error) => panic!("test checker unit view must be valid: {error:?}"),
-        };
+        let request = CheckerUnitView::new(&unit, &semantic_context, &context);
 
         let outcome = check_expression_semantics(
             request,

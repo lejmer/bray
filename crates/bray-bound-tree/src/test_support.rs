@@ -149,7 +149,7 @@ pub(crate) fn expression_unit(
 
     let symbols = symbols.finish();
 
-    let unit = match BoundUnit::try_new(
+    let unit = BoundUnit::new(
         key,
         tree.finish(),
         symbols,
@@ -158,10 +158,7 @@ pub(crate) fn expression_unit(
             execution: bray_symbols::CallableExecution::Synchronous,
             body: root,
         },
-    ) {
-        Ok(unit) => unit,
-        Err(error) => panic!("test bound unit must validate: {error:?}"),
-    };
+    );
 
     (unit, expressions)
 }

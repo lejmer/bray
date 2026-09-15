@@ -82,9 +82,6 @@ fn format_english_emission_evaluation_failure_detail(
         Failure::ImportedExecutableTemplateMismatch => {
             "an imported native operation does not match its compiled definition"
         }
-        Failure::SemanticContext(_) => {
-            "the selected program element has inconsistent checking context"
-        }
         Failure::SemanticQuery(failure) => {
             return format_english_semantic_query_failure(failure);
         }
@@ -170,7 +167,6 @@ fn format_english_native_product_failure_detail(
         Kind::EvaluationImportedExecutableTemplateMismatch => {
             "an imported native operation does not match its compiled definition"
         }
-        Kind::SemanticContextFailure(_) => "a program element has inconsistent checking context",
         Kind::EvaluationSemanticQuery(failure) => {
             return format_english_semantic_query_failure(failure);
         }
@@ -480,9 +476,8 @@ pub(crate) const fn format_english_semantic_value_failure_detail(
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::{
-        DiagnosticCheckerNode, DiagnosticCheckerSymbol, DiagnosticFactRuntimeFailure,
-        DiagnosticFailureField, DiagnosticFailureValue, DiagnosticProductQueryFailure,
-        DiagnosticSemanticQueryFailure,
+        DiagnosticCheckerSymbol, DiagnosticFactRuntimeFailure, DiagnosticFailureField,
+        DiagnosticFailureValue, DiagnosticProductQueryFailure, DiagnosticSemanticQueryFailure,
     };
     use bray_source::{SourceId, SourceSpan, SourceVersion, TextRange, TextSize};
 
@@ -550,12 +545,6 @@ mod tests {
 
         let failures = [
             bray_diagnostics::DiagnosticNativeProductFailureKind::EvaluationProduct(nested),
-            bray_diagnostics::DiagnosticNativeProductFailureKind::SemanticContextFailure(
-                bray_diagnostics::DiagnosticEvaluationFailureDetail::new(
-                    "semantic_context_failure",
-                    [],
-                ),
-            ),
             bray_diagnostics::DiagnosticNativeProductFailureKind::CheckingInfrastructureFailure,
             bray_diagnostics::DiagnosticNativeProductFailureKind::GeneratedHostMirInvalid(
                 bray_diagnostics::DiagnosticNativeProductFailureDetail::new(
@@ -630,8 +619,8 @@ mod tests {
     fn checker_failures_render_distinct_source_level_operations() {
         use bray_diagnostics::DiagnosticCheckerFailure as Failure;
 
-        let pattern = format_english_checker_failure(Failure::PatternInput(
-            bray_diagnostics::DiagnosticPatternInputFailure::ConflictingDeclaredPattern(
+        let pattern = format_english_checker_failure(Failure::ConstantEvaluation(
+            bray_diagnostics::DiagnosticConstantEvaluationFailure::MissingPattern(
                 bray_diagnostics::DiagnosticCheckerNode::new("pattern", 1, 2),
             ),
         ));
@@ -671,15 +660,7 @@ mod tests {
             query: "members",
         });
 
-        let expression = format_english_checker_failure(Failure::InvalidExpressionTypeInput {
-            expression: DiagnosticCheckerNode::new("expression", 12, 17),
-        });
-
-        let node = format_english_checker_failure(Failure::InvalidBoundNode {
-            node: DiagnosticCheckerNode::new("pattern", 14, 19),
-        });
-
-        for message in [&missing, &version, &range, &query, &expression, &node] {
+        for message in [&missing, &version, &range, &query] {
             assert!(message.starts_with(INTERNAL_COMPILER_ERROR));
             assert!(!message.contains('#'));
         }
@@ -689,7 +670,5 @@ mod tests {
         assert!(range.contains("source range"));
         assert!(query.contains("member declarations"));
         assert!(query.contains("highlighted module declaration"));
-        assert!(expression.contains("highlighted expression"));
-        assert!(node.contains("highlighted pattern"));
     }
 }

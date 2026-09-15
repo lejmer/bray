@@ -316,8 +316,7 @@ mod tests {
         let semantic_context = callable_entry(unit.key());
         let context = TestCheckerContext::new(false);
 
-        let request = CheckerUnitView::new(&unit, &semantic_context, &context)
-            .unwrap_or_else(|error| panic!("test checker unit view must be valid: {error:?}"));
+        let request = CheckerUnitView::new(&unit, &semantic_context, &context);
 
         let values = semantic_values();
 

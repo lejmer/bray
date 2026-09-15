@@ -168,18 +168,6 @@ impl CheckerRequestContext for TestCheckerContext {
 
     type UpstreamError = std::convert::Infallible;
 
-    fn semantic_context_matches(&self, unit: &BoundUnit, context: &SemanticUnitContext) -> bool {
-        match context {
-            SemanticUnitContext::CallableBody(_) => callable_entry(unit.key()) == *context,
-            SemanticUnitContext::ConstantTemplate(declaration) => {
-                declaration.key() == unit.key()
-                    && declaration.owner() == declaration.declaration()
-                    && declaration.owner().kind() == SymbolKind::Constant
-            }
-            _ => false,
-        }
-    }
-
     fn semantic_values(&self) -> &SemanticValueStore {
         self.semantic_values
             .as_ref()
@@ -504,7 +492,7 @@ pub(crate) fn callable_unit(
 
     let symbols = symbols.finish();
 
-    match BoundUnit::try_new(
+    BoundUnit::new(
         key.clone(),
         tree,
         symbols,
@@ -513,10 +501,7 @@ pub(crate) fn callable_unit(
             execution: bray_symbols::CallableExecution::Synchronous,
             body: root,
         },
-    ) {
-        Ok(unit) => unit,
-        Err(error) => panic!("callable test unit must validate: {error:?}"),
-    }
+    )
 }
 
 pub(crate) fn expression_unit(
@@ -546,9 +531,7 @@ pub(crate) fn completed_expression_check(
 
     let context = TestCheckerContext::new(false);
 
-    let Ok(request) = CheckerUnitView::new(unit, &entry, &context) else {
-        panic!("test checker unit view must be valid");
-    };
+    let request = CheckerUnitView::new(unit, &entry, &context);
 
     let outcome = DefaultExpressionTypeChecker.check_expression_types(request, input);
 

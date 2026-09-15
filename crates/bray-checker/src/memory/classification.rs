@@ -1206,8 +1206,7 @@ mod tests {
         let entry = callable_entry(unit.key());
         let context = TestCheckerContext::new(false);
 
-        let request = CheckerUnitView::new(&unit, &entry, &context)
-            .unwrap_or_else(|error| panic!("memory checker request must build: {error:?}"));
+        let request = CheckerUnitView::new(&unit, &entry, &context);
 
         action(request)
     }

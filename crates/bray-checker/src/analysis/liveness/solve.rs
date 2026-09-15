@@ -15,10 +15,10 @@ use crate::analysis::model::{
     AnalysisScopeExitPhase, ControlFlowGraph,
 };
 use crate::analysis::reachability::{ReachabilityResult, analyze_reachability};
-use crate::unit::semantic_input_failure;
+use crate::unit::assert_unit_inputs;
 use crate::{
-    CheckerInfrastructureError, CheckerInputKind, CheckerOutcome, CheckerQueryError,
-    CheckerRequestContext, CheckerSemanticQueryProvider, CheckerUnitView,
+    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
+    CheckerSemanticQueryProvider, CheckerUnitView,
 };
 
 use super::effects::OperationEffects;
@@ -34,33 +34,19 @@ pub(crate) fn analyze_storage_liveness<C>(
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
-    if let Some(error) = semantic_input_failure(
+    assert_unit_inputs(
         request,
         [
+            ("expression types", (types.unit(), types.kind())),
             (
-                CheckerInputKind::ExpressionTypes,
-                (types.unit(), types.kind()),
-            ),
-            (
-                CheckerInputKind::SemanticSelections,
+                "semantic selections",
                 (selections.unit(), selections.kind()),
             ),
-            (
-                CheckerInputKind::Patterns,
-                (patterns.unit(), patterns.kind()),
-            ),
-            (
-                CheckerInputKind::StoragePlan,
-                (storage.unit(), storage.kind()),
-            ),
-            (
-                CheckerInputKind::MemoryOperations,
-                (memory.unit(), memory.kind()),
-            ),
+            ("patterns", (patterns.unit(), patterns.kind())),
+            ("storage plan", (storage.unit(), storage.kind())),
+            ("memory operations", (memory.unit(), memory.kind())),
         ],
-    ) {
-        return CheckerOutcome::InfrastructureFailure(error);
-    }
+    );
 
     let graph = match build_storage_control_flow_graph(request, storage, selections, None) {
         ControlFlowGraphBuildOutcome::Complete(graph) => graph,

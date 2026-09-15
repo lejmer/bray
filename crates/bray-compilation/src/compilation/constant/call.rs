@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use bray_binder::SymbolQueryProvider;
+use bray_binder::semantic_unit_context;
 use bray_checker::{
     CheckerInfrastructureError, CheckerRequestContext, ConstantCallRequest, ConstantCallResolution,
     ConstantCallResolver, ConstantChecker, ConstantEvaluationInput, ConstantEvaluationUsage,
@@ -19,7 +20,7 @@ use bray_symbols::{
 use super::super::Compilation;
 use super::super::binder::binding_query_error;
 use super::super::checker::{checker_query_error, checker_result};
-use super::super::unit::semantic_unit_context_for;
+
 use super::definition::{
     call_parameter_values, constant_callable_root, substitute_expression_types,
 };
@@ -226,8 +227,7 @@ impl Compilation {
         let patterns = self.patterns_with_cancellation(body_key.clone(), cancellation)?;
         let context = self.checker_context_for(&body_key, cancellation)?;
 
-        let semantic_context =
-            semantic_unit_context_for(context.symbols(), bound.result().value())?;
+        let semantic_context = semantic_unit_context(context.symbols(), bound.result().value());
 
         let types = substitute_expression_types(
             self.semantic_value_store()?,
@@ -250,11 +250,8 @@ impl Compilation {
             .with_call_resolver(&resolver)
             .with_nested_term_types();
 
-        let unit = crate::compilation::unit::checker_unit_view(
-            bound.result().value(),
-            &semantic_context,
-            &context,
-        )?;
+        let unit =
+            bray_checker::CheckerUnitView::new(bound.result().value(), &semantic_context, &context);
 
         let checked = checker_result(DefaultConstantChecker.check_constant_term(unit, &input))?;
 
@@ -507,8 +504,7 @@ impl Compilation {
 
         let context = self.checker_context_for(&body_key, cancellation)?;
 
-        let semantic_context =
-            semantic_unit_context_for(context.symbols(), bound.result().value())?;
+        let semantic_context = semantic_unit_context(context.symbols(), bound.result().value());
 
         let types = substitute_expression_types(
             values,
@@ -542,11 +538,8 @@ impl Compilation {
             .with_call_resolver(&resolver)
             .with_limits(key.limits());
 
-        let unit = crate::compilation::unit::checker_unit_view(
-            bound.result().value(),
-            &semantic_context,
-            &context,
-        )?;
+        let unit =
+            bray_checker::CheckerUnitView::new(bound.result().value(), &semantic_context, &context);
 
         let evaluated = checker_result(
             DefaultConstantEvaluator.evaluate_constant_with_references(unit, &input),

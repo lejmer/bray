@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use bray_binder::semantic_unit_context;
 use bray_bound_tree::BoundUnitKey;
 use bray_checker::{
     ExecutionCertification, ExecutionDeclaration, ExecutionProperty, check_execution_candidate,
@@ -9,7 +10,7 @@ use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 
 use crate::compilation::checker::checker_result;
-use crate::compilation::unit::{checker_unit_view, semantic_unit_context_for};
+
 use crate::compilation::{
     Compilation, SemanticDataKind, SemanticQueryContext, SemanticQueryFailure,
     SemanticQueryViolation,
@@ -101,9 +102,13 @@ impl Compilation {
                 let context = self.checker_context_for(&key, cancellation)?;
 
                 let semantic_context =
-                    semantic_unit_context_for(context.symbols(), bound.result().value())?;
+                    semantic_unit_context(context.symbols(), bound.result().value());
 
-                let unit = checker_unit_view(bound.result().value(), &semantic_context, &context)?;
+                let unit = bray_checker::CheckerUnitView::new(
+                    bound.result().value(),
+                    &semantic_context,
+                    &context,
+                );
 
                 let mut diagnostics = DiagnosticBag::merged_all([
                     bound.result().diagnostics(),

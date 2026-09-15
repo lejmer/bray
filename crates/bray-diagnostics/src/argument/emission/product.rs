@@ -172,7 +172,6 @@ pub enum DiagnosticNativeProductFailureKind {
     EvaluationAtomicInitializerResultUnavailable,
     EvaluationUninitInitializerResultUnavailable,
     EvaluationImportedExecutableTemplateMismatch,
-    SemanticContextFailure(crate::DiagnosticEvaluationFailureDetail),
     EvaluationSemanticQuery(crate::DiagnosticSemanticQueryFailure),
     /// Product specialization or realization violated an exact retained contract.
     EvaluationProduct(crate::DiagnosticProductQueryFailure),
@@ -307,7 +306,6 @@ impl DiagnosticNativeProductFailureKind {
             Self::EvaluationImportedExecutableTemplateMismatch => {
                 "evaluation_imported_executable_template_mismatch"
             }
-            Self::SemanticContextFailure(failure) => failure.reason(),
             Self::EvaluationSemanticQuery(failure) => failure.as_str(),
             Self::EvaluationProduct(failure) => failure.as_str(),
             Self::EvaluationForeign(failure) => failure.as_str(),
@@ -435,7 +433,6 @@ impl From<crate::DiagnosticEmissionEvaluationFailure> for DiagnosticNativeProduc
             Failure::ImportedExecutableTemplateMismatch => {
                 Self::EvaluationImportedExecutableTemplateMismatch
             }
-            Failure::SemanticContext(failure) => Self::SemanticContextFailure(failure),
             Failure::SemanticQuery(failure) => Self::EvaluationSemanticQuery(failure),
             Failure::Product(failure) => Self::EvaluationProduct(failure),
             Failure::Foreign(failure) => Self::EvaluationForeign(failure),

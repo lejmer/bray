@@ -504,9 +504,7 @@ impl DiagnosticNativeProductFailureJson {
 
                 context
             }
-            Kind::EvaluationCycle(failure) | Kind::SemanticContextFailure(failure) => {
-                diagnostic_failure_context(failure.context())
-            }
+            Kind::EvaluationCycle(failure) => diagnostic_failure_context(failure.context()),
             Kind::EvaluationRuntime(failure) => fact_runtime_failure_context(failure),
             Kind::EvaluationSemanticQuery(failure) => {
                 let mut context = vec![text_field("category", failure.category())];

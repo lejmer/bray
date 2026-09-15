@@ -192,10 +192,7 @@ pub(super) fn push_root_anonymous_callable(
 }
 
 pub(super) fn finish(builder: BoundUnitLocalBuilder) -> BoundUnitConstructionResult {
-    match builder.finish() {
-        Ok(result) => result,
-        Err(error) => panic!("test unit must freeze: {error:?}"),
-    }
+    builder.finish()
 }
 
 pub(super) fn symbol_name(name: &str) -> SymbolName {

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use bray_binder::BindingQueryContext;
+use bray_binder::semantic_unit_context;
 use bray_bound_tree::{
     BoundExpression, BoundExpressionId, BoundIterationSource, BoundOperator,
     BoundStructuredExpressionKind, BoundUnit, BoundUnitKey, CheckedLiteralValues,
@@ -25,7 +26,7 @@ use super::implementation::{
     TypeValuedMemberResolution, callable_instance, implementation_callable_instance,
     implementation_fulfillments, implementation_requirement, selected_type_valued_member,
 };
-use super::unit::semantic_unit_context_for;
+
 use super::{SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation};
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, IterationSourceQueryKey};
 
@@ -621,9 +622,9 @@ fn select_iteration(
     candidates: Vec<IterationSourceCandidate>,
     context: &CompilationCheckerContext<'_>,
 ) -> Result<DiagnosticResult<CandidateSelection<SelectedIterationSource>>, FactQueryError> {
-    let semantic_context = semantic_unit_context_for(context.symbols(), bound)?;
+    let semantic_context = semantic_unit_context(context.symbols(), bound);
 
-    let unit = super::unit::checker_unit_view(bound, &semantic_context, context)?;
+    let unit = bray_checker::CheckerUnitView::new(bound, &semantic_context, context);
 
     let request = IterationSourceSelectionRequest::new(expression, source, mode, candidates);
 

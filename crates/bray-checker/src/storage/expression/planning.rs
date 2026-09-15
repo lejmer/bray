@@ -6,7 +6,7 @@ use bray_bound_tree::{
 };
 use bray_symbols::{BorrowKind, ReceiverMode, TypeData};
 
-use super::super::plan::{PlanError, Planner, invalid_node, iteration_purpose};
+use super::super::plan::{PlanError, Planner, iteration_purpose, missing_node};
 use crate::{CheckerInfrastructureError, CheckerRequestContext};
 
 impl<C> Planner<'_, C>
@@ -31,7 +31,7 @@ where
             .request
             .view()
             .expression(id)
-            .ok_or_else(|| invalid_node(id))?
+            .unwrap_or_else(|| missing_node(id))
             .clone();
 
         let access = match &expression {
@@ -178,7 +178,7 @@ where
                             .request
                             .view()
                             .pattern(arm.pattern())
-                            .ok_or_else(|| invalid_node(arm.pattern()))?;
+                            .unwrap_or_else(|| missing_node(arm.pattern()));
 
                         match pattern.mode() {
                             BoundPatternMode::MatchConsume | BoundPatternMode::MatchObserve => {
@@ -248,7 +248,7 @@ where
             .request
             .view()
             .expression(expression)
-            .ok_or_else(|| invalid_node(expression))?;
+            .unwrap_or_else(|| missing_node(expression));
 
         Ok(matches!(
             expression,
@@ -510,7 +510,7 @@ where
                     .request
                     .view()
                     .expression(id)
-                    .ok_or_else(|| invalid_node(id))?
+                    .unwrap_or_else(|| missing_node(id))
                     .clone();
 
                 for block in expression.child_blocks() {
@@ -696,7 +696,7 @@ where
                     .request
                     .view()
                     .expression(expression)
-                    .ok_or_else(|| invalid_node(expression))?;
+                    .unwrap_or_else(|| missing_node(expression));
 
                 let BoundExpression::Structured(structured) = bound else {
                     return Err(CheckerInfrastructureError::InvalidStoragePlan.into());

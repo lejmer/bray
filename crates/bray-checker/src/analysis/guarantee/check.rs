@@ -30,9 +30,7 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
     body: &CheckedBodySemantics,
     memory: &CheckedMemoryOperations,
 ) -> CheckerOutcome<ExecutionCandidate, C::UpstreamError> {
-    if let Some(error) = execution_input_failure(request, expressions, storage, body, memory) {
-        return CheckerOutcome::InfrastructureFailure(error);
-    }
+    assert_execution_inputs(request, expressions, storage, body, memory);
 
     // Purity alone does not discharge cleanup on a dependency's abnormal completion.
     let graph = match property {
@@ -346,37 +344,31 @@ fn check_postconditions<C: CheckerRequestContext + ?Sized>(
     }
 }
 
-fn execution_input_failure<C: CheckerRequestContext + ?Sized>(
+fn assert_execution_inputs<C: CheckerRequestContext + ?Sized>(
     request: CheckerUnitView<'_, C>,
     expressions: &CheckedExpressionSemantics,
     storage: &StoragePlan,
     body: &CheckedBodySemantics,
     memory: &CheckedMemoryOperations,
-) -> Option<crate::CheckerInfrastructureError> {
-    crate::unit::semantic_input_failure(
+) {
+    crate::unit::assert_unit_inputs(
         request,
         [
             (
-                crate::CheckerInputKind::ExpressionTypes,
+                "expression types",
                 (expressions.types().unit(), expressions.types().kind()),
             ),
             (
-                crate::CheckerInputKind::SemanticSelections,
+                "semantic selections",
                 (
                     expressions.selections().unit(),
                     expressions.selections().kind(),
                 ),
             ),
+            ("storage plan", (storage.unit(), storage.kind())),
+            ("memory operations", (memory.unit(), memory.kind())),
             (
-                crate::CheckerInputKind::StoragePlan,
-                (storage.unit(), storage.kind()),
-            ),
-            (
-                crate::CheckerInputKind::MemoryOperations,
-                (memory.unit(), memory.kind()),
-            ),
-            (
-                crate::CheckerInputKind::AsyncAnalysis,
+                "async analysis",
                 (body.asynchronous().unit(), body.asynchronous().kind()),
             ),
         ],

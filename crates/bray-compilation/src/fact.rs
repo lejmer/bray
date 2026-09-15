@@ -26,10 +26,10 @@ pub use error::{
 pub(crate) use error::{
     callable_signature_reason, diagnostic_binding_failure, diagnostic_checker_failure,
     diagnostic_cycle_failure, diagnostic_fact_runtime_failure,
-    diagnostic_generic_substitution_failure, diagnostic_semantic_context_failure,
-    diagnostic_semantic_query_failure, diagnostic_symbol_graph_failure,
-    generic_substitution_reason, push_generic_substitution_failure,
-    push_selected_target_properties, push_semantic_value_failure,
+    diagnostic_generic_substitution_failure, diagnostic_semantic_query_failure,
+    diagnostic_symbol_graph_failure, generic_substitution_reason,
+    push_generic_substitution_failure, push_selected_target_properties,
+    push_semantic_value_failure,
 };
 pub use key::ImportedSemanticRecordKey;
 pub use priority::QueryPriority;

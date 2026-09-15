@@ -28,6 +28,7 @@ impl BoundUnitConstructionResult {
         }
     }
 
+    #[cfg(test)]
     pub(crate) const fn key(&self) -> &BoundUnitKey {
         &self.key
     }
@@ -115,7 +116,7 @@ mod tests {
             false,
         );
 
-        assert_eq!(builder.activate_local(block, binding), Ok(()));
+        builder.activate_local(block, binding);
 
         finish(builder)
     }

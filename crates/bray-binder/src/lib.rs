@@ -23,10 +23,7 @@ pub use binding::{
 };
 pub use bray_checker::CheckerOutcome as BindingOutcome;
 pub use entry::{
-    BoundUnitBindingError, PendingBoundAnonymousCallable, PendingBoundCallableBody,
-    PendingBoundConstantTemplate, PendingBoundConstraint, PendingBoundContractClause,
-    PendingBoundEmbeddedConstant, PendingBoundPredicateDefinition, PendingBoundRuntimeDefault,
-    PendingBoundTargetGate, bind_anonymous_callable, bind_callable_body, bind_constant_template,
+    BoundUnitBindingError, bind_anonymous_callable, bind_callable_body, bind_constant_template,
     bind_constraint, bind_contract_clause, bind_embedded_constant, bind_predicate_definition,
     bind_runtime_default, bind_target_gate,
 };
@@ -35,13 +32,12 @@ pub use lookup::{
     bind_named_trait_implementation_path, bind_owner_surface_path,
     bind_surface_path_with_re_exports,
 };
-pub use publication::BoundUnitAssemblyError;
 pub use query::{
     BindingQueryContext, BindingQueryError, BindingQueryResult, BindingSymbolQueryEvaluator,
     SymbolQueryErrorProvider, SymbolQueryProvider,
 };
 pub use result::BoundUnitComputation;
-pub use semantic_context::{SemanticUnitContextError, semantic_unit_context};
+pub use semantic_context::semantic_unit_context;
 pub use surface::{
     BoundTrustedCapability, PredicateClauseBindingContext, bind_predicate_clause,
     bind_trusted_capability_clause,

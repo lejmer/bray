@@ -25,8 +25,6 @@ pub enum SemanticQueryErrorKind {
     CallableSignature,
     /// A generic substitution violated its declared parameter shape.
     GenericSubstitution,
-    /// A bound unit violated its key, tree, or root contract.
-    BoundUnit,
     /// Implementation matching or durable implementation evidence was malformed.
     Implementation,
     /// Checked constant-term publication rejected malformed occurrence input.
@@ -91,10 +89,6 @@ pub(crate) enum SemanticQueryFailure {
     GenericSubstitution {
         owner: Option<GenericOwnerId>,
         cause: GenericSubstitutionShapeError,
-    },
-    BoundUnit {
-        unit: BoundUnitKey,
-        cause: bray_bound_tree::BoundUnitBuildError,
     },
     ImplementationMatch {
         implementation: Option<ImplementationSymbolId>,
@@ -161,7 +155,6 @@ impl SemanticQueryFailure {
             Self::Contract(_) => SemanticQueryErrorKind::ContractViolation,
             Self::CallableSignature { .. } => SemanticQueryErrorKind::CallableSignature,
             Self::GenericSubstitution { .. } => SemanticQueryErrorKind::GenericSubstitution,
-            Self::BoundUnit { .. } => SemanticQueryErrorKind::BoundUnit,
             Self::ImplementationMatch { .. }
             | Self::ImplementationAmbiguity { .. }
             | Self::ImplementationCandidateSet { .. }
@@ -177,7 +170,6 @@ impl SemanticQueryFailure {
     fn source(&self) -> Option<SourceSpan> {
         match self {
             Self::Contract(failure) => failure.source().or_else(|| failure.context().source()),
-            Self::BoundUnit { unit, .. } => Some(unit_source(unit)),
             Self::CheckedConstantTerms {
                 cause: CheckedConstantTermsBuildError::DuplicateOccurrence(key),
                 ..

@@ -572,10 +572,7 @@ mod tests {
         let context = TestCheckerContext::new(false);
         let entry = callable_entry(fixture.unit.key());
 
-        let request = match CheckerUnitView::new(&fixture.unit, &entry, &context) {
-            Ok(request) => request,
-            Err(error) => panic!("trait conversion request must validate: {error:?}"),
-        };
+        let request = CheckerUnitView::new(&fixture.unit, &entry, &context);
 
         let Some(source_expression) = fixture.unit.view().expression(fixture.source_expression)
         else {

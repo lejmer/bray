@@ -6,7 +6,7 @@ use bray_bound_tree::{
 };
 use bray_symbols::TypeData;
 
-use super::plan::{PlanError, Planner, invalid_node};
+use super::plan::{PlanError, Planner, missing_node};
 use crate::{CheckerInfrastructureError, CheckerRequestContext};
 
 impl<C> Planner<'_, C>
@@ -31,7 +31,7 @@ where
             .request
             .view()
             .pattern(id)
-            .ok_or_else(|| invalid_node(id))?
+            .unwrap_or_else(|| missing_node(id))
             .clone();
 
         if pattern.kind() == BoundPatternKind::Alternative {
@@ -229,7 +229,7 @@ where
             .view()
             .pattern(pattern)
             .map(BoundPattern::mode)
-            .ok_or_else(|| invalid_node(pattern))?;
+            .unwrap_or_else(|| missing_node(pattern));
 
         let purpose = pattern_operation_purpose(mode, checked.operation(), transfers_borrow);
 
@@ -257,7 +257,7 @@ where
             .request
             .view()
             .pattern(pattern)
-            .ok_or_else(|| invalid_node(pattern))?;
+            .unwrap_or_else(|| missing_node(pattern));
 
         let access = StorageAccess::new(
             StorageAccessRoot::Storage(identity),
@@ -332,7 +332,7 @@ where
             .request
             .view()
             .pattern(pattern_id)
-            .ok_or_else(|| invalid_node(pattern_id))?;
+            .unwrap_or_else(|| missing_node(pattern_id));
 
         for binding in self.descendant_bindings(pattern_id)? {
             let Some(alternatives) = self.alternative_pattern_bindings.get_mut(&binding) else {
@@ -410,7 +410,7 @@ where
                 .request
                 .view()
                 .pattern(pattern)
-                .ok_or_else(|| invalid_node(pattern))?;
+                .unwrap_or_else(|| missing_node(pattern));
 
             bindings.extend(checked.bindings(pattern));
             pending.extend_from_slice(pattern.children());
@@ -487,7 +487,7 @@ where
             .request
             .view()
             .pattern(pattern)
-            .ok_or_else(|| invalid_node(pattern))?;
+            .unwrap_or_else(|| missing_node(pattern));
 
         let access = StorageAccess::new(
             root,

@@ -157,8 +157,18 @@ pub enum SemanticUnitContext {
 
 impl SemanticUnitContext {
     /// Returns the semantic unit category selected by this context.
-    pub fn kind(&self) -> BoundUnitKind {
-        self.key().kind()
+    pub const fn kind(&self) -> BoundUnitKind {
+        match self {
+            Self::CallableBody(_) => BoundUnitKind::CallableBody,
+            Self::AnonymousCallable(_) => BoundUnitKind::AnonymousCallable,
+            Self::RuntimeDefault(_) => BoundUnitKind::RuntimeDefault,
+            Self::ConstantTemplate(_) => BoundUnitKind::ConstantTemplate,
+            Self::EmbeddedConstant(_) => BoundUnitKind::EmbeddedConstant,
+            Self::PredicateDefinition(_) => BoundUnitKind::PredicateDefinition,
+            Self::Constraint(_) => BoundUnitKind::Constraint,
+            Self::ContractClause(_) => BoundUnitKind::ContractClause,
+            Self::TargetGate(_) => BoundUnitKind::TargetGate,
+        }
     }
 
     /// Returns the exact bound-unit key selected by this context.
