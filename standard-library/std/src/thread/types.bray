@@ -97,30 +97,41 @@ internal struct ThreadStart<State, T>
     storage: RawPointer<ThreadStorage<T>>;
 }
 
-internal struct NativeThreadStart
+@copy
+internal struct NativeThreadDispatch
 {
     operation: ThreadOperation;
-    context: usize;
+}
+
+internal struct NativeThreadStart<State, T>
+{
+    // The non-generic OS entry reads this prefix to reach the typed owner.
+    dispatch: NativeThreadDispatch;
+    mut work: RawPointer<ThreadStart<State, T>>;
     control: RawPointer<ThreadControl>;
     report: RawPointer<PanicReport>;
+
+    trusted destruct()
+    {
+        if !std.memory.is_null<ThreadStart<State, T>>(self.work)
+        {
+            let _: ThreadStart<State, T> = trusted internal take_transferred_value<ThreadStart<State, T>>(self.work);
+        }
+    }
 }
 
 internal struct ThreadConstruction<State, T>
 {
     mut storage: RawPointer<ThreadStorage<T>>;
-    mut work: RawPointer<ThreadStart<State, T>>;
-    mut native: RawPointer<NativeThreadStart>;
+    mut native: RawPointer<NativeThreadStart<State, T>>;
 
     trusted destruct()
     {
-        if !std.memory.is_null<NativeThreadStart>(self.native)
+        if !std.memory.is_null<NativeThreadStart<State, T>>(self.native)
         {
-            let _: NativeThreadStart = trusted internal take_transferred_value<NativeThreadStart>(self.native);
-        }
-
-        if !std.memory.is_null<ThreadStart<State, T>>(self.work)
-        {
-            let _: ThreadStart<State, T> = trusted internal take_transferred_value<ThreadStart<State, T>>(self.work);
+            let _: NativeThreadStart<State, T> = trusted internal take_transferred_value<NativeThreadStart<State, T>>(
+                self.native
+            );
         }
 
         if !std.memory.is_null<ThreadStorage<T>>(self.storage)

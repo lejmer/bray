@@ -296,12 +296,12 @@ fn states(abi: &NativeProtectedFrame) -> Option<Vec<ProtectedFrameStateDescripto
         .collect()
 }
 
-struct NativeFrameTransfer {
+pub(super) struct NativeFrameTransfer {
     frame: Option<NativeProtectedFrame>,
 }
 
 impl NativeFrameTransfer {
-    const fn new(frame: NativeProtectedFrame) -> Self {
+    pub(super) const fn new(frame: NativeProtectedFrame) -> Self {
         Self { frame: Some(frame) }
     }
 
@@ -313,7 +313,7 @@ impl NativeFrameTransfer {
         frame
     }
 
-    fn take(&mut self) -> NativeProtectedFrame {
+    pub(super) fn take(&mut self) -> NativeProtectedFrame {
         let Some(frame) = self.frame.take() else {
             unreachable!("frame transfer must remain owned");
         };

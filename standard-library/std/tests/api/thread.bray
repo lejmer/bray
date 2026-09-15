@@ -49,7 +49,19 @@ internal func observe_identity(pos state: unit) -> std.thread.Id
     return identity;
 }
 
-internal func panic_in_thread(pos state: unit) -> unit
+internal struct PanickingThreadState
+{
+    cleanups: &core.atomic.Atomic<u32>;
+
+    destruct()
+    {
+        let _: u32 = core.atomic.fetch_add<u32, 3>(self.cleanups, 1);
+
+        panic("native thread state cleanup fixture");
+    }
+}
+
+internal func panic_in_thread(pos state: PanickingThreadState) -> unit
 {
     panic("native thread panic fixture");
 }
@@ -151,11 +163,20 @@ func concurrency_model_native_thread_identity_and_exact_thread_cleanup_are_obser
 @test
 func native_thread_panic_is_reported_to_the_owner()
 {
+    let cleanups: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+
     let mut thread: std.thread.Thread<unit> = std.testing.assert_ok<std.thread.Thread<unit>, std.thread.ThreadError>(
-        std.thread.start<unit, unit>(panic_in_thread, unit)
+        std.thread.start<PanickingThreadState, unit>(
+            panic_in_thread,
+            {
+                cleanups = &cleanups
+            }
+        )
     );
 
     let _: PanicReport = std.testing.assert_panicked<unit>(thread.join());
+
+    assert(core.atomic.load<u32, 1>(&cleanups) == 1);
 }
 
 @test

@@ -141,11 +141,13 @@ impl NativeStringView {
     }
 }
 
-/// Callback invoking one synchronous source root and writing its explicit terminal outcome.
+/// Callback invoking one synchronous source root with an initially completed outcome.
+/// The callback publishes cancellation or panic when execution does not complete normally.
 pub type NativeSynchronousRootCallback =
     extern "C-unwind" fn(destination: usize, outcome: &mut NativeRunOutcome);
 
-/// Callback invoking one synchronous Bray operation on a native thread.
+/// Callback invoking one synchronous Bray operation with an initially completed outcome.
+/// Successful source calls may leave this caller-owned failure header untouched.
 pub type NativeThreadOperationCallback =
     extern "C-unwind" fn(context: usize, outcome: &mut NativeRunOutcome);
 

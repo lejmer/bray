@@ -136,6 +136,8 @@ fn execute_callback_boundary(
     let _test_isolation = super::state::test_runtime_isolation();
 
     let Ok(mut admitted) = crate::outgoing::OutgoingRecords::admit(2) else {
+        run_substrate_cleanup(cleanup);
+
         return super::outgoing::allocation_failure();
     };
 
@@ -145,7 +147,10 @@ fn execute_callback_boundary(
     let outcome = match &thread {
         Ok(_) if !main_thread || bray_platform::mark_current_runtime_thread_as_main() => {
             execute_synchronous_root(
-                || super::host::with_output(|| callback(&mut published)),
+                || {
+                    published = NativeRunOutcome::new(NativeRunState::COMPLETED, 0);
+                    super::host::with_output(|| callback(&mut published));
+                },
                 on_started,
             )
         }
@@ -280,18 +285,26 @@ mod tests {
 
     #[test]
     fn callback_admission_failure_preserves_the_allocation_cause_and_inputs() {
+        thread_local! { static CLEANUPS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
+
+        extern "C" fn rejected_cleanup() {
+            CLEANUPS.set(CLEANUPS.get() + 1);
+        }
+
         let _isolation = super::super::state::test_runtime_isolation();
         let _failure = crate::outgoing::tests::reject_admission();
+
         let mut called = false;
 
         let mut outcome = super::execute_callback_boundary(
             |_| called = true,
             |_| {},
             false,
-            cleanup as *const (),
+            rejected_cleanup as *const (),
         );
 
         assert!(!called);
+        assert_eq!(CLEANUPS.get(), 1);
         assert_eq!(outcome.state(), NativeRunState::PANICKED);
 
         assert_eq!(
@@ -322,6 +335,25 @@ mod tests {
 
         RELEASES.with_borrow_mut(|events| assert_eq!(std::mem::take(events), [1, 2]));
 
+        assert!(report.consume(false).is_success());
+    }
+
+    #[test]
+    fn native_thread_completion_can_leave_the_failure_header_untouched() {
+        extern "C-unwind" fn completed(_: usize, _: &mut NativeRunOutcome) {}
+
+        let mut report = bray_runtime_abi::NativePanicReport::empty();
+
+        let state = bray_runtime_native_thread_execution(
+            completed,
+            0,
+            cancellation_not_requested,
+            0,
+            &mut report,
+            cleanup as *const (),
+        );
+
+        assert_eq!(state, NativeRunState::COMPLETED.code());
         assert!(report.consume(false).is_success());
     }
 
