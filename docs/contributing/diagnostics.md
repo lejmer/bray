@@ -5,6 +5,11 @@ Bray diagnostics are a locale-neutral protocol between compiler producers and us
 text seen by users. Compiler crates must not assemble English messages or encode English phrases as generic string
 arguments.
 
+This protocol covers source diagnostics and legitimate external or operational failures. Impossible internal states
+and violated compiler phase contracts must assert or panic with developer debugging context, rather than becoming
+recoverable diagnostics. Assertion and panic messages are outside this user-facing text protocol. Follow
+[Errors and panics](coding-conventions.md#errors-and-panics).
+
 ## Choose exact structure
 
 Use the narrowest diagnostic kind that describes the failure the producer observed. Split catch-all kinds when the

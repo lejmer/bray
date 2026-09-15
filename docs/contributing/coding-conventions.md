@@ -121,7 +121,8 @@ For crate layout, crate ownership, and workspace structure, see the crate respon
   is the best tradeoff.
 - If cloning is needed to decouple a lifetime or avoid holding a lock, say so in a short comment.
 - Prefer iterators over indexing.
-- Avoid indexing patterns that can panic from out-of-bounds access.
+- Validate externally supplied indices at their owning boundary. For internal indices, establish bounds by construction
+  or assert the invariant with useful debugging context.
 - Keep ownership transfer explicit at API boundaries.
 - Do not hide expensive ownership movement behind helper names that sound like cheap observation.
 
@@ -163,17 +164,22 @@ See [Compiler diagnostics](diagnostics.md) for the structured producer, renderin
 
 ## Errors and panics
 
-- Model errors explicitly.
-- Use crate-local error enums for library layers when appropriate.
-- Convert internal errors to user-facing diagnostics or boundary errors at the appropriate boundary.
-- Do not use `unwrap()` or `expect()` in production paths.
-- `unwrap()` and `expect()` are allowed only in tests, benchmarks, or when guarded by an invariant and accompanied by a
-  comment explaining that invariant.
-- Prefer clear validation errors or diagnostics over panics.
-- Panics are for violated compiler invariants, not ordinary user input errors.
-- User source code should not be able to crash the compiler.
-- If malformed input reaches a later compiler phase, report a compiler bug or recover through a deliberate error path
-  rather than panicking silently.
+- Validate user source and external inputs at their owning boundaries. Model legitimate input and operational failures
+  explicitly, using typed errors and structured diagnostics where appropriate.
+- Treat impossible internal states and violated compiler phase contracts as compiler bugs. Use `assert!`, `assert_eq!`,
+  contextual `expect()`, or `panic!` to expose them. These are appropriate in production compiler paths.
+- Prefer an explanatory assertion or `expect()` message over a bare `unwrap()`. Include the violated contract and useful
+  identities or values. These messages are developer debugging context and do not require `bray-messages`.
+- Once a phase establishes a contract, downstream phases should rely on it. Do not repeatedly validate unchanged
+  internal facts or transport impossible-state failures through recoverable error enums and user diagnostics.
+- Represent invariants by construction or existing types where practical. Do not introduce speculative wrappers or
+  validation layers solely to avoid assertions.
+- Test phase contracts and regressions. Keep expensive whole-structure verification in tests or explicit verification
+  modes where practical. Use assertions when checking invariants of newly constructed state.
+- A source program that exposes a violated internal contract has found a compiler bug. Preserve the assertion or panic
+  and its debugging context instead of disguising it as a source error or adding a fallback to keep compilation running.
+- Any top-level compiler-bug reporting must preserve the original failure context and available backtrace. It must not
+  reclassify an invariant failure as a user error. At Bray's current development stage, crashes are useful bug catchers.
 
 ## Control flow
 

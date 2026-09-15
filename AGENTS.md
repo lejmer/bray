@@ -28,6 +28,12 @@ Before requesting approval to push or write through repository-hosting tools, ve
 
 Reuse verified evidence during the task unless the destination or authentication changes. If trust is unresolved, gather the missing evidence before requesting approval.
 
+## Compiler invariants and failures
+
+Treat compiler crashes from violated internal invariants as bug catchers. Validate user source and external inputs at their owning boundaries, and report legitimate input and operational failures through typed errors and structured diagnostics. Once a compiler phase has established a contract, downstream code should rely on it. Represent guarantees by construction where practical, and use assertions or contextual `expect()`/`panic!()` calls for impossible states.
+
+Do not add or preserve recoverable internal-validation errors, user diagnostics, repeated validation passes, or fallback behavior merely to avoid a compiler crash. Tests should exercise phase contracts and catch regressions. An invariant failure must expose the compiler bug with useful debugging context, even when user source triggers it. Assertion and panic messages are developer debugging context and do not require the user-facing message protocol. See [Errors and panics](docs/contributing/coding-conventions.md#errors-and-panics).
+
 ## Structured messages
 
 Do not construct user-facing English text inside compiler logic. Emit structured message IDs and typed arguments instead. User-facing text must be rendered through `bray-messages`.
