@@ -76,8 +76,7 @@ pub(in crate::compilation) fn selected_storage_callable(
 
     let implementation = binding_context
         .semantic_values()
-        .implementation_instance_data(*witness)
-        .map_err(FactQueryError::SemanticValueStore)?;
+        .implementation_instance_data(*witness);
 
     let fulfillments = implementation_fulfillments(binding_context, implementation.definition())?;
 
@@ -88,8 +87,7 @@ pub(in crate::compilation) fn selected_storage_callable(
 
     let application = binding_context
         .semantic_values()
-        .trait_application_data(requirement.trait_application())
-        .map_err(FactQueryError::SemanticValueStore)?;
+        .trait_application_data(requirement.trait_application());
 
     let Some(callable) = implementation_callable_instance(
         binding_context,

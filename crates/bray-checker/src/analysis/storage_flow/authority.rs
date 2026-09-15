@@ -165,11 +165,7 @@ where
             .map(|parameter| parameter.mode())
             .collect()),
         TypeExpressionTemplate::Resolved(ty) => {
-            let data = request.semantic_values().type_data(*ty).map_err(|error| {
-                CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
-                    error,
-                ))
-            })?;
+            let data = request.semantic_values().type_data(*ty);
 
             let TypeData::Callable(callable) = data.as_ref() else {
                 return Err(CheckerQueryError::Infrastructure(

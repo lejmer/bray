@@ -65,10 +65,7 @@ impl OperationEffects {
                 continue;
             };
 
-            let ty = request
-                .semantic_values()
-                .type_data(access.reached_type())
-                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+            let ty = request.semantic_values().type_data(access.reached_type());
 
             if matches!(ty.as_ref(), bray_symbols::TypeData::Borrow { .. }) {
                 effects

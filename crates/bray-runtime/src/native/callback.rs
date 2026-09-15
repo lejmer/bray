@@ -244,7 +244,12 @@ mod tests {
 
     #[test]
     fn callback_cancellation_preserves_an_already_published_panic() {
-        let mut outcome = super::bray_runtime_substrate_synchronous_root_execution(write_then_cancel, 0, cleanup as *const ());
+        let mut outcome = super::bray_runtime_substrate_synchronous_root_execution(
+            write_then_cancel,
+            0,
+            cleanup as *const (),
+        );
+
         assert_eq!(outcome.state(), NativeRunState::PANICKED);
         assert!(outcome.take_report().consume(false).is_success());
     }

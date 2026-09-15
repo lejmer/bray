@@ -20,7 +20,7 @@ impl SemanticValueStore {
         ty: TypeId,
         substitution: GenericSubstitutionId,
     ) -> Result<TypeId, SemanticValueStoreError> {
-        let substitution = self.generic_substitution_data(substitution)?;
+        let substitution = self.generic_substitution_data(substitution);
 
         self.substitute_type_data(ty, &substitution)
     }
@@ -31,7 +31,7 @@ impl SemanticValueStore {
         contract: super::super::DependencyContractTemplateId,
         substitution: GenericSubstitutionId,
     ) -> Result<super::super::DependencyContractTemplateId, SemanticValueStoreError> {
-        let substitution = self.generic_substitution_data(substitution)?;
+        let substitution = self.generic_substitution_data(substitution);
 
         self.substitute_dependency_contract_data(contract, &substitution)
     }
@@ -55,7 +55,7 @@ impl SemanticValueStore {
         };
 
         let substitution = GenericSubstitutionData::try_new(owner, [parameter], [replacement])
-            .map_err(|_| SemanticValueStoreError::OpenSubstitution)?;
+            .expect("substitution preserves parameter kinds and arity");
 
         let substitution = self.intern_generic_substitution(substitution)?;
 
@@ -68,7 +68,7 @@ impl SemanticValueStore {
         term: ConstantTermId,
         substitution: GenericSubstitutionId,
     ) -> Result<ConstantTermId, SemanticValueStoreError> {
-        let substitution = self.generic_substitution_data(substitution)?;
+        let substitution = self.generic_substitution_data(substitution);
 
         self.substitute_constant_term_data(term, &substitution)
     }
@@ -79,7 +79,7 @@ impl SemanticValueStore {
         value: ConstantValueId,
         substitution: GenericSubstitutionId,
     ) -> Result<ConstantValueId, SemanticValueStoreError> {
-        let substitution = self.generic_substitution_data(substitution)?;
+        let substitution = self.generic_substitution_data(substitution);
         let mut substituted = BTreeMap::new();
 
         self.substitute_constant_value_data(value, &substitution, &mut substituted)
@@ -91,7 +91,7 @@ impl SemanticValueStore {
         nested: GenericSubstitutionId,
         substitution: GenericSubstitutionId,
     ) -> Result<GenericSubstitutionId, SemanticValueStoreError> {
-        let substitution = self.generic_substitution_data(substitution)?;
+        let substitution = self.generic_substitution_data(substitution);
 
         self.substitute_generic_substitution_data(nested, &substitution)
     }
@@ -102,7 +102,7 @@ impl SemanticValueStore {
         callable: super::super::CallableInstanceId,
         substitution: GenericSubstitutionId,
     ) -> Result<super::super::CallableInstanceId, SemanticValueStoreError> {
-        let substitution = self.generic_substitution_data(substitution)?;
+        let substitution = self.generic_substitution_data(substitution);
 
         self.substitute_callable_instance_data(callable, &substitution)
     }
@@ -113,7 +113,7 @@ impl SemanticValueStore {
         application: super::super::TraitApplicationId,
         substitution: GenericSubstitutionId,
     ) -> Result<super::super::TraitApplicationId, SemanticValueStoreError> {
-        let substitution = self.generic_substitution_data(substitution)?;
+        let substitution = self.generic_substitution_data(substitution);
 
         self.substitute_trait_application_data(application, &substitution)
     }
@@ -123,7 +123,7 @@ impl SemanticValueStore {
         application: super::super::TraitApplicationId,
         substitution: &GenericSubstitutionData,
     ) -> Result<super::super::TraitApplicationId, SemanticValueStoreError> {
-        let application = self.trait_application_data(application)?;
+        let application = self.trait_application_data(application);
 
         let nested =
             self.substitute_generic_substitution_data(application.substitution(), substitution)?;
@@ -136,7 +136,7 @@ impl SemanticValueStore {
         ty: TypeId,
         substitution: &GenericSubstitutionData,
     ) -> Result<TypeId, SemanticValueStoreError> {
-        let data = self.type_data(ty)?;
+        let data = self.type_data(ty);
 
         if let TypeData::TypeParameter(parameter) = data.as_ref()
             && let Some(GenericArgument::Type(argument)) =
@@ -172,7 +172,7 @@ impl SemanticValueStore {
                 application,
                 member,
             } => {
-                let application = self.trait_application_data(*application)?;
+                let application = self.trait_application_data(*application);
 
                 let nested = self.substitute_generic_substitution_data(
                     application.substitution(),
@@ -217,7 +217,7 @@ impl SemanticValueStore {
                 target: self.substitute_type_data(*target, substitution)?,
             },
             TypeData::TraitView(application) => {
-                let application = self.trait_application_data(*application)?;
+                let application = self.trait_application_data(*application);
 
                 let nested = self.substitute_generic_substitution_data(
                     application.substitution(),
@@ -257,7 +257,7 @@ impl SemanticValueStore {
                 let phase_behaviors = callable
                     .phase_behaviors()
                     .try_with_dependency_contracts(dependencies)
-                    .ok_or(SemanticValueStoreError::OpenSubstitution)?;
+                    .expect("substitution preserves callable phase contracts");
 
                 TypeData::Callable(
                     CallableTypeData::new(
@@ -282,7 +282,7 @@ impl SemanticValueStore {
         nested: GenericSubstitutionId,
         substitution: &GenericSubstitutionData,
     ) -> Result<GenericSubstitutionId, SemanticValueStoreError> {
-        let nested = self.generic_substitution_data(nested)?;
+        let nested = self.generic_substitution_data(nested);
 
         let arguments = nested
             .bindings()
@@ -302,7 +302,7 @@ impl SemanticValueStore {
             nested.bindings().iter().map(|binding| binding.parameter()),
             arguments,
         )
-        .map_err(|_| SemanticValueStoreError::OpenSubstitution)?;
+        .expect("substitution preserves parameter kinds and arity");
 
         self.intern_generic_substitution(substituted)
     }
@@ -312,7 +312,7 @@ impl SemanticValueStore {
         term: ConstantTermId,
         substitution: &GenericSubstitutionData,
     ) -> Result<ConstantTermId, SemanticValueStoreError> {
-        let data = self.constant_term_data(term)?;
+        let data = self.constant_term_data(term);
 
         if let ConstantTermData::Parameter(parameter) = data.as_ref()
             && let Some(GenericArgument::Constant(argument)) =
@@ -461,7 +461,7 @@ impl SemanticValueStore {
         }
 
         let source = value;
-        let data = self.constant_value_data(value)?;
+        let data = self.constant_value_data(value);
         let ty = self.substitute_type_data(data.ty(), substitution)?;
 
         let kind = match data.kind() {
@@ -559,14 +559,14 @@ impl SemanticValueStore {
             .map(|witness| self.substitute_implementation_instance(witness, substitution))
             .collect::<Result<Vec<_>, _>>()?;
 
-        match self.require_concrete_substitution(nested) {
-            Ok(nested) => Ok(StaticReferenceSelection::Closed(StaticInstanceKey::new(
+        match self.substitution_is_concrete(nested) {
+            true => Ok(StaticReferenceSelection::Closed(StaticInstanceKey::new(
                 *template,
                 nested,
                 selected_witnesses,
                 target.clone(),
             ))),
-            Err(_) => Ok(StaticReferenceSelection::open(
+            false => Ok(StaticReferenceSelection::open(
                 *template,
                 nested,
                 selected_witnesses,
@@ -597,7 +597,7 @@ impl SemanticValueStore {
         template: super::super::DependencyContractTemplateId,
         substitution: &GenericSubstitutionData,
     ) -> Result<super::super::DependencyContractTemplateId, SemanticValueStoreError> {
-        let template = self.dependency_contract_template_data(template)?;
+        let template = self.dependency_contract_template_data(template);
 
         let requirements = template
             .requirements()
@@ -765,7 +765,7 @@ impl SemanticValueStore {
         callable: super::super::CallableInstanceId,
         substitution: &GenericSubstitutionData,
     ) -> Result<super::super::CallableInstanceId, SemanticValueStoreError> {
-        let callable = self.callable_instance_data(callable)?;
+        let callable = self.callable_instance_data(callable);
 
         let nested =
             self.substitute_generic_substitution_data(callable.substitution(), substitution)?;
@@ -778,7 +778,7 @@ impl SemanticValueStore {
         implementation: super::super::ImplementationInstanceId,
         substitution: &GenericSubstitutionData,
     ) -> Result<super::super::ImplementationInstanceId, SemanticValueStoreError> {
-        let implementation = self.implementation_instance_data(implementation)?;
+        let implementation = self.implementation_instance_data(implementation);
 
         let nested =
             self.substitute_generic_substitution_data(implementation.substitution(), substitution)?;
@@ -914,17 +914,13 @@ mod tests {
             .substitute_constant_term(term, substitution)
             .unwrap_or_else(|error| panic!("constant substitution failed: {error:?}"));
 
-        let term = store
-            .constant_term_data(term)
-            .unwrap_or_else(|error| panic!("substituted term must be available: {error:?}"));
+        let term = store.constant_term_data(term);
 
         let ConstantTermData::Value(value) = term.as_ref() else {
             panic!("substituted term must remain a value");
         };
 
-        let value = store
-            .constant_value_data(*value)
-            .unwrap_or_else(|error| panic!("substituted value must be available: {error:?}"));
+        let value = store.constant_value_data(*value);
 
         assert_eq!(value.ty(), target_type);
         assert_eq!(value.kind(), &ConstantValueKind::Error);
@@ -994,9 +990,7 @@ mod tests {
             .substitute_type(subject, substitution)
             .unwrap_or_else(|error| panic!("type substitution failed: {error:?}"));
 
-        let substituted = store
-            .type_data(substituted)
-            .unwrap_or_else(|error| panic!("substituted type must be available: {error:?}"));
+        let substituted = store.type_data(substituted);
 
         assert_eq!(
             substituted.as_ref(),
@@ -1067,9 +1061,7 @@ mod tests {
             .substitute_constant_term_data(conversion, &substitution)
             .unwrap_or_else(|error| panic!("constant substitution failed: {error:?}"));
 
-        let substituted = store
-            .constant_term_data(substituted)
-            .unwrap_or_else(|error| panic!("substituted term must be available: {error:?}"));
+        let substituted = store.constant_term_data(substituted);
 
         assert_eq!(
             substituted.as_ref(),
@@ -1162,9 +1154,7 @@ mod tests {
             .substitute_type(subject, substitution)
             .unwrap_or_else(|error| panic!("type substitution failed: {error:?}"));
 
-        let substituted = store
-            .type_data(substituted)
-            .unwrap_or_else(|error| panic!("substituted type must be available: {error:?}"));
+        let substituted = store.type_data(substituted);
 
         let TypeData::Callable(callable) = substituted.as_ref() else {
             panic!("substituted type must remain callable");
@@ -1172,17 +1162,13 @@ mod tests {
 
         let contracts = callable.dependency_contracts();
 
-        let invocation = store
-            .dependency_contract_template_data(contracts.invocation())
-            .unwrap_or_else(|error| panic!("substituted invocation must be available: {error:?}"));
+        let invocation = store.dependency_contract_template_data(contracts.invocation());
 
         let deferred = contracts
             .deferred_execution()
             .unwrap_or_else(|| panic!("substituted callable must remain asynchronous"));
 
-        let deferred = store
-            .dependency_contract_template_data(deferred)
-            .unwrap_or_else(|error| panic!("substituted deferred contract missing: {error:?}"));
+        let deferred = store.dependency_contract_template_data(deferred);
 
         assert_eq!(
             invocation.as_ref(),

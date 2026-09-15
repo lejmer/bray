@@ -2,7 +2,6 @@ use bray_bound_tree::{PatternProjection, StorageProjection};
 use bray_ir::{MirFieldReference, MirOperand, MirPlace, MirProjection, MirProjectionKind};
 use bray_symbols::{TypeData, TypeId};
 
-use super::LoweringError;
 use super::lowerer::Lowerer;
 
 impl Lowerer<'_> {
@@ -10,12 +9,12 @@ impl Lowerer<'_> {
         &self,
         mut source_type: TypeId,
         projections: &mut Vec<MirProjection>,
-    ) -> Result<TypeId, LoweringError> {
+    ) -> TypeId {
         loop {
-            let data = self.input.semantic_values().type_data(source_type)?;
+            let data = self.input.semantic_values().type_data(source_type);
 
             let TypeData::Borrow { target, .. } = data.as_ref() else {
-                return Ok(source_type);
+                return source_type;
             };
 
             projections.push(MirProjection::new(

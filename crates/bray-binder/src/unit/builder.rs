@@ -157,7 +157,7 @@ impl BoundUnitLocalBuilder {
             return Err(BoundUnitConstructionError::LocalAlreadyActivated(symbol));
         }
 
-        self.local_symbols.insert_local_name(scope, symbol)?;
+        self.local_symbols.insert_local_name(scope, symbol);
 
         self.activated_locals.insert(symbol);
         self.activated_local_log.push(symbol);
@@ -170,62 +170,36 @@ impl BoundUnitLocalBuilder {
         scope: LocalScopeId,
         name: SymbolName,
         symbol: AnySymbolId,
-    ) -> Result<(), BoundUnitConstructionError> {
-        self.local_symbols
-            .insert_surface_name(scope, name, symbol)
-            .map_err(Into::into)
+    ) {
+        self.local_symbols.insert_surface_name(scope, name, symbol)
     }
 
-    pub(crate) fn scope_parent(
-        &self,
-        scope: LocalScopeId,
-    ) -> Result<Option<LocalScopeId>, BoundUnitConstructionError> {
-        self.local_symbols.scope_parent(scope).map_err(Into::into)
+    pub(crate) fn scope_parent(&self, scope: LocalScopeId) -> Option<LocalScopeId> {
+        self.local_symbols.scope_parent(scope)
     }
 
-    pub(crate) fn scope_boundary(
-        &self,
-        scope: LocalScopeId,
-    ) -> Result<LocalScopeBoundary, BoundUnitConstructionError> {
-        self.local_symbols.scope_boundary(scope).map_err(Into::into)
+    pub(crate) fn scope_boundary(&self, scope: LocalScopeId) -> LocalScopeBoundary {
+        self.local_symbols.scope_boundary(scope)
     }
 
     pub(crate) fn local_symbols_named(
         &self,
         scope: LocalScopeId,
         name: &str,
-    ) -> Result<&[AnyLocalSymbolId], BoundUnitConstructionError> {
-        self.local_symbols
-            .local_symbols_named(scope, name)
-            .map_err(Into::into)
+    ) -> &[AnyLocalSymbolId] {
+        self.local_symbols.local_symbols_named(scope, name)
     }
 
-    pub(crate) fn local_symbol_is_recovered(
-        &self,
-        symbol: AnyLocalSymbolId,
-    ) -> Result<bool, BoundUnitConstructionError> {
-        self.local_symbols
-            .local_symbol_is_recovered(symbol)
-            .map_err(Into::into)
+    pub(crate) fn local_symbol_is_recovered(&self, symbol: AnyLocalSymbolId) -> bool {
+        self.local_symbols.local_symbol_is_recovered(symbol)
     }
 
-    pub(crate) fn local_symbol_syntax_anchor(
-        &self,
-        symbol: AnyLocalSymbolId,
-    ) -> Result<SyntaxAnchor, BoundUnitConstructionError> {
-        self.local_symbols
-            .local_symbol_syntax_anchor(symbol)
-            .map_err(Into::into)
+    pub(crate) fn local_symbol_syntax_anchor(&self, symbol: AnyLocalSymbolId) -> SyntaxAnchor {
+        self.local_symbols.local_symbol_syntax_anchor(symbol)
     }
 
-    pub(crate) fn surface_symbols_named(
-        &self,
-        scope: LocalScopeId,
-        name: &str,
-    ) -> Result<&[AnySymbolId], BoundUnitConstructionError> {
-        self.local_symbols
-            .surface_symbols_named(scope, name)
-            .map_err(Into::into)
+    pub(crate) fn surface_symbols_named(&self, scope: LocalScopeId, name: &str) -> &[AnySymbolId] {
+        self.local_symbols.surface_symbols_named(scope, name)
     }
 
     pub(crate) fn push_postcondition_result(
@@ -243,10 +217,8 @@ impl BoundUnitLocalBuilder {
     pub(crate) fn postcondition_result(
         &self,
         scope: LocalScopeId,
-    ) -> Result<Option<PostconditionResultSymbolId>, BoundUnitConstructionError> {
-        self.local_symbols
-            .postcondition_result(scope)
-            .map_err(Into::into)
+    ) -> Option<PostconditionResultSymbolId> {
+        self.local_symbols.postcondition_result(scope)
     }
 
     pub(crate) fn push_root_anonymous_callable(
@@ -367,7 +339,7 @@ impl BoundUnitLocalBuilder {
         )?;
 
         self.local_symbols
-            .insert_local_name(boundary.scope(), parameter.into())?;
+            .insert_local_name(boundary.scope(), parameter.into());
 
         self.activated_locals.insert(parameter.into());
         self.activated_local_log.push(parameter.into());
@@ -402,16 +374,14 @@ impl BoundUnitLocalBuilder {
             return false;
         }
 
-        if !self.tree.can_rollback_to(checkpoint.tree)
-            || !self.local_symbols.can_rollback_to(checkpoint.local_symbols)
-        {
+        if !self.tree.can_rollback_to(checkpoint.tree) {
             return false;
         }
 
+        self.local_symbols.rollback(checkpoint.local_symbols);
         let tree_rolled_back = self.tree.rollback(checkpoint.tree);
-        let locals_rolled_back = self.local_symbols.rollback(checkpoint.local_symbols);
 
-        if !tree_rolled_back || !locals_rolled_back {
+        if !tree_rolled_back {
             return false;
         }
 
@@ -440,7 +410,7 @@ impl BoundUnitLocalBuilder {
     }
 
     pub(crate) fn finish(self) -> Result<BoundUnitConstructionResult, BoundUnitConstructionError> {
-        let local_symbols = self.local_symbols.finish()?;
+        let local_symbols = self.local_symbols.finish();
         let tree = self.tree.finish();
 
         Ok(BoundUnitConstructionResult::new(
@@ -502,8 +472,8 @@ mod tests {
     };
     use bray_source::{SourceVersion, TextSize};
     use bray_symbols::{
-        AnyLocalSymbolId, LocalScopeBoundary, LocalSymbolBuildError, LocalSymbolRegionId,
-        SemanticValueStore, SymbolOrdinal, TypeData,
+        AnyLocalSymbolId, LocalScopeBoundary, LocalSymbolRegionId, SemanticValueStore,
+        SymbolOrdinal, TypeData,
     };
 
     use crate::unit::BoundUnitConstructionError;
@@ -560,16 +530,16 @@ mod tests {
     }
 
     #[test]
-    fn malformed_pattern_identity_is_reported_without_panicking() {
+    fn missing_pattern_identity_exposes_builder_bug() {
         let fixture = fixture();
         let mut builder = new_builder(&fixture, LocalSymbolRegionId::new(6));
         let root = builder.root_scope();
 
-        assert_eq!(
-            builder.push_binding(root, symbol_name("missing"), [], None, true),
-            Err(BoundUnitConstructionError::LocalSymbol(
-                LocalSymbolBuildError::MissingSyntaxAnchor
-            ))
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = builder.push_binding(root, symbol_name("missing"), [], None, true);
+            }))
+            .is_err()
         );
 
         assert!(finish(builder).local_symbols().bindings().is_empty());
@@ -581,11 +551,11 @@ mod tests {
         let mut builder = new_builder(&fixture, LocalSymbolRegionId::new(7));
         let root = builder.root_scope();
 
-        assert_eq!(
-            builder.push_postcondition_result(root, fixture.first, None, true),
-            Err(BoundUnitConstructionError::LocalSymbol(
-                LocalSymbolBuildError::InvalidScopeBoundary
-            ))
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = builder.push_postcondition_result(root, fixture.first, None, true);
+            }))
+            .is_err()
         );
 
         let contract = push_scope(
@@ -633,18 +603,18 @@ mod tests {
             Err(error) => panic!("nested test builder must build: {error:?}"),
         };
 
-        assert_eq!(
-            wrong_unit.push_anonymous_parameter(
-                &boundary,
-                symbol_name("wrong_unit"),
-                [fixture.first],
-                SymbolOrdinal::new(0),
-                bray_symbols::CallableParameterMode::Immutable,
-                true,
-            ),
-            Err(BoundUnitConstructionError::LocalSymbol(
-                LocalSymbolBuildError::UnknownAnonymousCallable
-            ))
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = wrong_unit.push_anonymous_parameter(
+                    &boundary,
+                    symbol_name("wrong_unit"),
+                    [fixture.first],
+                    SymbolOrdinal::new(0),
+                    bray_symbols::CallableParameterMode::Immutable,
+                    true,
+                );
+            }))
+            .is_err()
         );
 
         assert!(
@@ -671,18 +641,18 @@ mod tests {
             Err(error) => panic!("wrong-region test builder must build: {error:?}"),
         };
 
-        assert_eq!(
-            wrong_region.push_anonymous_parameter(
-                &boundary,
-                symbol_name("wrong_region"),
-                [fixture.first],
-                SymbolOrdinal::new(0),
-                bray_symbols::CallableParameterMode::Immutable,
-                true,
-            ),
-            Err(BoundUnitConstructionError::LocalSymbol(
-                LocalSymbolBuildError::ForeignRegion
-            ))
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = wrong_region.push_anonymous_parameter(
+                    &boundary,
+                    symbol_name("wrong_region"),
+                    [fixture.first],
+                    SymbolOrdinal::new(0),
+                    bray_symbols::CallableParameterMode::Immutable,
+                    true,
+                );
+            }))
+            .is_err()
         );
 
         assert!(
@@ -886,7 +856,13 @@ mod tests {
 
         let incompatible = other.checkpoint();
 
-        assert!(!builder.rollback(incompatible));
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                builder.rollback(incompatible)
+            }))
+            .is_err()
+        );
+
         assert!(builder.view().expression(expression).is_some());
 
         let result = finish(builder);

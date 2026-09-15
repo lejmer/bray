@@ -47,7 +47,7 @@ where
 
         let access = self.operation_access(plan, purpose);
 
-        if let Some(kind) = self.projected_storage_borrow_kind(access)? {
+        if let Some(kind) = self.projected_storage_borrow_kind(access) {
             if requested != BorrowKind::Mutable || kind != BorrowKind::Shared {
                 return Ok(None);
             }
@@ -133,7 +133,7 @@ where
             StorageAccessRoot::Recovery(_) => Ok(false),
             StorageAccessRoot::Storage(storage)
             | StorageAccessRoot::OwnedIndirection { storage, .. } => Ok(self
-                .projected_storage_borrow_kind(access)?
+                .projected_storage_borrow_kind(access)
                 == Some(BorrowKind::Mutable)
                 || self.owned_storage_is_mutable(storage)),
             StorageAccessRoot::Borrow(_) | StorageAccessRoot::BorrowedStorage { .. } => Ok(false),
@@ -182,23 +182,23 @@ where
                 identity.is_borrowed_provider_input(self.request.unit().key().kind())
             })
             || record.root().borrow_capability().is_some()
-            || self.projected_storage_borrow_kind(access)?.is_some())
+            || self.projected_storage_borrow_kind(access).is_some())
     }
 
     pub(super) fn projected_storage_borrow_kind(
         &self,
         access: StorageAccessId,
-    ) -> Result<Option<BorrowKind>, crate::CheckerInfrastructureError> {
+    ) -> Option<BorrowKind> {
         let Some(access) = self.storage.access(access) else {
-            return Ok(None);
+            return None;
         };
 
         let StorageAccessRoot::Storage(storage) = access.root() else {
-            return Ok(None);
+            return None;
         };
 
         let Some(root_type) = self.storage.storage_type(storage) else {
-            return Ok(None);
+            return None;
         };
 
         for depth in 0..=access.projections().len() {
@@ -219,34 +219,20 @@ where
                 continue;
             }
 
-            let data = self
-                .request
-                .semantic_values()
-                .type_data(ty)
-                .map_err(crate::CheckerInfrastructureError::SemanticValueStore)?;
+            let data = self.request.semantic_values().type_data(ty);
 
             if let bray_symbols::TypeData::Borrow { kind, .. } = data.as_ref() {
-                return Ok(Some(*kind));
+                return Some(*kind);
             }
         }
 
-        Ok(None)
+        None
     }
 
-    pub(super) fn type_is_borrow(
-        &self,
-        ty: bray_symbols::TypeId,
-    ) -> Result<bool, crate::CheckerInfrastructureError> {
-        let data = self
-            .request
-            .semantic_values()
-            .type_data(ty)
-            .map_err(crate::CheckerInfrastructureError::SemanticValueStore)?;
+    pub(super) fn type_is_borrow(&self, ty: bray_symbols::TypeId) -> bool {
+        let data = self.request.semantic_values().type_data(ty);
 
-        Ok(matches!(
-            data.as_ref(),
-            bray_symbols::TypeData::Borrow { .. }
-        ))
+        matches!(data.as_ref(), bray_symbols::TypeData::Borrow { .. })
     }
 
     pub(super) fn refinements_allow_access(

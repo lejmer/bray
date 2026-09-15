@@ -397,9 +397,7 @@ fn callable_template_abi<Upstream>(
     match template {
         TypeExpressionTemplate::Callable(callable) => Ok(callable.abi()),
         TypeExpressionTemplate::Resolved(ty) => {
-            let data = values
-                .type_data(*ty)
-                .map_err(BindingQueryError::SemanticValue)?;
+            let data = values.type_data(*ty);
 
             let TypeData::Callable(callable) = data.as_ref() else {
                 return Err(BindingQueryError::Binding(

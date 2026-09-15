@@ -23,7 +23,6 @@ pub fn format_semantic_type(
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum TypeInspectionError {
     Depth,
-    SemanticValue(bray_symbols::SemanticValueStoreError),
 }
 
 #[derive(Serialize)]
@@ -57,9 +56,7 @@ impl InspectionType {
     ) -> Result<Self, TypeInspectionError> {
         let mut formatter = TypeFormatter::new(semantic_values, symbols);
 
-        let data = semantic_values
-            .type_data(ty)
-            .map_err(TypeInspectionError::SemanticValue)?;
+        let data = semantic_values.type_data(ty);
 
         let type_kind = type_data_kind(data.as_ref());
         let text = formatter.ty(ty, 0)?;
@@ -210,10 +207,7 @@ impl<'model> TypeFormatter<'model> {
     fn ty(&mut self, ty: TypeId, depth: usize) -> Result<String, TypeInspectionError> {
         check_depth(depth)?;
 
-        let data = self
-            .semantic_values
-            .type_data(ty)
-            .map_err(TypeInspectionError::SemanticValue)?;
+        let data = self.semantic_values.type_data(ty);
 
         match data.as_ref() {
             TypeData::Error => Ok(String::from("<error>")),
@@ -225,8 +219,7 @@ impl<'model> TypeFormatter<'model> {
 
                 let substitution = self
                     .semantic_values
-                    .generic_substitution_data(*substitution)
-                    .map_err(TypeInspectionError::SemanticValue)?;
+                    .generic_substitution_data(*substitution);
 
                 let arguments = self.substitution_arguments(&substitution, depth)?;
 
@@ -375,17 +368,13 @@ impl<'model> TypeFormatter<'model> {
         application: TraitApplicationId,
         depth: usize,
     ) -> Result<String, TypeInspectionError> {
-        let application = self
-            .semantic_values
-            .trait_application_data(application)
-            .map_err(TypeInspectionError::SemanticValue)?;
+        let application = self.semantic_values.trait_application_data(application);
 
         let name = self.symbol(application.definition().into());
 
         let substitution = self
             .semantic_values
-            .generic_substitution_data(application.substitution())
-            .map_err(TypeInspectionError::SemanticValue)?;
+            .generic_substitution_data(application.substitution());
 
         let arguments = self.substitution_arguments(&substitution, depth)?;
 

@@ -4,7 +4,7 @@ use super::super::{
 };
 use super::failure::{
     DiagnosticEmissionFieldJson, DiagnosticEmissionFieldValueJson, artifact_field, count_field,
-    count_u64_field, digest_field, field, text_field,
+    digest_field, field, text_field,
 };
 use super::foreign_query::foreign_query_failure_context;
 use super::product_query::product_query_failure_context;
@@ -353,32 +353,9 @@ pub(in crate::output::diagnostic::json) fn semantic_value_failure_context(
     let mut context = vec![text_field("cause", failure.as_str())];
 
     match failure {
-        Failure::ForeignId {
-            expected_store,
-            actual_store,
-        } => context.extend([
-            count_u64_field("expected_store", expected_store),
-            count_u64_field("actual_store", actual_store),
-        ]),
-        Failure::UnknownId { kind } | Failure::CapacityExhausted { kind } => {
+        Failure::CapacityExhausted { kind } => {
             context.push(text_field("semantic_value_kind", kind));
         }
-        Failure::GenericOwnerMismatch {
-            expected_kind,
-            expected,
-            actual_kind,
-            actual,
-        } => context.extend([
-            text_field("expected_owner_kind", expected_kind),
-            count_field("expected_owner", expected),
-            text_field("actual_owner_kind", actual_kind),
-            count_field("actual_owner", actual),
-        ]),
-        Failure::InvalidDependencyVariable { depth, ordinal } => {
-            context.push(count_field("depth", depth));
-            context.push(count_field("ordinal", ordinal));
-        }
-        Failure::OpenSubstitution => {}
     }
 
     context
@@ -817,60 +794,21 @@ mod tests {
     }
 
     #[test]
-    fn semantic_value_failures_preserve_every_leaf_payload() {
-        let foreign = serde_json::to_value(semantic_value_failure_context(
-            DiagnosticSemanticValueFailure::ForeignId {
-                expected_store: 41,
-                actual_store: 73,
+    fn semantic_value_failures_preserve_capacity_kind() {
+        let context = serde_json::to_value(semantic_value_failure_context(
+            DiagnosticSemanticValueFailure::CapacityExhausted {
+                kind: "constant_term",
             },
         ))
-        .unwrap_or_else(|error| panic!("foreign-id context should serialize: {error:?}"));
+        .unwrap();
 
-        assert_eq!(foreign[1]["name"], "expected_store");
-        assert_eq!(foreign[1]["value"]["value"], 41);
-        assert_eq!(foreign[2]["name"], "actual_store");
-        assert_eq!(foreign[2]["value"]["value"], 73);
+        assert_eq!(
+            context[0]["value"]["value"],
+            "binding_semantic_value_capacity_exhausted"
+        );
 
-        for (failure, expected_cause) in [
-            (
-                DiagnosticSemanticValueFailure::UnknownId { kind: "type" },
-                "binding_semantic_value_unknown_id",
-            ),
-            (
-                DiagnosticSemanticValueFailure::CapacityExhausted {
-                    kind: "constant_term",
-                },
-                "binding_semantic_value_capacity_exhausted",
-            ),
-        ] {
-            let context = serde_json::to_value(semantic_value_failure_context(failure))
-                .unwrap_or_else(|error| panic!("value-kind context should serialize: {error:?}"));
-
-            assert_eq!(context[0]["value"]["value"], expected_cause);
-            assert_eq!(context[1]["name"], "semantic_value_kind");
-        }
-
-        let owner = serde_json::to_value(semantic_value_failure_context(
-            DiagnosticSemanticValueFailure::GenericOwnerMismatch {
-                expected_kind: "function",
-                expected: 5,
-                actual_kind: "trait",
-                actual: 8,
-            },
-        ))
-        .unwrap_or_else(|error| panic!("owner context should serialize: {error:?}"));
-
-        assert_eq!(owner[1]["value"]["value"], "function");
-        assert_eq!(owner[2]["value"]["value"], 5);
-        assert_eq!(owner[3]["value"]["value"], "trait");
-        assert_eq!(owner[4]["value"]["value"], 8);
-
-        let open = serde_json::to_value(semantic_value_failure_context(
-            DiagnosticSemanticValueFailure::OpenSubstitution,
-        ))
-        .unwrap_or_else(|error| panic!("open-substitution context should serialize: {error:?}"));
-
-        assert_eq!(open.as_array().map(Vec::len), Some(1));
+        assert_eq!(context[1]["name"], "semantic_value_kind");
+        assert_eq!(context[1]["value"]["value"], "constant_term");
     }
 }
 

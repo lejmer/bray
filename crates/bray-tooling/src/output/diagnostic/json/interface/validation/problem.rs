@@ -403,49 +403,10 @@ fn semantic_content_problem_json(
     use bray_diagnostics::DiagnosticSemanticContentProblem as Problem;
 
     match value {
-        Problem::ForeignId { expected, actual } => problem(
-            "semantic_content_foreign_id",
-            [
-                DiagnosticProblemFieldJson {
-                    name: "expected_content_set",
-                    value: DiagnosticProblemFieldValueJson::Count(*expected),
-                },
-                DiagnosticProblemFieldJson {
-                    name: "actual_content_set",
-                    value: DiagnosticProblemFieldValueJson::Count(*actual),
-                },
-            ],
-        ),
-        Problem::UnknownId { value_kind } => problem(
-            "semantic_content_unknown_id",
-            [problem_text("value_kind", value_kind.as_str())],
-        ),
         Problem::CapacityExhausted { value_kind } => problem(
             "semantic_content_capacity_exhausted",
             [problem_text("value_kind", value_kind.as_str())],
         ),
-        Problem::GenericOwnerMismatch {
-            expected_kind,
-            expected,
-            actual_kind,
-            actual,
-        } => problem(
-            "semantic_content_generic_owner_mismatch",
-            [
-                problem_text("expected_owner_kind", expected_kind.as_str()),
-                problem_count("expected_owner", *expected),
-                problem_text("actual_owner_kind", actual_kind.as_str()),
-                problem_count("actual_owner", *actual),
-            ],
-        ),
-        Problem::InvalidDependencyVariable { depth, ordinal } => problem(
-            "semantic_content_invalid_dependency_variable",
-            [
-                problem_count("depth", *depth),
-                problem_count("ordinal", *ordinal),
-            ],
-        ),
-        Problem::OpenSubstitution => problem("semantic_content_open_substitution", []),
     }
 }
 

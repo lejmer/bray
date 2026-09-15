@@ -109,10 +109,7 @@ where
             continue;
         }
 
-        let generic_arguments = match generic_arguments(request, instance) {
-            Ok(arguments) => arguments,
-            Err(error) => return CheckerOutcome::InfrastructureFailure(error),
-        };
+        let generic_arguments = generic_arguments(request, instance);
 
         let type_arguments = generic_arguments
             .iter()
@@ -292,11 +289,7 @@ where
     let (abi, trust) = match signature.value().callable_type() {
         TypeExpressionTemplate::Callable(callable) => (callable.abi(), callable.trust()),
         TypeExpressionTemplate::Resolved(ty) => {
-            let data = request.semantic_values().type_data(*ty).map_err(|error| {
-                CheckerOutcome::InfrastructureFailure(
-                    CheckerInfrastructureError::SemanticValueStore(error),
-                )
-            })?;
+            let data = request.semantic_values().type_data(*ty);
 
             let TypeData::Callable(callable) = data.as_ref() else {
                 return Err(CheckerOutcome::InfrastructureFailure(
@@ -430,18 +423,17 @@ fn selected_arguments(
 fn generic_arguments<C>(
     request: CheckerUnitView<'_, C>,
     instance: CallableInstanceData,
-) -> Result<Vec<GenericArgument>, CheckerInfrastructureError>
+) -> Vec<GenericArgument>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
     let substitution = request
         .semantic_values()
-        .generic_substitution_data(instance.substitution())
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        .generic_substitution_data(instance.substitution());
 
-    Ok(substitution
+    substitution
         .bindings()
         .iter()
         .map(|binding| binding.argument())
-        .collect())
+        .collect()
 }

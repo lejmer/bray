@@ -58,8 +58,6 @@ pub enum DiagnosticLoweringInputFailureKind {
     InvalidPatternInput,
     /// An analysis input refers to an unsupported source construct.
     InvalidInputContents(&'static str),
-    /// A semantic value could not cross the lowering boundary.
-    SemanticValue(crate::DiagnosticSemanticValueFailure),
     /// An expression has an invalid storage operation.
     InvalidStorageOperation(DiagnosticLoweringIdentity),
     /// The storage plan contains the wrong number of operations.
@@ -101,7 +99,6 @@ impl DiagnosticLoweringInputFailureKind {
             Self::MissingExpressionType(_) => "code_production_input_missing_expression_type",
             Self::InvalidPatternInput => "code_production_input_invalid_pattern",
             Self::InvalidInputContents(_) => "code_production_input_foreign_source_construct",
-            Self::SemanticValue(failure) => failure.as_str(),
             Self::InvalidStorageOperation(_) => "code_production_input_invalid_value_access",
             Self::StorageOperationCountMismatch { .. } => {
                 "code_production_input_value_access_count_mismatch"

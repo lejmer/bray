@@ -158,7 +158,8 @@ const fn empty_native_incident() -> NativeCleanupIncident {
         _: usize,
         _: &mut bray_runtime_abi::NativeRunOutcome,
         _: &mut bray_runtime_abi::NativeRunOutcome,
-    ) {}
+    ) {
+    }
 
     NativeCleanupIncident::new(
         0,

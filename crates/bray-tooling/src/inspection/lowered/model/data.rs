@@ -2159,9 +2159,7 @@ fn constant_text(
 ) -> String {
     use bray_symbols::ConstantValueKind;
 
-    let Ok(value) = semantic_values.constant_value_data(value) else {
-        return String::from("<invalid-constant>");
-    };
+    let value = semantic_values.constant_value_data(value);
 
     match value.kind() {
         ConstantValueKind::Error => String::from("<error>"),

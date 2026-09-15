@@ -91,7 +91,7 @@ impl Lowerer<'_> {
                 if entry_borrow && place.projections().is_empty() {
                     let expression_type = lowerer.expression_type(expression)?;
 
-                    let place_data = lowerer.input.semantic_values().type_data(place.ty())?;
+                    let place_data = lowerer.input.semantic_values().type_data(place.ty());
 
                     if let TypeData::Borrow { kind, target } = place_data.as_ref()
                         && expression_type == place.ty()
@@ -138,7 +138,7 @@ impl Lowerer<'_> {
                     lowerer
                         .input
                         .semantic_values()
-                        .type_data(place.ty())?
+                        .type_data(place.ty())
                         .as_ref(),
                     TypeData::Borrow { .. }
                 );

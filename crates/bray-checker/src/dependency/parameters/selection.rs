@@ -58,9 +58,7 @@ impl SelectionParameters {
                 .context()
                 .callable_result_dependencies(callable.definition().callable_symbol())?;
 
-            let template = values
-                .dependency_contract_template_data(template)
-                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+            let template = values.dependency_contract_template_data(template);
 
             let mut edges = Vec::new();
 
@@ -103,7 +101,7 @@ fn selection_requirements(
         };
 
         Some((|| {
-            let callable = values.callable_instance_data(callable)?;
+            let callable = values.callable_instance_data(callable);
 
             let inputs =
                 super::super::equations::map_input_requirements(inputs, &mut |requirements| {

@@ -65,7 +65,7 @@ impl Compilation {
 
                 let pointee_type = self.resolve_codegen_type(
                     template.value().declared_type(),
-                    selected.substitution().substitution(),
+                    selected.substitution(),
                     cancellation,
                 )?;
 

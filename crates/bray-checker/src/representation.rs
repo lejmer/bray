@@ -33,13 +33,10 @@ where
         return Ok(false);
     }
 
-    let data = request
-        .semantic_values()
-        .type_data(ty)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    let data = request.semantic_values().type_data(ty);
 
     let complete = match data.as_ref() {
-        TypeData::Named { definition, .. } => match type_representation(request, ty)? {
+        TypeData::Named { definition, .. } => match type_representation(request, ty) {
             Some(RepresentationRole::Uninit) => {
                 let element = request
                     .available_compiler_known_symbols()
@@ -48,7 +45,6 @@ where
                         RepresentationRole::Uninit,
                         ty,
                     )
-                    .map_err(CheckerInfrastructureError::SemanticValueStore)?
                     .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
 
                 type_supports_complete_fixed_layout_inner(request, element, pending)?
@@ -94,10 +90,7 @@ pub(crate) fn type_supports_flexible_c_layout<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let data = request
-        .semantic_values()
-        .type_data(ty)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    let data = request.semantic_values().type_data(ty);
 
     let TypeData::Named { definition, .. } = data.as_ref() else {
         return Ok(matches!(
@@ -122,7 +115,7 @@ where
 pub(crate) fn type_representation<C>(
     request: CheckerUnitView<'_, C>,
     ty: TypeId,
-) -> Result<Option<RepresentationRole>, CheckerInfrastructureError>
+) -> Option<RepresentationRole>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -132,7 +125,7 @@ where
 pub(crate) fn type_representation_for_context<C>(
     request: &C,
     ty: TypeId,
-) -> Result<Option<RepresentationRole>, CheckerInfrastructureError>
+) -> Option<RepresentationRole>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -147,13 +140,11 @@ pub(crate) fn type_representation_for_values(
     values: &SemanticValueStore,
     available: &AvailableCompilerKnownSymbols,
     ty: TypeId,
-) -> Result<Option<RepresentationRole>, CheckerInfrastructureError> {
-    let data = values
-        .type_data(ty)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+) -> Option<RepresentationRole> {
+    let data = values.type_data(ty);
 
     let TypeData::Named { definition, .. } = data.as_ref() else {
-        return Ok(None);
+        return None;
     };
 
     let representation = match definition {
@@ -161,7 +152,7 @@ pub(crate) fn type_representation_for_values(
         NamedTypeSymbolId::Union(definition) => available.symbol_representation(*definition),
     };
 
-    Ok(representation)
+    representation
 }
 
 pub(crate) fn representation_type<C>(

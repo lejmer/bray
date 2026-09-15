@@ -47,10 +47,7 @@ pub(in crate::compilation) fn target_abi_value_from_type(
     ty: TypeId,
     cancellation: &CancellationToken,
 ) -> Result<Option<TargetAbiValue>, FactQueryError> {
-    let data = compilation
-        .semantic_value_store()?
-        .type_data(ty)
-        .map_err(FactQueryError::SemanticValueStore)?;
+    let data = compilation.semantic_value_store()?.type_data(ty);
 
     target_abi_value_from_data(compilation, data.as_ref(), cancellation)
 }

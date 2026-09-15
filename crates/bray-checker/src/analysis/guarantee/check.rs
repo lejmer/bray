@@ -55,17 +55,8 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
         }
     };
 
-    let literals = match crate::execution_guarantees::condition_literals(
-        expressions,
-        request.semantic_values(),
-    ) {
-        Ok(literals) => literals,
-        Err(error) => {
-            return CheckerOutcome::InfrastructureFailure(
-                crate::CheckerInfrastructureError::SemanticValueStore(error),
-            );
-        }
-    };
+    let literals =
+        crate::execution_guarantees::condition_literals(expressions, request.semantic_values());
 
     let reachable = match analyze_execution_flow(
         &graph,

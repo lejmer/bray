@@ -33,7 +33,7 @@ where
         )));
     }
 
-    if callable_contract_conversion_is_valid(request.semantic_values(), source, target)? {
+    if callable_contract_conversion_is_valid(request.semantic_values(), source, target) {
         return Ok(Some(SelectedConversion::new(
             source,
             target,
@@ -86,13 +86,10 @@ where
         let is_valid = match conversion.target() {
             ConversionTarget::Identity => source == target,
             ConversionTarget::CallableContract => {
-                callable_contract_conversion_is_valid(request.semantic_values(), source, target)?
+                callable_contract_conversion_is_valid(request.semantic_values(), source, target)
             }
             ConversionTarget::NullablePresent => {
-                let target = request
-                    .semantic_values()
-                    .type_data(target)
-                    .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+                let target = request.semantic_values().type_data(target);
 
                 matches!(target.as_ref(), TypeData::Nullable(contained) if *contained == source)
             }
@@ -115,7 +112,7 @@ where
             ConversionTarget::Trait { requirement, .. } => {
                 source != target
                     && requirement.subject() == source
-                    && trait_application_targets(request, requirement.trait_application(), target)?
+                    && trait_application_targets(request, requirement.trait_application(), target)
             }
             ConversionTarget::TraitConstraint { .. } => source != target,
         };
@@ -134,22 +131,18 @@ pub fn callable_contract_conversion_is_valid(
     values: &bray_symbols::SemanticValueStore,
     source: TypeId,
     target: TypeId,
-) -> Result<bool, CheckerInfrastructureError> {
-    let source = values
-        .type_data(source)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+) -> bool {
+    let source = values.type_data(source);
 
-    let target = values
-        .type_data(target)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    let target = values.type_data(target);
 
     let (TypeData::Callable(source), TypeData::Callable(target)) =
         (source.as_ref(), target.as_ref())
     else {
-        return Ok(false);
+        return false;
     };
 
-    Ok(source.parameters() == target.parameters()
+    source.parameters() == target.parameters()
         && source.is_variadic() == target.is_variadic()
         && source.result() == target.result()
         && source.constness() == target.constness()
@@ -166,7 +159,7 @@ pub fn callable_contract_conversion_is_valid(
             (Some(source), Some(target)) => phase_contract_is_compatible(source, target),
             (None, None) => true,
             _ => false,
-        })
+        }
 }
 
 fn phase_contract_is_compatible(
@@ -189,12 +182,12 @@ fn scalar_conversion_is_valid<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let Some(source) = crate::representation::type_representation_for_context(request, source)?
+    let Some(source) = crate::representation::type_representation_for_context(request, source)
     else {
         return Ok(false);
     };
 
-    let Some(target) = crate::representation::type_representation_for_context(request, target)?
+    let Some(target) = crate::representation::type_representation_for_context(request, target)
     else {
         return Ok(false);
     };
@@ -217,7 +210,7 @@ pub(crate) fn c_variadic_promotion_target<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let target = match crate::representation::type_representation(request, source)? {
+    let target = match crate::representation::type_representation(request, source) {
         Some(
             RepresentationRole::ScalarBool
             | RepresentationRole::ScalarI8
@@ -280,15 +273,9 @@ fn composite_conversion_children_for_context<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let source_data = request
-        .semantic_values()
-        .type_data(source)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    let source_data = request.semantic_values().type_data(source);
 
-    let target_data = request
-        .semantic_values()
-        .type_data(target)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    let target_data = request.semantic_values().type_data(target);
 
     let expected = match (source_data.as_ref(), target_data.as_ref()) {
         (TypeData::Tuple(source), TypeData::Tuple(target)) if source.len() == target.len() => {
@@ -333,8 +320,7 @@ fn complex_component_type<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let Some(target_role) =
-        crate::representation::type_representation_for_context(request, target)?
+    let Some(target_role) = crate::representation::type_representation_for_context(request, target)
     else {
         return Ok(None);
     };
@@ -354,24 +340,22 @@ fn trait_application_targets<C>(
     request: CheckerUnitView<'_, C>,
     application: bray_symbols::TraitApplicationId,
     target: TypeId,
-) -> Result<bool, CheckerInfrastructureError>
+) -> bool
 where
     C: CheckerRequestContext + ?Sized,
 {
     let application = request
         .semantic_values()
-        .trait_application_data(application)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        .trait_application_data(application);
 
     let substitution = request
         .semantic_values()
-        .generic_substitution_data(application.substitution())
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        .generic_substitution_data(application.substitution());
 
-    Ok(matches!(
+    matches!(
         substitution.bindings(),
         [binding] if binding.argument() == GenericArgument::Type(target)
-    ))
+    )
 }
 
 #[derive(Clone, Copy)]

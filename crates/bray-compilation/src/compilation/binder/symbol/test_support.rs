@@ -62,10 +62,7 @@ pub(super) fn type_data(compilation: &Compilation, ty: impl ResolvedTestType) ->
     let values = semantic_values(compilation);
     let ty = ty.resolved_type();
 
-    match values.type_data(ty) {
-        Ok(data) => data,
-        Err(error) => panic!("semantic type must be interned: {error:?}"),
-    }
+    values.type_data(ty)
 }
 
 pub(super) fn assert_parameter_dependency_contract(
@@ -74,9 +71,7 @@ pub(super) fn assert_parameter_dependency_contract(
     ordinal: u32,
     expected: &[DependencyRequirementKind],
 ) {
-    let data = semantic_values(compilation)
-        .dependency_contract_template_data(contract)
-        .unwrap_or_else(|error| panic!("dependency contract must be interned: {error:?}"));
+    let data = semantic_values(compilation).dependency_contract_template_data(contract);
 
     let actual = data
         .requirements()

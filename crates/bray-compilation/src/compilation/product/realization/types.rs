@@ -151,9 +151,7 @@ impl Compilation {
             .substitute_type(ty, substitution)
             .map_err(FactQueryError::SemanticValueStore)?;
 
-        let data = values
-            .type_data(ty)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let data = values.type_data(ty);
 
         match data.as_ref() {
             TypeData::ContextualSelf(SelfTypeContext::NamedType(definition)) => {
@@ -189,9 +187,7 @@ impl Compilation {
     ) -> Result<TypeId, FactQueryError> {
         let values = self.semantic_value_store()?;
 
-        let data = values
-            .type_data(ty)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let data = values.type_data(ty);
 
         let TypeData::ContextualSelf(SelfTypeContext::Implementation(implementation)) =
             data.as_ref()
@@ -300,9 +296,7 @@ impl Compilation {
 
         let values = self.semantic_value_store()?;
 
-        let data = values
-            .type_data(ty)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let data = values.type_data(ty);
 
         let mapping = match data.as_ref() {
             TypeData::Named {
@@ -373,9 +367,7 @@ impl Compilation {
                 storage,
                 target: pointee,
             } => {
-                let pointee_data = values
-                    .type_data(*pointee)
-                    .map_err(FactQueryError::SemanticValueStore)?;
+                let pointee_data = values.type_data(*pointee);
 
                 if matches!(
                     pointee_data.as_ref(),
@@ -434,9 +426,7 @@ impl Compilation {
                 let mut candidates = Vec::new();
 
                 for mapping in mappings.values() {
-                    let data = values
-                        .type_data(mapping.ty())
-                        .map_err(FactQueryError::SemanticValueStore)?;
+                    let data = values.type_data(mapping.ty());
 
                     if matches!(
                         data.as_ref(),
@@ -573,11 +563,8 @@ impl Compilation {
                     .collect::<Result<Vec<_>, FactQueryError>>()?;
 
                 if let Some((_, flexible)) = fields.last()
-                    && let TypeData::FlexibleArray(element) = self
-                        .semantic_value_store()?
-                        .type_data(*flexible)
-                        .map_err(FactQueryError::SemanticValueStore)?
-                        .as_ref()
+                    && let TypeData::FlexibleArray(element) =
+                        self.semantic_value_store()?.type_data(*flexible).as_ref()
                 {
                     return self.codegen_flexible_aggregate_type(
                         ty,

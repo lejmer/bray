@@ -65,11 +65,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                 .expression(receiver)
                 .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
 
-            let ty = self
-                .request
-                .semantic_values()
-                .type_data(ty.ty())
-                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+            let ty = self.request.semantic_values().type_data(ty.ty());
 
             if matches!(ty.as_ref(), bray_symbols::TypeData::Borrow { .. }) {
                 // Reborrowing a reached value retains the existing borrow, not the slot storing it.
@@ -168,8 +164,8 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
         &self,
         id: BoundExpressionId,
         expression: &BoundExpression,
-    ) -> Result<BTreeSet<DependencySubject>, CheckerQueryError<C::UpstreamError>> {
-        Ok(match expression {
+    ) -> BTreeSet<DependencySubject> {
+        match expression {
             BoundExpression::Name(name) => match name.target() {
                 BoundReferenceTarget::Surface(AnySymbolId::CallableParameter(parameter)) => self
                     .request
@@ -199,9 +195,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                 let borrowed = self
                     .types
                     .expression(id)
-                    .map(|ty| self.request.semantic_values().type_data(ty.ty()))
-                    .transpose()
-                    .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+                    .map(|ty| self.request.semantic_values().type_data(ty.ty()));
 
                 if borrowed.is_some_and(|data| {
                     matches!(data.as_ref(), bray_symbols::TypeData::Borrow { .. })
@@ -244,7 +238,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                     .unwrap_or_default()
             }
             _ => BTreeSet::new(),
-        })
+        }
     }
 
     fn project_sources(

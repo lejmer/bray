@@ -155,7 +155,7 @@ fn dependency_subject_is_initialized(
             }
 
             for moved in state.moved() {
-                if !access_is_borrow_value(values, storage, *moved)?
+                if !access_is_borrow_value(values, storage, *moved)
                     && storage.relationship(*moved, access) != StorageRelationship::Disjoint
                 {
                     return Ok(false);
@@ -254,14 +254,14 @@ fn access_is_borrow_value(
     values: &SemanticValueStore,
     storage: &StoragePlan,
     access: StorageAccessId,
-) -> Result<bool, bray_symbols::SemanticValueStoreError> {
+) -> bool {
     let Some(access) = storage.access(access) else {
-        return Ok(false);
+        return false;
     };
 
-    let data = values.type_data(access.reached_type())?;
+    let data = values.type_data(access.reached_type());
 
-    Ok(matches!(data.as_ref(), TypeData::Borrow { .. }))
+    matches!(data.as_ref(), TypeData::Borrow { .. })
 }
 
 fn dependency_guard_may_apply(

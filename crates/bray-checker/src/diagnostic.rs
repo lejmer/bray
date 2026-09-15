@@ -109,9 +109,7 @@ where
         return Ok(DiagnosticType::Unknown);
     }
 
-    let data = context.semantic_values().type_data(ty).map_err(|error| {
-        CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(error))
-    })?;
+    let data = context.semantic_values().type_data(ty);
 
     let diagnostic = match data.as_ref() {
         TypeData::Error => DiagnosticType::Error,
@@ -241,10 +239,7 @@ where
 
     let substitution = context
         .semantic_values()
-        .generic_substitution_data(substitution)
-        .map_err(|error| {
-            CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(error))
-        })?;
+        .generic_substitution_data(substitution);
 
     let path = diagnostic_symbol_path(key, name.as_str());
 

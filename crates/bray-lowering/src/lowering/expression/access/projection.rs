@@ -21,7 +21,7 @@ impl Lowerer<'_> {
             return Ok(source_type);
         }
 
-        let data = self.input.semantic_values().type_data(source_type)?;
+        let data = self.input.semantic_values().type_data(source_type);
 
         let TypeData::Borrow { target, .. } = data.as_ref() else {
             return Ok(source_type);
@@ -41,19 +41,19 @@ impl Lowerer<'_> {
         source_type: TypeId,
         reached_type: TypeId,
         projections: &mut Vec<MirProjection>,
-    ) -> Result<TypeId, LoweringError> {
+    ) -> TypeId {
         if source_type == reached_type {
-            return Ok(source_type);
+            return source_type;
         }
 
-        let data = self.input.semantic_values().type_data(source_type)?;
+        let data = self.input.semantic_values().type_data(source_type);
 
         let TypeData::Borrow { target, .. } = data.as_ref() else {
-            return Ok(source_type);
+            return source_type;
         };
 
         if *target != reached_type {
-            return Ok(source_type);
+            return source_type;
         }
 
         projections.push(MirProjection::new(
@@ -62,7 +62,7 @@ impl Lowerer<'_> {
             reached_type,
         ));
 
-        Ok(reached_type)
+        reached_type
     }
 
     pub(super) fn projection_result_type(

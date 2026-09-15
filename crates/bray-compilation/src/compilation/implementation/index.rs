@@ -5,8 +5,8 @@ use bray_base::shared_slice;
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
     BorrowKind, GenericConstraintTemplate, GenericDeclarationTemplate, GenericParameterSymbolId,
-    ImplementationSymbolId, NamedTypeSymbolId, SemanticValueStore, SemanticValueStoreError,
-    SymbolKey, TargetPropertyDependency, TraitApplicationId, TraitSymbolId, TypeData, TypeId,
+    ImplementationSymbolId, NamedTypeSymbolId, SemanticValueStore, SymbolKey,
+    TargetPropertyDependency, TraitApplicationId, TraitSymbolId, TypeData, TypeId,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -127,11 +127,11 @@ impl ImplementationHeader {
     pub(super) fn family_key(
         &self,
         values: &SemanticValueStore,
-    ) -> Result<Option<ImplementationFamilyKey>, SemanticValueStoreError> {
-        let application = values.trait_application_data(self.trait_application)?;
+    ) -> Option<ImplementationFamilyKey> {
+        let application = values.trait_application_data(self.trait_application);
 
-        Ok(family_subject(self.subject, values)?
-            .map(|subject| ImplementationFamilyKey::new(subject, application.definition())))
+        family_subject(self.subject, values)
+            .map(|subject| ImplementationFamilyKey::new(subject, application.definition()))
     }
 }
 
@@ -142,15 +142,15 @@ pub(in crate::compilation) struct ImplementationHeaderIndex {
 }
 
 impl ImplementationHeaderIndex {
-    pub(super) fn try_new(
+    pub(super) fn new(
         headers: impl IntoIterator<Item = ImplementationHeader>,
         values: &SemanticValueStore,
-    ) -> Result<Self, SemanticValueStoreError> {
+    ) -> Self {
         let mut buckets: BTreeMap<HeaderBucket, Vec<ImplementationHeader>> = BTreeMap::new();
 
         for header in headers {
-            let application = values.trait_application_data(header.trait_application)?;
-            let subject = subject_bucket(&header, values)?;
+            let application = values.trait_application_data(header.trait_application);
+            let subject = subject_bucket(&header, values);
 
             let bucket = HeaderBucket {
                 trait_definition: application.definition(),
@@ -179,7 +179,7 @@ impl ImplementationHeaderIndex {
             })
             .collect();
 
-        Ok(Self { buckets, positions })
+        Self { buckets, positions }
     }
 
     pub(super) fn compatible_headers(
@@ -187,14 +187,14 @@ impl ImplementationHeaderIndex {
         subject: TypeId,
         trait_definition: TraitSymbolId,
         values: &SemanticValueStore,
-    ) -> Result<Vec<&ImplementationHeader>, SemanticValueStoreError> {
-        let buckets = query_buckets(subject, values)?;
+    ) -> Vec<&ImplementationHeader> {
+        let buckets = query_buckets(subject, values);
 
-        Ok(merge_headers(
+        merge_headers(
             buckets
                 .into_iter()
                 .map(|subject| self.bucket(trait_definition, subject)),
-        ))
+        )
     }
 
     pub(in crate::compilation) fn headers(&self) -> Vec<&ImplementationHeader> {
@@ -228,24 +228,22 @@ impl ImplementationHeaderIndex {
 fn family_subject(
     subject: TypeId,
     values: &SemanticValueStore,
-) -> Result<Option<ImplementationFamilySubject>, SemanticValueStoreError> {
-    let subject = values.type_data(subject)?;
+) -> Option<ImplementationFamilySubject> {
+    let subject = values.type_data(subject);
 
     match subject.as_ref() {
-        TypeData::Named { definition, .. } => {
-            Ok(Some(ImplementationFamilySubject::Named(*definition)))
-        }
+        TypeData::Named { definition, .. } => Some(ImplementationFamilySubject::Named(*definition)),
         TypeData::Borrow { kind, target } => {
-            let target = values.type_data(*target)?;
+            let target = values.type_data(*target);
 
             match target.as_ref() {
-                TypeData::Named { definition, .. } => Ok(Some(
-                    ImplementationFamilySubject::Borrowed(*kind, *definition),
-                )),
-                _ => Ok(None),
+                TypeData::Named { definition, .. } => {
+                    Some(ImplementationFamilySubject::Borrowed(*kind, *definition))
+                }
+                _ => None,
             }
         }
-        _ => Ok(None),
+        _ => None,
     }
 }
 
@@ -262,10 +260,7 @@ fn merge_headers<'index>(
     merged
 }
 
-fn subject_bucket(
-    header: &ImplementationHeader,
-    values: &SemanticValueStore,
-) -> Result<SubjectBucket, SemanticValueStoreError> {
+fn subject_bucket(header: &ImplementationHeader, values: &SemanticValueStore) -> SubjectBucket {
     let parameters = header.parameters().iter().copied().collect::<BTreeSet<_>>();
 
     classify_subject(header.subject, &parameters, values)
@@ -275,45 +270,42 @@ fn classify_subject(
     subject: TypeId,
     parameters: &BTreeSet<GenericParameterSymbolId>,
     values: &SemanticValueStore,
-) -> Result<SubjectBucket, SemanticValueStoreError> {
-    let data = values.type_data(subject)?;
+) -> SubjectBucket {
+    let data = values.type_data(subject);
 
     match data.as_ref() {
         TypeData::TypeParameter(parameter)
             if parameters.contains(&GenericParameterSymbolId::Type(*parameter)) =>
         {
-            Ok(SubjectBucket::Generic)
+            SubjectBucket::Generic
         }
-        TypeData::Named { definition, .. } => Ok(SubjectBucket::Named(*definition)),
+        TypeData::Named { definition, .. } => SubjectBucket::Named(*definition),
         TypeData::Borrow { kind, target } => {
-            let target = values.type_data(*target)?;
+            let target = values.type_data(*target);
 
             match target.as_ref() {
                 TypeData::TypeParameter(parameter)
                     if parameters.contains(&GenericParameterSymbolId::Type(*parameter)) =>
                 {
-                    Ok(SubjectBucket::BorrowGeneric(*kind))
+                    SubjectBucket::BorrowGeneric(*kind)
                 }
                 TypeData::Named { definition, .. } => {
-                    Ok(SubjectBucket::BorrowNamed(*kind, *definition))
+                    SubjectBucket::BorrowNamed(*kind, *definition)
                 }
-                _ => Ok(SubjectBucket::Exact(subject)),
+                _ => SubjectBucket::Exact(subject),
             }
         }
-        _ => Ok(SubjectBucket::Exact(subject)),
+        _ => SubjectBucket::Exact(subject),
     }
 }
 
-fn query_buckets(
-    subject: TypeId,
-    values: &SemanticValueStore,
-) -> Result<Vec<SubjectBucket>, SemanticValueStoreError> {
-    let data = values.type_data(subject)?;
+fn query_buckets(subject: TypeId, values: &SemanticValueStore) -> Vec<SubjectBucket> {
+    let data = values.type_data(subject);
 
     let exact = match data.as_ref() {
         TypeData::Named { definition, .. } => SubjectBucket::Named(*definition),
         TypeData::Borrow { kind, target } => {
-            let target = values.type_data(*target)?;
+            let target = values.type_data(*target);
 
             match target.as_ref() {
                 TypeData::Named { definition, .. } => {
@@ -331,7 +323,7 @@ fn query_buckets(
         buckets.push(SubjectBucket::BorrowGeneric(*kind));
     }
 
-    Ok(buckets)
+    buckets
 }
 
 #[cfg(test)]
@@ -369,14 +361,14 @@ mod tests {
 
         assert_eq!(
             query_buckets(named_borrow, &values),
-            Ok(vec![
+            vec![
                 SubjectBucket::BorrowNamed(
                     BorrowKind::Shared,
                     NamedTypeSymbolId::Struct(structure),
                 ),
                 SubjectBucket::Generic,
                 SubjectBucket::BorrowGeneric(BorrowKind::Shared),
-            ])
+            ]
         );
 
         let tuple = values
@@ -392,11 +384,11 @@ mod tests {
 
         assert_eq!(
             query_buckets(tuple_borrow, &values),
-            Ok(vec![
+            vec![
                 SubjectBucket::Exact(tuple_borrow),
                 SubjectBucket::Generic,
                 SubjectBucket::BorrowGeneric(BorrowKind::Mutable),
-            ])
+            ]
         );
     }
 

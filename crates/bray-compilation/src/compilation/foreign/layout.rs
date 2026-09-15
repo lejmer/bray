@@ -43,9 +43,7 @@ fn alignment_of_type(
 
     let values = compilation.semantic_value_store()?;
 
-    let data = values
-        .type_data(ty)
-        .map_err(FactQueryError::SemanticValueStore)?;
+    let data = values.type_data(ty);
 
     let alignment = match data.as_ref() {
         TypeData::Named {
@@ -112,7 +110,6 @@ fn named_alignment(
             let element = compilation
                 .available_compiler_known_symbols()
                 .unary_representation_argument(values, role, wrapper)
-                .map_err(FactQueryError::SemanticValueStore)?
                 .ok_or_else(|| {
                     ForeignQueryFailure::missing(
                         ForeignQueryContext::CompilerKnownRepresentation {
@@ -248,9 +245,7 @@ fn atomic_alignment(
 ) -> Result<Option<NonZeroU64>, FactQueryError> {
     let values = compilation.semantic_value_store()?;
 
-    let substitution_data = values
-        .generic_substitution_data(substitution)
-        .map_err(FactQueryError::SemanticValueStore)?;
+    let substitution_data = values.generic_substitution_data(substitution);
 
     let [binding] = substitution_data.bindings() else {
         return Err(ForeignQueryFailure::count_mismatch(

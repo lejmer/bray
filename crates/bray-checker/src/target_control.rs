@@ -166,7 +166,7 @@ where
                 return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
             };
 
-            Ok(match literal_string(request, literals, *feature)? {
+            Ok(match literal_string(request, literals, *feature) {
                 Some((feature, _)) => {
                     TargetControlCheck::Valid(CheckedMemoryOperationKind::TargetFeatureEnabled {
                         feature,
@@ -290,24 +290,24 @@ where
         _ => return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into()),
     };
 
-    let Some((template_value, template)) = literal_string(request, literals, template)? else {
+    let Some((template_value, template)) = literal_string(request, literals, template) else {
         return Ok(None);
     };
 
-    let Some((constraints_value, constraints)) = literal_string(request, literals, constraints)?
+    let Some((constraints_value, constraints)) = literal_string(request, literals, constraints)
     else {
         return Ok(None);
     };
 
-    let Some((clobbers_value, clobbers)) = literal_string(request, literals, clobbers)? else {
+    let Some((clobbers_value, clobbers)) = literal_string(request, literals, clobbers) else {
         return Ok(None);
     };
 
-    let Some((features_value, features)) = literal_string(request, literals, features)? else {
+    let Some((features_value, features)) = literal_string(request, literals, features) else {
         return Ok(None);
     };
 
-    let Some((options_value, options)) = literal_integer(request, literals, options)? else {
+    let Some((options_value, options)) = literal_integer(request, literals, options) else {
         return Ok(None);
     };
 
@@ -594,46 +594,40 @@ fn literal_string<C>(
     request: CheckerUnitView<'_, C>,
     literals: &CheckedLiteralValues,
     expression: BoundExpressionId,
-) -> Result<Option<(ConstantValueId, String)>, CheckerInfrastructureError>
+) -> Option<(ConstantValueId, String)>
 where
     C: CheckerRequestContext + ?Sized,
 {
     let Some(identity) = literals.expression(expression) else {
-        return Ok(None);
+        return None;
     };
 
-    let value = request
-        .semantic_values()
-        .constant_value_data(identity)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    let value = request.semantic_values().constant_value_data(identity);
 
-    Ok(match value.kind() {
+    match value.kind() {
         ConstantValueKind::String(text) => Some((identity, text.to_string())),
         _ => None,
-    })
+    }
 }
 
 fn literal_integer<C>(
     request: CheckerUnitView<'_, C>,
     literals: &CheckedLiteralValues,
     expression: BoundExpressionId,
-) -> Result<Option<(ConstantValueId, u64)>, CheckerInfrastructureError>
+) -> Option<(ConstantValueId, u64)>
 where
     C: CheckerRequestContext + ?Sized,
 {
     let Some(identity) = literals.expression(expression) else {
-        return Ok(None);
+        return None;
     };
 
-    let value = request
-        .semantic_values()
-        .constant_value_data(identity)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    let value = request.semantic_values().constant_value_data(identity);
 
-    Ok(match value.kind() {
+    match value.kind() {
         ConstantValueKind::Integer(integer) => integer.to_u64().map(|integer| (identity, integer)),
         _ => None,
-    })
+    }
 }
 
 fn operand_type_valid<C>(
@@ -647,22 +641,18 @@ fn operand_type_valid<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let representation = crate::representation::type_representation(request, ty)?;
+    let representation = crate::representation::type_representation(request, ty);
 
     Ok(match kind {
         InlineAssemblyOperandKind::Immediate => match constant {
             Some(constant) => {
-                constant_integer(request, constant)?.is_some()
+                constant_integer(request, constant).is_some()
                     && representation.is_some_and(|role| role.integer_representation().is_some())
             }
             None => false,
         },
         InlineAssemblyOperandKind::Symbol => matches!(
-            request
-                .semantic_values()
-                .type_data(ty)
-                .map_err(CheckerInfrastructureError::SemanticValueStore)?
-                .as_ref(),
+            request.semantic_values().type_data(ty).as_ref(),
             TypeData::Callable(_)
         ),
         InlineAssemblyOperandKind::Memory => matches!(
@@ -757,10 +747,7 @@ fn label_type_valid<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let data = request
-        .semantic_values()
-        .type_data(ty)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    let data = request.semantic_values().type_data(ty);
 
     let TypeData::Callable(callable) = data.as_ref() else {
         return Ok(false);
@@ -768,7 +755,7 @@ where
 
     Ok(callable.parameters().is_empty()
         && callable.execution() == CallableExecution::Synchronous
-        && crate::representation::type_representation(request, callable.result())?
+        && crate::representation::type_representation(request, callable.result())
             == Some(RepresentationRole::Never))
 }
 
@@ -779,14 +766,11 @@ fn tuple_elements<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let data = request
-        .semantic_values()
-        .type_data(ty)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    let data = request.semantic_values().type_data(ty);
 
     Ok(match data.as_ref() {
         TypeData::Tuple(elements) => Some(elements.to_vec()),
-        _ if crate::representation::type_representation(request, ty)?
+        _ if crate::representation::type_representation(request, ty)
             == Some(RepresentationRole::Unit) =>
         {
             Some(Vec::new())
@@ -809,23 +793,17 @@ where
     (tuple.kind() == BoundStructuredExpressionKind::Tuple).then(|| tuple.operands().to_vec())
 }
 
-fn constant_integer<C>(
-    request: CheckerUnitView<'_, C>,
-    identity: ConstantValueId,
-) -> Result<Option<u64>, CheckerInfrastructureError>
+fn constant_integer<C>(request: CheckerUnitView<'_, C>, identity: ConstantValueId) -> Option<u64>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let value = request
-        .semantic_values()
-        .constant_value_data(identity)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    let value = request.semantic_values().constant_value_data(identity);
 
     let ConstantValueKind::Integer(integer) = value.kind() else {
-        return Ok(None);
+        return None;
     };
 
-    Ok(integer.to_u64())
+    integer.to_u64()
 }
 
 fn literal_memory_order<C>(
@@ -838,10 +816,7 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     let variant = if let Some(identity) = literals.expression(expression) {
-        let value = request
-            .semantic_values()
-            .constant_value_data(identity)
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        let value = request.semantic_values().constant_value_data(identity);
 
         let ConstantValueKind::Union { variant, fields } = value.kind() else {
             return Ok(None);

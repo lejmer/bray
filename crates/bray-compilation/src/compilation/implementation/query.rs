@@ -180,8 +180,7 @@ impl super::super::Compilation {
                 .chain([participation.diagnostics()]),
         );
 
-        let index = ImplementationHeaderIndex::try_new(headers, values)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let index = ImplementationHeaderIndex::new(headers, values);
 
         Ok(DiagnosticResult::new(Arc::new(index), diagnostics))
     }
@@ -194,14 +193,12 @@ impl super::super::Compilation {
         let index = self.implementation_header_index(cancellation)?;
         let values = self.semantic_value_store()?;
 
-        let trait_application = values
-            .trait_application_data(key.trait_application())
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let trait_application = values.trait_application_data(key.trait_application());
 
-        let compatible = index
-            .value()
-            .compatible_headers(key.subject(), trait_application.definition(), values)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let compatible =
+            index
+                .value()
+                .compatible_headers(key.subject(), trait_application.definition(), values);
 
         let diagnostics =
             DiagnosticBag::merged_all(compatible.iter().map(|header| header.diagnostics()));
@@ -360,9 +357,7 @@ impl WrapperConverts = Wrapper<T>(Converts<T>)
             .semantic_value_store()
             .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}"));
 
-        let substitution = values
-            .generic_substitution_data(candidate.substitution())
-            .unwrap_or_else(|error| panic!("candidate substitution must resolve: {error:?}"));
+        let substitution = values.generic_substitution_data(candidate.substitution());
 
         assert_eq!(
             substitution.argument_for(fixture.implementation_parameter),
@@ -396,9 +391,7 @@ impl WrapperConverts = Wrapper<T>(Converts<T>)
             .semantic_value_store()
             .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}"));
 
-        let instance = values
-            .implementation_instance_data(*instance)
-            .unwrap_or_else(|error| panic!("selected witness must be available: {error:?}"));
+        let instance = values.implementation_instance_data(*instance);
 
         assert_eq!(instance.definition(), fixture.implementation);
 

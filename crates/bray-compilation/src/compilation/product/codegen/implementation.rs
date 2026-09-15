@@ -2198,9 +2198,7 @@ mod tests {
                     .semantic_value_store()
                     .unwrap_or_else(|error| panic!("semantic values must resolve: {error:?}"));
 
-                let data = values
-                    .type_data(*ty)
-                    .unwrap_or_else(|error| panic!("signature result must resolve: {error:?}"));
+                let data = values.type_data(*ty);
 
                 assert!(!matches!(data.as_ref(), TypeData::TypeParameter(_)));
 

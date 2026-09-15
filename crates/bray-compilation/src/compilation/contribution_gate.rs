@@ -350,10 +350,7 @@ impl Compilation {
             return Ok(false);
         }
 
-        let value = self
-            .semantic_value_store()?
-            .constant_value_data(value)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let value = self.semantic_value_store()?.constant_value_data(value);
 
         match value.kind() {
             ConstantValueKind::Boolean(value) => Ok(*value),
@@ -480,7 +477,6 @@ mod tests {
     };
     use bray_target::TargetPropertyKind;
 
-    use super::super::constant::empty_concrete_substitution;
     use crate::test_support::{
         compilation, compilation_with_sources_and_target_profile, compilation_with_target_profile,
     };
@@ -762,11 +758,11 @@ mod tests {
 
         let definition = AnyConstantDefinitionId::Constant(symbol);
 
-        let substitution = empty_concrete_substitution(
+        let substitution = crate::compilation::substitution::empty_substitution(
             compilation
                 .semantic_value_store()
                 .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}")),
-            definition,
+            definition.into_any(),
         )
         .unwrap_or_else(|error| panic!("target property substitution must be valid: {error:?}"));
 
@@ -783,8 +779,7 @@ mod tests {
         let data = compilation
             .semantic_value_store()
             .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}"))
-            .constant_value_data(value.value().value())
-            .unwrap_or_else(|error| panic!("target property value must be available: {error:?}"));
+            .constant_value_data(value.value().value());
 
         assert_eq!(data.kind(), &ConstantValueKind::Boolean(true));
     }

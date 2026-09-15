@@ -502,10 +502,7 @@ pub(crate) fn callable_unit(
         panic!("callable test root scope must validate: {error:?}");
     }
 
-    let symbols = match symbols.finish() {
-        Ok(symbols) => symbols,
-        Err(error) => panic!("callable test symbols must validate: {error:?}"),
-    };
+    let symbols = symbols.finish();
 
     match BoundUnit::try_new(
         key.clone(),
@@ -650,10 +647,7 @@ pub(crate) fn declaration_key(kind: SymbolKind, declaration: u32) -> SymbolKey {
 }
 
 pub(crate) fn type_data(ty: TypeId) -> TypeData {
-    match semantic_values().type_data(ty) {
-        Ok(data) => data.as_ref().clone(),
-        Err(error) => panic!("test type must belong to the semantic store: {error:?}"),
-    }
+    semantic_values().type_data(ty).as_ref().clone()
 }
 
 pub(crate) fn push_block(

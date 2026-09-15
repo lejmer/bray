@@ -416,7 +416,7 @@ impl Lowerer<'_> {
             };
 
             let mut projections = owner.projections().to_vec();
-            let owner_type = self.append_projection_dereferences(owner.ty(), &mut projections)?;
+            let owner_type = self.append_projection_dereferences(owner.ty(), &mut projections);
             let owner = MirPlace::new(owner.storage(), projections, owner_type);
 
             let kind = match operation {

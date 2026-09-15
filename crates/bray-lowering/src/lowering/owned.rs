@@ -108,7 +108,7 @@ impl Lowerer<'_> {
         call: StorageProtocolCall,
         cleanup: bool,
     ) -> Result<MirOperand, LoweringError> {
-        let data = self.input.semantic_values().type_data(owner.ty())?;
+        let data = self.input.semantic_values().type_data(owner.ty());
 
         let TypeData::OwnedIndirection { storage, .. } = data.as_ref() else {
             return Err(LoweringError::SemanticValueUnavailable);
@@ -128,7 +128,7 @@ impl Lowerer<'_> {
             *storage,
         );
 
-        let parameter = self.input.semantic_values().type_data(call.parameter())?;
+        let parameter = self.input.semantic_values().type_data(call.parameter());
 
         let borrow = match parameter.as_ref() {
             TypeData::Borrow { kind, .. } => Some(*kind),

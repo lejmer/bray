@@ -11,7 +11,7 @@ use super::super::specialization::ConcreteCodegenInstance;
 use crate::compilation::{
     CodegenPreparationError, Compilation, ProductDataKind, ProductQueryContext, ProductQueryFailure,
 };
-use crate::fact::{CancellationToken, FactQueryError};
+use crate::fact::CancellationToken;
 
 #[cfg(test)]
 mod tests {
@@ -94,9 +94,7 @@ impl Compilation {
 
         let values = self.semantic_value_store()?;
 
-        let data = values
-            .type_data(ty)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let data = values.type_data(ty);
 
         let TypeData::Named { substitution, .. } = data.as_ref() else {
             return Err(ProductQueryFailure::UnexpectedSemanticType {
@@ -110,10 +108,7 @@ impl Compilation {
         // Field defaults belong to the constructed type, not the calling function's generics.
         let substitution = self.realize_codegen_substitution(*substitution)?;
 
-        let declaration = values
-            .generic_substitution_data(substitution)
-            .map_err(FactQueryError::SemanticValueStore)?
-            .owner();
+        let declaration = values.generic_substitution_data(substitution).owner();
 
         let requirements =
             self.concrete_codegen_constraint_requirements(declaration, substitution, cancellation)?;

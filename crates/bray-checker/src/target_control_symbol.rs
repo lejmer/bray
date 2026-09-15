@@ -73,8 +73,7 @@ where
         open_signature.callable_type(),
         expected,
         &parameters,
-    )?
-    else {
+    ) else {
         return Ok(None);
     };
 
@@ -95,10 +94,7 @@ where
         return Ok(None);
     }
 
-    let data = request
-        .semantic_values()
-        .type_data(expected)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    let data = request.semantic_values().type_data(expected);
 
     let TypeData::Callable(callable) = data.as_ref() else {
         return Ok(None);

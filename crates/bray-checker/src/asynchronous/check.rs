@@ -501,7 +501,7 @@ where
     }
 
     if let Some(node) = request.view().expression(expression)
-        && is_future_expression(request, types, expression)?
+        && is_future_expression(request, types, expression)
     {
         if let BoundExpression::Name(name) = node
             && let bray_bound_tree::BoundReferenceTarget::Local(local) = name.target()
@@ -577,31 +577,28 @@ fn is_future_expression<C>(
     request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
     expression: BoundExpressionId,
-) -> Result<bool, CheckerInfrastructureError>
+) -> bool
 where
     C: CheckerRequestContext + ?Sized,
 {
     let Some(result) = types.expression(expression) else {
-        return Ok(false);
+        return false;
     };
 
-    let data = request
-        .semantic_values()
-        .type_data(result.ty())
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    let data = request.semantic_values().type_data(result.ty());
 
     let TypeData::Named { definition, .. } = data.as_ref() else {
-        return Ok(false);
+        return false;
     };
 
     let bray_symbols::NamedTypeSymbolId::Struct(definition) = definition else {
-        return Ok(false);
+        return false;
     };
 
-    Ok(request
+    request
         .available_compiler_known_symbols()
         .symbol_representation(*definition)
-        == Some(RepresentationRole::Future))
+        == Some(RepresentationRole::Future)
 }
 
 const fn task_operation_kind(kind: AnalysisTaskOperationKind) -> AsyncTaskOperationKind {

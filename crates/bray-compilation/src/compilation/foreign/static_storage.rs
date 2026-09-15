@@ -273,10 +273,7 @@ fn native_static_type_is_incomplete(
 ) -> Result<bool, FactQueryError> {
     let definition = match ty {
         TypeExpressionTemplate::Resolved(ty) => {
-            let data = compilation
-                .semantic_value_store()?
-                .type_data(*ty)
-                .map_err(FactQueryError::SemanticValueStore)?;
+            let data = compilation.semantic_value_store()?.type_data(*ty);
 
             let TypeData::Named { definition, .. } = data.as_ref() else {
                 return Ok(false);

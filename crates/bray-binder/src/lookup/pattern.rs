@@ -82,7 +82,7 @@ where
         }
 
         let lexical = lookup.classify(classify_pattern_target);
-        let subject = self.lookup_subject_pattern_name(context, input_type, name)?;
+        let subject = self.lookup_subject_pattern_name(context, input_type, name);
 
         Ok(combine_pattern_lookups(lexical, subject))
     }
@@ -92,28 +92,27 @@ where
         context: PathBindingContext,
         input_type: TypeId,
         name: &str,
-    ) -> BindingQueryResult<NameLookupResult<BoundPatternTarget>, C::UpstreamError> {
+    ) -> NameLookupResult<BoundPatternTarget> {
         let input = self
             .binding_context()
             .semantic_values()
-            .type_data(input_type)
-            .map_err(crate::BindingQueryError::SemanticValue)?;
+            .type_data(input_type);
 
         let TypeData::Named {
             definition: NamedTypeSymbolId::Union(union),
             ..
         } = input.as_ref()
         else {
-            return Ok(MemberLookupResult::NotFound);
+            return MemberLookupResult::NotFound;
         };
 
-        Ok(lookup_surface_name(
+        lookup_surface_name(
             self.binding_context().symbols(),
             (*union).into(),
             name,
             context.access(),
         )
-        .classify(classify_pattern_target))
+        .classify(classify_pattern_target)
     }
 }
 

@@ -4,8 +4,7 @@ use bray_bound_tree::{LifecycleAction, LifecycleCallable, LifecyclePhase};
 use bray_compiler_known::{CompilerKnownDeclarationKey, RepresentationRole};
 use bray_symbols::{
     DeclaredStorageShape, DeclaredTypeRepresentation, GenericSubstitutionId, NamedTypeSymbolId,
-    SemanticValueStore, SemanticValueStoreError, TypeAssociatedLifecycleSlot, TypeData,
-    TypeExpressionTemplate, TypeId,
+    SemanticValueStore, TypeAssociatedLifecycleSlot, TypeData, TypeExpressionTemplate, TypeId,
 };
 
 /// Semantic queries required to select a local lifecycle action.
@@ -52,8 +51,6 @@ pub trait LifecycleSelectionContext {
 /// A semantic input that cannot select a lifecycle action.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum LifecycleSelectionError {
-    /// Semantic lookup failed.
-    SemanticValue(SemanticValueStoreError),
     /// An internal storage protocol identity is malformed.
     InvalidStorageMemberKey(String),
     /// The type has no supported represented cleanup.
@@ -76,10 +73,7 @@ pub fn select_lifecycle_action<C: LifecycleSelectionContext + ?Sized>(
     ty: TypeId,
     phase: LifecyclePhase,
 ) -> Result<LifecycleAction, C::Error> {
-    let data = context
-        .semantic_values()
-        .type_data(ty)
-        .map_err(LifecycleSelectionError::SemanticValue)?;
+    let data = context.semantic_values().type_data(ty);
 
     if let TypeData::Named {
         definition,

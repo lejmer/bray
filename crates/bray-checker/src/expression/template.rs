@@ -267,9 +267,7 @@ where
             TemplateResolution::Unsupported => return Ok(TemplateResolution::Unsupported),
         };
 
-    let callable_type = values
-        .type_data(signature.callable_type())
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    let callable_type = values.type_data(signature.callable_type());
 
     let TypeData::Callable(callable_type) = callable_type.as_ref() else {
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());

@@ -79,7 +79,7 @@ impl Lowerer<'_> {
             return Err(LoweringError::MissingOperationResult(id));
         };
 
-        let terminator = match self.constant_boolean(&value)? {
+        let terminator = match self.constant_boolean(&value) {
             Some(true) => MirTerminatorKind::Goto(MirEdge::new(matched, [])),
             Some(false) => MirTerminatorKind::Goto(MirEdge::new(unmatched, [])),
             None => MirTerminatorKind::Branch {
@@ -223,19 +223,16 @@ impl Lowerer<'_> {
         ))
     }
 
-    pub(super) fn constant_boolean(
-        &self,
-        operand: &MirOperand,
-    ) -> Result<Option<bool>, LoweringError> {
+    pub(super) fn constant_boolean(&self, operand: &MirOperand) -> Option<bool> {
         let MirOperand::Constant { value, .. } = operand else {
-            return Ok(None);
+            return None;
         };
 
-        let data = self.input.semantic_values().constant_value_data(*value)?;
+        let data = self.input.semantic_values().constant_value_data(*value);
 
         match data.kind() {
-            ConstantValueKind::Boolean(value) => Ok(Some(*value)),
-            _ => Ok(None),
+            ConstantValueKind::Boolean(value) => Some(*value),
+            _ => None,
         }
     }
 }

@@ -10,9 +10,7 @@ use bray_symbols::{
 
 use super::cleanup::CleanupShapeResolver;
 use crate::execution_guarantees::{ExecutionDependency, ExecutionProperty};
-use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
-};
+use crate::{CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(crate) enum ExecutionCleanupMode {
@@ -48,11 +46,7 @@ pub(crate) fn execution_cleanup_dependencies<C: CheckerRequestContext + ?Sized>(
             break;
         }
 
-        let data = request
-            .semantic_values()
-            .type_data(ty)
-            .map_err(CheckerInfrastructureError::SemanticValueStore)
-            .map_err(CheckerQueryError::Infrastructure)?;
+        let data = request.semantic_values().type_data(ty);
 
         match data.as_ref() {
             TypeData::Borrow { .. }
@@ -74,8 +68,7 @@ pub(crate) fn execution_cleanup_dependencies<C: CheckerRequestContext + ?Sized>(
                 definition,
                 substitution,
             } => {
-                let role = crate::representation::type_representation(request, ty)
-                    .map_err(CheckerQueryError::Infrastructure)?;
+                let role = crate::representation::type_representation(request, ty);
 
                 match role {
                     Some(RepresentationRole::Future | RepresentationRole::Task) => valid = false,
@@ -94,9 +87,7 @@ pub(crate) fn execution_cleanup_dependencies<C: CheckerRequestContext + ?Sized>(
 
                         let substitution = request
                             .semantic_values()
-                            .generic_substitution_data(*substitution)
-                            .map_err(CheckerInfrastructureError::SemanticValueStore)
-                            .map_err(CheckerQueryError::Infrastructure)?;
+                            .generic_substitution_data(*substitution);
 
                         pending.extend(substitution.bindings().iter().filter_map(|binding| {
                             match binding.argument() {
@@ -123,9 +114,7 @@ pub(crate) fn execution_cleanup_dependencies<C: CheckerRequestContext + ?Sized>(
                             if let Some((callable, signature)) = selected.value() {
                                 let callable_type = request
                                     .semantic_values()
-                                    .type_data(signature.callable_type())
-                                    .map_err(CheckerInfrastructureError::SemanticValueStore)
-                                    .map_err(CheckerQueryError::Infrastructure)?;
+                                    .type_data(signature.callable_type());
 
                                 let TypeData::Callable(callable_type) = callable_type.as_ref()
                                 else {
@@ -136,9 +125,7 @@ pub(crate) fn execution_cleanup_dependencies<C: CheckerRequestContext + ?Sized>(
                                 let unit = crate::representation::type_representation(
                                     request,
                                     signature.result(),
-                                )
-                                .map_err(CheckerQueryError::Infrastructure)?
-                                    == Some(RepresentationRole::Unit);
+                                ) == Some(RepresentationRole::Unit);
 
                                 if mode == ExecutionCleanupMode::Disposal
                                     && slot == TypeAssociatedLifecycleSlot::Finalizer

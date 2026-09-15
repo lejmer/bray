@@ -97,14 +97,18 @@ pub(super) fn shift_variables(
 
         let shifted = i64::from(*depth)
             .checked_add(amount)
-            .and_then(|value| u32::try_from(value).ok());
+            .expect("dependency depth shift must fit i64");
+
+        assert!(
+            shifted >= 0,
+            "dependency depth {depth} cannot shift by {amount}"
+        );
 
         Some(
-            shifted
+            u32::try_from(shifted)
                 .map(|depth| vec![DependencyRequirement::variable(depth, *ordinal)])
-                .ok_or(SemanticValueStoreError::InvalidDependencyVariable {
-                    depth: *depth,
-                    ordinal: ordinal.raw(),
+                .map_err(|_| SemanticValueStoreError::CapacityExhausted {
+                    kind: bray_symbols::SemanticValueKind::DependencyContractTemplate,
                 }),
         )
     })

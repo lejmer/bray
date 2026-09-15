@@ -169,7 +169,7 @@ where
         subject: ConstantValueId,
     ) -> Result<bool, EvaluationFailure> {
         let subject_id = subject;
-        let subject = self.constant_value(subject)?;
+        let subject = self.request.semantic_values().constant_value_data(subject);
 
         Ok(match predicate {
             None
@@ -215,7 +215,6 @@ where
                 self.budget.charge_literal(owner, spelling.len())?;
 
                 let representation = type_representation(self.request, pattern.input_type())
-                    .map_err(EvaluationFailure::Infrastructure)?
                     .ok_or_else(|| EvaluationFailure::invalid_expression(owner))?;
 
                 let expected = parse_literal(literal.kind(), spelling, representation, || {
@@ -229,7 +228,7 @@ where
                 subject.kind() == &expected
             }
             Some(PatternPredicate::Constant(expected)) => {
-                let Some(expected) = self.term_value(expected)? else {
+                let Some(expected) = self.term_value(expected) else {
                     return Err(EvaluationFailure::invalid_expression(owner));
                 };
 
@@ -251,7 +250,7 @@ where
         subject: ConstantValueId,
         projection: Option<PatternProjection>,
     ) -> Result<(ConstantTermId, ConstantValueId), EvaluationFailure> {
-        let subject_data = self.constant_value(subject)?;
+        let subject_data = self.request.semantic_values().constant_value_data(subject);
 
         let value = match (projection, subject_data.kind()) {
             (None, _) => subject,
@@ -314,7 +313,7 @@ where
     ) -> Result<bool, EvaluationFailure> {
         let value = self.evaluate(expression)?;
         let value = self.closed_value(value, expression)?;
-        let value = self.constant_value(value)?;
+        let value = self.request.semantic_values().constant_value_data(value);
 
         match value.kind() {
             ConstantValueKind::Boolean(value) => Ok(*value),

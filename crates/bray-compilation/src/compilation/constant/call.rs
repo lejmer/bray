@@ -330,9 +330,7 @@ impl Compilation {
     ) -> Result<DiagnosticResult<Option<EvaluatedConstantCall>>, FactQueryError> {
         let values = self.semantic_value_store()?;
 
-        let callable = values
-            .callable_instance_data(key.callable())
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let callable = values.callable_instance_data(key.callable());
 
         let binding_context = self.binding_context(cancellation)?;
 
@@ -375,9 +373,7 @@ impl Compilation {
             .into());
         }
 
-        let callable_type = values
-            .type_data(signature.callable_type())
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let callable_type = values.type_data(signature.callable_type());
 
         let TypeData::Callable(callable_type) = callable_type.as_ref() else {
             return Err(SemanticQueryFailure::contract(
@@ -593,13 +589,9 @@ impl Compilation {
                 ImplementationHook::NullableIsPresent | ImplementationHook::NullableIsAbsent,
                 [receiver],
             ) => {
-                let receiver = values
-                    .constant_value_data(*receiver)
-                    .map_err(FactQueryError::SemanticValueStore)?;
+                let receiver = values.constant_value_data(*receiver);
 
-                let receiver_type = values
-                    .type_data(receiver.ty())
-                    .map_err(FactQueryError::SemanticValueStore)?;
+                let receiver_type = values.type_data(receiver.ty());
 
                 if !matches!(receiver_type.as_ref(), TypeData::Nullable(_)) {
                     return Ok(None);
@@ -625,9 +617,7 @@ impl Compilation {
                     .map_err(FactQueryError::SemanticValueStore)?
             }
             (ImplementationHook::AtomicInitialize, [argument]) => {
-                let argument = values
-                    .constant_value_data(*argument)
-                    .map_err(FactQueryError::SemanticValueStore)?;
+                let argument = values.constant_value_data(*argument);
 
                 if !matches!(
                     argument.kind(),

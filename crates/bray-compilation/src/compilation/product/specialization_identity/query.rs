@@ -3,7 +3,6 @@ use bray_symbols::GenericSubstitutionId;
 
 use super::super::super::{CodegenPreparationError, Compilation};
 use super::encoding::StructuralValueEncoder;
-use crate::fact::FactQueryError;
 
 impl Compilation {
     pub(in crate::compilation::product) fn codegen_specialization(
@@ -12,13 +11,7 @@ impl Compilation {
     ) -> Result<CodegenSpecialization, CodegenPreparationError> {
         let values = self.semantic_value_store()?;
 
-        values
-            .require_concrete_substitution(substitution)
-            .map_err(FactQueryError::SemanticValueStore)?;
-
-        let substitution = values
-            .generic_substitution_data(substitution)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let substitution = values.generic_substitution_data(substitution);
 
         if substitution.bindings().is_empty() {
             return Ok(CodegenSpecialization::NonGeneric);

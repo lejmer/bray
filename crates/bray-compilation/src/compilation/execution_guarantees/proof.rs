@@ -191,10 +191,7 @@ impl Compilation {
 
             for (target, required, node) in execution.chain(completion) {
                 if let BoundCallableTarget::Indirect(ty) = target {
-                    let ty = self
-                        .semantic_value_store()?
-                        .type_data(ty)
-                        .map_err(FactQueryError::SemanticValueStore)?;
+                    let ty = self.semantic_value_store()?.type_data(ty);
 
                     // An opaque target can carry purity. Its unknown call graph cannot establish
                     // a new termination proof or a completion predicate.

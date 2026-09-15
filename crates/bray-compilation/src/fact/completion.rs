@@ -1,5 +1,3 @@
-use std::panic::{AssertUnwindSafe, catch_unwind};
-
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
     AnySymbolId, SymbolCompletionEvaluator, SymbolCompletionLevel, SymbolCompletionPlanError,
@@ -29,11 +27,6 @@ pub enum SymbolCompletionError<E> {
     },
     /// Compiler query scheduling or worker publication failed.
     Scheduler(FactQueryError),
-    /// The compiler-owned evaluator panicked while processing a completion request.
-    EvaluatorPanic {
-        /// The exact request whose evaluator panicked.
-        request: SymbolCompletionQuery,
-    },
 }
 
 impl<E: std::fmt::Display> std::fmt::Display for SymbolCompletionError<E> {
@@ -55,12 +48,6 @@ impl<E: std::fmt::Display> std::fmt::Display for SymbolCompletionError<E> {
             Self::Scheduler(error) => {
                 write!(formatter, "symbol completion scheduling failed: {error}")
             }
-            Self::EvaluatorPanic { request } => write!(
-                formatter,
-                "the symbol completion evaluator panicked for {:?} on {:?}",
-                request.kind(),
-                request.symbol()
-            ),
         }
     }
 }
@@ -73,7 +60,7 @@ where
         match self {
             Self::Evaluator(error) | Self::Query { error, .. } => Some(error),
             Self::Scheduler(error) => Some(error),
-            Self::Cancelled | Self::UnknownSymbol(_) | Self::EvaluatorPanic { .. } => None,
+            Self::Cancelled | Self::UnknownSymbol(_) => None,
         }
     }
 }
@@ -106,16 +93,11 @@ where
         }
     };
 
-    let diagnostics =
-        runtime
-            .complete_batch(plan.requests().iter().copied(), cancellation, |request| {
-                match catch_unwind(AssertUnwindSafe(|| evaluator.evaluate(*request))) {
-                    Ok(Ok(diagnostics)) => Ok(BatchWork::leaf(diagnostics)),
-                    Ok(Err(error)) => Err(CompletionEvaluatorOutcome::Error(error)),
-                    Err(_) => Err(CompletionEvaluatorOutcome::Panic),
-                }
-            })
-            .map_err(symbol_completion_error)?;
+    let diagnostics = runtime
+        .complete_batch(plan.requests().iter().copied(), cancellation, |request| {
+            evaluator.evaluate(*request).map(BatchWork::leaf)
+        })
+        .map_err(symbol_completion_error)?;
 
     let diagnostics = diagnostics
         .iter()
@@ -129,29 +111,16 @@ where
 }
 
 fn symbol_completion_error<E>(
-    error: BatchCompletionError<SymbolCompletionQuery, CompletionEvaluatorOutcome<E>>,
+    error: BatchCompletionError<SymbolCompletionQuery, E>,
 ) -> SymbolCompletionError<E> {
     match error {
         BatchCompletionError::Cancelled => SymbolCompletionError::Cancelled,
-        BatchCompletionError::Evaluation {
-            key,
-            error: CompletionEvaluatorOutcome::Error(error),
-        } => SymbolCompletionError::Query {
+        BatchCompletionError::Evaluation { key, error } => SymbolCompletionError::Query {
             request: key,
             error,
         },
-        BatchCompletionError::Evaluation {
-            key,
-            error: CompletionEvaluatorOutcome::Panic,
-        } => SymbolCompletionError::EvaluatorPanic { request: key },
         BatchCompletionError::Scheduler(error) => SymbolCompletionError::Scheduler(error),
     }
-}
-
-#[derive(Debug)]
-enum CompletionEvaluatorOutcome<E> {
-    Error(E),
-    Panic,
 }
 
 #[cfg(test)]
@@ -441,38 +410,31 @@ mod tests {
     }
 
     #[test]
-    fn evaluator_panics_remain_distinct_from_runtime_worker_termination() {
-        let graph = graph("module app; func main() {}");
-        let package = AnySymbolId::from(graph.packages()[0].id());
-        let cancellation = CancellationToken::new();
+    fn evaluator_panic_payload_survives_serial_and_parallel_completion() {
+        for workers in [1, 2] {
+            let graph = graph("module app; func main() {}");
+            let package = AnySymbolId::from(graph.packages()[0].id());
+            let cancellation = CancellationToken::new();
+            let runtime = FactRuntime::new(worker_budget(workers));
 
-        let expected_request = graph
-            .completion_plan(
-                package,
-                SymbolCompletionLevel::DeclarationSurface,
-                &cancellation,
-            )
-            .unwrap_or_else(|error| panic!("test completion plan must be available: {error:?}"))
-            .requests()[0];
+            let evaluator = |_request: SymbolCompletionQuery| -> Result<DiagnosticBag, ()> {
+                std::panic::panic_any(137_u32);
+            };
 
-        let evaluator = |_request: SymbolCompletionQuery| -> Result<DiagnosticBag, ()> {
-            panic!("test evaluator panic");
-        };
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                complete_symbol(
+                    &graph,
+                    package,
+                    SymbolCompletionLevel::DeclarationSurface,
+                    &runtime,
+                    &cancellation,
+                    &evaluator,
+                )
+            }));
 
-        let result = complete_symbol(
-            &graph,
-            package,
-            SymbolCompletionLevel::DeclarationSurface,
-            &FactRuntime::new(worker_budget(2)),
-            &cancellation,
-            &evaluator,
-        );
-
-        assert!(matches!(
-            result,
-            Err(SymbolCompletionError::EvaluatorPanic { request })
-                if request == expected_request
-        ));
+            let payload = result.expect_err("evaluator invariant panic must escape completion");
+            assert_eq!(payload.downcast_ref::<u32>(), Some(&137));
+        }
     }
 
     #[test]

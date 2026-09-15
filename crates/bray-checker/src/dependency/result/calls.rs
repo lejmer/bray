@@ -55,8 +55,6 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
             .receiver()
             .and_then(|receiver| self.types.expression(receiver.expression()))
             .map(|ty| self.request.semantic_values().type_data(ty.ty()))
-            .transpose()
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?
             .is_some_and(|ty| matches!(ty.as_ref(), bray_symbols::TypeData::Borrow { .. }));
 
         result.extend(

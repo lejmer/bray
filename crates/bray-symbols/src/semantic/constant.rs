@@ -1,6 +1,6 @@
 use crate::{
-    AnyConstantDefinitionId, ConcreteGenericSubstitutionId, ConstantTermId,
-    ImplementationInstanceId, TypeId,
+    AnyConstantDefinitionId, ConstantTermId, GenericSubstitutionId, ImplementationInstanceId,
+    TypeId,
 };
 
 /// A checked source-independent constant definition template.
@@ -62,7 +62,7 @@ pub enum ConstantDefinitionState {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ConstantInstanceKey {
     definition: AnyConstantDefinitionId,
-    substitution: ConcreteGenericSubstitutionId,
+    substitution: GenericSubstitutionId,
     selected_implementation: Option<ImplementationInstanceId>,
 }
 
@@ -70,7 +70,7 @@ impl ConstantInstanceKey {
     /// Creates a concrete constant-instance key.
     pub const fn new(
         definition: AnyConstantDefinitionId,
-        substitution: ConcreteGenericSubstitutionId,
+        substitution: GenericSubstitutionId,
         selected_implementation: Option<ImplementationInstanceId>,
     ) -> Self {
         Self {
@@ -85,8 +85,8 @@ impl ConstantInstanceKey {
         self.definition
     }
 
-    /// Returns the validated concrete generic substitution.
-    pub const fn substitution(self) -> ConcreteGenericSubstitutionId {
+    /// Returns the generic substitution for this constant instance.
+    pub const fn substitution(self) -> GenericSubstitutionId {
         self.substitution
     }
 

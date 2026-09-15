@@ -7,5 +7,4 @@ pub(in crate::compilation) use call::{
 };
 pub(in crate::compilation) use definition::{
     collect_constant_references, collect_constant_references_from, constant_definition_id,
-    empty_concrete_substitution,
 };

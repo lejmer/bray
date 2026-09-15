@@ -110,23 +110,3 @@ define_semantic_value_ids! {
     /// Identifies one canonical portable dependency-contract template within a store.
     DependencyContractTemplateId => DependencyContractTemplate,
 }
-
-/// A generic substitution proven to contain only concrete types and closed constant values.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct ConcreteGenericSubstitutionId(GenericSubstitutionId);
-
-impl ConcreteGenericSubstitutionId {
-    /// Returns the underlying canonical generic substitution.
-    pub const fn substitution(self) -> GenericSubstitutionId {
-        self.0
-    }
-
-    /// Returns the store that validated this substitution.
-    pub const fn store_id(self) -> SemanticValueStoreId {
-        self.0.store_id()
-    }
-
-    pub(super) const fn new(id: GenericSubstitutionId) -> Self {
-        Self(id)
-    }
-}

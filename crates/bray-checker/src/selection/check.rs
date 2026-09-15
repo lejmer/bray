@@ -487,10 +487,7 @@ where
             callable_type,
             result_type,
         } => {
-            let callable = request
-                .semantic_values()
-                .type_data(*callable_type)
-                .map_err(|error| crate::CheckerInfrastructureError::SemanticValueStore(error))?;
+            let callable = request.semantic_values().type_data(*callable_type);
 
             let bray_symbols::TypeData::Callable(callable) = callable.as_ref() else {
                 return Err(

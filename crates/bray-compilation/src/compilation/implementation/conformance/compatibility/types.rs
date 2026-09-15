@@ -42,18 +42,14 @@ pub(super) fn type_templates_are_compatible(
                 *requirement,
             )?;
 
-            let requirement_data = values
-                .type_data(requirement)
-                .map_err(FactQueryError::SemanticValueStore)?;
+            let requirement_data = values.type_data(requirement);
 
             if let TypeData::Nullable(requirement) = requirement_data.as_ref() {
                 let Some(fulfillment) = fulfillment.resolved_type() else {
                     return Ok(false);
                 };
 
-                let fulfillment_data = values
-                    .type_data(fulfillment)
-                    .map_err(FactQueryError::SemanticValueStore)?;
+                let fulfillment_data = values.type_data(fulfillment);
 
                 let TypeData::Nullable(fulfillment) = fulfillment_data.as_ref() else {
                     return Ok(false);
@@ -80,9 +76,7 @@ pub(super) fn type_templates_are_compatible(
                     return Ok(false);
                 };
 
-                let fulfillment_data = values
-                    .type_data(fulfillment)
-                    .map_err(FactQueryError::SemanticValueStore)?;
+                let fulfillment_data = values.type_data(fulfillment);
 
                 let TypeData::Borrow {
                     kind: fulfillment_kind,
@@ -179,9 +173,7 @@ fn nullable_templates_are_compatible(
             type_bindings,
         ),
         TypeExpressionTemplate::Resolved(fulfillment) => {
-            let data = values
-                .type_data(*fulfillment)
-                .map_err(FactQueryError::SemanticValueStore)?;
+            let data = values.type_data(*fulfillment);
 
             let TypeData::Nullable(fulfillment) = data.as_ref() else {
                 return Ok(false);
@@ -209,9 +201,7 @@ pub(super) fn substitute_requirement_type(
     generic_substitution: Option<GenericSubstitutionId>,
     requirement: TypeId,
 ) -> Result<TypeId, FactQueryError> {
-    let application = values
-        .trait_application_data(trait_application)
-        .map_err(FactQueryError::SemanticValueStore)?;
+    let application = values.trait_application_data(trait_application);
 
     let requirement = values
         .substitute_type(requirement, application.substitution())
@@ -242,7 +232,6 @@ pub(super) fn dependency_contracts_are_compatible(
 ) -> Result<bool, FactQueryError> {
     let trait_substitution = values
         .trait_application_data(trait_application)
-        .map_err(FactQueryError::SemanticValueStore)?
         .substitution();
 
     let requirement = values

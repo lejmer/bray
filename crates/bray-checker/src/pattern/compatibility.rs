@@ -9,10 +9,7 @@ use bray_symbols::{
 
 use super::check::{PatternChecker, available_dependency};
 use crate::constant::integer_to_usize;
-use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext,
-    CheckerSemanticQueryProvider,
-};
+use crate::{CheckerQueryError, CheckerRequestContext, CheckerSemanticQueryProvider};
 
 impl<C> PatternChecker<'_, '_, C>
 where
@@ -38,7 +35,7 @@ where
             | BoundPatternKind::Remaining
             | BoundPatternKind::Error => true,
             BoundPatternKind::Path => {
-                self.constant_pattern_type(id, target)?
+                self.constant_pattern_type(id, target)
                     .is_none_or(|constant_type| {
                         matches!(subject, TypeData::Error) || constant_type == subject_type
                     })
@@ -68,60 +65,55 @@ where
         &self,
         pattern: BoundPatternId,
         target: Option<BoundPatternTarget>,
-    ) -> Result<Option<bray_symbols::TypeId>, CheckerQueryError<C::UpstreamError>> {
+    ) -> Option<bray_symbols::TypeId> {
         if !target.is_some_and(BoundPatternTarget::is_constant) {
-            return Ok(None);
+            return None;
         }
 
         let Some(evidence) = self.constant_patterns.get(&pattern) else {
-            return Ok(None);
+            return None;
         };
 
         let term = self
             .request
             .semantic_values()
-            .constant_term_data(evidence.term())
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+            .constant_term_data(evidence.term());
 
         let is_error = match term.as_ref() {
-            ConstantTermData::Value(value) => self
-                .request
-                .semantic_values()
-                .constant_value_data(*value)
-                .map_err(CheckerInfrastructureError::SemanticValueStore)
-                .map(|value| matches!(value.kind(), ConstantValueKind::Error))?,
+            ConstantTermData::Value(value) => matches!(
+                self.request
+                    .semantic_values()
+                    .constant_value_data(*value)
+                    .kind(),
+                ConstantValueKind::Error
+            ),
             _ => false,
         };
 
-        Ok((!is_error).then_some(evidence.ty()))
+        (!is_error).then_some(evidence.ty())
     }
 
     pub(super) fn constant_pattern_is_recovered(
         &self,
         pattern: BoundPatternId,
         target: Option<BoundPatternTarget>,
-    ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
+    ) -> bool {
         let Some(evidence) = self.constant_patterns.get(&pattern) else {
-            return Ok(target.is_some_and(BoundPatternTarget::is_constant));
+            return target.is_some_and(BoundPatternTarget::is_constant);
         };
 
         let term = self
             .request
             .semantic_values()
-            .constant_term_data(evidence.term())
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+            .constant_term_data(evidence.term());
 
         let ConstantTermData::Value(value) = term.as_ref() else {
-            return Ok(false);
+            return false;
         };
 
-        let value = self
-            .request
-            .semantic_values()
-            .constant_value_data(*value)
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        let value = self.request.semantic_values().constant_value_data(*value);
 
-        Ok(matches!(value.kind(), ConstantValueKind::Error))
+        matches!(value.kind(), ConstantValueKind::Error)
     }
 
     fn product_shape_is_compatible(
@@ -231,9 +223,7 @@ where
     ) -> Result<Option<usize>, CheckerQueryError<C::UpstreamError>> {
         let values = self.request.semantic_values();
 
-        let integer = values
-            .constant_term_integer(length)
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        let integer = values.constant_term_integer(length);
 
         Ok(integer.as_ref().and_then(integer_to_usize))
     }

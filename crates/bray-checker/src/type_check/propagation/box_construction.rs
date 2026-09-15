@@ -46,10 +46,7 @@ where
         },
     )?;
 
-    let expected = expected
-        .map(|(ty, _)| values.type_data(ty))
-        .transpose()
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    let expected = expected.map(|(ty, _)| values.type_data(ty));
 
     let expected = expected.as_deref().and_then(|ty| match ty {
         TypeData::OwnedIndirection { storage, target } => Some((*storage, *target)),

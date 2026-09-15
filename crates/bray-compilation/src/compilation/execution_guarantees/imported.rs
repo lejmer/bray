@@ -202,18 +202,14 @@ impl Compilation {
             for (target, required) in &*proof.dependencies {
                 match target {
                     CallableExecutionTarget::Callable(target) => {
-                        let target = *values
-                            .callable_instance_data(*target)
-                            .map_err(FactQueryError::SemanticValueStore)?;
+                        let target = *values.callable_instance_data(*target);
 
                         let required = imported_obligation(*required);
                         dependencies.insert((ExecutionProofOwner::Imported(target), required));
                         pending.push((target, required));
                     }
                     CallableExecutionTarget::Indirect(ty) => {
-                        let ty = values
-                            .type_data(*ty)
-                            .map_err(FactQueryError::SemanticValueStore)?;
+                        let ty = values.type_data(*ty);
 
                         if *required
                             != CallableExecutionObligation::Property(ExecutionProperty::Pure, None)

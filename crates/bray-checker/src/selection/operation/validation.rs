@@ -1,6 +1,6 @@
 use bray_bound_tree::{
-    BoundExpression, BoundStructuredExpressionKind, ConstructionTarget, ConversionTarget,
-    ExpressionTypeResult, IndexTarget, OperatorTarget, SelectedConversion, SelectedOperation,
+    BoundExpression, BoundStructuredExpressionKind, ConversionTarget, ExpressionTypeResult,
+    IndexTarget, OperatorTarget, SelectedConversion, SelectedOperation,
 };
 use bray_compiler_known::CompilerKnownOperationRole;
 use bray_symbols::{
@@ -14,13 +14,9 @@ use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 use super::super::{CompilerKnownOperationEvidence, ImplementationSelectionEvidence};
 use super::role::compiler_known_operation_role;
 
-pub(super) fn validate_operation_instances<C>(
-    request: CheckerUnitView<'_, C>,
+pub(super) fn validate_operation_instances(
     operation: &SelectedOperation,
-) -> Result<(), CheckerInfrastructureError>
-where
-    C: CheckerRequestContext + ?Sized,
-{
+) -> Result<(), CheckerInfrastructureError> {
     if let Some(target) = operation.operator_target() {
         match target {
             OperatorTarget::Trait {
@@ -28,11 +24,11 @@ where
                 fulfillment,
                 ..
             } => {
-                validate_trait_callable_instance(request, member)?;
-                validate_trait_callable_fulfillment(request, fulfillment)?;
+                validate_trait_callable_instance(member)?;
+                validate_trait_callable_fulfillment(fulfillment)?;
             }
             OperatorTarget::TraitConstraint { member, .. } => {
-                validate_trait_callable_instance(request, member)?;
+                validate_trait_callable_instance(member)?;
             }
             OperatorTarget::BuiltIn(_) => {}
         }
@@ -50,22 +46,18 @@ where
                 },
             ..
         } => {
-            validate_trait_callable_instance(request, *member)?;
-            validate_trait_callable_fulfillment(request, *fulfillment)?;
+            validate_trait_callable_instance(*member)?;
+            validate_trait_callable_fulfillment(*fulfillment)?;
         }
         SelectedOperation::Index {
             target: IndexTarget::TraitConstraint { member, .. },
             ..
-        } => validate_trait_callable_instance(request, *member)?,
-        SelectedOperation::Construction(construction) => {
-            if let ConstructionTarget::TypeForm { callable, .. } = construction.target() {
-                validate_callable_instance(request, callable)?;
-            }
-        }
+        } => validate_trait_callable_instance(*member)?,
         SelectedOperation::Conversion(conversion) => {
-            validate_conversion_instances(request, conversion)?;
+            validate_conversion_instances(conversion)?;
         }
-        SelectedOperation::Member(_)
+        SelectedOperation::Construction(_)
+        | SelectedOperation::Member(_)
         | SelectedOperation::Operator { .. }
         | SelectedOperation::CompoundAssignment(_)
         | SelectedOperation::Index { .. }
@@ -75,13 +67,9 @@ where
     Ok(())
 }
 
-fn validate_conversion_instances<C>(
-    request: CheckerUnitView<'_, C>,
+fn validate_conversion_instances(
     conversion: &SelectedConversion,
-) -> Result<(), CheckerInfrastructureError>
-where
-    C: CheckerRequestContext + ?Sized,
-{
+) -> Result<(), CheckerInfrastructureError> {
     let mut pending = vec![conversion];
 
     while let Some(conversion) = pending.pop() {
@@ -91,11 +79,11 @@ where
                 fulfillment,
                 ..
             } => {
-                validate_trait_callable_instance(request, *member)?;
-                validate_trait_callable_fulfillment(request, *fulfillment)?;
+                validate_trait_callable_instance(*member)?;
+                validate_trait_callable_fulfillment(*fulfillment)?;
             }
             ConversionTarget::TraitConstraint { member, .. } => {
-                validate_trait_callable_instance(request, *member)?;
+                validate_trait_callable_instance(*member)?;
             }
             ConversionTarget::Composite(children) => pending.extend(children.iter()),
             ConversionTarget::Identity
@@ -109,57 +97,30 @@ where
     Ok(())
 }
 
-fn validate_callable_instance<C>(
-    request: CheckerUnitView<'_, C>,
+fn validate_trait_callable_instance(
     callable: CallableInstanceData,
-) -> Result<(), CheckerInfrastructureError>
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    request
-        .semantic_values()
-        .intern_callable_instance(callable)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
-
-    Ok(())
-}
-
-fn validate_trait_callable_instance<C>(
-    request: CheckerUnitView<'_, C>,
-    callable: CallableInstanceData,
-) -> Result<(), CheckerInfrastructureError>
-where
-    C: CheckerRequestContext + ?Sized,
-{
+) -> Result<(), CheckerInfrastructureError> {
     if callable.definition().symbol().kind() != bray_symbols::SymbolKind::TraitCallableMember {
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
     }
 
-    validate_callable_instance(request, callable)
+    Ok(())
 }
 
-fn validate_trait_callable_fulfillment<C>(
-    request: CheckerUnitView<'_, C>,
+fn validate_trait_callable_fulfillment(
     callable: CallableInstanceData,
-) -> Result<(), CheckerInfrastructureError>
-where
-    C: CheckerRequestContext + ?Sized,
-{
+) -> Result<(), CheckerInfrastructureError> {
     if callable.definition().symbol().kind() != bray_symbols::SymbolKind::TraitCallableFulfillment {
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
     }
 
-    validate_callable_instance(request, callable)
+    Ok(())
 }
 
-pub(super) fn implementation_selections_match<C>(
-    request: CheckerUnitView<'_, C>,
+pub(super) fn implementation_selections_match(
     operation: &SelectedOperation,
     evidence: &[ImplementationSelectionEvidence],
-) -> Result<bool, CheckerInfrastructureError>
-where
-    C: CheckerRequestContext + ?Sized,
-{
+) -> Result<bool, CheckerInfrastructureError> {
     let mut evidence = evidence.iter().collect::<Vec<_>>();
 
     evidence.sort_unstable_by_key(|item| item.requirement());
@@ -187,11 +148,6 @@ where
         if evidence.selection() != &ImplementationSelection::Selected(required.witness()) {
             return Ok(false);
         }
-
-        request
-            .semantic_values()
-            .implementation_instance_data(required.witness())
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
     }
 
     Ok(true)
@@ -397,11 +353,8 @@ where
 
             let mut receiver_type = receiver.ty();
 
-            while let TypeData::Borrow { target, .. } = request
-                .semantic_values()
-                .type_data(receiver_type)
-                .map_err(CheckerInfrastructureError::SemanticValueStore)?
-                .as_ref()
+            while let TypeData::Borrow { target, .. } =
+                request.semantic_values().type_data(receiver_type).as_ref()
             {
                 receiver_type = *target;
             }
@@ -495,8 +448,7 @@ where
 
     let application = request
         .semantic_values()
-        .trait_application_data(required.requirement().trait_application())
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        .trait_application_data(required.requirement().trait_application());
 
     let callable_symbol = evidence.callable().definition().symbol();
 
@@ -570,13 +522,11 @@ where
 {
     let application = request
         .semantic_values()
-        .trait_application_data(requirement.trait_application())
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        .trait_application_data(requirement.trait_application());
 
     let substitution = request
         .semantic_values()
-        .generic_substitution_data(application.substitution())
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        .generic_substitution_data(application.substitution());
 
     let [binding] = substitution.bindings() else {
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
@@ -634,7 +584,6 @@ mod tests {
 
         assert_eq!(
             implementation_selections_match(
-                request,
                 &fixture.operation,
                 std::slice::from_ref(&fixture.implementation)
             ),
@@ -661,7 +610,7 @@ mod tests {
         );
 
         assert_eq!(
-            implementation_selections_match(request, &fixture.operation, &[wrong_witness]),
+            implementation_selections_match(&fixture.operation, &[wrong_witness]),
             Ok(false)
         );
 

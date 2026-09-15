@@ -181,9 +181,12 @@ impl super::super::Compilation {
             cache,
             cancellation,
             |cancellation| {
-                let input = self.dependency_interface(interface).ok_or(
-                    crate::fact::ImportedQueryFailure::MissingDependencyInput(interface),
-                )?;
+                let input = self.dependency_interface(interface).unwrap_or_else(|| {
+                    panic!(
+                        "imported publication invariant MissingDependencyInput: {:?}",
+                        interface
+                    )
+                });
 
                 load_dependency_interface(input, cancellation)
             },
@@ -224,8 +227,9 @@ impl super::super::Compilation {
             let Some(interface_result) =
                 self.loaded_dependency_interface_with_cancellation(interface, cancellation)?
             else {
-                return Err(
-                    crate::fact::ImportedQueryFailure::MissingLoadedInterface(interface).into(),
+                panic!(
+                    "imported publication invariant MissingLoadedInterface: {:?}",
+                    interface
                 );
             };
 
@@ -295,14 +299,16 @@ impl super::super::Compilation {
         let Some(loaded) =
             self.loaded_dependency_interface_with_cancellation(interface, cancellation)?
         else {
-            return Err(
-                crate::fact::ImportedQueryFailure::MissingLoadedInterface(interface).into(),
+            panic!(
+                "imported publication invariant MissingLoadedInterface: {:?}",
+                interface
             );
         };
 
         let Some(input) = self.dependency_interface_input(interface) else {
-            return Err(
-                crate::fact::ImportedQueryFailure::MissingDependencyInput(interface).into(),
+            panic!(
+                "imported publication invariant MissingDependencyInput: {:?}",
+                interface
             );
         };
 
@@ -342,7 +348,12 @@ impl super::super::Compilation {
 
         let graph = self
             .imported_semantic_graph_result_with_cancellation(key.interface(), cancellation)?
-            .ok_or(crate::fact::ImportedQueryFailure::MissingSemanticGraph(key))?;
+            .unwrap_or_else(|| {
+                panic!(
+                    "imported publication invariant MissingSemanticGraph: {:?}",
+                    key
+                )
+            });
 
         self.imported_semantics_from_graph(key, graph, cancellation)
     }
@@ -363,20 +374,26 @@ impl super::super::Compilation {
 
         let loaded = self
             .loaded_dependency_interface_with_cancellation(key.interface(), cancellation)?
-            .ok_or(crate::fact::ImportedQueryFailure::MissingLoadedInterface(
-                key.interface(),
-            ))?;
+            .unwrap_or_else(|| {
+                panic!(
+                    "imported publication invariant MissingLoadedInterface: {:?}",
+                    key.interface()
+                )
+            });
 
-        let surface =
-            loaded
-                .surface()
-                .ok_or(crate::fact::ImportedQueryFailure::MissingInterfaceSurface(
-                    key,
-                ))?;
+        let surface = loaded.surface().unwrap_or_else(|| {
+            panic!(
+                "imported publication invariant MissingInterfaceSurface: {:?}",
+                key
+            )
+        });
 
-        let identity = surface.symbols().symbol(key.owner()).ok_or(
-            crate::fact::ImportedQueryFailure::MissingInterfaceSymbol(key),
-        )?;
+        let identity = surface.symbols().symbol(key.owner()).unwrap_or_else(|| {
+            panic!(
+                "imported publication invariant MissingInterfaceSymbol: {:?}",
+                key
+            )
+        });
 
         let skeleton = self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
 
@@ -384,9 +401,12 @@ impl super::super::Compilation {
             .value()
             .as_ref()
             .and_then(|skeleton| skeleton.symbol_by_external_key(identity.key()))
-            .ok_or(crate::fact::ImportedQueryFailure::MissingImportedSymbol(
-                key,
-            ))?;
+            .unwrap_or_else(|| {
+                panic!(
+                    "imported publication invariant MissingImportedSymbol: {:?}",
+                    key
+                )
+            });
 
         cancellation.check()?;
 
@@ -402,13 +422,21 @@ impl super::super::Compilation {
     ) -> Result<Option<DiagnosticResult<Option<Arc<ImportedSemantics>>>>, FactQueryError> {
         let loaded = self
             .loaded_dependency_interface_with_cancellation(key.interface(), cancellation)?
-            .ok_or(crate::fact::ImportedQueryFailure::MissingLoadedInterface(
-                key.interface(),
-            ))?;
+            .unwrap_or_else(|| {
+                panic!(
+                    "imported publication invariant MissingLoadedInterface: {:?}",
+                    key.interface()
+                )
+            });
 
-        let input = self.dependency_interface_input(key.interface()).ok_or(
-            crate::fact::ImportedQueryFailure::MissingDependencyInput(key.interface()),
-        )?;
+        let input = self
+            .dependency_interface_input(key.interface())
+            .unwrap_or_else(|| {
+                panic!(
+                    "imported publication invariant MissingDependencyInput: {:?}",
+                    key.interface()
+                )
+            });
 
         let (Some(validated), Some(surface)) = (loaded.validated(), loaded.surface()) else {
             return Ok(Some(DiagnosticResult::without_diagnostics(None)));
@@ -450,15 +478,21 @@ impl super::super::Compilation {
 
         let interfaces = self
             .loaded_interface_views(cancellation)?
-            .ok_or(crate::fact::ImportedQueryFailure::MissingLoadedInterfaceViews(interface))?;
+            .unwrap_or_else(|| {
+                panic!(
+                    "imported publication invariant MissingLoadedInterfaceViews: {:?}",
+                    interface
+                )
+            });
 
         let Some(current) = interfaces
             .iter()
             .copied()
             .find(|loaded| loaded.interface() == interface)
         else {
-            return Err(
-                crate::fact::ImportedQueryFailure::MissingCurrentInterface(interface).into(),
+            panic!(
+                "imported publication invariant MissingCurrentInterface: {:?}",
+                interface
             );
         };
 
@@ -509,9 +543,12 @@ impl super::super::Compilation {
 
             let loaded = self
                 .loaded_dependency_interface_with_cancellation(interface, cancellation)?
-                .ok_or(crate::fact::ImportedQueryFailure::MissingLoadedInterface(
-                    interface,
-                ))?;
+                .unwrap_or_else(|| {
+                    panic!(
+                        "imported publication invariant MissingLoadedInterface: {:?}",
+                        interface
+                    )
+                });
 
             let (Some(validated), Some(surface)) = (loaded.validated(), loaded.surface()) else {
                 return Ok(None);
@@ -1044,35 +1081,10 @@ fn synthesized_identity(
 
 fn semantic_content_problem(error: SemanticValueStoreError) -> DiagnosticSemanticContentProblem {
     match error {
-        SemanticValueStoreError::ForeignId { expected, actual } => {
-            DiagnosticSemanticContentProblem::ForeignId {
-                expected: expected.raw(),
-                actual: actual.raw(),
-            }
-        }
-        SemanticValueStoreError::UnknownId { kind } => {
-            DiagnosticSemanticContentProblem::UnknownId {
-                value_kind: diagnostic_semantic_value_kind(kind),
-            }
-        }
         SemanticValueStoreError::CapacityExhausted { kind } => {
             DiagnosticSemanticContentProblem::CapacityExhausted {
                 value_kind: diagnostic_semantic_value_kind(kind),
             }
-        }
-        SemanticValueStoreError::GenericOwnerMismatch { expected, actual } => {
-            DiagnosticSemanticContentProblem::GenericOwnerMismatch {
-                expected_kind: diagnostic_symbol_kind(expected.symbol().kind()),
-                expected: expected.symbol().symbol_id().raw(),
-                actual_kind: diagnostic_symbol_kind(actual.symbol().kind()),
-                actual: actual.symbol().symbol_id().raw(),
-            }
-        }
-        SemanticValueStoreError::InvalidDependencyVariable { depth, ordinal } => {
-            DiagnosticSemanticContentProblem::InvalidDependencyVariable { depth, ordinal }
-        }
-        SemanticValueStoreError::OpenSubstitution => {
-            DiagnosticSemanticContentProblem::OpenSubstitution
         }
     }
 }
@@ -1264,7 +1276,7 @@ mod tests {
     use bray_bound_tree::CheckedTemplateKind;
     use bray_diagnostics::{
         DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticInterfaceLimit,
-        DiagnosticInterfaceSymbolKind, DiagnosticKind, DiagnosticSemanticContentProblem,
+        DiagnosticKind,
     };
     use bray_package_interface::{
         DependencyInterfaceId, ImportedSemanticRecord, ImportedSymbolConstructionError,
@@ -1280,10 +1292,9 @@ mod tests {
         standard_library_target_artifact_directory, target_artifacts_for_test,
     };
     use bray_symbols::{
-        ExternalSymbolKey, FunctionSymbolId, GenericOwnerId, ImportedInterfaceId,
-        ImportedSymbolSkeletonBuildError, InterfaceSupportEntityId, InterfaceSymbolId,
-        PackageIdentity, SemanticValueKind, SemanticValueStoreError, SymbolId, SymbolKey,
-        SymbolKind, TraitSymbolId,
+        ExternalSymbolKey, ImportedInterfaceId, ImportedSymbolSkeletonBuildError,
+        InterfaceSupportEntityId, InterfaceSymbolId, PackageIdentity, SemanticValueKind,
+        SemanticValueStoreError, SymbolId, SymbolKey, SymbolKind,
     };
     use bray_target::TargetIdentity;
 
@@ -1292,30 +1303,6 @@ mod tests {
         CancellationToken, Compilation, CompilationRequest, DependencyInterfaceInput,
         FactQueryError, ImportedSemanticRecordKey,
     };
-
-    #[test]
-    fn semantic_content_owner_mismatch_retains_owner_kinds() {
-        let expected =
-            GenericOwnerId::try_new(FunctionSymbolId::from_symbol_id(SymbolId::new(5)).into())
-                .unwrap_or_else(|| panic!("function must support generic substitutions"));
-
-        let actual =
-            GenericOwnerId::try_new(TraitSymbolId::from_symbol_id(SymbolId::new(5)).into())
-                .unwrap_or_else(|| panic!("trait must support generic substitutions"));
-
-        assert_eq!(
-            super::semantic_content_problem(SemanticValueStoreError::GenericOwnerMismatch {
-                expected,
-                actual,
-            }),
-            DiagnosticSemanticContentProblem::GenericOwnerMismatch {
-                expected_kind: DiagnosticInterfaceSymbolKind::Function,
-                expected: 5,
-                actual_kind: DiagnosticInterfaceSymbolKind::Trait,
-                actual: 5,
-            }
-        );
-    }
 
     #[test]
     fn dependency_interface_validation_is_lazy_cached_and_diagnostic_backed() {
@@ -2189,9 +2176,11 @@ mod tests {
         );
 
         let semantic_value = super::semantic_content_diagnostics(
-            InterfaceSemanticInternError::SemanticStore(SemanticValueStoreError::UnknownId {
-                kind: SemanticValueKind::Type,
-            }),
+            InterfaceSemanticInternError::SemanticStore(
+                SemanticValueStoreError::CapacityExhausted {
+                    kind: SemanticValueKind::Type,
+                },
+            ),
             &input,
         );
 

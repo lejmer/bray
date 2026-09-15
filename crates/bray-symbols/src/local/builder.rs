@@ -1,5 +1,3 @@
-// rust-style: allow(module-too-large, reason = "local symbol snapshot construction is one stateful builder enforcing shared rollback and identity invariants")
-
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_declarations::SyntaxAnchor;
@@ -111,15 +109,21 @@ impl LocalSymbolSnapshotBuilder {
     ) -> Result<LocalScopeId, LocalSymbolBuildError> {
         match (boundary, parent) {
             (LocalScopeBoundary::Root, Some(_)) => {
-                return Err(LocalSymbolBuildError::RootHasParentScope);
+                panic!(
+                    "local symbol construction: root scope has a parent in {:?}",
+                    self.region
+                );
             }
             (LocalScopeBoundary::Root, None) if self.scopes.is_empty() => {}
             (LocalScopeBoundary::Root, None) => {
-                return Err(LocalSymbolBuildError::DuplicateRootScope);
+                panic!(
+                    "local symbol construction: root scope already exists in {:?}",
+                    self.region
+                );
             }
-            (_, None) => return Err(LocalSymbolBuildError::MissingParentScope),
+            (_, None) => panic!("non-root scope requires a parent in {:?}", self.region),
             (_, Some(parent)) => {
-                self.checked_scope_index(parent)?;
+                self.checked_scope(parent);
             }
         }
 
@@ -148,9 +152,9 @@ impl LocalSymbolSnapshotBuilder {
         ordinal: Option<SymbolOrdinal>,
         is_recovered: bool,
     ) -> Result<LocalBindingSymbolId, LocalSymbolBuildError> {
-        self.checked_scope_index(scope)?;
+        self.checked_scope(scope);
 
-        let key = local_key(&self.key, SymbolKind::LocalBinding, anchors, ordinal)?;
+        let key = local_key(&self.key, SymbolKind::LocalBinding, anchors, ordinal);
         let id = LocalBindingSymbolId::new(self.region, checked_slot(self.bindings.len())?);
 
         self.bindings
@@ -168,9 +172,9 @@ impl LocalSymbolSnapshotBuilder {
         ordinal: Option<SymbolOrdinal>,
         is_recovered: bool,
     ) -> Result<LocalConstantSymbolId, LocalSymbolBuildError> {
-        self.checked_scope_index(scope)?;
+        self.checked_scope(scope);
 
-        let key = local_key(&self.key, SymbolKind::LocalConstant, anchors, ordinal)?;
+        let key = local_key(&self.key, SymbolKind::LocalConstant, anchors, ordinal);
         let id = LocalConstantSymbolId::new(self.region, checked_slot(self.constants.len())?);
 
         self.constants
@@ -188,21 +192,27 @@ impl LocalSymbolSnapshotBuilder {
         ordinal: Option<SymbolOrdinal>,
         is_recovered: bool,
     ) -> Result<AnonymousCallableSymbolId, LocalSymbolBuildError> {
-        self.checked_scope_index(introduction_scope)?;
+        self.checked_scope(introduction_scope);
 
-        let callable_scope_record = self.checked_scope(callable_scope)?;
+        let callable_scope_record = self.checked_scope(callable_scope);
 
         if callable_scope_record.boundary != LocalScopeBoundary::Callable
             || callable_scope_record.parent != Some(introduction_scope)
         {
-            return Err(LocalSymbolBuildError::InvalidAnonymousCallableScope);
+            panic!(
+                "local symbol construction invariant: InvalidAnonymousCallableScope in {:?}",
+                self.region
+            );
         }
 
         if self.anonymous_callable_scopes.contains(&callable_scope) {
-            return Err(LocalSymbolBuildError::AnonymousCallableScopeAlreadyAssigned);
+            panic!(
+                "local symbol construction invariant: AnonymousCallableScopeAlreadyAssigned in {:?}",
+                self.region
+            );
         }
 
-        let key = local_key(&self.key, SymbolKind::AnonymousCallable, anchors, ordinal)?;
+        let key = local_key(&self.key, SymbolKind::AnonymousCallable, anchors, ordinal);
 
         let id = AnonymousCallableSymbolId::new(
             self.region,
@@ -238,15 +248,18 @@ impl LocalSymbolSnapshotBuilder {
         mode: crate::CallableParameterMode,
         is_recovered: bool,
     ) -> Result<AnonymousCallableParameterSymbolId, LocalSymbolBuildError> {
-        let (callable_index, callable_record) = self.checked_anonymous_callable(callable)?;
+        let (callable_index, callable_record) = self.checked_anonymous_callable(callable);
 
-        let scope_record = self.checked_scope(scope)?;
+        let scope_record = self.checked_scope(scope);
 
         if scope != callable_record.callable_scope()
             || scope_record.boundary != LocalScopeBoundary::Callable
             || scope_record.parent != Some(callable_record.scope())
         {
-            return Err(LocalSymbolBuildError::AnonymousCallableParameterScopeMismatch);
+            panic!(
+                "local symbol construction invariant: AnonymousCallableParameterScopeMismatch in {:?}",
+                self.region
+            );
         }
 
         let key = local_key(
@@ -254,7 +267,7 @@ impl LocalSymbolSnapshotBuilder {
             SymbolKind::AnonymousCallableParameter,
             anchors,
             Some(ordinal),
-        )?;
+        );
 
         let id = AnonymousCallableParameterSymbolId::new(
             self.region,
@@ -264,7 +277,7 @@ impl LocalSymbolSnapshotBuilder {
         let parameters = self
             .anonymous_callable_parameters
             .get_mut(callable_index)
-            .ok_or(LocalSymbolBuildError::UnknownAnonymousCallable)?;
+            .expect("local symbol invariant: anonymous callable must exist");
 
         self.anonymous_parameters
             .push(AnonymousCallableParameterSymbol::new(
@@ -296,19 +309,25 @@ impl LocalSymbolSnapshotBuilder {
         ordinal: Option<SymbolOrdinal>,
         is_recovered: bool,
     ) -> Result<PostconditionResultSymbolId, LocalSymbolBuildError> {
-        let scope_index = self.checked_scope_index(scope)?;
+        let scope_index = self.checked_scope_index(scope);
 
         let scope_record = self
             .scopes
             .get(scope_index)
-            .ok_or(LocalSymbolBuildError::UnknownScope)?;
+            .expect("local symbol invariant: scope must exist");
 
         if scope_record.boundary != LocalScopeBoundary::Contract {
-            return Err(LocalSymbolBuildError::InvalidScopeBoundary);
+            panic!(
+                "local symbol construction invariant: InvalidScopeBoundary in {:?}",
+                self.region
+            );
         }
 
         if scope_record.postcondition_result.is_some() {
-            return Err(LocalSymbolBuildError::DuplicatePostconditionResult);
+            panic!(
+                "local symbol construction invariant: DuplicatePostconditionResult in {:?}",
+                self.region
+            );
         }
 
         let key = local_key(
@@ -316,17 +335,14 @@ impl LocalSymbolSnapshotBuilder {
             SymbolKind::PostconditionResult,
             [syntax],
             ordinal,
-        )?;
+        );
 
         let id = PostconditionResultSymbolId::new(
             self.region,
             checked_slot(self.postcondition_results.len())?,
         );
 
-        let scope_record = self
-            .scopes
-            .get_mut(scope_index)
-            .ok_or(LocalSymbolBuildError::UnknownScope)?;
+        let scope_record = &mut self.scopes[scope_index];
 
         self.postcondition_results
             .push(PostconditionResultSymbol::new(
@@ -346,30 +362,20 @@ impl LocalSymbolSnapshotBuilder {
     }
 
     /// Returns the contextual postcondition result attached to one scope.
-    pub fn postcondition_result(
-        &self,
-        scope: LocalScopeId,
-    ) -> Result<Option<PostconditionResultSymbolId>, LocalSymbolBuildError> {
-        let scope = self
-            .scopes
-            .get(self.checked_scope_index(scope)?)
-            .ok_or(LocalSymbolBuildError::UnknownScope)?;
+    pub fn postcondition_result(&self, scope: LocalScopeId) -> Option<PostconditionResultSymbolId> {
+        let scope = self.checked_scope(scope);
 
-        Ok(scope.postcondition_result)
+        scope.postcondition_result
     }
 
     /// Inserts a named local symbol into one scope's ordinary-name index.
-    pub fn insert_local_name(
-        &mut self,
-        scope: LocalScopeId,
-        symbol: AnyLocalSymbolId,
-    ) -> Result<(), LocalSymbolBuildError> {
-        let scope_index = self.checked_scope_index(scope)?;
+    pub fn insert_local_name(&mut self, scope: LocalScopeId, symbol: AnyLocalSymbolId) {
+        let scope_index = self.checked_scope_index(scope);
 
-        let (symbol_scope, name) = self.local_symbol_scope_and_name(symbol)?;
+        let (symbol_scope, name) = self.local_symbol_scope_and_name(symbol);
 
         if symbol_scope != scope {
-            return Err(LocalSymbolBuildError::SymbolOutsideScope);
+            panic!("symbol {symbol:?} belongs to {symbol_scope:?}, not scope {scope:?}");
         }
 
         // Symbol names use shared immutable text, so this clone releases the record borrow.
@@ -378,10 +384,7 @@ impl LocalSymbolSnapshotBuilder {
         // The scope index and rollback trail independently retain the shared name.
         let mutation_name = name.clone();
 
-        let scope_record = self
-            .scopes
-            .get_mut(scope_index)
-            .ok_or(LocalSymbolBuildError::UnknownScope)?;
+        let scope_record = &mut self.scopes[scope_index];
 
         scope_record
             .local_names
@@ -393,8 +396,6 @@ impl LocalSymbolSnapshotBuilder {
             scope: scope_index,
             name: mutation_name,
         });
-
-        Ok(())
     }
 
     /// Inserts a declaration-surface symbol into one scope's ordinary-name index.
@@ -403,16 +404,13 @@ impl LocalSymbolSnapshotBuilder {
         scope: LocalScopeId,
         name: SymbolName,
         symbol: AnySymbolId,
-    ) -> Result<(), LocalSymbolBuildError> {
-        let scope_index = self.checked_scope_index(scope)?;
+    ) {
+        let scope_index = self.checked_scope_index(scope);
 
         // The scope index and rollback trail independently own the immutable shared name.
         let mutation_name = name.clone();
 
-        let scope_record = self
-            .scopes
-            .get_mut(scope_index)
-            .ok_or(LocalSymbolBuildError::UnknownScope)?;
+        let scope_record = &mut self.scopes[scope_index];
 
         scope_record
             .surface_names
@@ -424,56 +422,34 @@ impl LocalSymbolSnapshotBuilder {
             scope: scope_index,
             name: mutation_name,
         });
-
-        Ok(())
     }
 
     /// Returns the current lexical parent of one scope.
-    pub fn scope_parent(
-        &self,
-        scope: LocalScopeId,
-    ) -> Result<Option<LocalScopeId>, LocalSymbolBuildError> {
-        let scope_index = self.checked_scope_index(scope)?;
+    pub fn scope_parent(&self, scope: LocalScopeId) -> Option<LocalScopeId> {
+        let scope = self.checked_scope(scope);
 
-        let scope = self
-            .scopes
-            .get(scope_index)
-            .ok_or(LocalSymbolBuildError::UnknownScope)?;
-
-        Ok(scope.parent)
+        scope.parent
     }
 
     /// Returns the current lexical boundary category of one scope.
-    pub fn scope_boundary(
-        &self,
-        scope: LocalScopeId,
-    ) -> Result<LocalScopeBoundary, LocalSymbolBuildError> {
-        self.checked_scope(scope).map(|scope| scope.boundary)
+    pub fn scope_boundary(&self, scope: LocalScopeId) -> LocalScopeBoundary {
+        self.checked_scope(scope).boundary
     }
 
     /// Returns named local candidates currently visible in one scope.
-    pub fn local_symbols_named(
-        &self,
-        scope: LocalScopeId,
-        name: &str,
-    ) -> Result<&[AnyLocalSymbolId], LocalSymbolBuildError> {
-        let scope_index = self.checked_scope_index(scope)?;
+    pub fn local_symbols_named(&self, scope: LocalScopeId, name: &str) -> &[AnyLocalSymbolId] {
+        let scope = self.checked_scope(scope);
 
-        let scope = self
-            .scopes
-            .get(scope_index)
-            .ok_or(LocalSymbolBuildError::UnknownScope)?;
-
-        Ok(scope.local_names.get(name).map_or(&[], Vec::as_slice))
+        scope.local_names.get(name).map_or(&[], Vec::as_slice)
     }
 
     /// Returns whether one current named local candidate contains recovery.
-    pub fn local_symbol_is_recovered(
-        &self,
-        symbol: AnyLocalSymbolId,
-    ) -> Result<bool, LocalSymbolBuildError> {
+    pub fn local_symbol_is_recovered(&self, symbol: AnyLocalSymbolId) -> bool {
         if symbol.region() != self.region {
-            return Err(LocalSymbolBuildError::ForeignRegion);
+            panic!(
+                "local symbol construction: symbol belongs to a foreign region in {:?}",
+                self.region
+            );
         }
 
         match symbol {
@@ -481,42 +457,42 @@ impl LocalSymbolSnapshotBuilder {
                 .bindings
                 .get(
                     id.to_index()
-                        .ok_or(LocalSymbolBuildError::UnknownLocalSymbol)?,
+                        .expect("local symbol invariant: local symbol must exist"),
                 )
                 .map(LocalBindingSymbol::is_recovered),
             AnyLocalSymbolId::Constant(id) => self
                 .constants
                 .get(
                     id.to_index()
-                        .ok_or(LocalSymbolBuildError::UnknownLocalSymbol)?,
+                        .expect("local symbol invariant: local symbol must exist"),
                 )
                 .map(LocalConstantSymbol::is_recovered),
             AnyLocalSymbolId::AnonymousCallableParameter(id) => self
                 .anonymous_parameters
                 .get(
                     id.to_index()
-                        .ok_or(LocalSymbolBuildError::UnknownLocalSymbol)?,
+                        .expect("local symbol invariant: local symbol must exist"),
                 )
                 .map(AnonymousCallableParameterSymbol::is_recovered),
             AnyLocalSymbolId::PostconditionResult(id) => self
                 .postcondition_results
                 .get(
                     id.to_index()
-                        .ok_or(LocalSymbolBuildError::UnknownLocalSymbol)?,
+                        .expect("local symbol invariant: local symbol must exist"),
                 )
                 .map(PostconditionResultSymbol::is_recovered),
             AnyLocalSymbolId::AnonymousCallable(_) => None,
         }
-        .ok_or(LocalSymbolBuildError::UnknownLocalSymbol)
+        .expect("local symbol invariant: local symbol must exist")
     }
 
     /// Returns the source construct that introduced a symbol in this builder.
-    pub fn local_symbol_syntax_anchor(
-        &self,
-        symbol: AnyLocalSymbolId,
-    ) -> Result<SyntaxAnchor, LocalSymbolBuildError> {
+    pub fn local_symbol_syntax_anchor(&self, symbol: AnyLocalSymbolId) -> SyntaxAnchor {
         if symbol.region() != self.region {
-            return Err(LocalSymbolBuildError::ForeignRegion);
+            panic!(
+                "local symbol construction: symbol belongs to a foreign region in {:?}",
+                self.region
+            );
         }
 
         let anchor = match symbol {
@@ -524,56 +500,47 @@ impl LocalSymbolSnapshotBuilder {
                 .bindings
                 .get(
                     id.to_index()
-                        .ok_or(LocalSymbolBuildError::UnknownLocalSymbol)?,
+                        .expect("local symbol invariant: local symbol must exist"),
                 )
                 .and_then(|symbol| symbol.key().anchors().first().copied()),
             AnyLocalSymbolId::Constant(id) => self
                 .constants
                 .get(
                     id.to_index()
-                        .ok_or(LocalSymbolBuildError::UnknownLocalSymbol)?,
+                        .expect("local symbol invariant: local symbol must exist"),
                 )
                 .and_then(|symbol| symbol.key().anchors().first().copied()),
             AnyLocalSymbolId::AnonymousCallable(id) => self
                 .anonymous_callables
                 .get(
                     id.to_index()
-                        .ok_or(LocalSymbolBuildError::UnknownLocalSymbol)?,
+                        .expect("local symbol invariant: local symbol must exist"),
                 )
                 .and_then(|symbol| symbol.key().anchors().first().copied()),
             AnyLocalSymbolId::AnonymousCallableParameter(id) => self
                 .anonymous_parameters
                 .get(
                     id.to_index()
-                        .ok_or(LocalSymbolBuildError::UnknownLocalSymbol)?,
+                        .expect("local symbol invariant: local symbol must exist"),
                 )
                 .and_then(|symbol| symbol.key().anchors().first().copied()),
             AnyLocalSymbolId::PostconditionResult(id) => self
                 .postcondition_results
                 .get(
                     id.to_index()
-                        .ok_or(LocalSymbolBuildError::UnknownLocalSymbol)?,
+                        .expect("local symbol invariant: local symbol must exist"),
                 )
                 .map(PostconditionResultSymbol::syntax_anchor),
         };
 
-        anchor.ok_or(LocalSymbolBuildError::MissingSyntaxAnchor)
+        anchor.expect("local symbol invariant: symbol must have a syntax anchor")
     }
 
     /// Returns declaration-surface candidates currently visible in one scope.
-    pub fn surface_symbols_named(
-        &self,
-        scope: LocalScopeId,
-        name: &str,
-    ) -> Result<&[AnySymbolId], LocalSymbolBuildError> {
-        let scope_index = self.checked_scope_index(scope)?;
+    pub fn surface_symbols_named(&self, scope: LocalScopeId, name: &str) -> &[AnySymbolId] {
+        let scope = self.checked_scope(scope);
 
-        let scope = self
-            .scopes
-            .get(scope_index)
-            .ok_or(LocalSymbolBuildError::UnknownScope)?;
-
-        Ok(scope.surface_names.get(name).map_or(&[], Vec::as_slice))
+        scope.surface_names.get(name).map_or(&[], Vec::as_slice)
     }
 
     /// Captures the current builder state for later rollback.
@@ -590,52 +557,40 @@ impl LocalSymbolSnapshotBuilder {
         }
     }
 
-    /// Returns whether this builder can restore the supplied checkpoint without mutation.
-    pub fn can_rollback_to(&self, checkpoint: LocalSymbolSnapshotCheckpoint) -> bool {
-        checkpoint.region == self.region
-            && checkpoint.scopes <= self.scopes.len()
-            && checkpoint.bindings <= self.bindings.len()
-            && checkpoint.constants <= self.constants.len()
-            && checkpoint.anonymous_callables <= self.anonymous_callables.len()
-            && checkpoint.anonymous_parameters <= self.anonymous_parameters.len()
-            && checkpoint.postcondition_results <= self.postcondition_results.len()
-            && checkpoint.mutations <= self.mutations.len()
-    }
-
     /// Restores all local records and indexes to a checkpoint from this region.
-    pub fn rollback(&mut self, checkpoint: LocalSymbolSnapshotCheckpoint) -> bool {
-        if !self.can_rollback_to(checkpoint) {
-            return false;
-        }
+    pub fn rollback(&mut self, checkpoint: LocalSymbolSnapshotCheckpoint) {
+        assert!(
+            checkpoint.region == self.region
+                && checkpoint.scopes <= self.scopes.len()
+                && checkpoint.bindings <= self.bindings.len()
+                && checkpoint.constants <= self.constants.len()
+                && checkpoint.anonymous_callables <= self.anonymous_callables.len()
+                && checkpoint.anonymous_parameters <= self.anonymous_parameters.len()
+                && checkpoint.postcondition_results <= self.postcondition_results.len()
+                && checkpoint.mutations <= self.mutations.len(),
+            "checkpoint {checkpoint:?} is not restorable in {:?}",
+            self.checkpoint()
+        );
 
         for mutation in self.mutations.drain(checkpoint.mutations..).rev() {
             match mutation {
                 LocalSymbolMutation::LocalName { scope, name } => {
-                    let Some(scope) = self.scopes.get_mut(scope) else {
-                        return false;
-                    };
+                    let scope = &mut self.scopes[scope];
 
                     rollback_name_entry(&mut scope.local_names, &name);
                 }
                 LocalSymbolMutation::SurfaceName { scope, name } => {
-                    let Some(scope) = self.scopes.get_mut(scope) else {
-                        return false;
-                    };
+                    let scope = &mut self.scopes[scope];
 
                     rollback_name_entry(&mut scope.surface_names, &name);
                 }
                 LocalSymbolMutation::AnonymousParameter { callable } => {
-                    let Some(parameters) = self.anonymous_callable_parameters.get_mut(callable)
-                    else {
-                        return false;
-                    };
+                    let parameters = &mut self.anonymous_callable_parameters[callable];
 
                     parameters.pop();
                 }
                 LocalSymbolMutation::PostconditionResult { scope } => {
-                    let Some(scope) = self.scopes.get_mut(scope) else {
-                        return false;
-                    };
+                    let scope = &mut self.scopes[scope];
 
                     scope.postcondition_result = None;
                 }
@@ -665,14 +620,15 @@ impl LocalSymbolSnapshotBuilder {
                 .iter()
                 .map(AnonymousCallableSymbol::callable_scope),
         );
-
-        true
     }
 
-    /// Completes and returns the validated local-symbol snapshot.
-    pub fn finish(self) -> Result<LocalSymbolSnapshot, LocalSymbolBuildError> {
+    /// Completes the local-symbol snapshot. Panics if no root scope was created.
+    pub fn finish(self) -> LocalSymbolSnapshot {
         if self.scopes.is_empty() {
-            return Err(LocalSymbolBuildError::MissingRootScope);
+            panic!(
+                "local symbol construction: root scope is absent in {:?}",
+                self.region
+            );
         }
 
         let scopes = self
@@ -690,7 +646,7 @@ impl LocalSymbolSnapshotBuilder {
             .collect::<Vec<_>>()
             .into_boxed_slice();
 
-        Ok(LocalSymbolSnapshot {
+        LocalSymbolSnapshot {
             region: self.region,
             key: self.key,
             scopes,
@@ -699,58 +655,55 @@ impl LocalSymbolSnapshotBuilder {
             anonymous_callables,
             anonymous_parameters: self.anonymous_parameters.into_boxed_slice(),
             postcondition_results: self.postcondition_results.into_boxed_slice(),
-        })
-    }
-
-    fn checked_scope_index(&self, id: LocalScopeId) -> Result<usize, LocalSymbolBuildError> {
-        if id.region() != self.region {
-            return Err(LocalSymbolBuildError::ForeignRegion);
         }
-
-        let Some(index) = id.to_index() else {
-            return Err(LocalSymbolBuildError::UnknownScope);
-        };
-
-        self.scopes
-            .get(index)
-            .map(|_| index)
-            .ok_or(LocalSymbolBuildError::UnknownScope)
     }
 
-    fn checked_scope(&self, id: LocalScopeId) -> Result<&PendingScope, LocalSymbolBuildError> {
-        let index = self.checked_scope_index(id)?;
+    fn checked_scope_index(&self, id: LocalScopeId) -> usize {
+        assert_eq!(
+            id.region(),
+            self.region,
+            "scope {id:?} belongs to another region"
+        );
 
-        self.scopes
-            .get(index)
-            .ok_or(LocalSymbolBuildError::UnknownScope)
+        id.to_index().expect("local scope index must fit the host")
+    }
+
+    fn checked_scope(&self, id: LocalScopeId) -> &PendingScope {
+        &self.scopes[self.checked_scope_index(id)]
     }
 
     fn checked_anonymous_callable(
         &self,
         id: AnonymousCallableSymbolId,
-    ) -> Result<(usize, &AnonymousCallableSymbol), LocalSymbolBuildError> {
+    ) -> (usize, &AnonymousCallableSymbol) {
         if id.region() != self.region {
-            return Err(LocalSymbolBuildError::ForeignRegion);
+            panic!(
+                "local symbol construction: symbol belongs to a foreign region in {:?}",
+                self.region
+            );
         }
 
         let Some(index) = id.to_index() else {
-            return Err(LocalSymbolBuildError::UnknownAnonymousCallable);
+            panic!(
+                "local symbol construction: anonymous callable is absent in {:?}",
+                self.region
+            );
         };
 
         let callable = self
             .anonymous_callables
             .get(index)
-            .ok_or(LocalSymbolBuildError::UnknownAnonymousCallable)?;
+            .expect("local symbol invariant: anonymous callable must exist");
 
-        Ok((index, callable))
+        (index, callable)
     }
 
-    fn local_symbol_scope_and_name(
-        &self,
-        symbol: AnyLocalSymbolId,
-    ) -> Result<(LocalScopeId, &SymbolName), LocalSymbolBuildError> {
+    fn local_symbol_scope_and_name(&self, symbol: AnyLocalSymbolId) -> (LocalScopeId, &SymbolName) {
         if symbol.region() != self.region {
-            return Err(LocalSymbolBuildError::ForeignRegion);
+            panic!(
+                "local symbol construction: symbol belongs to a foreign region in {:?}",
+                self.region
+            );
         }
 
         match symbol {
@@ -758,28 +711,28 @@ impl LocalSymbolSnapshotBuilder {
                 .bindings
                 .get(
                     id.to_index()
-                        .ok_or(LocalSymbolBuildError::SymbolHasNoOrdinaryName)?,
+                        .expect("local symbol invariant: symbol must have an ordinary name"),
                 )
                 .map(|record| (record.scope(), record.name())),
             AnyLocalSymbolId::Constant(id) => self
                 .constants
                 .get(
                     id.to_index()
-                        .ok_or(LocalSymbolBuildError::SymbolHasNoOrdinaryName)?,
+                        .expect("local symbol invariant: symbol must have an ordinary name"),
                 )
                 .map(|record| (record.scope(), record.name())),
             AnyLocalSymbolId::AnonymousCallableParameter(id) => self
                 .anonymous_parameters
                 .get(
                     id.to_index()
-                        .ok_or(LocalSymbolBuildError::SymbolHasNoOrdinaryName)?,
+                        .expect("local symbol invariant: symbol must have an ordinary name"),
                 )
                 .map(|record| (record.scope(), record.name())),
             AnyLocalSymbolId::AnonymousCallable(_) | AnyLocalSymbolId::PostconditionResult(_) => {
                 None
             }
         }
-        .ok_or(LocalSymbolBuildError::SymbolHasNoOrdinaryName)
+        .expect("local symbol invariant: symbol must have an ordinary name")
     }
 }
 
@@ -792,10 +745,10 @@ fn local_key(
     kind: SymbolKind,
     anchors: impl IntoIterator<Item = SyntaxAnchor>,
     ordinal: Option<SymbolOrdinal>,
-) -> Result<LocalSymbolKey, LocalSymbolBuildError> {
+) -> LocalSymbolKey {
     // Region keys contain shared immutable symbol and anchor storage.
     LocalSymbolKey::try_new(region.clone(), kind, anchors, ordinal)
-        .ok_or(LocalSymbolBuildError::MissingSyntaxAnchor)
+        .expect("local symbol invariant: symbol must have a syntax anchor")
 }
 
 fn freeze_name_index<I>(index: BTreeMap<SymbolName, Vec<I>>) -> BTreeMap<SymbolName, Box<[I]>> {
@@ -828,7 +781,7 @@ mod tests {
     use bray_source::TextSize;
     use bray_testing::{test_source_at, test_source_store};
 
-    use super::{LocalSymbolBuildError, LocalSymbolSnapshotBuilder};
+    use super::LocalSymbolSnapshotBuilder;
     use crate::{
         AnonymousCallableParameterSymbolId, AnonymousCallableSymbolId, AnyLocalSymbolId,
         AnySymbolId, LocalBindingSymbolId, LocalScopeBoundary, LocalScopeId, LocalSymbolRegionId,
@@ -859,14 +812,11 @@ mod tests {
             Err(error) => panic!("test local constant must build: {error:?}"),
         };
 
-        assert_eq!(builder.insert_local_name(block, first.into()), Ok(()));
-        assert_eq!(builder.insert_local_name(block, duplicate.into()), Ok(()));
-        assert_eq!(builder.insert_local_name(block, constant.into()), Ok(()));
+        builder.insert_local_name(block, first.into());
+        builder.insert_local_name(block, duplicate.into());
+        builder.insert_local_name(block, constant.into());
 
-        assert_eq!(
-            builder.insert_surface_name(root, symbol_name("surface"), surface_symbol),
-            Ok(())
-        );
+        builder.insert_surface_name(root, symbol_name("surface"), surface_symbol);
 
         let snapshot = finish(builder);
 
@@ -947,10 +897,7 @@ mod tests {
             Err(error) => panic!("test anonymous parameter must build: {error:?}"),
         };
 
-        assert_eq!(
-            builder.insert_local_name(callable_scope, parameter.into()),
-            Ok(())
-        );
+        builder.insert_local_name(callable_scope, parameter.into());
 
         let contract_scope = scope(
             &mut builder,
@@ -964,17 +911,16 @@ mod tests {
             Err(error) => panic!("test postcondition result must build: {error:?}"),
         };
 
-        assert_eq!(
-            builder.push_postcondition_result(contract_scope, syntax, None, false),
-            Err(LocalSymbolBuildError::DuplicatePostconditionResult)
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = builder.push_postcondition_result(contract_scope, syntax, None, false);
+            }))
+            .is_err()
         );
 
-        assert_eq!(
-            builder.postcondition_result(contract_scope),
-            Ok(Some(result))
-        );
+        assert_eq!(builder.postcondition_result(contract_scope), Some(result));
 
-        assert_eq!(builder.local_symbol_is_recovered(result.into()), Ok(false));
+        assert_eq!(builder.local_symbol_is_recovered(result.into()), false);
 
         let snapshot = finish(builder);
 
@@ -1062,63 +1008,73 @@ mod tests {
             Err(error) => panic!("test anonymous callable must build: {error:?}"),
         };
 
-        assert_eq!(
-            builder.push_anonymous_callable(
-                root,
-                block_scope,
-                [syntax],
-                Some(SymbolOrdinal::new(1)),
-                false,
-            ),
-            Err(LocalSymbolBuildError::InvalidAnonymousCallableScope)
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = builder.push_anonymous_callable(
+                    root,
+                    block_scope,
+                    [syntax],
+                    Some(SymbolOrdinal::new(1)),
+                    false,
+                );
+            }))
+            .is_err()
         );
 
-        assert_eq!(
-            builder.push_anonymous_callable(
-                root,
-                wrong_parent_callable_scope,
-                [syntax],
-                Some(SymbolOrdinal::new(2)),
-                false,
-            ),
-            Err(LocalSymbolBuildError::InvalidAnonymousCallableScope)
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = builder.push_anonymous_callable(
+                    root,
+                    wrong_parent_callable_scope,
+                    [syntax],
+                    Some(SymbolOrdinal::new(2)),
+                    false,
+                );
+            }))
+            .is_err()
         );
 
-        assert_eq!(
-            builder.push_anonymous_callable(
-                root,
-                callable_scope,
-                [syntax],
-                Some(SymbolOrdinal::new(3)),
-                false,
-            ),
-            Err(LocalSymbolBuildError::AnonymousCallableScopeAlreadyAssigned)
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = builder.push_anonymous_callable(
+                    root,
+                    callable_scope,
+                    [syntax],
+                    Some(SymbolOrdinal::new(3)),
+                    false,
+                );
+            }))
+            .is_err()
         );
 
-        assert_eq!(
-            builder.push_anonymous_parameter(
-                callable,
-                unrelated_callable_scope,
-                symbol_name("unrelated"),
-                [syntax],
-                SymbolOrdinal::new(0),
-                crate::CallableParameterMode::Immutable,
-                false,
-            ),
-            Err(LocalSymbolBuildError::AnonymousCallableParameterScopeMismatch)
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = builder.push_anonymous_parameter(
+                    callable,
+                    unrelated_callable_scope,
+                    symbol_name("unrelated"),
+                    [syntax],
+                    SymbolOrdinal::new(0),
+                    crate::CallableParameterMode::Immutable,
+                    false,
+                );
+            }))
+            .is_err()
         );
 
-        assert_eq!(
-            builder.push_anonymous_parameter(
-                callable,
-                block_scope,
-                symbol_name("block"),
-                [syntax],
-                SymbolOrdinal::new(1),
-                crate::CallableParameterMode::Immutable,
-                false,
-            ),
-            Err(LocalSymbolBuildError::AnonymousCallableParameterScopeMismatch)
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = builder.push_anonymous_parameter(
+                    callable,
+                    block_scope,
+                    symbol_name("block"),
+                    [syntax],
+                    SymbolOrdinal::new(1),
+                    crate::CallableParameterMode::Immutable,
+                    false,
+                );
+            }))
+            .is_err()
         );
 
         assert!(finish(builder).anonymous_parameters().is_empty());
@@ -1134,29 +1090,37 @@ mod tests {
         let empty_builder =
             LocalSymbolSnapshotBuilder::new(LocalSymbolRegionId::new(0), empty_snapshot_key);
 
-        assert_eq!(
-            empty_builder.finish(),
-            Err(LocalSymbolBuildError::MissingRootScope)
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = empty_builder.finish();
+            }))
+            .is_err()
         );
 
         let mut builder =
             LocalSymbolSnapshotBuilder::new(LocalSymbolRegionId::new(1), snapshot_key);
 
-        assert_eq!(
-            builder.push_scope(None, LocalScopeBoundary::Block, syntax, TextSize::ZERO),
-            Err(LocalSymbolBuildError::MissingParentScope)
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = builder.push_scope(None, LocalScopeBoundary::Block, syntax, TextSize::ZERO);
+            }))
+            .is_err()
         );
 
         let root = scope(&mut builder, None, LocalScopeBoundary::Root, syntax);
 
-        assert_eq!(
-            builder.push_postcondition_result(root, syntax, None, false),
-            Err(LocalSymbolBuildError::InvalidScopeBoundary)
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = builder.push_postcondition_result(root, syntax, None, false);
+            }))
+            .is_err()
         );
 
-        assert_eq!(
-            builder.push_scope(None, LocalScopeBoundary::Root, syntax, TextSize::ZERO),
-            Err(LocalSymbolBuildError::DuplicateRootScope)
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = builder.push_scope(None, LocalScopeBoundary::Root, syntax, TextSize::ZERO);
+            }))
+            .is_err()
         );
 
         let foreign_key = region_key(
@@ -1179,9 +1143,11 @@ mod tests {
             false,
         );
 
-        assert_eq!(
-            builder.insert_local_name(root, foreign_binding.into()),
-            Err(LocalSymbolBuildError::ForeignRegion)
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = builder.insert_local_name(root, foreign_binding.into());
+            }))
+            .is_err()
         );
 
         assert_eq!(finish(builder).binding(foreign_binding), None);
@@ -1216,14 +1182,11 @@ mod tests {
         let checkpoint = builder.checkpoint();
         let abandoned = binding(&mut builder, root, "abandoned", syntax, 0, false);
 
-        assert_eq!(builder.insert_local_name(root, abandoned.into()), Ok(()));
+        builder.insert_local_name(root, abandoned.into());
 
-        assert_eq!(
-            builder.insert_surface_name(root, symbol_name("surface"), surface_symbol),
-            Ok(())
-        );
+        builder.insert_surface_name(root, symbol_name("surface"), surface_symbol);
 
-        assert!(builder.rollback(checkpoint));
+        builder.rollback(checkpoint);
 
         let reused = binding(&mut builder, root, "reused", syntax, 0, false);
         let snapshot = finish(builder);
@@ -1252,7 +1215,13 @@ mod tests {
         let root = scope(&mut first, None, LocalScopeBoundary::Root, syntax);
         let binding = binding(&mut first, root, "retained", syntax, 0, false);
 
-        assert!(!first.rollback(second.checkpoint()));
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                || first.rollback(second.checkpoint())
+            ))
+            .is_err()
+        );
+
         assert!(finish(first).binding(binding).is_some());
     }
 
@@ -1296,12 +1265,9 @@ mod tests {
 
         let abandoned_result = postcondition_result(&mut builder, contract_scope, syntax);
 
-        assert_eq!(
-            builder.insert_local_name(callable_scope, abandoned_parameter.into()),
-            Ok(())
-        );
+        builder.insert_local_name(callable_scope, abandoned_parameter.into());
 
-        assert!(builder.rollback(checkpoint));
+        builder.rollback(checkpoint);
 
         let reused_parameter = anonymous_parameter(&mut builder, callable, callable_scope, syntax);
         let reused_result = postcondition_result(&mut builder, contract_scope, syntax);
@@ -1309,10 +1275,7 @@ mod tests {
         assert_eq!(abandoned_parameter, reused_parameter);
         assert_eq!(abandoned_result, reused_result);
 
-        assert_eq!(
-            builder.insert_local_name(callable_scope, reused_parameter.into()),
-            Ok(())
-        );
+        builder.insert_local_name(callable_scope, reused_parameter.into());
 
         let snapshot = finish(builder);
 
@@ -1465,10 +1428,7 @@ mod tests {
     }
 
     fn finish(builder: LocalSymbolSnapshotBuilder) -> LocalSymbolSnapshot {
-        match builder.finish() {
-            Ok(snapshot) => snapshot,
-            Err(error) => panic!("test snapshot must publish: {error:?}"),
-        }
+        builder.finish()
     }
 
     fn snapshot_with_one_binding(
@@ -1481,7 +1441,7 @@ mod tests {
         let root = scope(&mut builder, None, LocalScopeBoundary::Root, syntax);
         let binding = binding(&mut builder, root, "value", syntax, 0, false);
 
-        assert_eq!(builder.insert_local_name(root, binding.into()), Ok(()));
+        builder.insert_local_name(root, binding.into());
 
         finish(builder)
     }

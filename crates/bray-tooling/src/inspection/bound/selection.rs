@@ -17,7 +17,6 @@ use crate::inspection::{InspectionSymbolIdentity, InspectionType, TypeInspection
 pub(crate) enum SelectionInspectionError {
     InvalidConstraintDispatch,
     Local,
-    SemanticValue(bray_symbols::SemanticValueStoreError),
     Type(TypeInspectionError),
 }
 
@@ -686,13 +685,9 @@ fn implementation_evidence(
     symbols: &SymbolGraph,
     semantic_values: &SemanticValueStore,
 ) -> Result<InspectionImplementationEvidence, SelectionInspectionError> {
-    let trait_application = semantic_values
-        .trait_application_data(requirement.trait_application())
-        .map_err(SelectionInspectionError::SemanticValue)?;
+    let trait_application = semantic_values.trait_application_data(requirement.trait_application());
 
-    let implementation = semantic_values
-        .implementation_instance_data(witness)
-        .map_err(SelectionInspectionError::SemanticValue)?;
+    let implementation = semantic_values.implementation_instance_data(witness);
 
     Ok(InspectionImplementationEvidence {
         subject: InspectionType::from_type(semantic_values, symbols, requirement.subject())?,

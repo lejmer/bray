@@ -194,11 +194,7 @@ where
             return Ok(MemberStorage::Recovered);
         }
 
-        let data = self
-            .request
-            .semantic_values()
-            .type_data(receiver.ty())
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        let data = self.request.semantic_values().type_data(receiver.ty());
 
         let TypeData::Named { definition, .. } = data.as_ref() else {
             return Ok(MemberStorage::Value);
@@ -695,7 +691,6 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
                 self.request
                     .semantic_values()
                     .type_data(self.expression_type(expression)?.ty())
-                    .map_err(CheckerInfrastructureError::SemanticValueStore)?
                     .as_ref(),
                 TypeData::Borrow { .. }
             ) {

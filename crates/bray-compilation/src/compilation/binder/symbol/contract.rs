@@ -278,10 +278,7 @@ fn bind_callable_contracts(
                 .to_vec(),
         ),
         bray_symbols::TypeExpressionTemplate::Resolved(ty) => {
-            let data = context
-                .semantic_values
-                .type_data(*ty)
-                .map_err(crate::compilation::binder::semantic_value_binding_error)?;
+            let data = context.semantic_values.type_data(*ty);
 
             match &*data {
                 TypeData::Callable(callable) => (
@@ -1328,8 +1325,7 @@ mod tests {
         let dependency = compilation
             .semantic_value_store()
             .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}"))
-            .dependency_contract_template_data(predicate.dependency_contract())
-            .unwrap_or_else(|error| panic!("predicate dependency must be available: {error:?}"));
+            .dependency_contract_template_data(predicate.dependency_contract());
 
         assert!(!dependency.requirements().is_empty());
     }

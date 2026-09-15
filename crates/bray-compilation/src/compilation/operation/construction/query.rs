@@ -213,10 +213,7 @@ impl Compilation {
             && let Some(result) = types.expression(expression)
             && !result.is_recovered()
         {
-            let data = binding_context
-                .semantic_values()
-                .type_data(result.ty())
-                .map_err(FactQueryError::SemanticValueStore)?;
+            let data = binding_context.semantic_values().type_data(result.ty());
 
             if matches!(
                 data.as_ref(),
@@ -232,10 +229,7 @@ impl Compilation {
         if let Some(result) = types.expression(member.receiver())
             && !result.is_recovered()
         {
-            let data = binding_context
-                .semantic_values()
-                .type_data(result.ty())
-                .map_err(FactQueryError::SemanticValueStore)?;
+            let data = binding_context.semantic_values().type_data(result.ty());
 
             if matches!(
                 data.as_ref(),

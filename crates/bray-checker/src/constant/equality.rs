@@ -9,13 +9,9 @@ pub(crate) fn constant_values_equal(
     left: ConstantValueId,
     right: ConstantValueId,
 ) -> Result<bool, CheckerInfrastructureError> {
-    let left = values
-        .constant_value_data(left)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    let left = values.constant_value_data(left);
 
-    let right = values
-        .constant_value_data(right)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    let right = values.constant_value_data(right);
 
     if left.ty() != right.ty() {
         return Ok(false);

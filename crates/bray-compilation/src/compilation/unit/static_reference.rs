@@ -32,19 +32,15 @@ impl Compilation {
         let template = StaticInstanceTemplateId::new(declaration);
         let target = self.requested_target().profile().identity().clone();
 
-        let concrete_substitution = match binding_context
+        if !binding_context
             .semantic_values()
-            .require_concrete_substitution(substitution)
+            .substitution_is_concrete(substitution)
         {
-            Ok(substitution) => substitution,
-            Err(bray_symbols::SemanticValueStoreError::OpenSubstitution) => {
-                return Ok((
-                    StaticReferenceSelection::open(template, substitution, [], target),
-                    DiagnosticBag::new(),
-                ));
-            }
-            Err(error) => return Err(FactQueryError::SemanticValueStore(error)),
-        };
+            return Ok((
+                StaticReferenceSelection::open(template, substitution, [], target),
+                DiagnosticBag::new(),
+            ));
+        }
 
         let (witnesses, diagnostics) = self.static_instance_witnesses(
             declaration,
@@ -57,7 +53,7 @@ impl Compilation {
         Ok((
             StaticReferenceSelection::Closed(StaticInstanceKey::new(
                 template,
-                concrete_substitution,
+                substitution,
                 witnesses,
                 target,
             )),

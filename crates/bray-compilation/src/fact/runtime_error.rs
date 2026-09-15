@@ -2,9 +2,7 @@ use std::io;
 
 use bray_bound_tree::{BoundUnitId, BoundUnitKey};
 
-use super::{
-    CompilationFactKey, CompilationInputKey, FactFingerprint, FactTaskIdentity, RuntimeIdentity,
-};
+use super::{CompilationFactKey, FactTaskIdentity, RuntimeIdentity};
 
 /// Stable category for a compiler query runtime failure.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -23,10 +21,6 @@ pub enum FactRuntimeErrorKind {
     InvalidSchedulerState,
     /// Required worker-local task context was unavailable or belonged to another runtime.
     InvalidTaskContext,
-    /// A compilation input fingerprint was unavailable or changed during one task.
-    FingerprintFailure,
-    /// Cache or dependency publication state did not match the requested operation.
-    PublicationMismatch,
     /// A task no longer retained the computation needed to publish its fact.
     AbandonedComputation,
     /// Retained dependency or wait-graph state was incomplete.
@@ -140,30 +134,9 @@ pub(crate) enum FactRuntimeFailure {
         operation: SchedulerLocalOperation,
         cause: LocalStateFailure,
     },
-    MissingInputFingerprint {
-        input: CompilationInputKey,
-        task: FactTaskIdentity,
-        fact: CompilationFactKey,
-    },
-    InputFingerprintMismatch {
-        input: CompilationInputKey,
-        expected: FactFingerprint,
-        actual: FactFingerprint,
-        task: FactTaskIdentity,
-        fact: CompilationFactKey,
-    },
-    PublicationMismatch {
-        requested: PublicationIdentity,
-        actual: PublicationState,
-    },
     AbandonedComputation {
         task: FactTaskIdentity,
         fact: CompilationFactKey,
-    },
-    MissingDependencyRecord {
-        task: FactTaskIdentity,
-        fact: CompilationFactKey,
-        dependency: CompilationFactKey,
     },
     InvalidWaitGraph {
         requester: FactTaskIdentity,
@@ -264,14 +237,10 @@ impl FactRuntimeFailure {
             Self::InvalidTaskContext { .. } | Self::TaskLocalStateUnavailable { .. } => {
                 FactRuntimeErrorKind::InvalidTaskContext
             }
-            Self::MissingInputFingerprint { .. } | Self::InputFingerprintMismatch { .. } => {
-                FactRuntimeErrorKind::FingerprintFailure
-            }
-            Self::PublicationMismatch { .. } => FactRuntimeErrorKind::PublicationMismatch,
             Self::AbandonedComputation { .. } => FactRuntimeErrorKind::AbandonedComputation,
-            Self::MissingDependencyRecord { .. }
-            | Self::InvalidWaitGraph { .. }
-            | Self::MissingCycle { .. } => FactRuntimeErrorKind::DependencyStateMismatch,
+            Self::InvalidWaitGraph { .. } | Self::MissingCycle { .. } => {
+                FactRuntimeErrorKind::DependencyStateMismatch
+            }
             Self::InvalidCancellationState { .. } | Self::RecursiveCancellationInterest => {
                 FactRuntimeErrorKind::InvalidCancellationState
             }
@@ -363,25 +332,6 @@ pub(crate) enum LocalStateFailure {
     Unavailable,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub(crate) struct PublicationIdentity {
-    pub(crate) task: Option<FactTaskIdentity>,
-    pub(crate) fact: CompilationFactKey,
-}
-
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub(crate) enum PublicationState {
-    Vacant,
-    Computing {
-        task: FactTaskIdentity,
-        fact: CompilationFactKey,
-    },
-    Ready {
-        fact: Option<CompilationFactKey>,
-    },
-    PublishedFlagWithoutValue,
-}
-
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum CancellationStateKind {
     Request,
@@ -392,14 +342,11 @@ pub(crate) enum CancellationStateKind {
 mod tests {
     use super::{
         CancellationStateKind, CapacityResource, FactRuntimeError, FactRuntimeErrorKind,
-        FactRuntimeFailure, FactTaskPhase, HostIoFailure, LocalStateFailure, PublicationIdentity,
-        PublicationState, SchedulerCounter, SchedulerLocalOperation, SynchronizationComponent,
-        TaskContextIdentity, TaskLocalOperation, TaskOperation, WorkerPoolKind,
+        FactRuntimeFailure, FactTaskPhase, HostIoFailure, LocalStateFailure, SchedulerCounter,
+        SchedulerLocalOperation, SynchronizationComponent, TaskContextIdentity, TaskLocalOperation,
+        TaskOperation, WorkerPoolKind,
     };
-    use crate::fact::{
-        CompilationFactKey, CompilationInputKey, FactTaskIdentity, RuntimeIdentity,
-        fact_fingerprint,
-    };
+    use crate::fact::{CompilationFactKey, FactTaskIdentity, RuntimeIdentity};
     use crate::test_support::callable_body_key;
 
     #[test]
@@ -511,47 +458,11 @@ mod tests {
                 FactRuntimeErrorKind::InvalidTaskContext,
             ),
             (
-                FactRuntimeFailure::MissingInputFingerprint {
-                    input: CompilationInputKey::SourceSet,
-                    task,
-                    fact: fact.clone(),
-                },
-                FactRuntimeErrorKind::FingerprintFailure,
-            ),
-            (
-                FactRuntimeFailure::InputFingerprintMismatch {
-                    input: CompilationInputKey::SourceSet,
-                    expected: fact_fingerprint(&fact, &1_u8),
-                    actual: fact_fingerprint(&fact, &2_u8),
-                    task,
-                    fact: fact.clone(),
-                },
-                FactRuntimeErrorKind::FingerprintFailure,
-            ),
-            (
-                FactRuntimeFailure::PublicationMismatch {
-                    requested: PublicationIdentity {
-                        task: Some(task),
-                        fact: fact.clone(),
-                    },
-                    actual: PublicationState::Vacant,
-                },
-                FactRuntimeErrorKind::PublicationMismatch,
-            ),
-            (
                 FactRuntimeFailure::AbandonedComputation {
                     task,
                     fact: fact.clone(),
                 },
                 FactRuntimeErrorKind::AbandonedComputation,
-            ),
-            (
-                FactRuntimeFailure::MissingDependencyRecord {
-                    task,
-                    fact: fact.clone(),
-                    dependency: CompilationFactKey::DeclarationTable,
-                },
-                FactRuntimeErrorKind::DependencyStateMismatch,
             ),
             (
                 FactRuntimeFailure::InvalidWaitGraph {

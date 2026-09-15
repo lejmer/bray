@@ -626,15 +626,7 @@ where
         ty: TypeId,
         origin: Option<SourceSpan>,
     ) -> RepresentationQueryResult<C, MemberRepresentation> {
-        let data = self
-            .context
-            .semantic_values()
-            .type_data(ty)
-            .map_err(|error| {
-                CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
-                    error,
-                ))
-            })?;
+        let data = self.context.semantic_values().type_data(ty);
 
         match data.as_ref() {
             TypeData::Error => Ok(MemberRepresentation::recovered_invalid()),
@@ -655,7 +647,6 @@ where
                                 RepresentationRole::Range,
                                 ty,
                             )
-                            .map_err(CheckerInfrastructureError::SemanticValueStore)?
                             .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
 
                         self.validate_range_element_type(element, origin)?;
@@ -670,7 +661,6 @@ where
                                 RepresentationRole::Uninit,
                                 ty,
                             )
-                            .map_err(CheckerInfrastructureError::SemanticValueStore)?
                             .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
 
                         return self.check_type(element, origin).map(uninit_representation);
@@ -688,12 +678,7 @@ where
                 let substitution = self
                     .context
                     .semantic_values()
-                    .generic_substitution_data(*substitution)
-                    .map_err(|error| {
-                        CheckerQueryError::Infrastructure(
-                            CheckerInfrastructureError::SemanticValueStore(error),
-                        )
-                    })?;
+                    .generic_substitution_data(*substitution);
 
                 let dependencies = representation
                     .representation
@@ -818,7 +803,7 @@ where
             self.context.semantic_values(),
             self.context.available_compiler_known_symbols(),
             element,
-        )?;
+        );
 
         if role
             .and_then(RepresentationRole::integer_representation)
@@ -827,15 +812,7 @@ where
             return Ok(());
         }
 
-        let data = self
-            .context
-            .semantic_values()
-            .type_data(element)
-            .map_err(|error| {
-                CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
-                    error,
-                ))
-            })?;
+        let data = self.context.semantic_values().type_data(element);
 
         let actual = match data.as_ref() {
             TypeData::TypeParameter(_) => return Ok(()),

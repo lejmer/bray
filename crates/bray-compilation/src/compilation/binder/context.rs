@@ -1030,19 +1030,13 @@ mod tests {
             panic!("imported parameter type must use canonical semantic identity");
         };
 
-        let parameter_type = binding_context
-            .semantic_values
-            .type_data(parameter_type)
-            .unwrap_or_else(|error| panic!("imported parameter type must be interned: {error:?}"));
+        let parameter_type = binding_context.semantic_values.type_data(parameter_type);
 
         let bray_symbols::TypeData::Array { length, .. } = parameter_type.as_ref() else {
             panic!("imported parameter must retain its array type");
         };
 
-        let length = binding_context
-            .semantic_values
-            .constant_term_data(*length)
-            .unwrap_or_else(|error| panic!("imported array length must be interned: {error:?}"));
+        let length = binding_context.semantic_values.constant_term_data(*length);
 
         assert!(matches!(
             length.as_ref(),

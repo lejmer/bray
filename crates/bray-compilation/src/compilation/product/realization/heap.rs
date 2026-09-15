@@ -11,7 +11,7 @@ use bray_symbols::{
 use super::super::super::{CodegenPreparationError, Compilation};
 use super::super::specialization::ConcreteCodegenInstance;
 use crate::compilation::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
-use crate::fact::{CancellationToken, FactQueryError};
+use crate::fact::CancellationToken;
 
 impl Compilation {
     pub(in crate::compilation::product) fn compiler_provided_heap_method(
@@ -65,9 +65,7 @@ impl Compilation {
 
         let values = self.semantic_value_store()?;
 
-        let substitution = values
-            .generic_substitution_data(callable.substitution())
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let substitution = values.generic_substitution_data(callable.substitution());
 
         let binding = self.binding_context(cancellation)?;
 

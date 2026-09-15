@@ -68,9 +68,6 @@ impl From<bray_checker::LifecycleSelectionError> for CodegenPreparationError {
             bray_checker::LifecycleSelectionError::InvalidStorageMemberKey(key) => {
                 ProductQueryFailure::InvalidCompilerKnownDeclarationKey { key }.into()
             }
-            bray_checker::LifecycleSelectionError::SemanticValue(cause) => {
-                FactQueryError::SemanticValueStore(cause).into()
-            }
             bray_checker::LifecycleSelectionError::UnsupportedType(ty) => Self::UnsupportedType(ty),
             bray_checker::LifecycleSelectionError::UnresolvedType(ty) => Self::UnresolvedType(ty),
             bray_checker::LifecycleSelectionError::UnexpectedType { ty, actual } => {

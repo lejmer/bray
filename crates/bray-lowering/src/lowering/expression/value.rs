@@ -25,10 +25,10 @@ impl Lowerer<'_> {
         &self,
         nullable: TypeId,
         contained: TypeId,
-    ) -> Result<bool, LoweringError> {
-        let data = self.input.semantic_values().type_data(nullable)?;
+    ) -> bool {
+        let data = self.input.semantic_values().type_data(nullable);
 
-        Ok(matches!(data.as_ref(), TypeData::Nullable(element) if *element == contained))
+        matches!(data.as_ref(), TypeData::Nullable(element) if *element == contained)
     }
 
     pub(in crate::lowering) fn push_nullable_present(
@@ -64,7 +64,7 @@ impl Lowerer<'_> {
         operand_type: TypeId,
         destination_type: TypeId,
     ) -> Result<(MirOperand, TypeId), LoweringError> {
-        if !self.nullable_contains(destination_type, operand_type)? {
+        if !self.nullable_contains(destination_type, operand_type) {
             return Ok((operand, operand_type));
         }
 

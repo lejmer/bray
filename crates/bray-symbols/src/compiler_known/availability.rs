@@ -203,38 +203,38 @@ impl AvailableCompilerKnownSymbols {
         values: &crate::SemanticValueStore,
         role: RepresentationRole,
         ty: crate::TypeId,
-    ) -> Result<Option<crate::TypeId>, crate::SemanticValueStoreError> {
+    ) -> Option<crate::TypeId> {
         let Some(RepresentationTarget::Symbol(symbol)) = self.representation_target(role) else {
-            return Ok(None);
+            return None;
         };
 
         let Some(definition) = NamedTypeSymbolId::try_from_any(symbol) else {
-            return Ok(None);
+            return None;
         };
 
-        let data = values.type_data(ty)?;
+        let data = values.type_data(ty);
 
         let crate::TypeData::Named {
             definition: candidate,
             substitution,
         } = data.as_ref()
         else {
-            return Ok(None);
+            return None;
         };
 
         if *candidate != definition {
-            return Ok(None);
+            return None;
         }
 
-        let substitution = values.generic_substitution_data(*substitution)?;
+        let substitution = values.generic_substitution_data(*substitution);
 
         let [binding] = substitution.bindings() else {
-            return Ok(None);
+            return None;
         };
 
         match binding.argument() {
-            crate::GenericArgument::Type(argument) => Ok(Some(argument)),
-            crate::GenericArgument::Constant(_) => Ok(None),
+            crate::GenericArgument::Type(argument) => Some(argument),
+            crate::GenericArgument::Constant(_) => None,
         }
     }
 
@@ -422,9 +422,7 @@ mod tests {
 
     use super::resolve_availability;
     use crate::compiler_known::test_support::{build_provider, declaration_key};
-    use crate::{
-        FunctionSymbolId, SemanticValueStore, SemanticValueStoreError, StructSymbolId, TypeData,
-    };
+    use crate::{FunctionSymbolId, SemanticValueStore, StructSymbolId, TypeData};
 
     #[test]
     fn views_filter_declarations_without_mutating_the_complete_provider() {
@@ -561,17 +559,17 @@ mod tests {
 
         assert_eq!(
             view.unary_representation_argument(&values, RepresentationRole::Future, future),
-            Ok(Some(completion))
+            Some(completion)
         );
 
         assert_eq!(
             view.unary_representation_argument(&values, RepresentationRole::Task, future),
-            Ok(None)
+            None
         );
 
         assert_eq!(
             view.unary_representation_argument(&values, RepresentationRole::RunResult, run_result,),
-            Ok(Some(completion))
+            Some(completion)
         );
     }
 
@@ -590,12 +588,12 @@ mod tests {
             .intern_type(TypeData::tuple([]))
             .unwrap_or_else(|error| panic!("foreign type must intern: {error:?}"));
 
-        assert_eq!(
-            view.unary_representation_type(&second, RepresentationRole::Future, foreign),
-            Err(SemanticValueStoreError::ForeignId {
-                expected: second.id(),
-                actual: first.id(),
-            })
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ =
+                    view.unary_representation_type(&second, RepresentationRole::Future, foreign);
+            }))
+            .is_err()
         );
     }
 
@@ -614,12 +612,15 @@ mod tests {
             .intern_type(TypeData::tuple([]))
             .unwrap_or_else(|error| panic!("foreign type must intern: {error:?}"));
 
-        assert_eq!(
-            view.unary_representation_argument(&second, RepresentationRole::Future, foreign),
-            Err(SemanticValueStoreError::ForeignId {
-                expected: second.id(),
-                actual: first.id(),
-            })
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = view.unary_representation_argument(
+                    &second,
+                    RepresentationRole::Future,
+                    foreign,
+                );
+            }))
+            .is_err()
         );
     }
 

@@ -62,7 +62,7 @@ where
             return Ok(None);
         }
 
-        propagate_assignment(request, expression_id, variables, inference)?;
+        propagate_assignment(request, expression_id, variables, inference);
 
         propagate_control_transfer(request, expression_id, variables, regions, types, inference)?;
 
@@ -196,8 +196,7 @@ where
                 request.semantic_values(),
                 RepresentationRole::Future,
                 future,
-            )
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+            );
 
         if let Some(completion) = completion {
             inference.add_evidence(variable, completion, expression);
@@ -243,11 +242,9 @@ where
     };
 
     let expected = inference.try_unique_matching_expectation(variable, |ty| {
-        request
-            .semantic_values()
-            .type_data(ty)
-            .map(|data| matches!(data.as_ref(), TypeData::Nullable(_)))
-            .map_err(CheckerInfrastructureError::SemanticValueStore)
+        let data = request.semantic_values().type_data(ty);
+
+        Ok::<_, CheckerInfrastructureError>(matches!(data.as_ref(), TypeData::Nullable(_)))
     })?;
 
     if let Some(expected) = expected {
@@ -289,17 +286,14 @@ where
         return Ok(());
     };
 
-    let data = request
-        .semantic_values()
-        .type_data(operand_type)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    let data = request.semantic_values().type_data(operand_type);
 
     let TypeData::Named { substitution, .. } = data.as_ref() else {
         return Ok(());
     };
 
     if !matches!(
-        type_representation(request, operand_type)?,
+        type_representation(request, operand_type),
         Some(RepresentationRole::Result | RepresentationRole::RunResult)
     ) {
         return Ok(());
@@ -307,8 +301,7 @@ where
 
     let substitution = request
         .semantic_values()
-        .generic_substitution_data(*substitution)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        .generic_substitution_data(*substitution);
 
     let Some(GenericArgument::Type(success)) = substitution
         .bindings()
@@ -352,18 +345,15 @@ where
     let operand_type = inference.evidence(operand_variable);
 
     let expected = inference.try_unique_matching_expectation(variable, |ty| {
-        request
-            .semantic_values()
-            .type_data(ty)
-            .map(|data| matches!(data.as_ref(), TypeData::Borrow { kind: expected, .. } if *expected == kind))
-            .map_err(CheckerInfrastructureError::SemanticValueStore)
+        let data = request.semantic_values().type_data(ty);
+
+        Ok::<_, CheckerInfrastructureError>(
+            matches!(data.as_ref(), TypeData::Borrow { kind: expected, .. } if *expected == kind),
+        )
     })?;
 
     if let Some(expected) = expected {
-        let data = request
-            .semantic_values()
-            .type_data(expected)
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        let data = request.semantic_values().type_data(expected);
 
         let TypeData::Borrow {
             target: expected_target,
@@ -375,10 +365,7 @@ where
 
         let is_reborrow = match operand_type {
             Some(operand_type) => {
-                let data = request
-                    .semantic_values()
-                    .type_data(operand_type)
-                    .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+                let data = request.semantic_values().type_data(operand_type);
 
                 matches!(
                     data.as_ref(),
@@ -402,10 +389,7 @@ where
     }
 
     if let Some(target) = operand_type {
-        let target_data = request
-            .semantic_values()
-            .type_data(target)
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        let target_data = request.semantic_values().type_data(target);
 
         if matches!(target_data.as_ref(), TypeData::Borrow { .. }) {
             return Ok(());
@@ -556,17 +540,12 @@ fn add_transfer_value<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let nullable_expectation = inference
-        .unique_expectation(target)
-        .map(|expected| {
-            request
-                .semantic_values()
-                .type_data(expected)
-                .map(|data| matches!(data.as_ref(), TypeData::Nullable(_)).then_some(expected))
-                .map_err(CheckerInfrastructureError::SemanticValueStore)
-        })
-        .transpose()?
-        .flatten();
+    let nullable_expectation = inference.unique_expectation(target).filter(|expected| {
+        matches!(
+            request.semantic_values().type_data(*expected).as_ref(),
+            TypeData::Nullable(_)
+        )
+    });
 
     if let (Some(expected), Some(operand)) = (nullable_expectation, operand) {
         add_expectations(
@@ -594,25 +573,24 @@ fn propagate_assignment<C>(
     expression_id: BoundExpressionId,
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
     inference: &mut TypeInferenceContext,
-) -> Result<(), CheckerInfrastructureError>
-where
+) where
     C: CheckerRequestContext + ?Sized,
 {
     let Some(BoundExpression::Assignment(assignment)) = request.view().expression(expression_id)
     else {
-        return Ok(());
+        return;
     };
 
     let [target, value] = assignment.operands() else {
-        return Ok(());
+        return;
     };
 
     let Some(target) = variables.get(target).copied() else {
-        return Ok(());
+        return;
     };
 
     let Some(expected) = inference.evidence(target) else {
-        return Ok(());
+        return;
     };
 
     let actual = variables
@@ -620,10 +598,7 @@ where
         .copied()
         .and_then(|value| inference.evidence(value));
 
-    let expected_data = request
-        .semantic_values()
-        .type_data(expected)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    let expected_data = request.semantic_values().type_data(expected);
 
     let expected = match expected_data.as_ref() {
         TypeData::Borrow {
@@ -638,14 +613,12 @@ where
             add_operand_expectation(Some(*value), Some(expected), variables, inference);
         }
 
-        return Ok(());
+        return;
     }
 
     if matches!(expected_data.as_ref(), TypeData::Nullable(element) if Some(*element) == actual) {
-        return Ok(());
+        return;
     }
 
     add_operand_expectation(Some(*value), Some(expected), variables, inference);
-
-    Ok(())
 }

@@ -21,27 +21,27 @@ pub(crate) fn lookup_unqualified_name(
 
     while let Some(scope) = current {
         if name == "result" {
-            let result = unit.postcondition_result(scope)?;
+            let result = unit.postcondition_result(scope);
 
             if let Some(result) = result {
                 let is_recovered = unit.local_symbol_is_recovered(result.into());
                 let result = ResolvedName::Local(result.into());
 
-                return Ok(match is_recovered? {
+                return Ok(match is_recovered {
                     true => MemberLookupResult::Malformed(Box::new([result])),
                     false => MemberLookupResult::Found(result),
                 });
             }
         }
 
-        let locals = unit.local_symbols_named(scope, name)?;
-        let surfaces = unit.surface_symbols_named(scope, name)?;
+        let locals = unit.local_symbols_named(scope, name);
+        let surfaces = unit.surface_symbols_named(scope, name);
 
         if !locals.is_empty() || !surfaces.is_empty() {
             let mut has_recovered_local = false;
 
             for local in locals {
-                if unit.local_symbol_is_recovered(*local)? {
+                if unit.local_symbol_is_recovered(*local) {
                     has_recovered_local = true;
                     break;
                 }
@@ -79,13 +79,13 @@ pub(crate) fn lookup_unqualified_name(
             });
         }
 
-        let boundary = unit.scope_boundary(scope)?;
+        let boundary = unit.scope_boundary(scope);
 
         if boundary == LocalScopeBoundary::Callable {
             break;
         }
 
-        current = unit.scope_parent(scope)?;
+        current = unit.scope_parent(scope);
     }
 
     let generic_lookup = symbols
@@ -224,31 +224,26 @@ fn collect_lookup_candidates(
 
 #[cfg(test)]
 mod tests {
-    use bray_symbols::{LocalSymbolBuildError, LocalSymbolRegionId};
+    use bray_symbols::LocalSymbolRegionId;
 
     use super::lookup_unqualified_name;
     use crate::lookup::NameAccess;
-    use crate::unit::BoundUnitConstructionError;
     use crate::unit::test_support::{builder, fixture};
 
     #[test]
-    fn unqualified_lookup_preserves_local_builder_failure() {
+    #[should_panic(expected = "belongs to another region")]
+    fn unqualified_lookup_exposes_foreign_region_bug() {
         let fixture = fixture();
         let unit = builder(&fixture, LocalSymbolRegionId::new(11));
         let foreign = builder(&fixture, LocalSymbolRegionId::new(12));
 
-        assert_eq!(
-            lookup_unqualified_name(
-                &unit,
-                &fixture.graph,
-                foreign.root_scope(),
-                None,
-                "value",
-                NameAccess::Internal,
-            ),
-            Err(BoundUnitConstructionError::LocalSymbol(
-                LocalSymbolBuildError::ForeignRegion,
-            )),
+        let _ = lookup_unqualified_name(
+            &unit,
+            &fixture.graph,
+            foreign.root_scope(),
+            None,
+            "value",
+            NameAccess::Internal,
         );
     }
 }

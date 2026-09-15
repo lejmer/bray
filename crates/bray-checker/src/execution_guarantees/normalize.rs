@@ -30,7 +30,7 @@ pub fn execution_conditions(
         _ => Vec::new(),
     };
 
-    let literals = condition_literals(semantics, values)?;
+    let literals = condition_literals(semantics, values);
 
     Ok(roots
         .into_iter()
@@ -304,21 +304,20 @@ pub(crate) fn expression_place(
 pub(crate) fn condition_literals(
     semantics: &CheckedExpressionSemantics,
     values: &SemanticValueStore,
-) -> Result<BTreeMap<BoundExpressionId, ExecutionCondition>, bray_symbols::SemanticValueStoreError>
-{
+) -> BTreeMap<BoundExpressionId, ExecutionCondition> {
     semantics
         .literals()
         .entries()
         .iter()
         .map(|literal| {
-            let value = values.constant_value_data(literal.value())?;
+            let value = values.constant_value_data(literal.value());
 
             let condition = match value.kind() {
                 ConstantValueKind::Boolean(value) => ExecutionCondition::Boolean(*value),
                 _ => ExecutionCondition::Literal(value),
             };
 
-            Ok((literal.expression(), condition))
+            (literal.expression(), condition)
         })
         .collect()
 }

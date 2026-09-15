@@ -465,30 +465,7 @@ impl DiagnosticBindingFailure {
 /// Exact canonical-value failure that prevented semantic binding.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticSemanticValueFailure {
-    ForeignId {
-        expected_store: u64,
-        actual_store: u64,
-    },
-    UnknownId {
-        kind: &'static str,
-    },
-    CapacityExhausted {
-        kind: &'static str,
-    },
-    GenericOwnerMismatch {
-        expected_kind: &'static str,
-        expected: u32,
-        actual_kind: &'static str,
-        actual: u32,
-    },
-    OpenSubstitution,
-    /// A returned-dependency reference does not name an enclosing equation.
-    InvalidDependencyVariable {
-        /// Number of enclosing equation groups to skip.
-        depth: u32,
-        /// Equation ordinal within the selected group.
-        ordinal: u32,
-    },
+    CapacityExhausted { kind: &'static str },
 }
 
 impl DiagnosticEmissionFailure {
@@ -781,14 +758,7 @@ impl DiagnosticBindingFailure {
 impl DiagnosticSemanticValueFailure {
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::ForeignId { .. } => "binding_semantic_value_foreign_id",
-            Self::UnknownId { .. } => "binding_semantic_value_unknown_id",
             Self::CapacityExhausted { .. } => "binding_semantic_value_capacity_exhausted",
-            Self::GenericOwnerMismatch { .. } => "binding_semantic_value_generic_owner_mismatch",
-            Self::InvalidDependencyVariable { .. } => {
-                "binding_semantic_value_invalid_dependency_variable"
-            }
-            Self::OpenSubstitution => "binding_semantic_value_open_substitution",
         }
     }
 }

@@ -180,7 +180,7 @@ impl<Upstream: Hash> Hash for BindingError<Upstream> {
             }
             Self::Construction(error) => error.hash(state),
             Self::Assembly(error) => error.hash(state),
-            Self::CallableSignature(error) => hash_callable_signature_error(*error, state),
+            Self::CallableSignature(error) => error.hash(state),
             Self::GenericSubstitution(error) => hash_generic_substitution_error(*error, state),
             Self::SyntaxContract(source) => source.hash(state),
             Self::GenericOwnerUnavailable(symbol) => symbol.hash(state),
@@ -288,17 +288,6 @@ fn hash_generic_substitution_error<H: Hasher>(
             actual.hash(state);
         }
         bray_symbols::GenericSubstitutionShapeError::OrdinalOverflow => {}
-    }
-}
-
-fn hash_callable_signature_error<H: Hasher>(
-    error: bray_symbols::CallableSignatureTemplateError,
-    state: &mut H,
-) {
-    std::mem::discriminant(&error).hash(state);
-
-    if let bray_symbols::CallableSignatureTemplateError::SemanticValue(error) = error {
-        error.hash(state);
     }
 }
 

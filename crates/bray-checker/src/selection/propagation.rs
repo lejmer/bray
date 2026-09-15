@@ -162,7 +162,6 @@ where
         let TypeData::Nullable(_) = request
             .semantic_values()
             .type_data(operand_type.ty())
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?
             .as_ref()
         else {
             return Ok(None);
@@ -183,12 +182,12 @@ where
         ));
     }
 
-    let representation = type_representation(request, operand_type.ty())?;
+    let representation = type_representation(request, operand_type.ty());
 
     match representation {
         Some(RepresentationRole::RunResult) => Ok(Some(Ok(SelectedPropagation::CurrentRun))),
         Some(RepresentationRole::Result) => {
-            let Some(error_type) = named_type_arguments(request, operand_type.ty())?
+            let Some(error_type) = named_type_arguments(request, operand_type.ty())
                 .get(1)
                 .copied()
             else {
@@ -225,7 +224,7 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     for boundary in boundaries.iter().rev().copied() {
-        if is_nullable(request, boundary.ty)? {
+        if is_nullable(request, boundary.ty) {
             return Ok(Some(boundary));
         }
     }
@@ -234,7 +233,7 @@ where
         return Ok(None);
     };
 
-    Ok(is_nullable(request, ty)?.then_some(ResultBoundary {
+    Ok(is_nullable(request, ty).then_some(ResultBoundary {
         target: SelectedPropagationBoundary::Callable,
         ty,
     }))
@@ -263,11 +262,11 @@ where
             ty,
         }))
     {
-        if type_representation(request, boundary.ty)? != Some(RepresentationRole::Result) {
+        if type_representation(request, boundary.ty) != Some(RepresentationRole::Result) {
             continue;
         }
 
-        let Some(target_error) = named_type_arguments(request, boundary.ty)?.get(1).copied() else {
+        let Some(target_error) = named_type_arguments(request, boundary.ty).get(1).copied() else {
             continue;
         };
 
@@ -331,50 +330,37 @@ where
     crate::diagnostic::diagnostic_type(request.context(), ty)
 }
 
-fn named_type_arguments<C>(
-    request: CheckerUnitView<'_, C>,
-    ty: TypeId,
-) -> Result<Vec<TypeId>, CheckerQueryError<C::UpstreamError>>
+fn named_type_arguments<C>(request: CheckerUnitView<'_, C>, ty: TypeId) -> Vec<TypeId>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let data = request
-        .semantic_values()
-        .type_data(ty)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    let data = request.semantic_values().type_data(ty);
 
     let TypeData::Named { substitution, .. } = data.as_ref() else {
-        return Ok(Vec::new());
+        return Vec::new();
     };
 
     let substitution = request
         .semantic_values()
-        .generic_substitution_data(*substitution)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        .generic_substitution_data(*substitution);
 
-    Ok(substitution
+    substitution
         .bindings()
         .iter()
         .filter_map(|binding| match binding.argument() {
             GenericArgument::Type(ty) => Some(ty),
             GenericArgument::Constant(_) => None,
         })
-        .collect())
+        .collect()
 }
 
-fn is_nullable<C>(
-    request: CheckerUnitView<'_, C>,
-    ty: TypeId,
-) -> Result<bool, CheckerInfrastructureError>
+fn is_nullable<C>(request: CheckerUnitView<'_, C>, ty: TypeId) -> bool
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let data = request
-        .semantic_values()
-        .type_data(ty)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    let data = request.semantic_values().type_data(ty);
 
-    Ok(matches!(data.as_ref(), TypeData::Nullable(_)))
+    matches!(data.as_ref(), TypeData::Nullable(_))
 }
 
 const fn walk_root<C>(request: CheckerUnitView<'_, C>) -> AnyBoundNodeId

@@ -207,7 +207,7 @@ pub(super) fn check_storage_accesses<C: CheckerRequestContext + ?Sized>(
                 .access_at(identity, &path[..index])
                 .and_then(|access| storage.access(access))
                 .map(|access| access.reached_type())
-                .and_then(|ty| request.semantic_values().unborrowed_type(ty).ok());
+                .map(|ty| request.semantic_values().unborrowed_type(ty));
 
             let Some(call) = owner.and_then(|owner| storage.owned_borrow(owner, kind)) else {
                 return false;

@@ -192,9 +192,7 @@ impl Compilation {
     ) -> Result<CodegenTypeMapping, CodegenPreparationError> {
         let values = self.semantic_value_store()?;
 
-        let pointee_data = values
-            .type_data(pointee)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let pointee_data = values.type_data(pointee);
 
         let fields = match pointee_data.as_ref() {
             TypeData::Named { definition, .. }

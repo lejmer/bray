@@ -135,10 +135,7 @@ impl Compilation {
         let receiver_type =
             self.resolve_access_subject_type(binding_context, raw_receiver_type, diagnostics)?;
 
-        let data = binding_context
-            .semantic_values()
-            .type_data(receiver_type)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let data = binding_context.semantic_values().type_data(receiver_type);
 
         if let (TypeData::Tuple(elements), Some(BoundMemberSelector::TupleElement(index))) =
             (data.as_ref(), selector)
@@ -403,9 +400,7 @@ impl Compilation {
             .filter_map(|(index, ty)| (index == 0 || ty != raw_receiver_type).then_some(ty))
         {
             for header in index.value().headers() {
-                let application = values
-                    .trait_application_data(header.trait_application())
-                    .map_err(FactQueryError::SemanticValueStore)?;
+                let application = values.trait_application_data(header.trait_application());
 
                 let MemberLookupResult::Found(member) = binding_context
                     .lookup_member(application.definition().into(), name)
@@ -501,8 +496,7 @@ impl Compilation {
 
             let implementation = binding_context
                 .semantic_values()
-                .implementation_instance_data(witness)
-                .map_err(FactQueryError::SemanticValueStore)?;
+                .implementation_instance_data(witness);
 
             let key = binding_context
                 .symbol_key(implementation.definition().into_any())
@@ -560,13 +554,9 @@ impl Compilation {
     ) -> Result<Option<OperationResolution>, FactQueryError> {
         let values = binding_context.semantic_values();
 
-        let application_data = values
-            .trait_application_data(application)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let application_data = values.trait_application_data(application);
 
-        let implementation = values
-            .implementation_instance_data(witness)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let implementation = values.implementation_instance_data(witness);
 
         let fulfillments =
             implementation_fulfillments(binding_context, implementation.definition())?;
@@ -751,8 +741,7 @@ impl Compilation {
         for (application, dispatch) in requirements {
             let application_data = binding_context
                 .semantic_values()
-                .trait_application_data(application)
-                .map_err(FactQueryError::SemanticValueStore)?;
+                .trait_application_data(application);
 
             let MemberLookupResult::Found(member) = binding_context
                 .lookup_member(application_data.definition().into(), name)
@@ -803,8 +792,7 @@ impl Compilation {
     ) -> Result<Option<OperationResolution>, FactQueryError> {
         let application = binding_context
             .semantic_values()
-            .trait_application_data(application)
-            .map_err(FactQueryError::SemanticValueStore)?;
+            .trait_application_data(application);
 
         let callable = self.resolve_callable_signature(
             binding_context,
@@ -891,10 +879,7 @@ impl Compilation {
         diagnostics: &mut DiagnosticBag,
     ) -> Result<TypeId, FactQueryError> {
         loop {
-            let data = binding_context
-                .semantic_values()
-                .type_data(ty)
-                .map_err(FactQueryError::SemanticValueStore)?;
+            let data = binding_context.semantic_values().type_data(ty);
 
             match data.as_ref() {
                 TypeData::Borrow { target, .. } => ty = *target,
@@ -1059,8 +1044,7 @@ impl Compilation {
 
         let application_data = binding_context
             .semantic_values()
-            .trait_application_data(application)
-            .map_err(FactQueryError::SemanticValueStore)?;
+            .trait_application_data(application);
 
         let lookup = binding_context
             .lookup_member(application_data.definition().into(), name.as_str())
@@ -1419,10 +1403,7 @@ impl Compilation {
             diagnostics,
         )?;
 
-        let data = binding_context
-            .semantic_values()
-            .type_data(receiver_type)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let data = binding_context.semantic_values().type_data(receiver_type);
 
         let built_in = match (index.kind(), data.as_ref()) {
             (BoundStructuredExpressionKind::ElementIndex, TypeData::Array { element, .. }) => {

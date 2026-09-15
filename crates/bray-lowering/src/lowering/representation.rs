@@ -32,11 +32,8 @@ pub(super) struct OrderingRepresentation {
 }
 
 impl Lowerer<'_> {
-    pub(super) fn type_representation(
-        &self,
-        ty: TypeId,
-    ) -> Result<Option<RepresentationRole>, LoweringError> {
-        let data = self.input.semantic_values().type_data(ty)?;
+    pub(super) fn type_representation(&self, ty: TypeId) -> Option<RepresentationRole> {
+        let data = self.input.semantic_values().type_data(ty);
 
         let role = match data.as_ref() {
             TypeData::Named { definition, .. } => match definition {
@@ -52,11 +49,11 @@ impl Lowerer<'_> {
             _ => None,
         };
 
-        Ok(role)
+        role
     }
 
     pub(super) fn named_type_arguments(&self, ty: TypeId) -> Result<Vec<TypeId>, LoweringError> {
-        let data = self.input.semantic_values().type_data(ty)?;
+        let data = self.input.semantic_values().type_data(ty);
 
         let TypeData::Named { substitution, .. } = data.as_ref() else {
             return Err(LoweringError::SemanticValueUnavailable);
@@ -65,7 +62,7 @@ impl Lowerer<'_> {
         let substitution = self
             .input
             .semantic_values()
-            .generic_substitution_data(*substitution)?;
+            .generic_substitution_data(*substitution);
 
         Ok(substitution
             .bindings()

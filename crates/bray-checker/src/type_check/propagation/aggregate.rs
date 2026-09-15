@@ -163,7 +163,9 @@ where
     };
 
     let expected = inference.try_unique_matching_expectation(variable, |ty| {
-        type_representation(request, ty).map(|role| role == Some(RepresentationRole::Range))
+        Ok::<_, CheckerInfrastructureError>(
+            type_representation(request, ty) == Some(RepresentationRole::Range),
+        )
     })?;
 
     if let Some(range) = expected {
@@ -174,7 +176,6 @@ where
                 RepresentationRole::Range,
                 range,
             )
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?
         else {
             return Ok(());
         };
@@ -337,17 +338,16 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     let expected = inference.try_unique_matching_expectation(variable, |ty| {
-        type_representation(request, ty).map(|role| role == Some(RepresentationRole::Result))
+        Ok::<_, CheckerInfrastructureError>(
+            type_representation(request, ty) == Some(RepresentationRole::Result),
+        )
     })?;
 
     let Some(expected) = expected else {
         return Ok(None);
     };
 
-    let data = request
-        .semantic_values()
-        .type_data(expected)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    let data = request.semantic_values().type_data(expected);
 
     let TypeData::Named { substitution, .. } = data.as_ref() else {
         return Ok(None);
@@ -355,8 +355,7 @@ where
 
     let substitution = request
         .semantic_values()
-        .generic_substitution_data(*substitution)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        .generic_substitution_data(*substitution);
 
     match substitution
         .bindings()
@@ -403,7 +402,7 @@ where
         return Ok(());
     };
 
-    let Some(length) = generator_source_array_length(request, expression, variables, inference)?
+    let Some(length) = generator_source_array_length(request, expression, variables, inference)
     else {
         return Ok(());
     };
@@ -438,11 +437,9 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     let expected = inference.try_unique_matching_expectation(variable, |ty| {
-        request
-            .semantic_values()
-            .type_data(ty)
-            .map(|data| element(data.as_ref()).is_some())
-            .map_err(CheckerInfrastructureError::SemanticValueStore)
+        let data = request.semantic_values().type_data(ty);
+
+        Ok::<_, CheckerInfrastructureError>(element(data.as_ref()).is_some())
     })?;
 
     let expected = expected.or_else(|| inference.evidence(variable));
@@ -451,10 +448,7 @@ where
         return Ok(None);
     };
 
-    let data = request
-        .semantic_values()
-        .type_data(expected)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    let data = request.semantic_values().type_data(expected);
 
     Ok(element(data.as_ref()).map(|element| (expected, element)))
 }
@@ -494,34 +488,31 @@ fn generator_source_array_length<C>(
     expression: &bray_bound_tree::BoundStructuredExpression,
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
     inference: &mut TypeInferenceContext,
-) -> Result<Option<bray_symbols::ConstantTermId>, CheckerInfrastructureError>
+) -> Option<bray_symbols::ConstantTermId>
 where
     C: CheckerRequestContext + ?Sized,
 {
     let Some(iteration) = expression.operands().first().copied() else {
-        return Ok(None);
+        return None;
     };
 
     let Some(BoundExpression::Generator(iteration)) = request.view().expression(iteration) else {
-        return Ok(None);
+        return None;
     };
 
     let Some(source) = variables.get(&iteration.source()).copied() else {
-        return Ok(None);
+        return None;
     };
 
     let Some(source) = inference.evidence(source) else {
-        return Ok(None);
+        return None;
     };
 
-    let data = request
-        .semantic_values()
-        .type_data(source)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    let data = request.semantic_values().type_data(source);
 
     match data.as_ref() {
-        TypeData::Array { length, .. } => Ok(Some(*length)),
-        _ => Ok(None),
+        TypeData::Array { length, .. } => Some(*length),
+        _ => None,
     }
 }
 

@@ -201,7 +201,7 @@ impl Lowerer<'_> {
 
         let ty = self.expression_type(expression)?;
 
-        let data = self.input.semantic_values().type_data(ty)?;
+        let data = self.input.semantic_values().type_data(ty);
 
         let TypeData::Callable(callable) = data.as_ref() else {
             return Ok(None);
@@ -429,7 +429,7 @@ impl Lowerer<'_> {
         match selection {
             OperatorTarget::BuiltIn(_) => {
                 if matches!(operator, BoundOperator::Equal | BoundOperator::NotEqual)
-                    && self.type_representation(operand_type)? == Some(RepresentationRole::String)
+                    && self.type_representation(operand_type) == Some(RepresentationRole::String)
                 {
                     return self.lower_string_equality(
                         id,

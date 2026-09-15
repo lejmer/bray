@@ -24,10 +24,6 @@ pub(crate) fn diagnostic_semantic_query_failure(
             let mut context = Vec::new();
             push_optional_symbol(&mut context, "callable_kind", "callable", *callable);
 
-            if let bray_symbols::CallableSignatureTemplateError::SemanticValue(cause) = cause {
-                push_semantic_value_failure(&mut context, *cause);
-            }
-
             (
                 "semantic_query_callable_signature",
                 callable_signature_reason(cause),
@@ -429,32 +425,7 @@ pub(crate) fn push_semantic_value_failure(
     use bray_diagnostics::DiagnosticSemanticValueFailure as Failure;
 
     match crate::fact::diagnostic_semantic_value_failure(cause) {
-        Failure::ForeignId {
-            expected_store,
-            actual_store,
-        } => {
-            context.push(count_field("expected_store", expected_store));
-            context.push(count_field("actual_store", actual_store));
-        }
-        Failure::UnknownId { kind } | Failure::CapacityExhausted { kind } => {
-            context.push(text_field("value_kind", kind));
-        }
-        Failure::GenericOwnerMismatch {
-            expected_kind,
-            expected,
-            actual_kind,
-            actual,
-        } => {
-            context.push(text_field("expected_owner_kind", expected_kind));
-            context.push(count_field("expected_owner", u64::from(expected)));
-            context.push(text_field("actual_owner_kind", actual_kind));
-            context.push(count_field("actual_owner", u64::from(actual)));
-        }
-        Failure::InvalidDependencyVariable { depth, ordinal } => {
-            context.push(count_field("depth", u64::from(depth)));
-            context.push(count_field("ordinal", u64::from(ordinal)));
-        }
-        Failure::OpenSubstitution => {}
+        Failure::CapacityExhausted { kind } => context.push(text_field("value_kind", kind)),
     }
 }
 
@@ -544,7 +515,6 @@ pub(crate) const fn callable_signature_reason(
     use bray_symbols::CallableSignatureTemplateError as Error;
 
     match cause {
-        Error::SemanticValue(cause) => semantic_value_reason(*cause),
         Error::InvalidCallableType => "callable_signature_invalid_callable_type",
         Error::ParameterCountMismatch => "callable_signature_parameter_count_mismatch",
         Error::ParameterIdentityMismatch => "callable_signature_parameter_identity_mismatch",
@@ -594,12 +564,7 @@ const fn semantic_value_reason(cause: bray_symbols::SemanticValueStoreError) -> 
     use bray_symbols::SemanticValueStoreError as Error;
 
     match cause {
-        Error::ForeignId { .. } => "semantic_value_foreign_id",
-        Error::UnknownId { .. } => "semantic_value_unknown_id",
         Error::CapacityExhausted { .. } => "semantic_value_capacity_exhausted",
-        Error::GenericOwnerMismatch { .. } => "semantic_value_generic_owner_mismatch",
-        Error::InvalidDependencyVariable { .. } => "semantic_value_invalid_dependency_variable",
-        Error::OpenSubstitution => "semantic_value_open_substitution",
     }
 }
 
@@ -758,10 +723,7 @@ const fn semantic_data_kind(kind: SemanticDataKind) -> &'static str {
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::DiagnosticFailureValue;
-    use bray_symbols::{
-        CallableSignatureTemplateError, GenericSubstitutionShapeError, SemanticValueKind,
-        SemanticValueStoreError,
-    };
+    use bray_symbols::{CallableSignatureTemplateError, GenericSubstitutionShapeError};
 
     use super::diagnostic_semantic_query_failure;
     use crate::compilation::{
@@ -842,25 +804,15 @@ mod tests {
     fn nested_semantic_query_failures_preserve_leaf_reasons_and_payloads() {
         let callable = SemanticQueryFailure::CallableSignature {
             callable: None,
-            cause: CallableSignatureTemplateError::SemanticValue(
-                SemanticValueStoreError::UnknownId {
-                    kind: SemanticValueKind::Type,
-                },
-            ),
+            cause: CallableSignatureTemplateError::ParameterCountMismatch,
         }
         .into();
 
         let callable = diagnostic_semantic_query_failure(&callable);
 
-        assert_eq!(callable.reason(), "semantic_value_unknown_id");
-
-        assert!(
-            callable
-                .context()
-                .contains(&bray_diagnostics::DiagnosticFailureField::new(
-                    "value_kind",
-                    DiagnosticFailureValue::Text("type".to_owned()),
-                ))
+        assert_eq!(
+            callable.reason(),
+            "callable_signature_parameter_count_mismatch"
         );
 
         let implementation = SemanticQueryFailure::ImplementationMatch {

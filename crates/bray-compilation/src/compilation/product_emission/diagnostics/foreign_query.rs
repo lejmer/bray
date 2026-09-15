@@ -93,17 +93,13 @@ pub(super) fn diagnostic_foreign_query_failure(
             vec![text_field("platform_service_role", role.as_str())],
         ),
         Failure::CallableSignature { function, cause } => {
-            let mut fields = vec![
+            let fields = vec![
                 identity_field("function", function),
                 text_field(
                     "signature_cause",
                     crate::fact::callable_signature_reason(cause),
                 ),
             ];
-
-            if let bray_symbols::CallableSignatureTemplateError::SemanticValue(cause) = cause {
-                crate::fact::push_semantic_value_failure(&mut fields, *cause);
-            }
 
             ("foreign_query_callable_signature", fields)
         }
@@ -271,40 +267,6 @@ mod tests {
         assert_eq!(failure.as_str(), "foreign_query_callable_signature");
         assert_eq!(failure.context()[0].name(), "function");
         assert_eq!(failure.context()[1].name(), "signature_cause");
-    }
-
-    #[test]
-    fn foreign_query_conversion_preserves_callable_signature_leaf_payloads() {
-        let expected_store = bray_symbols::SemanticValueStore::try_new()
-            .unwrap_or_else(|error| panic!("expected semantic store should build: {error:?}"));
-
-        let actual_store = bray_symbols::SemanticValueStore::try_new()
-            .unwrap_or_else(|error| panic!("actual semantic store should build: {error:?}"));
-
-        let error = ForeignQueryError::from(ForeignQueryFailure::CallableSignature {
-            function: FunctionSymbolId::from_symbol_id(SymbolId::new(17)),
-            cause: CallableSignatureTemplateError::SemanticValue(
-                bray_symbols::SemanticValueStoreError::ForeignId {
-                    expected: expected_store.id(),
-                    actual: actual_store.id(),
-                },
-            ),
-        });
-
-        let failure = diagnostic_foreign_query_failure(&error);
-        let names: Vec<_> = failure.context().iter().map(|field| field.name()).collect();
-
-        assert_eq!(failure.as_str(), "foreign_query_callable_signature");
-
-        assert_eq!(
-            names,
-            [
-                "function",
-                "signature_cause",
-                "expected_store",
-                "actual_store",
-            ]
-        );
     }
 
     #[test]

@@ -5,7 +5,7 @@ use bray_bound_tree::{
 use bray_symbols::{DeclaredStorageShape, SymbolOrdinal, TypeData, TypeId};
 
 use super::cleanup::{CleanupShapeResolver, cleanup_requirement};
-use crate::{CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext};
+use crate::{CheckerQueryError, CheckerRequestContext};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub(super) enum CleanupExpansion {
@@ -57,12 +57,7 @@ impl<C: CheckerRequestContext + ?Sized> CleanupShapeResolver<'_, C> {
             });
         }
 
-        let data = self
-            .request
-            .semantic_values()
-            .type_data(ty)
-            .map_err(CheckerInfrastructureError::SemanticValueStore)
-            .map_err(CheckerQueryError::Infrastructure)?;
+        let data = self.request.semantic_values().type_data(ty);
 
         let mut release = None;
         let mut requires_whole_value = false;

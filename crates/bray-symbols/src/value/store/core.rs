@@ -9,20 +9,21 @@ use crate::{
 
 use super::{
     super::{
-        CallableInstanceData, CallableInstanceId, ConcreteGenericSubstitutionId, ConstantTermData,
-        ConstantTermId, ConstantValueData, ConstantValueId, ConstantValueKind,
-        DependencyContractTemplateData, DependencyContractTemplateId, GenericSubstitutionData,
-        GenericSubstitutionId, ImplementationInstanceData, ImplementationInstanceId,
-        IntegerConstant, SemanticValueStoreCreateError, SemanticValueStoreError,
-        SemanticValueStoreId, TraitApplicationData, TraitApplicationId, TypeData, TypeId,
+        CallableInstanceData, CallableInstanceId, ConstantTermData, ConstantTermId,
+        ConstantValueData, ConstantValueId, ConstantValueKind, DependencyContractTemplateData,
+        DependencyContractTemplateId, GenericSubstitutionData, GenericSubstitutionId,
+        ImplementationInstanceData, ImplementationInstanceId, IntegerConstant,
+        SemanticValueStoreCreateError, SemanticValueStoreError, SemanticValueStoreId,
+        TraitApplicationData, TraitApplicationId, TypeData, TypeId,
     },
     table::SemanticTables,
-    validation::{
-        validate_callable_instance_data, validate_concrete_substitution,
-        validate_constant_term_data, validate_constant_value_data,
-        validate_dependency_template_data, validate_implementation_instance_data,
-        validate_substitution_data, validate_trait_application_data, validate_type_data,
-    },
+};
+
+#[cfg(test)]
+use super::validation::{
+    validate_callable_instance_data, validate_constant_term_data, validate_constant_value_data,
+    validate_dependency_template_data, validate_implementation_instance_data,
+    validate_substitution_data, validate_trait_application_data, validate_type_data,
 };
 
 static NEXT_STORE_ID: AtomicU64 = AtomicU64::new(1);
@@ -31,6 +32,8 @@ static NEXT_STORE_ID: AtomicU64 = AtomicU64::new(1);
 ///
 /// Values are structurally interned. Equal data returns one exact typed ID within this store.
 /// A fork accepts inherited IDs while remaining independent from subsequent parent mutations.
+/// Callers supply well-formed values referencing IDs issued here or inherited when forking.
+/// Looking up an unknown ID panics because it violates that compiler contract.
 pub struct SemanticValueStore {
     id: SemanticValueStoreId,
     tables: Mutex<SemanticTables>,
@@ -38,12 +41,12 @@ pub struct SemanticValueStore {
 
 impl SemanticValueStore {
     /// Returns the type beneath every borrow layer without granting access authority.
-    pub fn unborrowed_type(&self, mut ty: TypeId) -> Result<TypeId, SemanticValueStoreError> {
+    pub fn unborrowed_type(&self, mut ty: TypeId) -> TypeId {
         loop {
-            let data = self.type_data(ty)?;
+            let data = self.type_data(ty);
 
             let TypeData::Borrow { target, .. } = data.as_ref() else {
-                return Ok(ty);
+                return ty;
             };
 
             ty = *target;
@@ -181,7 +184,8 @@ impl SemanticValueStore {
     pub fn intern_type(&self, data: TypeData) -> Result<TypeId, SemanticValueStoreError> {
         let mut tables = self.tables();
 
-        validate_type_data(&tables, self.id, &data)?;
+        #[cfg(test)]
+        validate_type_data(&tables, self.id, &data);
 
         Arc::make_mut(&mut tables.types).intern(self.id, data)
     }
@@ -202,7 +206,7 @@ impl SemanticValueStore {
     }
 
     /// Returns immutable data for a type issued by this store.
-    pub fn type_data(&self, id: TypeId) -> Result<Arc<TypeData>, SemanticValueStoreError> {
+    pub fn type_data(&self, id: TypeId) -> Arc<TypeData> {
         self.tables().types.get_shared(self.id, id)
     }
 
@@ -213,7 +217,8 @@ impl SemanticValueStore {
     ) -> Result<ConstantValueId, SemanticValueStoreError> {
         let mut tables = self.tables();
 
-        validate_constant_value_data(&tables, self.id, &data)?;
+        #[cfg(test)]
+        validate_constant_value_data(&tables, self.id, &data);
 
         Arc::make_mut(&mut tables.constant_values).intern(self.id, data)
     }
@@ -227,10 +232,7 @@ impl SemanticValueStore {
     }
 
     /// Returns immutable data for a constant value issued by this store.
-    pub fn constant_value_data(
-        &self,
-        id: ConstantValueId,
-    ) -> Result<Arc<ConstantValueData>, SemanticValueStoreError> {
+    pub fn constant_value_data(&self, id: ConstantValueId) -> Arc<ConstantValueData> {
         self.tables().constant_values.get_shared(self.id, id)
     }
 
@@ -241,39 +243,34 @@ impl SemanticValueStore {
     ) -> Result<ConstantTermId, SemanticValueStoreError> {
         let mut tables = self.tables();
 
-        validate_constant_term_data(&tables, self.id, &data)?;
+        #[cfg(test)]
+        validate_constant_term_data(&tables, self.id, &data);
 
         Arc::make_mut(&mut tables.constant_terms).intern(self.id, data)
     }
 
     /// Returns immutable data for a constant term issued by this store.
-    pub fn constant_term_data(
-        &self,
-        id: ConstantTermId,
-    ) -> Result<Arc<ConstantTermData>, SemanticValueStoreError> {
+    pub fn constant_term_data(&self, id: ConstantTermId) -> Arc<ConstantTermData> {
         self.tables().constant_terms.get_shared(self.id, id)
     }
 
     /// Returns the integer represented by a checked constant term when it is already known.
-    pub fn constant_term_integer(
-        &self,
-        id: ConstantTermId,
-    ) -> Result<Option<IntegerConstant>, SemanticValueStoreError> {
-        let data = self.constant_term_data(id)?;
+    pub fn constant_term_integer(&self, id: ConstantTermId) -> Option<IntegerConstant> {
+        let data = self.constant_term_data(id);
 
         match data.as_ref() {
             ConstantTermData::Typed { term, .. } => self.constant_term_integer(*term),
-            ConstantTermData::IntegerLiteral { value, .. } => Ok(Some(value.clone())),
+            ConstantTermData::IntegerLiteral { value, .. } => Some(value.clone()),
             ConstantTermData::Value(value) => {
-                let value = self.constant_value_data(*value)?;
+                let value = self.constant_value_data(*value);
 
                 let ConstantValueKind::Integer(value) = value.kind() else {
-                    return Ok(None);
+                    return None;
                 };
 
-                Ok(Some(value.clone()))
+                Some(value.clone())
             }
-            _ => Ok(None),
+            _ => None,
         }
     }
 
@@ -284,7 +281,8 @@ impl SemanticValueStore {
     ) -> Result<GenericSubstitutionId, SemanticValueStoreError> {
         let mut tables = self.tables();
 
-        validate_substitution_data(&tables, self.id, &data)?;
+        #[cfg(test)]
+        validate_substitution_data(&tables, self.id, &data);
 
         Arc::make_mut(&mut tables.substitutions).intern(self.id, data)
     }
@@ -293,7 +291,7 @@ impl SemanticValueStore {
     pub fn generic_substitution_data(
         &self,
         id: GenericSubstitutionId,
-    ) -> Result<Arc<GenericSubstitutionData>, SemanticValueStoreError> {
+    ) -> Arc<GenericSubstitutionData> {
         self.tables().substitutions.get_shared(self.id, id)
     }
 
@@ -303,21 +301,14 @@ impl SemanticValueStore {
         id: GenericSubstitutionId,
         owner: GenericOwnerId,
     ) -> Result<GenericSubstitutionId, SemanticValueStoreError> {
-        let substitution = self.generic_substitution_data(id)?;
+        let substitution = self.generic_substitution_data(id);
 
         self.intern_generic_substitution(substitution.with_owner(owner))
     }
 
-    /// Validates that a substitution is fully concrete and returns its exact typed wrapper.
-    pub fn require_concrete_substitution(
-        &self,
-        id: GenericSubstitutionId,
-    ) -> Result<ConcreteGenericSubstitutionId, SemanticValueStoreError> {
-        let tables = self.tables();
-
-        validate_concrete_substitution(&tables, self.id, id)?;
-
-        Ok(ConcreteGenericSubstitutionId::new(id))
+    /// Returns whether all arguments are closed values without unresolved generic types.
+    pub fn substitution_is_concrete(&self, id: GenericSubstitutionId) -> bool {
+        super::concrete::substitution_is_concrete(&self.tables(), self.id, id)
     }
 
     /// Interns one canonical trait application.
@@ -327,16 +318,14 @@ impl SemanticValueStore {
     ) -> Result<TraitApplicationId, SemanticValueStoreError> {
         let mut tables = self.tables();
 
-        validate_trait_application_data(&tables, self.id, data)?;
+        #[cfg(test)]
+        validate_trait_application_data(&tables, self.id, data);
 
         Arc::make_mut(&mut tables.trait_applications).intern(self.id, data)
     }
 
     /// Returns immutable data for a trait application issued by this store.
-    pub fn trait_application_data(
-        &self,
-        id: TraitApplicationId,
-    ) -> Result<Arc<TraitApplicationData>, SemanticValueStoreError> {
+    pub fn trait_application_data(&self, id: TraitApplicationId) -> Arc<TraitApplicationData> {
         self.tables().trait_applications.get_shared(self.id, id)
     }
 
@@ -347,16 +336,14 @@ impl SemanticValueStore {
     ) -> Result<CallableInstanceId, SemanticValueStoreError> {
         let mut tables = self.tables();
 
-        validate_callable_instance_data(&tables, self.id, data)?;
+        #[cfg(test)]
+        validate_callable_instance_data(&tables, self.id, data);
 
         Arc::make_mut(&mut tables.callable_instances).intern(self.id, data)
     }
 
     /// Returns immutable data for a callable instance issued by this store.
-    pub fn callable_instance_data(
-        &self,
-        id: CallableInstanceId,
-    ) -> Result<Arc<CallableInstanceData>, SemanticValueStoreError> {
+    pub fn callable_instance_data(&self, id: CallableInstanceId) -> Arc<CallableInstanceData> {
         self.tables().callable_instances.get_shared(self.id, id)
     }
 
@@ -367,7 +354,8 @@ impl SemanticValueStore {
     ) -> Result<ImplementationInstanceId, SemanticValueStoreError> {
         let mut tables = self.tables();
 
-        validate_implementation_instance_data(&tables, self.id, data)?;
+        #[cfg(test)]
+        validate_implementation_instance_data(&tables, self.id, data);
 
         Arc::make_mut(&mut tables.implementation_instances).intern(self.id, data)
     }
@@ -376,7 +364,7 @@ impl SemanticValueStore {
     pub fn implementation_instance_data(
         &self,
         id: ImplementationInstanceId,
-    ) -> Result<Arc<ImplementationInstanceData>, SemanticValueStoreError> {
+    ) -> Arc<ImplementationInstanceData> {
         self.tables()
             .implementation_instances
             .get_shared(self.id, id)
@@ -389,7 +377,8 @@ impl SemanticValueStore {
     ) -> Result<DependencyContractTemplateId, SemanticValueStoreError> {
         let mut tables = self.tables();
 
-        validate_dependency_template_data(&tables, self.id, &data)?;
+        #[cfg(test)]
+        validate_dependency_template_data(&tables, self.id, &data);
 
         Arc::make_mut(&mut tables.dependency_contracts).intern(self.id, data)
     }
@@ -405,12 +394,12 @@ impl SemanticValueStore {
     pub fn dependency_contract_template_data(
         &self,
         id: DependencyContractTemplateId,
-    ) -> Result<Arc<DependencyContractTemplateData>, SemanticValueStoreError> {
+    ) -> Arc<DependencyContractTemplateData> {
         self.tables().dependency_contracts.get_shared(self.id, id)
     }
 
     fn tables(&self) -> MutexGuard<'_, SemanticTables> {
-        // Store code validates before mutation and never panics while changing table invariants.
+        // Interned entries and their structural index are published under the same lock.
         self.tables
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -439,8 +428,8 @@ mod tests {
         FunctionSymbolId, GenericArgument, GenericConstParameterSymbolId, GenericOwnerId,
         GenericParameterSymbolId, GenericSubstitutionData, GenericTypeParameterSymbolId,
         ImplementationInstanceData, ImplementationSymbolId, InherentImplementationSymbolId,
-        IntegerConstant, IntegerSign, NamedTypeSymbolId, SemanticValueStoreError, StructSymbolId,
-        SymbolId, SymbolOrdinal, TraitApplicationData, TraitSymbolId, TypeData,
+        IntegerConstant, IntegerSign, NamedTypeSymbolId, StructSymbolId, SymbolId, SymbolOrdinal,
+        TraitApplicationData, TraitSymbolId, TypeData,
     };
 
     fn store() -> SemanticValueStore {
@@ -520,7 +509,7 @@ mod tests {
             .intern_constant_term(ConstantTermData::typed(term, ty))
             .unwrap_or_else(|error| panic!("typed integer term must intern: {error:?}"));
 
-        assert_eq!(store.constant_term_integer(typed), Ok(Some(integer)));
+        assert_eq!(store.constant_term_integer(typed), Some(integer));
     }
 
     #[test]
@@ -532,12 +521,11 @@ mod tests {
             panic!("error type interning must succeed");
         };
 
-        assert_eq!(
-            second.type_data(id),
-            Err(SemanticValueStoreError::ForeignId {
-                expected: second.id(),
-                actual: first.id(),
-            })
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = second.type_data(id);
+            }))
+            .is_err()
         );
     }
 
@@ -554,7 +542,7 @@ mod tests {
             Err(error) => panic!("semantic store fork failed: {error:?}"),
         };
 
-        assert_eq!(child.type_data(inherited).as_deref(), Ok(&TypeData::Error));
+        assert_eq!(child.type_data(inherited).as_ref(), &TypeData::Error);
 
         let parameter = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(9));
 
@@ -564,12 +552,11 @@ mod tests {
 
         assert_eq!(child_value.store_id(), child.id());
 
-        assert_eq!(
-            parent.type_data(child_value),
-            Err(SemanticValueStoreError::ForeignId {
-                expected: parent.id(),
-                actual: child.id(),
-            })
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = parent.type_data(child_value);
+            }))
+            .is_err()
         );
     }
 
@@ -582,12 +569,11 @@ mod tests {
             panic!("error type interning must succeed");
         };
 
-        assert_eq!(
-            second.intern_type(TypeData::Slice(foreign)),
-            Err(SemanticValueStoreError::ForeignId {
-                expected: second.id(),
-                actual: first.id(),
-            })
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = second.intern_type(TypeData::Slice(foreign));
+            }))
+            .is_err()
         );
     }
 
@@ -706,12 +692,7 @@ mod tests {
             Err(error) => panic!("concrete substitution interning failed: {error:?}"),
         };
 
-        assert_eq!(
-            store
-                .require_concrete_substitution(concrete)
-                .map(|id| id.substitution()),
-            Ok(concrete)
-        );
+        assert!(store.substitution_is_concrete(concrete));
 
         let open_type = match store.intern_type(TypeData::TypeParameter(type_parameter)) {
             Ok(ty) => ty,
@@ -734,10 +715,22 @@ mod tests {
             Err(error) => panic!("open substitution interning failed: {error:?}"),
         };
 
-        assert_eq!(
-            store.require_concrete_substitution(open),
-            Err(SemanticValueStoreError::OpenSubstitution)
-        );
+        assert!(!store.substitution_is_concrete(open));
+
+        // A surrounding concrete aggregate does not close an unresolved argument.
+        for (element, expected) in [(ty, true), (open_type, false)] {
+            let nested = store.intern_type(TypeData::tuple([element])).unwrap();
+
+            let data = GenericSubstitutionData::try_new(
+                owner,
+                [GenericParameterSymbolId::from(type_parameter)],
+                [GenericArgument::Type(nested)],
+            )
+            .unwrap();
+
+            let substitution = store.intern_generic_substitution(data).unwrap();
+            assert_eq!(store.substitution_is_concrete(substitution), expected);
+        }
     }
 
     #[test]
@@ -749,12 +742,14 @@ mod tests {
         let trait_definition = TraitSymbolId::from_symbol_id(SymbolId::new(31));
         let application = TraitApplicationData::new(trait_definition, substitution);
 
-        let expected = generic_owner(trait_definition.into());
-        let actual = generic_owner(function.into());
+        let _expected = generic_owner(trait_definition.into());
+        let _actual = generic_owner(function.into());
 
-        assert_eq!(
-            store.intern_trait_application(application),
-            Err(SemanticValueStoreError::GenericOwnerMismatch { expected, actual })
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let _ = store.intern_trait_application(application);
+            }))
+            .is_err()
         );
     }
 
@@ -885,15 +880,17 @@ mod tests {
         let nullable = values.intern_type(TypeData::Nullable(shared)).unwrap();
 
         for ty in [unit, shared, mutable] {
-            assert_eq!(values.unborrowed_type(ty), Ok(unit));
+            assert_eq!(values.unborrowed_type(ty), unit);
         }
 
-        assert_eq!(values.unborrowed_type(nullable), Ok(nullable));
+        assert_eq!(values.unborrowed_type(nullable), nullable);
         let foreign = store().intern_type(TypeData::tuple([])).unwrap();
 
-        assert_eq!(
-            values.unborrowed_type(foreign).unwrap_err(),
-            values.type_data(foreign).unwrap_err()
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                || values.unborrowed_type(foreign)
+            ))
+            .is_err()
         );
     }
 }

@@ -68,18 +68,10 @@ where
     ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
         let subject = self.expression_type(expression.subject())?;
 
-        let subject_data = self
-            .request
-            .semantic_values()
-            .type_data(subject.ty)
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        let subject_data = self.request.semantic_values().type_data(subject.ty);
 
         let subject_data = match subject_data.as_ref() {
-            TypeData::Borrow { target, .. } => self
-                .request
-                .semantic_values()
-                .type_data(*target)
-                .map_err(CheckerInfrastructureError::SemanticValueStore)?,
+            TypeData::Borrow { target, .. } => self.request.semantic_values().type_data(*target),
             _ => subject_data,
         };
 
@@ -191,7 +183,7 @@ where
                 Some(PatternPredicate::Literal(literal)) => Coverage::constant(literal.value(), id),
                 _ => Coverage::unknown(),
             },
-            BoundPatternKind::Path => self.constant_coverage(id)?,
+            BoundPatternKind::Path => self.constant_coverage(id),
             BoundPatternKind::NullableAbsent => Coverage::nullable_absent(id),
             BoundPatternKind::NullablePresent => {
                 let mut contained = Coverage::default();
@@ -283,35 +275,27 @@ where
         })
     }
 
-    fn constant_coverage(
-        &self,
-        pattern: BoundPatternId,
-    ) -> Result<Coverage, CheckerQueryError<C::UpstreamError>> {
+    fn constant_coverage(&self, pattern: BoundPatternId) -> Coverage {
         let Some(evidence) = self.constant_patterns.get(&pattern) else {
-            return Ok(Coverage::unknown());
+            return Coverage::unknown();
         };
 
         let term = self
             .request
             .semantic_values()
-            .constant_term_data(evidence.term())
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+            .constant_term_data(evidence.term());
 
         let bray_symbols::ConstantTermData::Value(value) = term.as_ref() else {
-            return Ok(Coverage::unknown());
+            return Coverage::unknown();
         };
 
-        let data = self
-            .request
-            .semantic_values()
-            .constant_value_data(*value)
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        let data = self.request.semantic_values().constant_value_data(*value);
 
         if matches!(data.kind(), ConstantValueKind::Error) {
-            return Ok(Coverage::unknown());
+            return Coverage::unknown();
         }
 
-        Ok(Coverage::constant(*value, pattern))
+        Coverage::constant(*value, pattern)
     }
 
     fn guard_truth(
@@ -323,11 +307,7 @@ where
         };
 
         if let Some(value) = self.constant_guards.get(&guard) {
-            let value = self
-                .request
-                .semantic_values()
-                .constant_value_data(*value)
-                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+            let value = self.request.semantic_values().constant_value_data(*value);
 
             return Ok(match value.kind() {
                 ConstantValueKind::Boolean(true) => GuardTruth::True,
@@ -561,10 +541,7 @@ impl Coverage {
 
                 let present_is_exhaustive = match self.nullable_present.as_deref() {
                     Some(coverage) => {
-                        let target = request
-                            .semantic_values()
-                            .type_data(*target)
-                            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+                        let target = request.semantic_values().type_data(*target);
 
                         coverage.is_exhaustive(request, target.as_ref())?
                     }
@@ -611,10 +588,7 @@ impl Coverage {
                 let mut covered = BTreeSet::new();
 
                 for (value, _) in &self.constants {
-                    let value = request
-                        .semantic_values()
-                        .constant_value_data(*value)
-                        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+                    let value = request.semantic_values().constant_value_data(*value);
 
                     if let ConstantValueKind::Boolean(value) = value.kind() {
                         covered.insert(*value);
@@ -665,10 +639,7 @@ impl Coverage {
                     return Ok(false);
                 };
 
-                let target = request
-                    .semantic_values()
-                    .type_data(*target)
-                    .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+                let target = request.semantic_values().type_data(*target);
 
                 self.nullable_absent.is_some()
                     && coverage.is_exhaustive(request, target.as_ref())?
@@ -699,10 +670,7 @@ impl Coverage {
                 let mut values = BTreeSet::new();
 
                 for (value, _) in &self.constants {
-                    let value = request
-                        .semantic_values()
-                        .constant_value_data(*value)
-                        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+                    let value = request.semantic_values().constant_value_data(*value);
 
                     if let ConstantValueKind::Boolean(value) = value.kind() {
                         values.insert(*value);

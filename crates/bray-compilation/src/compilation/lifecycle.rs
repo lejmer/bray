@@ -21,9 +21,7 @@ impl Compilation {
     {
         let values = self.semantic_value_store()?;
 
-        let data = values
-            .type_data(ty)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let data = values.type_data(ty);
 
         let TypeData::Named {
             definition,

@@ -7,7 +7,7 @@ use crate::compilation::Compilation;
 use crate::compilation::{
     ProductDataKind, ProductQueryContext, ProductQueryFailure, ProductValueKind,
 };
-use crate::fact::{CancellationToken, FactQueryError};
+use crate::fact::CancellationToken;
 use bray_compiler_known::CompilerKnownDeclarationKey;
 
 impl Compilation {
@@ -19,9 +19,7 @@ impl Compilation {
     ) -> Result<Option<LifecycleCallable>, CodegenPreparationError> {
         let values = self.semantic_value_store()?;
 
-        let data = values
-            .type_data(ty)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let data = values.type_data(ty);
 
         let TypeData::Named { substitution, .. } = data.as_ref() else {
             return Ok(None);
@@ -59,9 +57,7 @@ impl Compilation {
             cancellation,
         )?;
 
-        let callable_type = values
-            .type_data(signature.callable_type())
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let callable_type = values.type_data(signature.callable_type());
 
         let TypeData::Callable(callable_type) = callable_type.as_ref() else {
             return Err(ProductQueryFailure::UnexpectedSemanticType {
@@ -112,9 +108,7 @@ impl Compilation {
 
         let values = self.semantic_value_store()?;
 
-        let callable_type = values
-            .type_data(signature.callable_type())
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let callable_type = values.type_data(signature.callable_type());
 
         let TypeData::Callable(callable_type) = callable_type.as_ref() else {
             return Err(ProductQueryFailure::UnexpectedSemanticType {

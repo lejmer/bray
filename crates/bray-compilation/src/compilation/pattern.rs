@@ -198,10 +198,7 @@ impl Compilation {
                 continue;
             };
 
-            let data = self
-                .semantic_value_store()?
-                .constant_value_data(value)
-                .map_err(FactQueryError::SemanticValueStore)?;
+            let data = self.semantic_value_store()?.constant_value_data(value);
 
             constants
                 .values
@@ -304,10 +301,7 @@ impl Compilation {
 
         let value = *result.value();
 
-        let data = self
-            .semantic_value_store()?
-            .constant_value_data(value)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let data = self.semantic_value_store()?.constant_value_data(value);
 
         Ok((!matches!(data.kind(), ConstantValueKind::Error)).then_some(value))
     }

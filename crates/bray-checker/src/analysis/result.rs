@@ -45,9 +45,8 @@ where
     };
 
     match crate::representation::type_representation(request, result) {
-        Ok(Some(RepresentationRole::Unit)) => return CheckerOutcome::without_diagnostics(()),
-        Ok(_) => {}
-        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+        Some(RepresentationRole::Unit) => return CheckerOutcome::without_diagnostics(()),
+        _ => {}
     }
 
     let mut diagnostics = match callable_can_fall_through(
@@ -229,13 +228,12 @@ impl<C: CheckerRequestContext + ?Sized> ControlFlowGraphBuilder<'_, C> {
             .map(|entry| entry.ty())
         {
             match crate::representation::type_representation(self.request(), ty) {
-                Ok(Some(bray_compiler_known::RepresentationRole::Never)) => {
+                Some(bray_compiler_known::RepresentationRole::Never) => {
                     self.push_exit(current, AnalysisExitKind::Divergence, id.into());
 
                     return Some(None);
                 }
-                Ok(_) => {}
-                Err(error) => self.record_infrastructure_failure(error),
+                _ => {}
             }
         }
 

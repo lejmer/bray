@@ -54,10 +54,7 @@ where
         return Ok(true);
     };
 
-    let result = binding_context
-        .semantic_values()
-        .type_data(result_type)
-        .map_err(BindingQueryError::SemanticValue)?;
+    let result = binding_context.semantic_values().type_data(result_type);
 
     let roles = binding_context
         .symbols()

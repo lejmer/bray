@@ -27,10 +27,7 @@ impl<'a> SemanticExporter<'a> {
             return Ok(*id);
         }
 
-        let data = self
-            .values
-            .dependency_contract_template_data(id)
-            .map_err(super::super::semantic_value_export_error)?;
+        let data = self.values.dependency_contract_template_data(id);
 
         let requirements = data
             .requirements()
@@ -240,10 +237,7 @@ impl<'a> SemanticExporter<'a> {
             id,
             bray_package_interface::InterfaceSemanticTableKind::GenericSubstitution,
             {
-                let data = self
-                    .values
-                    .generic_substitution_data(id)
-                    .map_err(super::super::semantic_value_export_error)?;
+                let data = self.values.generic_substitution_data(id);
 
                 let bindings = data
                     .bindings()
@@ -292,8 +286,7 @@ impl<'a> SemanticExporter<'a> {
     > {
         let application = self
             .values
-            .trait_application_data(requirement.trait_application())
-            .map_err(super::super::semantic_value_export_error)?;
+            .trait_application_data(requirement.trait_application());
 
         Ok((
             self.type_id(requirement.subject())?,
@@ -309,10 +302,7 @@ impl<'a> SemanticExporter<'a> {
             return Ok(*id);
         }
 
-        let data = self
-            .values
-            .trait_application_data(id)
-            .map_err(super::super::semantic_value_export_error)?;
+        let data = self.values.trait_application_data(id);
 
         let application = InterfaceTraitApplication::new(
             self.symbol_reference(data.definition().into())?,
@@ -335,10 +325,7 @@ impl<'a> SemanticExporter<'a> {
             return Ok(*id);
         }
 
-        let data = self
-            .values
-            .callable_instance_data(id)
-            .map_err(super::super::semantic_value_export_error)?;
+        let data = self.values.callable_instance_data(id);
 
         let instance = InterfaceCallableInstance::new(
             self.symbol_reference(data.definition().symbol())?,
@@ -361,10 +348,7 @@ impl<'a> SemanticExporter<'a> {
             return Ok(*id);
         }
 
-        let data = self
-            .values
-            .implementation_instance_data(id)
-            .map_err(super::super::semantic_value_export_error)?;
+        let data = self.values.implementation_instance_data(id);
 
         let instance = InterfaceImplementationInstance::new(
             self.symbol_reference(data.definition().into_any())?,

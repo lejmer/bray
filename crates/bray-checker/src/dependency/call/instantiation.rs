@@ -120,16 +120,13 @@ where
         }
     }
 
-    fn deferred_frame_access(
-        &self,
-        root: DependencySubjectRoot,
-    ) -> Result<Option<StorageAccessId>, CheckerInfrastructureError> {
+    fn deferred_frame_access(&self, root: DependencySubjectRoot) -> Option<StorageAccessId> {
         if !self.deferred {
-            return Ok(None);
+            return None;
         }
 
         let CallInstantiationInput::Selected { expression, call } = self.input else {
-            return Ok(None);
+            return None;
         };
 
         let transferred = match root {
@@ -154,7 +151,6 @@ where
                         self.request
                             .semantic_values()
                             .type_data(conversion.target_type())
-                            .map_err(CheckerInfrastructureError::SemanticValueStore)?
                             .as_ref(),
                         TypeData::Borrow { .. }
                     ),
@@ -170,9 +166,9 @@ where
             | DependencySubjectRoot::ExactThreadStatic(_) => false,
         };
 
-        Ok(transferred
+        transferred
             .then(|| expression_access(self.storage, expression))
-            .flatten())
+            .flatten()
     }
 
     fn borrow_capability(
@@ -273,7 +269,7 @@ where
             return Ok(BoundDependencySubject::BorrowCapability(capability));
         }
 
-        let frame_access = self.deferred_frame_access(root)?;
+        let frame_access = self.deferred_frame_access(root);
 
         let base = frame_access
             .or_else(|| {

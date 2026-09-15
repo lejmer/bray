@@ -91,11 +91,7 @@ impl DeclaredValueTypeBinding<'_> {
             let receiver_type = match implementation {
                 Some(implementation) => self.implementation_subject_type(implementation)?,
                 None => {
-                    let receiver_type = self
-                        .context
-                        .semantic_values()
-                        .type_data(receiver.ty())
-                        .map_err(super::semantic_value_binding_error)?;
+                    let receiver_type = self.context.semantic_values().type_data(receiver.ty());
 
                     match receiver_type.as_ref() {
                         bray_symbols::TypeData::ContextualSelf(
@@ -170,11 +166,7 @@ impl DeclaredValueTypeBinding<'_> {
             )
             .map_err(super::symbol::binder_error)?;
 
-            let self_data = self
-                .context
-                .semantic_values()
-                .type_data(self_ty)
-                .map_err(super::semantic_value_binding_error)?;
+            let self_data = self.context.semantic_values().type_data(self_ty);
 
             let bray_symbols::TypeData::Named { substitution, .. } = self_data.as_ref() else {
                 return Err(binding_contract(
@@ -192,11 +184,7 @@ impl DeclaredValueTypeBinding<'_> {
             return Ok(TypeExpressionTemplate::Resolved(result));
         }
 
-        let data = self
-            .context
-            .semantic_values()
-            .type_data(*ty)
-            .map_err(super::semantic_value_binding_error)?;
+        let data = self.context.semantic_values().type_data(*ty);
 
         match data.as_ref() {
             bray_symbols::TypeData::ContextualSelf(

@@ -3,8 +3,8 @@ use bray_bound_tree::{
 };
 use bray_compiler_known::RepresentationRole;
 
+use crate::CheckerRequestContext;
 use crate::representation::type_representation;
-use crate::{CheckerInfrastructureError, CheckerRequestContext};
 
 use super::build::ControlFlowGraphBuilder;
 use super::id::AnalysisBlockId;
@@ -87,19 +87,14 @@ where
         current: AnalysisBlockId,
     ) -> Option<Option<AnalysisBlockId>> {
         match self.propagation_role(id, expression) {
-            Ok(Some(RepresentationRole::Result)) => self.build_result_propagation(id, current),
-            Ok(Some(RepresentationRole::RunResult)) => {
+            Some(RepresentationRole::Result) => self.build_result_propagation(id, current),
+            Some(RepresentationRole::RunResult) => {
                 Some(Some(self.build_run_result_propagation(id, current)))
             }
-            Ok(_) => {
+            _ => {
                 self.push_recovery(current, id.into());
 
                 Some(Some(current))
-            }
-            Err(error) => {
-                self.record_infrastructure_failure(error);
-
-                None
             }
         }
     }
@@ -108,20 +103,20 @@ where
         &self,
         id: BoundExpressionId,
         expression: &BoundStructuredExpression,
-    ) -> Result<Option<RepresentationRole>, CheckerInfrastructureError> {
+    ) -> Option<RepresentationRole> {
         if let Some(SemanticSelection::Propagation(selection)) = self
             .selections()
             .and_then(|selections| selections.expression(id))
         {
-            return Ok(match selection {
+            return match selection {
                 SelectedPropagation::Nullable { .. } => None,
                 SelectedPropagation::Result { .. } => Some(RepresentationRole::Result),
                 SelectedPropagation::CurrentRun => Some(RepresentationRole::RunResult),
-            });
+            };
         }
 
         let Some(operand) = expression.operands().first().copied() else {
-            return Ok(None);
+            return None;
         };
 
         let Some(operand_type) = self
@@ -134,7 +129,7 @@ where
             })
             .or_else(|| self.view().expression(operand)?.ty())
         else {
-            return Ok(None);
+            return None;
         };
 
         type_representation(self.request(), operand_type)

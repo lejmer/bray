@@ -251,9 +251,9 @@ where
         return Ok(None);
     };
 
-    let ty = observed_type(request, result.ty())?;
+    let ty = observed_type(request, result.ty());
 
-    Ok(type_representation(request, ty)?
+    Ok(type_representation(request, ty)
         .filter(|role| representation_supports_operator(*role, operator))
         .map(|_| ty))
 }
@@ -285,7 +285,7 @@ where
                 return Ok(None);
             };
 
-            let role = type_representation(request, observed_type(request, result.ty())?)?;
+            let role = type_representation(request, observed_type(request, result.ty()));
 
             if !matches!(
                 role,
@@ -313,14 +313,14 @@ where
             return Ok(None);
         };
 
-        if observed_type(request, first.ty())? != observed_type(request, second.ty())? {
+        if observed_type(request, first.ty()) != observed_type(request, second.ty()) {
             return Ok(None);
         }
     }
 
-    let operand = observed_type(request, first.ty())?;
+    let operand = observed_type(request, first.ty());
 
-    let Some(role) = type_representation(request, operand)? else {
+    let Some(role) = type_representation(request, operand) else {
         return Ok(None);
     };
 
@@ -344,14 +344,14 @@ where
     if let Some(result) = session
         .expression_type(expression_id)
         .filter(|result| !result.is_recovered())
-        && type_representation(request, observed_type(request, result.ty())?)?
+        && type_representation(request, observed_type(request, result.ty()))
             .is_some_and(|role| representation_supports_operator(role, operator))
     {
-        return observed_type(request, result.ty()).map(Some);
+        return Ok(Some(observed_type(request, result.ty())));
     }
 
     if let Some(expected) = session.unique_matching_expectation(expression_id, |ty| {
-        Ok(type_representation(request, ty)?
+        Ok(type_representation(request, ty)
             .is_some_and(|role| representation_supports_operator(role, operator)))
     })? {
         return Ok(Some(expected));
@@ -365,9 +365,9 @@ where
             continue;
         };
 
-        let ty = observed_type(request, result.ty())?;
+        let ty = observed_type(request, result.ty());
 
-        if type_representation(request, ty)?
+        if type_representation(request, ty)
             .is_some_and(|role| representation_supports_operator(role, operator))
         {
             return Ok(Some(ty));
@@ -389,7 +389,7 @@ where
     if let Some(actual) = session
         .expression_type(expression)
         .filter(|result| !result.is_recovered())
-        && observed_type(request, actual.ty())? == expected
+        && observed_type(request, actual.ty()) == expected
     {
         return Ok(());
     }
@@ -397,22 +397,16 @@ where
     session.add_expectation(expression, expected)
 }
 
-fn observed_type<C>(
-    request: CheckerUnitView<'_, C>,
-    ty: TypeId,
-) -> Result<TypeId, CheckerInfrastructureError>
+fn observed_type<C>(request: CheckerUnitView<'_, C>, ty: TypeId) -> TypeId
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let data = request
-        .semantic_values()
-        .type_data(ty)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    let data = request.semantic_values().type_data(ty);
 
-    Ok(match data.as_ref() {
+    match data.as_ref() {
         TypeData::Borrow { target, .. } => *target,
         _ => ty,
-    })
+    }
 }
 
 fn result_type<C>(

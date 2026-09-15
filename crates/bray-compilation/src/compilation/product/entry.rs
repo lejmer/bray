@@ -311,7 +311,7 @@ pub(super) fn validate_entry(
         is_valid = false;
     }
 
-    let Some((constness, execution)) = callable_properties(signature.value(), semantic_values)?
+    let Some((constness, execution)) = callable_properties(signature.value(), semantic_values)
     else {
         return Ok(None);
     };
@@ -352,7 +352,7 @@ pub(super) fn validate_entry(
         is_valid = false;
     }
 
-    let unit_result = is_unit(signature.value().result(), semantic_values, available)?;
+    let unit_result = is_unit(signature.value().result(), semantic_values, available);
 
     let (recoverable_result, test_error) =
         result_of_unit(signature.value().result(), semantic_values, available)?;
@@ -365,7 +365,7 @@ pub(super) fn validate_entry(
                     semantic_values,
                     available,
                     RepresentationRole::ScalarI32,
-                )?
+                )
                 || recoverable_result
         }
         ProductEntryKind::Test => unit_result || recoverable_result,
@@ -410,23 +410,21 @@ pub(super) fn validate_entry(
 fn callable_properties(
     signature: &CallableSignatureTemplate,
     semantic_values: &SemanticValueStore,
-) -> Result<Option<(CallableConstness, CallableExecution)>, FactQueryError> {
+) -> Option<(CallableConstness, CallableExecution)> {
     match signature.callable_type() {
         TypeExpressionTemplate::Callable(callable) => {
-            Ok(Some((callable.constness(), callable.execution())))
+            Some((callable.constness(), callable.execution()))
         }
         TypeExpressionTemplate::Resolved(ty) => {
-            let data = semantic_values
-                .type_data(*ty)
-                .map_err(FactQueryError::SemanticValueStore)?;
+            let data = semantic_values.type_data(*ty);
 
             let TypeData::Callable(callable) = data.as_ref() else {
-                return Ok(None);
+                return None;
             };
 
-            Ok(Some((callable.constness(), callable.execution())))
+            Some((callable.constness(), callable.execution()))
         }
-        _ => Ok(None),
+        _ => None,
     }
 }
 
@@ -465,16 +463,14 @@ fn result_of_unit(
                 return Ok((false, None));
             };
 
-            if !generic_type_argument_is_unit(result, semantic_values, available)? {
+            if !generic_type_argument_is_unit(result, semantic_values, available) {
                 return Ok((false, None));
             }
 
             Ok((true, generic_type_argument_resolved_type(error)))
         }
         TypeExpressionTemplate::Resolved(ty) => {
-            let data = semantic_values
-                .type_data(*ty)
-                .map_err(FactQueryError::SemanticValueStore)?;
+            let data = semantic_values.type_data(*ty);
 
             let TypeData::Named {
                 definition,
@@ -488,9 +484,7 @@ fn result_of_unit(
                 return Ok((false, None));
             }
 
-            let substitution = semantic_values
-                .generic_substitution_data(*substitution)
-                .map_err(FactQueryError::SemanticValueStore)?;
+            let substitution = semantic_values.generic_substitution_data(*substitution);
 
             let [success, error] = substitution.bindings() else {
                 return Ok((false, None));
@@ -498,7 +492,7 @@ fn result_of_unit(
 
             match (success.argument(), error.argument()) {
                 (GenericArgument::Type(result), GenericArgument::Type(error))
-                    if resolved_is_unit(result, semantic_values, available)? =>
+                    if resolved_is_unit(result, semantic_values, available) =>
                 {
                     Ok((true, Some(error)))
                 }
@@ -513,14 +507,14 @@ fn generic_type_argument_is_unit(
     argument: &GenericArgumentTemplate,
     semantic_values: &SemanticValueStore,
     available: &AvailableCompilerKnownSymbols,
-) -> Result<bool, FactQueryError> {
+) -> bool {
     match argument {
         GenericArgumentTemplate::Resolved(GenericArgument::Type(ty)) => {
             resolved_is_unit(*ty, semantic_values, available)
         }
         GenericArgumentTemplate::Type(ty) => is_unit(ty, semantic_values, available),
         GenericArgumentTemplate::Resolved(GenericArgument::Constant(_))
-        | GenericArgumentTemplate::Constant(_) => Ok(false),
+        | GenericArgumentTemplate::Constant(_) => false,
     }
 }
 
@@ -537,7 +531,7 @@ fn is_unit(
     template: &TypeExpressionTemplate,
     semantic_values: &SemanticValueStore,
     available: &AvailableCompilerKnownSymbols,
-) -> Result<bool, FactQueryError> {
+) -> bool {
     is_role(
         template,
         semantic_values,
@@ -551,24 +545,22 @@ fn is_role(
     semantic_values: &SemanticValueStore,
     available: &AvailableCompilerKnownSymbols,
     expected: RepresentationRole,
-) -> Result<bool, FactQueryError> {
+) -> bool {
     match template {
         TypeExpressionTemplate::Named { definition, .. } => {
-            Ok(named_role(*definition, available) == Some(expected))
+            named_role(*definition, available) == Some(expected)
         }
         TypeExpressionTemplate::Resolved(ty) => {
-            let data = semantic_values
-                .type_data(*ty)
-                .map_err(FactQueryError::SemanticValueStore)?;
+            let data = semantic_values.type_data(*ty);
 
-            Ok(match data.as_ref() {
+            match data.as_ref() {
                 TypeData::Named { definition, .. } => {
                     named_role(*definition, available) == Some(expected)
                 }
                 _ => false,
-            })
+            }
         }
-        _ => Ok(false),
+        _ => false,
     }
 }
 
@@ -576,17 +568,15 @@ fn resolved_is_unit(
     ty: TypeId,
     semantic_values: &SemanticValueStore,
     available: &AvailableCompilerKnownSymbols,
-) -> Result<bool, FactQueryError> {
-    let data = semantic_values
-        .type_data(ty)
-        .map_err(FactQueryError::SemanticValueStore)?;
+) -> bool {
+    let data = semantic_values.type_data(ty);
 
-    Ok(match data.as_ref() {
+    match data.as_ref() {
         TypeData::Named { definition, .. } => {
             named_role(*definition, available) == Some(RepresentationRole::Unit)
         }
         _ => false,
-    })
+    }
 }
 
 fn named_role(

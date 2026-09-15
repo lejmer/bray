@@ -190,15 +190,11 @@ impl<'binding_context, C: BindingQueryContext + ?Sized> Binder<'binding_context,
             .find(|target| kinds.contains(&target.kind()))
     }
 
-    pub(crate) fn record_value_type(
-        &mut self,
-        target: BoundReferenceTarget,
-        ty: TypeId,
-    ) -> Result<(), bray_symbols::SemanticValueStoreError> {
-        let data = self.binding_context.semantic_values().type_data(ty)?;
+    pub(crate) fn record_value_type(&mut self, target: BoundReferenceTarget, ty: TypeId) {
+        let data = self.binding_context.semantic_values().type_data(ty);
 
         if matches!(data.as_ref(), TypeData::Error) {
-            return Ok(());
+            return;
         }
 
         let previous = self.known_value_types.insert(target, ty);
@@ -206,8 +202,6 @@ impl<'binding_context, C: BindingQueryContext + ?Sized> Binder<'binding_context,
         if previous != Some(ty) {
             self.known_value_type_log.push((target, previous));
         }
-
-        Ok(())
     }
 
     pub(crate) fn value_type(&self, target: BoundReferenceTarget) -> Option<TypeId> {
@@ -231,8 +225,8 @@ impl<'binding_context, C: BindingQueryContext + ?Sized> Binder<'binding_context,
         name: &str,
     ) -> Result<Option<(LocalBindingSymbolId, BoundPatternId)>, BoundUnitConstructionError> {
         loop {
-            if !self.unit.local_symbols_named(scope, name)?.is_empty()
-                || !self.unit.surface_symbols_named(scope, name)?.is_empty()
+            if !self.unit.local_symbols_named(scope, name).is_empty()
+                || !self.unit.surface_symbols_named(scope, name).is_empty()
             {
                 return Ok(None);
             }
@@ -247,11 +241,11 @@ impl<'binding_context, C: BindingQueryContext + ?Sized> Binder<'binding_context,
                 return Ok(Some((*binding, *pattern)));
             }
 
-            if self.unit.scope_boundary(scope)? == LocalScopeBoundary::Callable {
+            if self.unit.scope_boundary(scope) == LocalScopeBoundary::Callable {
                 return Ok(None);
             }
 
-            let Some(parent) = self.unit.scope_parent(scope)? else {
+            let Some(parent) = self.unit.scope_parent(scope) else {
                 return Ok(None);
             };
 
@@ -382,8 +376,7 @@ mod tests {
     use bray_bound_tree::BoundReferenceTarget;
     use bray_diagnostics::{Diagnostic, DiagnosticId, DiagnosticKind, SeverityKind};
     use bray_symbols::{
-        AnyLocalSymbolId, LocalSymbolRegionId, SemanticValueStore, SemanticValueStoreError,
-        SymbolQueryKind, TypeData,
+        AnyLocalSymbolId, LocalSymbolRegionId, SemanticValueStore, SymbolQueryKind, TypeData,
     };
 
     use super::{Binder, BinderDependency, ControlTarget, ControlTargetKind};
@@ -443,9 +436,7 @@ mod tests {
 
         let abandoned_target = BoundReferenceTarget::Local(abandoned.into());
 
-        binder
-            .record_value_type(abandoned_target, known_type)
-            .unwrap_or_else(|error| panic!("known test type must resolve: {error:?}"));
+        binder.record_value_type(abandoned_target, known_type);
 
         assert_eq!(binder.value_type(abandoned_target), Some(known_type));
 
@@ -500,15 +491,14 @@ mod tests {
             .intern_type(TypeData::Error)
             .unwrap_or_else(|error| panic!("foreign type must intern: {error:?}"));
 
-        assert_eq!(
-            binder.record_value_type(
-                BoundReferenceTarget::Surface(query_fixture.constant.into()),
-                foreign_type,
-            ),
-            Err(SemanticValueStoreError::ForeignId {
-                expected: binding_context.semantic_values().id(),
-                actual: foreign.id(),
-            })
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                binder.record_value_type(
+                    BoundReferenceTarget::Surface(query_fixture.constant.into()),
+                    foreign_type,
+                );
+            }))
+            .is_err()
         );
     }
 

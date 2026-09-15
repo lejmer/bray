@@ -586,11 +586,7 @@ where
             }
         };
 
-        let data = self
-            .request
-            .semantic_values()
-            .type_data(ty)
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        let data = self.request.semantic_values().type_data(ty);
 
         let borrow = match data.as_ref() {
             TypeData::Borrow { kind, target } => Some((*kind, *target)),
@@ -754,9 +750,6 @@ pub(super) fn invalid_node<Upstream>(
 
 fn storage_signature_error(error: CallableSignatureTemplateError) -> CheckerInfrastructureError {
     match error {
-        CallableSignatureTemplateError::SemanticValue(error) => {
-            CheckerInfrastructureError::SemanticValueStore(error)
-        }
         CallableSignatureTemplateError::InvalidCallableType
         | CallableSignatureTemplateError::ParameterCountMismatch
         | CallableSignatureTemplateError::ParameterIdentityMismatch => {

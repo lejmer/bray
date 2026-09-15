@@ -681,8 +681,8 @@ mod tests {
         assert_ne!(previous_store.id(), updated_store.id());
 
         assert_eq!(
-            updated_store.type_data(inherited).as_deref(),
-            Ok(&TypeData::Error)
+            updated_store.type_data(inherited).as_ref(),
+            &TypeData::Error
         );
     }
 

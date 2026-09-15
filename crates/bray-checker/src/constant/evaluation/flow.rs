@@ -217,7 +217,11 @@ where
 
         let condition = self.evaluate(condition)?;
         let condition = self.closed_value(condition, expression)?;
-        let condition = self.constant_value(condition)?;
+
+        let condition = self
+            .request
+            .semantic_values()
+            .constant_value_data(condition);
 
         match condition.kind() {
             ConstantValueKind::Boolean(true) => {
@@ -241,7 +245,7 @@ where
 
         let operand = self.evaluate(*operand)?;
         let value = self.closed_value(operand, expression)?;
-        let value = self.constant_value(value)?;
+        let value = self.request.semantic_values().constant_value_data(value);
 
         match value.kind() {
             ConstantValueKind::NullablePresent(value) => self
@@ -261,8 +265,7 @@ where
             return Err(EvaluationFailure::invalid_expression(expression));
         };
 
-        let representation = type_representation(self.request, self.expression_type(*operand)?)
-            .map_err(EvaluationFailure::Infrastructure)?;
+        let representation = type_representation(self.request, self.expression_type(*operand)?);
 
         if representation != Some(RepresentationRole::Result) {
             return Err(EvaluationFailure::invalid_expression(expression));
@@ -270,7 +273,7 @@ where
 
         let operand = self.evaluate(*operand)?;
         let value = self.closed_value(operand, expression)?;
-        let value = self.constant_value(value)?;
+        let value = self.request.semantic_values().constant_value_data(value);
 
         let ConstantValueKind::Union { variant, fields } = value.kind() else {
             return Err(EvaluationFailure::invalid_expression(expression));
@@ -300,23 +303,26 @@ where
         propagated: ConstantTermId,
         result_type: TypeId,
     ) -> Result<Option<ConstantTermId>, EvaluationFailure> {
-        let Some(value) = self.term_value(propagated)? else {
+        let Some(value) = self.term_value(propagated) else {
             return Ok(None);
         };
 
-        let value = self.constant_value(value)?;
+        let value = self.request.semantic_values().constant_value_data(value);
 
-        if self.is_nullable_type(result_type)?
-            && matches!(value.kind(), ConstantValueKind::NullableAbsent)
+        if matches!(
+            self.request
+                .semantic_values()
+                .type_data(result_type)
+                .as_ref(),
+            bray_symbols::TypeData::Nullable(_)
+        ) && matches!(value.kind(), ConstantValueKind::NullableAbsent)
         {
             return self
                 .intern_value_term(result_type, ConstantValueKind::NullableAbsent)
                 .map(Some);
         }
 
-        if type_representation(self.request, result_type)
-            .map_err(EvaluationFailure::Infrastructure)?
-            == Some(RepresentationRole::Result)
+        if type_representation(self.request, result_type) == Some(RepresentationRole::Result)
             && let ConstantValueKind::Union { variant, .. } = value.kind()
         {
             let (_, failure) = self.result_variants()?;
@@ -329,18 +335,6 @@ where
         }
 
         Ok(None)
-    }
-
-    fn is_nullable_type(&self, ty: TypeId) -> Result<bool, EvaluationFailure> {
-        self.request
-            .semantic_values()
-            .type_data(ty)
-            .map(|ty| matches!(ty.as_ref(), bray_symbols::TypeData::Nullable(_)))
-            .map_err(|error| {
-                EvaluationFailure::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
-                    error,
-                ))
-            })
     }
 
     fn result_variants(

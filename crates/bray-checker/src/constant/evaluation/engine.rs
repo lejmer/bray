@@ -573,7 +573,6 @@ where
         self.budget.charge_literal(expression, spelling.len())?;
 
         let representation = type_representation(self.request, ty)
-            .map_err(EvaluationFailure::Infrastructure)?
             .ok_or_else(|| EvaluationFailure::invalid_expression(expression))?;
 
         if self.retain_target_literals
@@ -631,18 +630,7 @@ where
 
                 self.reference_value(result.value(), ty)
             }
-            Some(ConstantReferenceResolution::Term(term)) => {
-                self.request
-                    .semantic_values()
-                    .constant_term_data(term)
-                    .map_err(|error| {
-                        EvaluationFailure::Infrastructure(
-                            CheckerInfrastructureError::SemanticValueStore(error),
-                        )
-                    })?;
-
-                self.type_term(term, ty)
-            }
+            Some(ConstantReferenceResolution::Term(term)) => self.type_term(term, ty),
             Some(ConstantReferenceResolution::Cycle { definition }) => {
                 Err(EvaluationFailure::Source {
                     expression,
@@ -662,7 +650,7 @@ where
         value: ConstantValueId,
         ty: TypeId,
     ) -> Result<ConstantTermId, EvaluationFailure> {
-        let data = self.constant_value(value)?;
+        let data = self.request.semantic_values().constant_value_data(value);
         let term = self.intern_term(ConstantTermData::Value(value))?;
 
         self.adapt_nullable_present(term, data.ty(), ty)
@@ -800,7 +788,7 @@ where
         let mut values = Vec::with_capacity(terms.len());
 
         for term in terms {
-            let Some(value) = self.term_value(*term)? else {
+            let Some(value) = self.term_value(*term) else {
                 return Ok(None);
             };
 
@@ -828,7 +816,7 @@ where
         self.budget.charge_elements(expression, count)?;
         self.budget.charge_expansion(expression, count)?;
 
-        match self.term_value(value)? {
+        match self.term_value(value) {
             Some(value) => self.intern_value_term(
                 ty,
                 ConstantValueKind::array(std::iter::repeat_n(value, count)),
@@ -845,15 +833,7 @@ where
         expression: BoundExpressionId,
         value: ConstantValueId,
     ) -> Result<usize, EvaluationFailure> {
-        let data = self
-            .request
-            .semantic_values()
-            .constant_value_data(value)
-            .map_err(|error| {
-                EvaluationFailure::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
-                    error,
-                ))
-            })?;
+        let data = self.request.semantic_values().constant_value_data(value);
 
         let ConstantValueKind::Integer(integer) = data.kind() else {
             return Err(EvaluationFailure::invalid_expression(expression));
@@ -875,9 +855,7 @@ where
             return Err(EvaluationFailure::invalid_expression(expression));
         }
 
-        let Some(representation) =
-            type_representation(self.request, ty).map_err(EvaluationFailure::Infrastructure)?
-        else {
+        let Some(representation) = type_representation(self.request, ty) else {
             return Err(EvaluationFailure::invalid_expression(expression));
         };
 
@@ -908,15 +886,7 @@ where
         expression: BoundExpressionId,
         value: ConstantValueId,
     ) -> Result<RealConstantBits, EvaluationFailure> {
-        let data = self
-            .request
-            .semantic_values()
-            .constant_value_data(value)
-            .map_err(|error| {
-                EvaluationFailure::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
-                    error,
-                ))
-            })?;
+        let data = self.request.semantic_values().constant_value_data(value);
 
         match data.kind() {
             ConstantValueKind::Real(value) => Ok(*value),
@@ -1046,10 +1016,6 @@ mod tests {
         let expected = representation(&unit, &context, RepresentationRole::ScalarUsize);
         let term = check_term(&unit, root, &context, expected);
         let data = semantic_values().constant_term_data(*term.value());
-
-        let Ok(data) = data else {
-            panic!("checked constant term must be available");
-        };
 
         assert!(term.diagnostics().is_empty());
 
@@ -2088,9 +2054,7 @@ mod tests {
             .into_result()
             .unwrap_or_else(|| panic!("open aggregate checking must complete"));
 
-        let term = semantic_values()
-            .constant_term_data(*result.value())
-            .unwrap_or_else(|error| panic!("aggregate term must be available: {error:?}"));
+        let term = semantic_values().constant_term_data(*result.value());
 
         let ConstantTermData::Tuple(elements) = term.as_ref() else {
             panic!("open tuple must remain an aggregate term");
@@ -2098,9 +2062,7 @@ mod tests {
 
         assert_eq!(elements[0], parameter);
 
-        let second = semantic_values()
-            .constant_term_data(elements[1])
-            .unwrap_or_else(|error| panic!("closed aggregate child must be available: {error:?}"));
+        let second = semantic_values().constant_term_data(elements[1]);
 
         assert!(matches!(second.as_ref(), ConstantTermData::Value(_)));
     }
@@ -2301,9 +2263,7 @@ mod tests {
             .into_result()
             .unwrap_or_else(|| panic!("open conversion checking must complete"));
 
-        let data = semantic_values()
-            .constant_term_data(*result.value())
-            .unwrap_or_else(|error| panic!("conversion term must be available: {error:?}"));
+        let data = semantic_values().constant_term_data(*result.value());
 
         assert!(result.diagnostics().is_empty());
 
@@ -2544,10 +2504,7 @@ mod tests {
             panic!("constant test root scope must validate: {error:?}");
         }
 
-        match symbols.finish() {
-            Ok(symbols) => symbols,
-            Err(error) => panic!("constant test symbols must validate: {error:?}"),
-        }
+        symbols.finish()
     }
 
     fn evaluate(
@@ -2846,10 +2803,7 @@ mod tests {
     }
 
     fn constant_value(id: bray_symbols::ConstantValueId) -> std::sync::Arc<ConstantValueData> {
-        match semantic_values().constant_value_data(id) {
-            Ok(value) => value,
-            Err(error) => panic!("test constant value must be available: {error:?}"),
-        }
+        semantic_values().constant_value_data(id)
     }
 
     fn first_literal(origins: &[LiteralSource]) -> LiteralSource {

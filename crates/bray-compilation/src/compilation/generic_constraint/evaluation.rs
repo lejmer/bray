@@ -193,9 +193,7 @@ impl Compilation {
     ) -> Result<DiagnosticResult<TypeId>, FactQueryError> {
         let values = self.semantic_value_store()?;
 
-        let data = values
-            .type_data(ty)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let data = values.type_data(ty);
 
         let TypeData::TypeValuedMemberProjection {
             subject,
@@ -325,13 +323,9 @@ impl Compilation {
     ) -> Result<DiagnosticResult<ProofOutcome>, FactQueryError> {
         let values = self.semantic_value_store()?;
 
-        let substitution = match values.require_concrete_substitution(substitution) {
-            Ok(substitution) => substitution,
-            Err(bray_symbols::SemanticValueStoreError::OpenSubstitution) => {
-                return Ok(DiagnosticResult::without_diagnostics(ProofOutcome::Unknown));
-            }
-            Err(error) => return Err(FactQueryError::SemanticValueStore(error)),
-        };
+        if !values.substitution_is_concrete(substitution) {
+            return Ok(DiagnosticResult::without_diagnostics(ProofOutcome::Unknown));
+        }
 
         let binding_context = self.binding_context(cancellation)?;
 
@@ -556,9 +550,7 @@ impl Compilation {
     ) -> Result<DiagnosticResult<ProofOutcome>, FactQueryError> {
         let values = self.semantic_value_store()?;
 
-        let application_data = values
-            .trait_application_data(application)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let application_data = values.trait_application_data(application);
 
         let context = CompilationCheckerContext::new(self.binding_context(cancellation)?);
 
@@ -610,7 +602,6 @@ impl Compilation {
             Some(unit) => {
                 let owner = values
                     .generic_substitution_data(substitution)
-                    .map_err(FactQueryError::SemanticValueStore)?
                     .owner()
                     .symbol();
 
@@ -751,9 +742,7 @@ fn constant_predicate_outcome(
     value: bray_symbols::ConstantValueId,
     context: SemanticQueryContext,
 ) -> Result<ProofOutcome, FactQueryError> {
-    let value = values
-        .constant_value_data(value)
-        .map_err(FactQueryError::SemanticValueStore)?;
+    let value = values.constant_value_data(value);
 
     match value.kind() {
         ConstantValueKind::Boolean(true) => Ok(ProofOutcome::Proven),

@@ -253,9 +253,7 @@ impl Compilation {
                         right.signature.value(),
                         right.generic.value().parameters(),
                         values,
-                    )
-                    .map_err(FactQueryError::SemanticValueStore)?
-                    {
+                    ) {
                         diagnostics.add(problem_diagnostic(
                             left.anchor,
                             DiagnosticKind::CheckingConflictingCallableOverloadSignature,

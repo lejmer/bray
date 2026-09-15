@@ -242,19 +242,7 @@ where
                                 if let Some(declared) =
                                     self.declared_patterns.get(&binding.pattern()).copied()
                                 {
-                                    let data =
-                                        match self.request.semantic_values().type_data(declared) {
-                                            Ok(data) => data,
-                                            Err(error) => {
-                                                failure = Some(CheckerQueryError::Infrastructure(
-                                                    CheckerInfrastructureError::SemanticValueStore(
-                                                        error,
-                                                    ),
-                                                ));
-
-                                                return BoundWalkControl::Stop;
-                                            }
-                                        };
+                                    let data = self.request.semantic_values().type_data(declared);
 
                                     if matches!(data.as_ref(), TypeData::Nullable(contained) if *contained == subject.ty)
                                     {
@@ -423,7 +411,7 @@ where
             ));
         };
 
-        let (matched_subject, type_data) = self.matched_subject(subject)?;
+        let (matched_subject, type_data) = self.matched_subject(subject);
 
         let (target, is_ambiguous) = self.pattern_target(pattern, type_data.as_ref())?;
 
@@ -507,7 +495,7 @@ where
             || child_recovered
             || children.is_recovered
             || is_ambiguous
-            || self.constant_pattern_is_recovered(id, target)?
+            || self.constant_pattern_is_recovered(id, target)
             || matches!(type_data.as_ref(), TypeData::Error)
             || !compatible;
 
@@ -570,23 +558,14 @@ where
     fn matched_subject(
         &self,
         subject: PatternSubject,
-    ) -> Result<(PatternSubject, std::sync::Arc<TypeData>), CheckerQueryError<C::UpstreamError>>
-    {
+    ) -> (PatternSubject, std::sync::Arc<TypeData>) {
         let mut matched = subject;
 
-        matched.ty = self
-            .request
-            .semantic_values()
-            .unborrowed_type(matched.ty)
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        matched.ty = self.request.semantic_values().unborrowed_type(matched.ty);
 
-        let data = self
-            .request
-            .semantic_values()
-            .type_data(matched.ty)
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        let data = self.request.semantic_values().type_data(matched.ty);
 
-        Ok((matched, data))
+        (matched, data)
     }
 
     fn pattern_target(

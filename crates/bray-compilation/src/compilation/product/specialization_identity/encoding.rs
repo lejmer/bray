@@ -89,10 +89,7 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
     }
 
     fn ty(&mut self, id: TypeId) -> Result<(), FactQueryError> {
-        let data = self
-            .values
-            .type_data(id)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let data = self.values.type_data(id);
 
         match data.as_ref() {
             TypeData::Error => self.tag(0),
@@ -203,10 +200,7 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
     }
 
     pub(super) fn constant_term(&mut self, id: ConstantTermId) -> Result<(), FactQueryError> {
-        let data = self
-            .values
-            .constant_term_data(id)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let data = self.values.constant_term_data(id);
 
         match data.as_ref() {
             ConstantTermData::Typed { term, ty } => {
@@ -325,10 +319,7 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
     }
 
     fn constant_value(&mut self, id: ConstantValueId) -> Result<(), FactQueryError> {
-        let data = self
-            .values
-            .constant_value_data(id)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let data = self.values.constant_value_data(id);
 
         self.ty(data.ty())?;
 
@@ -405,10 +396,7 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
     }
 
     fn substitution(&mut self, id: GenericSubstitutionId) -> Result<(), FactQueryError> {
-        let data = self
-            .values
-            .generic_substitution_data(id)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let data = self.values.generic_substitution_data(id);
 
         self.symbol(data.owner().symbol())?;
         self.length(data.bindings().len());
@@ -432,10 +420,7 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
     }
 
     fn trait_application(&mut self, id: TraitApplicationId) -> Result<(), FactQueryError> {
-        let data = self
-            .values
-            .trait_application_data(id)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let data = self.values.trait_application_data(id);
 
         self.symbol(data.definition().into())?;
 
@@ -443,10 +428,7 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
     }
 
     fn callable_instance(&mut self, id: CallableInstanceId) -> Result<(), FactQueryError> {
-        let data = self
-            .values
-            .callable_instance_data(id)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let data = self.values.callable_instance_data(id);
 
         self.symbol(data.definition().symbol())?;
 
@@ -475,10 +457,7 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
         &mut self,
         id: ImplementationInstanceId,
     ) -> Result<(), FactQueryError> {
-        let data = self
-            .values
-            .implementation_instance_data(id)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let data = self.values.implementation_instance_data(id);
 
         self.symbol(data.definition().into_any())?;
 
@@ -539,10 +518,7 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
         &mut self,
         id: DependencyContractTemplateId,
     ) -> Result<(), FactQueryError> {
-        let data = self
-            .values
-            .dependency_contract_template_data(id)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let data = self.values.dependency_contract_template_data(id);
 
         self.dependency_requirements(data.requirements())
     }
@@ -823,9 +799,7 @@ mod tests {
                     )
                     .unwrap();
 
-                let contract = values
-                    .dependency_contract_template_data(*contract.value())
-                    .unwrap();
+                let contract = values.dependency_contract_template_data(*contract.value());
 
                 let mut pending = contract.requirements().iter().collect::<Vec<_>>();
                 let mut witness = None;
@@ -891,7 +865,6 @@ mod tests {
                     combined.extend(
                         values
                             .dependency_contract_template_data(contract)
-                            .unwrap()
                             .requirements()
                             .iter()
                             .cloned(),

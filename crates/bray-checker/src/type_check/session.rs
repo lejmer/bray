@@ -208,7 +208,7 @@ where
         expression: BoundExpressionId,
         ty: TypeId,
     ) -> Result<(), CheckerInfrastructureError> {
-        self.validate_expression_and_type(expression, ty)?;
+        self.validate_expression(expression)?;
 
         let Some(variable) = self.variables.get(&expression).copied() else {
             return Err(CheckerInfrastructureError::InvalidExpressionTypeInput { expression });
@@ -224,7 +224,7 @@ where
         expression: BoundExpressionId,
         ty: TypeId,
     ) -> Result<(), CheckerInfrastructureError> {
-        self.validate_expression_and_type(expression, ty)?;
+        self.validate_expression(expression)?;
 
         let Some(variable) = self.variables.get(&expression).copied() else {
             return Err(CheckerInfrastructureError::InvalidExpressionTypeInput { expression });
@@ -254,7 +254,7 @@ where
         expression: BoundExpressionId,
         ty: TypeId,
     ) -> Result<(), CheckerInfrastructureError> {
-        self.validate_expression_and_type(expression, ty)?;
+        self.validate_expression(expression)?;
 
         match add_expectations(
             self.request,
@@ -395,19 +395,13 @@ where
         }
     }
 
-    fn validate_expression_and_type(
+    fn validate_expression(
         &self,
         expression: BoundExpressionId,
-        ty: TypeId,
     ) -> Result<(), CheckerInfrastructureError> {
         if !self.variables.contains_key(&expression) {
             return Err(CheckerInfrastructureError::InvalidExpressionTypeInput { expression });
         }
-
-        self.request
-            .semantic_values()
-            .type_data(ty)
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
         Ok(())
     }
@@ -562,11 +556,6 @@ where
         variables.insert(expression, variable);
 
         if let Some(ty) = intrinsic_expression_type(bound) {
-            request
-                .semantic_values()
-                .type_data(ty)
-                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
-
             inference.add_evidence(variable, ty, expression);
         }
 
@@ -631,36 +620,28 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     for evidence in input.evidence() {
-        validate_input_pair(request, evidence.expression(), evidence.ty())?;
+        validate_input_expression(request, evidence.expression())?;
     }
 
     for expectation in input.expectations() {
-        validate_input_pair(request, expectation.expression(), expectation.ty())?;
+        validate_input_expression(request, expectation.expression())?;
     }
 
-    for &(expression, policy) in input.box_storage_policies() {
+    for &(expression, _) in input.box_storage_policies() {
         if !matches!(request.view().expression(expression), Some(BoundExpression::BoxConstruction(construction)) if construction.policy().is_some())
         {
             return Err(CheckerInfrastructureError::InvalidExpressionTypeInput { expression });
         }
 
-        validate_input_pair(request, expression, policy)?;
-    }
-
-    if let Some(result_type) = input.callable_result_type() {
-        request
-            .semantic_values()
-            .type_data(result_type)
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        validate_input_expression(request, expression)?;
     }
 
     Ok(())
 }
 
-fn validate_input_pair<C>(
+fn validate_input_expression<C>(
     request: CheckerUnitView<'_, C>,
     expression: BoundExpressionId,
-    ty: TypeId,
 ) -> Result<(), CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
@@ -668,11 +649,6 @@ where
     if request.view().expression(expression).is_none() {
         return Err(CheckerInfrastructureError::InvalidExpressionTypeInput { expression });
     }
-
-    request
-        .semantic_values()
-        .type_data(ty)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     Ok(())
 }

@@ -5,14 +5,12 @@ use bray_bound_tree::{
     StoragePlan,
 };
 use bray_ir::{MirTargetContract, MirUnitBuilder, MirUnitKind};
-use bray_symbols::{
-    AvailableCompilerKnownSymbols, ConstantValueId, SemanticValueStore, SemanticValueStoreError,
-};
+use bray_symbols::{AvailableCompilerKnownSymbols, ConstantValueId, SemanticValueStore};
 
 use super::validation::{
     validate_constant_reference_values, validate_input_owner, validate_literal_target,
-    validate_literal_values, validate_liveness, validate_pattern_completeness,
-    validate_refinements, validate_semantic_completeness, validate_storage_analysis,
+    validate_liveness, validate_pattern_completeness, validate_refinements,
+    validate_semantic_completeness, validate_storage_analysis,
 };
 use crate::result::requires_mir;
 use crate::{LoweringPlanFailure, VerifiedLoweringPlans};
@@ -117,7 +115,6 @@ impl<'unit> LoweringInput<'unit> {
         )?;
 
         validate_literal_target(literal_values, &target)?;
-        validate_literal_values(literal_values, semantic_values)?;
         lowering_plans.validate_cleanup_types(semantic_values)?;
 
         let semantic_selections = lowering_plans.semantic_selections();
@@ -386,8 +383,6 @@ pub enum LoweringInputError {
     InvalidPatternInput,
     /// One input contains identities absent from its exact bound unit or dependent input.
     InvalidInputContents(LoweringInputKind),
-    /// A semantic value required to validate the lowering input could not be read.
-    SemanticValue(SemanticValueStoreError),
     /// A checked storage operation does not match the canonical storage plan.
     InvalidStorageOperation(BoundExpressionId),
     /// Checked storage operations do not cover every canonical access plan exactly once.
@@ -412,12 +407,6 @@ pub enum LoweringInputError {
     ExecutableHostRequiresSyntheticInput,
     /// A compile-time-only unit was supplied through executable MIR lowering.
     CompileTimeUnitRequiresClassification,
-}
-
-impl From<SemanticValueStoreError> for LoweringInputError {
-    fn from(error: SemanticValueStoreError) -> Self {
-        Self::SemanticValue(error)
-    }
 }
 
 impl From<LoweringPlanFailure> for LoweringInputError {
@@ -448,13 +437,14 @@ mod tests {
     use bray_symbols::testing::available_compiler_known_symbols;
     use bray_symbols::{
         BorrowKind, ConstantValueData, ConstantValueKind, CurrentRunCancellation,
-        SemanticValueStore, SemanticValueStoreError, TypeData, TypeId,
+        SemanticValueStore, TypeData, TypeId,
     };
     use bray_testing::{
         test_bound_unit, test_constant_template_unit, test_mir_target, test_runtime_default_unit,
     };
 
-    use super::{LoweringInput, LoweringInputError, LoweringInputKind, validate_literal_values};
+    use super::super::validation::validate_literal_values;
+    use super::{LoweringInput, LoweringInputError, LoweringInputKind};
     use crate::{LoweringPlanFailureCause, LoweringPlanKind, VerifiedLoweringPlans};
 
     #[test]
@@ -707,14 +697,11 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("test literal values must validate: {error:?}"));
 
-        assert_eq!(
-            validate_literal_values(&literals, &second_store),
-            Err(LoweringInputError::SemanticValue(
-                SemanticValueStoreError::ForeignId {
-                    expected: second_store.id(),
-                    actual: first_store.id(),
-                }
-            ))
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                validate_literal_values(&literals, &second_store)
+            }))
+            .is_err()
         );
     }
 

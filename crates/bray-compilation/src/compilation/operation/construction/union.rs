@@ -144,10 +144,7 @@ impl Compilation {
             _ => return Ok(None),
         };
 
-        let data = binding_context
-            .semantic_values()
-            .type_data(result_type)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let data = binding_context.semantic_values().type_data(result_type);
 
         let TypeData::Named {
             definition: NamedTypeSymbolId::Union(union),
@@ -201,10 +198,7 @@ impl Compilation {
         result_type: TypeId,
         name: &SymbolName,
     ) -> Result<ContextualVariantTarget, FactQueryError> {
-        let data = binding_context
-            .semantic_values()
-            .type_data(result_type)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let data = binding_context.semantic_values().type_data(result_type);
 
         let TypeData::Named {
             definition: NamedTypeSymbolId::Union(union),

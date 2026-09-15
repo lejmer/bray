@@ -40,12 +40,7 @@ pub(in crate::compilation::foreign) fn callable_surface(
 ) -> Result<CallableBoundarySurface, FactQueryError> {
     let parameters = signature
         .parameter_type_templates(values)
-        .map_err(|cause| match cause {
-            bray_symbols::CallableSignatureTemplateError::SemanticValue(cause) => {
-                FactQueryError::SemanticValueStore(cause)
-            }
-            cause => ForeignQueryFailure::CallableSignature { function, cause }.into(),
-        })?;
+        .map_err(|cause| ForeignQueryFailure::CallableSignature { function, cause })?;
 
     let (abi, trust, execution, variadic) = match signature.callable_type() {
         TypeExpressionTemplate::Callable(callable) => (
@@ -55,9 +50,7 @@ pub(in crate::compilation::foreign) fn callable_surface(
             callable.is_variadic(),
         ),
         TypeExpressionTemplate::Resolved(ty) => {
-            let data = values
-                .type_data(*ty)
-                .map_err(FactQueryError::SemanticValueStore)?;
+            let data = values.type_data(*ty);
 
             let TypeData::Callable(callable) = data.as_ref() else {
                 // The failure outlives this semantic-store read and therefore retains the
@@ -532,9 +525,7 @@ fn type_has_representation(
 ) -> Result<bool, FactQueryError> {
     let values = compilation.semantic_value_store()?;
 
-    let data = values
-        .type_data(ty)
-        .map_err(FactQueryError::SemanticValueStore)?;
+    let data = values.type_data(ty);
 
     let TypeData::Named { definition, .. } = data.as_ref() else {
         return Ok(false);
@@ -561,9 +552,7 @@ fn raw_pointer_target(
 ) -> Result<Option<TypeId>, FactQueryError> {
     let values = compilation.semantic_value_store()?;
 
-    let data = values
-        .type_data(ty)
-        .map_err(FactQueryError::SemanticValueStore)?;
+    let data = values.type_data(ty);
 
     let TypeData::Named {
         definition,
@@ -579,9 +568,7 @@ fn raw_pointer_target(
         return Ok(None);
     }
 
-    let substitution = values
-        .generic_substitution_data(*substitution)
-        .map_err(FactQueryError::SemanticValueStore)?;
+    let substitution = values.generic_substitution_data(*substitution);
 
     let [binding] = substitution.bindings() else {
         return Ok(None);
@@ -660,9 +647,7 @@ pub(in crate::compilation) fn c_struct_matches(
 ) -> Result<bool, FactQueryError> {
     let values = compilation.semantic_value_store()?;
 
-    let data = values
-        .type_data(ty)
-        .map_err(FactQueryError::SemanticValueStore)?;
+    let data = values.type_data(ty);
 
     let TypeData::Named {
         definition: NamedTypeSymbolId::Struct(structure),
@@ -698,9 +683,7 @@ pub(in crate::compilation) fn c_struct_matches(
         return Ok(false);
     }
 
-    let substitution = values
-        .generic_substitution_data(*substitution)
-        .map_err(FactQueryError::SemanticValueStore)?;
+    let substitution = values.generic_substitution_data(*substitution);
 
     if !substitution.bindings().is_empty() {
         return Ok(false);
@@ -753,9 +736,7 @@ fn platform_status_matches(
 ) -> Result<bool, FactQueryError> {
     let values = compilation.semantic_value_store()?;
 
-    let data = values
-        .type_data(ty)
-        .map_err(FactQueryError::SemanticValueStore)?;
+    let data = values.type_data(ty);
 
     let TypeData::Named {
         definition: NamedTypeSymbolId::Struct(structure),
@@ -791,9 +772,7 @@ fn platform_status_matches(
         return Ok(false);
     }
 
-    let substitution = values
-        .generic_substitution_data(*substitution)
-        .map_err(FactQueryError::SemanticValueStore)?;
+    let substitution = values.generic_substitution_data(*substitution);
 
     if !substitution.bindings().is_empty() {
         return Ok(false);
@@ -860,10 +839,7 @@ fn foreign_aggregate_alignment_is_supported(
 ) -> Result<bool, FactQueryError> {
     let definition = match template {
         TypeExpressionTemplate::Resolved(ty) => {
-            let data = compilation
-                .semantic_value_store()?
-                .type_data(*ty)
-                .map_err(FactQueryError::SemanticValueStore)?;
+            let data = compilation.semantic_value_store()?.type_data(*ty);
 
             let TypeData::Named { definition, .. } = data.as_ref() else {
                 return Ok(true);
@@ -900,10 +876,7 @@ pub(in crate::compilation::foreign) fn foreign_type_is_supported(
 ) -> Result<bool, FactQueryError> {
     match template {
         TypeExpressionTemplate::Resolved(ty) => {
-            let data = compilation
-                .semantic_value_store()?
-                .type_data(*ty)
-                .map_err(FactQueryError::SemanticValueStore)?;
+            let data = compilation.semantic_value_store()?.type_data(*ty);
 
             foreign_type_data_is_supported(compilation, data.as_ref(), abi, cancellation)
         }
@@ -1020,10 +993,7 @@ fn is_unit_template(
             )
         })?;
 
-    let data = compilation
-        .semantic_value_store()?
-        .type_data(*ty)
-        .map_err(FactQueryError::SemanticValueStore)?;
+    let data = compilation.semantic_value_store()?.type_data(*ty);
 
     Ok(matches!(
         data.as_ref(),

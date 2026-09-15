@@ -205,9 +205,6 @@ fn literal_value_table_error(
     error: bray_bound_tree::CheckedLiteralValueTableBuildError,
 ) -> CheckerInfrastructureError {
     match error {
-        bray_bound_tree::CheckedLiteralValueTableBuildError::SemanticValue { error, .. } => {
-            CheckerInfrastructureError::SemanticValueStore(error)
-        }
         bray_bound_tree::CheckedLiteralValueTableBuildError::ForeignExpressionTypes => {
             CheckerInfrastructureError::LiteralValue(
                 CheckerLiteralValueFailure::ForeignExpressionTypes,
@@ -244,34 +241,19 @@ fn literal_value_table_error(
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::{BoundLiteralKind, BoundUnitId, CheckedLiteralValueTableBuildError};
-    use bray_symbols::{SemanticValueKind, SemanticValueStoreError};
 
     use super::literal_value_table_error;
     use crate::test_support::{expression_unit, literal_expression};
     use crate::{CheckerInfrastructureError, CheckerLiteralValueFailure};
 
     #[test]
-    fn literal_table_failures_preserve_semantic_value_causes() {
-        let cause = SemanticValueStoreError::UnknownId {
-            kind: SemanticValueKind::ConstantValue,
-        };
-
+    fn literal_table_failures_preserve_expression_identity() {
         let (_, expressions) = expression_unit(BoundUnitId::new(1), |tree, origin| {
             vec![bray_bound_tree::testing::push_expression(
                 tree,
                 literal_expression(origin, BoundLiteralKind::Boolean, None),
             )]
         });
-
-        let error = CheckedLiteralValueTableBuildError::SemanticValue {
-            expression: expressions[0],
-            error: cause,
-        };
-
-        assert_eq!(
-            literal_value_table_error(error),
-            CheckerInfrastructureError::SemanticValueStore(cause)
-        );
 
         assert_eq!(
             literal_value_table_error(CheckedLiteralValueTableBuildError::InvalidLiteral(
@@ -295,7 +277,7 @@ fn check_literal<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let representation = type_representation(request, ty)?;
+    let representation = type_representation(request, ty);
 
     let Some(representation) = representation else {
         return Ok(Err(ConstantLiteralError::Invalid));

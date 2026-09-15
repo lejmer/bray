@@ -4,7 +4,7 @@ use bray_base::shared_slice;
 
 use crate::{
     CallableConstness, CallableExecution, CallableParameterSymbolId, ReceiverParameterSymbolId,
-    SemanticValueStore, SemanticValueStoreError, TypeData, TypeExpressionTemplate, TypeId,
+    SemanticValueStore, TypeData, TypeExpressionTemplate, TypeId,
 };
 
 /// The ownership and mutation authority carried by an implicit receiver.
@@ -103,8 +103,6 @@ pub struct CallableSignatureTemplate {
 /// A canonical callable signature template could not expose its parameter type templates.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum CallableSignatureTemplateError {
-    /// The semantic value store rejected the callable type identity.
-    SemanticValue(SemanticValueStoreError),
     /// The signature's canonical type is not callable.
     InvalidCallableType,
     /// The callable type and declaration parameter identities have different lengths.
@@ -170,9 +168,7 @@ impl CallableSignatureTemplate {
         match self.callable_type() {
             TypeExpressionTemplate::Callable(callable) => Ok(callable.constness()),
             TypeExpressionTemplate::Resolved(ty) => {
-                let data = semantic_values
-                    .type_data(*ty)
-                    .map_err(CallableSignatureTemplateError::SemanticValue)?;
+                let data = semantic_values.type_data(*ty);
 
                 let TypeData::Callable(callable) = data.as_ref() else {
                     return Err(CallableSignatureTemplateError::InvalidCallableType);
@@ -192,9 +188,7 @@ impl CallableSignatureTemplate {
         match self.callable_type() {
             TypeExpressionTemplate::Callable(callable) => Ok(callable.execution()),
             TypeExpressionTemplate::Resolved(ty) => {
-                let data = semantic_values
-                    .type_data(*ty)
-                    .map_err(CallableSignatureTemplateError::SemanticValue)?;
+                let data = semantic_values.type_data(*ty);
 
                 let TypeData::Callable(callable) = data.as_ref() else {
                     return Err(CallableSignatureTemplateError::InvalidCallableType);
@@ -219,9 +213,7 @@ impl CallableSignatureTemplate {
                 .map(|parameter| parameter.ty().clone())
                 .collect::<Vec<_>>(),
             TypeExpressionTemplate::Resolved(ty) => {
-                let data = semantic_values
-                    .type_data(*ty)
-                    .map_err(CallableSignatureTemplateError::SemanticValue)?;
+                let data = semantic_values.type_data(*ty);
 
                 let TypeData::Callable(callable) = data.as_ref() else {
                     return Err(CallableSignatureTemplateError::InvalidCallableType);
@@ -256,9 +248,7 @@ impl CallableSignatureTemplate {
                 .map(|parameter| parameter.name().clone())
                 .collect::<Vec<_>>(),
             TypeExpressionTemplate::Resolved(ty) => {
-                let data = semantic_values
-                    .type_data(*ty)
-                    .map_err(CallableSignatureTemplateError::SemanticValue)?;
+                let data = semantic_values.type_data(*ty);
 
                 let TypeData::Callable(callable) = data.as_ref() else {
                     return Err(CallableSignatureTemplateError::InvalidCallableType);
@@ -308,9 +298,7 @@ impl CallableSignatureTemplate {
                     .ok_or(CallableSignatureTemplateError::ParameterIdentityMismatch)
             }
             TypeExpressionTemplate::Resolved(ty) => {
-                let data = semantic_values
-                    .type_data(*ty)
-                    .map_err(CallableSignatureTemplateError::SemanticValue)?;
+                let data = semantic_values.type_data(*ty);
 
                 let TypeData::Callable(callable) = data.as_ref() else {
                     return Err(CallableSignatureTemplateError::InvalidCallableType);

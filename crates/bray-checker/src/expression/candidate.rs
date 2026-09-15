@@ -337,8 +337,7 @@ where
 
     let substitution = request
         .semantic_values()
-        .generic_substitution_data(substitution_id)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        .generic_substitution_data(substitution_id);
 
     let obligation = GenericConstraintObligationKey::new(substitution.owner(), substitution_id);
 
@@ -716,8 +715,7 @@ where
     for candidate in candidates {
         let callable = request
             .semantic_values()
-            .type_data(candidate.callable_type())
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+            .type_data(candidate.callable_type());
 
         let TypeData::Callable(callable) = callable.as_ref() else {
             return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
@@ -951,10 +949,7 @@ where
         return Ok(None);
     }
 
-    let data = request
-        .semantic_values()
-        .type_data(callee_type.ty())
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+    let data = request.semantic_values().type_data(callee_type.ty());
 
     let TypeData::Callable(callable) = data.as_ref() else {
         return Ok(Some(MaterializedCallCandidates {
@@ -1169,8 +1164,7 @@ where
 
     let callable = request
         .semantic_values()
-        .type_data(candidate.callable_type())
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        .type_data(candidate.callable_type());
 
     let TypeData::Callable(callable) = callable.as_ref() else {
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
@@ -1376,14 +1370,7 @@ where
             .expression(expression)
             .ok_or_else(invalid_selection_input)?;
 
-        let data = request
-            .semantic_values()
-            .type_data(ty.ty())
-            .map_err(|error| {
-                CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
-                    error,
-                ))
-            })?;
+        let data = request.semantic_values().type_data(ty.ty());
 
         if let TypeData::Borrow { kind, .. } = data.as_ref() {
             return Ok(borrow_receiver_capability(*kind, mutable_projection));
@@ -1441,8 +1428,7 @@ where
 
     let substitution_data = request
         .semantic_values()
-        .generic_substitution_data(substitution)
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        .generic_substitution_data(substitution);
 
     let constraints = request.resolve_symbol_query(
         SymbolQueryRequest::<GenericConstraintsQuery>::new(substitution_data.owner()),
@@ -1577,11 +1563,7 @@ where
                     .get(index)
                     .map(bray_symbols::CallableParameterTypeTemplate::mode),
                 TypeExpressionTemplate::Resolved(ty) => {
-                    let data = request.semantic_values().type_data(*ty).map_err(|error| {
-                        CheckerQueryError::Infrastructure(
-                            CheckerInfrastructureError::SemanticValueStore(error),
-                        )
-                    })?;
+                    let data = request.semantic_values().type_data(*ty);
 
                     match data.as_ref() {
                         TypeData::Callable(callable) => callable

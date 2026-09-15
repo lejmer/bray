@@ -4,7 +4,7 @@ use bray_symbols::{CallableSignatureQuery, SymbolQueryRequest};
 
 use crate::compilation::binder::binding_query_error;
 use crate::compilation::{CodegenPreparationError, Compilation};
-use crate::fact::{CancellationToken, FactQueryError};
+use crate::fact::CancellationToken;
 
 impl Compilation {
     pub(in crate::compilation::product) fn codegen_callable_template(
@@ -64,27 +64,11 @@ impl Compilation {
                 .with_platform_service(platform_service),
             );
 
-            if template.key() != &expected_key {
-                // The retained failure owns both sides after the imported-template borrow ends.
-                let target = template.target().clone();
-
-                return Err(FactQueryError::from(
-                    crate::ImportedQueryFailure::ExecutableTemplateMismatch(Box::new(
-                        crate::ImportedExecutableTemplateMismatch::new(
-                            address.interface(),
-                            address.symbol(),
-                            bray_ir::MirExecutableTemplateId::ROOT,
-                            template.unit(),
-                            template.unit(),
-                            expected_key,
-                            template.key().clone(),
-                            target.clone(),
-                            target,
-                        ),
-                    )),
-                )
-                .into());
-            }
+            assert_eq!(
+                template.key(),
+                &expected_key,
+                "imported callable template at {address:?}"
+            );
 
             let MirUnitKey::ImportedExecutable(key) = template.key() else {
                 unreachable!("validated imported executable key must retain its variant");

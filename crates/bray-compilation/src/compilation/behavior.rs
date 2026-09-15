@@ -392,10 +392,7 @@ impl Compilation {
                 None => builder.is_recovered = true,
             },
             BoundCallableTarget::Indirect(ty) => {
-                let data = binding_context
-                    .semantic_values()
-                    .type_data(ty)
-                    .map_err(FactQueryError::SemanticValueStore)?;
+                let data = binding_context.semantic_values().type_data(ty);
 
                 let TypeData::Callable(callable) = data.as_ref() else {
                     return Err(SemanticQueryFailure::contract(
@@ -630,10 +627,7 @@ fn callable_execution_abi(
     match signature.value().callable_type() {
         TypeExpressionTemplate::Callable(callable) => Ok((callable.execution(), callable.abi())),
         TypeExpressionTemplate::Resolved(ty) => {
-            let data = binding_context
-                .semantic_values()
-                .type_data(*ty)
-                .map_err(FactQueryError::SemanticValueStore)?;
+            let data = binding_context.semantic_values().type_data(*ty);
 
             match data.as_ref() {
                 TypeData::Callable(callable) => Ok((callable.execution(), callable.abi())),

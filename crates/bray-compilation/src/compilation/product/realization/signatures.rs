@@ -47,10 +47,7 @@ impl Compilation {
                 cancellation,
             )?;
 
-            let callable = self
-                .semantic_value_store()?
-                .type_data(callable_type)
-                .map_err(FactQueryError::SemanticValueStore)?;
+            let callable = self.semantic_value_store()?.type_data(callable_type);
 
             let TypeData::Callable(callable) = callable.as_ref() else {
                 return Err(ProductQueryFailure::UnexpectedSemanticType {
@@ -166,9 +163,7 @@ impl Compilation {
             return Err(CodegenPreparationError::Diagnostics(diagnostics));
         }
 
-        let callable = values
-            .type_data(signature.callable_type())
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let callable = values.type_data(signature.callable_type());
 
         let TypeData::Callable(callable) = callable.as_ref() else {
             return Err(ProductQueryFailure::UnexpectedSemanticType {

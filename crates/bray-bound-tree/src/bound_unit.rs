@@ -528,9 +528,6 @@ mod tests {
             panic!("test root scope must be valid: {error:?}");
         }
 
-        match builder.finish() {
-            Ok(snapshot) => snapshot,
-            Err(error) => panic!("test local snapshot must be valid: {error:?}"),
-        }
+        builder.finish()
     }
 }

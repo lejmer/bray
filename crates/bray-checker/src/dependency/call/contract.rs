@@ -125,8 +125,7 @@ where
 
     let existing = request
         .semantic_values()
-        .dependency_contract_template_data(contracts.invocation())
-        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        .dependency_contract_template_data(contracts.invocation());
 
     let source = || DependencySubject::root(DependencySubjectRoot::Parameter(parameter));
 
@@ -251,12 +250,7 @@ where
 {
     let invocation = request
         .semantic_values()
-        .dependency_contract_template_data(contracts.invocation())
-        .map_err(|error| {
-            DependencyContractInstantiationError::Resolution(
-                CheckerInfrastructureError::SemanticValueStore(error).into(),
-            )
-        })?;
+        .dependency_contract_template_data(contracts.invocation());
 
     let invocation = BoundDependencyContract::try_instantiate(&invocation, context)
         .map_err(|error| error.map_resolution(CheckerQueryError::Infrastructure))?;
@@ -268,12 +262,7 @@ where
 
             let deferred = request
                 .semantic_values()
-                .dependency_contract_template_data(deferred)
-                .map_err(|error| {
-                    DependencyContractInstantiationError::Resolution(
-                        CheckerInfrastructureError::SemanticValueStore(error).into(),
-                    )
-                })?;
+                .dependency_contract_template_data(deferred);
 
             BoundDependencyContract::try_instantiate(&deferred, context)
                 .map_err(|error| error.map_resolution(CheckerQueryError::Infrastructure))
@@ -326,10 +315,7 @@ where
             })
         }
         BoundCallableTarget::Indirect(ty) => {
-            let data = request
-                .semantic_values()
-                .type_data(ty)
-                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+            let data = request.semantic_values().type_data(ty);
 
             let TypeData::Callable(callable) = data.as_ref() else {
                 return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
@@ -355,10 +341,7 @@ where
     match callable {
         TypeExpressionTemplate::Callable(callable) => Ok(callable.dependencies()),
         TypeExpressionTemplate::Resolved(ty) => {
-            let data = request
-                .semantic_values()
-                .type_data(*ty)
-                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+            let data = request.semantic_values().type_data(*ty);
 
             let TypeData::Callable(callable) = data.as_ref() else {
                 return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
@@ -544,8 +527,7 @@ mod tests {
 
         let contract = request
             .semantic_values()
-            .dependency_contract_template_data(contracts.invocation())
-            .unwrap_or_else(|error| panic!("native thread dependency must be readable: {error:?}"));
+            .dependency_contract_template_data(contracts.invocation());
 
         assert_eq!(
             contract.requirements(),

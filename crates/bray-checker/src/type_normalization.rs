@@ -63,11 +63,7 @@ where
             return Ok(ty);
         }
 
-        let data = self
-            .request
-            .semantic_values()
-            .type_data(ty)
-            .map_err(semantic_value_error)?;
+        let data = self.request.semantic_values().type_data(ty);
 
         let normalized = match data.as_ref() {
             TypeData::Error | TypeData::TypeParameter(_) | TypeData::ContextualSelf(_) => ty,
@@ -209,8 +205,7 @@ where
         let data = self
             .request
             .semantic_values()
-            .trait_application_data(application)
-            .map_err(semantic_value_error)?;
+            .trait_application_data(application);
 
         let substitution = self.normalize_substitution(data.substitution())?;
 
@@ -227,8 +222,7 @@ where
         let data = self
             .request
             .semantic_values()
-            .generic_substitution_data(substitution)
-            .map_err(semantic_value_error)?;
+            .generic_substitution_data(substitution);
 
         let parameters = data.bindings().iter().map(|binding| binding.parameter());
 
@@ -276,7 +270,7 @@ mod tests {
 
     #[test]
     fn normalization_retains_the_exact_semantic_value_store_failure() {
-        let error = SemanticValueStoreError::UnknownId {
+        let error = SemanticValueStoreError::CapacityExhausted {
             kind: SemanticValueKind::TraitApplication,
         };
 

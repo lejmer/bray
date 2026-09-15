@@ -6,8 +6,8 @@ use bray_symbols::{
 };
 
 use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerQueryResult,
-    CheckerRequestContext, CheckerUnitView, SemanticUnitContext,
+    CheckerOutcome, CheckerQueryError, CheckerQueryResult, CheckerRequestContext, CheckerUnitView,
+    SemanticUnitContext,
 };
 
 /// Checks whether one semantic type has a copy contract in the supplied static context.
@@ -153,15 +153,7 @@ where
     }
 
     fn resolve_uncached(&mut self, ty: TypeId) -> CheckerQueryResult<bool, C::UpstreamError> {
-        let data = self
-            .context
-            .semantic_values()
-            .type_data(ty)
-            .map_err(|error| {
-                CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
-                    error,
-                ))
-            })?;
+        let data = self.context.semantic_values().type_data(ty);
 
         match data.as_ref() {
             TypeData::Error => Ok(true),
@@ -221,12 +213,7 @@ where
                         let substitution = self
                             .context
                             .semantic_values()
-                            .generic_substitution_data(*substitution)
-                            .map_err(|error| {
-                                CheckerQueryError::Infrastructure(
-                                    CheckerInfrastructureError::SemanticValueStore(error),
-                                )
-                            })?;
+                            .generic_substitution_data(*substitution);
 
                         for parameter in representation.value().copy_dependencies() {
                             let Some(GenericArgument::Type(argument)) = substitution

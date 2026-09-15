@@ -19,9 +19,8 @@ use super::task::{
 };
 use super::{
     CapacityResource, CompilationFactKey, CompilationInputKey, CompilationInputs, FactCycle,
-    FactDependencyRecord, FactQueryError, FactRuntimeFailure, PublicationIdentity,
-    PublicationState, QueryPriority, QueryPriorityDemand, SynchronizationComponent,
-    fact_fingerprint,
+    FactDependencyRecord, FactQueryError, FactRuntimeFailure, QueryPriority, QueryPriorityDemand,
+    SynchronizationComponent, fact_fingerprint,
 };
 
 #[derive(Debug)]
@@ -286,19 +285,10 @@ impl FactRuntime {
             Entry::Vacant(entry) => {
                 entry.insert(task);
             }
-            Entry::Occupied(entry) => {
-                return Err(FactRuntimeFailure::PublicationMismatch {
-                    requested: PublicationIdentity {
-                        task: Some(task),
-                        fact: key.clone(),
-                    },
-                    actual: PublicationState::Computing {
-                        task: *entry.get(),
-                        fact: key,
-                    },
-                }
-                .into());
-            }
+            Entry::Occupied(entry) => panic!(
+                "fact {key:?} already has owner {:?}, cannot begin task {task:?}",
+                entry.get()
+            ),
         }
 
         let evaluation = EvaluationGuard {
@@ -466,27 +456,11 @@ impl FactRuntime {
     {
         let state = self.state_for(Some(key), Some(context.identity()))?;
 
-        if state.owners.get(key).copied() != Some(context.identity()) {
-            let actual = state
-                .owners
-                .get(key)
-                .copied()
-                .map_or(PublicationState::Vacant, |task| {
-                    PublicationState::Computing {
-                        task,
-                        fact: key.clone(),
-                    }
-                });
-
-            return Err(FactRuntimeFailure::PublicationMismatch {
-                requested: PublicationIdentity {
-                    task: Some(context.identity()),
-                    fact: key.clone(),
-                },
-                actual,
-            }
-            .into());
-        }
+        assert_eq!(
+            state.owners.get(key).copied(),
+            Some(context.identity()),
+            "fact {key:?} must be owned by its publishing task"
+        );
 
         let dependencies = context.finish()?;
 
@@ -497,14 +471,12 @@ impl FactRuntime {
                 continue;
             }
 
-            let Some(fingerprint) = self.inputs.get(input) else {
-                return Err(FactRuntimeFailure::MissingInputFingerprint {
-                    input: input.clone(),
-                    task: context.identity(),
-                    fact: key.clone(),
-                }
-                .into());
-            };
+            let fingerprint = self.inputs.get(input).unwrap_or_else(|| {
+                panic!(
+                    "fact {key:?}, task {:?}: fixed input {input:?} has no fingerprint",
+                    context.identity()
+                )
+            });
 
             input_dependencies.insert(input.clone(), fingerprint);
         }
@@ -525,15 +497,9 @@ impl FactRuntime {
                     .get(dependency)
                     .map(FactDependencyRecord::fingerprint)
                     .map(|fingerprint| (dependency.clone(), fingerprint))
-                    .ok_or_else(|| {
-                        FactQueryError::from(FactRuntimeFailure::MissingDependencyRecord {
-                            task: context.identity(),
-                            fact: key.clone(),
-                            dependency: dependency.clone(),
-                        })
-                    })
+                    .unwrap_or_else(|| panic!("fact {key:?}, task {:?}: completed dependency {dependency:?} has no record", context.identity()))
             })
-            .collect::<Result<BTreeMap<_, _>, _>>()?;
+            .collect::<BTreeMap<_, _>>();
 
         let record =
             FactDependencyRecord::new(fact_fingerprint(key, value), facts, input_dependencies);
@@ -563,6 +529,19 @@ impl FactRuntime {
         };
 
         remove_wait(&mut state, task, edge);
+    }
+
+    #[cfg(test)]
+    pub(super) fn assert_no_dependency_record_after_unwind(&self, key: &CompilationFactKey) {
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        assert!(
+            !state.records.contains_key(key),
+            "unwound fact {key:?} committed dependencies"
+        );
     }
 
     #[cfg(test)]

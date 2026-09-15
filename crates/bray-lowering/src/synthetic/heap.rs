@@ -230,11 +230,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
     }
 
     fn heap_stored_pointer(&self, parameter: MirPlace) -> Result<MirOperand, C::Error> {
-        let data = self
-            .context
-            .semantic_values()
-            .type_data(parameter.ty())
-            .map_err(SyntheticLoweringError::SemanticValue)?;
+        let data = self.context.semantic_values().type_data(parameter.ty());
 
         let TypeData::Borrow { target, .. } = data.as_ref() else {
             return Err(SyntheticLoweringError::UnsupportedType(parameter.ty()).into());

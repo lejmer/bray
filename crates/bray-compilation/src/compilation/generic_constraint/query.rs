@@ -68,9 +68,7 @@ impl Compilation {
     > {
         let values = self.semantic_value_store()?;
 
-        let substitution = values
-            .generic_substitution_data(key.substitution())
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let substitution = values.generic_substitution_data(key.substitution());
 
         if substitution.owner() != key.owner() {
             return Err(SemanticQueryFailure::contract(

@@ -541,9 +541,7 @@ mod tests {
                 behavior.result_dependencies()
             );
 
-            let result = store
-                .dependency_contract_template_data(behavior.result_dependencies())
-                .unwrap_or_else(|error| panic!("result dependencies must intern: {error:?}"));
+            let result = store.dependency_contract_template_data(behavior.result_dependencies());
 
             assert!(matches!(
                 result.requirements(),

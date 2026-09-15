@@ -500,9 +500,7 @@ impl Compilation {
     where
         T: std::hash::Hash + Send,
     {
-        if let Some(value) = cache.get_if_published(&key).unwrap_or_else(|error| {
-            panic!("frozen compilation value publication must remain valid: {error:?}")
-        }) {
+        if let Some(value) = cache.get_if_published(&key) {
             self.state
                 .fact_runtime
                 .record_frozen_fact(&key)

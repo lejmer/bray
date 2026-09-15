@@ -118,7 +118,7 @@ impl<'values> HeaderMatcher<'values> {
     ) -> Result<bool, SemanticValueStoreError> {
         let pattern_id = pattern;
         let actual_id = actual;
-        let pattern = self.values.type_data(pattern)?;
+        let pattern = self.values.type_data(pattern);
 
         if let TypeData::TypeParameter(parameter) = pattern.as_ref() {
             let parameter = GenericParameterSymbolId::Type(*parameter);
@@ -132,7 +132,7 @@ impl<'values> HeaderMatcher<'values> {
             return Ok(true);
         }
 
-        let actual = self.values.type_data(actual)?;
+        let actual = self.values.type_data(actual);
 
         self.match_type_data(pattern.as_ref(), actual.as_ref())
     }
@@ -305,8 +305,8 @@ impl<'values> HeaderMatcher<'values> {
             return Ok(true);
         }
 
-        let pattern = self.values.trait_application_data(pattern)?;
-        let actual = self.values.trait_application_data(actual)?;
+        let pattern = self.values.trait_application_data(pattern);
+        let actual = self.values.trait_application_data(actual);
 
         if pattern.definition() != actual.definition() {
             return Ok(false);
@@ -324,8 +324,8 @@ impl<'values> HeaderMatcher<'values> {
             return Ok(true);
         }
 
-        let pattern = self.values.generic_substitution_data(pattern)?;
-        let actual = self.values.generic_substitution_data(actual)?;
+        let pattern = self.values.generic_substitution_data(pattern);
+        let actual = self.values.generic_substitution_data(actual);
 
         if pattern.owner() != actual.owner() || pattern.bindings().len() != actual.bindings().len()
         {
@@ -383,7 +383,7 @@ mod tests {
         SemanticValueStore, SymbolId, TypeData,
     };
 
-    use super::{HeaderMatcher, ImplementationMatchError, match_implementation_subject};
+    use super::{HeaderMatcher, match_implementation_subject};
 
     #[test]
     fn equal_generic_parameters_are_recorded_as_substitution_arguments() {
@@ -448,9 +448,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("identity substitution must build: {error:?}"))
             .unwrap_or_else(|| panic!("identity substitution must be present"));
 
-        let substitution = values
-            .generic_substitution_data(substitution)
-            .unwrap_or_else(|error| panic!("identity substitution must be stored: {error:?}"));
+        let substitution = values.generic_substitution_data(substitution);
 
         assert_eq!(substitution.bindings()[0].argument(), argument);
     }
@@ -471,14 +469,11 @@ mod tests {
             InherentImplementationSymbolId::from_symbol_id(SymbolId::new(1)),
         );
 
-        assert_eq!(
-            match_implementation_subject(implementation, &[], pattern, pattern, &second),
-            Err(ImplementationMatchError::SemanticValue(
-                bray_symbols::SemanticValueStoreError::ForeignId {
-                    expected: second.id(),
-                    actual: first.id(),
-                }
-            ))
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                match_implementation_subject(implementation, &[], pattern, pattern, &second)
+            }))
+            .is_err()
         );
     }
 }

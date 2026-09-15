@@ -2254,8 +2254,7 @@ mod tests {
                 let contract = compilation
                     .semantic_value_store()
                     .unwrap()
-                    .dependency_contract_template_data(*result.value())
-                    .unwrap();
+                    .dependency_contract_template_data(*result.value());
 
                 assert!(!contract.requirements().is_empty());
 
@@ -3727,10 +3726,7 @@ mod tests {
         };
 
         assert!(
-            matches!(
-                values.type_data(place.ty()).unwrap().as_ref(),
-                TypeData::Slice(_)
-            ),
+            matches!(values.type_data(place.ty()).as_ref(), TypeData::Slice(_)),
             "receiver must borrow the slice result, not the anchor array: {place:?}"
         );
     }
@@ -3938,9 +3934,7 @@ mod tests {
         };
 
         for entry in values.value().entries() {
-            let value = semantic_values
-                .constant_value_data(entry.value())
-                .unwrap_or_else(|error| panic!("literal value must resolve: {error:?}"));
+            let value = semantic_values.constant_value_data(entry.value());
 
             assert!(matches!(value.kind(), ConstantValueKind::Integer(_)));
         }
@@ -3982,9 +3976,7 @@ mod tests {
             Err(error) => panic!("semantic values must publish: {error:?}"),
         };
 
-        let value = semantic_values
-            .constant_value_data(entry.value())
-            .unwrap_or_else(|error| panic!("recovery literal value must resolve: {error:?}"));
+        let value = semantic_values.constant_value_data(entry.value());
 
         assert!(matches!(value.kind(), ConstantValueKind::Error));
     }
@@ -5857,14 +5849,14 @@ func main(pos value: &Guard?) -> usize
                 parameters += 1;
 
                 let ty = plan.value().storage_type(identity).unwrap();
-                let data = values.type_data(ty).unwrap();
+                let data = values.type_data(ty);
 
                 let TypeData::Borrow { target, .. } = data.as_ref() else {
                     panic!("parameter must remain borrowed: {data:?}");
                 };
 
                 assert!(matches!(
-                    values.type_data(*target).unwrap().as_ref(),
+                    values.type_data(*target).as_ref(),
                     TypeData::Named { .. }
                 ));
 
@@ -9416,10 +9408,7 @@ func convert(pos value: Value) -> i32
             Err(error) => panic!("semantic values must be available: {error:?}"),
         };
 
-        let result = match values.type_data(result.ty()) {
-            Ok(result) => result,
-            Err(error) => panic!("generic result type must be available: {error:?}"),
-        };
+        let result = values.type_data(result.ty());
 
         assert!(matches!(
             result.as_ref(),
@@ -9735,10 +9724,7 @@ func convert(pos value: Value) -> i32
             Err(error) => panic!("semantic values must be available: {error:?}"),
         };
 
-        let data = match values.type_data(ty) {
-            Ok(data) => data,
-            Err(error) => panic!("type must be available: {error:?}"),
-        };
+        let data = values.type_data(ty);
 
         let TypeData::Named { definition, .. } = data.as_ref() else {
             return None;

@@ -32,7 +32,7 @@ use bray_symbols::{
 };
 
 use super::binder::has_visible_generic_parameters;
-use super::constant::{constant_definition_id, empty_concrete_substitution};
+use super::constant::constant_definition_id;
 use super::state::Compilation;
 use super::{
     ProductQueryFailure, ProductValueKind, SemanticDataKind, SemanticQueryContext,
@@ -731,8 +731,10 @@ impl Compilation {
             sources.push(SemanticDiagnosticSource::ConstantTemplate(template));
 
             if !has_visible_generic_parameters(symbols, owner) {
-                let substitution =
-                    empty_concrete_substitution(self.semantic_value_store()?, definition)?;
+                let substitution = crate::compilation::substitution::empty_substitution(
+                    self.semantic_value_store()?,
+                    definition.into_any(),
+                )?;
 
                 let instance =
                     bray_symbols::ConstantInstanceKey::new(definition, substitution, None);
@@ -765,9 +767,7 @@ impl Compilation {
                 continue;
             }
 
-            let data = values
-                .type_data(entry.result().ty())
-                .map_err(FactQueryError::SemanticValueStore)?;
+            let data = values.type_data(entry.result().ty());
 
             let bray_symbols::TypeData::Named { definition, .. } = data.as_ref() else {
                 continue;
@@ -840,9 +840,7 @@ impl Compilation {
                 ))
             })?;
 
-            let data = values
-                .type_data(callee.ty())
-                .map_err(FactQueryError::SemanticValueStore)?;
+            let data = values.type_data(callee.ty());
 
             let bray_symbols::TypeData::Callable(callable) = data.as_ref() else {
                 return Err(ProductQueryFailure::UnexpectedSemanticType {
@@ -1374,8 +1372,7 @@ func main(value: r16)
         let term = compilation
             .semantic_value_store()
             .unwrap_or_else(|error| panic!("semantic values must publish: {error:?}"))
-            .constant_term_data(*checked.value())
-            .unwrap_or_else(|error| panic!("embedded constant term must resolve: {error:?}"));
+            .constant_term_data(*checked.value());
 
         assert!(checked.diagnostics().is_empty());
 

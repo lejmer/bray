@@ -5,11 +5,10 @@ use bray_bound_tree::{
 };
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
-    AnySymbolId, CallableDefinitionId, CallableInstanceData, ConcreteGenericSubstitutionId,
-    ConstantBinaryOperation, ConstantInstanceKey, ConstantTermId, ConstantUnaryOperation,
-    ConstantValueData, ConstantValueId, ConstantValueKind, GenericArgument,
-    GenericParameterSymbolId, GenericSubstitutionId, ImplementationInstanceData,
-    ImplementationSymbolId, TypeId,
+    AnySymbolId, CallableDefinitionId, CallableInstanceData, ConstantBinaryOperation,
+    ConstantInstanceKey, ConstantTermId, ConstantUnaryOperation, ConstantValueData,
+    ConstantValueId, ConstantValueKind, GenericArgument, GenericParameterSymbolId,
+    GenericSubstitutionId, ImplementationInstanceData, ImplementationSymbolId, TypeId,
 };
 
 use super::super::ConstantReferenceResolution;
@@ -31,7 +30,7 @@ where
 {
     pub(super) context: &'evaluation C,
     pub(super) template: &'evaluation CheckedTemplate,
-    pub(super) substitution: ConcreteGenericSubstitutionId,
+    pub(super) substitution: GenericSubstitutionId,
     pub(super) selected_implementation: Option<bray_symbols::ImplementationInstanceId>,
     pub(super) arguments: &'evaluation [ConstantValueId],
     pub(super) resolver:
@@ -64,7 +63,7 @@ where
         );
 
         let value = self.evaluate_node(self.template.result())?;
-        let data = self.constant_value(value)?;
+        let data = self.context.semantic_values().constant_value_data(value);
 
         if data.ty() != result_type {
             return Err(TemplateEvaluationFailure::invalid_input());
@@ -98,7 +97,7 @@ where
         let ty = self
             .context
             .semantic_values()
-            .substitute_type(node.ty(), self.substitution.substitution())
+            .substitute_type(node.ty(), self.substitution)
             .map_err(TemplateEvaluationFailure::semantic_value)?;
 
         let value = self.evaluate_operation(node.operation(), ty)?;
@@ -135,7 +134,7 @@ where
                 let term = self
                     .context
                     .semantic_values()
-                    .substitute_constant_term(*term, self.substitution.substitution())
+                    .substitute_constant_term(*term, self.substitution)
                     .map_err(TemplateEvaluationFailure::semantic_value)?;
 
                 self.evaluate_term(term, ty)
@@ -174,7 +173,7 @@ where
                 let target = self
                     .context
                     .semantic_values()
-                    .substitute_type(*target, self.substitution.substitution())
+                    .substitute_type(*target, self.substitution)
                     .map_err(TemplateEvaluationFailure::semantic_value)?;
 
                 self.evaluate_conversion(value, target)
@@ -216,7 +215,7 @@ where
             } => {
                 let subject = self.evaluate_node(*subject)?;
                 let index = self.evaluate_index_bound(*index)?;
-                let subject = self.constant_value(subject)?;
+                let subject = self.context.semantic_values().constant_value_data(subject);
 
                 let ConstantValueKind::Array(elements) = subject.kind() else {
                     return Err(TemplateEvaluationFailure::invalid_input());
@@ -276,7 +275,7 @@ where
         node: CheckedTemplateNodeId,
     ) -> Result<usize, TemplateEvaluationFailure> {
         let value = self.evaluate_node(node)?;
-        let value = self.constant_value(value)?;
+        let value = self.context.semantic_values().constant_value_data(value);
 
         integer_index(value.kind()).ok_or_else(TemplateEvaluationFailure::invalid_input)
     }
@@ -289,7 +288,7 @@ where
         ty: TypeId,
     ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
         let subject = self.evaluate_node(subject)?;
-        let subject = self.constant_value(subject)?;
+        let subject = self.context.semantic_values().constant_value_data(subject);
 
         let ConstantValueKind::Array(elements) = subject.kind() else {
             return Err(TemplateEvaluationFailure::invalid_input());
@@ -348,7 +347,7 @@ where
         let substitution = self
             .context
             .semantic_values()
-            .substitute_generic_substitution(*substitution, self.substitution.substitution())
+            .substitute_generic_substitution(*substitution, self.substitution)
             .map_err(TemplateEvaluationFailure::semantic_value)?;
 
         let selection = self
@@ -391,8 +390,7 @@ where
                 let substitution = self
                     .context
                     .semantic_values()
-                    .generic_substitution_data(self.substitution.substitution())
-                    .map_err(TemplateEvaluationFailure::semantic_value)?;
+                    .generic_substitution_data(self.substitution);
 
                 let Some(GenericArgument::Constant(term)) =
                     substitution.argument_for(GenericParameterSymbolId::Const(parameter))
@@ -403,7 +401,7 @@ where
                 let ty = self
                     .context
                     .semantic_values()
-                    .substitute_type(input.ty(), self.substitution.substitution())
+                    .substitute_type(input.ty(), self.substitution)
                     .map_err(TemplateEvaluationFailure::semantic_value)?;
 
                 self.evaluate_term(term, ty)
@@ -422,10 +420,9 @@ where
         operand: ConstantValueId,
         ty: TypeId,
     ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
-        let operand = self.constant_value(operand)?;
+        let operand = self.context.semantic_values().constant_value_data(operand);
 
-        let representation = type_representation_for_context(self.context, ty)
-            .map_err(TemplateEvaluationFailure::Infrastructure)?;
+        let representation = type_representation_for_context(self.context, ty);
 
         let kind = fold_unary(
             unary_operator(operation),
@@ -448,7 +445,7 @@ where
         ty: TypeId,
     ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
         let left = self.evaluate_node(left)?;
-        let left_data = self.constant_value(left)?;
+        let left_data = self.context.semantic_values().constant_value_data(left);
 
         match (operation, left_data.kind()) {
             (ConstantBinaryOperation::LogicalAnd, ConstantValueKind::Boolean(false))
@@ -459,7 +456,7 @@ where
         }
 
         let right = self.evaluate_node(right)?;
-        let right_data = self.constant_value(right)?;
+        let right_data = self.context.semantic_values().constant_value_data(right);
 
         let kind = fold_binary(
             binary_operator(operation),
@@ -523,7 +520,7 @@ where
             }
         };
 
-        let data = self.constant_value(value)?;
+        let data = self.context.semantic_values().constant_value_data(value);
 
         if data.ty() != ty {
             return Err(TemplateEvaluationFailure::invalid_input());
@@ -553,8 +550,7 @@ where
         let values = self.context.semantic_values();
 
         let substitution = values
-            .substitute_generic_substitution(substitution, self.substitution.substitution())
-            .and_then(|substitution| values.require_concrete_substitution(substitution))
+            .substitute_generic_substitution(substitution, self.substitution)
             .map_err(TemplateEvaluationFailure::semantic_value)?;
 
         let implementation = implementation
@@ -568,10 +564,7 @@ where
                 };
 
                 let substitution = values
-                    .substitute_generic_substitution(
-                        *substitution,
-                        self.substitution.substitution(),
-                    )
+                    .substitute_generic_substitution(*substitution, self.substitution)
                     .map_err(TemplateEvaluationFailure::semantic_value)?;
 
                 values
@@ -594,7 +587,7 @@ where
         };
 
         let request = ConstantCallRequest::new(
-            CallableInstanceData::new(callable, substitution.substitution()),
+            CallableInstanceData::new(callable, substitution),
             implementation,
             arguments,
             result_type,
@@ -645,15 +638,13 @@ where
         value: ConstantValueId,
         target: TypeId,
     ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
-        let data = self.constant_value(value)?;
+        let data = self.context.semantic_values().constant_value_data(value);
 
         if data.ty() == target {
             return Ok(value);
         }
 
-        let Some(representation) = type_representation_for_context(self.context, target)
-            .map_err(TemplateEvaluationFailure::Infrastructure)?
-        else {
+        let Some(representation) = type_representation_for_context(self.context, target) else {
             return Err(TemplateEvaluationFailure::invalid_input());
         };
 
@@ -679,7 +670,7 @@ where
         member: &bray_symbols::SymbolKey,
         ty: TypeId,
     ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
-        let subject = self.constant_value(subject)?;
+        let subject = self.context.semantic_values().constant_value_data(subject);
 
         let member = self
             .resolver
@@ -701,7 +692,7 @@ where
         }
         .ok_or_else(TemplateEvaluationFailure::invalid_input)?;
 
-        let value_data = self.constant_value(value)?;
+        let value_data = self.context.semantic_values().constant_value_data(value);
 
         if value_data.ty() != ty {
             return Err(TemplateEvaluationFailure::invalid_input());
@@ -725,23 +716,13 @@ where
         super::term::evaluate_term(self, term, ty)
     }
     fn boolean(&self, value: ConstantValueId) -> Result<bool, TemplateEvaluationFailure> {
-        let value = self.constant_value(value)?;
+        let value = self.context.semantic_values().constant_value_data(value);
 
         let ConstantValueKind::Boolean(value) = value.kind() else {
             return Err(TemplateEvaluationFailure::invalid_input());
         };
 
         Ok(*value)
-    }
-
-    pub(super) fn constant_value(
-        &self,
-        value: ConstantValueId,
-    ) -> Result<std::sync::Arc<ConstantValueData>, TemplateEvaluationFailure> {
-        self.context
-            .semantic_values()
-            .constant_value_data(value)
-            .map_err(TemplateEvaluationFailure::semantic_value)
     }
 
     pub(super) fn intern_value(

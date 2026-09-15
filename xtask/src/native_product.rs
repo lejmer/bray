@@ -64,7 +64,7 @@ pub(crate) fn emit_static_library(
                     let data = compilation
                         .semantic_value_store()
                         .ok()
-                        .and_then(|values| values.type_data(*ty).ok());
+                        .map(|values| values.type_data(*ty));
 
                     let symbol = data.as_deref().and_then(|data| {
                         let bray_symbols::TypeData::Named { definition, .. } = data else {

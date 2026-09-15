@@ -84,8 +84,7 @@ pub(in crate::compilation::product) fn codegen_instance_contextual_self(
 
         let application = binding_context
             .semantic_values()
-            .trait_application_data(requirement.trait_application())
-            .map_err(FactQueryError::SemanticValueStore)?;
+            .trait_application_data(requirement.trait_application());
 
         if let Some(callable) = instance.callable_instance() {
             let container = binding_context
@@ -200,9 +199,7 @@ mod tests {
         let substituted = substitute_contextual_self(&values, nested, Some((context, replacement)))
             .unwrap_or_else(|error| panic!("test contextual type must substitute: {error:?}"));
 
-        let data = values
-            .type_data(substituted)
-            .unwrap_or_else(|error| panic!("test substituted type must resolve: {error:?}"));
+        let data = values.type_data(substituted);
 
         assert_eq!(data.as_ref(), &TypeData::Nullable(replacement));
     }

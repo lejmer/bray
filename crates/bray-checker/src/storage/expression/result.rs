@@ -14,11 +14,7 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
     ) -> Result<Option<StorageAccessId>, PlanError<C::UpstreamError>> {
         let ty = self.expression_type(expression)?.ty();
 
-        let data = self
-            .request
-            .semantic_values()
-            .type_data(ty)
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        let data = self.request.semantic_values().type_data(ty);
 
         let TypeData::Borrow { kind, target } = data.as_ref() else {
             return Ok(None);
@@ -75,8 +71,7 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
         let argument_type = self
             .request
             .semantic_values()
-            .type_data(self.expression_type(argument)?.ty())
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+            .type_data(self.expression_type(argument)?.ty());
 
         if matches!(source.subject_root(), DependencySubjectRoot::Parameter(_))
             && !matches!(argument_type.as_ref(), TypeData::Borrow { .. })

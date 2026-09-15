@@ -186,16 +186,7 @@ where
                 .completion_semantics
                 .and_then(|(expressions, _, _)| expressions.literals().expression(id))
         {
-            let value = match self.request().semantic_values().constant_value_data(value) {
-                Ok(value) => value,
-                Err(error) => {
-                    self.record_infrastructure_failure(
-                        crate::CheckerInfrastructureError::SemanticValueStore(error),
-                    );
-
-                    return None;
-                }
-            };
+            let value = self.request().semantic_values().constant_value_data(value);
 
             if let bray_symbols::ConstantValueKind::Boolean(value) = value.kind() {
                 let (target, kind) = if *value { matched } else { unmatched };

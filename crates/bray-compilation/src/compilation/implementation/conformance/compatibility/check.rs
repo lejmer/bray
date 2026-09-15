@@ -412,9 +412,7 @@ fn callable_type_template(
     match signature.callable_type() {
         TypeExpressionTemplate::Callable(callable) => Ok(callable.clone()),
         TypeExpressionTemplate::Resolved(ty) => {
-            let data = values
-                .type_data(*ty)
-                .map_err(FactQueryError::SemanticValueStore)?;
+            let data = values.type_data(*ty);
 
             let TypeData::Callable(callable_data) = data.as_ref() else {
                 return Err(callable_signature_error(
@@ -463,16 +461,11 @@ fn callable_signature_error(
     callable: bray_symbols::AnySymbolId,
     cause: bray_symbols::CallableSignatureTemplateError,
 ) -> FactQueryError {
-    match cause {
-        bray_symbols::CallableSignatureTemplateError::SemanticValue(cause) => {
-            FactQueryError::SemanticValueStore(cause)
-        }
-        cause => crate::compilation::SemanticQueryFailure::CallableSignature {
-            callable: Some(callable),
-            cause,
-        }
-        .into(),
+    crate::compilation::SemanticQueryFailure::CallableSignature {
+        callable: Some(callable),
+        cause,
     }
+    .into()
 }
 
 fn generic_surfaces_are_compatible(

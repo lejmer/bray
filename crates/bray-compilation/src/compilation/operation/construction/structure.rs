@@ -20,10 +20,7 @@ impl Compilation {
         result_type: TypeId,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<OperationCandidate>, FactQueryError> {
-        let data = binding_context
-            .semantic_values()
-            .type_data(result_type)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let data = binding_context.semantic_values().type_data(result_type);
 
         let TypeData::Named {
             definition: NamedTypeSymbolId::Struct(structure),

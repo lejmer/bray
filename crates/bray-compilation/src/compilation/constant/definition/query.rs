@@ -25,9 +25,9 @@ use bray_symbols::{
 };
 
 use super::support::{
-    ConcreteReferenceContext, collect_constant_references, constant_definition_id,
-    empty_concrete_substitution, expression_root, imported_constant_definition,
-    selected_implementation_for_reference, substitute_expression_types,
+    ConcreteReferenceContext, collect_constant_references, constant_definition_id, expression_root,
+    imported_constant_definition, selected_implementation_for_reference,
+    substitute_expression_types,
 };
 use crate::compilation::Compilation;
 use crate::compilation::binder::{
@@ -70,10 +70,7 @@ impl Compilation {
         let ty = definition_data.ty();
         let term = definition_data.term();
 
-        let term_data = self
-            .semantic_value_store()?
-            .constant_term_data(term)
-            .map_err(FactQueryError::SemanticValueStore)?;
+        let term_data = self.semantic_value_store()?.constant_term_data(term);
 
         if let ConstantTermData::Value(value) = term_data.as_ref() {
             return Ok(Some((ty, ConstantReferenceResolution::Value(*value))));
@@ -83,7 +80,11 @@ impl Compilation {
             return Ok(Some((ty, ConstantReferenceResolution::Term(term))));
         }
 
-        let substitution = empty_concrete_substitution(self.semantic_value_store()?, definition)?;
+        let substitution = crate::compilation::substitution::empty_substitution(
+            self.semantic_value_store()?,
+            definition.into_any(),
+        )?;
+
         let instance = ConstantInstanceKey::new(definition, substitution, None);
 
         let resolution = match self.constant_instance_with_cancellation(instance, cancellation) {
@@ -180,10 +181,7 @@ impl Compilation {
         if let Some(value) = self.target_constant_value(definition)? {
             let values = self.semantic_value_store()?;
 
-            let ty = values
-                .constant_value_data(value)
-                .map_err(FactQueryError::SemanticValueStore)?
-                .ty();
+            let ty = values.constant_value_data(value).ty();
 
             let term = values
                 .intern_constant_term(ConstantTermData::Value(value))
@@ -456,7 +454,7 @@ impl Compilation {
         let types = substitute_expression_types(
             self.semantic_value_store()?,
             semantics.result().value().types(),
-            instance.substitution().substitution(),
+            instance.substitution(),
         )?;
 
         if term.result().diagnostics().has_errors() {
@@ -552,7 +550,7 @@ impl Compilation {
                 return recovered_error_constant_instance(
                     self.semantic_value_store()?,
                     *error,
-                    instance.substitution().substitution(),
+                    instance.substitution(),
                     DiagnosticBag::merged_all([
                         template.diagnostics(),
                         definition_result.diagnostics(),
@@ -583,7 +581,7 @@ impl Compilation {
                 return recovered_error_constant_instance(
                     self.semantic_value_store()?,
                     ErrorConstantDefinition::new(definition.ty()),
-                    instance.substitution().substitution(),
+                    instance.substitution(),
                     DiagnosticBag::merged_all([
                         template.diagnostics(),
                         definition_result.diagnostics(),
@@ -631,7 +629,7 @@ impl Compilation {
         recovered_error_constant_instance(
             self.semantic_value_store()?,
             ErrorConstantDefinition::new(definition.ty()),
-            instance.substitution().substitution(),
+            instance.substitution(),
             diagnostics,
         )
     }
@@ -710,7 +708,7 @@ impl Compilation {
             bound,
             selections,
             ConcreteReferenceContext {
-                substitution: Some(instance.substitution().substitution()),
+                substitution: Some(instance.substitution()),
                 selected_implementation: instance.selected_implementation(),
                 parameters: &BTreeMap::new(),
                 current_constant: Some(instance),
@@ -799,12 +797,7 @@ impl Compilation {
 
         let substitution = context
             .substitution
-            .map(|substitution| {
-                values
-                    .generic_substitution_data(substitution)
-                    .map_err(FactQueryError::SemanticValueStore)
-            })
-            .transpose()?;
+            .map(|substitution| values.generic_substitution_data(substitution));
 
         let mut dependency_diagnostics = DiagnosticBag::new();
         let unit = bound.key().clone();
@@ -855,9 +848,7 @@ impl Compilation {
                         .into());
                     };
 
-                    let data = values
-                        .constant_term_data(term)
-                        .map_err(FactQueryError::SemanticValueStore)?;
+                    let data = values.constant_term_data(term);
 
                     match data.as_ref() {
                         ConstantTermData::Value(value) => {
@@ -892,7 +883,10 @@ impl Compilation {
                     } else {
                         ConstantInstanceKey::new(
                             definition,
-                            empty_concrete_substitution(values, definition)?,
+                            crate::compilation::substitution::empty_substitution(
+                                values,
+                                definition.into_any(),
+                            )?,
                             selected_implementation_for_reference(
                                 definition,
                                 context.selected_implementation,
@@ -1015,9 +1009,7 @@ mod tests {
     use bray_target::{TargetIdentity, TargetProfile};
     use bray_testing::assert_goal_state_diagnostic_kind;
 
-    use super::super::support::{
-        call_parameter_values, constant_callable_root, empty_concrete_substitution,
-    };
+    use super::super::support::{call_parameter_values, constant_callable_root};
     use super::recovered_error_constant_instance;
     use crate::SelectedTarget;
     use crate::fact::{ConstantCallQueryKey, ConstantInstanceQueryKey, FactCellTestEvent};
@@ -1338,10 +1330,7 @@ mod tests {
             let value = compilation
                 .semantic_value_store()
                 .unwrap_or_else(|failure| panic!("semantic values must publish: {failure:?}"))
-                .constant_value_data(value.value())
-                .unwrap_or_else(|failure| {
-                    panic!("propagated result value must resolve: {failure:?}")
-                });
+                .constant_value_data(value.value());
 
             let ConstantValueKind::Union { variant, fields } = value.kind() else {
                 panic!("constant callable must return a result value");
@@ -1685,11 +1674,7 @@ mod tests {
 
         let data = compilation
             .semantic_value_store()
-            .and_then(|values| {
-                values
-                    .constant_term_data(*term.value())
-                    .map_err(crate::FactQueryError::SemanticValueStore)
-            })
+            .map(|values| values.constant_term_data(*term.value()))
             .unwrap_or_else(|error| panic!("symbolic constant term must be interned: {error:?}"));
 
         assert!(matches!(
@@ -1898,8 +1883,9 @@ mod tests {
             .semantic_value_store()
             .unwrap_or_else(|error| panic!("semantic values must publish: {error:?}"));
 
-        let substitution = empty_concrete_substitution(values, definition)
-            .unwrap_or_else(|error| panic!("empty substitution must be concrete: {error:?}"));
+        let substitution =
+            crate::compilation::substitution::empty_substitution(values, definition.into_any())
+                .unwrap_or_else(|error| panic!("empty substitution must be concrete: {error:?}"));
 
         ConstantInstanceKey::new(definition, substitution, None)
     }
@@ -1932,7 +1918,7 @@ mod tests {
         parameter: bray_symbols::GenericConstParameterSymbolId,
         ty: bray_symbols::TypeId,
         value: u8,
-    ) -> bray_symbols::ConcreteGenericSubstitutionId {
+    ) -> bray_symbols::GenericSubstitutionId {
         let values = compilation
             .semantic_value_store()
             .unwrap_or_else(|error| panic!("semantic values must publish: {error:?}"));
@@ -1957,9 +1943,7 @@ mod tests {
             .intern_generic_substitution(data)
             .unwrap_or_else(|error| panic!("generic substitution must be interned: {error:?}"));
 
-        values
-            .require_concrete_substitution(substitution)
-            .unwrap_or_else(|error| panic!("generic substitution must be concrete: {error:?}"))
+        substitution
     }
 
     fn source_constant_call_request(
@@ -2206,11 +2190,7 @@ mod tests {
     ) -> Arc<ConstantValueData> {
         compilation
             .semantic_value_store()
-            .and_then(|values| {
-                values
-                    .constant_value_data(value)
-                    .map_err(crate::FactQueryError::SemanticValueStore)
-            })
+            .map(|values| values.constant_value_data(value))
             .unwrap_or_else(|error| panic!("constant value must be interned: {error:?}"))
     }
 }
