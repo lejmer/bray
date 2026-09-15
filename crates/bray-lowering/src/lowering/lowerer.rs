@@ -70,6 +70,7 @@ pub(super) struct Lowerer<'unit> {
     pub(super) yield_targets: Vec<YieldTarget>,
     pub(super) loop_targets: Vec<LoopTarget>,
     pub(super) catch_targets: Vec<CatchTarget>,
+    pub(super) input_temporaries: Vec<super::inputs::InputTemporary>,
     pub(super) frame_states: Vec<MirFrameState>,
     pub(super) cleanup_outcome: Option<crate::cleanup_outcome::CleanupOutcome>,
     pub(super) cleanup_failure_targets: Option<(MirBlockId, MirBlockId, bray_symbols::TypeId)>,
@@ -100,6 +101,7 @@ impl<'unit> Lowerer<'unit> {
             yield_targets: Vec::new(),
             loop_targets: Vec::new(),
             catch_targets: Vec::new(),
+            input_temporaries: Vec::new(),
             frame_states: Vec::new(),
             cleanup_outcome: None,
             cleanup_failure_targets: None,
@@ -664,12 +666,38 @@ mod tests {
             .operations()
             .iter()
             .find_map(|operation| match operation.kind() {
-                MirOperationKind::Call(call) => Some(call),
+                MirOperationKind::Call(call)
+                    if matches!(call.target(), bray_ir::MirCallTarget::Direct(_)) =>
+                {
+                    Some(call)
+                }
                 _ => None,
             })
         else {
             panic!("lowered unit must contain its selected call");
         };
+
+        let default = mir
+            .operations()
+            .iter()
+            .find_map(|operation| match operation.kind() {
+                MirOperationKind::Call(call)
+                    if matches!(call.target(), bray_ir::MirCallTarget::DefaultValue { .. }) =>
+                {
+                    Some(call)
+                }
+                _ => None,
+            })
+            .expect("default must be evaluated by its own checked call");
+
+        assert_eq!(default.result(), BoundCallResult::Immediate(call_type));
+        assert_eq!(default.arguments().len(), 1);
+
+        assert!(
+            mir.operations()
+                .iter()
+                .any(|operation| matches!(operation.kind(), MirOperationKind::Borrow { .. }))
+        );
 
         assert_eq!(call.target().abi(), CallableAbi::C);
         assert_eq!(call.result(), BoundCallResult::Immediate(call_type));
@@ -679,7 +707,7 @@ mod tests {
             call.arguments(),
             [
                 MirCallArgument::Explicit { ordinal: 0, .. },
-                MirCallArgument::Default { ordinal: 1, .. }
+                MirCallArgument::Explicit { ordinal: 1, .. }
             ]
         ));
     }
@@ -1189,6 +1217,7 @@ mod tests {
                 provider: CallableParameterDefaultProviderSymbolId::from_symbol_id(SymbolId::new(
                     4,
                 )),
+                ty,
             });
         }
 
@@ -1573,7 +1602,18 @@ mod tests {
             [],
             [],
             [],
-            [],
+            types
+                .entries()
+                .iter()
+                .map(|entry| entry.result().ty())
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .map(|ty| {
+                    bray_bound_tree::StorageCleanupType::new(
+                        ty,
+                        bray_bound_tree::AsyncStorageCleanupRequirement::None,
+                    )
+                }),
             scope_exits
                 .iter()
                 .map(|(scope, exit)| AsyncScopeExitPlan::new(*scope, *exit, [], [], [], [], false)),

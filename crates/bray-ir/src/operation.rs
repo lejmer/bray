@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use bray_base::shared_slice;
 use bray_bound_tree::{
-    BoundCallResult, BoundUnitKey, CheckedMemoryOperationKind, ConstructionDefaultProvider,
-    ConstructionInputId, ConstructionTarget, PatternProjection, SelectedConversion,
+    BoundCallResult, BoundUnitKey, CheckedMemoryOperationKind, ConstructionInputId,
+    ConstructionTarget, PatternProjection, SelectedConversion,
 };
 use bray_runtime_interface::{ExecutableHostEntryId, ProtectedAsyncFrameId, RootExecution};
 use bray_symbols::{BorrowKind, ConstantTermId, TypeId};
@@ -332,40 +332,35 @@ impl MirAggregate {
 
 /// One supplied or defaulted input of a normalized construction operation.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub enum MirConstructionInput {
-    /// A source value mapped to its exact declaration input.
-    Explicit {
-        /// The initialized field or parameter.
-        input: ConstructionInputId,
-        /// The input's declaration-order ordinal.
-        ordinal: u32,
-        /// The evaluated source value.
-        value: MirOperand,
-    },
-    /// An omitted input supplied by its declaration-owned runtime default.
-    Default {
-        /// The initialized field or parameter.
-        input: ConstructionInputId,
-        /// The input's declaration-order ordinal.
-        ordinal: u32,
-        /// The exact default provider.
-        provider: ConstructionDefaultProvider,
-    },
+pub struct MirConstructionInput {
+    input: ConstructionInputId,
+    ordinal: u32,
+    value: MirOperand,
 }
 
 impl MirConstructionInput {
+    /// Retains an evaluated input whose default and failure handling are already explicit.
+    pub const fn new(input: ConstructionInputId, ordinal: u32, value: MirOperand) -> Self {
+        Self {
+            input,
+            ordinal,
+            value,
+        }
+    }
+
     /// Returns the initialized field or parameter.
     pub const fn input(&self) -> ConstructionInputId {
-        match self {
-            Self::Explicit { input, .. } | Self::Default { input, .. } => *input,
-        }
+        self.input
     }
 
     /// Returns the input's declaration-order ordinal.
     pub const fn ordinal(&self) -> u32 {
-        match self {
-            Self::Explicit { ordinal, .. } | Self::Default { ordinal, .. } => *ordinal,
-        }
+        self.ordinal
+    }
+
+    /// Returns the evaluated input transferred by construction.
+    pub const fn value(&self) -> &MirOperand {
+        &self.value
     }
 }
 
@@ -393,7 +388,7 @@ impl MirConstruction {
         self.target
     }
 
-    /// Returns explicit inputs in source order followed by defaults in declaration order.
+    /// Returns evaluated inputs in their source and default evaluation order.
     pub fn inputs(&self) -> &[MirConstructionInput] {
         &self.inputs
     }
@@ -692,6 +687,20 @@ pub enum MirOperationKind {
     Text(MirTextOperation),
     /// Create an owned panic report from one checked failure cause.
     PanicReport(MirPanicCause),
+    /// Admit this owner's local outgoing records before ownership commits.
+    AdmitOutgoing {
+        /// Owner whose selected local actions determine the requirement.
+        ty: TypeId,
+        /// Runtime admission boundary.
+        runtime: MirRuntimeReference,
+    },
+    /// Discharge a consumed owner's credits without reclaiming transferred reports.
+    DischargeOutgoing {
+        /// Owner whose local credits are no longer live.
+        ty: TypeId,
+        /// Runtime discharge boundary.
+        runtime: MirRuntimeReference,
+    },
     /// Run checked finalization for a storage place.
     Finalize(MirPlace),
     /// Destroy a storage place after its value is no longer live.
@@ -766,5 +775,16 @@ impl MirOperation {
     /// Returns the value produced by the operation, when any.
     pub const fn result(&self) -> Option<MirValueId> {
         self.result
+    }
+}
+
+impl MirOperationKind {
+    /// Returns whether specialization must supply a local outgoing-record requirement.
+    pub fn requires_outgoing_capacity(&self) -> bool {
+        match self {
+            Self::AdmitOutgoing { .. } | Self::DischargeOutgoing { .. } => true,
+            Self::Call(call) => call.is_cleanup(),
+            _ => false,
+        }
     }
 }

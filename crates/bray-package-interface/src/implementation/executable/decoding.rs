@@ -1,11 +1,10 @@
 // rust-style: allow(module-too-large, reason = "the executable MIR wire decoder keeps one exhaustive operation and terminator mapping")
 
 use bray_bound_tree::{
-    BoundCallResult, BoundFutureConstruction, CheckedMemoryOperationKind,
-    ConstructionDefaultProvider, ConstructionInputId, ConstructionTarget, ConversionTarget,
-    InlineAssemblyContract, InlineAssemblyOperand, InlineAssemblyOperandKind,
-    MAX_INLINE_ASSEMBLY_OPERANDS, MemoryOrder, PatternOperation, PatternProjection,
-    SelectedConversion, SelectedImplementationWitness,
+    BoundCallResult, BoundFutureConstruction, CheckedMemoryOperationKind, ConstructionInputId,
+    ConstructionTarget, ConversionTarget, DefaultValueProvider, InlineAssemblyContract,
+    InlineAssemblyOperand, InlineAssemblyOperandKind, MAX_INLINE_ASSEMBLY_OPERANDS, MemoryOrder,
+    PatternOperation, PatternProjection, SelectedConversion, SelectedImplementationWitness,
 };
 use bray_ir::{
     MirAggregate, MirAggregateKind, MirAnonymousCallableReference, MirBinaryOperator, MirBlockId,
@@ -531,6 +530,14 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
 
     fn operation(&mut self) -> Result<MirOperationKind, ExecutableTemplateDecodeError> {
         match read_u32(&mut self.reader)? {
+            22 => Ok(MirOperationKind::AdmitOutgoing {
+                ty: self.ty()?,
+                runtime: self.runtime_reference()?,
+            }),
+            23 => Ok(MirOperationKind::DischargeOutgoing {
+                ty: self.ty()?,
+                runtime: self.runtime_reference()?,
+            }),
             1 => Ok(MirOperationKind::Store {
                 kind: self.store_kind()?,
                 destination: self.place()?,
@@ -814,6 +821,8 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
     }
 
     fn call(&mut self) -> Result<MirCall, ExecutableTemplateDecodeError> {
+        let cleanup = read_bool(&mut self.reader)?;
+
         let target = match read_u32(&mut self.reader)? {
             0 => MirCallTarget::Direct(MirCallableReference::new(
                 self.callable_instance()?,
@@ -824,6 +833,34 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 abi: self.callable_abi()?,
             },
             2 => MirCallTarget::Runtime(self.runtime_reference()?),
+            3 => {
+                let owner = match read_u32(&mut self.reader)? {
+                    0 => bray_ir::MirDefaultOwner::Callable(MirCallableReference::new(
+                        self.callable_instance()?,
+                        self.callable_abi()?,
+                    )),
+                    1 => bray_ir::MirDefaultOwner::Type {
+                        target: self.construction_target()?,
+                        ty: self.ty()?,
+                    },
+                    _ => return Err(ExecutableTemplateDecodeError::Malformed),
+                };
+
+                let provider = match self.symbol()? {
+                    AnySymbolId::StructFieldDefaultProvider(provider) => {
+                        DefaultValueProvider::StructField(provider)
+                    }
+                    AnySymbolId::UnionPayloadDefaultProvider(provider) => {
+                        DefaultValueProvider::UnionPayload(provider)
+                    }
+                    AnySymbolId::CallableParameterDefaultProvider(provider) => {
+                        DefaultValueProvider::CallableParameter(provider)
+                    }
+                    _ => return Err(ExecutableTemplateDecodeError::Malformed),
+                };
+
+                MirCallTarget::DefaultValue { owner, provider }
+            }
             _ => return Err(ExecutableTemplateDecodeError::Malformed),
         };
 
@@ -882,7 +919,8 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             trait_dispatch,
             intrinsic,
             witnesses,
-        ))
+        )
+        .with_cleanup(cleanup))
     }
 
     fn phase_behaviors(
@@ -1006,11 +1044,6 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                     value: self.operand()?,
                 })
             }
-            2 => Ok(MirCallArgument::Default {
-                parameter: self.exact_symbol()?,
-                ordinal: read_u32(&mut self.reader)?,
-                provider: self.exact_symbol()?,
-            }),
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
     }
@@ -1040,38 +1073,11 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
     fn construction_input(
         &mut self,
     ) -> Result<MirConstructionInput, ExecutableTemplateDecodeError> {
-        match read_u32(&mut self.reader)? {
-            0 => Ok(MirConstructionInput::Explicit {
-                input: self.construction_input_id()?,
-                ordinal: read_u32(&mut self.reader)?,
-                value: self.operand()?,
-            }),
-            1 => {
-                let input = self.construction_input_id()?;
-                let ordinal = read_u32(&mut self.reader)?;
-                let symbol = self.symbol()?;
-
-                let provider = match symbol {
-                    AnySymbolId::StructFieldDefaultProvider(provider) => {
-                        ConstructionDefaultProvider::StructField(provider)
-                    }
-                    AnySymbolId::UnionPayloadDefaultProvider(provider) => {
-                        ConstructionDefaultProvider::UnionPayload(provider)
-                    }
-                    AnySymbolId::CallableParameterDefaultProvider(provider) => {
-                        ConstructionDefaultProvider::CallableParameter(provider)
-                    }
-                    _ => return Err(ExecutableTemplateDecodeError::Malformed),
-                };
-
-                Ok(MirConstructionInput::Default {
-                    input,
-                    ordinal,
-                    provider,
-                })
-            }
-            _ => Err(ExecutableTemplateDecodeError::Malformed),
-        }
+        Ok(MirConstructionInput::new(
+            self.construction_input_id()?,
+            read_u32(&mut self.reader)?,
+            self.operand()?,
+        ))
     }
 
     fn construction_input_id(

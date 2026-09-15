@@ -509,7 +509,7 @@ mod tests {
         BoundConversionExpression, BoundExpression, BoundExpressionId, BoundOperator,
         BoundStructConstructionExpression, BoundStructFieldInitializer, BoundStructuredExpression,
         BoundStructuredExpressionKind, BoundUnit, BoundUnitId, CheckedExpressionTypes,
-        ConstructionDefaultProvider, ConstructionInputId, ConstructionTarget, ConversionTarget,
+        ConstructionInputId, ConstructionTarget, ConversionTarget, DefaultValueProvider,
         ExpressionTypeEntry, ExpressionTypeResult, ExpressionTypeStatus, IndexTarget, MemberTarget,
         OperatorTarget, SelectedConstructionInput, SelectedConversion,
         SelectedImplementationWitness, SelectedOperation, SelectionKind,
@@ -729,7 +729,7 @@ mod tests {
                     symbol_name("first"),
                     CallablePosition::NamedOnly,
                     fixture.value_type,
-                    Some(ConstructionDefaultProvider::StructField(default)),
+                    Some(DefaultValueProvider::StructField(default)),
                     0,
                 ),
                 ConstructionInputSurface::new(
@@ -770,7 +770,7 @@ mod tests {
                 },
                 SelectedConstructionInput::Default {
                     input: ConstructionInputId::StructField(first),
-                    provider: ConstructionDefaultProvider::StructField(default),
+                    provider: DefaultValueProvider::StructField(default),
                     ty: fixture.value_type,
                     ordinal: 0,
                 },

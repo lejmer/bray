@@ -1,11 +1,11 @@
 use bray_binder::BindingQueryContext;
-use bray_bound_tree::{ConstructionDefaultProvider, ConstructionTarget};
+use bray_bound_tree::DefaultValueProvider;
 use bray_codegen::CodegenTarget;
 use bray_ir::{
     MirExecutableTemplateId, MirHelperReference, MirImportedExecutableKey, MirOperationId,
     MirOperationKind, MirUnitKey,
 };
-use bray_symbols::{AnySymbolId, CallableDefinitionId, SymbolKeyData, TypeData, TypeId};
+use bray_symbols::{AnySymbolId, CallableDefinitionId, SymbolKeyData, TypeData};
 
 use super::super::specialization::ConcreteCodegenInstance;
 use crate::compilation::{
@@ -40,19 +40,18 @@ mod tests {
 }
 
 impl Compilation {
-    pub(super) fn concrete_codegen_construction_default(
+    pub(super) fn concrete_codegen_default_value(
         &self,
         owner: &ConcreteCodegenInstance,
         operation_id: MirOperationId,
         operation: &MirOperationKind,
-        result_type: Option<TypeId>,
-        provider: ConstructionDefaultProvider,
+        provider: DefaultValueProvider,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
     ) -> Result<ConcreteCodegenInstance, CodegenPreparationError> {
-        let reference = MirHelperReference::ConstructionDefault(provider);
+        let reference = MirHelperReference::DefaultValue(provider);
 
-        let MirOperationKind::Construct(construction) = operation else {
+        let MirOperationKind::Call(call) = operation else {
             return Err(ProductQueryFailure::InvalidHelperOperation {
                 context: ProductQueryContext::Operation {
                     instance: owner.key().clone(),
@@ -64,27 +63,32 @@ impl Compilation {
             .into());
         };
 
-        if let ConstructionTarget::TypeForm { callable, .. } = construction.target() {
-            let callee =
-                self.concrete_codegen_callable_data(owner, &callable, target, cancellation)?;
+        let bray_ir::MirCallTarget::DefaultValue {
+            owner: default_owner,
+            ..
+        } = call.target()
+        else {
+            return Err(CodegenPreparationError::MissingHelperInstance(reference));
+        };
 
-            return self.concrete_codegen_runtime_default(
-                &callee,
-                provider.symbol(),
-                &reference,
-                cancellation,
-            );
-        }
+        let ty = match default_owner {
+            bray_ir::MirDefaultOwner::Callable(callable) => {
+                let callee = self.concrete_codegen_callable_data(
+                    owner,
+                    &callable.instance(),
+                    target,
+                    cancellation,
+                )?;
 
-        let ty = result_type.ok_or_else(|| {
-            ProductQueryFailure::missing(
-                ProductQueryContext::Operation {
-                    instance: owner.key().clone(),
-                    operation: operation_id,
-                },
-                ProductDataKind::OperationResultType,
-            )
-        })?;
+                return self.concrete_codegen_runtime_default(
+                    &callee,
+                    provider.symbol(),
+                    &reference,
+                    cancellation,
+                );
+            }
+            bray_ir::MirDefaultOwner::Type { ty, .. } => *ty,
+        };
 
         let ty = self.concrete_codegen_type(ty, owner.substitution(), Some(owner), cancellation)?;
 

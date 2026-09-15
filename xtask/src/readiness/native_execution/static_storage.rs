@@ -52,6 +52,19 @@ pub(super) fn audit_static_storage(
         ),
     )?;
 
+    audit_repeatable_fixtures(
+        root,
+        target,
+        runtime,
+        "bray-native-static-cleanup-panics-",
+        RepeatableFixtureAudit::new(
+            &["xtask/fixtures/native-execution/static_cleanup_panics.bray"],
+            1,
+            "static cleanup panics preserve every owner and error payload",
+            &["bray.static.host.", section],
+        ),
+    )?;
+
     audit_library_host(root, target, runtime)?;
 
     audit_archive_host(root, target, runtime)

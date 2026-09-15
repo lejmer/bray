@@ -196,8 +196,6 @@ define_catalog_enum! {
         CurrentNativeThreadIdentity => "CurrentNativeThreadIdentity",
         /// Reads the process-wide identity of the distinguished initial native thread.
         MainNativeThreadIdentity => "MainNativeThreadIdentity",
-        /// Recovers one owned panic report published by a native-thread boundary.
-        NativeThreadPanicReportRecovery => "NativeThreadPanicReportRecovery",
         /// Reports and resolves a native-thread panic suppressed by caller cancellation.
         NativeThreadPanicReporting => "NativeThreadPanicReporting",
         /// Creates one runtime-owned task event.
@@ -367,7 +365,6 @@ mod tests {
             ImplementationHook::NativeThreadStart,
             ImplementationHook::CurrentNativeThreadIdentity,
             ImplementationHook::MainNativeThreadIdentity,
-            ImplementationHook::NativeThreadPanicReportRecovery,
             ImplementationHook::NativeThreadPanicReporting,
             ImplementationHook::TaskEventCreation,
             ImplementationHook::TaskEventSignal,

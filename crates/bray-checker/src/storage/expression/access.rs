@@ -648,12 +648,19 @@ where
             .expression(expression)
             .ok_or_else(|| invalid_node(expression))?;
 
+        let builder = self.builder()?;
+
+        let recovered_borrow = root
+            .borrow_capability()
+            .and_then(|capability| builder.borrow_capability(capability))
+            .is_some_and(|capability| capability.is_recovered());
+
         let access = StorageAccess::new(
             root,
             projections,
             result.ty(),
             node.origin().source_anchor(),
-            node.is_recovered() || result.is_recovered(),
+            node.is_recovered() || result.is_recovered() || recovered_borrow,
         );
 
         self.builder_mut()?

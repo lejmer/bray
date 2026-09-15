@@ -8,7 +8,7 @@ use inkwell::values::{BasicValueEnum, FunctionValue, GlobalValue, PointerValue};
 use inkwell::{DLLStorageClass, GlobalVisibility, IntPredicate};
 
 use super::super::LlvmTypeMappings;
-use super::boundary::{invoke_static_boundary, mapped_instance_function};
+use super::boundary::{invoke_static_boundary, mapped_instance_function, static_outcome};
 use super::constant::static_initializer;
 use super::finalization::declare_static_finalizer;
 use super::host::{
@@ -470,7 +470,17 @@ fn declare_static_lifecycle_phase<'context>(
         return Ok(callback);
     }
 
-    let callback = declare_static_callback(module, name, block_name, types);
+    let callback = declare_static_callback_with_type(
+        module,
+        name,
+        block_name,
+        types
+            .context()
+            .void_type()
+            .fn_type(&[pointer_type(types)?.into()], false),
+        types,
+    );
+
     let builder = types.context().create_builder();
 
     let entry = callback
@@ -483,13 +493,11 @@ fn declare_static_lifecycle_phase<'context>(
         let (function, signature) = mapped_instance_function(module, mappings, instance)?;
 
         invoke_static_boundary(
-            module,
-            mappings,
-            instance,
             &builder,
             function,
             signature,
             &[storage.into()],
+            static_outcome(callback)?,
             "",
             types,
         )?;

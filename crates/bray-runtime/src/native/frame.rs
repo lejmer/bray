@@ -4,8 +4,8 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
 use bray_runtime_abi::{
-    NativeFrameAffinity, NativeFrameExit, NativeFrameProgressKind, NativeLaneRequirements,
-    NativeProtectedFrame,
+    NativeFrameAffinity, NativeFrameExit, NativeFrameProgress, NativeFrameProgressKind,
+    NativeLaneRequirements, NativeProtectedFrame,
 };
 use bray_runtime_model::{
     BinarySymbolName, ExecutionLaneRequirement, ProtectedAsyncFrameId, ProtectedFrameAbiVersions,
@@ -22,19 +22,17 @@ pub(super) struct NativeFrame {
     descriptor: ProtectedFrameDescriptor,
     abi: NativeProtectedFrame,
     terminal: Arc<NativeTerminalState>,
+    pub(in crate::native) outgoing: crate::outgoing::OutgoingRecords,
 }
 
 pub(super) struct NativeTerminalState {
     payload: Mutex<Option<NativeTerminalPayload>>,
-    cleanup_incidents: Mutex<Vec<Box<dyn std::any::Any + Send>>>,
+    cleanup_incidents: Mutex<[Option<RuntimePanic>; 4]>,
 }
 
-pub(super) enum NativeTerminalPayload {
-    Completion {
-        address: usize,
-        _storage: Box<[u128]>,
-    },
-    Opaque(usize),
+pub(super) struct NativeTerminalPayload {
+    address: usize,
+    _storage: Box<[u128]>,
 }
 
 impl NativeTerminalPayload {
@@ -47,16 +45,14 @@ impl NativeTerminalPayload {
         let storage = vec![0_u128; word_count].into_boxed_slice();
         let address = storage.as_ptr() as usize;
 
-        Some(Self::Completion {
+        Some(Self {
             address,
             _storage: storage,
         })
     }
 
     pub(super) const fn handle(&self) -> usize {
-        match self {
-            Self::Completion { address, .. } | Self::Opaque(address) => *address,
-        }
+        self.address
     }
 }
 
@@ -92,9 +88,10 @@ impl NativeFrame {
         Some(Self {
             descriptor,
             abi: transfer.take(),
+            outgoing: crate::outgoing::OutgoingRecords::default(),
             terminal: Arc::new(NativeTerminalState {
                 payload: Mutex::new(None),
-                cleanup_incidents: Mutex::new(Vec::new()),
+                cleanup_incidents: Mutex::new(std::array::from_fn(|_| None)),
             }),
         })
     }
@@ -112,28 +109,32 @@ impl NativeFrame {
     }
 
     fn record_cleanup_incident(&self, payload: Box<dyn std::any::Any + Send>) {
-        self.terminal
+        self.record_cleanup_report(RuntimePanic::from_payload(payload));
+    }
+
+    fn record_cleanup_report(&self, report: RuntimePanic) {
+        let mut incidents = self
+            .terminal
             .cleanup_incidents
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .push(payload);
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        let Some(destination) = incidents.iter_mut().find(|incident| incident.is_none()) else {
+            unreachable!("each of the four native cleanup callbacks runs at most once");
+        };
+
+        *destination = Some(report);
     }
 }
 
 impl NativeTerminalState {
-    pub(super) fn take_payload(&self) -> Option<NativeTerminalPayload> {
-        self.payload
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take()
-    }
-
-    pub(super) fn take_cleanup_incidents(&self) -> Vec<Box<dyn std::any::Any + Send>> {
-        std::mem::take(
+    pub(super) fn take_cleanup_incidents(&self) -> [Option<RuntimePanic>; 4] {
+        std::mem::replace(
             &mut *self
                 .cleanup_incidents
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner),
+            std::array::from_fn(|_| None),
         )
     }
 }
@@ -146,11 +147,32 @@ impl ProtectedFrame for NativeFrame {
     }
 
     fn resume(self: Pin<&mut Self>, context: FrameContext) -> FrameProgress<Self::Output> {
-        let progress = if context.cancellation_requested() {
-            self.abi.cancel()(self.abi.context())
+        let frame = self.get_mut();
+
+        let callback = if context.cancellation_requested() {
+            frame.abi.cancel()
         } else {
-            self.abi.resume()(self.abi.context())
+            frame.abi.resume()
         };
+
+        let mut progress = NativeFrameProgress::new(NativeFrameProgressKind::RUNTIME_FAILURE, 0, 0);
+
+        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
+            callback(&mut progress, frame.abi.context())
+        })) {
+            let panic = RuntimePanic::from_payload(payload);
+
+            return FrameProgress::Panicked(
+                if progress.kind() == NativeFrameProgressKind::PANICKED {
+                    let mut report = RuntimePanic::from_native(progress.take_report());
+                    report.append(panic, &mut frame.outgoing);
+
+                    report
+                } else {
+                    panic
+                },
+            );
+        }
 
         let kind = progress.kind();
 
@@ -179,22 +201,22 @@ impl ProtectedFrame for NativeFrame {
 
         if kind == NativeFrameProgressKind::COMPLETED {
             let Some(payload) = NativeTerminalPayload::completion(
-                self.abi.completion_size(),
-                self.abi.completion_alignment(),
+                frame.abi.completion_size(),
+                frame.abi.completion_alignment(),
             ) else {
                 return FrameProgress::RuntimeFailure;
             };
 
             if let Err(incident) = catch_unwind(AssertUnwindSafe(|| {
-                self.abi.move_completion()(self.abi.context(), payload.handle());
+                frame.abi.move_completion()(frame.abi.context(), payload.handle());
             })) {
-                self.record_cleanup_incident(incident);
+                frame.record_cleanup_incident(incident);
 
                 return FrameProgress::RuntimeFailure;
             }
 
             let handle = payload.handle();
-            self.record_terminal_payload(payload);
+            frame.record_terminal_payload(payload);
 
             return FrameProgress::Completed(handle);
         }
@@ -204,9 +226,7 @@ impl ProtectedFrame for NativeFrame {
         }
 
         if kind == NativeFrameProgressKind::PANICKED {
-            self.record_terminal_payload(NativeTerminalPayload::Opaque(progress.payload()));
-
-            return FrameProgress::Panicked(RuntimePanic::new(progress.payload()));
+            return FrameProgress::Panicked(RuntimePanic::from_native(progress.take_report()));
         }
 
         FrameProgress::RuntimeFailure
@@ -228,10 +248,22 @@ impl ProtectedFrame for NativeFrame {
             FrameExit::RuntimeFailure => NativeFrameExit::RUNTIME_FAILURE,
         };
 
-        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
-            (self.abi.resolve_lifecycle())(self.abi.context(), exit);
-        })) {
-            self.record_cleanup_incident(payload);
+        let frame = self.get_mut();
+        let mut progress = NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0);
+
+        let caught = catch_unwind(AssertUnwindSafe(|| {
+            (frame.abi.resolve_lifecycle())(&mut progress, frame.abi.context(), exit);
+        }));
+
+        let mut report = (progress.kind() == NativeFrameProgressKind::PANICKED)
+            .then(|| RuntimePanic::from_native(progress.take_report()));
+
+        if let Err(payload) = caught {
+            RuntimePanic::record(&mut report, payload, &mut frame.outgoing);
+        }
+
+        if let Some(report) = report {
+            frame.record_cleanup_report(report);
         }
     }
 }
@@ -264,12 +296,12 @@ fn states(abi: &NativeProtectedFrame) -> Option<Vec<ProtectedFrameStateDescripto
         .collect()
 }
 
-struct NativeFrameTransfer {
+pub(super) struct NativeFrameTransfer {
     frame: Option<NativeProtectedFrame>,
 }
 
 impl NativeFrameTransfer {
-    const fn new(frame: NativeProtectedFrame) -> Self {
+    pub(super) const fn new(frame: NativeProtectedFrame) -> Self {
         Self { frame: Some(frame) }
     }
 
@@ -281,7 +313,7 @@ impl NativeFrameTransfer {
         frame
     }
 
-    fn take(&mut self) -> NativeProtectedFrame {
+    pub(super) fn take(&mut self) -> NativeProtectedFrame {
         let Some(frame) = self.frame.take() else {
             unreachable!("frame transfer must remain owned");
         };

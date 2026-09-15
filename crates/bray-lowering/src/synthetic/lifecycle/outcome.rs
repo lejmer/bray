@@ -78,51 +78,133 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             .dispatch(builder, block, source, panicked, cancelled)
             .map_err(invalid)?;
 
-        let panicked = self.cleanup_propagation_block(builder, panicked, source)?;
-        let cancelled = self.cleanup_propagation_block(builder, cancelled, source)?;
+        self.finish_cleanup_propagation(
+            builder,
+            panicked,
+            source,
+            MirTerminatorKind::PropagatePanic {
+                report: outcome.report(),
+                runtime: MirRuntimeReference::new(RuntimeAbiRole::PanicPropagation, abi),
+            },
+        )?;
 
-        builder
-            .set_terminator(
-                panicked,
-                source.clone(),
-                MirTerminatorKind::PropagatePanic {
-                    report: outcome.report(),
-                    runtime: MirRuntimeReference::new(RuntimeAbiRole::PanicPropagation, abi),
-                },
-            )
-            .map_err(invalid)?;
-
-        builder
-            .set_terminator(
-                cancelled,
-                source.clone(),
-                MirTerminatorKind::PropagateCancellation {
-                    runtime: MirRuntimeReference::new(
-                        RuntimeAbiRole::CurrentRunCancellationPropagation,
-                        abi,
-                    ),
-                },
-            )
-            .map_err(invalid)?;
+        self.finish_cleanup_propagation(
+            builder,
+            cancelled,
+            source,
+            MirTerminatorKind::PropagateCancellation {
+                runtime: MirRuntimeReference::new(
+                    RuntimeAbiRole::CurrentRunCancellationPropagation,
+                    abi,
+                ),
+            },
+        )?;
 
         Ok(completed)
     }
 
-    fn cleanup_propagation_block(
+    pub(super) fn check_lifecycle_value(
         &self,
         builder: &mut MirUnitBuilder,
         block: MirBlockId,
         source: &MirSourceAnchor,
-    ) -> Result<MirBlockId, C::Error> {
+        value: bray_ir::MirValueId,
+        result: bray_symbols::TypeId,
+    ) -> Result<(MirBlockId, bray_ir::MirValueId), C::Error> {
+        let invalid = |cause| self.mir_error(source, cause);
+        let kind = builder.block_kind(block).map_err(invalid)?;
+
+        let report_type = self
+            .context
+            .representation_type(RepresentationRole::PanicReport)?;
+
+        let completed = builder.push_block(source.clone(), kind).map_err(invalid)?;
+
+        let value_parameter = builder
+            .push_block_parameter(completed, source.clone(), result)
+            .map_err(invalid)?;
+
+        let panicked = builder.push_block(source.clone(), kind).map_err(invalid)?;
+
+        let report = builder
+            .push_block_parameter(panicked, source.clone(), report_type)
+            .map_err(invalid)?;
+
+        let cancelled = builder.push_block(source.clone(), kind).map_err(invalid)?;
+
+        builder
+            .set_terminator(
+                block,
+                source.clone(),
+                MirTerminatorKind::CheckCallOutcome {
+                    completed: MirEdge::new(completed, [bray_ir::MirOperand::Value(value)]),
+                    panicked: bray_ir::MirCallPanicEdge::new(panicked, report_type),
+                    cancelled: MirEdge::new(cancelled, []),
+                },
+            )
+            .map_err(invalid)?;
+
+        let abi = builder.target().runtime_abi();
+
+        self.finish_cleanup_propagation(
+            builder,
+            panicked,
+            source,
+            MirTerminatorKind::PropagatePanic {
+                report: bray_ir::MirOperand::Value(report),
+                runtime: MirRuntimeReference::new(RuntimeAbiRole::PanicPropagation, abi),
+            },
+        )?;
+
+        self.finish_cleanup_propagation(
+            builder,
+            cancelled,
+            source,
+            MirTerminatorKind::PropagateCancellation {
+                runtime: MirRuntimeReference::new(
+                    RuntimeAbiRole::CurrentRunCancellationPropagation,
+                    abi,
+                ),
+            },
+        )?;
+
+        Ok((completed, value_parameter))
+    }
+
+    fn finish_cleanup_propagation(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        mut terminator: MirTerminatorKind,
+    ) -> Result<(), C::Error> {
         let invalid = |cause| self.mir_error(source, cause);
 
         if builder.block_kind(block).map_err(invalid)? != MirBlockKind::CleanupBroadcast {
-            return Ok(block);
+            return builder
+                .set_terminator(block, source.clone(), terminator)
+                .map_err(invalid);
         }
 
         let terminal = builder
             .push_block(source.clone(), MirBlockKind::LifecycleResolution)
             .map_err(invalid)?;
+
+        let argument = if let MirTerminatorKind::PropagatePanic { report, .. } = &mut terminator
+            && matches!(report, bray_ir::MirOperand::Value(_))
+        {
+            let report_type = self
+                .context
+                .representation_type(RepresentationRole::PanicReport)?;
+
+            let parameter = builder
+                .push_block_parameter(terminal, source.clone(), report_type)
+                .map_err(invalid)?;
+
+            Some(std::mem::replace(report, bray_ir::MirOperand::Value(parameter)))
+        } else {
+            None
+        };
 
         builder
             .set_terminator(
@@ -130,11 +212,13 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 source.clone(),
                 MirTerminatorKind::ContinueCleanup(MirCleanupEdge::new(
                     MirCleanupPhase::LifecycleResolution,
-                    MirEdge::new(terminal, []),
+                    MirEdge::new(terminal, argument),
                 )),
             )
             .map_err(invalid)?;
 
-        Ok(terminal)
+        builder
+            .set_terminator(terminal, source.clone(), terminator)
+            .map_err(invalid)
     }
 }

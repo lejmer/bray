@@ -8,6 +8,7 @@ mod lifecycle;
 mod names;
 mod native_statics;
 mod operations;
+mod outgoing;
 mod runtime_signatures;
 mod runtime_source;
 mod signatures;

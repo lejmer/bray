@@ -160,14 +160,11 @@ struct Timespec
     nanoseconds: i64;
 }
 
-callable ClockGetTime = @abi(c)
-func(pos clock: u32, pos time: RawPointer<Timespec>) -> i32;
+callable ClockGetTime = @abi(c) func(pos clock: u32, pos time: RawPointer<Timespec>) -> i32;
 
-callable ThreadStartRoutine = @abi(c)
-func(pos context: RawPointer<u8>) -> RawPointer<u8>;
+callable ThreadStartRoutine = @abi(c) func(pos context: RawPointer<u8>) -> RawPointer<u8>;
 
-callable ThreadStorageDestructor = @abi(c)
-func(pos value: RawPointer<u8>) -> unit;
+callable ThreadStorageDestructor = @abi(c) func(pos value: RawPointer<u8>) -> unit;
 
 // Error state: fills the complete destination.
 // Ownership: the caller retains destination ownership.

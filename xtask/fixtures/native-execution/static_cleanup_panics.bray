@@ -1,0 +1,119 @@
+module static_cleanup_panics;
+
+struct Counter
+{
+    visits: core.atomic.Atomic<usize>;
+
+    trusted destruct()
+        uses(intrinsic)
+    {
+        if core.atomic.load<usize, 1>(&self.visits) != 8
+        {
+            trusted core.target.abort();
+        }
+    }
+}
+
+static COUNTER: Counter = Counter
+{
+    visits = core.atomic.initialize<usize>(0)
+};
+
+func record_cleanup(pos counter: &Counter)
+{
+    let previous = core.atomic.load<usize, 1>(&counter.visits);
+
+    core.atomic.store<usize, 4>(&counter.visits, previous + 1);
+}
+
+struct Guard
+{
+    value: usize;
+
+    finalize()
+    {
+        record_cleanup(&COUNTER);
+        panic("static finalizer panic");
+    }
+
+    destruct()
+    {
+        record_cleanup(&COUNTER);
+        panic("static destructor panic");
+    }
+}
+
+static FIRST: Guard = Guard
+{
+    value = 1
+};
+
+static SECOND: Guard = Guard
+{
+    value = 2
+};
+
+@thread_local static THREAD: Guard = Guard
+{
+    value = 4
+};
+
+async func complete() {}
+
+struct AsyncGuard
+{
+    value: usize;
+
+    async finalize()
+    {
+        await complete();
+        record_cleanup(&COUNTER);
+        panic("async static finalizer panic");
+    }
+
+    destruct()
+    {
+        record_cleanup(&COUNTER);
+        panic("async static destructor panic");
+    }
+}
+
+static ASYNC: AsyncGuard = AsyncGuard
+{
+    value = 5
+};
+
+struct CleanupError
+{
+    destruct()
+    {
+        panic("owned finalizer error destructor panic");
+    }
+}
+
+struct Fallible
+{
+    value: usize;
+
+    finalize() -> Result<unit, CleanupError>
+    {
+        return Error(
+            CleanupError
+            {
+            }
+        );
+    }
+
+    destruct() {}
+}
+
+static FALLIBLE: Fallible = Fallible
+{
+    value = 3
+};
+
+func main() -> i32
+{
+    assert(FIRST.value + SECOND.value + FALLIBLE.value + THREAD.value + ASYNC.value == 15);
+    return 0;
+}

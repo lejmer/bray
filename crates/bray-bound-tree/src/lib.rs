@@ -100,14 +100,13 @@ pub use refinement::{
 };
 pub use selection::{
     CallableDeclarationTemplate, CallableParameterDefaultTemplate, CheckedSemanticSelections,
-    ConstructionDefaultProvider, ConstructionInputId, ConstructionTarget, ConversionTarget,
-    IndexTarget, MemberTarget, OperatorTarget, SelectedArgument, SelectedCall,
-    SelectedCompoundAssignment, SelectedConstruction, SelectedConstructionInput,
-    SelectedConversion, SelectedImplementationWitness, SelectedIterationProtocolOperation,
-    SelectedIterationSource, SelectedIterationTypes, SelectedOperation,
-    SelectedPredicateApplication, SelectedPredicateArgument, SelectedPropagation,
-    SelectedPropagationBoundary, SelectedReceiver, SelectionKind, SemanticSelection,
-    SemanticSelectionEntry, SemanticSelectionTableBuildError,
+    ConstructionInputId, ConstructionTarget, ConversionTarget, DefaultValueProvider, IndexTarget,
+    MemberTarget, OperatorTarget, SelectedArgument, SelectedCall, SelectedCompoundAssignment,
+    SelectedConstruction, SelectedConstructionInput, SelectedConversion,
+    SelectedImplementationWitness, SelectedIterationProtocolOperation, SelectedIterationSource,
+    SelectedIterationTypes, SelectedOperation, SelectedPredicateApplication,
+    SelectedPredicateArgument, SelectedPropagation, SelectedPropagationBoundary, SelectedReceiver,
+    SelectionKind, SemanticSelection, SemanticSelectionEntry, SemanticSelectionTableBuildError,
 };
 pub use semantic::{
     CheckedBodySemantics, CheckedExpressionSemantics, SemanticSnapshotBuildError,
@@ -124,7 +123,8 @@ pub use storage::{
     StoragePlanBuildError, StoragePlanBuilder, StorageProjection, StorageProtocolCall,
     StorageRelationship, StorageReplacementDecision, StorageReplacementPlan,
     StorageReplacementState, StorageScopeBuildError, StorageScopeOwners, StorageSuspensionState,
-    storage_identity_is_destructor_receiver, storage_identity_transfers_at_unit_exit,
+    storage_expression_republishes_destructor_receiver, storage_identity_is_destructor_receiver,
+    storage_identity_transfers_at_unit_exit,
 };
 pub use template::{
     CheckedTemplate, CheckedTemplateBehavior, CheckedTemplateBuildError, CheckedTemplateBuilder,

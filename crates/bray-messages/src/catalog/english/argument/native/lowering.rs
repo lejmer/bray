@@ -87,6 +87,40 @@ pub(super) fn format_english_lowering_input_failure(
     super::format_internal_compiler_error(format!("could not complete {prevented_operation}"))
 }
 
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn initialized_input_cleanup_failure_identifies_the_expression() {
+        use bray_diagnostics::{
+            DiagnosticLoweringFailure, DiagnosticLoweringFailureKind, DiagnosticLoweringIdentity,
+        };
+
+        use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
+
+        let source = SourceSpan::new(
+            SourceId::new(0),
+            TextRange::new(TextSize::new(3), TextSize::new(8)),
+        );
+
+        let failure = DiagnosticLoweringFailure::new(
+            DiagnosticLoweringFailureKind::MissingInputCleanup(DiagnosticLoweringIdentity::new(
+                13, 57,
+            )),
+            source,
+        );
+
+        let rendered = super::format_english_lowering_failure(failure);
+
+        assert!(rendered.contains("internal compiler error"));
+        assert!(rendered.contains("highlighted expression"));
+        assert!(rendered.contains("cleanup for an initialized input"));
+        assert!(crate::catalog::english::forbidden_internal_term(&rendered).is_none());
+        assert!(!rendered.contains("13"));
+        assert!(!rendered.contains("57"));
+        assert_eq!(failure.source(), source);
+    }
+}
+
 pub(super) fn format_english_lowering_failure(
     failure: bray_diagnostics::DiagnosticLoweringFailure,
 ) -> String {
@@ -119,6 +153,9 @@ pub(super) fn format_english_lowering_failure(
         }
         Failure::InvalidTaskOperation(_) => {
             "generating a type-correct call for the highlighted task operation"
+        }
+        Failure::MissingInputCleanup(_) => {
+            "generating executable code for the highlighted expression because cleanup for an initialized input was not determined"
         }
         Failure::MissingCallableResultType => {
             "generating executable code for the highlighted callable because its result type is unavailable"

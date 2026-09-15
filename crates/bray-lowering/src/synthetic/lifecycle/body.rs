@@ -76,7 +76,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 )?;
             }
             MirHelperReference::StaticFinalize(ty) => {
-                let mut end = entry;
+                let end;
 
                 let action = self
                     .context
@@ -88,13 +88,15 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                         == bray_symbols::CallableExecution::Synchronous
                         && self.is_void_result(callable.result)?;
 
-                    let value = self.push_static_finalizer_call(
+                    let (completed, value) = self.push_static_finalizer_call(
                         &mut builder,
                         entry,
                         &source,
                         place,
                         callable,
                     )?;
+
+                    end = completed;
 
                     (!returns_void).then_some(MirOperand::Value(value))
                 } else {
@@ -131,8 +133,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             }
             MirHelperReference::AnonymousCallable(_)
             | MirHelperReference::DeclaredCallable(_)
-            | MirHelperReference::CallableDefault(_)
-            | MirHelperReference::ConstructionDefault(_)
+            | MirHelperReference::DefaultValue(_)
             | MirHelperReference::TypeForm(_)
             | MirHelperReference::Conversion(_)
             | MirHelperReference::BeginGenerator
@@ -147,6 +148,11 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             | MirHelperReference::DestroyTerminalTask => {
                 return Err(SyntheticLoweringError::MissingHelper(reference.clone()).into());
             }
+        }
+
+        if let MirHelperReference::Destroy(ty) = reference {
+            super::outgoing::discharge_owner(&mut builder, *ty)
+                .map_err(|cause| self.mir_error(&source, cause))?;
         }
 
         builder

@@ -52,7 +52,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         source: &MirSourceAnchor,
         place: MirPlace,
         callable: bray_bound_tree::LifecycleCallable,
-    ) -> Result<bray_ir::MirValueId, C::Error> {
+    ) -> Result<(bray_ir::MirBlockId, bray_ir::MirValueId), C::Error> {
         let result = match callable.execution {
             CallableExecution::Synchronous => {
                 bray_bound_tree::BoundCallResult::Immediate(callable.result)
@@ -78,7 +78,13 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             }
         };
 
-        self.push_selected_call(builder, block, source, place, callable, result)
+        let value = self.push_selected_call(builder, block, source, place, callable, result)?;
+
+        if callable.execution == CallableExecution::Synchronous {
+            self.check_lifecycle_value(builder, block, source, value, callable.result)
+        } else {
+            Ok((block, value))
+        }
     }
 
     pub(super) fn push_selected_call(
@@ -107,6 +113,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             place,
             borrow,
             result,
+            true,
             |operation, result| builder.push_operation(block, source.clone(), operation, result),
         )
         .map_err(|cause| match cause {

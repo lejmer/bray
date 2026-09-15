@@ -171,6 +171,8 @@ pub enum DiagnosticLoweringFailureKind {
     },
     /// An expression has no checked type.
     MissingExpressionType(DiagnosticLoweringIdentity),
+    /// An initialized call or construction input has no checked cleanup shape.
+    MissingInputCleanup(DiagnosticLoweringIdentity),
     /// An await expression occurs outside a protected frame.
     AwaitOutsideProtectedFrame(DiagnosticLoweringIdentity),
     /// An await expression has no selected suspension point.
@@ -259,6 +261,7 @@ impl DiagnosticLoweringFailureKind {
             Self::AwaitOutsideProtectedFrame(_) => "code_production_await_state_unavailable",
             Self::MissingSuspensionPoint(_) => "code_production_await_resume_path_unavailable",
             Self::InvalidTaskOperation(_) => "code_production_task_call_type_mismatch",
+            Self::MissingInputCleanup(_) => "code_production_input_cleanup_unavailable",
             Self::MissingCallableResultType => "code_production_callable_result_type_unavailable",
             Self::InvalidCleanupScopeDepth { .. } => "code_production_cleanup_scope_depth_invalid",
             Self::MissingScopeExitPlan { .. } => "code_production_scope_exit_plan_unavailable",

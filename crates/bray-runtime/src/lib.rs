@@ -14,6 +14,7 @@ mod lane;
 pub mod native;
 mod observation;
 mod outcome;
+mod outgoing;
 mod product;
 mod root;
 mod scheduler;
@@ -59,7 +60,7 @@ pub use shutdown::{
     finish_product_shutdown,
 };
 pub use task::{
-    JoinWaitRegistration, JoinWake, TaskControlBlock, TaskFailureKind, TaskId,
+    JoinWaitRegistration, JoinWake, TaskAdmission, TaskControlBlock, TaskFailureKind, TaskId,
     TaskObservationError, TaskResumeError, TaskResumeStatus, TaskStartError, TaskState,
 };
 pub use timeout::{RunCancellationTimer, RunTimeoutError, RunTimeoutScheduler};

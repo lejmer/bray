@@ -114,7 +114,7 @@ impl Lowerer<'_> {
         Ok(())
     }
 
-    fn new_initialization_guard(
+    pub(in crate::lowering) fn new_initialization_guard(
         &mut self,
         entry: MirBlockId,
         source: &MirSourceAnchor,

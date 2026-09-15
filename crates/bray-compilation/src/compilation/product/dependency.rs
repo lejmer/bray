@@ -1,10 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    BoundCallableTarget, BoundExpression, BoundReferenceTarget, BoundUnitKind,
-    ConstructionDefaultProvider, ConstructionInputId, ConstructionTarget, ConversionTarget,
-    IndexTarget, OperatorTarget, SelectedImplementationWitness, SelectedIterationSource,
-    SelectedOperation, SemanticSelection,
+    BoundCallableTarget, BoundExpression, BoundReferenceTarget, BoundUnitKind, ConstructionInputId,
+    ConstructionTarget, ConversionTarget, DefaultValueProvider, IndexTarget, OperatorTarget,
+    SelectedImplementationWitness, SelectedIterationSource, SelectedOperation, SemanticSelection,
 };
 use bray_declarations::DeclarationTable;
 use bray_diagnostics::DiagnosticBag;
@@ -532,10 +531,7 @@ fn push_construction_input(input: ConstructionInputId, dependencies: &mut Vec<An
     dependencies.push(symbol);
 }
 
-fn push_construction_default(
-    provider: ConstructionDefaultProvider,
-    dependencies: &mut Vec<AnySymbolId>,
-) {
+fn push_construction_default(provider: DefaultValueProvider, dependencies: &mut Vec<AnySymbolId>) {
     dependencies.push(provider.symbol());
 }
 

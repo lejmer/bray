@@ -1,5 +1,5 @@
 use bray_binder::BindingQueryContext;
-use bray_bound_tree::{ConstructionDefaultProvider, ConstructionInputId, ConstructionTarget};
+use bray_bound_tree::{ConstructionInputId, ConstructionTarget, DefaultValueProvider};
 use bray_checker::{ConstructionInputSurface, OperationCandidate, OperationCandidateState};
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
@@ -132,7 +132,7 @@ impl Compilation {
 
         let default = record
             .default_provider()
-            .map(ConstructionDefaultProvider::StructField);
+            .map(DefaultValueProvider::StructField);
 
         Ok(Some((
             ConstructionInputSurface::new(

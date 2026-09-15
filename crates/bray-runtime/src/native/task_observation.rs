@@ -17,6 +17,8 @@ const TASK_OBSERVATION_FRAME_IDENTITY: [u8; 32] = *b"bray.task.observation.frame
 pub(super) type NativeValueCleanupCallback = extern "C-unwind" fn(*mut u8);
 
 struct TaskObservation {
+    result: RunResultStorage,
+    outgoing: Mutex<crate::outgoing::OutgoingRecords>,
     task: NativeTaskHandle,
     layout: NativeRunResultLayout,
     cancellation: Option<NativeValueCleanupCallback>,
@@ -75,9 +77,9 @@ impl TaskObservation {
         transfer_outcome(outcome, destination, self.layout)
             .unwrap_or_else(|_| panic!("task observation result transfer failed"));
 
-        destroy_task(self.task).unwrap_or_else(|_| panic!("observed task destruction failed"));
-
         self.consumed.store(true, Ordering::Release);
+
+        destroy_task(self.task).unwrap_or_else(|_| panic!("observed task destruction failed"));
     }
 
     fn resolve_owned_task(&self) {
@@ -113,24 +115,28 @@ impl TaskObservation {
 
         let mut incident = None;
 
-        match TemporaryRunResult::new(self.layout) {
-            Ok(storage) => match transfer_outcome(outcome, storage.address(), self.layout) {
-                Ok(()) => {
-                    for cleanup in [self.cancellation, self.lifecycle].into_iter().flatten() {
-                        if let Err(found) =
-                            catch_unwind(AssertUnwindSafe(|| cleanup(storage.pointer())))
-                        {
-                            RuntimePanic::record(&mut incident, found);
-                        }
+        let mut outgoing = std::mem::take(
+            &mut *self
+                .outgoing
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner),
+        );
+
+        match transfer_outcome(outcome, self.result.address(), self.layout) {
+            Ok(()) => {
+                for cleanup in [self.cancellation, self.lifecycle].into_iter().flatten() {
+                    if let Err(found) =
+                        catch_unwind(AssertUnwindSafe(|| cleanup(self.result.pointer())))
+                    {
+                        RuntimePanic::record(&mut incident, found, &mut outgoing);
                     }
                 }
-                Err(status) => RuntimePanic::record(&mut incident, Box::new(status)),
-            },
-            Err(status) => RuntimePanic::record(&mut incident, Box::new(status)),
+            }
+            Err(status) => RuntimePanic::record(&mut incident, Box::new(status), &mut outgoing),
         }
 
         if let Err(found) = destroy_task(self.task) {
-            RuntimePanic::record(&mut incident, Box::new(found));
+            RuntimePanic::record(&mut incident, Box::new(found), &mut outgoing);
         }
 
         self.consumed.store(true, Ordering::Release);
@@ -141,15 +147,15 @@ impl TaskObservation {
     }
 }
 
-struct TemporaryRunResult {
+struct RunResultStorage {
     pointer: *mut u8,
     layout: Layout,
 }
 
-impl TemporaryRunResult {
+impl RunResultStorage {
     #[expect(
         unsafe_code,
-        reason = "the validated compiler layout determines this temporary native allocation"
+        reason = "the validated compiler layout determines this admitted native allocation"
     )]
     fn new(result: NativeRunResultLayout) -> Result<Self, NativeRuntimeStatus> {
         let layout = Layout::from_size_align(result.size(), result.alignment())
@@ -173,10 +179,10 @@ impl TemporaryRunResult {
     }
 }
 
-impl Drop for TemporaryRunResult {
+impl Drop for RunResultStorage {
     #[expect(
         unsafe_code,
-        reason = "the temporary is released with the exact layout used to allocate it"
+        reason = "the result backing is released with the exact layout used to allocate it"
     )]
     fn drop(&mut self) {
         unsafe { dealloc(self.pointer, self.layout) };
@@ -195,6 +201,8 @@ pub(super) fn create(
     }
 
     let context = Box::new(TaskObservation {
+        result: RunResultStorage::new(layout).ok()?,
+        outgoing: Mutex::new(crate::outgoing::OutgoingRecords::admit(3).ok()?),
         task,
         layout,
         cancellation,
@@ -240,15 +248,15 @@ extern "C" fn state(_: usize, _: u32) -> NativeFrameState {
     NativeFrameState::new(NativeFrameAffinity::MOVABLE, NativeLaneRequirements::NONE)
 }
 
-extern "C-unwind" fn resume(context: usize) -> NativeFrameProgress {
-    observation(context).resume(context)
+extern "C-unwind" fn resume(destination: &mut NativeFrameProgress, context: usize) {
+    *destination = observation(context).resume(context);
 }
 
-extern "C-unwind" fn cancel(context: usize) -> NativeFrameProgress {
+extern "C-unwind" fn cancel(destination: &mut NativeFrameProgress, context: usize) {
     let observation = observation(context);
     let _ = with_runtime(|runtime| runtime.request_cancellation(observation.task));
 
-    observation.resume(context)
+    *destination = observation.resume(context);
 }
 
 extern "C-unwind" fn broadcast_tasks(context: usize) {
@@ -256,7 +264,11 @@ extern "C-unwind" fn broadcast_tasks(context: usize) {
     let _ = with_runtime(|runtime| runtime.request_cancellation(observation.task));
 }
 
-extern "C-unwind" fn resolve_lifecycle(context: usize, _: NativeFrameExit) {
+extern "C-unwind" fn resolve_lifecycle(
+    _: &mut NativeFrameProgress,
+    context: usize,
+    _: NativeFrameExit,
+) {
     observation(context).resolve_owned_task();
 }
 
@@ -307,7 +319,7 @@ fn destroy_task(task: NativeTaskHandle) -> Result<(), NativeRuntimeStatus> {
     reason = "the compiler-provided validated layout governs the exact terminal payload move"
 )]
 pub(super) fn transfer_outcome(
-    outcome: NativeRunOutcome,
+    mut outcome: NativeRunOutcome,
     destination: usize,
     layout: NativeRunResultLayout,
 ) -> Result<(), NativeRuntimeStatus> {
@@ -319,7 +331,7 @@ pub(super) fn transfer_outcome(
 
     unsafe { destination.write_bytes(0, layout.size()) };
 
-    let panic_payload = outcome.payload();
+    let report;
 
     let (tag, payload) = if outcome.state() == NativeRunState::COMPLETED {
         (
@@ -331,12 +343,15 @@ pub(super) fn transfer_outcome(
             )),
         )
     } else if outcome.state() == NativeRunState::PANICKED {
+        // The existing payload copy transfers this header into the validated destination.
+        report = std::mem::ManuallyDrop::new(outcome.take_report());
+
         (
             layout.panicked_tag(),
             Some((
                 layout.panicked_offset(),
-                (&raw const panic_payload).addr(),
-                size_of::<usize>(),
+                std::ptr::from_ref(&*report).addr(),
+                size_of::<bray_runtime_abi::NativePanicReport>(),
             )),
         )
     } else if outcome.state() == NativeRunState::CANCELLED {
@@ -348,14 +363,6 @@ pub(super) fn transfer_outcome(
     };
 
     unsafe {
-        match layout.tag_size() {
-            1 => destination.cast::<u8>().write(tag as u8),
-            2 => destination.cast::<u16>().write_unaligned(tag as u16),
-            4 => destination.cast::<u32>().write_unaligned(tag as u32),
-            8 => destination.cast::<u64>().write_unaligned(tag),
-            _ => return Err(NativeRuntimeStatus::INVALID_ARGUMENT),
-        }
-
         if let Some((offset, source, size)) = payload
             && size != 0
         {
@@ -364,6 +371,14 @@ pub(super) fn transfer_outcome(
             }
 
             std::ptr::copy_nonoverlapping(source as *const u8, destination.add(offset), size);
+        }
+
+        match layout.tag_size() {
+            1 => destination.cast::<u8>().write(tag as u8),
+            2 => destination.cast::<u16>().write_unaligned(tag as u16),
+            4 => destination.cast::<u32>().write_unaligned(tag as u32),
+            8 => destination.cast::<u64>().write_unaligned(tag),
+            _ => return Err(NativeRuntimeStatus::INVALID_ARGUMENT),
         }
     }
 
@@ -385,7 +400,7 @@ mod tests {
         NativeRunOutcome, NativeRunResultLayout, NativeRunState, NativeRuntimeStatus,
     };
 
-    use super::{TaskObservation, transfer_outcome};
+    use super::{RunResultStorage, TaskObservation, transfer_outcome};
 
     thread_local! {
         static CLEANUP_EVENTS: RefCell<Vec<(&'static str, u8)>> = const { RefCell::new(Vec::new()) };
@@ -413,19 +428,11 @@ mod tests {
     fn cleanup_retains_secondary_failures_until_the_original_is_disposed() {
         let completed = 42_u64;
 
-        let observation = TaskObservation {
-            task: bray_runtime_abi::NativeTaskHandle::new(1).unwrap(),
-            layout: result_layout(),
-            cancellation: Some(failing_cancellation),
-            lifecycle: Some(failing_lifecycle),
-            request_cancellation: false,
-            owner: AtomicU64::new(0),
-            consumed: AtomicBool::new(false),
-            outcome: Mutex::new(Some(NativeRunOutcome::new(
-                NativeRunState::COMPLETED,
-                (&raw const completed).addr(),
-            ))),
-        };
+        let observation = observation(
+            &completed,
+            Some(failing_cancellation),
+            Some(failing_lifecycle),
+        );
 
         let failure =
             catch_unwind(AssertUnwindSafe(|| observation.resolve_owned_task())).unwrap_err();
@@ -453,12 +460,62 @@ mod tests {
         });
     }
 
+    fn observation(
+        completed: &u64,
+        cancellation: Option<super::NativeValueCleanupCallback>,
+        lifecycle: Option<super::NativeValueCleanupCallback>,
+    ) -> TaskObservation {
+        TaskObservation {
+            result: RunResultStorage::new(result_layout()).unwrap(),
+            outgoing: Mutex::new(crate::outgoing::OutgoingRecords::admit(3).unwrap()),
+            task: bray_runtime_abi::NativeTaskHandle::new(1).unwrap(),
+            layout: result_layout(),
+            cancellation,
+            lifecycle,
+            request_cancellation: false,
+            owner: AtomicU64::new(0),
+            consumed: AtomicBool::new(false),
+            outcome: Mutex::new(Some(NativeRunOutcome::new(
+                NativeRunState::COMPLETED,
+                (completed as *const u64).addr(),
+            ))),
+        }
+    }
+
+    #[test]
+    fn transferred_result_is_not_resolved_again_when_task_release_fails() {
+        let completed = 42_u64;
+
+        let observation = observation(
+            &completed,
+            Some(failing_cancellation),
+            Some(failing_lifecycle),
+        );
+
+        let mut storage = ResultStorage([0xff; 112]);
+
+        assert!(
+            catch_unwind(AssertUnwindSafe(
+                || observation.move_completion(storage.0.as_mut_ptr().addr())
+            ))
+            .is_err()
+        );
+
+        assert!(observation.consumed.load(Ordering::Acquire));
+
+        observation.resolve_owned_task();
+        CLEANUP_EVENTS.with_borrow(|events| assert!(events.is_empty()));
+
+        assert_eq!(storage.0[0], COMPLETED_TAG);
+        assert_eq!(&storage.0[8..16], &completed.to_ne_bytes());
+    }
+
     const COMPLETED_TAG: u8 = 3;
     const PANICKED_TAG: u8 = 5;
     const CANCELLED_TAG: u8 = 7;
 
     #[repr(C, align(8))]
-    struct ResultStorage([u8; 16]);
+    struct ResultStorage([u8; 112]);
 
     #[test]
     fn terminal_outcomes_form_their_selected_run_result_variants() {
@@ -471,9 +528,9 @@ mod tests {
                 completed,
             ),
             (
-                NativeRunOutcome::new(NativeRunState::PANICKED, 0x1234),
+                NativeRunOutcome::panicked(bray_runtime_abi::NativePanicReport::empty()),
                 PANICKED_TAG,
-                0x1234,
+                0,
             ),
             (
                 NativeRunOutcome::new(NativeRunState::CANCELLED, 0),
@@ -483,7 +540,7 @@ mod tests {
         ];
 
         for (outcome, expected_tag, expected_payload) in cases {
-            let mut storage = ResultStorage([0xff; 16]);
+            let mut storage = ResultStorage([0xff; 112]);
 
             assert_eq!(
                 transfer_outcome(outcome, storage.0.as_mut_ptr().addr(), result_layout()),
@@ -494,7 +551,7 @@ mod tests {
 
             assert_eq!(
                 u64::from_ne_bytes(
-                    storage.0[8..]
+                    storage.0[8..16]
                         .try_into()
                         .unwrap_or_else(|_| panic!("payload must occupy eight bytes"))
                 ),
@@ -504,8 +561,52 @@ mod tests {
     }
 
     #[test]
+    fn transferred_panic_header_owns_its_message_until_destination_disposal() {
+        use bray_runtime_abi::{
+            NativePanicCause, NativePanicMessage, NativePanicPrimary, NativePanicReport,
+            NativeSourceAnchor,
+        };
+
+        #[repr(C)]
+        struct Destination {
+            tag: u64,
+            report: NativePanicReport,
+        }
+
+        extern "C" fn release(_: usize, _: usize) {
+            CLEANUP_EVENTS.with_borrow_mut(|events| events.push(("report release", 1)));
+        }
+
+        CLEANUP_EVENTS.with_borrow_mut(Vec::clear);
+
+        let report = crate::frame::native_report(NativePanicPrimary::new(
+            NativePanicCause::MESSAGE,
+            NativeSourceAnchor::unavailable(),
+            NativePanicMessage::new(1, 0, None, Some(release)),
+        ));
+
+        let mut destination = Destination {
+            tag: 0,
+            report: NativePanicReport::empty(),
+        };
+
+        transfer_outcome(
+            NativeRunOutcome::panicked(report),
+            std::ptr::from_mut(&mut destination).addr(),
+            result_layout(),
+        )
+        .unwrap();
+
+        assert_eq!(destination.tag, u64::from(PANICKED_TAG));
+        CLEANUP_EVENTS.with_borrow(|events| assert!(events.is_empty()));
+        assert!(destination.report.consume(false).is_success());
+        drop(destination);
+        CLEANUP_EVENTS.with_borrow(|events| assert_eq!(*events, [("report release", 1)]));
+    }
+
+    #[test]
     fn unresolved_and_failed_outcomes_keep_their_runtime_status() {
-        let mut storage = ResultStorage([0xff; 16]);
+        let mut storage = ResultStorage([0xff; 112]);
 
         assert_eq!(
             transfer_outcome(
@@ -528,7 +629,7 @@ mod tests {
 
     const fn result_layout() -> NativeRunResultLayout {
         NativeRunResultLayout::new(
-            16,
+            112,
             8,
             1,
             COMPLETED_TAG as u64,

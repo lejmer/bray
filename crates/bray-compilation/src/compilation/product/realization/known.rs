@@ -164,17 +164,33 @@ impl Compilation {
                 )
                 .map(Some)
             }
-            RepresentationRole::PanicReport => scalar_mapping(
-                self,
-                ty,
-                RepresentationRole::ScalarUsize,
-                TargetScalarKind::Usize,
-                target,
-                cancellation,
-                mappings,
-                pending,
-            )
-            .map(Some),
+            RepresentationRole::PanicReport => {
+                let u32 = self.codegen_representation_type(RepresentationRole::ScalarU32)?;
+                let u64 = self.codegen_representation_type(RepresentationRole::ScalarU64)?;
+                let usize = self.codegen_representation_type(RepresentationRole::ScalarUsize)?;
+                let pointer = self.codegen_opaque_pointer_type()?;
+
+                self.codegen_aggregate_type(
+                    ty,
+                    [
+                        u32, u32, u32, u32, u64, u32, usize, usize, pointer, pointer, usize, usize,
+                        usize, usize, pointer,
+                    ]
+                    .map(|field| (None, field)),
+                    TargetLayoutContract::C,
+                    None,
+                    None,
+                    target,
+                    cancellation,
+                    mappings,
+                    pending,
+                )
+                .map(|mapping| {
+                    Some(
+                        mapping.with_behavior(Some(bray_codegen::CodegenTypeBehavior::PanicReport)),
+                    )
+                })
+            }
             RepresentationRole::Future => {
                 let pointer = self.codegen_opaque_pointer_type()?;
 

@@ -41,7 +41,7 @@ macro_rules! runtime_role_catalog {
             }
             NativeThreadExecution {
                 "Execute one Bray-owned native-thread root behind its runtime boundary.", "native_thread_execution",
-                native: (NATIVE_THREAD_EXECUTION_SYMBOL = "bray_runtime_native_thread_execution", [Pointer, Usize, Pointer, Usize, PointerUsize] -> U32),
+                native: (NATIVE_THREAD_EXECUTION_SYMBOL = "bray_runtime_native_thread_execution", [Pointer, Usize, Pointer, Usize, PanicReport] -> U32),
                 call_hook: (NativeThreadExecution),
                 compiler: C [Pointer, Usize, Pointer, Usize, Pointer] -> U32,
                 owner: Callback, availability: All, bootstrap: ("native_thread_execution"), host_control: false,
@@ -65,15 +65,6 @@ macro_rules! runtime_role_catalog {
                 owner: Callback, availability: All, bootstrap: (), host_control: false,
                 capabilities: [],
                 effects: [ObserveThreadAttachment]
-            }
-            NativeThreadPanicReportRecovery {
-                "Recover one owned panic report published by a native-thread boundary.", "native_thread_panic_report_recovery",
-                native: (NATIVE_THREAD_PANIC_REPORT_RECOVERY_SYMBOL = "bray_runtime_native_thread_panic_report_recovery", [Usize] -> Usize),
-                call_hook: (NativeThreadPanicReportRecovery),
-                compiler: Bray [Usize] -> PanicReport,
-                owner: Callback, availability: All, bootstrap: (), host_control: false,
-                capabilities: [],
-                effects: [AcquireTerminalState]
             }
             TaskEventCreation {
                 "Create one runtime-owned task event.", "task_event_creation",
@@ -257,10 +248,10 @@ macro_rules! runtime_role_catalog {
             }
             TerminalPublication {
                 "Publish one terminal run outcome.", "terminal_publication",
-                native: (TERMINAL_PUBLICATION_SYMBOL = "bray_runtime_terminal_publication", [U32, Usize] -> FrameProgress),
+                native: (),
                 call_hook: (),
                 compiler: Bray [] -> Void,
-                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
+                owner: Compiler, availability: All, bootstrap: (), host_control: false,
                 capabilities: [CooperativeExecution],
                 effects: [PublishTerminalState, EstablishVisibility]
             }
@@ -338,28 +329,64 @@ macro_rules! runtime_role_catalog {
             }
             PanicReporting {
                 "Report and resolve one root panic payload.", "panic_reporting",
-                native: (PANIC_REPORTING_SYMBOL = "bray_runtime_panic_reporting", [Usize] -> U32),
+                native: (PANIC_REPORTING_SYMBOL = "bray_runtime_panic_reporting", [PanicReport] -> U32),
                 call_hook: (NativeThreadPanicReporting),
                 compiler: Bray [PanicReport] -> U32,
-                owner: Host, availability: All, bootstrap: ("panic_reporting"), host_control: true,
+                owner: Host, availability: All, bootstrap: (), host_control: true,
                 capabilities: [],
                 effects: [ReportPanic]
             }
             PanicReportDestruction {
                 "Destroy one handled panic report without reporting it.", "panic_report_destruction",
-                native: (PANIC_REPORT_DESTRUCTION_SYMBOL = "bray_runtime_panic_report_destruction", [Usize] -> U32),
+                native: (PANIC_REPORT_DESTRUCTION_SYMBOL = "bray_runtime_panic_report_destruction", [PanicReport] -> U32),
                 call_hook: (),
                 compiler: Bray [PanicReport] -> U32,
-                owner: Host, availability: All, bootstrap: ("panic_report_destruction"), host_control: false,
+                owner: Host, availability: All, bootstrap: (), host_control: false,
                 capabilities: [],
                 effects: [DestroyPanicReport]
             }
+            OutgoingAdmission {
+                "Reserve local outgoing records before accepting an owner.", "outgoing_admission",
+                native: (OUTGOING_ADMISSION_SYMBOL = "bray_runtime_outgoing_admission", [Usize, Pointer] -> Void),
+                call_hook: (),
+                compiler: C [Usize, Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: (), host_control: false,
+                capabilities: [],
+                effects: [ConstructPanicReport]
+            }
+            OutgoingDischarge {
+                "Discharge a consumed owner without reclaiming transferred records.", "outgoing_discharge",
+                native: (OUTGOING_DISCHARGE_SYMBOL = "bray_runtime_outgoing_discharge", [Usize] -> Void),
+                call_hook: (),
+                compiler: C [Usize] -> Void,
+                owner: Host, availability: All, bootstrap: (), host_control: false,
+                capabilities: [],
+                effects: [DestroyPanicReport]
+            }
+            OutgoingActivation {
+                "Activate an admitted outgoing record before entering a local cleanup action.", "outgoing_activation",
+                native: (OUTGOING_ACTIVATION_SYMBOL = "bray_runtime_outgoing_activation", [] -> Usize),
+                call_hook: (),
+                compiler: C [] -> Usize,
+                owner: Host, availability: All, bootstrap: (), host_control: false,
+                capabilities: [],
+                effects: [TransferCleanupIncident]
+            }
+            OutgoingRetirement {
+                "Retire an action record or transfer it with its outgoing report.", "outgoing_retirement",
+                native: (OUTGOING_RETIREMENT_SYMBOL = "bray_runtime_outgoing_retirement", [Usize, Pointer] -> Void),
+                call_hook: (),
+                compiler: C [Usize, Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: (), host_control: false,
+                capabilities: [],
+                effects: [TransferCleanupIncident]
+            }
             PanicReportSuppression {
                 "Attach an owned cleanup incident to the primary panic report.", "panic_report_suppression",
-                native: (PANIC_REPORT_SUPPRESSION_SYMBOL = "bray_runtime_panic_report_suppression", [Usize, Usize] -> Usize),
+                native: (PANIC_REPORT_SUPPRESSION_SYMBOL = "bray_runtime_panic_report_suppression", [PanicReport, PanicReport] -> PanicReport),
                 call_hook: (),
                 compiler: Bray [PanicReport, PanicReport] -> PanicReport,
-                owner: Host, availability: All, bootstrap: ("panic_report_suppression"), host_control: false,
+                owner: Host, availability: All, bootstrap: (), host_control: false,
                 capabilities: [],
                 effects: [TransferCleanupIncident]
             }
@@ -473,7 +500,7 @@ macro_rules! runtime_role_catalog {
             }
             PanicReportConstruction {
                 "Construct one owned panic report.", "panic_report_construction",
-                native: (PANIC_REPORT_CONSTRUCTION_SYMBOL = "bray_runtime_panic_report_construction", [U32, U32, U32, U32, U32, U64, Pointer, Usize] -> Usize),
+                native: (PANIC_REPORT_CONSTRUCTION_SYMBOL = "bray_runtime_panic_report_construction", [U32, U32, U32, U32, U32, U64, Pointer, Usize] -> PanicReport),
                 call_hook: (),
                 compiler: Bray [] -> Void,
                 owner: Host, availability: All, bootstrap: ("panic_report_construction"), host_control: false,
@@ -482,7 +509,7 @@ macro_rules! runtime_role_catalog {
             }
             PanicPropagation {
                 "Propagate one owned panic report to the nearest native run boundary.", "panic_propagation",
-                native: (PANIC_PROPAGATION_SYMBOL = "bray_runtime_panic_propagation", [Usize] -> Never),
+                native: (PANIC_PROPAGATION_SYMBOL = "bray_runtime_panic_propagation", [PanicReport] -> Never),
                 call_hook: (),
                 compiler: Bray [PanicReport] -> Void,
                 owner: Host, availability: All, bootstrap: (), host_control: false,

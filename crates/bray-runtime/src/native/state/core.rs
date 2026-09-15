@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use bray_platform::{RuntimeThreadEntry, RuntimeThreadId, RuntimeThreadScope};
 use bray_runtime_abi::{
-    NativeRunOutcome, NativeRuntimeConfiguration, NativeRuntimeStatus, NativeTaskHandle,
+    NativeRunState, NativeRuntimeConfiguration, NativeRuntimeStatus, NativeTaskHandle,
 };
 use bray_runtime_model::RuntimeCapability;
 
@@ -60,9 +60,7 @@ impl Drop for TestRuntimeIsolation {
 
 #[cfg(test)]
 pub(in crate::native) fn test_runtime_isolation() -> Option<TestRuntimeIsolation> {
-    if HOLDS_TEST_RUNTIME_ISOLATION.get()
-        || NATIVE_RUNTIME.with(|runtime| runtime.borrow().is_some())
-    {
+    if HOLDS_TEST_RUNTIME_ISOLATION.get() || NATIVE_RUNTIME.with_borrow(Option::is_some) {
         None
     } else {
         let guard = NATIVE_RUNTIME_TEST_ISOLATION
@@ -162,9 +160,8 @@ impl NativeRuntimeCore {
             return;
         }
 
-        let current = NATIVE_RUNTIME.with(|runtime| {
+        let current = NATIVE_RUNTIME.with_borrow(|runtime| {
             runtime
-                .borrow()
                 .as_ref()
                 .filter(|runtime| std::ptr::eq(Arc::as_ptr(&runtime.core), self))
                 .and_then(|runtime| runtime.worker.clone())
@@ -179,17 +176,16 @@ impl NativeRuntimeCore {
 
 impl RetainedRuntime {
     pub(crate) fn owns_current_worker(&self) -> bool {
-        NATIVE_RUNTIME.with(|runtime| {
-            runtime.borrow().as_ref().is_some_and(|runtime| {
+        NATIVE_RUNTIME.with_borrow(|runtime| {
+            runtime.as_ref().is_some_and(|runtime| {
                 runtime.worker.is_some() && Arc::ptr_eq(&runtime.core, &self.core)
             })
         })
     }
 
     pub(crate) fn detach_product_workers(&self, product: usize) {
-        let current = NATIVE_RUNTIME.with(|runtime| {
+        let current = NATIVE_RUNTIME.with_borrow(|runtime| {
             runtime
-                .borrow()
                 .as_ref()
                 .filter(|runtime| Arc::ptr_eq(&runtime.core, &self.core))
                 .and_then(|runtime| runtime.worker.clone())
@@ -210,10 +206,11 @@ impl RetainedRuntime {
 }
 
 pub(in crate::native) enum NativeTaskSlot {
-    Allocated,
+    Allocated(crate::TaskAdmission),
     Started(Arc<StartedTask>),
     Terminal {
-        outcome: NativeRunOutcome,
+        state: NativeRunState,
+        payload: usize,
         _task: Arc<StartedTask>,
     },
 }
@@ -259,62 +256,60 @@ fn initialize_with_capabilities(
         return NativeRuntimeStatus::INVALID_ARGUMENT;
     };
 
-    NATIVE_RUNTIME.with(|runtime| {
-        if runtime.borrow().is_some() {
-            return NativeRuntimeStatus::ALREADY_INITIALIZED;
-        }
+    if NATIVE_RUNTIME.with_borrow(Option::is_some) {
+        return NativeRuntimeStatus::ALREADY_INITIALIZED;
+    }
 
+    #[cfg(test)]
+    let test_isolation = test_runtime_isolation();
+
+    let Ok(thread) = RuntimeThreadScope::enter_or_reuse() else {
+        return NativeRuntimeStatus::RUNTIME_FAILURE;
+    };
+
+    if main_thread_lane && !bray_platform::mark_current_runtime_thread_as_main() {
+        return NativeRuntimeStatus::RUNTIME_FAILURE;
+    }
+
+    let scheduler = Scheduler::new(
+        capabilities,
+        thread.runtime().id(),
+        SchedulerLimits::new(task_capacity, timer_capacity),
+    );
+
+    let core = Arc::new(NativeRuntimeCore {
+        scheduler,
+        workers: super::super::workers::WorkerPool::new(),
+        owners: AtomicUsize::new(1),
+        tasks: Mutex::new(BTreeMap::new()),
+        awaited: Mutex::new(BTreeMap::new()),
+        resolved_awaits: Mutex::new(BTreeMap::new()),
+        task_capacity,
+        next_task: AtomicU64::new(1),
+        cleanup_reports: CleanupReportSink::new(),
+    });
+
+    if !core.workers.start(&core) {
+        return NativeRuntimeStatus::RUNTIME_FAILURE;
+    }
+
+    NATIVE_RUNTIME.set(Some(Rc::new(NativeRuntime {
+        thread,
+        main_thread_lane,
+        cleanup_workloads: Cell::new(cleanup_workloads),
+        worker: None,
+        core,
         #[cfg(test)]
-        let test_isolation = test_runtime_isolation();
+        _test_isolation: test_isolation,
+    })));
 
-        let Ok(thread) = RuntimeThreadScope::enter_or_reuse() else {
-            return NativeRuntimeStatus::RUNTIME_FAILURE;
-        };
-
-        if main_thread_lane && !bray_platform::mark_current_runtime_thread_as_main() {
-            return NativeRuntimeStatus::RUNTIME_FAILURE;
-        }
-
-        let scheduler = Scheduler::new(
-            capabilities,
-            thread.runtime().id(),
-            SchedulerLimits::new(task_capacity, timer_capacity),
-        );
-
-        let core = Arc::new(NativeRuntimeCore {
-            scheduler,
-            workers: super::super::workers::WorkerPool::new(),
-            owners: AtomicUsize::new(1),
-            tasks: Mutex::new(BTreeMap::new()),
-            awaited: Mutex::new(BTreeMap::new()),
-            resolved_awaits: Mutex::new(BTreeMap::new()),
-            task_capacity,
-            next_task: AtomicU64::new(1),
-            cleanup_reports: CleanupReportSink::new(),
-        });
-
-        if !core.workers.start(&core) {
-            return NativeRuntimeStatus::RUNTIME_FAILURE;
-        }
-
-        runtime.replace(Some(Rc::new(NativeRuntime {
-            thread,
-            main_thread_lane,
-            cleanup_workloads: Cell::new(cleanup_workloads),
-            worker: None,
-            core,
-            #[cfg(test)]
-            _test_isolation: test_isolation,
-        })));
-
-        NativeRuntimeStatus::SUCCESS
-    })
+    NativeRuntimeStatus::SUCCESS
 }
 
 pub(in crate::native) fn with_runtime<T>(
     callback: impl FnOnce(&NativeRuntime) -> T,
 ) -> Result<T, NativeRuntimeStatus> {
-    let runtime = NATIVE_RUNTIME.with(|runtime| runtime.borrow().clone());
+    let runtime = NATIVE_RUNTIME.with_borrow(Clone::clone);
     let runtime = runtime.ok_or(NativeRuntimeStatus::NOT_INITIALIZED)?;
 
     Ok(callback(&runtime))
@@ -333,7 +328,7 @@ pub(in crate::native) fn shutdown() -> NativeRuntimeStatus {
 }
 
 pub(crate) fn retain_runtime() -> Result<RetainedRuntime, NativeRuntimeStatus> {
-    if let Some(runtime) = NATIVE_RUNTIME.with(|runtime| runtime.borrow().clone()) {
+    if let Some(runtime) = NATIVE_RUNTIME.with_borrow(Clone::clone) {
         if !runtime.core.retain_owner() {
             return Err(NativeRuntimeStatus::RUNTIME_FAILURE);
         }
@@ -397,9 +392,7 @@ pub(in crate::native) fn run_worker(
         _test_isolation: None,
     });
 
-    NATIVE_RUNTIME.with(|current| {
-        current.replace(Some(Rc::clone(&runtime)));
-    });
+    NATIVE_RUNTIME.set(Some(Rc::clone(&runtime)));
 
     let lane = ExecutionLane::new(ExecutionLanePlacement::Migratable, workload);
     let mut accounted_as_idle = workload == ExecutionWorkload::Blocking;

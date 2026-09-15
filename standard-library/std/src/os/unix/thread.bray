@@ -3,8 +3,6 @@ trusted internal module std.os.unix;
 
 struct PThreadAttribute;
 
-callable ThreadStartRoutine = @abi(c)
-func(pos context: RawPointer<u8>) -> RawPointer<u8>;
+callable ThreadStartRoutine = @abi(c) func(pos context: RawPointer<u8>) -> RawPointer<u8>;
 
-callable ThreadStorageDestructor = @abi(c)
-func(pos value: RawPointer<u8>);
+callable ThreadStorageDestructor = @abi(c) func(pos value: RawPointer<u8>);

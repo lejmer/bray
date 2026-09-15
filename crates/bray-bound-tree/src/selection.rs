@@ -11,8 +11,8 @@ pub use iteration::{
     SelectedIterationProtocolOperation, SelectedIterationSource, SelectedIterationTypes,
 };
 pub use operation::{
-    ConstructionDefaultProvider, ConstructionInputId, ConstructionTarget, ConversionTarget,
-    IndexTarget, MemberTarget, OperatorTarget, SelectedCompoundAssignment, SelectedConstruction,
+    ConstructionInputId, ConstructionTarget, ConversionTarget, DefaultValueProvider, IndexTarget,
+    MemberTarget, OperatorTarget, SelectedCompoundAssignment, SelectedConstruction,
     SelectedConstructionInput, SelectedConversion, SelectedOperation, SelectionKind,
 };
 pub use predicate::{SelectedPredicateApplication, SelectedPredicateArgument};

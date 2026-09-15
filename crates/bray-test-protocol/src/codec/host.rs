@@ -210,6 +210,8 @@ fn encode_outcome(encoder: &mut Encoder, outcome: &TestOutcome) -> Result<(), Te
                 TestPanicCause::Message => 0,
                 TestPanicCause::Assertion => 1,
                 TestPanicCause::ExplicitFailure => 2,
+                TestPanicCause::RuntimePanic => 3,
+                TestPanicCause::AllocationFailure => 4,
             });
 
             match report.source() {
@@ -278,6 +280,8 @@ fn decode_outcome(decoder: &mut Decoder<'_>) -> Result<TestOutcome, TestProtocol
                 0 => TestPanicCause::Message,
                 1 => TestPanicCause::Assertion,
                 2 => TestPanicCause::ExplicitFailure,
+                3 => TestPanicCause::RuntimePanic,
+                4 => TestPanicCause::AllocationFailure,
                 _ => return Err(TestProtocolError::Malformed),
             };
 
@@ -478,7 +482,7 @@ mod tests {
         CapturedStream, ExplicitTestFailure, TestCaptureLimits, TestCapturePolicy,
         TestCatalogDigest, TestCatalogEntryId, TestDuration, TestErrorTypeIdentity,
         TestHostCommand, TestHostCommandId, TestHostControl, TestHostResult, TestOutcome,
-        TestSourceAnchor, TestTimeoutPolicy,
+        TestPanicCause, TestPanicReport, TestSourceAnchor, TestTimeoutPolicy,
     };
     use bray_source::{SourceId, SourceSpan, SourceVersion, TextRange, TextSize};
 
@@ -528,6 +532,33 @@ mod tests {
             .unwrap_or_else(|error| panic!("test result must decode: {error:?}"));
 
         assert_eq!(decoded_result, result);
+    }
+
+    #[test]
+    fn panic_causes_survive_host_result_transport() {
+        for cause in [
+            TestPanicCause::Message,
+            TestPanicCause::Assertion,
+            TestPanicCause::ExplicitFailure,
+            TestPanicCause::RuntimePanic,
+            TestPanicCause::AllocationFailure,
+        ] {
+            let result = TestHostResult::after_cleanup(
+                TestHostCommandId::from_bytes([3; 32]),
+                TestCatalogDigest::from_bytes([4; 32]),
+                TestOutcome::Panicked(TestPanicReport::new(cause, None, "retained incident")),
+                CapturedStream::discarded(),
+                CapturedStream::discarded(),
+            );
+
+            let mut bytes = Vec::new();
+            super::write_host_result(&mut bytes, &result).expect("panic result must encode");
+
+            let decoded =
+                super::read_host_result(&mut Cursor::new(bytes)).expect("panic result must decode");
+
+            assert_eq!(decoded, result);
+        }
     }
 
     #[test]

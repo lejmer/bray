@@ -782,8 +782,8 @@ mod tests {
             SchedulerLimits::new(nonzero(8), nonzero(8)),
         );
 
-        let task = TaskControlBlock::start(TestFrame::completing(1))
-            .unwrap_or_else(|error| panic!("test task must start: {error:?}"));
+        let task =
+            TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(1));
 
         let registration = register_task(&scheduler, &task, runtime.runtime().id());
 
@@ -822,11 +822,11 @@ mod tests {
 
         let scheduler = scheduler(runtime.runtime().id());
 
-        let first_task = TaskControlBlock::start(TestFrame::completing(1))
-            .unwrap_or_else(|error| panic!("first task must start: {error:?}"));
+        let first_task =
+            TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(1));
 
-        let second_task = TaskControlBlock::start(TestFrame::completing(2))
-            .unwrap_or_else(|error| panic!("second task must start: {error:?}"));
+        let second_task =
+            TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(2));
 
         let first = register_task(&scheduler, &first_task, runtime.runtime().id());
 
@@ -868,11 +868,13 @@ mod tests {
 
         let scheduler = scheduler(runtime.runtime().id());
 
-        let yielding = TaskControlBlock::start(TestFrame::yielding_then_completing(1))
-            .unwrap_or_else(|error| panic!("yielding task must start: {error:?}"));
+        let yielding = TaskControlBlock::start(
+            crate::test_support::admit_task(),
+            TestFrame::yielding_then_completing(1),
+        );
 
-        let ready = TaskControlBlock::start(TestFrame::completing(2))
-            .unwrap_or_else(|error| panic!("ready task must start: {error:?}"));
+        let ready =
+            TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(2));
 
         let yielding_registration = register_task(&scheduler, &yielding, runtime.runtime().id());
         let ready_registration = register_task(&scheduler, &ready, runtime.runtime().id());
@@ -927,8 +929,8 @@ mod tests {
 
         let scheduler = scheduler(runtime.runtime().id());
 
-        let task = TaskControlBlock::start(TestFrame::completing(1))
-            .unwrap_or_else(|error| panic!("test task must start: {error:?}"));
+        let task =
+            TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(1));
 
         let registration = register_task(&scheduler, &task, runtime.runtime().id());
 
@@ -975,8 +977,10 @@ mod tests {
 
         let scheduler = scheduler(runtime.runtime().id());
 
-        let task = TaskControlBlock::start(TestFrame::suspending_then_completing(1))
-            .unwrap_or_else(|error| panic!("test task must start: {error:?}"));
+        let task = TaskControlBlock::start(
+            crate::test_support::admit_task(),
+            TestFrame::suspending_then_completing(1),
+        );
 
         let registration = register_task(&scheduler, &task, runtime.runtime().id());
 
@@ -1015,8 +1019,10 @@ mod tests {
 
         let scheduler = scheduler(runtime.runtime().id());
 
-        let task = TaskControlBlock::start(TestFrame::cancellation_aware())
-            .unwrap_or_else(|error| panic!("test task must start: {error:?}"));
+        let task = TaskControlBlock::start(
+            crate::test_support::admit_task(),
+            TestFrame::cancellation_aware(),
+        );
 
         let _registration = register_task(&scheduler, &task, runtime.runtime().id());
 
@@ -1037,8 +1043,8 @@ mod tests {
 
         let scheduler = scheduler(runtime.runtime().id());
 
-        let task = TaskControlBlock::start(TestFrame::completing(1))
-            .unwrap_or_else(|error| panic!("test task must start: {error:?}"));
+        let task =
+            TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(1));
 
         let registration = register_task(&scheduler, &task, runtime.runtime().id());
 
@@ -1071,8 +1077,10 @@ mod tests {
 
         let scheduler = scheduler(runtime.runtime().id());
 
-        let task = TaskControlBlock::start(TestFrame::suspending_then_completing(1))
-            .unwrap_or_else(|error| panic!("test task must start: {error:?}"));
+        let task = TaskControlBlock::start(
+            crate::test_support::admit_task(),
+            TestFrame::suspending_then_completing(1),
+        );
 
         let registration = register_task(&scheduler, &task, runtime.runtime().id());
 
@@ -1119,8 +1127,8 @@ mod tests {
 
         let scheduler = scheduler(runtime.runtime().id());
 
-        let task = TaskControlBlock::start(TestFrame::completing(1))
-            .unwrap_or_else(|error| panic!("test task must start: {error:?}"));
+        let task =
+            TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(1));
 
         let registration = register_task(&scheduler, &task, runtime.runtime().id());
 
@@ -1156,11 +1164,11 @@ mod tests {
             SchedulerLimits::new(nonzero(1), nonzero(1)),
         );
 
-        let first = TaskControlBlock::start(TestFrame::completing(1))
-            .unwrap_or_else(|error| panic!("first task must start: {error:?}"));
+        let first =
+            TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(1));
 
-        let second = TaskControlBlock::start(TestFrame::completing(2))
-            .unwrap_or_else(|error| panic!("second task must start: {error:?}"));
+        let second =
+            TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(2));
 
         let _registration = register_task(&scheduler, &first, runtime.runtime().id());
 
@@ -1194,8 +1202,8 @@ mod tests {
             SchedulerLimits::new(nonzero(1), nonzero(1)),
         );
 
-        let task = TaskControlBlock::start(TestFrame::completing(1))
-            .unwrap_or_else(|error| panic!("test task must start: {error:?}"));
+        let task =
+            TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(1));
 
         let registration = register_task(&scheduler, &task, runtime.runtime().id());
 

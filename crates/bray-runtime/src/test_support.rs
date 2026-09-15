@@ -16,6 +16,10 @@ use crate::{
     TaskControlBlock, TaskRegistration, current_task_execution_context,
 };
 
+pub(crate) fn admit_task() -> crate::TaskAdmission {
+    crate::TaskAdmission::new().expect("test task outgoing storage must be admitted")
+}
+
 pub(crate) fn register_task<T: 'static, F>(
     scheduler: &Scheduler,
     task: &TaskControlBlock<T, F>,
@@ -135,6 +139,13 @@ impl TestFrame {
             cleanup_panics: false,
             wake_on_suspension: false,
         }
+    }
+
+    pub(crate) fn failing_with_cleanup_panic() -> Self {
+        let mut frame = Self::sequence([FrameProgress::RuntimeFailure], 1);
+        frame.cleanup_panics = true;
+
+        frame
     }
 
     pub(crate) fn invalid_suspension() -> Self {

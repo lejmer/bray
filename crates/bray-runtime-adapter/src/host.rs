@@ -5,6 +5,12 @@ use bray_runtime_abi::{
 };
 
 native_adapter! {
+    pub extern "C" fn bray_runtime_substrate_static_outcome_reporting(outcome: &mut NativeRunOutcome) {
+        implementation::bray_runtime_substrate_static_outcome_reporting(outcome)
+    }
+}
+
+native_adapter! {
     pub extern "C" fn bray_runtime_substrate_initialization(
         worker_capacity: usize,
         timer_capacity: usize,
@@ -64,8 +70,8 @@ native_adapter! {
 }
 
 native_adapter! {
-    pub extern "C" fn bray_runtime_panic_propagation(payload: usize) -> ! {
-        implementation::bray_runtime_panic_propagation(payload)
+    pub extern "C" fn bray_runtime_panic_propagation(report: &mut bray_runtime_abi::NativePanicReport) -> ! {
+        implementation::bray_runtime_panic_propagation(report)
     }
 }
 
@@ -78,5 +84,47 @@ native_adapter! {
 native_adapter! {
     pub extern "C" fn bray_runtime_substrate_shutdown() -> NativeRuntimeStatus {
         implementation::bray_runtime_substrate_shutdown()
+    }
+}
+
+native_adapter! {
+    pub extern "C" fn bray_runtime_panic_reporting(report: &mut bray_runtime_abi::NativePanicReport) -> NativeRuntimeStatus {
+        implementation::bray_runtime_panic_reporting(report)
+    }
+}
+
+native_adapter! {
+    pub extern "C" fn bray_runtime_panic_report_destruction(report: &mut bray_runtime_abi::NativePanicReport) -> NativeRuntimeStatus {
+        implementation::bray_runtime_panic_report_destruction(report)
+    }
+}
+
+native_adapter! {
+    pub extern "C" fn bray_runtime_outgoing_admission(count: usize, outcome: &mut NativeRunOutcome) {
+        implementation::bray_runtime_outgoing_admission(count, outcome);
+    }
+}
+
+native_adapter! {
+    pub extern "C" fn bray_runtime_outgoing_discharge(count: usize) {
+        implementation::bray_runtime_outgoing_discharge(count);
+    }
+}
+
+native_adapter! {
+    pub extern "C" fn bray_runtime_outgoing_activation() -> usize {
+        implementation::bray_runtime_outgoing_activation()
+    }
+}
+
+native_adapter! {
+    pub extern "C" fn bray_runtime_outgoing_retirement(record: usize, outcome: &mut NativeRunOutcome) {
+        implementation::bray_runtime_outgoing_retirement(record, outcome);
+    }
+}
+
+native_adapter! {
+    pub extern "C" fn bray_runtime_panic_report_suppression(primary: &mut bray_runtime_abi::NativePanicReport, incident: &mut bray_runtime_abi::NativePanicReport) -> bray_runtime_abi::NativePanicReport {
+        implementation::bray_runtime_panic_report_suppression(primary, incident)
     }
 }

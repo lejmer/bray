@@ -466,6 +466,17 @@ where
     }
 
     fn source_operation_may_propagate_panic(&self, expression: BoundExpressionId) -> bool {
+        if self.checked_storage.is_some_and(|storage| {
+            bray_bound_tree::storage_expression_republishes_destructor_receiver(
+                self.request.unit(),
+                storage,
+                expression,
+            )
+            .is_some()
+        }) {
+            return true;
+        }
+
         match self
             .selections()
             .and_then(|selections| selections.expression(expression))

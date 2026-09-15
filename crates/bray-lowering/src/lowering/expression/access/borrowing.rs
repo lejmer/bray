@@ -63,10 +63,7 @@ impl Lowerer<'_> {
             }
         };
 
-        let result_type = self
-            .input
-            .semantic_values()
-            .intern_type(TypeData::Borrow { kind, target })?;
+        let result_type = receiver.input_type(self.input.semantic_values())?;
 
         let source = self.expression_source(receiver.expression())?;
 

@@ -99,7 +99,7 @@ pub(super) fn extract_value<'context>(
     }
 }
 
-pub(super) fn native_run_outcome<'context>(
+pub(crate) fn native_run_outcome<'context>(
     builder: &Builder<'context>,
     outcome: BasicValueEnum<'context>,
 ) -> Result<(IntValue<'context>, IntValue<'context>), CodegenFailure> {
@@ -117,11 +117,17 @@ pub(super) fn native_run_outcome_value<'context>(
     builder: &Builder<'context>,
     target: &bray_codegen::CodegenTarget,
     state: NativeRunState,
-    payload: IntValue<'context>,
+    payload: BasicValueEnum<'context>,
 ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
     let outcome = crate::native::run_outcome_type(context, target)
         .const_zero()
         .into();
+
+    let payload_index = if state == NativeRunState::PANICKED {
+        2
+    } else {
+        1
+    };
 
     let state = context
         .i32_type()
@@ -130,10 +136,10 @@ pub(super) fn native_run_outcome_value<'context>(
 
     let outcome = insert_value(builder, outcome, state, 0)?;
 
-    insert_value(builder, outcome, payload.into(), 1)
+    insert_value(builder, outcome, payload, payload_index)
 }
 
-pub(super) fn native_run_state_is<'context>(
+pub(crate) fn native_run_state_is<'context>(
     builder: &Builder<'context>,
     state: IntValue<'context>,
     expected: NativeRunState,

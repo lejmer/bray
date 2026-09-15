@@ -157,7 +157,9 @@ fn resolve_callback_outcome<'context>(
     trampoline: FunctionValue<'context>,
     outcome: BasicValueEnum<'context>,
 ) -> Result<(), CodegenFailure> {
-    let (state, payload) = native_run_outcome(builder, outcome)?;
+    let (state, _) = native_run_outcome(builder, outcome)?;
+
+    let payload = super::support::extract_value(builder, outcome, 2)?;
 
     let panicked = native_run_state_is(
         builder,
@@ -307,7 +309,7 @@ fn declare_callback<'context>(
         &builder,
         target,
         NativeRunState::COMPLETED,
-        state_handle,
+        state_handle.into(),
     )?;
 
     llvm(builder.build_store(outcome, completed))?;

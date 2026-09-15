@@ -144,6 +144,7 @@ pub struct CodegenStaticStorageMapping {
     defines_storage: bool,
     initial_value: ConstantValueId,
     relocations: Arc<[CodegenStaticRelocation]>,
+    outgoing_capacity: u32,
     finalization: Option<CodegenStaticFinalization>,
     destroy: Option<CodegenInstanceKey>,
 }
@@ -257,6 +258,7 @@ impl CodegenStaticStorageMapping {
         defines_storage: bool,
         initial_value: ConstantValueId,
         relocations: impl IntoIterator<Item = CodegenStaticRelocation>,
+        outgoing_capacity: u32,
         finalization: Option<CodegenStaticFinalization>,
         destroy: Option<CodegenInstanceKey>,
     ) -> Self {
@@ -270,9 +272,15 @@ impl CodegenStaticStorageMapping {
             defines_storage,
             initial_value,
             relocations: bray_base::shared_slice(relocations),
+            outgoing_capacity,
             finalization,
             destroy,
         }
+    }
+
+    /// Returns the outgoing record allowance for every owner in the static initializer.
+    pub const fn outgoing_capacity(&self) -> u32 {
+        self.outgoing_capacity
     }
 
     /// Returns the concrete MIR instance containing the use.

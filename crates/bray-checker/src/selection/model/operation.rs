@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bray_base::shared_slice;
 use bray_bound_tree::{
-    BoundExpressionId, ConstructionDefaultProvider, ConstructionInputId, ConstructionTarget,
+    BoundExpressionId, ConstructionInputId, ConstructionTarget, DefaultValueProvider,
     SelectedOperation, SelectionKind,
 };
 use bray_compiler_known::CompilerKnownOperationRole;
@@ -31,7 +31,7 @@ pub struct ConstructionInputSurface {
     name: SymbolName,
     position: CallablePosition,
     ty: TypeId,
-    default: Option<ConstructionDefaultProvider>,
+    default: Option<DefaultValueProvider>,
     ordinal: u32,
 }
 
@@ -88,7 +88,7 @@ impl ConstructionInputSurface {
         name: SymbolName,
         position: CallablePosition,
         ty: TypeId,
-        default: Option<ConstructionDefaultProvider>,
+        default: Option<DefaultValueProvider>,
         ordinal: u32,
     ) -> Self {
         Self {
@@ -122,7 +122,7 @@ impl ConstructionInputSurface {
     }
 
     /// Returns the declaration-owned default provider when omission is permitted.
-    pub const fn default(&self) -> Option<ConstructionDefaultProvider> {
+    pub const fn default(&self) -> Option<DefaultValueProvider> {
         self.default
     }
 

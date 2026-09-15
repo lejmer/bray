@@ -98,13 +98,26 @@ extern trusted internal func execute_native_thread(
     pos context: usize,
     pos cancellation: RawPointer<u8>,
     pos cancellation_context: usize,
-    pos panic_payload: RawPointer<usize>,
+    pos panic_report: RawPointer<PanicReport>,
 ) -> u32;
 
 extern internal func current_native_thread_identity() -> u64;
 
 extern internal func main_native_thread_identity() -> u64;
 
-extern trusted internal func recover_native_thread_panic_report(pos payload: usize) -> PanicReport;
-
 extern trusted internal func report_native_thread_panic(pos report: PanicReport) -> u32;
+
+trusted internal func thread_report_destination<T>(pos pointer: RawPointer<ThreadStorage<T>>) -> RawPointer<PanicReport>
+{
+    let storage: &mut ThreadStorage<T> = trusted internal transferred_value<ThreadStorage<T>>(pointer);
+    let destination: RawPointer<PanicReport> = std.memory.uninit_pointer_mut<PanicReport>(&mut storage.report);
+
+    // The native destination starts unpublished, with no message or outgoing ownership.
+    trusted internal std.memory.byte_buffer_fill(
+        trusted std.memory.reinterpret<u8, PanicReport>(destination),
+        value = 0,
+        count = std.memory.size_of<PanicReport>(),
+    );
+
+    return destination;
+}

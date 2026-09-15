@@ -1,5 +1,3 @@
-// rust-style: allow(module-too-large, reason = "native ABI symbols and wire records form one flat contract catalog")
-
 /// Stable symbol observing one successful generated memory allocation.
 pub const MEMORY_ALLOCATION_OBSERVATION_SYMBOL: &str = "bray_runtime_memory_allocation_observation";
 
@@ -111,103 +109,11 @@ impl NativeRunState {
 
 /// ABI-safe terminal record for a compiler-generated root callback.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Debug)]
 pub struct NativeRunOutcome {
     state: NativeRunState,
     payload: usize,
-}
-
-/// Structured cause retained by one native panic report.
-#[repr(transparent)]
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct NativePanicCause(u32);
-
-impl NativePanicCause {
-    /// An explicit language `panic` expression.
-    pub const MESSAGE: Self = Self(0);
-    /// A failed built-in assertion.
-    pub const ASSERTION: Self = Self(1);
-    /// An explicit failure produced by `std.testing.fail`.
-    pub const EXPLICIT_TEST_FAILURE: Self = Self(2);
-
-    /// Returns whether this cause is defined by the current native ABI.
-    pub const fn is_known(&self) -> bool {
-        matches!(self.0, 0..=2)
-    }
-
-    /// Returns the stable native ABI code.
-    pub const fn code(self) -> u32 {
-        self.0
-    }
-}
-
-/// Exact source occurrence retained by a native panic report.
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct NativeSourceAnchor {
-    present: u32,
-    source: u32,
-    start: u32,
-    end: u32,
-    version: u64,
-}
-
-impl NativeSourceAnchor {
-    /// Creates one source anchor from its stable scalar ABI fields.
-    pub const fn new(source: u32, start: u32, end: u32, version: u64) -> Self {
-        Self {
-            present: 1,
-            source,
-            start,
-            end,
-            version,
-        }
-    }
-
-    /// Creates an anchor for generated or imported code without local source coordinates.
-    pub const fn unavailable() -> Self {
-        Self {
-            present: 0,
-            source: 0,
-            start: 0,
-            end: 0,
-            version: 0,
-        }
-    }
-
-    /// Returns whether this anchor carries local source coordinates.
-    pub const fn is_available(self) -> bool {
-        self.present == 1
-    }
-
-    /// Returns the source snapshot identity.
-    pub const fn source(self) -> u32 {
-        self.source
-    }
-
-    /// Returns the inclusive UTF-8 byte start offset.
-    pub const fn start(self) -> u32 {
-        self.start
-    }
-
-    /// Returns the exclusive UTF-8 byte end offset.
-    pub const fn end(self) -> u32 {
-        self.end
-    }
-
-    /// Returns the logical source revision.
-    pub const fn version(self) -> u64 {
-        self.version
-    }
-
-    /// Returns whether the half-open source range is ordered.
-    pub const fn is_valid(&self) -> bool {
-        match self.present {
-            0 => self.source == 0 && self.start == 0 && self.end == 0 && self.version == 0,
-            1 => self.start <= self.end,
-            _ => false,
-        }
-    }
+    report: crate::NativePanicReport,
 }
 
 /// Borrowed UTF-8 message accepted by the panic-report construction ABI.
@@ -235,63 +141,15 @@ impl NativeStringView {
     }
 }
 
-/// Callback invoking one synchronous source root and writing its explicit terminal outcome.
+/// Callback invoking one synchronous source root with an initially completed outcome.
+/// The callback publishes cancellation or panic when execution does not complete normally.
 pub type NativeSynchronousRootCallback =
-    extern "C" fn(destination: usize, outcome: &mut NativeRunOutcome);
+    extern "C-unwind" fn(destination: usize, outcome: &mut NativeRunOutcome);
 
-/// Outcome returned through the hidden context of one synchronous Bray callback.
-#[repr(transparent)]
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct NativeBrayCallOutcome(usize);
-
-impl NativeBrayCallOutcome {
-    /// Creates the value representing normal completion.
-    pub const fn completed() -> Self {
-        Self(0)
-    }
-
-    /// Creates the value representing propagated cancellation.
-    pub const fn cancelled() -> Self {
-        Self(1)
-    }
-
-    /// Creates the value representing one owned panic report.
-    pub const fn panicked(report: usize) -> Option<Self> {
-        if report <= Self::cancelled().raw() {
-            return None;
-        }
-
-        Some(Self(report))
-    }
-
-    /// Returns whether the call completed normally.
-    pub const fn is_completed(self) -> bool {
-        self.0 == Self::completed().raw()
-    }
-
-    /// Returns whether the call propagated cancellation.
-    pub const fn is_cancelled(self) -> bool {
-        self.0 == Self::cancelled().raw()
-    }
-
-    /// Returns the owned panic report when the call panicked.
-    pub const fn panic_report(self) -> Option<usize> {
-        if self.0 <= Self::cancelled().raw() {
-            return None;
-        }
-
-        Some(self.0)
-    }
-
-    /// Returns the target-sized ABI value.
-    pub const fn raw(self) -> usize {
-        self.0
-    }
-}
-
-/// Callback invoking one synchronous Bray operation on a native thread.
+/// Callback invoking one synchronous Bray operation with an initially completed outcome.
+/// Successful source calls may leave this caller-owned failure header untouched.
 pub type NativeThreadOperationCallback =
-    extern "C" fn(context: usize, outcome: &mut NativeBrayCallOutcome);
+    extern "C-unwind" fn(context: usize, outcome: &mut NativeRunOutcome);
 
 /// Callback observing cancellation for one Bray-owned native thread.
 pub type NativeThreadCancellationCallback = extern "C" fn(context: usize) -> u32;
@@ -351,19 +209,33 @@ impl NativeRootStart {
 }
 
 impl NativeRunOutcome {
-    /// Creates one terminal record from its state and compiler-owned payload handle.
+    /// Creates a non-panic result. Panic ownership is published with `panicked`.
     pub const fn new(state: NativeRunState, payload: usize) -> Self {
-        Self { state, payload }
+        Self {
+            state,
+            payload,
+            report: crate::NativePanicReport::empty(),
+        }
     }
-
-    /// Returns the terminal run state.
-    pub const fn state(self) -> NativeRunState {
+    /// Transfers the report before publishing its terminal tag.
+    pub const fn panicked(report: crate::NativePanicReport) -> Self {
+        Self {
+            state: NativeRunState::PANICKED,
+            payload: 0,
+            report,
+        }
+    }
+    /// Returns the terminal state.
+    pub const fn state(&self) -> NativeRunState {
         self.state
     }
-
-    /// Returns the opaque compiler-owned terminal payload handle.
-    pub const fn payload(self) -> usize {
+    /// Returns the completion address or runtime failure code.
+    pub const fn payload(&self) -> usize {
         self.payload
+    }
+    /// Moves report ownership out of this terminal destination.
+    pub fn take_report(&mut self) -> crate::NativePanicReport {
+        std::mem::replace(&mut self.report, crate::NativePanicReport::empty())
     }
 }
 
@@ -531,11 +403,12 @@ impl NativeFrameProgressKind {
 
 /// ABI-safe result of entering one generated protected frame.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Debug)]
 pub struct NativeFrameProgress {
     kind: NativeFrameProgressKind,
     state: u32,
     payload: usize,
+    report: crate::NativePanicReport,
 }
 
 impl NativeFrameProgress {
@@ -545,21 +418,36 @@ impl NativeFrameProgress {
             kind,
             state,
             payload,
+            report: crate::NativePanicReport::empty(),
         }
     }
 
+    /// Publishes an owned report in the caller's progress destination.
+    pub const fn panicked(report: crate::NativePanicReport) -> Self {
+        Self {
+            kind: NativeFrameProgressKind::PANICKED,
+            state: 0,
+            payload: 0,
+            report,
+        }
+    }
+    /// Takes the report published by the frame.
+    pub fn take_report(&mut self) -> crate::NativePanicReport {
+        std::mem::replace(&mut self.report, crate::NativePanicReport::empty())
+    }
+
     /// Returns the progress category.
-    pub const fn kind(self) -> NativeFrameProgressKind {
+    pub const fn kind(&self) -> NativeFrameProgressKind {
         self.kind
     }
 
     /// Returns the suspended state ordinal.
-    pub const fn state(self) -> u32 {
+    pub const fn state(&self) -> u32 {
         self.state
     }
 
     /// Returns the compiler-owned completion or panic payload handle.
-    pub const fn payload(self) -> usize {
+    pub const fn payload(&self) -> usize {
         self.payload
     }
 }
@@ -584,11 +472,12 @@ impl NativeFrameExit {
 pub type NativeFrameStateCallback = extern "C" fn(context: usize, state: u32) -> NativeFrameState;
 
 /// Callback entering or resuming one compiler-generated frame.
-pub type NativeFrameResumeCallback = extern "C-unwind" fn(context: usize) -> NativeFrameProgress;
+pub type NativeFrameResumeCallback =
+    extern "C-unwind" fn(destination: &mut NativeFrameProgress, context: usize);
 
 /// Callback entering generated cancellation cleanup for one frame.
 pub type NativeFrameCancellationCallback =
-    extern "C-unwind" fn(context: usize) -> NativeFrameProgress;
+    extern "C-unwind" fn(destination: &mut NativeFrameProgress, context: usize);
 
 /// Callback performing one infallible generated frame action.
 pub type NativeFrameActionCallback = extern "C-unwind" fn(context: usize);
@@ -601,7 +490,11 @@ pub type NativeFrameCompletionMoveCallback =
 pub type NativeFrameMoveBeforeStartCallback = extern "C" fn(context: usize) -> NativeProtectedFrame;
 
 /// Callback resolving generated frame lifecycle state for one terminal exit.
-pub type NativeFrameResolveCallback = extern "C-unwind" fn(context: usize, exit: NativeFrameExit);
+pub type NativeFrameResolveCallback = extern "C-unwind" fn(
+    destination: &mut NativeFrameProgress,
+    context: usize,
+    exit: NativeFrameExit,
+);
 
 /// Complete ABI-safe adapter for one compiler-generated protected frame.
 #[repr(C)]
@@ -847,11 +740,12 @@ mod tests {
     use super::{
         NativeExecutionLane, NativeExecutionLaneResult, NativeFrameAffinity, NativeFrameExit,
         NativeFrameProgress, NativeFrameProgressKind, NativeFrameState, NativeInactiveFrame,
-        NativeLaneRequirements, NativePanicCause, NativeProtectedFrame,
-        NativeProtectedFrameTransfer, NativeRootHandle, NativeRootStart, NativeRunOutcome,
-        NativeRunState, NativeRuntimeConfiguration, NativeRuntimeStatus, NativeSourceAnchor,
-        NativeStringView, NativeTaskAllocation, NativeTaskHandle,
+        NativeLaneRequirements, NativeProtectedFrame, NativeProtectedFrameTransfer,
+        NativeRootHandle, NativeRootStart, NativeRunOutcome, NativeRunState,
+        NativeRuntimeConfiguration, NativeRuntimeStatus, NativeStringView, NativeTaskAllocation,
+        NativeTaskHandle,
     };
+    use crate::NativePanicCause;
 
     #[test]
     fn scalar_runtime_values_have_the_native_abi_layout() {
@@ -875,17 +769,10 @@ mod tests {
             timer_capacity: 8,
         });
 
-        assert_abi_layout!(NativeRunOutcome, size: 16, align: 8, fields: {
+        assert_abi_layout!(NativeRunOutcome, size: 120, align: 8, fields: {
             state: 0,
             payload: 8,
-        });
-
-        assert_abi_layout!(NativeSourceAnchor, size: 24, align: 8, fields: {
-            present: 0,
-            source: 4,
-            start: 8,
-            end: 12,
-            version: 16,
+            report: 16,
         });
 
         assert_abi_layout!(NativeStringView, size: 16, align: 8, fields: {
@@ -908,10 +795,11 @@ mod tests {
             lane_requirements: 4,
         });
 
-        assert_abi_layout!(NativeFrameProgress, size: 16, align: 8, fields: {
+        assert_abi_layout!(NativeFrameProgress, size: 120, align: 8, fields: {
             kind: 0,
             state: 4,
             payload: 8,
+            report: 16,
         });
 
         assert_abi_layout!(NativeInactiveFrame, size: 16, align: 8, fields: {

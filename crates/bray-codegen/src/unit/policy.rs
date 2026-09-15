@@ -280,7 +280,9 @@ const fn operation_weight(operation: &MirOperationKind) -> u64 {
         | MirOperationKind::Generator(_)
         | MirOperationKind::Finalize(_)
         | MirOperationKind::Destroy(_) => 2,
-        MirOperationKind::Call(_)
+        MirOperationKind::AdmitOutgoing { .. }
+        | MirOperationKind::DischargeOutgoing { .. }
+        | MirOperationKind::Call(_)
         | MirOperationKind::Memory(_)
         | MirOperationKind::Text(_)
         | MirOperationKind::PanicReport(_)

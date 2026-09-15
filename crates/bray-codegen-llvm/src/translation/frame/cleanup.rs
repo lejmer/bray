@@ -82,7 +82,7 @@ fn translate_failure_cleanup<'context>(
     builder.position_at_end(block);
 
     let exit = resolve
-        .get_nth_param(1)
+        .get_nth_param(2)
         .and_then(|value| match value {
             BasicValueEnum::IntValue(value) => Some(value),
             _ => None,
@@ -108,14 +108,14 @@ fn translate_failure_cleanup<'context>(
         frame_operation_function(module, request, instance, ProtectedFrameOperation::Resume)?;
 
     let context = resolve
-        .get_first_param()
+        .get_nth_param(1)
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
     let frame = instance
         .protected_frame_identity()
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-    crate::native::invoke_function(
+    let outcome = crate::native::invoke_function(
         types.context(),
         &builder,
         request.target(),
@@ -126,7 +126,20 @@ fn translate_failure_cleanup<'context>(
         resume,
         &[context.into()],
         "frame.failure.cleanup",
-    )?;
+    )?
+    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+    let destination = resolve
+        .get_first_param()
+        .and_then(|value| match value {
+            BasicValueEnum::PointerValue(value) => Some(value),
+            _ => None,
+        })
+        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+    builder
+        .build_store(destination, outcome)
+        .map_err(CodegenFailure::backend_library)?;
 
     builder
         .build_unconditional_branch(done)

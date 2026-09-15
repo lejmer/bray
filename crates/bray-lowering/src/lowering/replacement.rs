@@ -25,7 +25,25 @@ impl Lowerer<'_> {
             .ok_or(LoweringError::MissingSemanticSelection(expression))?;
 
         let AsyncStorageCleanupRequirement::Cleanup(phases) = plan.cleanup() else {
+            let ty = destination.ty();
             self.install_replacement(block, source, destination, value)?;
+            let storage = self.input.storage_plan();
+
+            if storage.resolved_projections(plan.access()) == Some(&[])
+                && storage
+                    .root_identity(plan.access())
+                    .is_some_and(|identity| {
+                        bray_bound_tree::storage_identity_is_destructor_receiver(
+                            self.input.unit(),
+                            storage,
+                            identity,
+                        )
+                    })
+            {
+                // Reinitializing an already moved receiver does not start another destructor.
+                // Its executing destructor retains the original allowance until it returns.
+                self.discharge_outgoing_owner(block, source, ty)?;
+            }
 
             return Ok(block);
         };

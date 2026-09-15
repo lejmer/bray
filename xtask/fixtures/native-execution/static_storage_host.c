@@ -13,15 +13,15 @@ typedef void *native_library;
 #endif
 
 typedef uintptr_t (*static_access)(void);
-typedef void (*static_cleanup)(void);
+typedef void (*static_cleanup)(void *outcome);
 typedef void (*static_transition)(void);
-typedef uint32_t (*static_finalizer_start)(uintptr_t destination);
-typedef uint32_t (*static_finalizer_resolve)(uintptr_t completion, uintptr_t incident);
+typedef uint32_t (*static_finalizer_start)(uintptr_t destination, void *outcome);
+typedef uint32_t (*static_finalizer_resolve)(uintptr_t completion, uintptr_t incident, void *outcome);
 
 typedef struct
 {
     uint32_t execution;
-    uint32_t reserved;
+    uint32_t outgoing_capacity;
     size_t result_size;
     size_t result_alignment;
     static_finalizer_start start;

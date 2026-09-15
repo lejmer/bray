@@ -425,6 +425,8 @@ pub enum CodegenTypeKind {
 /// Semantic behavior attached to one protected physical representation.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum CodegenTypeBehavior {
+    /// An owning panic header shared with the native runtime ABI.
+    PanicReport,
     /// Immutable UTF-8 text with shared owned storage.
     String,
     /// A C-layout product with one flexible trailing element sequence.

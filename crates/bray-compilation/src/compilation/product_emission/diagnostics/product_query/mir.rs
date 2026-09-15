@@ -32,10 +32,7 @@ pub(super) fn push_mir_helper(
                 &reference.instance(),
             ));
         }
-        Helper::CallableDefault(provider) => {
-            fields.push(identity_field("helper_default_provider", provider));
-        }
-        Helper::ConstructionDefault(provider) => {
+        Helper::DefaultValue(provider) => {
             push_symbol(
                 fields,
                 "helper_default_provider_kind",
@@ -87,6 +84,7 @@ pub(super) fn push_mir_call_target(
         "call_target_kind",
         match target {
             Target::Direct(_) => "direct",
+            Target::DefaultValue { .. } => "default_value",
             Target::Runtime(_) => "runtime",
             Target::Indirect { .. } => "indirect",
         },
@@ -100,6 +98,12 @@ pub(super) fn push_mir_call_target(
                 "call_target_callable_instance",
                 &reference.instance(),
             ));
+        }
+        Target::DefaultValue { owner, provider } => {
+            fields.extend([
+                identity_field("default_owner", owner),
+                identity_field("default_provider", provider),
+            ]);
         }
         Target::Runtime(reference) => {
             let version = reference.abi_version();
@@ -175,14 +179,15 @@ fn push_mir_frame_reference(
     }
 }
 
-const fn mir_helper_kind(helper: &bray_ir::MirHelperReference) -> &'static str {
+pub(in crate::compilation) const fn mir_helper_kind(
+    helper: &bray_ir::MirHelperReference,
+) -> &'static str {
     use bray_ir::MirHelperReference as Helper;
 
     match helper {
         Helper::AnonymousCallable(_) => "anonymous_callable",
         Helper::DeclaredCallable(_) => "declared_callable",
-        Helper::CallableDefault(_) => "callable_default",
-        Helper::ConstructionDefault(_) => "construction_default",
+        Helper::DefaultValue(_) => "default_value",
         Helper::TypeForm(_) => "type_form",
         Helper::Conversion(_) => "conversion",
         Helper::BeginGenerator => "begin_generator",

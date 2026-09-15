@@ -31,6 +31,12 @@ pub(super) struct ProductStatic {
     pub(super) detach: NativeStaticTransitionCallback,
 }
 
+pub(super) struct ProductCleanup {
+    pub(super) admission: super::super::cleanup::StaticAdmission,
+    pub(super) entry: ProductStatic,
+    pub(super) incidents: [Option<crate::incident::OwnedCleanupIncident>; 8],
+}
+
 pub(super) struct ProductHost {
     pub(super) identity: NativeProductIdentity,
     pub(super) runtime: crate::native::RetainedRuntime,
@@ -46,6 +52,7 @@ pub(super) struct ProductHost {
     pub(super) cleanup_running: bool,
     pub(super) cleanup_blocked: bool,
     pub(super) statics: Vec<ProductStatic>,
+    pub(super) cleanups: Vec<ProductCleanup>,
 }
 
 impl ProductHost {
@@ -70,30 +77,23 @@ impl ProductHost {
         self.active_entries == 0 && self.external_roots == 0 && self.thread_attachments == 0
     }
 
-    pub(super) fn product_cleanups(&self) -> Vec<ProductStatic> {
-        self.statics
-            .iter()
-            .copied()
-            .filter(|entry| entry.duration == NativeStaticDuration::PRODUCT)
-            .collect()
+    pub(super) fn product_cleanups(&mut self) -> Vec<ProductCleanup> {
+        std::mem::take(&mut self.cleanups)
     }
 
-    pub(super) fn static_entry(&self, identity: NativeStaticIdentity) -> Option<ProductStatic> {
-        self.statics
-            .iter()
-            .copied()
-            .find(|entry| entry.identity == identity)
+    pub(super) fn static_entry(&self, identity: NativeStaticIdentity) -> Option<&ProductStatic> {
+        self.statics.iter().find(|entry| entry.identity == identity)
     }
 }
 
 pub(super) struct PendingCleanup {
     pub(super) product: usize,
     pub(super) runtime: crate::native::RetainedRuntime,
-    pub(super) statics: Vec<ProductStatic>,
+    pub(super) statics: Vec<ProductCleanup>,
 }
 
-#[derive(Clone, Copy)]
 pub(super) struct ThreadStaticEntry {
+    pub(super) admission: super::super::cleanup::StaticAdmission,
     pub(super) product: usize,
     pub(super) product_identity: NativeProductIdentity,
     pub(super) static_identity: NativeStaticIdentity,

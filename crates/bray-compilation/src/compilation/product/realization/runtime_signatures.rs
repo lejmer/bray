@@ -80,13 +80,7 @@ impl Compilation {
             false,
         );
 
-        Ok(
-            if matches!(reference, MirHelperReference::StaticFinalize(_)) {
-                signature
-            } else {
-                signature.with_panic_report_context()
-            },
-        )
+        Ok(signature.with_panic_report_context())
     }
 }
 

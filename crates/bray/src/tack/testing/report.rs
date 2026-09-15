@@ -605,6 +605,8 @@ const fn panic_cause(cause: TestPanicCause) -> &'static str {
         TestPanicCause::Message => "message",
         TestPanicCause::Assertion => "assertion",
         TestPanicCause::ExplicitFailure => "explicit_failure",
+        TestPanicCause::RuntimePanic => "runtime_panic",
+        TestPanicCause::AllocationFailure => "allocation_failure",
     }
 }
 

@@ -11,13 +11,22 @@ internal callable StaticTransitionCallback = @abi(c)
 trusted func();
 
 internal callable StaticFinalizerStartCallback = @abi(c)
-trusted func(pos destination: usize) -> u32;
+trusted func(pos destination: usize, pos outcome: RawPointer<RunOutcome>) -> u32;
+
+internal callable StaticCleanupCallback = @abi(c)
+trusted func(pos outcome: RawPointer<RunOutcome>);
 
 internal callable CleanupIncidentReportCallback = @abi(c)
 trusted func(pos payload: usize) -> u32;
 
 internal callable CleanupIncidentDestroyCallback = @abi(c)
-trusted func(pos payload: usize);
+trusted func(pos payload: usize, pos destruction: RawPointer<RunOutcome>, pos release: RawPointer<RunOutcome>);
+
+@link(name = "bray_runtime_host", kind = system)
+@symbol(name = "bray_runtime_substrate_static_outcome_reporting")
+@abi(c)
+extern trusted internal func consume_static_outcome(pos outcome: RawPointer<RunOutcome>)
+    uses(foreign_call);
 
 @copy
 @layout(c)
@@ -46,7 +55,7 @@ internal struct CleanupIncident
 internal struct StaticFinalizer
 {
     execution: u32;
-    reserved: u32;
+    outgoing_capacity: u32;
     result_size: usize;
     result_alignment: usize;
     start: RawPointer<u8>;
@@ -75,6 +84,10 @@ internal struct CleanupRecord
     destroy: RawPointer<u8>;
     detach: RawPointer<u8>;
 }
+
+@abi(c)
+extern trusted internal func outgoing_admission(pos count: usize, pos outcome: RawPointer<RunOutcome>)
+    uses(foreign_call);
 
 @link(name = "bray_runtime_host", kind = system)
 @symbol(name = "bray_runtime_substrate_thread_static_cleanup_registration")
@@ -196,7 +209,6 @@ trusted internal func register_thread_cleanup(pos registration: RawPointer<u8>) 
     if std.memory.is_null<u8>(registration_value.prepare)
         || std.memory.is_null<u8>(registration_value.destroy)
         || std.memory.is_null<u8>(registration_value.detach)
-        || registration_value.finalizer.reserved != 0
         || registration_value.finalizer.execution > FINALIZER_SYNCHRONOUS
         || registration_value.finalizer.execution == FINALIZER_NONE
             && (registration_value.finalizer.result_size != 0 || registration_value.finalizer.result_alignment != 1)
@@ -218,6 +230,15 @@ trusted internal func register_thread_cleanup(pos registration: RawPointer<u8>) 
 
     if std.memory.is_null<u8>(allocation)
     {
+        return STATUS_RUNTIME_FAILURE;
+    }
+
+    let mut admission: RunOutcome = { state = RUN_COMPLETED, payload = 0, report = empty_panic_report() };
+    trusted outgoing_admission(registration_value.finalizer.outgoing_capacity as usize, std.memory.address_of_mut<RunOutcome>(&mut admission));
+
+    if admission.state != RUN_COMPLETED
+    {
+        trusted internal bray.runtime.bootstrap.heap.deallocate_bytes(allocation, bytes = bytes, align = std.memory.align_of<CleanupRecord>());
         return STATUS_RUNTIME_FAILURE;
     }
 
@@ -269,7 +290,7 @@ trusted internal func invoke_static_transition(pos pointer: RawPointer<u8>)
 }
 
 trusted internal func run_static_finalizer(pos finalizer: StaticFinalizer)
-    uses(intrinsic, layout_reinterpret)
+    uses(intrinsic, layout_reinterpret, foreign_call)
 {
     if finalizer.execution == FINALIZER_NONE
     {
@@ -288,9 +309,12 @@ trusted internal func run_static_finalizer(pos finalizer: StaticFinalizer)
         u8,
     >(finalizer.start);
     let start: StaticFinalizerStartCallback = trusted std.memory.callable_from_pointer(start_pointer);
+    let mut outcome: RunOutcome = { state = RUN_COMPLETED, payload = 0, report = empty_panic_report() };
     let status: u32 = trusted start(
-        trusted core.target.expose_address<CleanupIncident>(std.memory.address_of_mut<CleanupIncident>(&mut incident))
+        trusted core.target.expose_address<CleanupIncident>(std.memory.address_of_mut<CleanupIncident>(&mut incident)),
+        std.memory.address_of_mut(&mut outcome),
     );
+    trusted consume_static_outcome(std.memory.address_of_mut(&mut outcome));
 
     if status == STATUS_SUCCESS
     {
@@ -326,5 +350,19 @@ trusted internal func run_static_finalizer(pos finalizer: StaticFinalizer)
     >(incident.destroy);
     let destroy: CleanupIncidentDestroyCallback = trusted std.memory.callable_from_pointer(destroy_pointer);
 
-    trusted destroy(incident.payload);
+    let mut destruction: RunOutcome = { state = RUN_COMPLETED, payload = 0, report = empty_panic_report() };
+    let mut release: RunOutcome = { state = RUN_COMPLETED, payload = 0, report = empty_panic_report() };
+    trusted destroy(incident.payload, std.memory.address_of_mut(&mut destruction), std.memory.address_of_mut(&mut release));
+    trusted consume_static_outcome(std.memory.address_of_mut(&mut destruction));
+    trusted consume_static_outcome(std.memory.address_of_mut(&mut release));
+}
+
+trusted internal func invoke_static_cleanup(pos pointer: RawPointer<u8>)
+    uses(layout_reinterpret, foreign_call)
+{
+    let callback_pointer: RawPointer<StaticCleanupCallback> = trusted std.memory.reinterpret<StaticCleanupCallback, u8>(pointer);
+    let callback: StaticCleanupCallback = trusted std.memory.callable_from_pointer(callback_pointer);
+    let mut outcome: RunOutcome = { state = RUN_COMPLETED, payload = 0, report = empty_panic_report() };
+    trusted callback(std.memory.address_of_mut(&mut outcome));
+    trusted consume_static_outcome(std.memory.address_of_mut(&mut outcome));
 }

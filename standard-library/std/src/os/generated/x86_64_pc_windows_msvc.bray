@@ -224,17 +224,13 @@ struct LargeIntegerParts
 
 struct SecurityAttributes;
 
-callable BeginThreadRoutine = @abi(system)
-func(pos context: RawPointer<u8>) -> u32;
+callable BeginThreadRoutine = @abi(system) func(pos context: RawPointer<u8>) -> u32;
 
-callable ThreadStartRoutine = @abi(system)
-func(pos context: RawPointer<u8>) -> u32;
+callable ThreadStartRoutine = @abi(system) func(pos context: RawPointer<u8>) -> u32;
 
-callable ThreadStorageDestructor = @abi(system)
-func(pos value: RawPointer<u8>) -> unit;
+callable ThreadStorageDestructor = @abi(system) func(pos value: RawPointer<u8>) -> unit;
 
-callable TickCountRoutine = @abi(system)
-func() -> u64;
+callable TickCountRoutine = @abi(system) func() -> u64;
 
 // Error state: returns an NTSTATUS value.
 // Initialization: success initializes the requested destination bytes.

@@ -522,8 +522,7 @@ pub(super) fn direct_helper_symbol(
         },
         MirHelperReference::AnonymousCallable(_)
         | MirHelperReference::DeclaredCallable(_)
-        | MirHelperReference::CallableDefault(_)
-        | MirHelperReference::ConstructionDefault(_)
+        | MirHelperReference::DefaultValue(_)
         | MirHelperReference::TypeForm(_)
         | MirHelperReference::Conversion(_)
         | MirHelperReference::BeginGenerator
@@ -1482,9 +1481,13 @@ mod tests {
             80,
         );
 
-        let [operation] = generated.operations() else {
-            panic!("generator destruction must contain one represented operation");
+        let [operation, discharge] = generated.operations() else {
+            panic!("generator destruction must destroy its representation and discharge its owner");
         };
+
+        assert!(
+            matches!(discharge.kind(), MirOperationKind::DischargeOutgoing { ty, .. } if *ty == generator)
+        );
 
         let MirOperationKind::Generator(MirGeneratorOperation::Destroy {
             element: operation_element,
@@ -1956,6 +1959,21 @@ mod tests {
                 _ => false,
             }
         }));
+
+        let broadcast = generated_lifecycle(
+            &compilation,
+            &target,
+            MirHelperReference::Cleanup {
+                phase: MirCleanupPhase::TaskCancellation,
+                ty: owned,
+            },
+            83,
+        );
+
+        assert!(broadcast.blocks().iter().any(|block| {
+            matches!(block.terminator().kind(), MirTerminatorKind::ContinueCleanup(edge)
+                if !edge.edge().arguments().is_empty())
+        }), "storage borrow panic must transfer its report out of cleanup broadcast");
     }
 
     #[test]

@@ -141,6 +141,7 @@ pub struct CodegenOperationMapping {
     owner: CodegenInstanceKey,
     operation: MirOperationId,
     helpers: Arc<[CodegenHelperMapping]>,
+    outgoing_capacity: Option<u32>,
 }
 
 /// Extra realization inputs required by one MIR terminator.
@@ -192,7 +193,20 @@ impl CodegenOperationMapping {
             owner,
             operation,
             helpers: shared_slice(helpers),
+            outgoing_capacity: None,
         }
+    }
+
+    /// Retains the concrete number of outgoing records used by this operation.
+    pub const fn with_outgoing_capacity(mut self, capacity: Option<u32>) -> Self {
+        self.outgoing_capacity = capacity;
+
+        self
+    }
+
+    /// Returns the selected outgoing requirement, including a proven empty requirement.
+    pub const fn outgoing_capacity(&self) -> Option<u32> {
+        self.outgoing_capacity
     }
 
     /// Returns the concrete definition containing the operation.

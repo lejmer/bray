@@ -171,6 +171,7 @@ fn native_type(ty: &syn::Type) -> Result<RuntimeAbiType, String> {
         Some("NativeRuntimeConfiguration") => RuntimeAbiType::Configuration,
         Some("NativeRootStart") => RuntimeAbiType::RootStart,
         Some("NativeRunOutcome") => RuntimeAbiType::RunOutcome,
+        Some("NativePanicReport") => RuntimeAbiType::PanicReport,
         Some("NativeTaskAllocation") => RuntimeAbiType::TaskAllocation,
         Some("NativeInactiveFrame") => RuntimeAbiType::InactiveFrame,
         Some("NativeFrameProgress") => RuntimeAbiType::FrameProgress,
@@ -197,8 +198,9 @@ fn pointer_kind(ty: &syn::Type) -> Result<RuntimeAbiType, String> {
         ));
     }
 
-    if matches!(ty, syn::Type::Path(path) if path.path.is_ident("usize")) {
-        Ok(RuntimeAbiType::PointerUsize)
+    if matches!(ty, syn::Type::Path(path) if path.path.segments.last().is_some_and(|segment| segment.ident == "NativePanicReport"))
+    {
+        Ok(RuntimeAbiType::PanicReport)
     } else {
         Ok(RuntimeAbiType::Pointer)
     }

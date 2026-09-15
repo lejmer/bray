@@ -122,6 +122,10 @@ pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_
                 product_synchronization_component(*component),
             )],
         ),
+        Failure::OutgoingCapacityOverflow { value } => (
+            "product_query_outgoing_capacity_overflow",
+            vec![identity_field("constant_value", value)],
+        ),
         Failure::StaticDependencyOverflow { static_instance } => (
             "product_query_static_dependency_overflow",
             vec![identity_field("static_instance", static_instance)],
@@ -279,17 +283,11 @@ pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_
 
             ("product_query_invalid_helper_operation", fields)
         }
-        Failure::InvalidHelperCallTarget {
-            context,
-            helper,
-            target,
-        } => {
+        Failure::InvalidCleanupCallTarget { context, target } => {
             let mut fields = product_query_context(context);
-
-            push_mir_helper(&mut fields, helper);
             push_mir_call_target(&mut fields, target);
 
-            ("product_query_invalid_helper_call_target", fields)
+            ("product_query_invalid_cleanup_call_target", fields)
         }
         Failure::LifecycleRoleMismatch {
             instance,
@@ -608,6 +606,8 @@ const fn mir_operation_kind(operation: &bray_ir::MirOperationKind) -> &'static s
         Operation::Destroy(_) => "destroy",
         Operation::Cleanup { .. } => "cleanup",
         Operation::Async(_) => "async",
+        Operation::AdmitOutgoing { .. } => "outgoing_admission",
+        Operation::DischargeOutgoing { .. } => "outgoing_discharge",
         Operation::Host(_) => "host",
     }
 }
@@ -671,7 +671,6 @@ const fn product_data_kind(kind: ProductDataKind) -> &'static str {
         ProductDataKind::LifecycleType => "lifecycle_type",
         ProductDataKind::RealizedStatic => "realized_static",
         ProductDataKind::StaticDependencyCounter => "static_dependency_counter",
-        ProductDataKind::StaticDeclaredType => "static_declared_type",
         ProductDataKind::StaticInitializer => "static_initializer",
         ProductDataKind::ImplementationHeader => "implementation_header",
         ProductDataKind::TestDiscovery => "test_discovery",

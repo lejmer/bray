@@ -9,14 +9,31 @@ pub(crate) struct OwnedCleanupIncident {
 
 enum IncidentKind {
     Native(NativeCleanupIncident),
+    Report(bray_runtime_abi::NativePanicReport),
     Panic(Box<dyn Any + Send>),
 }
 
 impl OwnedCleanupIncident {
+    pub(crate) fn outcome(mut outcome: bray_runtime_abi::NativeRunOutcome) -> Option<Self> {
+        match outcome.state() {
+            bray_runtime_abi::NativeRunState::COMPLETED => None,
+            bray_runtime_abi::NativeRunState::PANICKED => {
+                Some(Self::report_owner(outcome.take_report()))
+            }
+            _ => Some(Self::runtime_failure()),
+        }
+    }
+
     pub(crate) fn native(incident: NativeCleanupIncident) -> Option<Self> {
         incident.is_valid().then_some(Self {
             kind: Some(IncidentKind::Native(incident)),
         })
+    }
+
+    pub(crate) fn report_owner(report: bray_runtime_abi::NativePanicReport) -> Self {
+        Self {
+            kind: Some(IncidentKind::Report(report)),
+        }
     }
 
     pub(crate) fn panic(payload: Box<dyn Any + Send>) -> Self {
@@ -37,17 +54,24 @@ impl OwnedCleanupIncident {
         let incident = match self.kind.take() {
             Some(IncidentKind::Native(incident)) => incident,
             Some(IncidentKind::Panic(payload)) => return dispose_panic(payload),
+            Some(IncidentKind::Report(mut owned)) => return owned.consume(report),
             None => return NativeRuntimeStatus::SUCCESS,
         };
 
         let reporting = report
             .then(|| catch_unwind(AssertUnwindSafe(|| (incident.report())(incident.payload()))));
 
+        let mut published =
+            bray_runtime_abi::NativeRunOutcome::new(bray_runtime_abi::NativeRunState::COMPLETED, 0);
+
+        let mut released =
+            bray_runtime_abi::NativeRunOutcome::new(bray_runtime_abi::NativeRunState::COMPLETED, 0);
+
         let destruction = catch_unwind(AssertUnwindSafe(|| {
-            (incident.destroy())(incident.payload())
+            (incident.destroy())(incident.payload(), &mut published, &mut released)
         }));
 
-        let status = match reporting {
+        let mut status = match reporting {
             Some(Ok(status)) => status,
             Some(Err(payload)) => {
                 dispose_panic(payload);
@@ -56,6 +80,18 @@ impl OwnedCleanupIncident {
             }
             None => NativeRuntimeStatus::SUCCESS,
         };
+
+        for mut incident in [published, released].into_iter().filter_map(Self::outcome) {
+            let disposal = incident.dispose(report);
+
+            if status.is_success() {
+                status = if disposal.is_success() {
+                    NativeRuntimeStatus::PANICKED
+                } else {
+                    disposal
+                };
+            }
+        }
 
         if let Err(payload) = destruction {
             dispose_panic(payload);
@@ -72,22 +108,17 @@ impl OwnedCleanupIncident {
 }
 
 pub(crate) fn dispose_panic(payload: Box<dyn Any + Send>) -> NativeRuntimeStatus {
-    let mut current = Some(payload);
-    let mut pending = Vec::new();
+    dispose_report(crate::RuntimePanic::from_payload(payload))
+}
+
+pub(crate) fn dispose_report(mut pending: crate::RuntimePanic) -> NativeRuntimeStatus {
     let mut status = NativeRuntimeStatus::SUCCESS;
 
-    while let Some(payload) = current {
-        match payload.downcast::<crate::RuntimePanic>() {
-            Ok(mut panic) => pending.extend(panic.take_payloads().rev()),
-            Err(payload) => {
-                if let Err(payload) = catch_unwind(AssertUnwindSafe(|| drop(payload))) {
-                    status = NativeRuntimeStatus::PANICKED;
-                    pending.push(payload);
-                }
-            }
+    while let Some(payload) = pending.pop_payload() {
+        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| drop(payload))) {
+            status = NativeRuntimeStatus::PANICKED;
+            pending.prepend(crate::RuntimePanic::from_payload(payload));
         }
-
-        current = pending.pop();
     }
 
     status
@@ -131,14 +162,18 @@ mod tests {
         NativeRuntimeStatus::SUCCESS
     }
 
-    extern "C-unwind" fn destroy(payload: usize) {
+    extern "C-unwind" fn destroy(
+        payload: usize,
+        _: &mut bray_runtime_abi::NativeRunOutcome,
+        _: &mut bray_runtime_abi::NativeRunOutcome,
+    ) {
         record("release", payload);
     }
 
     fn native(
         payload: usize,
         report: extern "C-unwind" fn(usize) -> NativeRuntimeStatus,
-        destroy: extern "C-unwind" fn(usize),
+        destroy: bray_runtime_abi::NativeCleanupIncidentDestroyCallback,
     ) -> OwnedCleanupIncident {
         OwnedCleanupIncident::native(NativeCleanupIncident::new(
             payload,
@@ -148,6 +183,108 @@ mod tests {
             destroy,
         ))
         .unwrap()
+    }
+
+    #[test]
+    fn finalizer_bridge_retains_published_incident_before_callback_panic() {
+        let _failure = crate::outgoing::tests::reject_admission();
+
+        let incidents = crate::product::collect_finalizer_incidents(|destination, outcome| {
+            *destination = NativeCleanupIncident::new(
+                17,
+                NativeTypeIdentity::new([7; 32]),
+                NativeSourceAnchor::unavailable(),
+                report,
+                destroy,
+            );
+
+            *outcome = published_panic(18);
+            panic_any(Release(19));
+        });
+
+        assert_eq!(incidents.iter().flatten().count(), 3);
+
+        for incident in incidents.into_iter().flatten() {
+            assert!(incident.report().is_success());
+        }
+
+        assert_eq!(
+            events(),
+            [
+                ("report", 17),
+                ("release", 17),
+                ("native release", 18),
+                ("panic release", 19)
+            ]
+        );
+    }
+
+    extern "C" fn release_published_panic(payload: usize, _: usize) {
+        record("native release", payload);
+    }
+
+    fn published_panic(payload: usize) -> bray_runtime_abi::NativeRunOutcome {
+        bray_runtime_abi::NativeRunOutcome::panicked(crate::frame::native_report(
+            bray_runtime_abi::NativePanicPrimary::new(
+                bray_runtime_abi::NativePanicCause::MESSAGE,
+                NativeSourceAnchor::unavailable(),
+                bray_runtime_abi::NativePanicMessage::new(
+                    payload,
+                    0,
+                    None,
+                    Some(release_published_panic),
+                ),
+            ),
+        ))
+    }
+
+    extern "C-unwind" fn published_then_panicking_destroy(
+        payload: usize,
+        outcome: &mut bray_runtime_abi::NativeRunOutcome,
+        release: &mut bray_runtime_abi::NativeRunOutcome,
+    ) {
+        *outcome = published_panic(payload);
+        *release = published_panic(payload + 1);
+        panic_any(Release(payload + 2));
+    }
+
+    #[test]
+    fn typed_error_destruction_retains_a_published_panic_before_unwinding() {
+        let _failure = crate::outgoing::tests::reject_admission();
+
+        assert_eq!(
+            native(21, report, published_then_panicking_destroy).report(),
+            NativeRuntimeStatus::PANICKED
+        );
+
+        assert_eq!(
+            events(),
+            [
+                ("report", 21),
+                ("native release", 21),
+                ("native release", 22),
+                ("panic release", 23)
+            ]
+        );
+    }
+
+    #[test]
+    fn finalizer_bridge_disposes_unreported_incidents_after_transfer() {
+        let incidents = crate::product::collect_finalizer_incidents(|destination, _| {
+            *destination = NativeCleanupIncident::new(
+                19,
+                NativeTypeIdentity::new([7; 32]),
+                NativeSourceAnchor::unavailable(),
+                report,
+                destroy,
+            );
+
+            panic_any(Release(20));
+        });
+
+        drop(incidents);
+
+        assert_eq!(events(), [("release", 19), ("panic release", 20)]);
     }
 
     #[test]
@@ -170,12 +307,99 @@ mod tests {
         }
     }
 
+    struct FailingCompletion;
+
+    impl Drop for FailingCompletion {
+        fn drop(&mut self) {
+            panic_any(Release(2));
+        }
+    }
+
+    struct FailingCleanupFrame(crate::test_support::TestFrame);
+
+    impl crate::ProtectedFrame for FailingCleanupFrame {
+        type Output = FailingCompletion;
+
+        fn descriptor(&self) -> &bray_runtime_model::ProtectedFrameDescriptor {
+            self.0.descriptor()
+        }
+
+        fn resume(
+            self: std::pin::Pin<&mut Self>,
+            _: crate::FrameContext,
+        ) -> crate::FrameProgress<Self::Output> {
+            crate::FrameProgress::Completed(FailingCompletion)
+        }
+
+        fn broadcast_tasks(self: std::pin::Pin<&mut Self>) {
+            panic_any(Release(1));
+        }
+
+        fn resolve_lifecycle(self: std::pin::Pin<&mut Self>, _: crate::FrameExit) {
+            panic_any(Release(3));
+        }
+    }
+
+    impl Drop for FailingCleanupFrame {
+        fn drop(&mut self) {
+            panic_any(Release(4));
+        }
+    }
+
+    #[test]
+    fn admitted_task_retains_every_cleanup_failure_after_further_admission_fails() {
+        let task = crate::TaskControlBlock::start(
+            crate::test_support::admit_task(),
+            FailingCleanupFrame(crate::test_support::TestFrame::completing(0)),
+        );
+
+        let _failure = crate::outgoing::tests::reject_admission();
+
+        assert!(matches!(
+            crate::TaskAdmission::new(),
+            Err(crate::TaskStartError::OutgoingStorageUnavailable)
+        ));
+
+        assert!(matches!(
+            task.resume(),
+            Ok(crate::TaskResumeStatus::Terminal(
+                crate::RunOutcomeKind::Panicked
+            ))
+        ));
+
+        let crate::RunOutcome::Panicked(report) = task.take_outcome().unwrap() else {
+            panic!("cleanup failures must retain a panic outcome");
+        };
+
+        assert_eq!(report.suppressed_count(), 3);
+
+        drop(task);
+
+        assert!(events().is_empty());
+
+        drop(report);
+
+        assert_eq!(
+            events(),
+            [
+                ("panic release", 1),
+                ("panic release", 2),
+                ("panic release", 3),
+                ("panic release", 4)
+            ]
+        );
+    }
+
     extern "C-unwind" fn failing_report(payload: usize) -> NativeRuntimeStatus {
         record("report", payload);
         panic_any(Release(1));
     }
 
-    extern "C-unwind" fn failing_destroy(payload: usize) {
+    extern "C-unwind" fn failing_destroy(
+        payload: usize,
+        _: &mut bray_runtime_abi::NativeRunOutcome,
+        _: &mut bray_runtime_abi::NativeRunOutcome,
+    ) {
         record("release", payload);
         panic_any(Release(2));
     }
@@ -231,7 +455,12 @@ mod tests {
         }
 
         let mut panic = RuntimePanic::new(FailingRelease);
-        panic.push_suppressed(Box::new(Release(3)));
+
+        panic.push_suppressed(
+            Box::new(Release(3)),
+            &mut crate::outgoing::OutgoingRecords::admit(1).unwrap(),
+        );
+
         drop(panic);
 
         assert_eq!(
@@ -241,13 +470,14 @@ mod tests {
     }
 
     fn transfer(sink: &CleanupReportSink, payload: Box<dyn std::any::Any + Send>) {
-        sink.transfer_erased(
+        sink.transfer(
             CleanupIncidentProducer::SynchronousRoot,
             CleanupIncidentOrigin::new(
                 bray_runtime_model::ProtectedAsyncFrameId::new([9; 32]),
                 bray_runtime_model::ProtectedFrameStateId::new(1),
             ),
-            payload,
+            RuntimePanic::from_payload(payload),
+            &mut crate::outgoing::OutgoingRecords::admit(1).unwrap(),
         );
     }
 
@@ -261,14 +491,18 @@ mod tests {
         report(payload)
     }
 
-    extern "C-unwind" fn reentrant_destroy(payload: usize) {
+    extern "C-unwind" fn reentrant_destroy(
+        payload: usize,
+        outcome: &mut bray_runtime_abi::NativeRunOutcome,
+        release: &mut bray_runtime_abi::NativeRunOutcome,
+    ) {
         REENTRANT.with_borrow(|sink| {
             let sink = sink.as_ref().unwrap();
             transfer(sink, Box::new(Release(4)));
             sink.drain(|_| panic!("nested release must defer to the active drain"));
         });
 
-        destroy(payload);
+        destroy(payload, outcome, release);
     }
 
     #[test]
@@ -372,10 +606,23 @@ mod tests {
     #[test]
     fn runtime_primary_and_nested_children_release_in_encounter_order() {
         let mut child = RuntimePanic::new(Release(2));
-        child.push_suppressed(Box::new(Release(3)));
+
+        child.push_suppressed(
+            Box::new(Release(3)),
+            &mut crate::outgoing::OutgoingRecords::admit(1).unwrap(),
+        );
+
         let mut primary = RuntimePanic::new(Release(1));
-        primary.push_suppressed(Box::new(child));
-        primary.push_suppressed(Box::new(Release(4)));
+
+        primary.push_suppressed(
+            Box::new(child),
+            &mut crate::outgoing::OutgoingRecords::admit(1).unwrap(),
+        );
+
+        primary.push_suppressed(
+            Box::new(Release(4)),
+            &mut crate::outgoing::OutgoingRecords::admit(1).unwrap(),
+        );
 
         drop(primary);
 
@@ -399,7 +646,12 @@ mod tests {
 
                 for index in 1..20_000 {
                     let mut parent = RuntimePanic::new(Release(index));
-                    parent.push_suppressed(Box::new(panic));
+
+                    parent.push_suppressed(
+                        Box::new(panic),
+                        &mut crate::outgoing::OutgoingRecords::admit(1).unwrap(),
+                    );
+
                     panic = parent;
                 }
 

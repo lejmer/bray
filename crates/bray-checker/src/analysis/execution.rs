@@ -121,20 +121,28 @@ where
         expression: BoundExpressionId,
         hook: Option<ImplementationHook>,
     ) -> bool {
-        if !implementation_hook_may_propagate_synchronous_panic(hook) {
-            return false;
-        }
+        let hook_may_panic = implementation_hook_may_propagate_synchronous_panic(hook);
 
         let Some(selections) = self.selections() else {
-            return true;
+            return hook_may_panic;
         };
 
-        matches!(
-            selections.expression(expression),
-            Some(SemanticSelection::Call(selection))
-                if selection.abi() == CallableAbi::Bray
-                    && matches!(selection.resolution().result(), BoundCallResult::Immediate(_))
-        )
+        match selections.expression(expression) {
+            Some(SemanticSelection::Call(selection)) => {
+                selection.evaluates_defaults()
+                    || (hook_may_panic
+                        && selection.abi() == CallableAbi::Bray
+                        && matches!(
+                            selection.resolution().result(),
+                            BoundCallResult::Immediate(_)
+                        ))
+            }
+            // Union construction has call syntax and declaration-owned defaults.
+            Some(SemanticSelection::Operation(operation)) => {
+                hook_may_panic && operation.may_propagate_synchronous_panic()
+            }
+            _ => false,
+        }
     }
 
     fn implementation_hook(

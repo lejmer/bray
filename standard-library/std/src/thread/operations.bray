@@ -19,8 +19,7 @@ trusted internal func start_with_completion<State, T>(
     let mut construction: ThreadConstruction<State, T> =
     {
         storage = std.memory.null<ThreadStorage<T>>(),
-        work = std.memory.null<ThreadStart<State, T>>(),
-        native = std.memory.null<NativeThreadStart>(),
+        native = std.memory.null<NativeThreadStart<State, T>>(),
     };
 
     let storage: RawPointer<ThreadStorage<T>> = trusted std.memory.allocate_value<ThreadStorage<T>>(
@@ -28,19 +27,30 @@ trusted internal func start_with_completion<State, T>(
             control =
             {
                 state = std.atomic.Atomic<u32>(THREAD_RUNNING),
-                panic_payload = std.atomic.Atomic<usize>(0),
                 cancellation = std.atomic.Atomic<u32>(0),
                 identity = std.atomic.Atomic<u64>(0),
                 park_token = std.atomic.Atomic<u32>(0),
                 completion_event = completion_event,
             },
             result = std.memory.uninit<T>(),
+            report = std.memory.uninit<PanicReport>(),
         },
     );
 
     construction.storage = storage;
 
-    let work: RawPointer<ThreadStart<State, T>> = trusted std.memory.allocate_value<ThreadStart<State, T>>(
+    let mut native_start: NativeThreadStart<State, T> =
+    {
+        dispatch =
+        {
+            operation = run_owned_native_thread_start<State, T>
+        },
+        work = std.memory.null<ThreadStart<State, T>>(),
+        control = trusted internal thread_storage_control_pointer<T>(storage),
+        report = trusted internal thread_report_destination<T>(storage),
+    };
+
+    native_start.work = trusted std.memory.allocate_value<ThreadStart<State, T>>(
         {
             entry = entry,
             state = state,
@@ -48,24 +58,14 @@ trusted internal func start_with_completion<State, T>(
         },
     );
 
-    construction.work = work;
-
-    let operation: ThreadOperation = execute_thread_entry<State, T>;
-    let work_address: usize = trusted internal pointer_address<ThreadStart<State, T>>(work);
-    let control: RawPointer<ThreadControl> = trusted internal thread_storage_control_pointer<T>(storage);
-
-    let native_context: RawPointer<NativeThreadStart> = trusted std.memory.allocate_value<NativeThreadStart>(
-        {
-            operation = operation,
-            context = work_address,
-            control = control,
-        },
-    );
+    let native_context: RawPointer<NativeThreadStart<State, T>> = trusted std.memory.allocate_value<
+        NativeThreadStart<State, T>
+    >(native_start);
 
     construction.native = native_context;
 
     let callback: RawPointer<u8> = trusted internal native_thread_entry();
-    let context_bytes: RawPointer<u8> = trusted std.memory.reinterpret<u8, NativeThreadStart>(native_context);
+    let context_bytes: RawPointer<u8> = trusted std.memory.reinterpret<u8, NativeThreadStart<State, T>>(native_context);
     let mut owner: u64 = 0;
     let mut native_error: i64 = 0;
 
@@ -93,8 +93,7 @@ trusted internal func start_with_completion<State, T>(
         );
     }
 
-    construction.native = std.memory.null<NativeThreadStart>();
-    construction.work = std.memory.null<ThreadStart<State, T>>();
+    construction.native = std.memory.null<NativeThreadStart<State, T>>();
     construction.storage = std.memory.null<ThreadStorage<T>>();
 
     let identity: u64 = trusted internal await_thread_identity<T>(storage);
@@ -197,9 +196,17 @@ trusted internal func execute_thread_entry<State, T>(pos context: usize)
     requires(blocking_execution(), compute_execution())
     uses(intrinsic)
 {
-    let work_pointer: RawPointer<ThreadStart<State, T>> = trusted core.target.from_exposed_address<
-        ThreadStart<State, T>
+    let pointer: RawPointer<NativeThreadStart<State, T>> = trusted core.target.from_exposed_address<
+        NativeThreadStart<State, T>
     >(address = context);
+
+    let native_start: &mut NativeThreadStart<State, T> = trusted internal transferred_value<
+        NativeThreadStart<State, T>
+    >(pointer);
+
+    let work_pointer: RawPointer<ThreadStart<State, T>> = native_start.work;
+
+    native_start.work = std.memory.null<ThreadStart<State, T>>();
 
     let work: ThreadStart<State, T> = trusted internal take_transferred_value<ThreadStart<State, T>>(work_pointer);
 
@@ -229,20 +236,6 @@ trusted internal func execute_thread_entry<State, T>(pos context: usize)
     let _: &mut T = std.memory.uninit_write<T>(&mut storage.result, value);
 }
 
-trusted internal func execute_native_thread_operation(pos context: usize)
-    requires(blocking_execution(), compute_execution())
-    uses(intrinsic)
-{
-    let pointer: RawPointer<NativeThreadStart> = trusted core.target.from_exposed_address<NativeThreadStart>(
-        address = context
-    );
-
-    let native_start: &NativeThreadStart = trusted std.memory.borrow_from<NativeThreadStart, usize>(&context, pointer);
-    let operation: ThreadOperation = native_start.operation;
-
-    operation(native_start.context);
-}
-
 @abi(c)
 trusted internal func native_thread_cancellation_requested(pos context: usize) -> u32
     uses(intrinsic)
@@ -256,11 +249,7 @@ trusted internal func native_thread_cancellation_requested(pos context: usize) -
     return control.cancellation.load(order = std.atomic.LoadOrder.Acquire);
 }
 
-trusted internal func publish_native_thread_outcome(
-    pos control_pointer: RawPointer<ThreadControl>,
-    pos outcome: u32,
-    pos payload: usize,
-)
+trusted internal func publish_native_thread_outcome(pos control_pointer: RawPointer<ThreadControl>, pos outcome: u32)
 {
     let control: &ThreadControl = trusted std.memory.borrow_from<ThreadControl, RawPointer<ThreadControl>>(
         &control_pointer,
@@ -274,11 +263,6 @@ trusted internal func publish_native_thread_outcome(
         case 2 { yield THREAD_PANICKED; }
         case _ { yield THREAD_FAILED; }
     };
-
-    if state == THREAD_PANICKED
-    {
-        control.panic_payload.store(payload, order = std.atomic.StoreOrder.Release);
-    }
 
     control.state.store(state, order = std.atomic.StoreOrder.Release);
     control.state.notify_all();
@@ -294,13 +278,60 @@ trusted internal func run_native_thread_start(pos context: RawPointer<u8>)
     requires(blocking_execution(), compute_execution())
     uses(intrinsic)
 {
-    let pointer: RawPointer<NativeThreadStart> = trusted std.memory.reinterpret<NativeThreadStart, u8>(context);
-    let native_start: NativeThreadStart = trusted internal take_transferred_value<NativeThreadStart>(pointer);
+    let pointer: RawPointer<NativeThreadDispatch> = trusted std.memory.reinterpret<NativeThreadDispatch, u8>(context);
 
-    let operation: ThreadOperation = execute_native_thread_operation;
+    let dispatch: &NativeThreadDispatch = trusted std.memory.borrow_from<NativeThreadDispatch, RawPointer<u8>>(
+        &context,
+        pointer
+    );
 
-    let operation_context: usize = trusted core.target.expose_address<NativeThreadStart>(
-        std.memory.address_of<NativeThreadStart>(&native_start)
+    let dispatch_operation: ThreadOperation = dispatch.operation;
+
+    dispatch_operation(trusted core.target.expose_address<u8>(context));
+}
+
+trusted internal func run_owned_native_thread_start<State, T>(pos context: usize)
+    requires(blocking_execution(), compute_execution())
+    uses(intrinsic)
+{
+    let pointer: RawPointer<NativeThreadStart<State, T>> = trusted core.target.from_exposed_address<
+        NativeThreadStart<State, T>
+    >(address = context);
+
+    let native: &NativeThreadStart<State, T> = trusted std.memory.borrow_from<NativeThreadStart<State, T>, usize>(
+        &context,
+        pointer
+    );
+
+    let control: RawPointer<ThreadControl> = native.control;
+    let report: RawPointer<PanicReport> = native.report;
+
+    let outcome: Result<u32, PanicReport> = catch trusted internal execute_owned_native_thread<State, T>(
+        trusted internal take_transferred_value<NativeThreadStart<State, T>>(pointer)
+    );
+
+    let state: u32 = match consume outcome
+    {
+        case Ok(state) { yield state; }
+        case Error(incident)
+        {
+            trusted std.memory.write<PanicReport>(report, incident);
+            yield 2;
+        }
+    };
+
+    trusted internal publish_native_thread_outcome(control, state);
+}
+
+trusted internal func execute_owned_native_thread<State, T>(pos mut native_start: NativeThreadStart<State, T>) -> u32
+    requires(blocking_execution(), compute_execution())
+    uses(intrinsic)
+{
+
+    let operation: ThreadOperation = execute_thread_entry<State, T>;
+
+    let operation_context: usize = trusted core.target.expose_address<NativeThreadStart<State, T>>(
+        std.memory.address_of_mut<NativeThreadStart<State, T>>(&mut native_start)
     );
 
     let cancellation_callback: ThreadCancellationObservation = native_thread_cancellation_requested;
@@ -314,17 +345,25 @@ trusted internal func run_native_thread_start(pos context: RawPointer<u8>)
     );
 
     let cancellation_context: usize = trusted core.target.expose_address<ThreadControl>(native_start.control);
-    let mut panic_payload: usize = 0;
 
     let outcome: u32 = internal execute_native_thread(
         operation,
         context = operation_context,
         cancellation = cancellation,
         cancellation_context = cancellation_context,
-        panic_payload = std.memory.address_of_mut<usize>(&mut panic_payload),
+        panic_report = native_start.report,
     );
 
-    trusted internal publish_native_thread_outcome(native_start.control, outcome, panic_payload);
+    if outcome == 2
+    {
+        let value: &mut PanicReport = trusted internal transferred_value<PanicReport>(native_start.report);
+        let report: PanicReport = trusted std.memory.read<PanicReport>(std.memory.address_of_mut<PanicReport>(value));
+        let failure: RunResult<unit> = Panicked(report);
+
+        try failure;
+    }
+
+    return outcome;
 }
 
 trusted internal func observe_thread<T>(
@@ -393,11 +432,9 @@ trusted internal func observe_thread<T>(
         }
         case THREAD_PANICKED
         {
-            let payload: usize = terminal.control.panic_payload.load(order = std.atomic.LoadOrder.Acquire);
-
-            assert(payload != 0, "a panicked native thread did not publish its panic report");
-
-            let panicked: RunResult<T> = .Panicked(trusted internal recover_native_thread_panic_report(payload));
+            let panicked: RunResult<T> = .Panicked(
+                trusted std.memory.move_initialized<PanicReport>(&mut terminal.report)
+            );
 
             yield panicked;
         }

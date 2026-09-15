@@ -132,6 +132,16 @@ fn apply_native_attributes(
         return Ok(());
     }
 
+    if !matches!(
+        mapping.key(),
+        bray_codegen::CodegenSymbolKey::ProtectedFrame {
+            operation: bray_runtime_interface::ProtectedFrameOperation::MoveBeforeStart,
+            ..
+        }
+    ) {
+        return Ok(());
+    }
+
     let Some(result) = crate::native::indirect_result_type(types.context(), target, mapping.key())
     else {
         return Ok(());
@@ -290,6 +300,17 @@ fn apply_signature_attributes(
             .ok_or(CodegenFailure::UnsupportedTarget)?;
     }
 
+    if signature.has_panic_report_context() {
+        // The caller owns this hidden destination independently of semantic arguments/results.
+        apply_enum_attribute(
+            function,
+            AttributeLoc::Param(parameter_index),
+            "noalias",
+            0,
+            types,
+        )?;
+    }
+
     Ok(())
 }
 
@@ -356,6 +377,16 @@ pub(crate) fn apply_signature_call_attributes(
         parameter_index = parameter_index
             .checked_add(1)
             .ok_or(CodegenFailure::UnsupportedTarget)?;
+    }
+
+    if signature.has_panic_report_context() {
+        apply_call_enum_attribute(
+            call,
+            AttributeLoc::Param(parameter_index),
+            "noalias",
+            0,
+            types,
+        )?;
     }
 
     Ok(())
@@ -986,6 +1017,52 @@ mod tests {
         assert!(declaration.contains("signext"));
         assert!(declaration.contains("byval(i32)"));
         assert!(declaration.contains("..."));
+
+        let mapping = &mappings.symbols()[0];
+
+        let protected = CodegenSymbolMapping::new(
+            mapping.key().clone(),
+            mapping.name().clone(),
+            mapping.linkage(),
+            signature.with_panic_report_context(),
+        );
+
+        let function =
+            super::declare_symbol(&module, &protected, request.target(), false, &mut types).unwrap();
+
+        let noalias = inkwell::attributes::Attribute::get_named_enum_kind_id("noalias");
+
+        assert_eq!(function.count_params(), 4);
+
+        assert!(
+            function
+                .get_enum_attribute(AttributeLoc::Param(3), noalias)
+                .is_some()
+        );
+
+        assert!(
+            function
+                .get_enum_attribute(AttributeLoc::Param(2), noalias)
+                .is_none()
+        );
+
+        let caller = module.add_function("caller", function.get_type(), None);
+        let builder = context.create_builder();
+
+        builder.position_at_end(context.append_basic_block(caller, "entry"));
+
+        let arguments: Vec<_> = caller.get_param_iter().map(Into::into).collect();
+        let call = builder.build_call(function, &arguments, "").unwrap();
+
+        super::apply_signature_call_attributes(call, protected.signature(), &mut types).unwrap();
+
+        assert!(
+            call.get_enum_attribute(AttributeLoc::Param(3), noalias)
+                .is_some()
+        );
+
+        builder.build_return(None).unwrap();
+        module.verify().unwrap();
     }
 
     fn layout(size: u64, alignment: NonZeroU64) -> TargetValueLayout {

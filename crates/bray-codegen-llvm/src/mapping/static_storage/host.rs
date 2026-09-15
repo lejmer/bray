@@ -24,6 +24,7 @@ pub(super) struct StaticLifecycleCallbacks<'context> {
 #[derive(Clone, Copy)]
 pub(super) struct StaticFinalizerCallbacks<'context> {
     pub(super) execution: u64,
+    pub(super) outgoing_capacity: u32,
     pub(super) result_size: u64,
     pub(super) result_alignment: u64,
     pub(super) start: FunctionValue<'context>,
@@ -578,7 +579,10 @@ fn static_finalizer_value<'context>(
             .i32_type()
             .const_int(finalizer.execution, false)
             .into(),
-        context.i32_type().const_zero().into(),
+        context
+            .i32_type()
+            .const_int(u64::from(finalizer.outgoing_capacity), false)
+            .into(),
         usize.const_int(finalizer.result_size, false).into(),
         usize.const_int(finalizer.result_alignment, false).into(),
         finalizer.start.as_global_value().as_pointer_value().into(),

@@ -1210,7 +1210,6 @@ mod tests {
                 RuntimeAbiRole::NativeThreadExecution,
                 RuntimeAbiRole::CurrentNativeThreadIdentity,
                 RuntimeAbiRole::MainNativeThreadIdentity,
-                RuntimeAbiRole::NativeThreadPanicReportRecovery,
                 RuntimeAbiRole::TaskEventCreation,
                 RuntimeAbiRole::TaskEventSignal,
                 RuntimeAbiRole::TaskEventDestruction,

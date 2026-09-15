@@ -56,6 +56,60 @@ func run()
     assert(core.atomic.load<usize, 1>(&DEFAULTS) == 2);
     nested_cleanup();
     nested_replacement();
+    construction_default_cleanup();
+    parameter_default_cleanup();
+    evaluated_call_input_cleanup();
+    async_parameter_default_cleanup();
+    destructor_receiver_transfer();
+    aggregate_input_cleanup();
+}
+
+func rejected_guard() -> Guard
+{
+    panic("aggregate input");
+}
+
+func aggregate_input_cleanup()
+{
+    core.atomic.store<usize, 4>(&COUNT, 0);
+
+    let tuple_result = catch
+    {
+        let pair = (
+            Guard
+            {
+                id = 7
+            },
+            rejected_default()
+        );
+
+        yield unit;
+    };
+
+    assert(tuple_result matches Error(_));
+    assert(core.atomic.load<usize, 1>(&COUNT) == 7);
+
+    core.atomic.store<usize, 4>(&COUNT, 0);
+
+    let array_result = catch
+    {
+        let values = [
+            Guard
+            {
+                id = 1
+            },
+            Guard
+            {
+                id = 2
+            },
+            rejected_guard()
+        ];
+
+        yield unit;
+    };
+
+    assert(array_result matches Error(_));
+    assert(core.atomic.load<usize, 1>(&COUNT) == 21);
 }
 
 struct FailingGuard
@@ -153,4 +207,180 @@ func guard_id(pos value: &box Guard) -> usize
     {
         case box(guard) { yield guard.id; }
     };
+}
+
+struct PendingConstruction
+{
+    guard: Guard;
+    value: usize = rejected_default();
+}
+
+func rejected_default() -> usize
+{
+    panic("construction default");
+}
+
+func construction_default_cleanup()
+{
+    core.atomic.store<usize, 4>(&COUNT, 0);
+
+    let result = catch
+    {
+        let value = PendingConstruction
+        {
+            guard = Guard
+            {
+                id = 7
+            }
+        };
+
+        yield unit;
+    };
+
+    assert(result matches Error(_));
+    assert(core.atomic.load<usize, 1>(&COUNT) == 7);
+}
+
+struct Forwarded
+{
+    mut again: bool;
+    guard: Guard;
+
+    destruct()
+    {
+        let previous = core.atomic.load<usize, 1>(&COUNT);
+
+        core.atomic.store<usize, 4>(&COUNT, previous + 1);
+
+        if self.again
+        {
+            self.again = false;
+            take_forwarded(self);
+
+            self = Forwarded
+            {
+                again = false,
+                guard = Guard
+                {
+                    id = 4
+                }
+            };
+
+            take_forwarded(self);
+        }
+    }
+}
+
+func take_forwarded(pos value: Forwarded) {}
+
+func destructor_receiver_transfer()
+{
+    core.atomic.store<usize, 4>(&COUNT, 0);
+
+    {
+        let value = Forwarded
+        {
+            again = true,
+            guard = Guard
+            {
+                id = 9
+            }
+        };
+    };
+
+    assert(core.atomic.load<usize, 1>(&COUNT) == 304);
+}
+
+func take_with_default(pos guard: Guard, value: usize = rejected_default()) {}
+
+func parameter_default_cleanup()
+{
+    core.atomic.store<usize, 4>(&COUNT, 0);
+
+    let result = catch
+    {
+        take_with_default(
+            Guard
+            {
+                id = 6
+            }
+        );
+
+        yield unit;
+    };
+
+    assert(result matches Error(_));
+    assert(core.atomic.load<usize, 1>(&COUNT) == 6);
+}
+
+func take_explicit_inputs(pos guard: Guard, pos value: usize) {}
+
+func take_default_inputs(
+    first: Guard = (Guard
+    {
+        id = 2
+    }
+    ),
+    second: Guard = (Guard
+    {
+        id = 3
+    }
+    ),
+    value: usize = rejected_default(),
+)
+{
+}
+
+func evaluated_call_input_cleanup()
+{
+    core.atomic.store<usize, 4>(&COUNT, 0);
+
+    let explicit_result = catch
+    {
+        take_explicit_inputs(
+            Guard
+            {
+                id = 8
+            },
+            rejected_default()
+        );
+
+        yield unit;
+    };
+
+    assert(explicit_result matches Error(_));
+    assert(core.atomic.load<usize, 1>(&COUNT) == 8);
+
+    core.atomic.store<usize, 4>(&COUNT, 0);
+
+    let default_result = catch
+    {
+        take_default_inputs();
+        yield unit;
+    };
+
+    assert(default_result matches Error(_));
+    assert(core.atomic.load<usize, 1>(&COUNT) == 32);
+}
+
+async func take_async_default(pos guard: Guard, value: usize = rejected_default()) {}
+
+func async_parameter_default_cleanup()
+{
+    core.atomic.store<usize, 4>(&COUNT, 0);
+
+    let result = catch
+    {
+        let pending = take_async_default(
+            Guard
+            {
+                id = 4
+            }
+        );
+
+        yield unit;
+    };
+
+    assert(result matches Error(_));
+    assert(core.atomic.load<usize, 1>(&COUNT) == 4);
 }

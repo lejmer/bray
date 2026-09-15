@@ -4217,6 +4217,32 @@ mod tests {
     }
 
     #[test]
+    fn borrow_of_recovered_storage_preserves_the_original_diagnostic() {
+        assert_standard_memory_body_has_no_conflicting_borrow(concat!(
+            "trusted module std.test;\n",
+            "trusted func main() -> RawPointer<u8> uses(layout_reinterpret) {\n",
+            "    let mut report: Missing = {};\n",
+            "    return trusted std.memory.reinterpret<u8, Missing>(std.memory.address_of_mut(&mut report));\n",
+            "}\n",
+        ));
+    }
+
+    #[test]
+    fn mutable_owned_aggregate_can_be_addressed_inside_pointer_reinterpretation() {
+        assert_standard_memory_body_has_no_conflicting_borrow(concat!(
+            "trusted module std.test;\n",
+            "struct Report { mut cause: u32; }\n",
+            "trusted func main() -> RawPointer<u8> uses(layout_reinterpret) {\n",
+            "    let mut report: Report = empty_report();\n",
+            "    if report.cause == 0 { report.cause = 1; }\n",
+            "    let result: RawPointer<u8> = trusted std.memory.reinterpret<u8, Report>(std.memory.address_of_mut(&mut report));\n",
+            "    return result;\n",
+            "}\n",
+            "func empty_report() -> Report { return { cause = 0 }; }\n",
+        ));
+    }
+
+    #[test]
     fn mutable_slice_element_can_be_reborrowed_for_a_raw_pointer() {
         assert_standard_memory_body_has_no_conflicting_borrow(concat!(
             "module std.test;\n",

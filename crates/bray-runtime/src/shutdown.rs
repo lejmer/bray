@@ -1,56 +1,68 @@
 use std::any::Any;
-use std::collections::VecDeque;
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
 use bray_runtime_model::{ProtectedAsyncFrameId, ProtectedFrameStateId};
 
-use crate::incident::dispose_panic;
+use crate::incident::dispose_report;
+use crate::outgoing::OutgoingRecords;
 use crate::{RunOutcome, TaskId};
 
 /// A cleanup failure transferred to the product host for reporting.
 pub struct CleanupIncident {
+    metadata: CleanupIncidentMetadata,
+    payload: Option<crate::RuntimePanic>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct CleanupIncidentMetadata {
     ordinal: u64,
     producer: CleanupIncidentProducer,
     origin: CleanupIncidentOrigin,
-    payload: Option<Box<dyn Any + Send>>,
 }
 
 impl CleanupIncident {
+    pub(crate) fn new(metadata: CleanupIncidentMetadata, payload: crate::RuntimePanic) -> Self {
+        Self {
+            metadata,
+            payload: Some(payload),
+        }
+    }
+
     pub(crate) fn dispose(&mut self) -> bray_runtime_abi::NativeRuntimeStatus {
         self.payload.take().map_or(
             bray_runtime_abi::NativeRuntimeStatus::SUCCESS,
-            dispose_panic,
+            dispose_report,
         )
     }
 
     /// Returns the deterministic encounter ordinal.
     pub const fn ordinal(&self) -> u64 {
-        self.ordinal
+        self.metadata.ordinal
     }
 
     /// Returns the run that produced the incident.
     pub const fn producer(&self) -> CleanupIncidentProducer {
-        self.producer
+        self.metadata.producer
     }
 
     /// Returns the protected-frame location that produced the incident.
     pub const fn origin(&self) -> CleanupIncidentOrigin {
-        self.origin
+        self.metadata.origin
     }
 
-    /// Returns whether the erased payload has one exact host representation.
+    /// Returns whether the primary payload has one exact host representation.
     pub fn payload_is<T: Any>(&self) -> bool {
         self.payload
             .as_ref()
-            .is_some_and(|payload| payload.is::<T>())
+            .is_some_and(|panic| panic.primary_type_id() == std::any::TypeId::of::<T>())
     }
 
-    /// Returns the host type identity carried by the erased payload descriptor.
+    /// Returns the host type identity carried by the primary payload.
     pub fn payload_type_id(&self) -> std::any::TypeId {
         self.payload
             .as_ref()
-            .map(|payload| payload.as_ref().type_id())
+            .map(crate::RuntimePanic::primary_type_id)
             .unwrap_or_else(|| unreachable!("live cleanup incident must own its payload"))
     }
 }
@@ -65,9 +77,9 @@ impl fmt::Debug for CleanupIncident {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("CleanupIncident")
-            .field("ordinal", &self.ordinal)
-            .field("producer", &self.producer)
-            .field("origin", &self.origin)
+            .field("ordinal", &self.metadata.ordinal)
+            .field("producer", &self.metadata.producer)
+            .field("origin", &self.metadata.origin)
             .finish_non_exhaustive()
     }
 }
@@ -114,7 +126,8 @@ pub struct CleanupReportSink {
 #[derive(Debug, Default)]
 struct CleanupReportState {
     next_ordinal: u64,
-    incidents: VecDeque<CleanupIncident>,
+    incidents: OutgoingRecords,
+    pending_count: usize,
     draining: bool,
 }
 
@@ -137,21 +150,12 @@ impl CleanupReportSink {
         Self::default()
     }
 
-    /// Transfers one owned cleanup failure to the product host.
-    pub fn transfer(
+    pub(crate) fn transfer(
         &self,
         producer: CleanupIncidentProducer,
         origin: CleanupIncidentOrigin,
-        payload: impl Any + Send,
-    ) {
-        self.transfer_erased(producer, origin, Box::new(payload));
-    }
-
-    pub(crate) fn transfer_erased(
-        &self,
-        producer: CleanupIncidentProducer,
-        origin: CleanupIncidentOrigin,
-        payload: Box<dyn Any + Send>,
+        payload: crate::RuntimePanic,
+        admitted: &mut OutgoingRecords,
     ) {
         let mut state = self
             .state
@@ -159,15 +163,19 @@ impl CleanupReportSink {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
         let ordinal = state.next_ordinal;
-
         state.next_ordinal = state.next_ordinal.saturating_add(1);
 
-        state.incidents.push_back(CleanupIncident {
-            ordinal,
-            producer,
-            origin,
-            payload: Some(payload),
-        });
+        state.incidents.push_incident(
+            payload,
+            CleanupIncidentMetadata {
+                ordinal,
+                producer,
+                origin,
+            },
+            admitted,
+        );
+
+        state.pending_count += 1;
     }
 
     /// Reports and removes every incident in transfer order.
@@ -192,22 +200,24 @@ impl CleanupReportSink {
         let mut drain = CleanupDrain(Some(&self.state));
 
         loop {
-            let incidents = {
+            let mut incidents = {
                 let mut state = self
                     .state
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-                if state.incidents.is_empty() {
+                if state.pending_count == 0 {
                     state.draining = false;
                     drain.0 = None;
                     return;
                 }
 
+                state.pending_count = 0;
+
                 std::mem::take(&mut state.incidents)
             };
 
-            for incident in incidents {
+            while let Some(incident) = incidents.pop_incident() {
                 report(incident);
             }
         }
@@ -218,8 +228,7 @@ impl CleanupReportSink {
         self.state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .incidents
-            .len()
+            .pending_count
     }
 }
 
@@ -249,6 +258,73 @@ mod tests {
     use crate::RunOutcome;
 
     #[test]
+    fn grouped_reports_transfer_without_further_admission_and_dispose_in_order() {
+        use crate::RuntimePanic;
+        use crate::outgoing::OutgoingRecords;
+        use std::cell::Cell;
+
+        thread_local! { static RELEASE_ORDER: Cell<u64> = const { Cell::new(0) }; }
+        struct Payload(u64);
+
+        impl Drop for Payload {
+            fn drop(&mut self) {
+                RELEASE_ORDER.set(RELEASE_ORDER.get() * 10 + self.0);
+            }
+        }
+
+        let sink = CleanupReportSink::new();
+
+        let origin = CleanupIncidentOrigin::new(
+            bray_runtime_model::ProtectedAsyncFrameId::new([4; 32]),
+            bray_runtime_model::ProtectedFrameStateId::new(1),
+        );
+
+        let mut admitted = OutgoingRecords::admit(4).unwrap();
+        let denied = crate::outgoing::tests::reject_admission();
+        let mut first = RuntimePanic::new(Payload(1));
+        first.push_suppressed(Box::new(Payload(2)), &mut admitted);
+        first.push_suppressed(Box::new(Payload(3)), &mut admitted);
+
+        sink.transfer(
+            CleanupIncidentProducer::SynchronousRoot,
+            origin,
+            first,
+            &mut admitted,
+        );
+
+        sink.transfer(
+            CleanupIncidentProducer::SynchronousRoot,
+            origin,
+            RuntimePanic::new(Payload(4)),
+            &mut admitted,
+        );
+
+        assert!(OutgoingRecords::admit(1).is_err());
+        assert_eq!(admitted.len(), 0);
+        assert_eq!(sink.pending_count(), 2);
+        assert_eq!(RELEASE_ORDER.get(), 0);
+        let mut ordinal = 0;
+
+        sink.drain(|incident| {
+            assert_eq!(incident.ordinal(), ordinal);
+            assert_eq!(incident.origin(), origin);
+            assert!(incident.payload_is::<Payload>());
+
+            assert_eq!(
+                incident.payload.as_ref().unwrap().suppressed_count(),
+                if ordinal == 0 { 2 } else { 0 }
+            );
+
+            ordinal += 1;
+        });
+
+        assert_eq!(ordinal, 2);
+        assert_eq!(RELEASE_ORDER.get(), 1234);
+        assert_eq!(sink.pending_count(), 0);
+        drop(denied);
+    }
+
+    #[test]
     fn product_shutdown_maps_then_reports_then_stops_infrastructure() {
         let reports = CleanupReportSink::new();
 
@@ -257,9 +333,19 @@ mod tests {
             bray_runtime_model::ProtectedFrameStateId::new(3),
         );
 
-        reports.transfer(CleanupIncidentProducer::SynchronousRoot, origin, "first");
+        reports.transfer(
+            CleanupIncidentProducer::SynchronousRoot,
+            origin,
+            crate::RuntimePanic::new("first"),
+            &mut crate::outgoing::OutgoingRecords::admit(1).unwrap(),
+        );
 
-        reports.transfer(CleanupIncidentProducer::SynchronousRoot, origin, "second");
+        reports.transfer(
+            CleanupIncidentProducer::SynchronousRoot,
+            origin,
+            crate::RuntimePanic::new("second"),
+            &mut crate::outgoing::OutgoingRecords::admit(1).unwrap(),
+        );
 
         let events = RefCell::new(Vec::new());
 

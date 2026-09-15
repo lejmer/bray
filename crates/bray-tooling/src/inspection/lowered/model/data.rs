@@ -3,14 +3,14 @@
 use std::fmt::Write;
 
 use bray_bound_tree::{
-    BoundCallResult, CheckedMemoryOperationKind, ConstructionDefaultProvider, ConstructionInputId,
-    ConstructionTarget, ConversionTarget, MemoryLayoutQueryKind, PatternOperation,
+    BoundCallResult, CheckedMemoryOperationKind, ConstructionInputId, ConstructionTarget,
+    ConversionTarget, DefaultValueProvider, MemoryLayoutQueryKind, PatternOperation,
     PatternProjection, SelectedConversion,
 };
 use bray_ir::{
     MirAggregateKind, MirAsyncOperation, MirBinaryOperator, MirBlockKind, MirCallArgument,
-    MirCallTarget, MirCallableReference, MirCleanupEdge, MirCleanupPhase, MirConstructionInput,
-    MirEdge, MirFieldReference, MirFrameInitializer, MirFrameReference, MirGeneratorKind,
+    MirCallTarget, MirCallableReference, MirCleanupEdge, MirCleanupPhase, MirEdge,
+    MirFieldReference, MirFrameInitializer, MirFrameReference, MirGeneratorKind,
     MirGeneratorOperation, MirHelperReference, MirHostOperation, MirImmediateValue, MirOperand,
     MirOperation, MirOperationKind, MirPanicCause, MirPatternPredicate, MirPlace,
     MirProjectionKind, MirRuntimeReference, MirSourceAnchor, MirSourceOrigin, MirStorageKind,
@@ -660,48 +660,20 @@ fn operation_parts(
             construction_target(construction.target(), parts, context)?;
 
             for input in construction.inputs() {
-                match input {
-                    MirConstructionInput::Explicit {
-                        input,
-                        ordinal,
-                        value,
-                    } => {
-                        parts.attribute(
-                            "input",
-                            format!("{}:{ordinal}", construction_input(*input)),
-                        );
+                let ordinal = input.ordinal();
 
-                        parts.symbol(
-                            format!("input[{ordinal}]"),
-                            construction_input_symbol(*input),
-                            context.symbols,
-                        );
+                parts.attribute(
+                    "input",
+                    format!("{}:{ordinal}", construction_input(input.input())),
+                );
 
-                        parts.operand(format!("input[{ordinal}]"), value, context)?;
-                    }
-                    MirConstructionInput::Default {
-                        input,
-                        ordinal,
-                        provider,
-                    } => {
-                        parts.attribute(
-                            "default",
-                            format!("{}:{ordinal}", construction_input(*input)),
-                        );
+                parts.symbol(
+                    format!("input[{ordinal}]"),
+                    construction_input_symbol(input.input()),
+                    context.symbols,
+                );
 
-                        parts.symbol(
-                            format!("input[{ordinal}]"),
-                            construction_input_symbol(*input),
-                            context.symbols,
-                        );
-
-                        parts.symbol(
-                            format!("default_provider[{ordinal}]"),
-                            construction_default_provider_symbol(*provider),
-                            context.symbols,
-                        );
-                    }
-                }
+                parts.operand(format!("input[{ordinal}]"), input.value(), context)?;
             }
 
             "construct"
@@ -780,6 +752,17 @@ fn operation_parts(
             }
 
             "panic_report"
+        }
+        MirOperationKind::AdmitOutgoing { ty, runtime }
+        | MirOperationKind::DischargeOutgoing { ty, runtime } => {
+            parts.r#type("owner", *ty, context)?;
+            runtime_reference("runtime", *runtime, parts);
+
+            if matches!(operation, MirOperationKind::AdmitOutgoing { .. }) {
+                "outgoing_admission"
+            } else {
+                "outgoing_discharge"
+            }
         }
         MirOperationKind::Finalize(place) => {
             parts.place("place", place, context)?;
@@ -1086,10 +1069,33 @@ fn call_parts(
     parts: &mut OperationParts,
     context: &MirInspectionContext<'_>,
 ) -> Result<(), MirInspectionModelError> {
+    if call.is_cleanup() {
+        parts.attribute("cleanup", "true");
+    }
+
     match call.target() {
         MirCallTarget::Direct(reference) => {
             parts.attribute("dispatch", "direct");
             callable_reference("callee", *reference, parts, context);
+        }
+        MirCallTarget::DefaultValue { owner, provider } => {
+            parts.attribute("dispatch", "default_value");
+
+            match owner {
+                bray_ir::MirDefaultOwner::Callable(callable) => {
+                    callable_reference("owner", *callable, parts, context)
+                }
+                bray_ir::MirDefaultOwner::Type { target, ty } => {
+                    construction_target(*target, parts, context)?;
+                    parts.r#type("owner", *ty, context)?;
+                }
+            }
+
+            parts.symbol(
+                "default_provider",
+                construction_default_provider_symbol(*provider),
+                context.symbols,
+            );
         }
         MirCallTarget::Runtime(reference) => {
             parts.attribute("dispatch", "runtime");
@@ -1134,23 +1140,6 @@ fn call_parts(
                 }
 
                 parts.operand(format!("argument[{ordinal}]"), value, context)?;
-            }
-            MirCallArgument::Default {
-                parameter,
-                ordinal,
-                provider,
-            } => {
-                parts.symbol(
-                    format!("parameter[{ordinal}]"),
-                    (*parameter).into(),
-                    context.symbols,
-                );
-
-                parts.symbol(
-                    format!("default_provider[{ordinal}]"),
-                    (*provider).into(),
-                    context.symbols,
-                );
             }
         }
     }
@@ -2475,17 +2464,15 @@ const fn construction_input_symbol(input: ConstructionInputId) -> AnySymbolId {
     }
 }
 
-const fn construction_default_provider_symbol(
-    provider: ConstructionDefaultProvider,
-) -> AnySymbolId {
+const fn construction_default_provider_symbol(provider: DefaultValueProvider) -> AnySymbolId {
     match provider {
-        ConstructionDefaultProvider::StructField(provider) => {
+        DefaultValueProvider::StructField(provider) => {
             AnySymbolId::StructFieldDefaultProvider(provider)
         }
-        ConstructionDefaultProvider::UnionPayload(provider) => {
+        DefaultValueProvider::UnionPayload(provider) => {
             AnySymbolId::UnionPayloadDefaultProvider(provider)
         }
-        ConstructionDefaultProvider::CallableParameter(provider) => {
+        DefaultValueProvider::CallableParameter(provider) => {
             AnySymbolId::CallableParameterDefaultProvider(provider)
         }
     }
@@ -2531,8 +2518,7 @@ const fn lifecycle_helper_role(reference: &MirHelperReference) -> Option<&'stati
         } => Some("cleanup_lifecycle_resolution"),
         MirHelperReference::AnonymousCallable(_)
         | MirHelperReference::DeclaredCallable(_)
-        | MirHelperReference::CallableDefault(_)
-        | MirHelperReference::ConstructionDefault(_)
+        | MirHelperReference::DefaultValue(_)
         | MirHelperReference::TypeForm(_)
         | MirHelperReference::Conversion(_)
         | MirHelperReference::BeginGenerator

@@ -10,6 +10,7 @@ use bray_symbols::TypeId;
 
 use super::control::{CleanupDestination, TerminalState};
 use crate::lowering::LoweringError;
+use crate::lowering::inputs::InputExit;
 use crate::lowering::lowerer::Lowerer;
 
 impl Lowerer<'_> {
@@ -21,6 +22,7 @@ impl Lowerer<'_> {
         value: Option<(MirOperand, TypeId)>,
         exit: AnyBoundNodeId,
         plans: &[AsyncScopeExitPlan],
+        input_exit: InputExit,
     ) -> Result<(), LoweringError> {
         let pending = match value {
             Some((value, ty)) => {
@@ -68,7 +70,8 @@ impl Lowerer<'_> {
             )),
         )?;
 
-        let lifecycle = self.resolve_cleanup(broadcast, source, plans, None, &failures)?;
+        let lifecycle =
+            self.resolve_cleanup(broadcast, source, plans, None, &failures, input_exit)?;
 
         self.set_destination(
             lifecycle,
@@ -173,10 +176,39 @@ impl Lowerer<'_> {
         &mut self,
         block: MirBlockId,
         source: &MirSourceAnchor,
+        released_owner: Option<TypeId>,
     ) -> Result<MirBlockId, LoweringError> {
-        let Some((panicked, cancelled, report_type)) = self.cleanup_failure_targets else {
+        let Some((mut panicked, mut cancelled, report_type)) = self.cleanup_failure_targets else {
             return Ok(block);
         };
+
+        if let Some(owner) = released_owner {
+            let kind = self.builder.block_kind(block)?;
+
+            for (target, parameter) in [(&mut panicked, Some(report_type)), (&mut cancelled, None)]
+            {
+                let edge = self
+                    .builder
+                    .push_block(Self::retained_source(source), kind)?;
+
+                let argument = parameter
+                    .map(|ty| {
+                        self.builder
+                            .push_block_parameter(edge, Self::retained_source(source), ty)
+                    })
+                    .transpose()?;
+
+                self.discharge_outgoing_owner(edge, source, owner)?;
+
+                self.set_terminator(
+                    edge,
+                    Self::retained_source(source),
+                    MirTerminatorKind::Goto(MirEdge::new(*target, argument.map(MirOperand::Value))),
+                )?;
+
+                *target = edge;
+            }
+        }
 
         crate::cleanup_outcome::check_call_outcome(
             &mut self.builder,

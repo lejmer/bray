@@ -547,7 +547,7 @@ fn callable_results_refine_cleanup_after_resolved_branches() {
                 };
             }
 
-            func nested(pos value: Packet) -> Result<(Guard, Guard), PanicReport>
+            func nested(pos value: Packet, pos input: Packet) -> Result<(Guard, Guard), PanicReport>
             {
                 let outer = catch
                 {
@@ -556,11 +556,7 @@ fn callable_results_refine_cleanup_after_resolved_branches() {
                     {
                         let first =
                         {
-                            let source = Packet
-                            {
-                                guard = Guard {},
-                                flag = false,
-                            };
+                            let source = input;
                             let taken = if true
                             {
                                 yield source.guard;
@@ -627,5 +623,35 @@ fn caught_owned_results_consume_the_success_operand() {
     assert_goal_state_diagnostic_kind(
         compilation.check_diagnostics(),
         DiagnosticKind::CheckingUseOfMovedStorage,
+    );
+}
+
+#[test]
+fn admission_failure_can_reach_enclosing_cleanup_catch() {
+    let compilation = compilation(
+        r#"
+            module app;
+
+            struct Guard
+            {
+                destruct() { panic("cleanup"); }
+            }
+
+            func nested(pos guard: Guard) -> Result<Guard, PanicReport>
+            {
+                let outer = catch
+                {
+                    let owned = guard;
+                    let inner = catch { yield Guard {}; };
+
+                    return inner;
+                };
+            }
+        "#,
+    );
+
+    assert_goal_state_diagnostic_kind(
+        compilation.check_diagnostics(),
+        DiagnosticKind::CheckingCallableResultRequired,
     );
 }

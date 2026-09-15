@@ -116,6 +116,7 @@ pub(super) fn validate_static_storage_mappings(
                     || previous.defines_storage() != mapping.defines_storage()
                     || previous.initial_value() != mapping.initial_value()
                     || previous.relocations() != mapping.relocations()
+                    || previous.outgoing_capacity() != mapping.outgoing_capacity()
                     || previous.finalization() != mapping.finalization()
                     || previous.destroy() != mapping.destroy()
                     || previous.ty() != mapping.ty()
@@ -141,9 +142,13 @@ pub(super) fn validate_static_storage_mappings(
             mapping.destroy_name(),
             mapping.detach_name(),
         ] {
-            if !names.insert(name) {
-                return Err(CodegenMappingsBuildError::DuplicateBinarySymbolName);
+            if names.contains(&name) {
+                return Err(CodegenMappingsBuildError::DuplicateBinarySymbolName {
+                    name: name.into(),
+                });
             }
+
+            names.insert(name);
         }
     }
 

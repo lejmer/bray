@@ -46,6 +46,10 @@ impl MirUnit {
 
 fn collect_operation_types(operation: &MirOperationKind, types: &mut BTreeSet<TypeId>) {
     match operation {
+        MirOperationKind::AdmitOutgoing { ty, .. }
+        | MirOperationKind::DischargeOutgoing { ty, .. } => {
+            types.insert(*ty);
+        }
         MirOperationKind::AnonymousCallable(_) | MirOperationKind::DeclaredCallable(_) => {}
         MirOperationKind::Store {
             destination, value, ..
@@ -67,9 +71,7 @@ fn collect_operation_types(operation: &MirOperationKind, types: &mut BTreeSet<Ty
         }
         MirOperationKind::Construct(construction) => {
             for input in construction.inputs() {
-                if let crate::MirConstructionInput::Explicit { value, .. } = input {
-                    collect_operand_types(value, types);
-                }
+                collect_operand_types(input.value(), types);
             }
         }
         MirOperationKind::Convert {
@@ -412,14 +414,20 @@ fn collect_host_types(operation: &MirHostOperation, types: &mut BTreeSet<TypeId>
 }
 
 fn collect_call_types(call: &MirCall, types: &mut BTreeSet<TypeId>) {
+    if let MirCallTarget::DefaultValue {
+        owner: crate::MirDefaultOwner::Type { ty, .. },
+        ..
+    } = call.target()
+    {
+        types.insert(*ty);
+    }
+
     if let MirCallTarget::Indirect { callee, .. } = call.target() {
         collect_operand_types(callee, types);
     }
 
     for argument in call.arguments() {
-        if let Some(value) = argument.value() {
-            collect_operand_types(value, types);
-        }
+        collect_operand_types(argument.value(), types);
     }
 }
 

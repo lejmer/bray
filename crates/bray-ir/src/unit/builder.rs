@@ -305,6 +305,19 @@ impl MirUnitBuilder {
         Ok(())
     }
 
+    /// Visits already terminated blocks while the unit is still being built.
+    pub fn terminated_blocks(&self) -> impl Iterator<Item = (MirBlockId, &MirTerminator)> {
+        self.blocks.iter().enumerate().filter_map(|(index, block)| {
+            let terminal = block.terminator.as_ref()?;
+
+            // push_block already checked that every retained block index fits its ID.
+            let slot =
+                u32::try_from(index).unwrap_or_else(|_| unreachable!("validated block index"));
+
+            Some((MirBlockId::from_slot(self.unit, slot), terminal))
+        })
+    }
+
     /// Returns whether any completed block transfers control to the target block.
     pub fn has_incoming_edge(&self, target: MirBlockId) -> Result<bool, MirUnitBuildError> {
         self.block_index(target)?;

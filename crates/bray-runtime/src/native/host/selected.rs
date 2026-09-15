@@ -17,7 +17,7 @@ pub struct NativeHostCallbacks {
     active: fn() -> bool,
     output: fn() -> TaskOutput,
     register_timeout: fn(RootCancellationHandle),
-    record_outcome: fn(NativeRunOutcome),
+    record_outcome: fn(&NativeRunOutcome),
     record_panic: fn(NativePanicCause, NativeSourceAnchor, String),
     record_returned_error: fn(),
     record_cleanup_failure: fn(usize),
@@ -34,7 +34,7 @@ impl NativeHostCallbacks {
         active: fn() -> bool,
         output: fn() -> TaskOutput,
         register_timeout: fn(RootCancellationHandle),
-        record_outcome: fn(NativeRunOutcome),
+        record_outcome: fn(&NativeRunOutcome),
         record_panic: fn(NativePanicCause, NativeSourceAnchor, String),
         record_returned_error: fn(),
         record_cleanup_failure: fn(usize),
@@ -75,7 +75,7 @@ pub(in crate::native) fn register_timeout(cancellation: RootCancellationHandle) 
     }
 }
 
-pub(in crate::native) fn record_outcome(outcome: NativeRunOutcome) {
+pub(in crate::native) fn record_outcome(outcome: &NativeRunOutcome) {
     if let Some(callbacks) = callbacks() {
         (callbacks.record_outcome)(outcome);
     }

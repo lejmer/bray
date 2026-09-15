@@ -53,7 +53,7 @@ pub fn demanded_runtime_references_for_mir(
 
     mir.operations()
         .iter()
-        .flat_map(|operation| operation_runtime_references(operation.kind()))
+        .flat_map(|operation| operation_runtime_references(operation.kind(), runtime_abi))
         .chain(
             mir.blocks()
                 .iter()
@@ -339,13 +339,29 @@ fn signature_passes_unsized_by_value(
         }
 }
 
-fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRuntimeReference>; 3] {
+fn operation_runtime_references(
+    operation: &MirOperationKind,
+    abi: bray_runtime_interface::RuntimeAbiVersion,
+) -> [Option<MirRuntimeReference>; 3] {
     match operation {
+        MirOperationKind::AdmitOutgoing { runtime, .. }
+        | MirOperationKind::DischargeOutgoing { runtime, .. } => [Some(*runtime), None, None],
+        MirOperationKind::Call(call) if call.is_cleanup() => [
+            Some(MirRuntimeReference::new(
+                bray_runtime_interface::RuntimeAbiRole::OutgoingActivation,
+                abi,
+            )),
+            Some(MirRuntimeReference::new(
+                bray_runtime_interface::RuntimeAbiRole::OutgoingRetirement,
+                abi,
+            )),
+            None,
+        ],
         MirOperationKind::Call(call) => match call.target() {
             bray_ir::MirCallTarget::Runtime(runtime) => [Some(*runtime), None, None],
-            bray_ir::MirCallTarget::Direct(_) | bray_ir::MirCallTarget::Indirect { .. } => {
-                [None, None, None]
-            }
+            bray_ir::MirCallTarget::Direct(_)
+            | bray_ir::MirCallTarget::DefaultValue { .. }
+            | bray_ir::MirCallTarget::Indirect { .. } => [None, None, None],
         },
         MirOperationKind::Async(MirAsyncOperation::StartTask {
             allocation, start, ..
@@ -373,7 +389,6 @@ fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRunt
             | MirAsyncOperation::RequestTaskCancellation { runtime, .. }
             | MirAsyncOperation::ObserveCurrentRunCancellation { runtime }
             | MirAsyncOperation::ResolveTask { runtime, .. }
-            | MirAsyncOperation::PublishTerminalState { runtime, .. }
             | MirAsyncOperation::ExecuteCleanupBroadcast { runtime, .. }
             | MirAsyncOperation::ExecuteLifecycleResolution { runtime, .. }
             | MirAsyncOperation::TransferCleanupIncident { runtime, .. },
@@ -419,6 +434,7 @@ fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRunt
                 initializer: bray_ir::MirFrameInitializer::Callable(_),
                 ..
             }
+            | MirAsyncOperation::PublishTerminalState { .. }
             | MirAsyncOperation::MoveInactiveFrame { .. }
             | MirAsyncOperation::ComposeAwaitedFrame { .. }
             | MirAsyncOperation::CommitAwaitedCompletion { .. }

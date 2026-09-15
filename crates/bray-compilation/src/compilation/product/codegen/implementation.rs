@@ -3906,6 +3906,7 @@ public func invoke<T>(pos value: T)
 
         assert!(mapping.finalization().is_some());
         assert!(mapping.destroy().is_some());
+        assert!(mapping.outgoing_capacity() >= 2);
 
         let lifecycle_symbols = plan
             .mappings()
@@ -3936,6 +3937,31 @@ public func invoke<T>(pos value: T)
         }));
 
         assert!(!generated_artifacts(&backend, &plan).is_empty());
+    }
+
+    #[test]
+    fn static_admission_counts_repeated_constant_owners() {
+        let (_, plan) = runtime_native_plan(
+            r#"
+            module app;
+            struct Resource { value: i32; destruct() {} }
+            static ONE: Resource = Resource { value = 1 };
+            static TWO: [Resource; 2] = [Resource { value = 1 }, Resource { value = 1 }];
+            func main() {}
+        "#,
+        );
+
+        let capacities = plan
+            .mappings()
+            .iter()
+            .flat_map(bray_codegen::CodegenMappings::static_storages)
+            .map(bray_codegen::CodegenStaticStorageMapping::outgoing_capacity)
+            .filter(|capacity| *capacity != 0)
+            .collect::<std::collections::BTreeSet<_>>();
+
+        let capacities = capacities.into_iter().collect::<Vec<_>>();
+        assert_eq!(capacities.len(), 2);
+        assert_eq!(capacities[1], capacities[0] * 2);
     }
 
     #[test]
@@ -4507,6 +4533,46 @@ public func invoke<T>(pos value: T)
             [],
             worker_budget,
         )
+    }
+
+    #[test]
+    fn runtime_source_imports_share_generated_runtime_calls() {
+        let source = r#"
+            trusted module app;
+            @abi(c)
+            extern trusted internal func reserve(pos count: usize, pos outcome: RawPointer<u8>) uses(foreign_call);
+            struct Guard { destruct() {} }
+            public trusted func invoke(pos outcome: RawPointer<u8>) uses(foreign_call) {
+                let guard = Guard {};
+                trusted reserve(1, outcome);
+            }
+        "#;
+
+        let role = RuntimeAbiRole::OutgoingAdmission;
+
+        let binding =
+            bray_runtime_interface::RuntimeRoleSourceBinding::try_new(role, "app.reserve")
+                .unwrap_or_else(|| panic!("runtime source binding must validate"));
+
+        let (backend, plan) =
+            runtime_native_plan_with_source_roles(&[source], ProductKind::Library, [binding]);
+
+        assert!(plan.mappings().iter().any(|mappings| mappings.symbols().iter().any(|symbol| matches!(symbol.key(), bray_codegen::CodegenSymbolKey::Runtime(reference) if reference.role() == role))));
+
+        assert!(plan.mappings().iter().all(|mappings| {
+            mappings
+                .symbols()
+                .iter()
+                .filter(|symbol| symbol.name().as_str() == role.native_symbol().unwrap())
+                .count()
+                <= 1
+        }));
+
+        assert!(
+            generated_artifacts(&backend, &plan)
+                .iter()
+                .all(|artifact| !artifact.is_empty())
+        );
     }
 
     #[test]

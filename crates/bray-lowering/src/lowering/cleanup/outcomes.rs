@@ -8,6 +8,7 @@ use bray_ir::{
 use super::control::{CleanupDestination, TerminalState};
 use crate::cleanup_outcome::CleanupOutcome;
 use crate::lowering::LoweringError;
+use crate::lowering::inputs::InputExit;
 use crate::lowering::lowerer::Lowerer;
 
 impl Lowerer<'_> {
@@ -55,6 +56,7 @@ impl Lowerer<'_> {
             &plans,
             None,
             &std::collections::BTreeMap::new(),
+            InputExit::All,
         )?;
 
         let outcome = self
@@ -123,6 +125,11 @@ impl Lowerer<'_> {
             plans,
             abandoned,
             &std::collections::BTreeMap::new(),
+            if panicking {
+                self.abnormal_input_exit(destination)
+            } else {
+                InputExit::All
+            },
         )?;
 
         let outcome = self
@@ -139,6 +146,19 @@ impl Lowerer<'_> {
         self.finish_cancelled_cleanup(lifecycle, source, outcome, destination)
     }
 
+    pub(super) fn abnormal_input_exit(&self, destination: CleanupDestination) -> InputExit {
+        if let CleanupDestination::Goto(block) = destination
+            && let Some(index) = self
+                .catch_targets
+                .iter()
+                .position(|target| target.block == block)
+        {
+            return InputExit::Catch(index + 1);
+        }
+
+        InputExit::All
+    }
+
     pub(super) fn resolve_cleanup(
         &mut self,
         mut broadcast: MirBlockId,
@@ -149,7 +169,10 @@ impl Lowerer<'_> {
             bray_bound_tree::BoundBlockId,
             (MirBlockId, MirBlockId, bray_symbols::TypeId),
         >,
+        input_exit: InputExit,
     ) -> Result<MirBlockId, LoweringError> {
+        let temporaries = self.input_cleanup(input_exit);
+
         let mut lifecycle = self.builder.push_block(
             Self::retained_source(source),
             MirBlockKind::LifecycleResolution,
@@ -175,6 +198,7 @@ impl Lowerer<'_> {
             source,
             MirCleanupPhase::TaskCancellation,
             plans,
+            &temporaries,
             None,
             failures,
         )?;
@@ -208,6 +232,7 @@ impl Lowerer<'_> {
             source,
             MirCleanupPhase::LifecycleResolution,
             plans,
+            &temporaries,
             None,
             failures,
         )

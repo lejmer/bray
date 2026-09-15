@@ -5,26 +5,8 @@ use bray_runtime_abi::{
 };
 
 native_adapter! {
-    pub extern "C" fn bray_runtime_substrate_panic_reporting(
-        cause: u32,
-        source_present: u32,
-        source_identity: u32,
-        source_start: u32,
-        source_end: u32,
-        source_version: u64,
-        message: *const u8,
-        message_length: usize,
-    ) -> NativeRuntimeStatus {
-        implementation::bray_runtime_substrate_panic_reporting(
-            cause,
-            source_present,
-            source_identity,
-            source_start,
-            source_end,
-            source_version,
-            message,
-            message_length,
-        )
+    pub extern "C" fn bray_runtime_substrate_panic_report_initialization(report: &mut bray_runtime_abi::NativePanicReport) -> NativeRuntimeStatus {
+        implementation::bray_runtime_substrate_panic_report_initialization(report)
     }
 }
 
@@ -37,12 +19,6 @@ native_adapter! {
 native_adapter! {
     pub extern "C" fn bray_runtime_main_native_thread_identity() -> u64 {
         implementation::bray_runtime_main_native_thread_identity()
-    }
-}
-
-native_adapter! {
-    pub extern "C" fn bray_runtime_native_thread_panic_report_recovery(payload: usize) -> usize {
-        implementation::bray_runtime_native_thread_panic_report_recovery(payload)
     }
 }
 
@@ -80,7 +56,7 @@ native_adapter! {
         context: usize,
         cancellation: NativeThreadCancellationCallback,
         cancellation_context: usize,
-        panic_payload: &mut usize,
+        panic_report: &mut bray_runtime_abi::NativePanicReport,
         cleanup: *const (),
     ) -> u32 {
         implementation::bray_runtime_substrate_native_thread_execution(
@@ -88,7 +64,7 @@ native_adapter! {
             context,
             cancellation,
             cancellation_context,
-            panic_payload,
+            panic_report,
             cleanup,
         )
     }

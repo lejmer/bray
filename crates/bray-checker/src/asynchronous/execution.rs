@@ -60,8 +60,16 @@ pub(crate) fn execution_cleanup_dependencies<C: CheckerRequestContext + ?Sized>(
             | TypeData::TraitView(_)
             | TypeData::Slice(_)
             | TypeData::FlexibleArray(_) => {}
-            TypeData::Tuple(elements) => pending.extend(elements.iter().copied()),
-            TypeData::Array { element, .. } | TypeData::Nullable(element) => pending.push(*element),
+            TypeData::Tuple(elements) => {
+                if mode == ExecutionCleanupMode::Disposal {
+                    pending.extend(elements.iter().copied());
+                }
+            }
+            TypeData::Array { element, .. } | TypeData::Nullable(element) => {
+                if mode == ExecutionCleanupMode::Disposal {
+                    pending.push(*element);
+                }
+            }
             TypeData::Named {
                 definition,
                 substitution,
@@ -72,13 +80,18 @@ pub(crate) fn execution_cleanup_dependencies<C: CheckerRequestContext + ?Sized>(
                 match role {
                     Some(RepresentationRole::Future | RepresentationRole::Task) => valid = false,
                     Some(RepresentationRole::String | RepresentationRole::PanicReport) => {
-                        valid &= property == ExecutionProperty::Total
+                        valid &= mode == ExecutionCleanupMode::Admission
+                            || property == ExecutionProperty::Total
                     }
                     Some(
                         RepresentationRole::Result
                         | RepresentationRole::RunResult
                         | RepresentationRole::ConversionError,
                     ) => {
+                        if mode == ExecutionCleanupMode::Admission {
+                            continue;
+                        }
+
                         let substitution = request
                             .semantic_values()
                             .generic_substitution_data(*substitution)
@@ -127,24 +140,30 @@ pub(crate) fn execution_cleanup_dependencies<C: CheckerRequestContext + ?Sized>(
                                 .map_err(CheckerQueryError::Infrastructure)?
                                     == Some(RepresentationRole::Unit);
 
-                                if slot == TypeAssociatedLifecycleSlot::Finalizer {
-                                    // Graceful cleanup reserves and discharges capacity even when its body is inert.
-                                    valid &= mode == ExecutionCleanupMode::Disposal
-                                        && property == ExecutionProperty::Total;
+                                if mode == ExecutionCleanupMode::Disposal
+                                    && slot == TypeAssociatedLifecycleSlot::Finalizer
+                                {
+                                    valid &= property == ExecutionProperty::Total;
                                 }
 
-                                if mode == ExecutionCleanupMode::Disposal {
-                                    valid &= unit
-                                        && callable_type.execution()
-                                            == CallableExecution::Synchronous;
+                                valid &= unit
+                                    && callable_type.execution() == CallableExecution::Synchronous;
 
-                                    dependencies.push(ExecutionDependency {
-                                        target: BoundCallableTarget::Declaration(*callable),
-                                        property,
-                                        node,
-                                    });
-                                }
+                                dependencies.push(ExecutionDependency {
+                                    target: BoundCallableTarget::Declaration(*callable),
+                                    property: if mode == ExecutionCleanupMode::Admission {
+                                        ExecutionProperty::Total
+                                    } else {
+                                        property
+                                    },
+                                    node,
+                                });
                             }
+                        }
+
+                        // Moved children retain their own admission. Only disposal traverses them.
+                        if mode == ExecutionCleanupMode::Admission {
+                            continue;
                         }
 
                         let representation = request.declared_type_representation(*definition)?;

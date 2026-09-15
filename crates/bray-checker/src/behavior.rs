@@ -1,7 +1,7 @@
 use bray_bound_tree::{
     BodyBehaviorCall, BodyBehaviorContributions, BodyBehaviorPhase, BoundCallResult,
     BoundCallableTarget, CheckedAsync, CheckedControlFlow, CheckedSemanticSelections,
-    ConstructionDefaultProvider, ConstructionTarget, ConversionTarget, IndexTarget, OperatorTarget,
+    ConstructionTarget, ConversionTarget, DefaultValueProvider, IndexTarget, OperatorTarget,
     SelectedArgument, SelectedConstructionInput, SelectedConversion, SelectedOperation,
     SemanticSelection,
 };
@@ -97,7 +97,7 @@ where
                         .iter()
                         .filter_map(|argument| match argument {
                             SelectedArgument::Default { provider, .. } => {
-                                Some(ConstructionDefaultProvider::CallableParameter(*provider))
+                                Some(DefaultValueProvider::CallableParameter(*provider))
                             }
                             SelectedArgument::Explicit { .. } => None,
                         }),
@@ -166,7 +166,7 @@ pub(crate) fn collect_operation_behavior(
     operation: &SelectedOperation,
     source: Option<bray_bound_tree::BoundSourceAnchor>,
     calls: &mut Vec<BodyBehaviorCall>,
-    defaults: &mut Vec<ConstructionDefaultProvider>,
+    defaults: &mut Vec<DefaultValueProvider>,
 ) -> bool {
     if let Some(target) = operation.operator_target() {
         match target {

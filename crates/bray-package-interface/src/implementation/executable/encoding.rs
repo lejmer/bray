@@ -517,6 +517,19 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.ty(query.nullable_type())?;
                 self.ty(query.result_type())?;
             }
+            MirOperationKind::AdmitOutgoing { ty, runtime }
+            | MirOperationKind::DischargeOutgoing { ty, runtime } => {
+                self.wire.write_u32(
+                    if matches!(operation, MirOperationKind::AdmitOutgoing { .. }) {
+                        22
+                    } else {
+                        23
+                    },
+                );
+
+                self.ty(*ty)?;
+                self.runtime_reference(*runtime);
+            }
             MirOperationKind::Host(_) => {
                 return Err(ExecutableTemplateEncodeError::InvalidUnitKind);
             }
@@ -656,6 +669,8 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
     }
 
     fn call(&mut self, call: &MirCall) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
+        write_bool(&mut self.wire, call.is_cleanup());
+
         match call.target() {
             MirCallTarget::Direct(reference) => {
                 self.wire.write_u32(0);
@@ -670,6 +685,24 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             MirCallTarget::Runtime(reference) => {
                 self.wire.write_u32(2);
                 self.runtime_reference(*reference);
+            }
+            MirCallTarget::DefaultValue { owner, provider } => {
+                self.wire.write_u32(3);
+
+                match owner {
+                    bray_ir::MirDefaultOwner::Callable(callable) => {
+                        self.wire.write_u32(0);
+                        self.callable_instance(callable.instance())?;
+                        self.callable_abi(callable.abi());
+                    }
+                    bray_ir::MirDefaultOwner::Type { target, ty } => {
+                        self.wire.write_u32(1);
+                        self.construction_target(*target)?;
+                        self.ty(*ty)?;
+                    }
+                }
+
+                self.symbol(provider.symbol())?;
             }
         }
 
@@ -867,16 +900,6 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
 
                 self.wire.write_u32(*ordinal);
                 self.operand(value)?;
-            }
-            MirCallArgument::Default {
-                parameter,
-                ordinal,
-                provider,
-            } => {
-                self.wire.write_u32(2);
-                self.symbol((*parameter).into())?;
-                self.wire.write_u32(*ordinal);
-                self.symbol((*provider).into())?;
             }
         }
 
@@ -1306,28 +1329,9 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
         &mut self,
         input: &MirConstructionInput,
     ) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
-        match input {
-            MirConstructionInput::Explicit {
-                input,
-                ordinal,
-                value,
-            } => {
-                self.wire.write_u32(0);
-                self.construction_input_id(*input)?;
-                self.wire.write_u32(*ordinal);
-                self.operand(value)?;
-            }
-            MirConstructionInput::Default {
-                input,
-                ordinal,
-                provider,
-            } => {
-                self.wire.write_u32(1);
-                self.construction_input_id(*input)?;
-                self.wire.write_u32(*ordinal);
-                self.symbol(provider.symbol())?;
-            }
-        }
+        self.construction_input_id(input.input())?;
+        self.wire.write_u32(input.ordinal());
+        self.operand(input.value())?;
 
         Ok(())
     }

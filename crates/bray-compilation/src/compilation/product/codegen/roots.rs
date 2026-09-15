@@ -79,16 +79,11 @@ impl Compilation {
 
             let template = self.static_instance_template(static_symbol.id())?;
 
-            let ty = template
-                .value()
-                .declared_type()
-                .resolved_type()
-                .ok_or_else(|| {
-                    FactQueryError::from(ProductQueryFailure::missing(
-                        ProductQueryContext::Symbol(static_symbol.id().into()),
-                        ProductDataKind::StaticDeclaredType,
-                    ))
-                })?;
+            let ty = self.resolve_codegen_type(
+                template.value().declared_type(),
+                empty_substitution(binding_context.semantic_values(), static_symbol.id().into())?,
+                cancellation,
+            )?;
 
             let native_direction =
                 self.foreign_static_direction(static_symbol.id(), cancellation)?;

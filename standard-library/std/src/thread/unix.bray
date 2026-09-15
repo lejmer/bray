@@ -40,8 +40,7 @@ trusted internal func unix_thread_entry(pos context: RawPointer<u8>) -> RawPoint
     return std.memory.null<u8>();
 }
 
-internal callable NativeThreadEntry = @abi(c)
-trusted func(pos context: RawPointer<u8>) -> RawPointer<u8>
+internal callable NativeThreadEntry = @abi(c) trusted func(pos context: RawPointer<u8>) -> RawPointer<u8>
     requires(blocking_execution(), compute_execution());
 
 trusted internal func native_thread_entry() -> RawPointer<u8>

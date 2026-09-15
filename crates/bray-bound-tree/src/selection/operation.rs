@@ -285,6 +285,19 @@ pub enum ConstructionTarget {
 }
 
 impl ConstructionTarget {
+    /// Returns whether this construction selects the provider's declaration category.
+    pub const fn accepts_default(self, provider: DefaultValueProvider) -> bool {
+        matches!(
+            (self, provider),
+            (Self::Struct(_), DefaultValueProvider::StructField(_))
+                | (Self::UnionVariant(_), DefaultValueProvider::UnionPayload(_))
+                | (
+                    Self::TypeForm { .. },
+                    DefaultValueProvider::CallableParameter(_)
+                )
+        )
+    }
+
     /// Returns whether this target owns the supplied construction input category.
     pub const fn accepts_input(self, input: ConstructionInputId) -> bool {
         matches!(
@@ -315,35 +328,34 @@ pub enum ConstructionInputId {
 
 impl ConstructionInputId {
     /// Returns whether this input category owns the supplied default provider category.
-    pub const fn accepts_default(self, provider: ConstructionDefaultProvider) -> bool {
+    pub const fn accepts_default(self, provider: DefaultValueProvider) -> bool {
         matches!(
             (self, provider),
-            (
-                Self::StructField(_),
-                ConstructionDefaultProvider::StructField(_)
-            ) | (
-                Self::UnionPayloadField(_),
-                ConstructionDefaultProvider::UnionPayload(_)
-            ) | (
-                Self::CallableParameter(_),
-                ConstructionDefaultProvider::CallableParameter(_)
-            )
+            (Self::StructField(_), DefaultValueProvider::StructField(_))
+                | (
+                    Self::UnionPayloadField(_),
+                    DefaultValueProvider::UnionPayload(_)
+                )
+                | (
+                    Self::CallableParameter(_),
+                    DefaultValueProvider::CallableParameter(_)
+                )
         )
     }
 }
 
-/// One declaration-owned runtime default used by construction.
+/// One declaration-owned runtime default used by a call or construction.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum ConstructionDefaultProvider {
+pub enum DefaultValueProvider {
     /// A struct field default.
     StructField(StructFieldDefaultProviderSymbolId),
     /// A union payload field default.
     UnionPayload(UnionPayloadDefaultProviderSymbolId),
-    /// A type-form callable parameter default.
+    /// A callable parameter default, including type-form parameters.
     CallableParameter(CallableParameterDefaultProviderSymbolId),
 }
 
-impl ConstructionDefaultProvider {
+impl DefaultValueProvider {
     /// Returns the declaration symbol that owns this runtime default.
     pub const fn symbol(self) -> AnySymbolId {
         match self {
@@ -375,7 +387,7 @@ pub enum SelectedConstructionInput {
         /// The exact initialized field or parameter.
         input: ConstructionInputId,
         /// The declaration-owned provider evaluated by construction.
-        provider: ConstructionDefaultProvider,
+        provider: DefaultValueProvider,
         /// The exact expected input type.
         ty: TypeId,
         /// The initialized input's declaration-order ordinal.
@@ -603,14 +615,9 @@ impl SelectedOperation {
 
                 may_panic
             }
-            Self::Construction(construction) => {
-                matches!(construction.target(), ConstructionTarget::TypeForm { .. })
-                    || construction
-                        .inputs()
-                        .iter()
-                        .any(|input| matches!(input, SelectedConstructionInput::Default { .. }))
-            }
-            Self::Member(_) | Self::Implementation(_) => false,
+            Self::Construction(_) => true,
+            Self::Member(member) => matches!(member.member(), AnySymbolId::UnionVariant(_)),
+            Self::Implementation(_) => false,
         }
     }
 

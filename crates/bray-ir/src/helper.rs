@@ -1,14 +1,12 @@
 use bray_bound_tree::{
-    ConstructionDefaultProvider, ConstructionTarget, ConversionTarget, SelectedConversion,
+    ConstructionTarget, ConversionTarget, DefaultValueProvider, SelectedConversion,
 };
 use bray_runtime_interface::RuntimeAbiRole;
-use bray_symbols::{
-    CallableAbi, CallableInstanceData, CallableParameterDefaultProviderSymbolId, TypeId,
-};
+use bray_symbols::{CallableAbi, CallableInstanceData, TypeId};
 
 use crate::{
-    MirAnonymousCallableReference, MirAsyncOperation, MirCall, MirCallArgument, MirCleanupPhase,
-    MirFrameInitializer, MirFrameReference, MirGeneratorOperation, MirOperationKind,
+    MirAnonymousCallableReference, MirAsyncOperation, MirCleanupPhase, MirFrameInitializer,
+    MirFrameReference, MirGeneratorOperation, MirOperationKind,
 };
 
 /// Exact semantic role of one callable helper required to realize MIR.
@@ -18,10 +16,8 @@ pub enum MirHelperReference {
     AnonymousCallable(MirAnonymousCallableReference),
     /// Declared callable whose stable function address is materialized as a value.
     DeclaredCallable(crate::MirCallableReference),
-    /// Declaration-owned default for an omitted call argument.
-    CallableDefault(CallableParameterDefaultProviderSymbolId),
-    /// Declaration-owned default for a construction input.
-    ConstructionDefault(ConstructionDefaultProvider),
+    /// Declaration-owned default evaluated before input ownership transfers.
+    DefaultValue(DefaultValueProvider),
     /// Selected type-form construction callable.
     TypeForm(CallableInstanceData),
     /// Selected implementation callable for a semantic conversion.
@@ -67,8 +63,7 @@ impl MirHelperReference {
         match self {
             Self::DeclaredCallable(callable) => callable.abi(),
             Self::AnonymousCallable(_)
-            | Self::CallableDefault(_)
-            | Self::ConstructionDefault(_)
+            | Self::DefaultValue(_)
             | Self::TypeForm(_)
             | Self::Conversion(_)
             | Self::BeginGenerator
@@ -97,8 +92,7 @@ impl MirHelperReference {
             | Self::Cleanup { ty, .. } => Some(*ty),
             Self::AnonymousCallable(_)
             | Self::DeclaredCallable(_)
-            | Self::CallableDefault(_)
-            | Self::ConstructionDefault(_)
+            | Self::DefaultValue(_)
             | Self::TypeForm(_)
             | Self::Conversion(_)
             | Self::BeginGenerator
@@ -131,8 +125,7 @@ impl MirHelperReference {
             Self::DestroyTerminalTask => Some(RuntimeAbiRole::TaskDestruction),
             Self::AnonymousCallable(_)
             | Self::DeclaredCallable(_)
-            | Self::CallableDefault(_)
-            | Self::ConstructionDefault(_)
+            | Self::DefaultValue(_)
             | Self::TypeForm(_)
             | Self::Conversion(_)
             | Self::StandardLibrary(_)
@@ -160,12 +153,6 @@ impl MirOperationKind {
                 helpers.push(MirHelperReference::DeclaredCallable(*callable));
             }
             Self::Construct(construction) => {
-                for input in construction.inputs() {
-                    if let crate::MirConstructionInput::Default { provider, .. } = input {
-                        helpers.push(MirHelperReference::ConstructionDefault(*provider));
-                    }
-                }
-
                 if let ConstructionTarget::TypeForm { callable, .. } = construction.target() {
                     helpers.push(MirHelperReference::TypeForm(callable));
                 }
@@ -197,7 +184,11 @@ impl MirOperationKind {
             Self::Memory(memory) => collect_memory_helpers(memory, &mut helpers),
             Self::Text(operation) => collect_text_helpers(operation, &mut helpers),
             Self::PanicReport(_) => helpers.push(MirHelperReference::PanicReport),
-            Self::Call(call) => collect_call_defaults(call, &mut helpers),
+            Self::Call(call) => {
+                if let crate::MirCallTarget::DefaultValue { provider, .. } = call.target() {
+                    helpers.push(MirHelperReference::DefaultValue(*provider));
+                }
+            }
             Self::Finalize(place) => helpers.push(MirHelperReference::Finalize(place.ty())),
             Self::Destroy(place) => helpers.push(MirHelperReference::Destroy(place.ty())),
             Self::Cleanup { phase, place } => helpers.push(MirHelperReference::Cleanup {
@@ -206,9 +197,7 @@ impl MirOperationKind {
             }),
             Self::Async(MirAsyncOperation::CreateFrame { frame, initializer }) => {
                 match initializer {
-                    MirFrameInitializer::Callable(call) => {
-                        collect_call_defaults(call, &mut helpers);
-                    }
+                    MirFrameInitializer::Callable(_) => {}
                     MirFrameInitializer::TaskObservation { result, .. } => {
                         for phase in [
                             MirCleanupPhase::TaskCancellation,
@@ -251,6 +240,8 @@ impl MirOperationKind {
             | Self::Aggregate(_)
             | Self::PatternProjection { .. }
             | Self::Async(_)
+            | Self::AdmitOutgoing { .. }
+            | Self::DischargeOutgoing { .. }
             | Self::Host(_) => {}
         }
 
@@ -411,14 +402,4 @@ fn collect_conversion_helpers(
         | ConversionTarget::BuiltInScalar
         | ConversionTarget::CVariadicPromotion => {}
     }
-}
-
-fn collect_call_defaults(call: &MirCall, helpers: &mut Vec<MirHelperReference>) {
-    helpers.extend(call.arguments().iter().filter_map(|argument| {
-        let MirCallArgument::Default { provider, .. } = argument else {
-            return None;
-        };
-
-        Some(MirHelperReference::CallableDefault(*provider))
-    }));
 }

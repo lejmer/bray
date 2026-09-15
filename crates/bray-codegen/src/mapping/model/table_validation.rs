@@ -108,19 +108,23 @@ pub(super) fn validate_operation_mappings(
                 .map(move |(id, operation)| {
                     (
                         (instance.key().clone(), id),
-                        operation.kind().helper_references(),
+                        (
+                            operation.kind().helper_references(),
+                            operation.kind().requires_outgoing_capacity(),
+                        ),
                     )
                 })
         })
-        .filter(|(_, helpers)| !helpers.is_empty())
+        .filter(|(_, (helpers, outgoing))| !helpers.is_empty() || *outgoing)
         .collect();
 
     if mappings.len() != expected.len()
         || mappings.iter().any(|mapping| {
             let key = (mapping.owner().clone(), mapping.operation());
 
-            expected.get(&key).is_none_or(|references| {
-                references.len() != mapping.helpers().len()
+            expected.get(&key).is_none_or(|(references, outgoing)| {
+                *outgoing != mapping.outgoing_capacity().is_some()
+                    || references.len() != mapping.helpers().len()
                     || references
                         .iter()
                         .zip(mapping.helpers())

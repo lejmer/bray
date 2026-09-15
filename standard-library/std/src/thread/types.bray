@@ -25,8 +25,7 @@ callable Entry<State, T> = func(pos state: State) -> T
 internal callable ThreadOperation = trusted func(pos context: usize)
     requires(blocking_execution(), compute_execution());
 
-internal callable ThreadCancellationObservation = @abi(c)
-trusted func(pos context: usize) -> u32;
+internal callable ThreadCancellationObservation = @abi(c) trusted func(pos context: usize) -> u32;
 
 @copy
 struct Id
@@ -78,7 +77,6 @@ union ThreadNameError
 internal struct ThreadControl
 {
     state: std.atomic.Atomic<u32>;
-    panic_payload: std.atomic.Atomic<usize>;
     cancellation: std.atomic.Atomic<u32>;
     identity: std.atomic.Atomic<u64>;
     park_token: std.atomic.Atomic<u32>;
@@ -89,6 +87,7 @@ internal struct ThreadStorage<T>
 {
     control: ThreadControl;
     mut result: Uninit<T>;
+    mut report: Uninit<PanicReport>;
 }
 
 internal struct ThreadStart<State, T>
@@ -98,29 +97,41 @@ internal struct ThreadStart<State, T>
     storage: RawPointer<ThreadStorage<T>>;
 }
 
-internal struct NativeThreadStart
+@copy
+internal struct NativeThreadDispatch
 {
     operation: ThreadOperation;
-    context: usize;
+}
+
+internal struct NativeThreadStart<State, T>
+{
+    // The non-generic OS entry reads this prefix to reach the typed owner.
+    dispatch: NativeThreadDispatch;
+    mut work: RawPointer<ThreadStart<State, T>>;
     control: RawPointer<ThreadControl>;
+    report: RawPointer<PanicReport>;
+
+    trusted destruct()
+    {
+        if !std.memory.is_null<ThreadStart<State, T>>(self.work)
+        {
+            let _: ThreadStart<State, T> = trusted internal take_transferred_value<ThreadStart<State, T>>(self.work);
+        }
+    }
 }
 
 internal struct ThreadConstruction<State, T>
 {
     mut storage: RawPointer<ThreadStorage<T>>;
-    mut work: RawPointer<ThreadStart<State, T>>;
-    mut native: RawPointer<NativeThreadStart>;
+    mut native: RawPointer<NativeThreadStart<State, T>>;
 
     trusted destruct()
     {
-        if !std.memory.is_null<NativeThreadStart>(self.native)
+        if !std.memory.is_null<NativeThreadStart<State, T>>(self.native)
         {
-            let _: NativeThreadStart = trusted internal take_transferred_value<NativeThreadStart>(self.native);
-        }
-
-        if !std.memory.is_null<ThreadStart<State, T>>(self.work)
-        {
-            let _: ThreadStart<State, T> = trusted internal take_transferred_value<ThreadStart<State, T>>(self.work);
+            let _: NativeThreadStart<State, T> = trusted internal take_transferred_value<NativeThreadStart<State, T>>(
+                self.native
+            );
         }
 
         if !std.memory.is_null<ThreadStorage<T>>(self.storage)

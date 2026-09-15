@@ -19,7 +19,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         storage_place: MirPlace,
         target: TypeId,
         borrow: bray_bound_tree::LifecycleCallable,
-    ) -> Result<MirPlace, C::Error> {
+    ) -> Result<(bray_ir::MirBlockId, MirPlace), C::Error> {
         let borrowed = self.push_selected_call(
             builder,
             block,
@@ -28,6 +28,9 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             borrow,
             BoundCallResult::Immediate(borrow.result),
         )?;
+
+        let (block, borrowed) =
+            self.check_lifecycle_value(builder, block, source, borrowed, borrow.result)?;
 
         let temporary = builder
             .push_storage(source.clone(), MirStorageKind::Temporary, borrow.result)
@@ -46,7 +49,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             },
         )?;
 
-        Ok(pointer.project(MirProjectionKind::Dereference, target))
+        Ok((
+            block,
+            pointer.project(MirProjectionKind::Dereference, target),
+        ))
     }
 
     pub(super) fn push_selected_runtime_lifecycle(
@@ -218,7 +224,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
     ) -> Result<bray_ir::MirBlockId, C::Error> {
         let storage_place = place.project(MirProjectionKind::OwnedStorage, storage);
 
-        let target_place = self.storage_target_place(
+        let (block, target_place) = self.storage_target_place(
             builder,
             block,
             source,

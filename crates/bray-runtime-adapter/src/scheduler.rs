@@ -142,15 +142,6 @@ native_adapter! {
 }
 
 native_adapter! {
-    pub extern "C" fn bray_runtime_terminal_publication(
-        state: NativeRunState,
-        payload: usize,
-    ) -> NativeFrameProgress {
-        implementation::bray_runtime_terminal_publication(state, payload)
-    }
-}
-
-native_adapter! {
     pub extern "C" fn bray_runtime_compatible_lane_selection(
         task: NativeTaskHandle,
         state: u32,

@@ -3,10 +3,9 @@ use std::sync::Arc;
 use bray_base::{shared_slice, sorted_unique_shared_slice};
 use bray_runtime_interface::{RuntimeAbiRole, RuntimeAbiVersion};
 use bray_symbols::{
-    CallableAbi, CallableContractTemplate, CallableInstanceData,
-    CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId, CallablePhaseBehaviors,
-    ImplementationInstanceId, ReceiverParameterSymbolId, StructFieldSymbolId,
-    UnionPayloadFieldSymbolId,
+    CallableAbi, CallableContractTemplate, CallableInstanceData, CallableParameterSymbolId,
+    CallablePhaseBehaviors, ImplementationInstanceId, ReceiverParameterSymbolId,
+    StructFieldSymbolId, UnionPayloadFieldSymbolId,
 };
 
 use bray_bound_tree::{BoundCallResult, SelectedImplementationWitness};
@@ -91,11 +90,32 @@ impl MirRuntimeReference {
     }
 }
 
+/// Declaration context selecting a default provider's specialization and witnesses.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum MirDefaultOwner {
+    /// A callable parameter default, including type-form parameters.
+    Callable(MirCallableReference),
+    /// A field default of a constructed named type.
+    Type {
+        /// Selected field-bearing construction.
+        target: bray_bound_tree::ConstructionTarget,
+        /// Constructed type carrying its specialization.
+        ty: bray_symbols::TypeId,
+    },
+}
+
 /// Exact callable mechanism selected for one MIR call.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum MirCallTarget {
     /// A concrete Bray callable instance.
     Direct(MirCallableReference),
+    /// A declaration-owned default evaluated before its caller transfers inputs.
+    DefaultValue {
+        /// Exact declaration context selecting the provider specialization.
+        owner: MirDefaultOwner,
+        /// Selected declaration-owned provider.
+        provider: bray_bound_tree::DefaultValueProvider,
+    },
     /// One private runtime ABI operation.
     Runtime(MirRuntimeReference),
     /// A checked callable value.
@@ -112,13 +132,14 @@ impl MirCallTarget {
     pub const fn abi(&self) -> CallableAbi {
         match self {
             Self::Direct(reference) => reference.abi(),
+            Self::DefaultValue { .. } => CallableAbi::Bray,
             Self::Runtime(_) => CallableAbi::Bray,
             Self::Indirect { abi, .. } => *abi,
         }
     }
 }
 
-/// One checked receiver, explicit value, or declaration-owned runtime default.
+/// One evaluated receiver or argument.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum MirCallArgument {
     /// An evaluated instance receiver.
@@ -137,15 +158,6 @@ pub enum MirCallArgument {
         /// Evaluated and converted argument value.
         value: MirOperand,
     },
-    /// An omitted parameter supplied by its declaration-owned runtime default.
-    Default {
-        /// Exact omitted parameter.
-        parameter: CallableParameterSymbolId,
-        /// Declaration-order parameter position.
-        ordinal: u32,
-        /// Exact runtime default provider.
-        provider: CallableParameterDefaultProviderSymbolId,
-    },
 }
 
 impl MirCallArgument {
@@ -158,11 +170,10 @@ impl MirCallArgument {
         }
     }
 
-    /// Returns the evaluated operand when this input is supplied directly.
-    pub const fn value(&self) -> Option<&MirOperand> {
+    /// Returns the evaluated input operand.
+    pub const fn value(&self) -> &MirOperand {
         match self {
-            Self::Receiver { value, .. } | Self::Explicit { value, .. } => Some(value),
-            Self::Default { .. } => None,
+            Self::Receiver { value, .. } | Self::Explicit { value, .. } => value,
         }
     }
 }
@@ -170,6 +181,7 @@ impl MirCallArgument {
 /// One explicit call with ordered inputs and retained checked behavior.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct MirCall {
+    cleanup: bool,
     target: MirCallTarget,
     result: BoundCallResult,
     arguments: Arc<[MirCallArgument]>,
@@ -202,6 +214,18 @@ pub enum MirCallIntrinsic {
 }
 
 impl MirCall {
+    /// Marks an invocation of a mandatory local action backed by its owner's admission.
+    pub const fn with_cleanup(mut self, cleanup: bool) -> Self {
+        self.cleanup = cleanup;
+
+        self
+    }
+
+    /// Returns whether this invocation consumes a local action's outgoing allowance.
+    pub const fn is_cleanup(&self) -> bool {
+        self.cleanup
+    }
+
     /// Returns whether this call can propagate a panic through the synchronous Bray ABI.
     pub const fn may_propagate_panic(&self) -> bool {
         matches!(
@@ -209,10 +233,11 @@ impl MirCall {
             MirCallTarget::Direct(MirCallableReference {
                 abi: CallableAbi::Bray,
                 ..
-            }) | MirCallTarget::Indirect {
-                abi: CallableAbi::Bray,
-                ..
-            }
+            }) | MirCallTarget::DefaultValue { .. }
+                | MirCallTarget::Indirect {
+                    abi: CallableAbi::Bray,
+                    ..
+                }
         ) && matches!(self.result, BoundCallResult::Immediate(_))
             && self.intrinsic.is_none()
     }
@@ -233,6 +258,7 @@ impl MirCall {
         witnesses: impl IntoIterator<Item = SelectedImplementationWitness>,
     ) -> Self {
         Self {
+            cleanup: false,
             target,
             result,
             arguments: shared_slice(arguments),
@@ -253,6 +279,7 @@ impl MirCall {
         witnesses: impl IntoIterator<Item = SelectedImplementationWitness>,
     ) -> Self {
         Self {
+            cleanup: false,
             target,
             result,
             arguments: shared_slice(arguments.into_iter().enumerate().map(|(ordinal, value)| {
@@ -300,6 +327,7 @@ impl MirCall {
         witnesses: impl IntoIterator<Item = SelectedImplementationWitness>,
     ) -> Self {
         Self {
+            cleanup: false,
             target,
             result,
             arguments: shared_slice(arguments),

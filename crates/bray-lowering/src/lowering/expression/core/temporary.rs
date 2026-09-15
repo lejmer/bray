@@ -57,12 +57,13 @@ impl Lowerer<'_> {
 
             let may_check = match self.input.semantic_selections().expression(expression) {
                 Some(SemanticSelection::Call(selection)) => {
-                    selection.abi() == CallableAbi::Bray
-                        && matches!(
-                            selection.resolution().result(),
-                            BoundCallResult::Immediate(_)
-                        )
-                        && selection.implementation_hook().is_none()
+                    selection.evaluates_defaults()
+                        || (selection.abi() == CallableAbi::Bray
+                            && matches!(
+                                selection.resolution().result(),
+                                BoundCallResult::Immediate(_)
+                            )
+                            && selection.implementation_hook().is_none())
                 }
                 Some(SemanticSelection::Operation(operation)) => {
                     operation.may_propagate_synchronous_panic()
@@ -228,7 +229,7 @@ impl Lowerer<'_> {
         ))
     }
 
-    fn materialize_synthetic_temporary(
+    pub(in crate::lowering) fn materialize_synthetic_temporary(
         &mut self,
         current: bray_ir::MirBlockId,
         source: bray_ir::MirSourceAnchor,

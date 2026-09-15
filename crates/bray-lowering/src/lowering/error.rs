@@ -17,6 +17,8 @@ pub enum LoweringError {
     RecoveredBoundNode(AnyBoundNodeId),
     /// A checked expression has no final type.
     MissingExpressionType(BoundExpressionId),
+    /// An initialized call or construction input has no checked cleanup shape.
+    MissingInputCleanup(BoundExpressionId),
     /// Direct await reached lowering without a protected current frame.
     AwaitOutsideProtectedFrame(BoundExpressionId),
     /// Checked async analysis omitted a direct-await suspension decision.
