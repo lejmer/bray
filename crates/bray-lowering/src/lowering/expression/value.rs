@@ -80,6 +80,19 @@ impl Lowerer<'_> {
         expression: &BoundStructuredExpression,
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
+        let retained = self.input_temporaries.len();
+        let result = self.lower_aggregate_inputs(id, expression, current);
+        self.input_temporaries.truncate(retained);
+
+        result
+    }
+
+    fn lower_aggregate_inputs(
+        &mut self,
+        id: BoundExpressionId,
+        expression: &BoundStructuredExpression,
+        current: MirBlockId,
+    ) -> Result<LoweredExpression, LoweringError> {
         let kind = match expression.kind() {
             BoundStructuredExpressionKind::Tuple => MirAggregateKind::Tuple,
             BoundStructuredExpressionKind::Array => MirAggregateKind::Array,
@@ -284,14 +297,6 @@ impl Lowerer<'_> {
         for (index, expression) in expressions.iter().enumerate() {
             let lowered = self.lower_expression(*expression, current)?;
 
-            let lowered = if self
-                .later_evaluation_may_change_block(expressions[index + 1..].iter().copied())?
-            {
-                self.materialize_for_later_evaluation(*expression, lowered)?
-            } else {
-                lowered
-            };
-
             let Some(continuation) = lowered.block else {
                 return Ok(LoweredOperands::Terminated(lowered));
             };
@@ -301,6 +306,17 @@ impl Lowerer<'_> {
             };
 
             current = continuation;
+
+            let value = if self
+                .later_evaluation_may_change_block(expressions[index + 1..].iter().copied())?
+            {
+                let ty = self.builder.operand_type(&value)?;
+
+                self.materialize_owned_input(*expression, current, &lowered.source, value, ty)?
+            } else {
+                value
+            };
+
             operands.push(value);
         }
 

@@ -261,6 +261,7 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
         }
 
         if is_directive(node.kind())
+            && self.nodes.last() != Some(&SyntaxKind::CallableDirectives)
             && self
                 .configuration
                 .is_enabled(FormatterRule::DirectiveLineBreaks)

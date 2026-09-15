@@ -40,7 +40,7 @@ pub(super) fn run_static_cleanup(
     finalizer: NativeStaticFinalizer,
     destroy: NativeStaticCleanupCallback,
     detach: NativeStaticTransitionCallback,
-) -> [Option<CleanupIncident>; 6] {
+) -> [Option<CleanupIncident>; 8] {
     // Generated owner destruction discharges the accepted allowance. Drop rolls it back only
     // if formation fails before cleanup starts.
     admission.source = 0;
@@ -49,14 +49,14 @@ pub(super) fn run_static_cleanup(
         .err()
         .map(CleanupIncident::panic);
 
-    let [first, second, resolution] = match finalizer.execution() {
-        NativeStaticFinalizerExecution::NONE => [None, None, None],
+    let [first, second, third, resolution] = match finalizer.execution() {
+        NativeStaticFinalizerExecution::NONE => [None, None, None, None],
         NativeStaticFinalizerExecution::SYNCHRONOUS => {
-            let [first, second] = collect_finalizer_incidents(|incident| {
-                (finalizer.start())((&raw mut *incident).addr())
+            let [first, second, third] = collect_finalizer_incidents(|incident, outcome| {
+                (finalizer.start())((&raw mut *incident).addr(), outcome)
             });
 
-            [first, second, None]
+            [first, second, third, None]
         }
         NativeStaticFinalizerExecution::ASYNCHRONOUS => run_asynchronous_finalizer(
             admission
@@ -65,10 +65,13 @@ pub(super) fn run_static_cleanup(
                 .expect("asynchronous finalizer storage was admitted with its static owner"),
             finalizer,
         ),
-        _ => [Some(CleanupIncident::runtime_failure()), None, None],
+        _ => [Some(CleanupIncident::runtime_failure()), None, None, None],
     };
 
-    let destroy = catch_unwind(AssertUnwindSafe(|| destroy()))
+    let mut published =
+        bray_runtime_abi::NativeRunOutcome::new(bray_runtime_abi::NativeRunState::COMPLETED, 0);
+
+    let destroy = catch_unwind(AssertUnwindSafe(|| destroy(&mut published)))
         .err()
         .map(CleanupIncident::panic);
 
@@ -76,13 +79,22 @@ pub(super) fn run_static_cleanup(
         .err()
         .map(CleanupIncident::panic);
 
-    [prepare, first, second, resolution, destroy, detach]
+    [
+        prepare,
+        first,
+        second,
+        third,
+        resolution,
+        CleanupIncident::outcome(published),
+        destroy,
+        detach,
+    ]
 }
 
 fn run_asynchronous_finalizer(
     admission: crate::TaskAdmission,
     finalizer: NativeStaticFinalizer,
-) -> [Option<CleanupIncident>; 3] {
+) -> [Option<CleanupIncident>; 4] {
     extern "C" fn invalid_frame(_: usize) -> bray_runtime_abi::NativeProtectedFrame {
         panic!("inactive static finalizer frame was not initialized")
     }
@@ -90,20 +102,40 @@ fn run_asynchronous_finalizer(
     let mut frame = NativeInactiveFrame::new(0, invalid_frame);
     let destination = (&raw mut frame).addr();
 
-    match catch_unwind(AssertUnwindSafe(|| (finalizer.start())(destination))) {
+    let mut published =
+        bray_runtime_abi::NativeRunOutcome::new(bray_runtime_abi::NativeRunState::COMPLETED, 0);
+
+    let started = catch_unwind(AssertUnwindSafe(|| {
+        (finalizer.start())(destination, &mut published)
+    }));
+
+    let incident = CleanupIncident::outcome(published);
+
+    match started {
+        Ok(_) if incident.is_some() => [incident, None, None, None],
         Ok(NativeStaticFinalizerStatus::SUCCESS) => {
             crate::native::run_static_finalizer(admission, frame, finalizer.resolve())
         }
-        Ok(_) => [Some(CleanupIncident::runtime_failure()), None, None],
-        Err(payload) => [Some(CleanupIncident::panic(payload)), None, None],
+        Ok(_) => [Some(CleanupIncident::runtime_failure()), None, None, None],
+        Err(payload) => [incident, Some(CleanupIncident::panic(payload)), None, None],
     }
 }
 
 pub(crate) fn collect_finalizer_incidents(
-    callback: impl FnOnce(&mut NativeCleanupIncident) -> NativeStaticFinalizerStatus,
-) -> [Option<CleanupIncident>; 2] {
+    callback: impl FnOnce(
+        &mut NativeCleanupIncident,
+        &mut bray_runtime_abi::NativeRunOutcome,
+    ) -> NativeStaticFinalizerStatus,
+) -> [Option<CleanupIncident>; 3] {
     let mut destination = empty_native_incident();
-    let outcome = catch_unwind(AssertUnwindSafe(|| callback(&mut destination)));
+
+    let mut published =
+        bray_runtime_abi::NativeRunOutcome::new(bray_runtime_abi::NativeRunState::COMPLETED, 0);
+
+    let outcome = catch_unwind(AssertUnwindSafe(|| {
+        callback(&mut destination, &mut published)
+    }));
+
     let incident = CleanupIncident::native(destination);
 
     // A published incident has transferred ownership even if the callback then unwinds.
@@ -114,7 +146,7 @@ pub(crate) fn collect_finalizer_incidents(
         Err(payload) => Some(CleanupIncident::panic(payload)),
     };
 
-    [incident, failure]
+    [incident, CleanupIncident::outcome(published), failure]
 }
 
 const fn empty_native_incident() -> NativeCleanupIncident {
@@ -122,7 +154,11 @@ const fn empty_native_incident() -> NativeCleanupIncident {
         NativeRuntimeStatus::INVALID_ARGUMENT
     }
 
-    extern "C-unwind" fn invalid_destroy(_: usize) {}
+    extern "C-unwind" fn invalid_destroy(
+        _: usize,
+        _: &mut bray_runtime_abi::NativeRunOutcome,
+        _: &mut bray_runtime_abi::NativeRunOutcome,
+    ) {}
 
     NativeCleanupIncident::new(
         0,

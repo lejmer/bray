@@ -10,7 +10,10 @@ use inkwell::values::{FunctionValue, PointerValue, StructValue};
 use inkwell::{AddressSpace, IntPredicate};
 
 use super::super::LlvmTypeMappings;
-use super::boundary::{invoke_static_boundary, mapped_instance_function};
+use super::boundary::{
+    branch_on_static_failure, clean_failed_static_allocation, invoke_static_boundary,
+    mapped_instance_function, static_outcome,
+};
 use super::host::StaticFinalizerCallbacks;
 use super::storage::declare_static_callback_with_type;
 
@@ -92,7 +95,13 @@ fn declare_static_finalizer_start<'context>(
         module,
         &name,
         "static.finalize",
-        context.i32_type().fn_type(&[usize.into()], false),
+        context.i32_type().fn_type(
+            &[
+                usize.into(),
+                context.ptr_type(AddressSpace::default()).into(),
+            ],
+            false,
+        ),
         types,
     );
 
@@ -147,16 +156,22 @@ fn declare_static_finalizer_start<'context>(
         };
 
         let call = invoke_static_boundary(
-            module,
-            mappings,
-            mapping.owner(),
             &builder,
             function,
             symbol.signature(),
             &arguments,
+            static_outcome(callback)?,
             name,
             types,
         )?;
+
+        let continued = branch_on_static_failure(&builder, callback, types)?;
+
+        builder
+            .build_return(Some(&context.i32_type().const_zero()))
+            .map_err(CodegenFailure::backend_library)?;
+
+        builder.position_at_end(continued);
 
         if matches!(
             symbol.signature().result(),
@@ -185,7 +200,11 @@ fn declare_static_finalizer_start<'context>(
             let status = builder
                 .build_call(
                     resolve,
-                    &[completion.into(), supplied_destination.into()],
+                    &[
+                        completion.into(),
+                        supplied_destination.into(),
+                        static_outcome(callback)?.into(),
+                    ],
                     "static.finalize.status",
                 )
                 .map_err(CodegenFailure::backend_library)?
@@ -227,9 +246,14 @@ fn declare_static_finalizer_resolver<'context>(
         module,
         &name,
         "static.finalize.resolve",
-        context
-            .i32_type()
-            .fn_type(&[usize.into(), usize.into()], false),
+        context.i32_type().fn_type(
+            &[
+                usize.into(),
+                usize.into(),
+                context.ptr_type(AddressSpace::default()).into(),
+            ],
+            false,
+        ),
         types,
     );
 
@@ -255,10 +279,6 @@ fn declare_static_finalizer_resolver<'context>(
         success_variant,
     } = finalization.result()
     else {
-        if finalization.result() == ExecutableEntryResult::I32 {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
-        }
-
         builder
             .build_return(Some(&context.i32_type().const_zero()))
             .map_err(CodegenFailure::backend_library)?;
@@ -371,9 +391,6 @@ fn declare_static_finalizer_resolver<'context>(
         mapped_instance_function(module, mappings, memory.allocation())?;
 
     let allocation_call = invoke_static_boundary(
-        module,
-        mappings,
-        mapping.owner(),
         &builder,
         allocation,
         allocation_signature,
@@ -383,9 +400,24 @@ fn declare_static_finalizer_resolver<'context>(
                 .const_int(error_layout.alignment().get(), false)
                 .into(),
         ],
+        static_outcome(callback)?,
         "static.finalize.incident.payload",
         types,
     )?;
+
+    let continued = branch_on_static_failure(&builder, callback, types)?;
+
+    clean_failed_static_allocation(
+        module,
+        mappings,
+        mapping,
+        &builder,
+        error_address,
+        static_outcome(callback)?,
+        types,
+    )?;
+
+    builder.position_at_end(continued);
 
     let payload = allocation_call
         .try_as_basic_value()
@@ -526,7 +558,9 @@ fn declare_static_incident_destroyer<'context>(
         module,
         &name,
         "static.finalize.incident.destroy",
-        context.void_type().fn_type(&[usize.into()], false),
+        context
+            .void_type()
+            .fn_type(&[usize.into(), pointer.into(), pointer.into()], false),
         types,
     );
 
@@ -547,6 +581,11 @@ fn declare_static_incident_destroyer<'context>(
         .build_int_to_ptr(payload, pointer, "static.finalize.incident.pointer")
         .map_err(CodegenFailure::backend_library)?;
 
+    let destruction_outcome = callback
+        .get_nth_param(1)
+        .ok_or(CodegenFailure::GeneratedModuleInvariant)?
+        .into_pointer_value();
+
     let cleanup = mapping
         .finalization()
         .and_then(bray_codegen::CodegenStaticFinalization::incident_cleanup)
@@ -561,13 +600,11 @@ fn declare_static_incident_destroyer<'context>(
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
     invoke_static_boundary(
-        module,
-        mappings,
-        mapping.owner(),
         &builder,
         function,
         symbol.signature(),
         &[payload_pointer.into()],
+        destruction_outcome,
         "",
         types,
     )?;
@@ -581,9 +618,6 @@ fn declare_static_incident_destroyer<'context>(
         mapped_instance_function(module, mappings, memory.deallocation())?;
 
     invoke_static_boundary(
-        module,
-        mappings,
-        mapping.owner(),
         &builder,
         deallocation,
         deallocation_signature,
@@ -592,6 +626,7 @@ fn declare_static_incident_destroyer<'context>(
             usize.const_int(payload_size, false).into(),
             usize.const_int(payload_alignment, false).into(),
         ],
+        static_outcome(callback)?,
         "",
         types,
     )?;

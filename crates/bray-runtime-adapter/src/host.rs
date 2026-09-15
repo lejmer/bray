@@ -5,6 +5,12 @@ use bray_runtime_abi::{
 };
 
 native_adapter! {
+    pub extern "C" fn bray_runtime_substrate_static_outcome_reporting(outcome: &mut NativeRunOutcome) {
+        implementation::bray_runtime_substrate_static_outcome_reporting(outcome)
+    }
+}
+
+native_adapter! {
     pub extern "C" fn bray_runtime_substrate_initialization(
         worker_capacity: usize,
         timer_capacity: usize,

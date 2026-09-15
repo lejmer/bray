@@ -1959,6 +1959,21 @@ mod tests {
                 _ => false,
             }
         }));
+
+        let broadcast = generated_lifecycle(
+            &compilation,
+            &target,
+            MirHelperReference::Cleanup {
+                phase: MirCleanupPhase::TaskCancellation,
+                ty: owned,
+            },
+            83,
+        );
+
+        assert!(broadcast.blocks().iter().any(|block| {
+            matches!(block.terminator().kind(), MirTerminatorKind::ContinueCleanup(edge)
+                if !edge.edge().arguments().is_empty())
+        }), "storage borrow panic must transfer its report out of cleanup broadcast");
     }
 
     #[test]

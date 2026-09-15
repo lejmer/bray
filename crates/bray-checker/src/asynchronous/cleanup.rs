@@ -323,6 +323,7 @@ pub(super) fn scope_exit_plans<C>(
     flow: &StorageFlow,
     dependencies: &bray_bound_tree::CheckedDependencyContracts,
     selections: &bray_bound_tree::CheckedSemanticSelections,
+    types: &bray_bound_tree::CheckedExpressionTypes,
 ) -> Result<
     (
         Vec<AsyncStorageRequirement>,
@@ -375,6 +376,28 @@ where
                 }
             }
             _ => {}
+        }
+    }
+
+    for (_, expression) in request.unit().tree().expressions() {
+        let bray_bound_tree::BoundExpression::Structured(expression) = expression else {
+            continue;
+        };
+
+        use bray_bound_tree::BoundStructuredExpressionKind as Kind;
+
+        if matches!(
+            expression.kind(),
+            Kind::Tuple | Kind::Array | Kind::RepeatedArray | Kind::Range
+        ) {
+            for operand in expression.operands() {
+                let ty = types
+                    .expression(*operand)
+                    .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?
+                    .ty();
+
+                cleanup_shapes.include_input(ty)?;
+            }
         }
     }
 

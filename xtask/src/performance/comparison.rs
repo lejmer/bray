@@ -142,8 +142,6 @@ fn compare_compilation(
                 .get(language)
                 .ok_or_else(|| format!("candidate {owner} omitted {language:?}"))?;
 
-            // Validation checks each command against its workload and artifact paths.
-            // Output-directory differences therefore do not change the build contract.
             if baseline.toolchain != candidate.toolchain
                 || baseline.source_sha256 != candidate.source_sha256
                 || baseline.authority != candidate.authority
@@ -208,6 +206,8 @@ fn compare_peers(
                 .get(language)
                 .ok_or_else(|| "candidate peer disappeared during comparison".to_owned())?;
 
+            // Validation checks each command against its workload and artifact paths.
+            // Output-directory differences therefore do not change the build contract.
             if baseline.toolchain != candidate.toolchain
                 || baseline.source_sha256 != candidate.source_sha256
                 || baseline.build_configuration.target != candidate.build_configuration.target

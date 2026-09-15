@@ -316,6 +316,19 @@ static void panicked_callback(uintptr_t context, RunOutcome *outcome) {
 static void static_transition(void) {
 }
 
+void bray_runtime_substrate_static_outcome_reporting(RunOutcome *outcome) {
+    if (outcome->state == 2) {
+        consume_report(&outcome->report, 1);
+    } else if (outcome->state != 0) {
+        abort();
+    }
+    *outcome = (RunOutcome){0};
+}
+
+static void static_cleanup(RunOutcome *outcome) {
+    (void)outcome;
+}
+
 static uint32_t report_cleanup_incident(uintptr_t payload) {
     if (payload != 2) {
         abort();
@@ -325,7 +338,9 @@ static uint32_t report_cleanup_incident(uintptr_t payload) {
     return 0;
 }
 
-static void destroy_cleanup_incident(uintptr_t payload) {
+static void destroy_cleanup_incident(uintptr_t payload, RunOutcome *outcome, RunOutcome *release) {
+    (void)release;
+    (void)outcome;
     if (payload != 2) {
         abort();
     }
@@ -349,19 +364,23 @@ static uint32_t record_cleanup(uint32_t ordinal, uintptr_t destination) {
     return 0;
 }
 
-static uint32_t first_cleanup(uintptr_t destination) {
+static uint32_t first_cleanup(uintptr_t destination, RunOutcome *outcome) {
+    (void)outcome;
     return record_cleanup(1, destination);
 }
 
-static uint32_t second_cleanup(uintptr_t destination) {
+static uint32_t second_cleanup(uintptr_t destination, RunOutcome *outcome) {
+    (void)outcome;
     return record_cleanup(2, destination);
 }
 
-static uint32_t third_cleanup(uintptr_t destination) {
+static uint32_t third_cleanup(uintptr_t destination, RunOutcome *outcome) {
+    (void)outcome;
     return record_cleanup(3, destination);
 }
 
-static uint32_t resolve_cleanup(uintptr_t completed, uintptr_t destination) {
+static uint32_t resolve_cleanup(uintptr_t completed, uintptr_t destination, RunOutcome *outcome) {
+    (void)outcome;
     (void)completed;
     (void)destination;
     return 0;
@@ -376,7 +395,7 @@ static CleanupRegistration cleanup_registration(uint8_t identity, void *start) {
     registration.finalizer.result_alignment = _Alignof(CleanupIncident);
     registration.finalizer.start = start;
     registration.finalizer.resolve = (void *)&resolve_cleanup;
-    registration.destroy = (void *)&static_transition;
+    registration.destroy = (void *)&static_cleanup;
     registration.detach = (void *)&static_transition;
 
     return registration;

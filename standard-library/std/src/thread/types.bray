@@ -25,8 +25,7 @@ callable Entry<State, T> = func(pos state: State) -> T
 internal callable ThreadOperation = trusted func(pos context: usize)
     requires(blocking_execution(), compute_execution());
 
-internal callable ThreadCancellationObservation = @abi(c)
-trusted func(pos context: usize) -> u32;
+internal callable ThreadCancellationObservation = @abi(c) trusted func(pos context: usize) -> u32;
 
 @copy
 struct Id

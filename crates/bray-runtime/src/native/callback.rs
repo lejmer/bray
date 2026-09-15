@@ -154,6 +154,7 @@ fn execute_callback_boundary(
 
     let mut outcome = match outcome {
         RunOutcome::Completed(()) => published,
+        RunOutcome::Cancelled if published.state() == NativeRunState::PANICKED => published,
         RunOutcome::Cancelled => NativeRunOutcome::new(NativeRunState::CANCELLED, 0),
         RunOutcome::Panicked(panic) => {
             let report = if published.state() == NativeRunState::PANICKED {
@@ -229,6 +230,18 @@ mod tests {
         *outcome = NativeRunOutcome::panicked(crate::frame::native_report(
             bray_runtime_abi::NativePanicPrimary::empty(),
         ));
+    }
+
+    extern "C-unwind" fn write_then_cancel(context: usize, outcome: &mut NativeRunOutcome) {
+        propagate_report(context, outcome);
+        crate::root::propagate_current_run_cancellation();
+    }
+
+    #[test]
+    fn callback_cancellation_preserves_an_already_published_panic() {
+        let mut outcome = super::bray_runtime_substrate_synchronous_root_execution(write_then_cancel, 0, cleanup as *const ());
+        assert_eq!(outcome.state(), NativeRunState::PANICKED);
+        assert!(outcome.take_report().consume(false).is_success());
     }
 
     thread_local! {

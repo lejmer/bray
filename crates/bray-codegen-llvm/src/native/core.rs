@@ -344,6 +344,8 @@ pub(crate) fn panic_report_type(context: &Context) -> StructType<'_> {
             u32.into(),
             u64.into(),
             u32.into(),
+            // Match the explicit field padding used by the semantic aggregate mapping.
+            context.i8_type().array_type(4).into(),
             u64.into(),
             u64.into(),
             pointer.into(),
@@ -606,6 +608,28 @@ mod tests {
     use bray_runtime_interface::{ProtectedFrameOperation, RuntimeAbiRole, RuntimeAbiType};
     use bray_target::NativeTarget;
     use inkwell::context::Context;
+
+    #[test]
+    fn panic_report_fields_keep_semantic_padding_and_native_offsets() {
+        let context = Context::create();
+        let report = super::panic_report_type(&context);
+
+        for native in NativeTarget::ALL {
+            let target = CodegenTarget::for_native(native);
+
+            let machine = crate::machine::LlvmTargetMachine::create(&target)
+                .expect("native target must create an LLVM machine");
+
+            let data = machine.target_data();
+
+            assert_eq!(data.get_store_size(&report), 104);
+            assert_eq!(data.get_abi_alignment(&report), 8);
+
+            for (element, offset) in [(5, 24), (6, 28), (7, 32), (10, 56), (15, 96)] {
+                assert_eq!(data.offset_of_element(&report, element), Some(offset));
+            }
+        }
+    }
 
     #[test]
     fn every_native_catalog_role_has_a_declaration_on_every_native_target() {

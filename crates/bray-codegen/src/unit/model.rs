@@ -15,9 +15,10 @@ struct CodegenUnitKeyData {
     partition_policy: CodegenPartitionPolicy,
     estimated_work: CodegenWork,
     oversized: Option<CodegenOversizedUnit>,
-    content_identity: [u8; 32],
     target: MirTargetContract,
     recipe: Arc<CodegenUnitRecipe>,
+    // Distinct recipes sort before MIR hashes containing compilation-local value IDs.
+    content_identity: [u8; 32],
 }
 
 /// Stable structural identity of one partitioned code generation unit.
@@ -417,6 +418,31 @@ mod tests {
         );
 
         assert_eq!(first, second);
+    }
+
+    #[test]
+    fn distinct_unit_order_does_not_depend_on_compilation_local_mir_ids() {
+        let right = CodegenUnit::try_new(
+            CodegenPartitionPolicy::NATIVE_BALANCED,
+            codegen_partition_compatibility(),
+            [test_mir_unit_with_declaration(40, 1)],
+        )
+        .unwrap_or_else(|error| panic!("comparison unit must validate: {error:?}"));
+
+        for local_id in 0..32 {
+            let left = CodegenUnit::try_new(
+                CodegenPartitionPolicy::NATIVE_BALANCED,
+                codegen_partition_compatibility(),
+                [test_mir_unit_with_declaration(local_id, 0)],
+            )
+            .unwrap_or_else(|error| panic!("renumbered unit must validate: {error:?}"));
+
+            assert_eq!(
+                left.key().cmp(right.key()),
+                left.key().instances().cmp(right.key().instances()),
+                "local MIR identity {local_id} must not change object order"
+            );
+        }
     }
 
     #[test]

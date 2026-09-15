@@ -4,48 +4,73 @@ pub(crate) fn run_static_finalizer(
     admission: crate::TaskAdmission,
     frame: bray_runtime_abi::NativeInactiveFrame,
     resolve: bray_runtime_abi::NativeStaticFinalizerResolveCallback,
-) -> [Option<OwnedCleanupIncident>; 3] {
+) -> [Option<OwnedCleanupIncident>; 4] {
     use bray_runtime_abi::{NativeRootHandle, NativeRunState};
 
     let incidents = super::state::with_runtime(|runtime| {
         let allocation = runtime.allocate_admitted(admission);
 
         let Some(task) = allocation.task() else {
-            return [Some(OwnedCleanupIncident::runtime_failure()), None, None];
+            return [
+                Some(OwnedCleanupIncident::runtime_failure()),
+                None,
+                None,
+                None,
+            ];
         };
 
         if !runtime.start(task, frame.into_protected()).is_success() {
-            return [Some(OwnedCleanupIncident::runtime_failure()), None, None];
+            return [
+                Some(OwnedCleanupIncident::runtime_failure()),
+                None,
+                None,
+                None,
+            ];
         }
 
         let Some(root) = NativeRootHandle::new(task.raw()) else {
-            return [Some(OwnedCleanupIncident::runtime_failure()), None, None];
+            return [
+                Some(OwnedCleanupIncident::runtime_failure()),
+                None,
+                None,
+                None,
+            ];
         };
 
         let mut outcome = runtime.observe_root(root);
 
-        let [first, second] = match outcome.state() {
-            NativeRunState::COMPLETED => crate::product::collect_finalizer_incidents(|incident| {
-                resolve(outcome.payload(), (&raw mut *incident).addr())
-            }),
+        let [first, second, third] = match outcome.state() {
+            NativeRunState::COMPLETED => {
+                crate::product::collect_finalizer_incidents(|incident, destination| {
+                    resolve(outcome.payload(), (&raw mut *incident).addr(), destination)
+                })
+            }
             NativeRunState::PANICKED => [
                 Some(OwnedCleanupIncident::report_owner(outcome.take_report())),
+                None,
                 None,
             ],
             NativeRunState::CANCELLED
             | NativeRunState::PENDING
             | NativeRunState::RUNTIME_FAILURE => {
-                [Some(OwnedCleanupIncident::runtime_failure()), None]
+                [Some(OwnedCleanupIncident::runtime_failure()), None, None]
             }
-            _ => [Some(OwnedCleanupIncident::runtime_failure()), None],
+            _ => [Some(OwnedCleanupIncident::runtime_failure()), None, None],
         };
 
         let resolution = (!runtime.resolve_root_completion(root).is_success())
             .then(OwnedCleanupIncident::runtime_failure);
 
-        [first, second, resolution]
+        [first, second, third, resolution]
     })
-    .unwrap_or_else(|_| [Some(OwnedCleanupIncident::runtime_failure()), None, None]);
+    .unwrap_or_else(|_| {
+        [
+            Some(OwnedCleanupIncident::runtime_failure()),
+            None,
+            None,
+            None,
+        ]
+    });
 
     incidents
 }
@@ -275,7 +300,11 @@ mod tests {
 
     extern "C-unwind" fn ignore_completion_move(_: usize, _: usize) {}
 
-    extern "C-unwind" fn resolve(_: usize, _: usize) -> NativeStaticFinalizerStatus {
+    extern "C-unwind" fn resolve(
+        _: usize,
+        _: usize,
+        _: &mut bray_runtime_abi::NativeRunOutcome,
+    ) -> NativeStaticFinalizerStatus {
         NativeStaticFinalizerStatus::SUCCESS
     }
 }

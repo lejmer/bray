@@ -61,6 +61,55 @@ func run()
     evaluated_call_input_cleanup();
     async_parameter_default_cleanup();
     destructor_receiver_transfer();
+    aggregate_input_cleanup();
+}
+
+func rejected_guard() -> Guard
+{
+    panic("aggregate input");
+}
+
+func aggregate_input_cleanup()
+{
+    core.atomic.store<usize, 4>(&COUNT, 0);
+
+    let tuple_result = catch
+    {
+        let pair = (
+            Guard
+            {
+                id = 7
+            },
+            rejected_default()
+        );
+
+        yield unit;
+    };
+
+    assert(tuple_result matches Error(_));
+    assert(core.atomic.load<usize, 1>(&COUNT) == 7);
+
+    core.atomic.store<usize, 4>(&COUNT, 0);
+
+    let array_result = catch
+    {
+        let values = [
+            Guard
+            {
+                id = 1
+            },
+            Guard
+            {
+                id = 2
+            },
+            rejected_guard()
+        ];
+
+        yield unit;
+    };
+
+    assert(array_result matches Error(_));
+    assert(core.atomic.load<usize, 1>(&COUNT) == 21);
 }
 
 struct FailingGuard

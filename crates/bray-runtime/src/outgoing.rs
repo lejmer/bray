@@ -33,6 +33,8 @@ struct Records {
     source_credits: usize,
 }
 
+// Reports outlive their producing tasks and cross native threads. Their linked runtime
+// therefore owns the record provider until the final report releases its records.
 static RECORDS: Mutex<Records> = Mutex::new(Records {
     slots: Vec::new(),
     free: None,

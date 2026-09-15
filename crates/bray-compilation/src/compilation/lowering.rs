@@ -1657,14 +1657,24 @@ mod tests {
 
     #[test]
     fn construction_inputs_survive_a_later_await() {
-        for (input_type, initializer, declaration) in [
-            ("i32", "17", ""),
-            ("Guard", "Guard {}", "struct Guard { destruct() {} }"),
+        for (input_type, initializer, result_type) in [
+            (
+                "i32",
+                "Value { first = 17, second = await pending }",
+                "Value",
+            ),
+            (
+                "Guard",
+                "Value { first = Guard {}, second = await pending }",
+                "Value",
+            ),
+            ("i32", "(17, await pending)", "(i32, i32)"),
+            ("Guard", "(Guard {}, await pending)", "(Guard, i32)"),
+            ("i32", "[17, await pending]", "[i32; 2]"),
         ] {
             let source = format!(
-                "module app; {declaration} struct Value {{ first: {input_type}; second: i32; }} \
-                 async func build(pos pending: Future<i32>) -> Value {{ \
-                 return Value {{ first = {initializer}, second = await pending }}; }}"
+                "module app; struct Guard {{ destruct() {{}} }} struct Value {{ first: {input_type}; second: i32; }} \
+                 async func build(pos pending: Future<i32>) -> {result_type} {{ return {initializer}; }}"
             );
 
             let compilation = compilation(&source);
@@ -1685,15 +1695,21 @@ mod tests {
                 .operations()
                 .iter()
                 .find_map(|operation| {
-                    let MirOperationKind::Construct(construction) = operation.kind() else {
-                        return None;
+                    let first = match operation.kind() {
+                        MirOperationKind::Construct(construction)
+                            if construction.inputs().len() == 2 =>
+                        {
+                            construction.inputs()[0].value()
+                        }
+                        MirOperationKind::Aggregate(aggregate)
+                            if aggregate.operands().len() == 2 =>
+                        {
+                            &aggregate.operands()[0]
+                        }
+                        _ => return None,
                     };
 
-                    if construction.inputs().len() != 2 {
-                        return None;
-                    }
-
-                    let MirOperand::Move(first) = construction.inputs()[0].value() else {
+                    let MirOperand::Move(first) = first else {
                         return None;
                     };
 

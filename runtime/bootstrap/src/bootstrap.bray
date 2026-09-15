@@ -683,7 +683,7 @@ trusted internal func finish_attachment(pos state: RawPointer<AttachmentState>)
 
         trusted invoke_static_transition(record.prepare);
         trusted run_static_finalizer(record.finalizer);
-        trusted invoke_static_transition(record.destroy);
+        trusted invoke_static_cleanup(record.destroy);
         trusted invoke_static_transition(record.detach);
 
         let released: RawPointer<CleanupRecord> = cleanup;

@@ -5,7 +5,7 @@ use bray_runtime_abi::{
     NativeExecutionLaneResult, NativeFrameProgress, NativeFrameProgressKind, NativeInactiveFrame,
     NativePanicCause, NativeProductHostDescriptor, NativeProductHostObservation,
     NativeProductHostOperation, NativeProtectedFrame, NativeProtectedFrameTransfer,
-    NativeRootHandle, NativeRootStart, NativeRunOutcome, NativeRunResultLayout,
+    NativeRootHandle, NativeRootStart, NativeRunOutcome, NativeRunResultLayout, NativeRunState,
     NativeRuntimeConfiguration, NativeRuntimeEventCallback, NativeRuntimeStatus,
     NativeSourceAnchor, NativeTaskAllocation, NativeTaskHandle,
     NativeThreadStaticCleanupRegistration, NativeWakeCallback,
@@ -214,6 +214,16 @@ native_export! {
     pub extern "C" fn bray_runtime_panic_propagation(report: &mut bray_runtime_abi::NativePanicReport) -> ! {
         report.consume(true);
         std::process::abort()
+    }
+}
+
+native_export! {
+    pub extern "C" fn bray_runtime_substrate_static_outcome_reporting(outcome: &mut NativeRunOutcome) {
+        let outcome = std::mem::replace(outcome, NativeRunOutcome::new(NativeRunState::COMPLETED, 0));
+        if let Some(incident) = crate::incident::OwnedCleanupIncident::outcome(outcome) {
+            super::host::record_cleanup_failure(1);
+            incident.report();
+        }
     }
 }
 

@@ -795,41 +795,63 @@ mod tests {
         1
     }
 
-    extern "C-unwind" fn cleanup(_: usize) -> NativeStaticFinalizerStatus {
+    extern "C-unwind" fn cleanup(
+        _: usize,
+        _: &mut bray_runtime_abi::NativeRunOutcome,
+    ) -> NativeStaticFinalizerStatus {
         CLEANUPS.fetch_add(1, Ordering::SeqCst);
 
         NativeStaticFinalizerStatus::SUCCESS
     }
 
-    extern "C-unwind" fn first_thread_cleanup(_: usize) -> NativeStaticFinalizerStatus {
+    extern "C-unwind" fn first_thread_cleanup(
+        _: usize,
+        _: &mut bray_runtime_abi::NativeRunOutcome,
+    ) -> NativeStaticFinalizerStatus {
         append_thread_cleanup(1);
 
         NativeStaticFinalizerStatus::SUCCESS
     }
 
-    extern "C-unwind" fn second_thread_cleanup(_: usize) -> NativeStaticFinalizerStatus {
+    extern "C-unwind" fn second_thread_cleanup(
+        _: usize,
+        _: &mut bray_runtime_abi::NativeRunOutcome,
+    ) -> NativeStaticFinalizerStatus {
         append_thread_cleanup(2);
 
         NativeStaticFinalizerStatus::SUCCESS
     }
 
-    extern "C-unwind" fn panicking_thread_cleanup(_: usize) -> NativeStaticFinalizerStatus {
+    extern "C-unwind" fn panicking_thread_cleanup(
+        _: usize,
+        _: &mut bray_runtime_abi::NativeRunOutcome,
+    ) -> NativeStaticFinalizerStatus {
         panic_from_provider();
     }
 
-    extern "C-unwind" fn panicking_product_cleanup(_: usize) -> NativeStaticFinalizerStatus {
+    extern "C-unwind" fn panicking_product_cleanup(
+        _: usize,
+        _: &mut bray_runtime_abi::NativeRunOutcome,
+    ) -> NativeStaticFinalizerStatus {
         record_product_phase(1);
         panic_from_provider();
     }
 
-    extern "C-unwind" fn continuing_product_cleanup(_: usize) -> NativeStaticFinalizerStatus {
+    extern "C-unwind" fn continuing_product_cleanup(
+        _: usize,
+        _: &mut bray_runtime_abi::NativeRunOutcome,
+    ) -> NativeStaticFinalizerStatus {
         record_product_phase(1);
         CONTINUING_PRODUCT_CLEANUPS.fetch_add(1, Ordering::SeqCst);
 
         NativeStaticFinalizerStatus::SUCCESS
     }
 
-    extern "C-unwind" fn resolve_success(_: usize, _: usize) -> NativeStaticFinalizerStatus {
+    extern "C-unwind" fn resolve_success(
+        _: usize,
+        _: usize,
+        _: &mut bray_runtime_abi::NativeRunOutcome,
+    ) -> NativeStaticFinalizerStatus {
         NativeStaticFinalizerStatus::SUCCESS
     }
 
@@ -846,9 +868,9 @@ mod tests {
 
     extern "C" fn detach_thread_static() {}
 
-    extern "C-unwind" fn no_cleanup() {}
+    extern "C-unwind" fn no_cleanup(_: &mut bray_runtime_abi::NativeRunOutcome) {}
 
-    extern "C-unwind" fn record_product_destruction() {
+    extern "C-unwind" fn record_product_destruction(_: &mut bray_runtime_abi::NativeRunOutcome) {
         record_product_phase(2);
         PRODUCT_DESTRUCTIONS.fetch_add(1, Ordering::SeqCst);
     }

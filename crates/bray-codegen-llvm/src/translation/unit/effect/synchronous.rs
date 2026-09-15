@@ -6,7 +6,7 @@ use inkwell::values::BasicValueEnum;
 
 use super::super::core::UnitTranslator;
 use super::super::support::{
-    insert_value, int_value, llvm, native_run_outcome, native_run_state_is, pointer_value,
+    int_value, llvm, native_run_outcome, native_run_state_is, pointer_value,
 };
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
@@ -80,7 +80,18 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let (function, signature) = self.root_entry(root, RootExecution::Synchronous)?;
 
-        let panic_report = self.allocate_panic_report_context()?;
+        let outcome_type =
+            crate::native::run_outcome_type(self.types.context(), self.request.target());
+
+        let panic_report = callback
+            .get_nth_param(1)
+            .and_then(pointer_value)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        llvm(
+            self.builder
+                .build_store(panic_report, outcome_type.const_zero()),
+        )?;
 
         let result = self.invoke_function_with_panic_report_context(
             function,
@@ -117,9 +128,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             _ => return Err(CodegenFailure::GeneratedModuleInvariant),
         }
 
-        let outcome_type =
-            crate::native::run_outcome_type(self.types.context(), self.request.target());
-
         let value = llvm(
             self.builder
                 .build_load(outcome_type, panic_report, "root.outcome"),
@@ -141,14 +149,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             "root.outcome.payload",
         ))?;
 
-        let value = insert_value(&self.builder, value, payload, 1)?;
+        let destination = llvm(self.builder.build_struct_gep(
+            outcome_type,
+            panic_report,
+            1,
+            "root.outcome.payload.destination",
+        ))?;
 
-        let outcome = callback
-            .get_nth_param(1)
-            .and_then(pointer_value)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-        llvm(self.builder.build_store(outcome, value))?;
+        llvm(self.builder.build_store(destination, payload))?;
         llvm(self.builder.build_return(None))?;
 
         self.builder.position_at_end(host_block);

@@ -477,6 +477,48 @@ fn preserves_skipped_and_invalid_recovery_text() {
 }
 
 #[test]
+fn callable_type_directives_stay_with_the_signature() {
+    let source = concat!(
+        "module app;",
+        "internal callable PanicMessageCopy = @abi(c)\n",
+        "trusted func(pos address: usize, pos offset: usize, pos destination: RawPointer<u8>, pos length: usize,) -> u32;",
+        "internal callable PanicMessageRelease = @abi(c)\n",
+        "trusted func(pos address: usize, pos length: usize);",
+    );
+
+    let output = formatted(source);
+
+    assert_eq!(
+        output.text(),
+        concat!(
+            "module app;\n\n",
+            "internal callable PanicMessageCopy = @abi(c) trusted func(\n",
+            "    pos address: usize,\n",
+            "    pos offset: usize,\n",
+            "    pos destination: RawPointer<u8>,\n",
+            "    pos length: usize,\n",
+            ") -> u32;\n\n",
+            "internal callable PanicMessageRelease = @abi(c) trusted func(pos address: usize, pos length: usize);\n",
+        )
+    );
+
+    assert_valid_and_idempotent(&output);
+}
+
+#[test]
+fn nested_callable_and_lambda_directives_stay_inline() {
+    let output = formatted(concat!(
+        "module app;",
+        "func accept(callback: @abi(c) trusted func(pos address: usize)) {}",
+        "func create() { let callback = @abi(c) trusted lambda(pos address: usize) {}; }",
+    ));
+
+    assert!(output.text().contains("callback: @abi(c) trusted func("));
+    assert!(output.text().contains("callback = @abi(c) trusted lambda("));
+    assert_valid_and_idempotent(&output);
+}
+
+#[test]
 fn formats_generic_delimiters_prefix_operators_and_inline_collections() {
     let source = concat!(
         "module app;",

@@ -1,11 +1,14 @@
 @target(target.platform.native_threads)
 trusted internal module bray.runtime.bootstrap;
 
-internal callable PanicMessageCopy = @abi(c)
-trusted func(pos address: usize, pos offset: usize, pos destination: RawPointer<u8>, pos length: usize) -> u32;
+internal callable PanicMessageCopy = @abi(c) trusted func(
+    pos address: usize,
+    pos offset: usize,
+    pos destination: RawPointer<u8>,
+    pos length: usize,
+) -> u32;
 
-internal callable PanicMessageRelease = @abi(c)
-trusted func(pos address: usize, pos length: usize);
+internal callable PanicMessageRelease = @abi(c) trusted func(pos address: usize, pos length: usize);
 
 internal func empty_panic_report() -> PanicReportData
 {

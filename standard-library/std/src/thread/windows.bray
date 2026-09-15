@@ -57,8 +57,7 @@ trusted internal func windows_thread_entry(pos context: RawPointer<u8>) -> u32
     return 0;
 }
 
-internal callable NativeThreadEntry = @abi(system)
-trusted func(pos context: RawPointer<u8>) -> u32
+internal callable NativeThreadEntry = @abi(system) trusted func(pos context: RawPointer<u8>) -> u32
     requires(blocking_execution(), compute_execution());
 
 trusted internal func native_thread_entry() -> RawPointer<u8>
