@@ -1,3 +1,5 @@
+use crate::compilation::product_emission::diagnostics::product_query::mir_helper_kind;
+
 use bray_codegen::{CodegenInstanceBuildError, CodegenUnitBuildError};
 use bray_diagnostics::{
     DiagnosticFailureField, DiagnosticFailureValue, DiagnosticNativeProductFailureDetail,
@@ -61,7 +63,14 @@ pub(in crate::compilation) fn codegen_preparation_failure_kind(
             ))
         }
         CodegenPreparationError::InvalidMappings(cause) => {
-            Kind::CodegenInvalidMappings(failure_detail(codegen_mappings_failure(*cause), []))
+            let fields = match cause {
+                bray_codegen::CodegenMappingsBuildError::DuplicateBinarySymbolName { name } => {
+                    vec![text_failure_field("binary_symbol", name.as_ref())]
+                }
+                _ => Vec::new(),
+            };
+
+            Kind::CodegenInvalidMappings(failure_detail(codegen_mappings_failure(cause), fields))
         }
         CodegenPreparationError::InvalidCompilerProvidedMir { definition, cause } => {
             let detail = mir_unit_failure_detail("codegen_invalid_compiler_provided_mir", *cause);
@@ -158,7 +167,7 @@ pub(super) const fn codegen_unit_preparation_failure(error: CodegenUnitBuildErro
     }
 }
 
-const fn codegen_mappings_failure(error: bray_codegen::CodegenMappingsBuildError) -> &'static str {
+const fn codegen_mappings_failure(error: &bray_codegen::CodegenMappingsBuildError) -> &'static str {
     use bray_codegen::CodegenMappingsBuildError as Error;
 
     match error {
@@ -182,7 +191,7 @@ const fn codegen_mappings_failure(error: bray_codegen::CodegenMappingsBuildError
         }
         Error::InvalidNativeStaticStorage => "codegen_mappings_invalid_native_static_storage",
         Error::DuplicateTerminator => "codegen_mappings_duplicate_terminator",
-        Error::DuplicateBinarySymbolName => "codegen_mappings_duplicate_binary_symbol_name",
+        Error::DuplicateBinarySymbolName { .. } => "codegen_mappings_duplicate_binary_symbol_name",
         Error::DuplicateDebugLocation => "codegen_mappings_duplicate_debug_location",
         Error::UnsupportedLinkage => "codegen_mappings_unsupported_linkage",
         Error::InvalidNativeEntry => "codegen_mappings_invalid_native_entry",
@@ -327,31 +336,4 @@ fn push_mir_local_identity(
 
     context.push(count_failure_field(unit_name, identity.unit()));
     context.push(count_failure_field(slot_name, identity.slot()));
-}
-
-const fn mir_helper_kind(helper: &bray_ir::MirHelperReference) -> &'static str {
-    use bray_ir::MirHelperReference as Helper;
-
-    match helper {
-        Helper::AnonymousCallable(_) => "anonymous_callable",
-        Helper::DeclaredCallable(_) => "declared_callable",
-        Helper::CallableDefault(_) => "callable_default",
-        Helper::ConstructionDefault(_) => "construction_default",
-        Helper::TypeForm(_) => "type_form",
-        Helper::Conversion(_) => "conversion",
-        Helper::BeginGenerator => "begin_generator",
-        Helper::PushGenerator => "push_generator",
-        Helper::FinishGenerator => "finish_generator",
-        Helper::PanicReport => "panic_report",
-        Helper::StandardLibrary(_) => "standard_library",
-        Helper::Finalize(_) => "finalize",
-        Helper::StaticFinalize(_) => "static_finalize",
-        Helper::Destroy(_) => "destroy",
-        Helper::Cleanup { .. } => "cleanup",
-        Helper::CreateFrame(_) => "create_frame",
-        Helper::MoveInactiveFrame(_) => "move_inactive_frame",
-        Helper::ComposeAwaitedFrame(_) => "compose_awaited_frame",
-        Helper::CommitAwaitedCompletion(_) => "commit_awaited_completion",
-        Helper::DestroyTerminalTask => "destroy_terminal_task",
-    }
 }

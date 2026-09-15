@@ -417,13 +417,13 @@ impl Compilation {
     fn merge_default_behavior(
         &self,
         binding_context: &CompilationBindingContext<'_>,
-        provider: bray_bound_tree::ConstructionDefaultProvider,
+        provider: bray_bound_tree::DefaultValueProvider,
         pending: &mut Vec<BoundUnitKey>,
         builder: &mut BodyBehaviorBuilder,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<(), FactQueryError> {
         match provider {
-            bray_bound_tree::ConstructionDefaultProvider::CallableParameter(provider) => {
+            bray_bound_tree::DefaultValueProvider::CallableParameter(provider) => {
                 let subject = runtime_default_subject(binding_context, provider.into())?;
 
                 let AnySymbolId::CallableParameter(owner) = subject else {
@@ -464,7 +464,7 @@ impl Compilation {
                     CallableParameterDefaultValue::Error(_) => builder.is_recovered = true,
                 }
             }
-            bray_bound_tree::ConstructionDefaultProvider::StructField(provider) => {
+            bray_bound_tree::DefaultValueProvider::StructField(provider) => {
                 let subject = runtime_default_subject(binding_context, provider.into())?;
 
                 let AnySymbolId::StructField(owner) = subject else {
@@ -503,7 +503,7 @@ impl Compilation {
                     StructFieldDefaultValue::Error(_) => builder.is_recovered = true,
                 }
             }
-            bray_bound_tree::ConstructionDefaultProvider::UnionPayload(provider) => {
+            bray_bound_tree::DefaultValueProvider::UnionPayload(provider) => {
                 let subject = runtime_default_subject(binding_context, provider.into())?;
 
                 let AnySymbolId::UnionPayloadField(owner) = subject else {

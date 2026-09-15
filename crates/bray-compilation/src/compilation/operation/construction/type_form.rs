@@ -1,5 +1,5 @@
 use bray_binder::BindingQueryContext;
-use bray_bound_tree::{ConstructionDefaultProvider, ConstructionInputId, ConstructionTarget};
+use bray_bound_tree::{ConstructionInputId, ConstructionTarget, DefaultValueProvider};
 use bray_checker::{
     ConstructionInputSurface, ImplementationSelectionEvidence, OperationCandidate,
     OperationCandidateState,
@@ -119,7 +119,7 @@ impl Compilation {
                 parameter_type_id,
                 record
                     .default_provider()
-                    .map(ConstructionDefaultProvider::CallableParameter),
+                    .map(DefaultValueProvider::CallableParameter),
                 record.ordinal(),
             ));
         }

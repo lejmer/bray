@@ -330,6 +330,7 @@ impl Lowerer<'_> {
         source: &bray_ir::MirSourceAnchor,
         value: &MirOperand,
         result_type: TypeId,
+        accepted_owner: Option<TypeId>,
     ) -> Result<(MirBlockId, MirOperand), LoweringError> {
         let report_type =
             self.representation_type(bray_compiler_known::RepresentationRole::PanicReport)?;
@@ -368,6 +369,12 @@ impl Lowerer<'_> {
             },
         )?;
 
+        if let Some(ty) = accepted_owner {
+            for branch in [panicked, cancelled] {
+                self.discharge_outgoing_owner(branch, source, ty)?;
+            }
+        }
+
         self.finish_panic_to_active_catch(
             expression,
             panicked,
@@ -403,11 +410,11 @@ impl Lowerer<'_> {
             Self::retained_source(source),
             MirOperationKind::Construct(MirConstruction::new(
                 ConstructionTarget::UnionVariant(variant),
-                [MirConstructionInput::Explicit {
-                    input: ConstructionInputId::UnionPayloadField(field),
-                    ordinal: 0,
+                [MirConstructionInput::new(
+                    ConstructionInputId::UnionPayloadField(field),
+                    0,
                     value,
-                }],
+                )],
             )),
             Some(result_type),
         )?;

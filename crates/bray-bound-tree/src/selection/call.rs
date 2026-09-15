@@ -62,6 +62,23 @@ impl SelectedReceiver {
     pub const fn target_type(&self) -> bray_symbols::TypeId {
         self.target_type
     }
+
+    /// Returns the passed value type, including the selected receiver borrow.
+    pub fn input_type(
+        &self,
+        values: &bray_symbols::SemanticValueStore,
+    ) -> Result<bray_symbols::TypeId, bray_symbols::SemanticValueStoreError> {
+        let kind = match self.mode {
+            ReceiverMode::Shared => bray_symbols::BorrowKind::Shared,
+            ReceiverMode::Mutable => bray_symbols::BorrowKind::Mutable,
+            ReceiverMode::Consuming | ReceiverMode::ConsumingMutable => return Ok(self.target_type),
+        };
+
+        values.intern_type(bray_symbols::TypeData::Borrow {
+            kind,
+            target: self.target_type,
+        })
+    }
 }
 
 /// One exact implementation requirement and its selected witness.
@@ -116,6 +133,8 @@ pub enum SelectedArgument {
         ordinal: u32,
         /// The declaration-owned default provider evaluated by the call.
         provider: CallableParameterDefaultProviderSymbolId,
+        /// The substituted parameter type produced by this default.
+        ty: bray_symbols::TypeId,
     },
 }
 
@@ -152,6 +171,13 @@ impl SelectedCall {
             arguments: shared_slice(arguments),
             witnesses: sorted_unique_shared_slice(witnesses),
         }
+    }
+
+    /// Returns whether invocation evaluates any omitted parameter defaults.
+    pub fn evaluates_defaults(&self) -> bool {
+        self.arguments
+            .iter()
+            .any(|argument| matches!(argument, SelectedArgument::Default { .. }))
     }
 
     /// Returns the exact selected callable target and result behavior.

@@ -17,27 +17,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<(), CodegenFailure> {
         // Keep this exhaustive so every MIR terminator requires an explicit translation.
         match terminator {
-            MirTerminatorKind::Goto(edge) => {
-                self.add_edge_arguments(edge)?;
-                self.clear_moved_places()?;
-
-                llvm(
-                    self.builder
-                        .build_unconditional_branch(self.block(edge.target())?),
-                )?;
-            }
+            MirTerminatorKind::Goto(edge) => self.translate_goto(edge)?,
             MirTerminatorKind::BeginCleanup(cleanup)
-            | MirTerminatorKind::ContinueCleanup(cleanup) => {
-                let edge = cleanup.edge();
-
-                self.add_edge_arguments(edge)?;
-                self.clear_moved_places()?;
-
-                llvm(
-                    self.builder
-                        .build_unconditional_branch(self.block(edge.target())?),
-                )?;
-            }
+            | MirTerminatorKind::ContinueCleanup(cleanup) => self.translate_goto(cleanup.edge())?,
             MirTerminatorKind::Branch {
                 condition,
                 then_edge,
@@ -254,7 +236,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 completed,
                 panicked,
                 cancelled,
-            } => self.translate_call_panic(completed, *panicked, cancelled)?,
+            } => self.translate_call_panic(block, completed, *panicked, cancelled)?,
         }
 
         Ok(())
@@ -324,7 +306,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 ))?
             };
 
-            let progress = self.build_frame_progress(progress_kind.code(), state, payload)?;
+            let progress =
+                self.build_frame_progress(progress_kind.code(), state, payload.into())?;
 
             self.return_frame_progress(progress.into())?;
 
@@ -347,18 +330,17 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &self,
         kind: u32,
         state: IntValue<'context>,
-        payload: IntValue<'context>,
+        payload: BasicValueEnum<'context>,
     ) -> Result<StructValue<'context>, CodegenFailure> {
-        let mut progress = crate::native::frame_progress_type(self.types.context()).get_undef();
+        let mut progress = crate::native::frame_progress_type(self.types.context()).const_zero();
 
-        let fields: [BasicValueEnum<'context>; 3] = [
+        let fields: [BasicValueEnum<'context>; 2] = [
             self.types
                 .context()
                 .i32_type()
                 .const_int(u64::from(kind), false)
                 .into(),
             state.into(),
-            payload.into(),
         ];
 
         for (index, field) in fields.into_iter().enumerate() {
@@ -371,7 +353,19 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .into_struct_value();
         }
 
-        Ok(progress)
+        let payload_index = if kind == bray_runtime_abi::NativeFrameProgressKind::PANICKED.code() {
+            3
+        } else {
+            2
+        };
+
+        Ok(llvm(self.builder.build_insert_value(
+            progress,
+            payload,
+            payload_index,
+            "frame.progress.payload",
+        ))?
+        .into_struct_value())
     }
 
     pub(super) fn translate_iteration(

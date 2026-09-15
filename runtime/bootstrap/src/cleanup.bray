@@ -46,7 +46,7 @@ internal struct CleanupIncident
 internal struct StaticFinalizer
 {
     execution: u32;
-    reserved: u32;
+    outgoing_capacity: u32;
     result_size: usize;
     result_alignment: usize;
     start: RawPointer<u8>;
@@ -75,6 +75,10 @@ internal struct CleanupRecord
     destroy: RawPointer<u8>;
     detach: RawPointer<u8>;
 }
+
+@abi(c)
+extern trusted internal func outgoing_admission(pos count: usize, pos outcome: RawPointer<RunOutcome>)
+    uses(foreign_call);
 
 @link(name = "bray_runtime_host", kind = system)
 @symbol(name = "bray_runtime_substrate_thread_static_cleanup_registration")
@@ -196,7 +200,6 @@ trusted internal func register_thread_cleanup(pos registration: RawPointer<u8>) 
     if std.memory.is_null<u8>(registration_value.prepare)
         || std.memory.is_null<u8>(registration_value.destroy)
         || std.memory.is_null<u8>(registration_value.detach)
-        || registration_value.finalizer.reserved != 0
         || registration_value.finalizer.execution > FINALIZER_SYNCHRONOUS
         || registration_value.finalizer.execution == FINALIZER_NONE
             && (registration_value.finalizer.result_size != 0 || registration_value.finalizer.result_alignment != 1)
@@ -218,6 +221,15 @@ trusted internal func register_thread_cleanup(pos registration: RawPointer<u8>) 
 
     if std.memory.is_null<u8>(allocation)
     {
+        return STATUS_RUNTIME_FAILURE;
+    }
+
+    let mut admission: RunOutcome = { state = RUN_COMPLETED, payload = 0, report = empty_panic_report() };
+    trusted outgoing_admission(registration_value.finalizer.outgoing_capacity as usize, std.memory.address_of_mut<RunOutcome>(&mut admission));
+
+    if admission.state != RUN_COMPLETED
+    {
+        trusted internal bray.runtime.bootstrap.heap.deallocate_bytes(allocation, bytes = bytes, align = std.memory.align_of<CleanupRecord>());
         return STATUS_RUNTIME_FAILURE;
     }
 

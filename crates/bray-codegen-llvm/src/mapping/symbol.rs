@@ -132,6 +132,16 @@ fn apply_native_attributes(
         return Ok(());
     }
 
+    if !matches!(
+        mapping.key(),
+        bray_codegen::CodegenSymbolKey::ProtectedFrame {
+            operation: bray_runtime_interface::ProtectedFrameOperation::MoveBeforeStart,
+            ..
+        }
+    ) {
+        return Ok(());
+    }
+
     let Some(result) = crate::native::indirect_result_type(types.context(), target, mapping.key())
     else {
         return Ok(());

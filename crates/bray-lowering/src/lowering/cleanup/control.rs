@@ -7,9 +7,11 @@ use bray_runtime_interface::RuntimeAbiRole;
 use bray_symbols::TypeId;
 
 use crate::lowering::LoweringError;
+use crate::lowering::inputs::{InputExit, InputTemporary};
 use crate::lowering::lowerer::Lowerer;
 use crate::plan::ScopeExitCleanupStatus;
 
+#[derive(Clone, Copy)]
 pub(super) enum CleanupDestination {
     Goto(MirBlockId),
     Return,
@@ -239,7 +241,14 @@ impl Lowerer<'_> {
     ) -> Result<(), LoweringError> {
         let plans = self.cleanup_plans(scope_depth, exit)?;
 
-        if plans.iter().all(|plan| !plan.has_cleanup()) {
+        let input_exit = match &entry {
+            CleanupEntry::Ordinary => InputExit::Scope(scope_depth),
+            CleanupEntry::Panic(_) => self.abnormal_input_exit(destination),
+            CleanupEntry::Cancellation => InputExit::All,
+        };
+
+        if self.input_cleanup(input_exit).is_empty() && plans.iter().all(|plan| !plan.has_cleanup())
+        {
             return self.set_direct_exit(current, source, entry, destination, value);
         }
 
@@ -267,7 +276,15 @@ impl Lowerer<'_> {
             CleanupEntry::Ordinary => {}
         }
 
-        self.finish_ordinary_cleanup(current, source, destination, value, exit, &plans)
+        self.finish_ordinary_cleanup(
+            current,
+            source,
+            destination,
+            value,
+            exit,
+            &plans,
+            input_exit,
+        )
     }
 
     pub(super) fn cleanup_plans(
@@ -298,11 +315,23 @@ impl Lowerer<'_> {
         source: &MirSourceAnchor,
         phase: MirCleanupPhase,
         plans: &[bray_bound_tree::AsyncScopeExitPlan],
+        temporaries: &[InputTemporary],
         mut value: Option<(bray_ir::MirValueId, TypeId)>,
         failures: &std::collections::BTreeMap<BoundBlockId, (MirBlockId, MirBlockId, TypeId)>,
     ) -> Result<(MirBlockId, Option<(bray_ir::MirValueId, TypeId)>), LoweringError> {
+        let mut temporaries = temporaries.iter().rev().peekable();
+
         for plan in plans {
             self.cleanup_failure_targets = failures.get(&plan.scope()).copied();
+
+            let depth = self
+                .active_scopes
+                .iter()
+                .position(|scope| *scope == plan.scope())
+                .ok_or(LoweringError::MissingBoundNode(plan.scope().into()))?
+                + 1;
+
+            block = self.push_input_cleanup(block, source, phase, &mut temporaries, depth)?;
 
             for access in match phase {
                 MirCleanupPhase::TaskCancellation => plan.cancellation_broadcast(),
@@ -354,6 +383,7 @@ impl Lowerer<'_> {
             }
         }
 
+        block = self.push_input_cleanup(block, source, phase, &mut temporaries, 0)?;
         self.cleanup_failure_targets = None;
 
         Ok((block, value))
@@ -377,13 +407,18 @@ impl Lowerer<'_> {
             guard,
             value,
             |lowerer, block, place, value| {
+                let owner = place.ty();
                 lowerer.push_cleanup_action(block, source, phase, place, release, completed)?;
 
                 let block = if let Some(outcome) = &lowerer.cleanup_outcome {
                     outcome.check(&mut lowerer.builder, block, source)?
                 } else {
-                    lowerer.check_ordinary_cleanup(block, source)?
+                    lowerer.check_ordinary_cleanup(block, source, release.map(|_| owner))?
                 };
+
+                if release.is_some() {
+                    lowerer.discharge_outgoing_owner(block, source, owner)?;
+                }
 
                 Ok((block, value))
             },
@@ -477,7 +512,7 @@ impl Lowerer<'_> {
     ) -> Result<(), LoweringError> {
         if let Some(release) = release {
             self.set_storage_initialized(block, source, &place, false)?;
-            self.push_storage_protocol_call(block, source, &place, release)?;
+            self.push_storage_protocol_call(block, source, &place, release, true)?;
         } else {
             self.push_operation(
                 block,

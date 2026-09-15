@@ -224,8 +224,10 @@ impl RuntimeConformance for BrayRuntime {
     fn run_started_task(&self, value: i32) -> TaskRun {
         self.record_cost(|costs| costs.task_starts += 1);
 
-        let task = TaskControlBlock::start(TestFrame::completing(value))
-            .unwrap_or_else(|error| panic!("task must start: {error:?}"));
+        let task = TaskControlBlock::start(
+            crate::test_support::admit_task(),
+            TestFrame::completing(value),
+        );
 
         let before = Arc::as_ptr(&task);
 
@@ -248,8 +250,8 @@ impl RuntimeConformance for BrayRuntime {
     }
 
     fn capture_task_panic(&self) -> bool {
-        let task = TaskControlBlock::start(TestFrame::panicking())
-            .unwrap_or_else(|error| panic!("panicking task must start: {error:?}"));
+        let task =
+            TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::panicking());
 
         task.resume()
             .unwrap_or_else(|error| panic!("task panic must be captured: {error:?}"));
@@ -258,8 +260,10 @@ impl RuntimeConformance for BrayRuntime {
     }
 
     fn resolve_unobserved_result(&self, value: i32) -> bool {
-        let task = TaskControlBlock::start(TestFrame::completing(value))
-            .unwrap_or_else(|error| panic!("unobserved task must start: {error:?}"));
+        let task = TaskControlBlock::start(
+            crate::test_support::admit_task(),
+            TestFrame::completing(value),
+        );
 
         task.resume()
             .unwrap_or_else(|error| panic!("unobserved task must complete: {error:?}"));
@@ -300,8 +304,10 @@ impl RuntimeConformance for BrayRuntime {
         let runtime = runtime_thread();
         let scheduler = scheduler(runtime.runtime().id(), 2);
 
-        let task = TaskControlBlock::start(TestFrame::cancellation_aware())
-            .unwrap_or_else(|error| panic!("task must start: {error:?}"));
+        let task = TaskControlBlock::start(
+            crate::test_support::admit_task(),
+            TestFrame::cancellation_aware(),
+        );
 
         let _registration = register_task(&scheduler, &task, runtime.runtime().id());
 
@@ -347,11 +353,11 @@ impl RuntimeConformance for BrayRuntime {
 
         self.record_cost(|costs| costs.task_starts += 2);
 
-        let first = TaskControlBlock::start(TestFrame::completing(1))
-            .unwrap_or_else(|error| panic!("first task must start: {error:?}"));
+        let first =
+            TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(1));
 
-        let second = TaskControlBlock::start(TestFrame::completing(2))
-            .unwrap_or_else(|error| panic!("second task must start: {error:?}"));
+        let second =
+            TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(2));
 
         self.record_cost(|costs| costs.scheduler_registrations += 1);
 
@@ -401,8 +407,10 @@ impl RuntimeConformance for BrayRuntime {
     }
 
     fn observe_join_cancellation(&self) -> JoinCancellationObservation {
-        let task = TaskControlBlock::start(TestFrame::cancellation_aware())
-            .unwrap_or_else(|error| panic!("task must start: {error:?}"));
+        let task = TaskControlBlock::start(
+            crate::test_support::admit_task(),
+            TestFrame::cancellation_aware(),
+        );
 
         let waiter_wakes = Arc::new(AtomicUsize::new(0));
         let observed_wakes = Arc::clone(&waiter_wakes);
@@ -431,8 +439,8 @@ impl RuntimeConformance for BrayRuntime {
         let runtime = runtime_thread();
         let scheduler = scheduler(runtime.runtime().id(), 2);
 
-        let parent = TaskControlBlock::start(TestFrame::completing(1))
-            .unwrap_or_else(|error| panic!("parent task must start: {error:?}"));
+        let parent =
+            TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(1));
 
         let registration = register_task(&scheduler, &parent, runtime.runtime().id());
 
@@ -446,9 +454,8 @@ impl RuntimeConformance for BrayRuntime {
         );
 
         let child = with_task_execution_context(context, || {
-            TaskControlBlock::start(TestFrame::completing(2))
-        })
-        .unwrap_or_else(|error| panic!("child task must start: {error:?}"));
+            TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(2))
+        });
 
         child
             .snapshot()
@@ -460,11 +467,10 @@ impl RuntimeConformance for BrayRuntime {
         let runtime = runtime_thread();
         let scheduler = scheduler(runtime.runtime().id(), 1);
 
-        let task = TaskControlBlock::start(TestFrame::requiring(
-            [ExecutionLaneRequirement::Blocking],
-            1,
-        ))
-        .unwrap_or_else(|error| panic!("blocking task must start: {error:?}"));
+        let task = TaskControlBlock::start(
+            crate::test_support::admit_task(),
+            TestFrame::requiring([ExecutionLaneRequirement::Blocking], 1),
+        );
 
         let error = scheduler
             .register_task(
@@ -488,11 +494,11 @@ impl RuntimeConformance for BrayRuntime {
         let runtime = runtime_thread();
         let scheduler = scheduler(runtime.runtime().id(), 1);
 
-        let first = TaskControlBlock::start(TestFrame::completing(1))
-            .unwrap_or_else(|error| panic!("first task must start: {error:?}"));
+        let first =
+            TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(1));
 
-        let second = TaskControlBlock::start(TestFrame::completing(2))
-            .unwrap_or_else(|error| panic!("second task must start: {error:?}"));
+        let second =
+            TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(2));
 
         let _first_registration = register_task(&scheduler, &first, runtime.runtime().id());
 
@@ -516,9 +522,19 @@ impl RuntimeConformance for BrayRuntime {
             ProtectedFrameStateId::new(0),
         );
 
-        reports.transfer(CleanupIncidentProducer::SynchronousRoot, origin, "first");
+        reports.transfer(
+            CleanupIncidentProducer::SynchronousRoot,
+            origin,
+            crate::RuntimePanic::new("first"),
+            &mut crate::outgoing::OutgoingRecords::admit(1).unwrap(),
+        );
 
-        reports.transfer(CleanupIncidentProducer::SynchronousRoot, origin, "second");
+        reports.transfer(
+            CleanupIncidentProducer::SynchronousRoot,
+            origin,
+            crate::RuntimePanic::new("second"),
+            &mut crate::outgoing::OutgoingRecords::admit(1).unwrap(),
+        );
 
         let cleanup_ordinals = RefCell::new(Vec::new());
         let events = RefCell::new(Vec::new());

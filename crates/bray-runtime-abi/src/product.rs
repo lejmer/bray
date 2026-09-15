@@ -1,4 +1,4 @@
-use super::runtime::{NativeRuntimeStatus, NativeSourceAnchor};
+use crate::{NativeRuntimeStatus, NativeSourceAnchor};
 
 /// Version of the native product-host descriptor and static-entry records.
 pub const PRODUCT_HOST_ABI_VERSION: u32 = 1;
@@ -298,7 +298,7 @@ impl NativeStaticFinalizerStatus {
 #[derive(Clone, Copy, Debug)]
 pub struct NativeStaticFinalizer {
     execution: NativeStaticFinalizerExecution,
-    reserved: u32,
+    outgoing_capacity: u32,
     result_size: usize,
     result_alignment: usize,
     start: NativeStaticFinalizerStartCallback,
@@ -309,6 +309,7 @@ impl NativeStaticFinalizer {
     /// Creates one immutable compiler-generated finalizer contract.
     pub const fn new(
         execution: NativeStaticFinalizerExecution,
+        outgoing_capacity: u32,
         result_size: usize,
         result_alignment: usize,
         start: NativeStaticFinalizerStartCallback,
@@ -316,12 +317,17 @@ impl NativeStaticFinalizer {
     ) -> Self {
         Self {
             execution,
-            reserved: 0,
+            outgoing_capacity,
             result_size,
             result_alignment,
             start,
             resolve,
         }
+    }
+
+    /// Returns the record allowance for all owners in the static value.
+    pub const fn outgoing_capacity(self) -> u32 {
+        self.outgoing_capacity
     }
 
     /// Returns how finalization reaches completion.

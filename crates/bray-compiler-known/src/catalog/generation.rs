@@ -763,7 +763,6 @@ mod tests {
             "StandardMemoryWrite",
             "StandardNativeThreadExecution",
             "StandardNativeThreadStart",
-            "StandardNativeThreadPanicReportRecovery",
             "StandardNativeThreadPanicReporting",
             "StandardRawAllocation",
             "StandardRawAllocationAlign",

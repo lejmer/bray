@@ -108,6 +108,78 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         Ok(completed)
     }
 
+    pub(super) fn check_lifecycle_value(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        value: bray_ir::MirValueId,
+        result: bray_symbols::TypeId,
+    ) -> Result<(MirBlockId, bray_ir::MirValueId), C::Error> {
+        let invalid = |cause| self.mir_error(source, cause);
+        let kind = builder.block_kind(block).map_err(invalid)?;
+
+        let report_type = self
+            .context
+            .representation_type(RepresentationRole::PanicReport)?;
+
+        let completed = builder.push_block(source.clone(), kind).map_err(invalid)?;
+
+        let value_parameter = builder
+            .push_block_parameter(completed, source.clone(), result)
+            .map_err(invalid)?;
+
+        let panicked = builder.push_block(source.clone(), kind).map_err(invalid)?;
+
+        let report = builder
+            .push_block_parameter(panicked, source.clone(), report_type)
+            .map_err(invalid)?;
+
+        let cancelled = builder.push_block(source.clone(), kind).map_err(invalid)?;
+
+        builder
+            .set_terminator(
+                block,
+                source.clone(),
+                MirTerminatorKind::CheckCallOutcome {
+                    completed: MirEdge::new(completed, [bray_ir::MirOperand::Value(value)]),
+                    panicked: bray_ir::MirCallPanicEdge::new(panicked, report_type),
+                    cancelled: MirEdge::new(cancelled, []),
+                },
+            )
+            .map_err(invalid)?;
+
+        let panicked = self.cleanup_propagation_block(builder, panicked, source)?;
+        let cancelled = self.cleanup_propagation_block(builder, cancelled, source)?;
+        let abi = builder.target().runtime_abi();
+
+        builder
+            .set_terminator(
+                panicked,
+                source.clone(),
+                MirTerminatorKind::PropagatePanic {
+                    report: bray_ir::MirOperand::Value(report),
+                    runtime: MirRuntimeReference::new(RuntimeAbiRole::PanicPropagation, abi),
+                },
+            )
+            .map_err(invalid)?;
+
+        builder
+            .set_terminator(
+                cancelled,
+                source.clone(),
+                MirTerminatorKind::PropagateCancellation {
+                    runtime: MirRuntimeReference::new(
+                        RuntimeAbiRole::CurrentRunCancellationPropagation,
+                        abi,
+                    ),
+                },
+            )
+            .map_err(invalid)?;
+
+        Ok((completed, value_parameter))
+    }
+
     fn cleanup_propagation_block(
         &self,
         builder: &mut MirUnitBuilder,

@@ -44,7 +44,14 @@ impl Compilation {
             for (operation, data) in instance.mir().operations_with_ids() {
                 let references = data.kind().helper_references();
 
-                if references.is_empty() {
+                let outgoing = self.operation_outgoing_capacity(
+                    realization,
+                    data.kind(),
+                    target,
+                    cancellation,
+                )?;
+
+                if references.is_empty() && outgoing.is_none() {
                     continue;
                 }
 
@@ -64,11 +71,10 @@ impl Compilation {
                     })
                     .collect::<Result<Vec<_>, _>>()?;
 
-                mappings.push(CodegenOperationMapping::new(
-                    instance.key().clone(),
-                    operation,
-                    helpers,
-                ));
+                mappings.push(
+                    CodegenOperationMapping::new(instance.key().clone(), operation, helpers)
+                        .with_outgoing_capacity(outgoing),
+                );
             }
         }
 
@@ -195,55 +201,14 @@ impl Compilation {
                 target,
                 cancellation,
             )?,
-            MirHelperReference::CallableDefault(provider) => {
-                let MirOperationKind::Call(call) = operation else {
-                    return Err(ProductQueryFailure::InvalidHelperOperation {
-                        context: ProductQueryContext::Operation {
-                            instance: owner.key().clone(),
-                            operation: operation_id,
-                        },
-                        helper: concrete_reference.clone(),
-                        operation: operation.clone(),
-                    }
-                    .into());
-                };
-
-                let MirCallTarget::Direct(callable) = call.target() else {
-                    return Err(ProductQueryFailure::InvalidHelperCallTarget {
-                        context: ProductQueryContext::Operation {
-                            instance: owner.key().clone(),
-                            operation: operation_id,
-                        },
-                        helper: concrete_reference.clone(),
-                        target: call.target().clone(),
-                    }
-                    .into());
-                };
-
-                let callee = self.concrete_codegen_callable_data(
-                    owner,
-                    &callable.instance(),
-                    target,
-                    cancellation,
-                )?;
-
-                self.concrete_codegen_runtime_default(
-                    &callee,
-                    (*provider).into(),
-                    reference,
-                    cancellation,
-                )?
-            }
-            MirHelperReference::ConstructionDefault(provider) => self
-                .concrete_codegen_construction_default(
-                    owner,
-                    operation_id,
-                    operation,
-                    operation_result_type,
-                    *provider,
-                    target,
-                    cancellation,
-                )?,
+            MirHelperReference::DefaultValue(provider) => self.concrete_codegen_default_value(
+                owner,
+                operation_id,
+                operation,
+                *provider,
+                target,
+                cancellation,
+            )?,
             MirHelperReference::TypeForm(callable) | MirHelperReference::Conversion(callable) => {
                 self.concrete_codegen_callable_data(owner, callable, target, cancellation)?
             }
@@ -298,8 +263,7 @@ impl Compilation {
             },
             MirHelperReference::AnonymousCallable(_)
             | MirHelperReference::DeclaredCallable(_)
-            | MirHelperReference::CallableDefault(_)
-            | MirHelperReference::ConstructionDefault(_)
+            | MirHelperReference::DefaultValue(_)
             | MirHelperReference::TypeForm(_)
             | MirHelperReference::Conversion(_)
             | MirHelperReference::StandardLibrary(_)
@@ -361,9 +325,9 @@ impl Compilation {
                 MirCallTarget::Indirect { .. } => {
                     Ok(helper_runtime_symbol(owner, RuntimeAbiRole::FrameCreation))
                 }
-                MirCallTarget::Runtime(_) => Err(CodegenPreparationError::MissingHelperInstance(
-                    reference.clone(),
-                )),
+                MirCallTarget::Runtime(_) | MirCallTarget::DefaultValue { .. } => Err(
+                    CodegenPreparationError::MissingHelperInstance(reference.clone()),
+                ),
             },
             MirFrameInitializer::TaskObservation { .. } => Ok(helper_runtime_symbol(
                 owner,

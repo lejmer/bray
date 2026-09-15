@@ -101,7 +101,9 @@ fn parameter_type<'context>(
     target: &CodegenTarget,
     kind: RuntimeAbiType,
 ) -> Option<BasicTypeEnum<'context>> {
-    if uses_microsoft_x64_abi(target) && aggregate_is_indirect(kind) {
+    if kind == RuntimeAbiType::PanicReport
+        || uses_microsoft_x64_abi(target) && aggregate_is_indirect(kind)
+    {
         return Some(context.ptr_type(AddressSpace::default()).into());
     }
 
@@ -124,11 +126,6 @@ fn register_type<'context>(
         return Some(context.i64_type().into());
     }
 
-    if kind == RuntimeAbiType::FrameProgress {
-        // System V packs the two 32-bit fields into one eightbyte register.
-        return Some(progress_register_type(context, target));
-    }
-
     if target.machine().architecture() == TargetArchitecture::Aarch64 && aggregate_is_indirect(kind)
     {
         // AAPCS64 returns integer records in x0/x1. Pointer parameters retain pointer types.
@@ -143,22 +140,6 @@ fn register_type<'context>(
     }
 
     runtime_value_type(context, target, kind)
-}
-
-pub(super) fn progress_register_type<'context>(
-    context: &'context Context,
-    target: &CodegenTarget,
-) -> BasicTypeEnum<'context> {
-    if target.machine().architecture() == TargetArchitecture::Aarch64 {
-        context.i64_type().array_type(2).into()
-    } else {
-        context
-            .struct_type(
-                &[context.i64_type().into(), context.i64_type().into()],
-                false,
-            )
-            .into()
-    }
 }
 
 pub(super) fn invoke_runtime<'context>(
@@ -208,7 +189,11 @@ pub(super) fn invoke_runtime<'context>(
         let physical = parameter_type(context, target, kind)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        if uses_microsoft_x64_abi(target) && aggregate_is_indirect(kind) {
+        if kind == RuntimeAbiType::PanicReport && value.is_pointer_value() {
+            native_arguments.push(value.into());
+        } else if kind == RuntimeAbiType::PanicReport
+            || uses_microsoft_x64_abi(target) && aggregate_is_indirect(kind)
+        {
             let storage =
                 crate::translation::allocate_temporary(context, builder, value.get_type(), name)?;
 
@@ -279,7 +264,9 @@ mod tests {
         let module = context.create_module("bad.runtime.call");
         let builder = context.create_builder();
         let wrapper = module.add_function("wrapper", context.void_type().fn_type(&[], false), None);
+
         builder.position_at_end(context.append_basic_block(wrapper, "entry"));
+
         let role = RuntimeAbiRole::CurrentNativeThreadIdentity;
         let function = declare_runtime_function(&module, &context, &target, role).unwrap();
 
@@ -343,16 +330,7 @@ mod tests {
 
                     frame_state_type(&context)
                 } else {
-                    assert_eq!(
-                        function.get_type().get_return_type(),
-                        runtime_function_type(
-                            &context,
-                            &target,
-                            RuntimeAbiRole::SuspensionRegistration
-                        )
-                        .unwrap()
-                        .get_return_type()
-                    );
+                    assert_eq!(function.get_type().get_return_type(), None);
 
                     let logical = frame_progress_type(&context);
 
@@ -360,6 +338,9 @@ mod tests {
                         context.i32_type().const_int(1, false).into(),
                         context.i32_type().const_int(2, false).into(),
                         context.i64_type().const_int(3, false).into(),
+                        crate::native::panic_report_type(&context)
+                            .const_zero()
+                            .into(),
                     ]);
 
                     return_frame_result(
@@ -409,6 +390,23 @@ mod tests {
                 builder.build_return(None).unwrap();
             }
 
+            let resolution = frame_operation_type(
+                &context,
+                &target,
+                ProtectedFrameOperation::LifecycleResolution,
+            );
+
+            assert_eq!(resolution.get_return_type(), None);
+
+            assert_eq!(
+                resolution.get_param_types(),
+                [
+                    context.ptr_type(inkwell::AddressSpace::default()).into(),
+                    context.i64_type().into(),
+                    context.i32_type().into(),
+                ]
+            );
+
             module
                 .verify()
                 .unwrap_or_else(|error| panic!("{native:?}: {error}"));
@@ -433,38 +431,24 @@ mod tests {
             let root =
                 runtime_function_type(&context, &target, RuntimeAbiRole::RootExecution).unwrap();
 
-            let (expected_progress, expected_root_parameters) = match native {
-                NativeTarget::X86_64WindowsMsvc => (
-                    None,
-                    vec![
-                        context.ptr_type(inkwell::AddressSpace::default()).into(),
-                        context.i64_type().into(),
-                        context.ptr_type(inkwell::AddressSpace::default()).into(),
-                    ],
-                ),
-                NativeTarget::X86_64LinuxGnu | NativeTarget::X86_64MacOs => (
-                    Some(
-                        context
-                            .struct_type(
-                                &[context.i64_type().into(), context.i64_type().into()],
-                                false,
-                            )
-                            .into(),
-                    ),
-                    vec![context.i64_type().into(); 3],
-                ),
+            let expected_root_parameters = match native {
+                NativeTarget::X86_64WindowsMsvc => vec![
+                    context.ptr_type(inkwell::AddressSpace::default()).into(),
+                    context.i64_type().into(),
+                    context.ptr_type(inkwell::AddressSpace::default()).into(),
+                ],
+                NativeTarget::X86_64LinuxGnu | NativeTarget::X86_64MacOs => {
+                    vec![context.i64_type().into(); 3]
+                }
                 NativeTarget::Aarch64LinuxGnu
                 | NativeTarget::Aarch64WindowsMsvc
-                | NativeTarget::Aarch64MacOs => (
-                    Some(context.i64_type().array_type(2).into()),
-                    vec![
-                        context.i64_type().into(),
-                        context.i64_type().array_type(2).into(),
-                    ],
-                ),
+                | NativeTarget::Aarch64MacOs => vec![
+                    context.i64_type().into(),
+                    context.i64_type().array_type(2).into(),
+                ],
             };
 
-            assert_eq!(progress.get_return_type(), expected_progress, "{native:?}");
+            assert_eq!(progress.get_return_type(), None, "{native:?}");
 
             assert_eq!(
                 lane.get_return_type(),
@@ -492,6 +476,7 @@ mod tests {
                 module.add_function("wrapper", context.void_type().fn_type(&[], false), None);
 
             let builder = context.create_builder();
+
             builder.position_at_end(context.append_basic_block(wrapper, "entry"));
 
             for role in RuntimeAbiRole::ALL {

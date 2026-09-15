@@ -158,6 +158,10 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
         &mut self,
         mapping: &CodegenTypeMapping,
     ) -> Result<BasicTypeEnum<'context>, CodegenFailure> {
+        if mapping.behavior() == Some(bray_codegen::CodegenTypeBehavior::PanicReport) {
+            return Ok(crate::native::panic_report_type(self.context).into());
+        }
+
         match mapping.kind() {
             CodegenTypeKind::Unit => Ok(self.context.struct_type(&[], false).into()),
             CodegenTypeKind::Boolean => self.map_scalar(TargetScalarKind::Boolean),

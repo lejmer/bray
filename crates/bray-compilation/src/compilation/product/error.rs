@@ -217,8 +217,6 @@ pub(crate) enum ProductDataKind {
     RealizedStatic,
     /// A static lifecycle dependency counter.
     StaticDependencyCounter,
-    /// A static declaration's semantic type.
-    StaticDeclaredType,
     /// A static declaration's initializer.
     StaticInitializer,
     /// An implementation's checked header.
@@ -391,6 +389,8 @@ pub(crate) enum ProductQueryFailure {
         /// The exact product coordination component whose lock was poisoned.
         component: ProductSynchronizationComponent,
     },
+    /// A constant owner requires more outgoing records than the native descriptor can express.
+    OutgoingCapacityOverflow { value: ConstantValueId },
     /// A static lifecycle dependency counter exceeded its representable range.
     StaticDependencyOverflow {
         /// The exact static instance whose incoming dependency count overflowed.
@@ -516,13 +516,9 @@ pub(crate) enum ProductQueryFailure {
         /// The exact incompatible MIR operation.
         operation: MirOperationKind,
     },
-    /// A generated helper encountered a call target incompatible with its helper role.
-    InvalidHelperCallTarget {
-        /// The exact instance and MIR operation being analyzed.
+    /// A cleanup operation must call one immediate, directly selected callable.
+    InvalidCleanupCallTarget {
         context: ProductQueryContext,
-        /// The generated helper being analyzed.
-        helper: MirHelperReference,
-        /// The exact incompatible MIR call target.
         target: MirCallTarget,
     },
     /// A generated lifecycle instance and its demanded helper disagree on lifecycle role.
@@ -672,6 +668,7 @@ impl ProductQueryFailure {
                 ProductQueryErrorKind::Specialization
             }
             Self::SynchronizationPoisoned { .. }
+            | Self::OutgoingCapacityOverflow { .. }
             | Self::StaticDependencyOverflow { .. }
             | Self::StaticDependencyUnderflow { .. }
             | Self::StaticLifecycleCycle { .. } => ProductQueryErrorKind::Coordination,
@@ -696,7 +693,7 @@ impl ProductQueryFailure {
             | Self::UnexpectedSymbolKind { .. }
             | Self::ImplementationSymbolKeyExpected { .. }
             | Self::InvalidHelperOperation { .. }
-            | Self::InvalidHelperCallTarget { .. }
+            | Self::InvalidCleanupCallTarget { .. }
             | Self::LifecycleRoleMismatch { .. }
             | Self::BuiltInProofMismatch { .. }
             | Self::ImplementationSelectionMismatch { .. } => {

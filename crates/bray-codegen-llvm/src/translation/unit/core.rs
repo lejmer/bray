@@ -569,25 +569,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 self.types.context().i32_type().const_int(4, false).into(),
                 self.types.context().i32_type().const_zero().into(),
                 self.types.context().i64_type().const_zero().into(),
+                crate::native::panic_report_type(self.types.context())
+                    .const_zero()
+                    .into(),
             ]);
 
         self.return_frame_progress(failure.into())?;
 
         Ok(())
-    }
-
-    pub(super) fn return_frame_progress(
-        &self,
-        progress: BasicValueEnum<'context>,
-    ) -> Result<(), CodegenFailure> {
-        crate::native::return_frame_result(
-            self.types.context(),
-            &self.builder,
-            self.function,
-            self.request.target(),
-            bray_runtime_interface::ProtectedFrameOperation::Resume,
-            progress,
-        )
     }
 
     pub(super) fn frame_context_argument(

@@ -15,12 +15,12 @@ pub enum RuntimeAbiType {
     Usize,
     /// Address of byte storage or a native callback.
     Pointer,
-    /// Address of target-native unsigned storage.
-    PointerUsize,
     /// Worker and timer capacities.
     Configuration,
     /// Root-start status and root handle.
     RootStart,
+    /// Movable panic primary and detached outgoing ownership. Parameters transfer through a pointer.
+    PanicReport,
     /// Terminal run state and payload.
     RunOutcome,
     /// Task allocation status and task handle.

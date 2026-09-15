@@ -78,7 +78,6 @@ union ThreadNameError
 internal struct ThreadControl
 {
     state: std.atomic.Atomic<u32>;
-    panic_payload: std.atomic.Atomic<usize>;
     cancellation: std.atomic.Atomic<u32>;
     identity: std.atomic.Atomic<u64>;
     park_token: std.atomic.Atomic<u32>;
@@ -89,6 +88,7 @@ internal struct ThreadStorage<T>
 {
     control: ThreadControl;
     mut result: Uninit<T>;
+    mut report: Uninit<PanicReport>;
 }
 
 internal struct ThreadStart<State, T>
@@ -103,6 +103,7 @@ internal struct NativeThreadStart
     operation: ThreadOperation;
     context: usize;
     control: RawPointer<ThreadControl>;
+    report: RawPointer<PanicReport>;
 }
 
 internal struct ThreadConstruction<State, T>

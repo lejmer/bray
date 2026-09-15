@@ -155,6 +155,7 @@ fn runtime_bindings() -> Result<Vec<RuntimeRoleSourceBinding>, String> {
             role.bootstrap_declaration()
                 .map(|declaration| (role, declaration))
         })
+        .chain([(RuntimeAbiRole::OutgoingAdmission, "outgoing_admission")])
         .map(|(role, declaration)| {
             let path = format!("{MODULE}.{declaration}");
 

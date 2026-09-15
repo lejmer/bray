@@ -112,7 +112,7 @@ pub(super) fn register_timeout(cancellation: RootCancellationHandle) {
     });
 }
 
-pub(super) fn record_outcome(outcome: NativeRunOutcome) {
+pub(super) fn record_outcome(outcome: &NativeRunOutcome) {
     TEST_SESSION.with(|session| {
         let mut session = session.borrow_mut();
 
@@ -151,6 +151,10 @@ pub(super) fn record_panic(cause: NativePanicCause, source: NativeSourceAnchor, 
             cause if cause == NativePanicCause::ASSERTION => TestPanicCause::Assertion,
             cause if cause == NativePanicCause::EXPLICIT_TEST_FAILURE => {
                 TestPanicCause::ExplicitFailure
+            }
+            cause if cause == NativePanicCause::RUNTIME_PANIC => TestPanicCause::RuntimePanic,
+            cause if cause == NativePanicCause::ALLOCATION_FAILURE => {
+                TestPanicCause::AllocationFailure
             }
             _ => TestPanicCause::Message,
         };

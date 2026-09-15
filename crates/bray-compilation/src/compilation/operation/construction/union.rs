@@ -1,8 +1,8 @@
 use bray_binder::BindingQueryContext;
 use bray_bound_tree::{
     BoundExpression, BoundExpressionId, BoundMemberSelector, BoundReferenceTarget,
-    BoundUnqualifiedVariantExpression, ConstructionDefaultProvider, ConstructionInputId,
-    ConstructionTarget,
+    BoundUnqualifiedVariantExpression, ConstructionInputId, ConstructionTarget,
+    DefaultValueProvider,
 };
 use bray_checker::{ConstructionInputSurface, OperationCandidate, OperationCandidateState};
 use bray_diagnostics::{
@@ -324,7 +324,7 @@ impl Compilation {
 
         let default = record
             .default_provider()
-            .map(ConstructionDefaultProvider::UnionPayload);
+            .map(DefaultValueProvider::UnionPayload);
 
         Ok(Some((
             ConstructionInputSurface::new(

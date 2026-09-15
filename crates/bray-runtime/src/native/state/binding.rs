@@ -13,7 +13,6 @@ use crate::{
     CleanupIncidentProducer, ExecutionLane, ExecutionLanePlacement, ExecutionWorkload, RunOutcome,
 };
 
-use super::super::frame::{NativeTerminalPayload, NativeTerminalState};
 use super::core::{
     CURRENT_NATIVE_TASK, NATIVE_RUNTIME, NativeRuntime, RetainedRuntime, retain_runtime,
 };
@@ -79,7 +78,7 @@ fn with_retained_runtime<T>(
     retained: &RetainedRuntime,
     callback: impl FnOnce() -> T,
 ) -> Result<T, NativeRuntimeStatus> {
-    let current = NATIVE_RUNTIME.with(|runtime| runtime.borrow().clone());
+    let current = NATIVE_RUNTIME.with_borrow(Clone::clone);
 
     if let Some(runtime) = current.as_ref()
         && Arc::ptr_eq(&runtime.core, &retained.core)
@@ -102,7 +101,7 @@ fn with_retained_runtime<T>(
         _test_isolation: None,
     });
 
-    let previous = NATIVE_RUNTIME.with(|active| active.replace(Some(Rc::clone(&runtime))));
+    let previous = NATIVE_RUNTIME.replace(Some(Rc::clone(&runtime)));
     let _binding = RuntimeBindingScope { previous };
 
     Ok(callback())
@@ -133,14 +132,12 @@ impl Drop for OwnedRuntimeScope<'_> {
 
 impl Drop for RuntimeBindingScope {
     fn drop(&mut self) {
-        NATIVE_RUNTIME.with(|runtime| {
-            runtime.replace(self.previous.take());
-        });
+        NATIVE_RUNTIME.set(self.previous.take());
     }
 }
 
 pub(in crate::native) fn current_native_task() -> Option<NativeTaskHandle> {
-    CURRENT_NATIVE_TASK.with(Cell::get)
+    CURRENT_NATIVE_TASK.get()
 }
 
 pub(in crate::native) fn write_cleanup_incident_report(
@@ -169,19 +166,12 @@ pub(in crate::native) fn write_cleanup_incident_report(
 
 pub(in crate::native) fn task_outcome(
     outcome: RunOutcome<usize>,
-    terminal: &NativeTerminalState,
+    task: &crate::TaskControlBlock<usize>,
 ) -> NativeRunOutcome {
     match outcome {
         RunOutcome::Completed(payload) => NativeRunOutcome::new(NativeRunState::COMPLETED, payload),
         RunOutcome::Cancelled => NativeRunOutcome::new(NativeRunState::CANCELLED, 0),
-        RunOutcome::Panicked(_) => NativeRunOutcome::new(
-            NativeRunState::PANICKED,
-            terminal
-                .take_payload()
-                .as_ref()
-                .map(NativeTerminalPayload::handle)
-                .unwrap_or(0),
-        ),
+        RunOutcome::Panicked(panic) => NativeRunOutcome::panicked(task.native_panic(panic)),
     }
 }
 
@@ -220,7 +210,8 @@ mod tests {
         reports.transfer(
             CleanupIncidentProducer::SynchronousRoot,
             origin,
-            "cleanup failed",
+            crate::RuntimePanic::new("cleanup failed"),
+            &mut crate::outgoing::OutgoingRecords::admit(1).unwrap(),
         );
 
         let mut output = Vec::new();

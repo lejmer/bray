@@ -41,19 +41,19 @@ pub(super) fn invoke_static_boundary<'context>(
     types: &mut LlvmTypeMappings<'context, '_>,
 ) -> Result<CallSiteValue<'context>, CodegenFailure> {
     let context = types.context();
-    let usize = crate::native::pointer_integer_type(context, types.target());
+    let outcome_type = crate::native::run_outcome_type(context, types.target());
     let mut arguments = semantic_arguments.to_vec();
 
     let panic_report_context = if signature.has_panic_report_context() {
         let storage = crate::translation::allocate_temporary(
             context,
             builder,
-            usize,
+            outcome_type,
             "static.call.panic.report.context",
         )?;
 
         builder
-            .build_store(storage, usize.const_zero())
+            .build_store(storage, outcome_type.const_zero())
             .map_err(CodegenFailure::backend_library)?;
 
         arguments.push(storage.into());
@@ -86,10 +86,10 @@ fn propagate_static_boundary_panic<'context>(
     types: &mut LlvmTypeMappings<'context, '_>,
 ) -> Result<(), CodegenFailure> {
     let context = types.context();
-    let usize = crate::native::pointer_integer_type(context, types.target());
+    let outcome_type = crate::native::run_outcome_type(context, types.target());
 
     let (report, continued, cancelled) =
-        crate::translation::branch_on_pending_outcome(context, builder, usize, storage)?;
+        crate::translation::branch_on_pending_outcome(context, builder, outcome_type, storage)?;
 
     propagate_static_outcome(
         module,
@@ -137,12 +137,15 @@ fn propagate_static_outcome<'context>(
         .get_function(symbol.name().as_str())
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-    let call = builder
-        .build_call(runtime, arguments, reference.role().as_str())
-        .map_err(CodegenFailure::backend_library)?;
-
-    call.set_call_convention(runtime.get_call_conventions());
-    apply_signature_call_attributes(call, symbol.signature(), types)?;
+    crate::native::invoke_function(
+        types.context(),
+        builder,
+        types.target(),
+        &CodegenSymbolKey::Runtime(reference),
+        runtime,
+        arguments,
+        reference.role().as_str(),
+    )?;
 
     builder
         .build_unreachable()

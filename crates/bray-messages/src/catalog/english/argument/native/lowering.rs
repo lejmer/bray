@@ -120,6 +120,9 @@ pub(super) fn format_english_lowering_failure(
         Failure::InvalidTaskOperation(_) => {
             "generating a type-correct call for the highlighted task operation"
         }
+        Failure::MissingInputCleanup(_) => {
+            "generating executable code for the highlighted expression because cleanup for an initialized input was not determined"
+        }
         Failure::MissingCallableResultType => {
             "generating executable code for the highlighted callable because its result type is unavailable"
         }

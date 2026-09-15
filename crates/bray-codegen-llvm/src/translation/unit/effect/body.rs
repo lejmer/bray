@@ -168,6 +168,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 Some(self.translate_declared_callable(id, *callable)?)
             }
             MirOperationKind::Generator(generator) => self.translate_generator(id, generator)?,
+            MirOperationKind::AdmitOutgoing { runtime, .. }
+            | MirOperationKind::DischargeOutgoing { runtime, .. } => {
+                self.translate_outgoing(id, *runtime)?;
+
+                None
+            }
             MirOperationKind::Finalize(place) => {
                 self.translate_lifecycle_helper(
                     id,
@@ -286,7 +292,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         self.invoke_native_runtime(*runtime, &arguments)
     }
 
-    fn native_source_anchor(
+    pub(in crate::translation::unit) fn native_source_anchor(
         &self,
         operation: bray_ir::MirOperationId,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
@@ -395,34 +401,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Err(CodegenFailure::GeneratedModuleInvariant);
         }
 
-        let context = if self.checked_call_operations.contains(&operation) {
-            let context = self.checked_call_panic_report_context()?;
-
-            if self
-                .pending_call_panic_report_context
-                .replace(context)
-                .is_some()
-            {
-                return Err(CodegenFailure::GeneratedModuleInvariant);
-            }
-
-            Some(context)
-        } else {
-            None
-        };
-
-        if helper.symbol().is_none() {
-            return Ok(());
-        }
-
         let place = self.place(place)?.into();
-
-        let result = match context {
-            Some(context) => {
-                self.invoke_helper_with_panic_report_context(helper, &[place], context)?
-            }
-            None => self.invoke_helper(helper, &[place])?,
-        };
+        let result = self.invoke_operation_helper(operation, helper, &[place])?;
 
         if result.is_some() {
             return Err(CodegenFailure::GeneratedModuleInvariant);
@@ -643,9 +623,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         match initializer {
             MirFrameInitializer::Callable(call) => {
-                let arguments = self.evaluate_call_arguments(call, &mut helpers, None)?;
+                let arguments = self.evaluate_call_arguments(call)?;
                 let helper = next_helper(&mut helpers, &MirHelperReference::CreateFrame(frame))?;
-                let result = self.invoke_helper(helper, arguments.values())?;
+                let result = self.invoke_helper(helper, &arguments)?;
 
                 if helpers.next().is_some() {
                     return Err(CodegenFailure::GeneratedModuleInvariant);

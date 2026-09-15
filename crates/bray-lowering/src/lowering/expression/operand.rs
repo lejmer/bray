@@ -143,6 +143,20 @@ impl Lowerer<'_> {
                     TypeData::Borrow { .. }
                 );
 
+                let block = if decision.purpose() == StorageAccessPurpose::Move
+                    && !borrowed
+                    && bray_bound_tree::storage_expression_republishes_destructor_receiver(
+                        lowerer.input.unit(),
+                        lowerer.input.storage_plan(),
+                        expression,
+                    )
+                    .is_some()
+                {
+                    lowerer.admit_outgoing_owner(expression, block, &source, place.ty())?
+                } else {
+                    block
+                };
+
                 let operand = match decision.purpose() {
                     StorageAccessPurpose::Move if borrowed => MirOperand::Copy(place),
                     StorageAccessPurpose::Move => MirOperand::Move(place),

@@ -47,13 +47,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             Some(panic_report_context),
         )?;
 
-        if self
-            .pending_call_panic_report_context
-            .replace(panic_report_context)
-            .is_some()
-        {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
-        }
+        self.set_pending_call_context(panic_report_context)?;
 
         Ok(result)
     }
@@ -132,13 +126,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             Some(panic_report_context),
         )?;
 
-        if self
-            .pending_call_panic_report_context
-            .replace(panic_report_context)
-            .is_some()
-        {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
-        }
+        self.set_pending_call_context(panic_report_context)?;
 
         Ok(result)
     }

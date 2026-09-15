@@ -45,6 +45,18 @@ pub(super) fn checked_call_operations(unit: &MirUnit) -> BTreeSet<MirOperationId
 use super::support::llvm;
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
+    pub(super) fn translate_goto(&mut self, edge: &MirEdge) -> Result<(), CodegenFailure> {
+        self.add_edge_arguments(edge)?;
+        self.clear_moved_places()?;
+
+        llvm(
+            self.builder
+                .build_unconditional_branch(self.block(edge.target())?),
+        )?;
+
+        Ok(())
+    }
+
     pub(super) fn take_control_source(
         &mut self,
     ) -> Result<(BasicBlock<'context>, Vec<MirPlace>), CodegenFailure> {

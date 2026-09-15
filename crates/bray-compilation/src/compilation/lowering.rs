@@ -193,7 +193,12 @@ impl Compilation {
                 FactQueryError::LoweringInput(LocatedLoweringFailure::new(error, source))
             })?;
 
-        let input = input.with_native_static_templates(&native_static_templates);
+        let runtime_calls =
+            self.runtime_lowering_calls(expressions.result().value().selections(), cancellation)?;
+
+        let input = input
+            .with_native_static_templates(&native_static_templates)
+            .with_runtime_calls(&runtime_calls);
 
         let input = match static_owner {
             Some((reference, ty)) => input.with_static_owner(reference, ty),
@@ -239,6 +244,57 @@ impl Compilation {
             DiagnosticResult::new(Some(LoweredUnit::Mir(Box::new(mir))), diagnostics),
             Box::new([]),
         ))
+    }
+
+    fn runtime_lowering_calls(
+        &self,
+        selections: &bray_bound_tree::CheckedSemanticSelections,
+        cancellation: &CancellationToken,
+    ) -> Result<
+        Vec<(
+            bray_symbols::CallableDefinitionId,
+            bray_runtime_interface::RuntimeAbiRole,
+        )>,
+        FactQueryError,
+    > {
+        let mut calls = Vec::new();
+
+        if self.runtime_roles().is_empty() {
+            return Ok(calls);
+        }
+
+        for entry in selections.entries() {
+            let bray_bound_tree::SemanticSelection::Call(call) = entry.selection() else {
+                continue;
+            };
+
+            let Some(definition) = call.target().declaration() else {
+                continue;
+            };
+
+            let bray_symbols::CallableSymbolId::Function(function) = definition.callable_symbol()
+            else {
+                continue;
+            };
+
+            let Some(role) = super::foreign::runtime::runtime_role(self, function)? else {
+                continue;
+            };
+
+            let contract =
+                self.foreign_callable_contract_with_cancellation(function, cancellation)?;
+
+            if contract.value().as_ref().is_some_and(|contract| {
+                contract.direction() == bray_symbols::ForeignCallableDirection::Import
+            }) {
+                calls.push((definition, role));
+            }
+        }
+
+        calls.sort_unstable();
+        calls.dedup();
+
+        Ok(calls)
     }
 
     fn native_static_templates(
@@ -446,6 +502,7 @@ fn lowering_failure_source(
             node_source(unit, *node).unwrap_or_else(|| unit_source(unit))
         }
         LoweringError::MissingExpressionType(expression)
+        | LoweringError::MissingInputCleanup(expression)
         | LoweringError::AwaitOutsideProtectedFrame(expression)
         | LoweringError::MissingSuspensionPoint(expression)
         | LoweringError::InvalidTaskOperation(expression)
@@ -1432,6 +1489,234 @@ mod tests {
     }
 
     #[test]
+    fn destructor_receiver_move_admits_before_transfer() {
+        let compilation = compilation(
+            r#"
+            module app;
+            struct Value {
+                mut again: bool;
+                destruct() {
+                    if self.again {
+                        self.again = false;
+                        take(self);
+                        self = Value { again = false };
+                        take(self);
+                    }
+                }
+            }
+            func take(pos value: Value) {}
+        "#,
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+
+        let key = compilation
+            .declared_unit_keys_for_test()
+            .unwrap()
+            .into_iter()
+            .find(|key| {
+                key.kind() == BoundUnitKind::CallableBody
+                    && key.declared_owner().kind() == bray_symbols::SymbolKind::Destructor
+            })
+            .unwrap();
+
+        let result = compilation.lowered_unit(key).unwrap();
+        let mir = lowered_mir(&result);
+
+        let admission = mir
+            .blocks()
+            .iter()
+            .find(|block| {
+                block.operations().iter().any(|id| {
+                    matches!(
+                        mir.operation(*id).unwrap().kind(),
+                        MirOperationKind::AdmitOutgoing { .. }
+                    )
+                })
+            })
+            .expect("whole receiver transfer must be admitted");
+
+        assert!(matches!(
+            admission.terminator().kind(),
+            MirTerminatorKind::CheckCallOutcome { .. }
+        ));
+
+        assert_eq!(
+            mir.operations()
+                .iter()
+                .filter(|operation| matches!(
+                    operation.kind(),
+                    MirOperationKind::AdmitOutgoing { .. }
+                ))
+                .count(),
+            3
+        );
+
+        assert_eq!(
+            mir.operations()
+                .iter()
+                .filter(|operation| matches!(
+                    operation.kind(),
+                    MirOperationKind::DischargeOutgoing { .. }
+                ))
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn default_failure_keeps_initialized_inputs_in_cleanup() {
+        for consumer in [
+            r#"
+                struct Value { guard: Guard; number: i32 = rejected_default(); }
+                func main() { let value = Value { guard = Guard {} }; }
+            "#,
+            r#"
+                func accept_guard(pos guard: Guard, number: i32 = rejected_default()) {}
+                func main() { accept_guard(Guard {}); }
+            "#,
+            r#"
+                async func accept_guard(pos guard: Guard, number: i32 = rejected_default()) {}
+                func main() {
+                    let result = catch { let pending = accept_guard(Guard {}); yield unit; };
+                }
+            "#,
+        ] {
+            let source = format!(
+                r#"
+                module app;
+                struct Guard {{ destruct() {{}} }}
+                func rejected_default() -> i32 {{ panic("default failed"); }}
+                {consumer}
+            "#
+            );
+
+            let compilation = compilation(&source);
+
+            assert!(
+                compilation.check_diagnostics().is_empty(),
+                "{:?}",
+                compilation.check_diagnostics()
+            );
+
+            let key = source_function_body_key(&compilation, "main");
+
+            let result = compilation
+                .lowered_unit(key)
+                .expect("construction failure must have an executable cleanup path");
+
+            let mir = lowered_mir(&result);
+
+            let (block, edge) = mir.blocks().iter().find_map(|block| {
+            let operation = block.operations().last().and_then(|id| mir.operation(*id))?;
+            if !matches!(operation.kind(), MirOperationKind::Call(call) if matches!(call.target(), bray_ir::MirCallTarget::DefaultValue { .. })) { return None; }
+
+            let MirTerminatorKind::CheckCallOutcome { panicked, .. } = block.terminator().kind() else { return None; };
+
+            Some((block, *panicked))
+        }).expect("default must retain a failure edge before construction");
+
+            assert!(!block.operations().iter().any(|id| matches!(mir.operation(*id).unwrap().kind(), MirOperationKind::Construct(construction) if construction.inputs().len() == 2)));
+            let mut pending = vec![edge.target()];
+            let mut seen = BTreeSet::new();
+            let mut cleans_input = false;
+
+            while let Some(id) = pending.pop() {
+                if !seen.insert(id) {
+                    continue;
+                }
+
+                let block = mir.block(id).unwrap();
+
+                cleans_input |= block.operations().iter().any(|id| {
+                    matches!(
+                        mir.operation(*id).unwrap().kind(),
+                        MirOperationKind::Cleanup {
+                            phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                            ..
+                        }
+                    )
+                });
+
+                block
+                    .terminator()
+                    .kind()
+                    .for_each_successor(|target| pending.push(target));
+            }
+
+            assert!(
+                cleans_input,
+                "default failure must reach lifecycle cleanup for the initialized guard"
+            );
+        }
+    }
+
+    #[test]
+    fn construction_inputs_survive_a_later_await() {
+        for (input_type, initializer, declaration) in [
+            ("i32", "17", ""),
+            ("Guard", "Guard {}", "struct Guard { destruct() {} }"),
+        ] {
+            let source = format!(
+                "module app; {declaration} struct Value {{ first: {input_type}; second: i32; }} \
+                 async func build(pos pending: Future<i32>) -> Value {{ \
+                 return Value {{ first = {initializer}, second = await pending }}; }}"
+            );
+
+            let compilation = compilation(&source);
+
+            assert!(
+                compilation.check_diagnostics().is_empty(),
+                "{:?}",
+                compilation.check_diagnostics()
+            );
+
+            let result = compilation
+                .lowered_unit(source_function_body_key(&compilation, "build"))
+                .expect("pending construction must lower across suspension");
+
+            let mir = lowered_mir(&result);
+
+            let first = mir
+                .operations()
+                .iter()
+                .find_map(|operation| {
+                    let MirOperationKind::Construct(construction) = operation.kind() else {
+                        return None;
+                    };
+
+                    if construction.inputs().len() != 2 {
+                        return None;
+                    }
+
+                    let MirOperand::Move(first) = construction.inputs()[0].value() else {
+                        return None;
+                    };
+
+                    Some(first.storage())
+                })
+                .expect("the final construction must consume its retained input");
+
+            let frame = mir
+                .frame_descriptor()
+                .expect("async construction has a frame");
+
+            assert!(
+                frame
+                    .states()
+                    .iter()
+                    .skip(1)
+                    .any(|state| state.initialized_storages().contains(&first)),
+                "the initialized {input_type} input must survive the later await"
+            );
+        }
+    }
+
+    #[test]
     fn runtime_default_expression_roots_lower_to_mir() {
         let compilation = compilation(UNIT_ROOT_LOWERING_SOURCE);
         let key = declared_unit_key(&compilation, BoundUnitKind::RuntimeDefault);
@@ -1876,6 +2161,9 @@ struct Receiver<T>
                 )
         )));
 
+        assert!(mir.operations().iter().any(|operation| matches!(operation.kind(),
+            MirOperationKind::Call(call) if matches!(call.target(), bray_ir::MirCallTarget::DefaultValue { .. }))));
+
         assert!(mir.operations().iter().any(|operation| {
             let MirOperationKind::Construct(construction) = operation.kind() else {
                 return false;
@@ -1884,23 +2172,7 @@ struct Receiver<T>
             construction
                 .inputs()
                 .iter()
-                .any(|input| matches!(input, bray_ir::MirConstructionInput::Default { .. }))
-        }));
-
-        assert!(mir.operations().iter().any(|operation| {
-            let MirOperationKind::Construct(construction) = operation.kind() else {
-                return false;
-            };
-
-            construction.inputs().iter().all(|input| {
-                matches!(
-                    input,
-                    bray_ir::MirConstructionInput::Explicit {
-                        value: MirOperand::Copy(place),
-                        ..
-                    } if !place.projections().is_empty()
-                )
-            })
+                .all(|input| matches!(input.value(), MirOperand::Move(_)))
         }));
 
         assert!(mir.operations().iter().any(|operation| matches!(
@@ -3513,9 +3785,7 @@ func main() -> i32?
     }
 
     fn explicit_call_operand(argument: &bray_ir::MirCallArgument) -> &MirOperand {
-        argument
-            .value()
-            .unwrap_or_else(|| panic!("custom index protocol arguments must be explicit"))
+        argument.value()
     }
 
     fn nullable_payload<'mir>(

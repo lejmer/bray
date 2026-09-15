@@ -582,30 +582,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     "frame.completion.handle",
                 ))?;
 
-                (1, payload)
+                (1, payload.into())
             }
             bray_ir::MirTaskTerminalState::Cancelled => {
-                (2, self.types.context().i64_type().const_zero())
+                (2, self.types.context().i64_type().const_zero().into())
             }
-            bray_ir::MirTaskTerminalState::Panicked(value) => {
-                let payload = match self.operand(value)? {
-                    BasicValueEnum::PointerValue(value) => llvm(self.builder.build_ptr_to_int(
-                        value,
-                        self.types.context().i64_type(),
-                        "frame.panic.handle",
-                    ))?,
-                    BasicValueEnum::IntValue(value) => {
-                        llvm(self.builder.build_int_z_extend_or_bit_cast(
-                            value,
-                            self.types.context().i64_type(),
-                            "frame.panic.handle",
-                        ))?
-                    }
-                    _ => return Err(CodegenFailure::GeneratedModuleInvariant),
-                };
-
-                (3, payload)
-            }
+            bray_ir::MirTaskTerminalState::Panicked(value) => (3, self.operand(value)?),
         };
 
         let progress = self.build_frame_progress(

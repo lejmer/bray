@@ -119,6 +119,18 @@ impl Lowerer<'_> {
         id: BoundExpressionId,
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
+        let retained = self.input_temporaries.len();
+        let result = self.lower_construction_inputs(id, current);
+        self.input_temporaries.truncate(retained);
+
+        result
+    }
+
+    fn lower_construction_inputs(
+        &mut self,
+        id: BoundExpressionId,
+        current: MirBlockId,
+    ) -> Result<LoweredExpression, LoweringError> {
         let source = self.expression_source(id)?;
 
         let selection = self.selected_operation(id)?.clone();
@@ -128,7 +140,7 @@ impl Lowerer<'_> {
                 let mut block = current;
                 let mut inputs = Vec::with_capacity(selection.inputs().len());
 
-                for (index, input) in selection.inputs().iter().enumerate() {
+                for input in selection.inputs() {
                     match *input {
                         SelectedConstructionInput::Explicit {
                             expression,
@@ -137,17 +149,6 @@ impl Lowerer<'_> {
                             ..
                         } => {
                             let lowered = self.lower_expression(expression, block)?;
-
-                            let has_later_expression =
-                                selection.inputs()[index + 1..].iter().any(|input| {
-                                    matches!(input, SelectedConstructionInput::Explicit { .. })
-                                });
-
-                            let lowered = if has_later_expression {
-                                self.materialize_for_later_evaluation(expression, lowered)?
-                            } else {
-                                lowered
-                            };
 
                             let Some(continuation) = lowered.block else {
                                 return Ok(lowered);
@@ -159,22 +160,75 @@ impl Lowerer<'_> {
 
                             block = continuation;
 
-                            inputs.push(MirConstructionInput::Explicit {
-                                input,
-                                ordinal,
-                                value,
-                            });
+                            let ty = self.builder.operand_type(&value)?;
+
+                            let value =
+                                self.materialize_owned_input(id, block, &source, value, ty)?;
+
+                            inputs.push(MirConstructionInput::new(input, ordinal, value));
                         }
                         SelectedConstructionInput::Default {
                             input,
                             provider,
                             ordinal,
-                            ..
-                        } => inputs.push(MirConstructionInput::Default {
-                            input,
-                            ordinal,
-                            provider,
-                        }),
+                            ty,
+                        } => {
+                            let arguments = if matches!(
+                                selection.target(),
+                                ConstructionTarget::TypeForm { .. }
+                            ) {
+                                self.default_value_arguments(
+                                    id,
+                                    block,
+                                    &source,
+                                    inputs
+                                        .iter()
+                                        .map(|input| (Some(input.ordinal()), input.value())),
+                                    ordinal,
+                                )?
+                            } else {
+                                Vec::new()
+                            };
+
+                            let call = bray_ir::MirCall::protocol(
+                                bray_ir::MirCallTarget::DefaultValue {
+                                    owner: match selection.target() {
+                                        ConstructionTarget::TypeForm { callable, .. } => {
+                                            bray_ir::MirDefaultOwner::Callable(
+                                                bray_ir::MirCallableReference::new(
+                                                    callable,
+                                                    bray_symbols::CallableAbi::Bray,
+                                                ),
+                                            )
+                                        }
+                                        target => bray_ir::MirDefaultOwner::Type {
+                                            target,
+                                            ty: selection.result_type(),
+                                        },
+                                    },
+                                    provider,
+                                },
+                                bray_bound_tree::BoundCallResult::Immediate(ty),
+                                arguments,
+                                [],
+                            );
+
+                            let (continued, value) = self.push_checked_value_operation(
+                                id,
+                                block,
+                                Self::retained_source(&source),
+                                MirOperationKind::Call(call),
+                                ty,
+                            )?;
+
+                            block = continued;
+                            let ty = self.builder.operand_type(&value)?;
+
+                            let value =
+                                self.materialize_owned_input(id, block, &source, value, ty)?;
+
+                            inputs.push(MirConstructionInput::new(input, ordinal, value));
+                        }
                     }
                 }
 
@@ -194,12 +248,28 @@ impl Lowerer<'_> {
             _ => return Err(LoweringError::MissingSemanticSelection(id)),
         };
 
+        let owner_type = self.expression_type(id)?;
+        let block = self.admit_outgoing_owner(id, block, &source, owner_type)?;
+
         let value = self.push_value_operation(
             id,
             block,
             Self::retained_source(&source),
             MirOperationKind::Construct(MirConstruction::new(target, inputs)),
         )?;
+
+        let (block, value) = if matches!(target, ConstructionTarget::TypeForm { .. }) {
+            self.finish_typed_call_panic_check(
+                id,
+                block,
+                &source,
+                &value,
+                owner_type,
+                Some(owner_type),
+            )?
+        } else {
+            (block, value)
+        };
 
         Ok(LoweredExpression::continuing(block, Some(value), source))
     }

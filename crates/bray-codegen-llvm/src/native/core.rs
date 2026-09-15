@@ -9,9 +9,7 @@ use inkwell::attributes::{Attribute, AttributeLoc};
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
-use inkwell::types::{
-    AnyType, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, StructType,
-};
+use inkwell::types::{AnyType, BasicTypeEnum, FunctionType, StructType};
 use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum, FunctionValue, StructValue};
 
 pub(crate) fn symbol_function_type<'context>(
@@ -102,9 +100,6 @@ pub(crate) fn invoke_function<'context>(
         };
 
         let logical = match operation {
-            ProtectedFrameOperation::Resume | ProtectedFrameOperation::CancellationEntry => {
-                frame_progress_type(context).into()
-            }
             ProtectedFrameOperation::StateDescription => frame_state_type(context).into(),
             _ => return Ok(Some(value)),
         };
@@ -135,10 +130,18 @@ pub(crate) fn invoke_function<'context>(
         .build_call(function, &arguments, name)
         .map_err(CodegenFailure::backend_library)?;
 
-    call.add_attribute(
-        AttributeLoc::Param(0),
-        indirect_result_attribute(context, result)?,
-    );
+    if matches!(
+        key,
+        CodegenSymbolKey::ProtectedFrame {
+            operation: ProtectedFrameOperation::MoveBeforeStart,
+            ..
+        }
+    ) {
+        call.add_attribute(
+            AttributeLoc::Param(0),
+            indirect_result_attribute(context, result)?,
+        );
+    }
 
     builder
         .build_load(result, storage, name)
@@ -167,8 +170,13 @@ pub(crate) fn runtime_indirect_result_type<'context>(
     let result = role.native_signature()?.result();
 
     // Product observations exceed the register-return limit on every supported native ABI.
-    if result == RuntimeAbiType::ProductObservation
-        || uses_microsoft_x64_abi(target) && aggregate_is_indirect(result)
+    if matches!(
+        result,
+        RuntimeAbiType::ProductObservation
+            | RuntimeAbiType::PanicReport
+            | RuntimeAbiType::RunOutcome
+            | RuntimeAbiType::FrameProgress
+    ) || uses_microsoft_x64_abi(target) && aggregate_is_indirect(result)
     {
         runtime_value_type(context, target, result)
     } else {
@@ -231,13 +239,13 @@ pub(crate) fn return_frame_result<'context>(
     Ok(())
 }
 
-fn frame_result_is_indirect(target: &CodegenTarget, operation: ProtectedFrameOperation) -> bool {
-    operation == ProtectedFrameOperation::MoveBeforeStart
-        || uses_microsoft_x64_abi(target)
-            && matches!(
-                operation,
-                ProtectedFrameOperation::Resume | ProtectedFrameOperation::CancellationEntry
-            )
+fn frame_result_is_indirect(_target: &CodegenTarget, operation: ProtectedFrameOperation) -> bool {
+    matches!(
+        operation,
+        ProtectedFrameOperation::MoveBeforeStart
+            | ProtectedFrameOperation::Resume
+            | ProtectedFrameOperation::CancellationEntry
+    )
 }
 
 pub(crate) fn return_frame_state(
@@ -317,6 +325,34 @@ pub(crate) fn frame_progress_type(context: &Context) -> StructType<'_> {
             context.i32_type().into(),
             context.i32_type().into(),
             context.i64_type().into(),
+            panic_report_type(context).into(),
+        ],
+        false,
+    )
+}
+
+pub(crate) fn panic_report_type(context: &Context) -> StructType<'_> {
+    let u32 = context.i32_type();
+    let u64 = context.i64_type();
+    let pointer = context.ptr_type(AddressSpace::default());
+
+    context.struct_type(
+        &[
+            u32.into(),
+            u32.into(),
+            u32.into(),
+            u32.into(),
+            u64.into(),
+            u32.into(),
+            u64.into(),
+            u64.into(),
+            pointer.into(),
+            pointer.into(),
+            u64.into(),
+            u64.into(),
+            u64.into(),
+            u64.into(),
+            pointer.into(),
         ],
         false,
     )
@@ -330,6 +366,7 @@ pub(crate) fn run_outcome_type<'context>(
         &[
             context.i32_type().into(),
             pointer_integer_type(context, target).into(),
+            panic_report_type(context).into(),
         ],
         false,
     )
@@ -500,12 +537,11 @@ pub(super) fn runtime_value_type<'context>(
         RuntimeAbiType::U32 => context.i32_type().into(),
         RuntimeAbiType::U64 => context.i64_type().into(),
         RuntimeAbiType::Usize => usize.into(),
-        RuntimeAbiType::Pointer | RuntimeAbiType::PointerUsize => {
-            context.ptr_type(AddressSpace::default()).into()
-        }
+        RuntimeAbiType::Pointer => context.ptr_type(AddressSpace::default()).into(),
         RuntimeAbiType::Configuration => runtime_configuration_type(context, target).into(),
         RuntimeAbiType::RootStart => root_start_type(context).into(),
         RuntimeAbiType::RunOutcome => run_outcome_type(context, target).into(),
+        RuntimeAbiType::PanicReport => panic_report_type(context).into(),
         RuntimeAbiType::TaskAllocation => task_allocation_type(context).into(),
         RuntimeAbiType::InactiveFrame => inactive_frame_type(context).into(),
         RuntimeAbiType::FrameProgress => frame_progress_type(context).into(),
@@ -541,63 +577,26 @@ pub(crate) fn frame_operation_type<'context>(
 ) -> FunctionType<'context> {
     let usize = pointer_integer_type(context, target);
     let pointer = context.ptr_type(AddressSpace::default());
-    let parameters = |types: &[BasicMetadataTypeEnum<'context>]| types.to_vec();
-
-    if operation == ProtectedFrameOperation::MoveBeforeStart {
-        return context
-            .void_type()
-            .fn_type(&parameters(&[pointer.into(), usize.into()]), false);
-    }
-
-    if uses_microsoft_x64_abi(target) {
-        return match operation {
-            ProtectedFrameOperation::MoveBeforeStart => {
-                unreachable!("move-before-start uses indirect results on every native ABI")
-            }
-            ProtectedFrameOperation::StateDescription => context.i64_type().fn_type(
-                &parameters(&[usize.into(), context.i32_type().into()]),
-                false,
-            ),
-            ProtectedFrameOperation::Resume | ProtectedFrameOperation::CancellationEntry => context
-                .void_type()
-                .fn_type(&parameters(&[pointer.into(), usize.into()]), false),
-            ProtectedFrameOperation::TaskBroadcast | ProtectedFrameOperation::Destruction => {
-                context
-                    .void_type()
-                    .fn_type(&parameters(&[usize.into()]), false)
-            }
-            ProtectedFrameOperation::LifecycleResolution => context.void_type().fn_type(
-                &parameters(&[usize.into(), context.i32_type().into()]),
-                false,
-            ),
-            ProtectedFrameOperation::CompletionMove => context
-                .void_type()
-                .fn_type(&parameters(&[usize.into(), usize.into()]), false),
-        };
-    }
 
     match operation {
-        ProtectedFrameOperation::MoveBeforeStart => {
-            unreachable!("move-before-start uses indirect results on every native ABI")
-        }
-        ProtectedFrameOperation::StateDescription => context.i64_type().fn_type(
-            &parameters(&[usize.into(), context.i32_type().into()]),
-            false,
-        ),
-        ProtectedFrameOperation::Resume | ProtectedFrameOperation::CancellationEntry => {
-            super::abi::progress_register_type(context, target)
-                .fn_type(&parameters(&[usize.into()]), false)
-        }
-        ProtectedFrameOperation::TaskBroadcast | ProtectedFrameOperation::Destruction => context
+        ProtectedFrameOperation::MoveBeforeStart
+        | ProtectedFrameOperation::Resume
+        | ProtectedFrameOperation::CancellationEntry => context
             .void_type()
-            .fn_type(&parameters(&[usize.into()]), false),
+            .fn_type(&[pointer.into(), usize.into()], false),
+        ProtectedFrameOperation::StateDescription => context
+            .i64_type()
+            .fn_type(&[usize.into(), context.i32_type().into()], false),
+        ProtectedFrameOperation::TaskBroadcast | ProtectedFrameOperation::Destruction => {
+            context.void_type().fn_type(&[usize.into()], false)
+        }
         ProtectedFrameOperation::LifecycleResolution => context.void_type().fn_type(
-            &parameters(&[usize.into(), context.i32_type().into()]),
+            &[pointer.into(), usize.into(), context.i32_type().into()],
             false,
         ),
         ProtectedFrameOperation::CompletionMove => context
             .void_type()
-            .fn_type(&parameters(&[usize.into(), usize.into()]), false),
+            .fn_type(&[usize.into(), usize.into()], false),
     }
 }
 
@@ -726,6 +725,44 @@ mod tests {
     }
 
     #[test]
+    fn report_consumers_borrow_one_header_on_every_native_target() {
+        let context = Context::create();
+
+        for native in NativeTarget::ALL {
+            let target = CodegenTarget::for_native(native);
+
+            for role in [
+                RuntimeAbiRole::PanicReporting,
+                RuntimeAbiRole::PanicReportDestruction,
+                RuntimeAbiRole::PanicPropagation,
+            ] {
+                let function = super::runtime_function_type(&context, &target, role)
+                    .expect("report role has a native ABI");
+
+                assert_eq!(
+                    function.get_param_types(),
+                    [context.ptr_type(inkwell::AddressSpace::default()).into()],
+                    "{native:?} {role:?}"
+                );
+            }
+
+            let report = super::runtime_function_type(
+                &context,
+                &target,
+                RuntimeAbiRole::RootTerminalObservation,
+            )
+            .expect("terminal observation has a native ABI");
+
+            assert_eq!(report.get_return_type(), None, "{native:?}");
+
+            assert_eq!(
+                report.get_param_types()[0],
+                context.ptr_type(inkwell::AddressSpace::default()).into()
+            );
+        }
+    }
+
+    #[test]
     fn native_declarations_reject_compiler_owned_roles_with_exact_identity() {
         let context = Context::create();
         let module = context.create_module("compiler.role");
@@ -761,19 +798,8 @@ mod tests {
             ProtectedFrameOperation::StateDescription,
         );
 
-        assert_eq!(cancellation.count_param_types(), 1);
-
-        assert_eq!(
-            cancellation.get_return_type(),
-            Some(
-                context
-                    .struct_type(
-                        &[context.i64_type().into(), context.i64_type().into()],
-                        false
-                    )
-                    .into()
-            )
-        );
+        assert_eq!(cancellation.count_param_types(), 2);
+        assert_eq!(cancellation.get_return_type(), None);
 
         assert_eq!(state.count_param_types(), 2);
 
@@ -857,11 +883,12 @@ mod tests {
         )
         .unwrap_or_else(|| panic!("panic report construction must have a native ABI"));
 
-        assert_eq!(panic.count_param_types(), 8);
+        assert_eq!(panic.count_param_types(), 9);
 
         assert_eq!(
             panic.get_param_types(),
             [
+                context.ptr_type(inkwell::AddressSpace::default()).into(),
                 context.i32_type().into(),
                 context.i32_type().into(),
                 context.i32_type().into(),
@@ -875,7 +902,7 @@ mod tests {
     }
 
     #[test]
-    fn system_v_x64_native_abi_keeps_register_aggregate_results() {
+    fn system_v_x64_native_abi_returns_small_records_in_registers_and_reports_indirectly() {
         let context = Context::create();
         let target = CodegenTarget::for_native(NativeTarget::X86_64LinuxGnu);
 
@@ -892,19 +919,8 @@ mod tests {
         let resume =
             super::frame_operation_type(&context, &target, ProtectedFrameOperation::Resume);
 
-        assert_eq!(
-            resume.get_return_type(),
-            Some(
-                context
-                    .struct_type(
-                        &[context.i64_type().into(), context.i64_type().into()],
-                        false
-                    )
-                    .into()
-            )
-        );
-
-        assert_eq!(resume.count_param_types(), 1);
+        assert_eq!(resume.get_return_type(), None);
+        assert_eq!(resume.count_param_types(), 2);
 
         let panic = super::runtime_function_type(
             &context,
@@ -913,11 +929,12 @@ mod tests {
         )
         .unwrap_or_else(|| panic!("panic report construction must have a native ABI"));
 
-        assert_eq!(panic.count_param_types(), 8);
+        assert_eq!(panic.count_param_types(), 9);
 
         assert_eq!(
             panic.get_param_types(),
             [
+                context.ptr_type(inkwell::AddressSpace::default()).into(),
                 context.i32_type().into(),
                 context.i32_type().into(),
                 context.i32_type().into(),

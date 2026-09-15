@@ -190,13 +190,22 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
                             ));
                         }
 
-                        if matches!(expressions.selections().expression(expression), Some(bray_bound_tree::SemanticSelection::Operation(bray_bound_tree::SelectedOperation::Construction(construction))) if !matches!(construction.target(), bray_bound_tree::ConstructionTarget::TypeForm { .. }))
-                        {
-                            if let Some(ty) = expressions
-                                .types()
-                                .expression(expression)
-                                .map(|entry| entry.ty())
-                            {
+                        let constructed = matches!(expressions.selections().expression(expression), Some(bray_bound_tree::SemanticSelection::Operation(operation)) if matches!(operation, bray_bound_tree::SelectedOperation::Construction(_)) || matches!(operation, bray_bound_tree::SelectedOperation::Member(member) if matches!(member.member(), bray_symbols::AnySymbolId::UnionVariant(_))));
+
+                        let republished =
+                            bray_bound_tree::storage_expression_republishes_destructor_receiver(
+                                request.unit(),
+                                storage,
+                                expression,
+                            );
+
+                        if constructed || republished.is_some() {
+                            if let Some(ty) = republished.or_else(|| {
+                                expressions
+                                    .types()
+                                    .expression(expression)
+                                    .map(|entry| entry.ty())
+                            }) {
                                 let admission =
                                     checked!(crate::asynchronous::execution_cleanup_dependencies(
                                         request,
@@ -206,8 +215,15 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
                                         node
                                     ));
 
-                                valid &= admission.value().is_some();
-                                diagnostics.add_range(admission.into_parts().1);
+                                let (dependencies, admission_diagnostics) = admission.into_parts();
+
+                                valid &= dependencies.is_some();
+
+                                candidate
+                                    .dependencies
+                                    .extend(dependencies.into_iter().flatten());
+
+                                diagnostics.add_range(admission_diagnostics);
                             } else {
                                 valid = false;
                             }

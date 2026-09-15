@@ -122,6 +122,10 @@ pub enum TestPanicCause {
     Assertion,
     /// An explicit `std.testing.fail` call.
     ExplicitFailure,
+    /// A panic caught at a runtime callback boundary.
+    RuntimePanic,
+    /// Storage could not be admitted.
+    AllocationFailure,
 }
 
 /// Structured panic data crossing the native test-host boundary.

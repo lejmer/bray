@@ -14,7 +14,7 @@ pub(in crate::native) fn with_output<T>(callback: impl FnOnce() -> T) -> T {
 
 pub(in crate::native) fn register_timeout(_cancellation: RootCancellationHandle) {}
 
-pub(in crate::native) fn record_outcome(_outcome: NativeRunOutcome) {}
+pub(in crate::native) fn record_outcome(_outcome: &NativeRunOutcome) {}
 
 pub(in crate::native) fn record_panic(
     _cause: NativePanicCause,

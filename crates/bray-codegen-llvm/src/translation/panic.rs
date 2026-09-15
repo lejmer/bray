@@ -1,39 +1,38 @@
 use bray_codegen::CodegenFailure;
-use inkwell::IntPredicate;
+use bray_runtime_abi::NativeRunState;
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
-use inkwell::types::IntType;
-use inkwell::values::{IntValue, PointerValue};
+use inkwell::types::StructType;
+use inkwell::values::{BasicValueEnum, PointerValue};
 
-pub(crate) const CANCELLATION_OUTCOME_SENTINEL: u64 = 1;
+use super::unit::{native_run_outcome, native_run_state_is};
 
 pub(crate) fn branch_on_pending_outcome<'context>(
     context: &'context Context,
     builder: &Builder<'context>,
-    ty: IntType<'context>,
+    ty: StructType<'context>,
     storage: PointerValue<'context>,
 ) -> Result<
     (
-        IntValue<'context>,
+        BasicValueEnum<'context>,
         BasicBlock<'context>,
         BasicBlock<'context>,
     ),
     CodegenFailure,
 > {
-    let report = builder
+    let outcome = builder
         .build_load(ty, storage, "call.panic.report")
-        .map_err(CodegenFailure::backend_library)?
-        .into_int_value();
-
-    let pending = builder
-        .build_int_compare(
-            IntPredicate::NE,
-            report,
-            ty.const_zero(),
-            "call.panic.pending",
-        )
         .map_err(CodegenFailure::backend_library)?;
+
+    let (state, _) = native_run_outcome(builder, outcome)?;
+
+    let report = builder
+        .build_extract_value(outcome.into_struct_value(), 2, "call.report")
+        .map_err(CodegenFailure::backend_library)?;
+
+    let completed =
+        native_run_state_is(builder, state, NativeRunState::COMPLETED, "call.completed")?;
 
     let function = builder
         .get_insert_block()
@@ -46,19 +45,13 @@ pub(crate) fn branch_on_pending_outcome<'context>(
     let cancelled = context.append_basic_block(function, "call.cancelled.propagate");
 
     builder
-        .build_conditional_branch(pending, inspect, continued)
+        .build_conditional_branch(completed, continued, inspect)
         .map_err(CodegenFailure::backend_library)?;
 
     builder.position_at_end(inspect);
 
-    let cancellation = builder
-        .build_int_compare(
-            IntPredicate::EQ,
-            report,
-            ty.const_int(CANCELLATION_OUTCOME_SENTINEL, false),
-            "call.cancelled",
-        )
-        .map_err(CodegenFailure::backend_library)?;
+    let cancellation =
+        native_run_state_is(builder, state, NativeRunState::CANCELLED, "call.cancelled")?;
 
     builder
         .build_conditional_branch(cancellation, cancelled, propagate)

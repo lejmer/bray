@@ -58,6 +58,36 @@ pub fn storage_identity_is_destructor_receiver(
         && unit.key().declared_owner().kind() == SymbolKind::Destructor
 }
 
+/// Returns the owner type when an expression transfers the whole executing destructor receiver.
+pub fn storage_expression_republishes_destructor_receiver(
+    unit: &BoundUnit,
+    storage: &StoragePlan,
+    expression: BoundExpressionId,
+) -> Option<bray_symbols::TypeId> {
+    if unit.key().declared_owner().kind() != SymbolKind::Destructor {
+        return None;
+    }
+
+    storage.expression_plans(expression).find_map(|plan| {
+        if !matches!(
+            plan.purpose(),
+            crate::StorageAccessPurpose::Move | crate::StorageAccessPurpose::ValueTransfer
+        ) || storage.resolved_projections(plan.access()) != Some(&[])
+            || !storage_identity_is_destructor_receiver(
+                unit,
+                storage,
+                storage.root_identity(plan.access())?,
+            )
+        {
+            return None;
+        }
+
+        storage
+            .access(plan.access())
+            .map(|access| access.reached_type())
+    })
+}
+
 /// Lexical owner scopes derived from one complete bound unit.
 pub struct StorageScopeOwners {
     nodes: BTreeMap<AnyBoundNodeId, BoundBlockId>,

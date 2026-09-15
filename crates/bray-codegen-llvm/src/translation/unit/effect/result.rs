@@ -7,6 +7,20 @@ use inkwell::IntPredicate;
 use inkwell::values::BasicValueEnum;
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
+    pub(in crate::translation::unit) fn return_frame_progress(
+        &self,
+        progress: BasicValueEnum<'context>,
+    ) -> Result<(), CodegenFailure> {
+        crate::native::return_frame_result(
+            self.types.context(),
+            &self.builder,
+            self.function,
+            self.request.target(),
+            bray_runtime_interface::ProtectedFrameOperation::Resume,
+            progress,
+        )
+    }
+
     pub(super) fn resolve_host_result(
         &mut self,
         operation_id: bray_ir::MirOperationId,
@@ -208,7 +222,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         )?;
 
         if self.host_role_implementation(panic)? != RuntimeRoleImplementation::CompilerLowering {
-            self.invoke_native_runtime_if(panicked, panic, &[payload.into()])?;
+            let report = super::super::support::extract_value(&self.builder, outcome.into(), 2)?;
+            self.invoke_native_runtime_if(panicked, panic, &[report])?;
         }
 
         let payload = match entry_result {

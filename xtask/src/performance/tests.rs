@@ -645,6 +645,24 @@ fn comparison_rejects_non_equivalent_corpora_and_suppresses_noisy_claims() {
     compare(&baseline, &recalibrated)
         .unwrap_or_else(|error| panic!("different valid batch counts must compare: {error}"));
 
+    let mut relocated = report("corpus", 102, 4);
+
+    for (language, peer) in &mut relocated.workloads[0].peers {
+        peer.artifacts[0].path = format!("relocated/{}", peer.artifacts[0].path);
+
+        peer.build_configuration = super::peer::fixture_build_configuration(
+            *language,
+            "small_output",
+            bray_target::NativeTarget::X86_64WindowsMsvc,
+            std::path::Path::new(&peer.artifacts[0].path),
+            std::num::NonZeroU64::new(peer.controlled_execution.inner_iterations)
+                .unwrap_or_else(|| panic!("fixture batch count must be nonzero")),
+        );
+    }
+
+    compare(&baseline, &relocated)
+        .unwrap_or_else(|error| panic!("different artifact directories must compare: {error}"));
+
     let different = report("other", 102, 4);
 
     assert!(compare(&baseline, &different).is_err());

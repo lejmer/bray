@@ -177,7 +177,6 @@ where
         | ImplementationHook::NativeThreadStart
         | ImplementationHook::CurrentNativeThreadIdentity
         | ImplementationHook::MainNativeThreadIdentity
-        | ImplementationHook::NativeThreadPanicReportRecovery
         | ImplementationHook::NativeThreadPanicReporting
         | ImplementationHook::TaskEventCreation
         | ImplementationHook::TaskEventSignal

@@ -12,7 +12,7 @@ trusted internal func foreign_callback_execution(
 
     if status != STATUS_SUCCESS
     {
-        return { state = RUN_RUNTIME_FAILURE, payload = status as usize };
+        return { state = RUN_RUNTIME_FAILURE, payload = status as usize, report = empty_panic_report() };
     }
 
     return trusted substrate_foreign_callback_execution(

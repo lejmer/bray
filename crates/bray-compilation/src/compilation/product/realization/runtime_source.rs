@@ -8,11 +8,27 @@ use super::super::super::foreign::{AbiField, abi_type_matches};
 use crate::fact::{CancellationToken, FactQueryError};
 
 const BYTE_POINTER: AbiField = AbiField::Pointer(RepresentationRole::ScalarU8);
-const USIZE_POINTER: AbiField = AbiField::Pointer(RepresentationRole::ScalarUsize);
 const U32: AbiField = AbiField::Scalar(RepresentationRole::ScalarU32);
 const U64: AbiField = AbiField::Scalar(RepresentationRole::ScalarU64);
 const USIZE: AbiField = AbiField::Scalar(RepresentationRole::ScalarUsize);
-const RUN_OUTCOME_FIELDS: &[AbiField] = &[U32, USIZE];
+const PANIC_REPORT: AbiField = AbiField::Struct(&[
+    U32,
+    U32,
+    U32,
+    U32,
+    U64,
+    U32,
+    USIZE,
+    USIZE,
+    BYTE_POINTER,
+    BYTE_POINTER,
+    USIZE,
+    USIZE,
+    USIZE,
+    USIZE,
+    BYTE_POINTER,
+]);
+const RUN_OUTCOME_FIELDS: &[AbiField] = &[U32, USIZE, PANIC_REPORT];
 const RUN_OUTCOME: AbiField = AbiField::Struct(RUN_OUTCOME_FIELDS);
 const PRODUCT_OBSERVATION_FIELDS: &[AbiField] = &[
     U32, U32, USIZE, USIZE, USIZE, USIZE, USIZE, USIZE, U64, U64, U64, U64,
@@ -40,15 +56,17 @@ macro_rules! define_runtime_source_fields {
     };
     (@bootstrap () $native:tt) => { None };
     (@bootstrap ($name:literal) ([$($parameter:ident),*] -> $result:ident)) => {
-        Some((&[$(define_runtime_source_fields!(@field $parameter),)*], define_runtime_source_fields!(@field $result)))
+        Some((&[$(define_runtime_source_fields!(@parameter $parameter),)*], define_runtime_source_fields!(@field $result)))
     };
     (@field U32) => { U32 };
     (@field U64) => { U64 };
     (@field Usize) => { USIZE };
     (@field Pointer) => { BYTE_POINTER };
-    (@field PointerUsize) => { USIZE_POINTER };
+    (@parameter PanicReport) => { BYTE_POINTER };
+    (@parameter $kind:ident) => { define_runtime_source_fields!(@field $kind) };
     (@field ProductObservation) => { PRODUCT_OBSERVATION };
     (@field RunOutcome) => { RUN_OUTCOME };
+    (@field PanicReport) => { PANIC_REPORT };
 }
 
 bray_runtime_abi::runtime_role_catalog!(define_runtime_source_fields);
@@ -118,14 +136,26 @@ mod tests {
     fn callback_boundary_roles_accept_the_structural_c_run_outcome() {
         let compilation = compilation(concat!(
             "module app;\n",
-            "@copy\n",
             "@layout(c)\n",
             "struct RunOutcome\n",
             "{\n",
             "    state: u32;\n",
             "    payload: usize;\n",
+            "    report: NativeReport;\n",
+            "}\n",
+            "@layout(c) struct NativeReport {\n",
+            "    source_present: u32; source_identity: u32; source_start: u32; source_end: u32; source_version: u64;\n",
+            "    cause: u32; message: usize; message_length: usize;\n",
+            "    copy_message: RawPointer<u8>; release_message: RawPointer<u8>;\n",
+            "    head: usize; tail: usize; count: usize; reserved: usize; consumer: RawPointer<u8>;\n",
             "}\n",
         ));
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
 
         let symbols = compilation
             .symbol_graph()
@@ -134,7 +164,12 @@ mod tests {
         let outcome = symbols
             .structures()
             .iter()
-            .find(|symbol| symbol.origin() == SymbolOrigin::Source)
+            .find(|symbol| {
+                symbol.origin() == SymbolOrigin::Source
+                    && symbols
+                        .member_name(symbol.id().into())
+                        .is_some_and(|name| name.as_str() == "RunOutcome")
+            })
             .unwrap_or_else(|| panic!("fixture must declare RunOutcome"));
 
         let values = compilation

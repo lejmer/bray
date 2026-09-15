@@ -7,11 +7,11 @@ use bray_runtime_abi::{
     PRODUCT_HOST_ABI_VERSION,
 };
 
-use super::super::cleanup::run_static_cleanup;
+use super::super::cleanup::{admit_finalizer, run_static_cleanup};
 
 use super::model::{
-    MAXIMUM_STATIC_ENTRIES, PendingCleanup, ProductHost, ProductStatic, THREAD_STATICS,
-    ThreadStaticEntry, product_hosts, product_key, runtime_status,
+    MAXIMUM_STATIC_ENTRIES, PendingCleanup, ProductCleanup, ProductHost, ProductStatic,
+    THREAD_STATICS, ThreadStaticEntry, product_hosts, product_key, runtime_status,
 };
 
 pub(crate) fn control(
@@ -54,17 +54,7 @@ pub(crate) fn control(
 
     match result {
         Ok(observation) => progress_closure(product).unwrap_or(observation),
-        Err(()) => NativeProductHostObservation::new(
-            NativeProductHostStatus::RUNTIME_FAILURE,
-            NativeProductHostState::FAILED,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            NativeStaticIdentity::new([0; 32]),
-        ),
+        Err(()) => host_failure(),
     }
 }
 
@@ -119,12 +109,13 @@ pub(crate) fn register_thread_static(
     let product = product_key(registration.product());
     let worker = current_thread_is_product_worker(product);
 
-    let Some((product_identity, entry)) = static_entry(product, registration.static_identity())
+    let Some((product_identity, duration, order)) =
+        static_entry(product, registration.static_identity())
     else {
         return NativeRuntimeStatus::INVALID_ARGUMENT;
     };
 
-    if entry.duration != NativeStaticDuration::EXACT_THREAD {
+    if duration != NativeStaticDuration::EXACT_THREAD {
         return NativeRuntimeStatus::INVALID_ARGUMENT;
     }
 
@@ -137,6 +128,10 @@ pub(crate) fn register_thread_static(
         }) {
             return NativeRuntimeStatus::SUCCESS;
         }
+
+        let Ok(admission) = admit_finalizer(registration.finalizer()) else {
+            return NativeRuntimeStatus::RUNTIME_FAILURE;
+        };
 
         if !registry.ensure_exit_callback() {
             return NativeRuntimeStatus::NOT_INITIALIZED;
@@ -163,10 +158,11 @@ pub(crate) fn register_thread_static(
         }
 
         registry.entries.push(ThreadStaticEntry {
+            admission,
             product,
             product_identity,
             static_identity: registration.static_identity(),
-            order: entry.order,
+            order,
             prepare: registration.prepare(),
             finalizer: registration.finalizer(),
             destroy: registration.destroy(),
@@ -450,37 +446,47 @@ fn prepare_cleanup(product: usize, host: &mut ProductHost) -> Option<PendingClea
     })
 }
 
-fn finish_cleanup(cleanup: PendingCleanup) -> NativeProductHostObservation {
-    let (mut incidents, runtime_incidents) =
+fn finish_cleanup(mut cleanup: PendingCleanup) -> NativeProductHostObservation {
+    let (_, runtime_incident) =
         crate::native::with_retained_static_cleanup_runtime(&cleanup.runtime, || {
-            let mut incidents = Vec::new();
+            for cleanup in &mut cleanup.statics {
+                let entry = cleanup.entry;
 
-            for entry in &cleanup.statics {
-                incidents.extend(
-                    run_static_cleanup(entry.prepare, entry.finalizer, entry.destroy, entry.detach)
-                        .into_iter()
-                        .map(|incident| (entry.identity, incident)),
+                cleanup.incidents = run_static_cleanup(
+                    &mut cleanup.admission,
+                    entry.prepare,
+                    entry.finalizer,
+                    entry.destroy,
+                    entry.detach,
                 );
             }
-
-            incidents
         });
 
     let runtime_identity = cleanup
         .statics
         .first()
-        .map_or(NativeStaticIdentity::new([0; 32]), |entry| entry.identity);
+        .map_or(NativeStaticIdentity::new([0; 32]), |cleanup| {
+            cleanup.entry.identity
+        });
 
-    incidents.extend(
-        runtime_incidents
-            .into_iter()
-            .map(|incident| (runtime_identity, incident)),
-    );
+    let mut incident_count = 0;
+    let mut last_incident = None;
 
-    let incident_count = incidents.len();
-    let last_incident = incidents.last().map(|(identity, _)| *identity);
+    for entry in &mut cleanup.statics {
+        for incident in entry.incidents.iter_mut().filter_map(Option::take) {
+            incident_count += 1;
 
-    for (_, incident) in incidents {
+            last_incident = Some(entry.entry.identity);
+
+            let _ = incident.report();
+        }
+    }
+
+    if let Some(incident) = runtime_incident {
+        incident_count += 1;
+
+        last_incident = Some(runtime_identity);
+
         let _ = incident.report();
     }
 
@@ -527,19 +533,7 @@ fn ensure_formed(
 ) -> Result<(), NativeProductHostObservation> {
     let product = product_key(descriptor);
 
-    let hosts = product_hosts().lock().map_err(|_| {
-        NativeProductHostObservation::new(
-            NativeProductHostStatus::RUNTIME_FAILURE,
-            NativeProductHostState::FAILED,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            NativeStaticIdentity::new([0; 32]),
-        )
-    })?;
+    let hosts = product_hosts().lock().map_err(|_| host_failure())?;
 
     if hosts.contains_key(&product) {
         return Ok(());
@@ -548,24 +542,15 @@ fn ensure_formed(
     // Runtime creation can wait for another thread that needs the product registry.
     drop(hosts);
 
-    let runtime = crate::native::retain_runtime().map_err(|_| {
-        NativeProductHostObservation::new(
-            NativeProductHostStatus::RUNTIME_FAILURE,
-            NativeProductHostState::FAILED,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            NativeStaticIdentity::new([0; 32]),
-        )
-    })?;
+    let runtime = crate::native::retain_runtime().map_err(|_| host_failure())?;
 
-    let Some(host) = read_descriptor(descriptor, runtime.clone()) else {
-        runtime.release();
+    let host = match read_descriptor(descriptor, runtime.clone()) {
+        Ok(host) => host,
+        Err(failure) => {
+            runtime.release();
 
-        return Err(NativeProductHostObservation::invalid());
+            return Err(failure);
+        }
     };
 
     // Drop a poisoned guard before releasing a runtime that can join product workers.
@@ -595,16 +580,21 @@ fn ensure_formed(
 fn read_descriptor(
     descriptor: &NativeProductHostDescriptor,
     runtime: crate::native::RetainedRuntime,
-) -> Option<ProductHost> {
+) -> Result<ProductHost, NativeProductHostObservation> {
     if descriptor.abi_version() != PRODUCT_HOST_ABI_VERSION
         || descriptor.static_count() > MAXIMUM_STATIC_ENTRIES
     {
-        return None;
+        return Err(NativeProductHostObservation::invalid());
     }
 
     let mut identities = BTreeSet::new();
     let mut orders = BTreeSet::new();
-    let mut statics = Vec::with_capacity(descriptor.static_count());
+    let mut statics = Vec::new();
+
+    statics
+        .try_reserve_exact(descriptor.static_count())
+        .map_err(|_| host_failure())?;
+
     let mut dependency_tables = Vec::with_capacity(descriptor.static_count());
 
     for index in 0..descriptor.static_count() {
@@ -624,7 +614,7 @@ fn read_descriptor(
             || !orders.insert(entry.order())
             || entry.dependency_count() > MAXIMUM_STATIC_ENTRIES
         {
-            return None;
+            return Err(NativeProductHostObservation::invalid());
         }
 
         let dependency = entry.dependency();
@@ -634,11 +624,11 @@ fn read_descriptor(
             .collect::<BTreeSet<_>>();
 
         if dependencies.contains(&entry.identity()) {
-            return None;
+            return Err(NativeProductHostObservation::invalid());
         }
 
         if dependencies.len() != entry.dependency_count() {
-            return None;
+            return Err(NativeProductHostObservation::invalid());
         }
 
         statics.push(ProductStatic {
@@ -672,7 +662,7 @@ fn read_descriptor(
                 .is_none_or(|dependency_order| dependency_order <= order)
         })
     }) {
-        return None;
+        return Err(NativeProductHostObservation::invalid());
     }
 
     let initialized_statics = statics
@@ -680,7 +670,27 @@ fn read_descriptor(
         .filter(|entry| entry.duration == NativeStaticDuration::PRODUCT)
         .count();
 
-    Some(ProductHost {
+    let mut cleanups = Vec::new();
+
+    cleanups
+        .try_reserve_exact(initialized_statics)
+        .map_err(|_| host_failure())?;
+
+    for entry in statics
+        .iter()
+        .copied()
+        .filter(|entry| entry.duration == NativeStaticDuration::PRODUCT)
+    {
+        let admission = admit_finalizer(entry.finalizer).map_err(|_| host_failure())?;
+
+        cleanups.push(ProductCleanup {
+            entry,
+            admission,
+            incidents: std::array::from_fn(|_| None),
+        });
+    }
+
+    Ok(ProductHost {
         identity: descriptor.identity(),
         runtime,
         state: NativeProductHostState::OPEN,
@@ -695,18 +705,33 @@ fn read_descriptor(
         cleanup_running: false,
         cleanup_blocked: false,
         statics,
+        cleanups,
     })
+}
+
+pub(crate) fn host_failure() -> NativeProductHostObservation {
+    NativeProductHostObservation::new(
+        NativeProductHostStatus::RUNTIME_FAILURE,
+        NativeProductHostState::FAILED,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        NativeStaticIdentity::new([0; 32]),
+    )
 }
 
 fn static_entry(
     product: usize,
     identity: NativeStaticIdentity,
-) -> Option<(NativeProductIdentity, ProductStatic)> {
+) -> Option<(NativeProductIdentity, NativeStaticDuration, u64)> {
     let hosts = product_hosts().lock().ok()?;
     let host = hosts.get(&product)?;
     let entry = host.static_entry(identity)?;
 
-    Some((host.identity, entry))
+    Some((host.identity, entry.duration, entry.order))
 }
 
 pub(super) fn report_incidents(product: usize, identity: NativeStaticIdentity, count: usize) {
@@ -811,6 +836,7 @@ mod tests {
     const fn finalizer(start: NativeStaticFinalizerStartCallback) -> NativeStaticFinalizer {
         NativeStaticFinalizer::new(
             NativeStaticFinalizerExecution::SYNCHRONOUS,
+            0,
             0,
             1,
             start,
@@ -1114,6 +1140,7 @@ mod tests {
         );
 
         INCIDENT_PROVIDER.set(None);
+
         assert_eq!(closed.state(), NativeProductHostState::CLOSED);
         assert_eq!(closed.status(), NativeProductHostStatus::INCIDENTS);
         assert_eq!(closed.cleanup_incidents(), 1);

@@ -12,7 +12,7 @@ trusted internal func synchronous_root_execution(
 
     if status != STATUS_SUCCESS
     {
-        return { state = RUN_RUNTIME_FAILURE, payload = status as usize };
+        return { state = RUN_RUNTIME_FAILURE, payload = status as usize, report = empty_panic_report() };
     }
 
     return trusted substrate_synchronous_root_execution(

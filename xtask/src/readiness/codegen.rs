@@ -28,7 +28,7 @@ const REQUIRED_CONTRACTS: &[&str] = &[
 ];
 
 const REQUIRED_CLOSED_CATEGORIES: &[&str] = &[
-    "ConstructionDefaultProvider",
+    "DefaultValueProvider",
     "ConstructionInputId",
     "ConstructionTarget",
     "ConversionTarget",
@@ -36,8 +36,8 @@ const REQUIRED_CLOSED_CATEGORIES: &[&str] = &[
     "MirBinaryOperator",
     "MirCallArgument",
     "MirCallTarget",
+    "MirDefaultOwner",
     "MirCleanupPhase",
-    "MirConstructionInput",
     "MirFrameInitializer",
     "MirGeneratorKind",
     "MirGeneratorOperation",

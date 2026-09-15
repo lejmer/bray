@@ -10,11 +10,6 @@
 #include <pthread.h>
 #endif
 
-typedef struct RunOutcome {
-    uint32_t state;
-    uintptr_t payload;
-} RunOutcome;
-
 typedef struct ProductHostObservation {
     uint32_t status;
     uint32_t state;
@@ -35,6 +30,61 @@ typedef struct SourceAnchor {
     uint64_t version;
 } SourceAnchor;
 
+typedef struct PanicReport PanicReport;
+struct PanicReport {
+    SourceAnchor source;
+    uint32_t cause;
+    uintptr_t message;
+    uintptr_t message_length;
+    uint32_t (*copy_message)(uintptr_t, uintptr_t, uint8_t *, uintptr_t);
+    void (*release_message)(uintptr_t, uintptr_t);
+    uintptr_t head;
+    uintptr_t tail;
+    uintptr_t count;
+    uintptr_t reserved;
+    uint32_t (*consume)(PanicReport *, _Bool);
+};
+
+typedef struct RunOutcome {
+    uint32_t state;
+    uintptr_t payload;
+    PanicReport report;
+} RunOutcome;
+
+_Static_assert(sizeof(PanicReport) == 104, "native report layout");
+_Static_assert(sizeof(RunOutcome) == 120, "native outcome layout");
+
+// This isolated bootstrap fixture models successful cleanup only. The linked Rust
+// smoke fixture exercises real record admission, failed reservation and incidents.
+static _Atomic uintptr_t outgoing_credits;
+
+void bray_runtime_outgoing_admission(uintptr_t count, RunOutcome *outcome) {
+    atomic_fetch_add(&outgoing_credits, count);
+    *outcome = (RunOutcome){0};
+}
+
+uintptr_t bray_runtime_outgoing_activation(void) {
+    if (atomic_load(&outgoing_credits) == 0) {
+        fputs("bootstrap cleanup has no admitted record\n", stderr);
+        abort();
+    }
+    return 1;
+}
+
+void bray_runtime_outgoing_retirement(uintptr_t record, RunOutcome *outcome) {
+    if (record != 1 || outcome->state == 2) {
+        fputs("unexpected bootstrap cleanup incident\n", stderr);
+        abort();
+    }
+}
+
+void bray_runtime_outgoing_discharge(uintptr_t count) {
+    if (atomic_fetch_sub(&outgoing_credits, count) < count) {
+        fputs("bootstrap cleanup discharged an unadmitted owner\n", stderr);
+        abort();
+    }
+}
+
 typedef struct CleanupIncident {
     uintptr_t payload;
     uint8_t type_identity[32];
@@ -45,7 +95,7 @@ typedef struct CleanupIncident {
 
 typedef struct StaticFinalizer {
     uint32_t execution;
-    uint32_t reserved;
+    uint32_t outgoing_capacity;
     uintptr_t result_size;
     uintptr_t result_alignment;
     void *start;
@@ -156,47 +206,61 @@ uint32_t bray_runtime_substrate_native_thread_execution(
     uintptr_t context,
     void *cancellation,
     uintptr_t cancellation_context,
-    uintptr_t *panic_payload,
+    PanicReport *panic_report,
     void (*cleanup)(void)
 ) {
     (void)operation;
     (void)context;
     (void)cancellation;
     (void)cancellation_context;
-    *panic_payload = 0;
+    *panic_report = (PanicReport){0};
     cleanup();
     return 0;
 }
 
-uint32_t bray_runtime_substrate_panic_reporting(
-    uint32_t cause,
-    uint32_t source_present,
-    uint32_t source_identity,
-    uint32_t source_start,
-    uint32_t source_end,
-    uint64_t source_version,
-    const uint8_t *message,
-    uintptr_t message_length
-) {
-    (void)source_identity;
-    (void)source_version;
-
-    if (cause > 2 || source_present > 1 || source_start > source_end) {
-        return 3;
+// This isolated bootstrap test supplies only the primary consumer. Detached records
+// and native bridges are exercised against the real runtime by runtime-smoke.rs.
+static uint32_t consume_report(PanicReport *report, _Bool reporting) {
+    if (report->head || report->tail || report->count || report->reserved) {
+        abort();
     }
-
-    if (message == NULL && message_length != 0) {
-        return 3;
+    uint32_t status = 0;
+    if (reporting && (report->cause > 4 || report->source.present > 1 ||
+        report->source.start > report->source.end ||
+        (report->message_length != 0 && report->message == 0))) {
+        status = 3;
     }
+    if (report->release_message != NULL) {
+        report->release_message(report->message, report->message_length);
+    }
+    *report = (PanicReport){0};
+    return status;
+}
 
+uint32_t bray_runtime_substrate_panic_report_initialization(PanicReport *report) {
+    report->consume = consume_report;
     return 0;
+}
+
+PanicReport bray_runtime_panic_report_suppression(PanicReport *primary, PanicReport *incident) {
+    (void)primary;
+    (void)incident;
+    abort(); // This isolated primary-report fixture must not invoke detached-record operations.
+}
+
+uint32_t bray_runtime_panic_reporting(PanicReport *report) {
+    return report->consume == NULL ? 0 : report->consume(report, 1);
+}
+
+uint32_t bray_runtime_panic_report_destruction(PanicReport *report) {
+    return report->consume == NULL ? 0 : report->consume(report, 0);
 }
 
 extern RunOutcome bray_runtime_synchronous_root_execution(void *callback, uintptr_t context);
 extern RunOutcome bray_runtime_foreign_callback_execution(void *callback, uintptr_t context);
 extern uint64_t bray_runtime_thread_attachment_identity(void *descriptor);
 extern uint32_t bray_runtime_thread_static_cleanup_registration(void *registration);
-extern uintptr_t bray_runtime_panic_report_construction(
+extern PanicReport bray_runtime_panic_report_construction(
     uint32_t cause,
     uint32_t source_present,
     uint32_t source_identity,
@@ -206,8 +270,6 @@ extern uintptr_t bray_runtime_panic_report_construction(
     const uint8_t *message,
     uintptr_t message_length
 );
-extern uint32_t bray_runtime_panic_reporting(uintptr_t report);
-extern uint32_t bray_runtime_panic_report_destruction(uintptr_t report);
 extern uint32_t bray_runtime_structured_shutdown(void);
 extern uint64_t bray_runtime_bootstrap_thread_static_probe(void);
 extern uint64_t bray_runtime_bootstrap_thread_static_cleanup_observation(void);
@@ -230,7 +292,7 @@ static void cancelled_callback(uintptr_t context, RunOutcome *outcome) {
     outcome->payload = 0;
 }
 
-static uintptr_t panic_report(void) {
+static PanicReport panic_report(void) {
     static const uint8_t message[] = "bootstrap panic";
 
     return bray_runtime_panic_report_construction(
@@ -247,8 +309,8 @@ static uintptr_t panic_report(void) {
 
 static void panicked_callback(uintptr_t context, RunOutcome *outcome) {
     (void)context;
+    outcome->report = panic_report();
     outcome->state = 2;
-    outcome->payload = panic_report();
 }
 
 static void static_transition(void) {
@@ -377,7 +439,7 @@ void bray_runtime_current_run_cancellation_propagation(void) {
     abort();
 }
 
-void bray_runtime_panic_propagation(uintptr_t report) {
+void bray_runtime_panic_propagation(PanicReport *report) {
     (void)report;
     abort();
 }
@@ -410,15 +472,16 @@ int main(void) {
         0
     );
 
-    if (panicked.state != 2 || panicked.payload == 0) {
+    if (panicked.state != 2 || panicked.report.consume == NULL) {
         return 4;
     }
 
-    if (bray_runtime_panic_reporting(panicked.payload) != 0) {
+    if (bray_runtime_panic_reporting(&panicked.report) != 0) {
         return 5;
     }
 
-    if (bray_runtime_panic_report_destruction(panic_report()) != 0) {
+    PanicReport handled = panic_report();
+    if (bray_runtime_panic_report_destruction(&handled) != 0) {
         return 6;
     }
 
@@ -552,6 +615,10 @@ int main(void) {
 
     if (atomic_load_explicit(&cleanup_shield_balance, memory_order_relaxed) != 0) {
         return 23;
+    }
+
+    if (atomic_load(&outgoing_credits) != 0) {
+        return 24;
     }
 
     return 0;

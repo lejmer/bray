@@ -160,7 +160,8 @@ pub(in crate::output::diagnostic::json) fn lowering_failure_context(
 
             context
         }
-        Failure::MissingExpressionType(identity)
+        Failure::MissingInputCleanup(identity)
+        | Failure::MissingExpressionType(identity)
         | Failure::AwaitOutsideProtectedFrame(identity)
         | Failure::MissingSuspensionPoint(identity)
         | Failure::InvalidTaskOperation(identity)

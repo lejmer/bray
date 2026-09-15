@@ -192,7 +192,7 @@ impl Compilation {
         }))
     }
 
-    fn verified_execution_obligation(
+    pub(in crate::compilation) fn verified_execution_obligation(
         &self,
         callable: CallableInstanceData,
         required: ExecutionObligation,

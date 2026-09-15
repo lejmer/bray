@@ -8,7 +8,7 @@ use bray_symbols::{
 
 use crate::{
     BoundCallableTarget, BoundSourceAnchor, BoundUnitId, BoundUnitKey, BoundUnitKind,
-    ConstructionDefaultProvider,
+    DefaultValueProvider,
 };
 
 /// Whether one selected callable contributes invocation or deferred body behavior.
@@ -81,7 +81,7 @@ pub struct BodyBehaviorContributions {
     unit: BoundUnitId,
     kind: BoundUnitKind,
     calls: Arc<[BodyBehaviorCall]>,
-    defaults: Arc<[ConstructionDefaultProvider]>,
+    defaults: Arc<[DefaultValueProvider]>,
     current_run_cancellation: CurrentRunCancellation,
     is_recovered: bool,
 }
@@ -122,7 +122,7 @@ impl BodyBehaviorContributions {
         unit: BoundUnitId,
         kind: BoundUnitKind,
         calls: impl IntoIterator<Item = BodyBehaviorCall>,
-        defaults: impl IntoIterator<Item = ConstructionDefaultProvider>,
+        defaults: impl IntoIterator<Item = DefaultValueProvider>,
         current_run_cancellation: CurrentRunCancellation,
         is_recovered: bool,
     ) -> Self {
@@ -152,7 +152,7 @@ impl BodyBehaviorContributions {
     }
 
     /// Returns evaluated runtime defaults in deterministic evaluation order.
-    pub fn defaults(&self) -> &[ConstructionDefaultProvider] {
+    pub fn defaults(&self) -> &[DefaultValueProvider] {
         &self.defaults
     }
 

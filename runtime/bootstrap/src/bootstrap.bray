@@ -35,12 +35,12 @@ internal struct PlatformStatus
     native_code: i64;
 }
 
-@copy
 @layout(c)
 internal struct RunOutcome
 {
     state: u32;
     payload: usize;
+    report: PanicReportData;
 }
 
 @copy
@@ -81,19 +81,24 @@ internal struct AttachmentState
     cleanups: RawPointer<CleanupRecord>;
 }
 
-@copy
-@layout(stable)
+@layout(c)
 internal struct PanicReportData
 {
-    mut next_incident: usize?;
-    cause: u32;
-    source_present: u32;
-    source_identity: u32;
-    source_start: u32;
-    source_end: u32;
-    source_version: u64;
-    message: RawPointer<u8>;
-    message_length: usize;
+    mut source_present: u32;
+    mut source_identity: u32;
+    mut source_start: u32;
+    mut source_end: u32;
+    mut source_version: u64;
+    mut cause: u32;
+    mut message: usize;
+    mut message_length: usize;
+    mut copy_message: RawPointer<u8>;
+    mut release_message: RawPointer<u8>;
+    mut outgoing_head: usize;
+    mut outgoing_tail: usize;
+    mut outgoing_count: usize;
+    mut reserved: usize;
+    mut consumer: RawPointer<u8>;
 }
 
 internal static BOOTSTRAP_KEY: core.atomic.Atomic<u64> = core.atomic.initialize<u64>(0);
@@ -343,7 +348,7 @@ trusted internal func native_thread_execution(
     pos context: usize,
     pos cancellation: RawPointer<u8>,
     pos cancellation_context: usize,
-    pos panic_payload: RawPointer<usize>,
+    pos panic_report: RawPointer<u8>,
 ) -> u32
     uses(foreign_call)
 {
@@ -359,7 +364,7 @@ trusted internal func native_thread_execution(
         context = context,
         cancellation = cancellation,
         cancellation_context = cancellation_context,
-        panic_payload = panic_payload,
+        panic_report = panic_report,
         cleanup = trusted substrate_native_thread_cleanup_pointer(),
     );
 
@@ -374,7 +379,7 @@ extern trusted internal func substrate_native_thread_execution(
     pos context: usize,
     pos cancellation: RawPointer<u8>,
     pos cancellation_context: usize,
-    pos panic_payload: RawPointer<usize>,
+    pos panic_report: RawPointer<u8>,
     pos cleanup: RawPointer<u8>,
 ) -> u32
     uses(foreign_call);
@@ -743,17 +748,6 @@ trusted internal func attachment_from_opaque(pos pointer: RawPointer<u8>) -> Raw
     uses(layout_reinterpret)
 {
     return trusted std.memory.reinterpret<AttachmentState, u8>(pointer);
-}
-
-trusted internal func panic_report_from_payload(pos payload: usize) -> RawPointer<PanicReportData>
-    ensures(
-        trusted core.memory.valid_read<PanicReportData>(pointer = result, count = 1),
-        trusted core.memory.aligned_for<PanicReportData>(pointer = result),
-        trusted core.memory.initialized_as<PanicReportData>(pointer = result),
-    )
-    uses(intrinsic)
-{
-    return trusted core.target.from_exposed_address<PanicReportData>(address = payload);
 }
 
 trusted internal func read_opaque<T>(pos pointer: RawPointer<T>) -> T

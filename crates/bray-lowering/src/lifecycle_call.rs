@@ -13,6 +13,7 @@ pub(crate) fn lower_lifecycle_call(
     place: MirPlace,
     borrow: Option<BorrowKind>,
     result: BoundCallResult,
+    cleanup: bool,
     mut emit: impl FnMut(
         MirOperationKind,
         Option<TypeId>,
@@ -36,7 +37,7 @@ pub(crate) fn lower_lifecycle_call(
     let call = MirCall::protocol(MirCallTarget::Direct(callable), result, [receiver], []);
 
     let operation = match result {
-        BoundCallResult::Immediate(_) => MirOperationKind::Call(call),
+        BoundCallResult::Immediate(_) => MirOperationKind::Call(call.with_cleanup(cleanup)),
         BoundCallResult::LazyFuture(_) => MirOperationKind::Async(MirAsyncOperation::CreateFrame {
             frame: MirFrameReference::Erased,
             initializer: MirFrameInitializer::Callable(call),

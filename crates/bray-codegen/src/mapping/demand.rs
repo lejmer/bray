@@ -97,7 +97,10 @@ pub fn child_constants(kind: &ConstantValueKind) -> impl Iterator<Item = Constan
 
 fn collect_operation_values(operation: &MirOperationKind, demands: &mut ConstantDemands) {
     match operation {
-        MirOperationKind::AnonymousCallable(_) | MirOperationKind::DeclaredCallable(_) => {}
+        MirOperationKind::AnonymousCallable(_)
+        | MirOperationKind::DeclaredCallable(_)
+        | MirOperationKind::AdmitOutgoing { .. }
+        | MirOperationKind::DischargeOutgoing { .. } => {}
         MirOperationKind::Store {
             destination, value, ..
         } => {
@@ -125,9 +128,7 @@ fn collect_operation_values(operation: &MirOperationKind, demands: &mut Constant
         }
         MirOperationKind::Construct(construction) => {
             for input in construction.inputs() {
-                if let bray_ir::MirConstructionInput::Explicit { value, .. } = input {
-                    collect_operand_value(value, demands);
-                }
+                collect_operand_value(input.value(), demands);
             }
         }
         MirOperationKind::PatternProjection { subject, .. } => {
@@ -325,9 +326,7 @@ fn collect_call_values(call: &MirCall, demands: &mut ConstantDemands) {
     }
 
     for argument in call.arguments() {
-        if let Some(value) = argument.value() {
-            collect_operand_value(value, demands);
-        }
+        collect_operand_value(argument.value(), demands);
     }
 }
 

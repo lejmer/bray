@@ -30,6 +30,7 @@ pub(super) struct ConcreteStaticRealization {
     pub(super) initializer: ConcreteCodegenInstance,
     initial_value: bray_symbols::ConstantValueId,
     relocations: Vec<CodegenStaticRelocation>,
+    outgoing_capacity: u32,
     pub(super) finalization: Option<ConcreteStaticFinalization>,
     pub(super) destroy: Option<ConcreteCodegenInstance>,
     pub(super) reference: StaticReferenceSelection,
@@ -444,6 +445,7 @@ impl Compilation {
                     defines_storage,
                     realization.initial_value,
                     realization.relocations,
+                    realization.outgoing_capacity,
                     realization.finalization.map(|finalization| {
                         CodegenStaticFinalization::new(
                             finalization.execution,
@@ -668,7 +670,7 @@ impl Compilation {
             ));
         }
 
-        let relocations = self.codegen_static_relocations(
+        let (relocations, outgoing_capacity) = self.codegen_static_initial_value(
             &initializer,
             evaluated.value().value(),
             target,
@@ -681,6 +683,7 @@ impl Compilation {
             initializer,
             initial_value: evaluated.value().value(),
             relocations,
+            outgoing_capacity,
             finalization,
             destroy,
             reference: StaticReferenceSelection::Closed(instance),
@@ -689,29 +692,41 @@ impl Compilation {
         })
     }
 
-    fn codegen_static_relocations(
+    fn codegen_static_initial_value(
         &self,
         owner: &ConcreteCodegenInstance,
         root: bray_symbols::ConstantValueId,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
-    ) -> Result<Vec<CodegenStaticRelocation>, CodegenPreparationError> {
+    ) -> Result<(Vec<CodegenStaticRelocation>, u32), CodegenPreparationError> {
         let values = self.semantic_value_store()?;
         let mut pending = vec![root];
-        let mut visited = BTreeSet::new();
+        let mut outgoing_capacity = 0u32;
+        let mut capacities = BTreeMap::new();
         let mut relocations = BTreeMap::new();
 
         while let Some(value) = pending.pop() {
-            if !visited.insert(value) {
-                continue;
-            }
-
             let data = values
                 .constant_value_data(value)
                 .map_err(FactQueryError::SemanticValueStore)?;
 
+            let capacity = match capacities.entry(data.ty()) {
+                std::collections::btree_map::Entry::Occupied(entry) => *entry.get(),
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    *entry.insert(self.owner_outgoing_capacity(data.ty(), cancellation)?)
+                }
+            };
+
+            outgoing_capacity = outgoing_capacity
+                .checked_add(capacity)
+                .ok_or(ProductQueryFailure::OutgoingCapacityOverflow { value: root })?;
+
             match data.kind() {
                 bray_symbols::ConstantValueKind::StaticAddress(reference) => {
+                    if relocations.contains_key(&value) {
+                        continue;
+                    }
+
                     let realization =
                         self.concrete_codegen_static(owner, reference, target, cancellation)?;
 
@@ -751,6 +766,6 @@ impl Compilation {
             }
         }
 
-        Ok(relocations.into_values().collect())
+        Ok((relocations.into_values().collect(), outgoing_capacity))
     }
 }

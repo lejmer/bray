@@ -2,11 +2,12 @@ use bray_codegen::CodegenFailure;
 use bray_ir::BoundUnitKey;
 use bray_runtime_abi::NativeRunState;
 use bray_runtime_interface::{ExecutableEntryResult, RootExecution};
-use inkwell::IntPredicate;
 use inkwell::values::BasicValueEnum;
 
 use super::super::core::UnitTranslator;
-use super::super::support::{int_value, llvm, native_run_outcome_value, pointer_value};
+use super::super::support::{
+    insert_value, int_value, llvm, native_run_outcome, native_run_state_is, pointer_value,
+};
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
     pub(super) fn translate_synchronous_root_boundary(
@@ -116,102 +117,38 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             _ => return Err(CodegenFailure::GeneratedModuleInvariant),
         }
 
-        let report = llvm(
+        let outcome_type =
+            crate::native::run_outcome_type(self.types.context(), self.request.target());
+
+        let value = llvm(
             self.builder
-                .build_load(usize, panic_report, "root.panic.report"),
+                .build_load(outcome_type, panic_report, "root.outcome"),
         )?;
 
-        let report = int_value(report).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        let (state, report) = native_run_outcome(&self.builder, value)?;
 
-        let cancelled = llvm(self.builder.build_int_compare(
-            IntPredicate::EQ,
+        let completed = native_run_state_is(
+            &self.builder,
+            state,
+            NativeRunState::COMPLETED,
+            "root.completed",
+        )?;
+
+        let payload = llvm(self.builder.build_select(
+            completed,
+            callback_destination_handle,
             report,
-            usize.const_int(crate::translation::CANCELLATION_OUTCOME_SENTINEL, false),
-            "root.cancelled",
+            "root.outcome.payload",
         ))?;
 
-        let panicked = llvm(self.builder.build_int_compare(
-            IntPredicate::NE,
-            report,
-            usize.const_zero(),
-            "root.panicked",
-        ))?;
-
-        let cancelled_block = self
-            .types
-            .context()
-            .append_basic_block(callback, "root.cancelled");
-
-        let panicked_block = self
-            .types
-            .context()
-            .append_basic_block(callback, "root.panicked");
-
-        let inspect_panic_block = self
-            .types
-            .context()
-            .append_basic_block(callback, "root.inspect_panic");
-
-        let completed_block = self
-            .types
-            .context()
-            .append_basic_block(callback, "root.completed");
-
-        llvm(self.builder.build_conditional_branch(
-            cancelled,
-            cancelled_block,
-            inspect_panic_block,
-        ))?;
+        let value = insert_value(&self.builder, value, payload, 1)?;
 
         let outcome = callback
             .get_nth_param(1)
             .and_then(pointer_value)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        self.builder.position_at_end(cancelled_block);
-
-        let cancelled_outcome = native_run_outcome_value(
-            self.types.context(),
-            &self.builder,
-            self.request.target(),
-            NativeRunState::CANCELLED,
-            usize.const_zero(),
-        )?;
-
-        llvm(self.builder.build_store(outcome, cancelled_outcome))?;
-        llvm(self.builder.build_return(None))?;
-
-        self.builder.position_at_end(inspect_panic_block);
-
-        llvm(
-            self.builder
-                .build_conditional_branch(panicked, panicked_block, completed_block),
-        )?;
-
-        self.builder.position_at_end(panicked_block);
-
-        let panicked_outcome = native_run_outcome_value(
-            self.types.context(),
-            &self.builder,
-            self.request.target(),
-            NativeRunState::PANICKED,
-            report,
-        )?;
-
-        llvm(self.builder.build_store(outcome, panicked_outcome))?;
-        llvm(self.builder.build_return(None))?;
-
-        self.builder.position_at_end(completed_block);
-
-        let completed_outcome = native_run_outcome_value(
-            self.types.context(),
-            &self.builder,
-            self.request.target(),
-            NativeRunState::COMPLETED,
-            callback_destination_handle,
-        )?;
-
-        llvm(self.builder.build_store(outcome, completed_outcome))?;
+        llvm(self.builder.build_store(outcome, value))?;
         llvm(self.builder.build_return(None))?;
 
         self.builder.position_at_end(host_block);

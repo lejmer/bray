@@ -95,6 +95,16 @@ where
         }
     }
 
+    fn include_input(&mut self, ty: TypeId) -> Result<(), CheckerQueryError<C::UpstreamError>> {
+        let cleanup = cleanup_requirement(self.resolve(ty)?);
+
+        self.cleanup_types
+            .entry(ty)
+            .or_insert_with(|| StorageCleanupType::new(ty, cleanup));
+
+        Ok(())
+    }
+
     pub(super) fn resolve(
         &mut self,
         ty: TypeId,
@@ -312,6 +322,7 @@ pub(super) fn scope_exit_plans<C>(
     storage: &StoragePlan,
     flow: &StorageFlow,
     dependencies: &bray_bound_tree::CheckedDependencyContracts,
+    selections: &bray_bound_tree::CheckedSemanticSelections,
 ) -> Result<
     (
         Vec<AsyncStorageRequirement>,
@@ -330,6 +341,42 @@ where
 
     let requirements = storage_requirements(request, storage, flow, &owners, &mut cleanup_shapes)?;
     let replacements = super::replacement::replacement_plans(storage, flow, &mut cleanup_shapes)?;
+
+    for entry in selections.entries() {
+        match entry.selection() {
+            bray_bound_tree::SemanticSelection::Operation(
+                bray_bound_tree::SelectedOperation::Construction(construction),
+            ) => {
+                for input in construction.inputs() {
+                    let (bray_bound_tree::SelectedConstructionInput::Explicit { ty, .. }
+                    | bray_bound_tree::SelectedConstructionInput::Default { ty, .. }) = input;
+
+                    cleanup_shapes.include_input(*ty)?;
+                }
+            }
+            bray_bound_tree::SemanticSelection::Call(call) => {
+                for argument in call.arguments() {
+                    let ty = match argument {
+                        bray_bound_tree::SelectedArgument::Explicit { conversion, .. } => {
+                            conversion.target_type()
+                        }
+                        bray_bound_tree::SelectedArgument::Default { ty, .. } => *ty,
+                    };
+
+                    cleanup_shapes.include_input(ty)?;
+                }
+
+                if let Some(receiver) = call.receiver() {
+                    let ty = receiver
+                        .input_type(request.semantic_values())
+                        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+
+                    cleanup_shapes.include_input(ty)?;
+                }
+            }
+            _ => {}
+        }
+    }
 
     let requirements_by_identity = requirements
         .iter()

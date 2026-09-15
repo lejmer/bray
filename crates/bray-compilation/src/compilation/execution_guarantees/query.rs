@@ -503,8 +503,10 @@ mod tests {
 
                 struct Value
                 {
-                    finalize()
-                        executes(total) {}
+                    destruct()
+                    {
+                        panic("cleanup");
+                    }
                 }
 
                 func make() -> Value
@@ -523,6 +525,64 @@ mod tests {
                 DiagnosticKind::CheckingExecutionGuaranteeNotProven,
             );
         }
+    }
+
+    #[test]
+    fn construction_admission_uses_local_total_actions() {
+        for action in ["finalize", "destruct"] {
+            let source = r#"
+                module app;
+
+                struct Value
+                {
+                    ACTION()
+                        executes(total) {}
+                }
+
+                func make() -> Value
+                    executes(pure, total)
+                {
+                    return Value {};
+                }
+            "#
+            .replace("ACTION", action);
+
+            let compilation = compilation(&source);
+
+            assert!(
+                compilation.check_diagnostics().is_empty(),
+                "{source}: {:?}",
+                compilation.check_diagnostics()
+            );
+        }
+    }
+
+    #[test]
+    fn construction_transfers_child_admission() {
+        let compilation = compilation(
+            r#"
+            module app;
+
+            struct Child
+            {
+                destruct() { panic("later"); }
+            }
+
+            struct Parent { child: Child; }
+
+            func wrap(pos child: Child) -> Parent
+                executes(pure, total)
+            {
+                return Parent { child = child };
+            }
+        "#,
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
     }
 
     #[test]

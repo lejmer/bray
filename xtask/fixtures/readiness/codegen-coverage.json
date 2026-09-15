@@ -139,6 +139,22 @@
       }
     },
     {
+      "name": "AdmitOutgoing",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect/body.rs",
+        "symbol": "MirOperationKind::AdmitOutgoing"
+      }
+    },
+    {
+      "name": "DischargeOutgoing",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect/body.rs",
+        "symbol": "MirOperationKind::DischargeOutgoing"
+      }
+    },
+    {
       "name": "Call",
       "disposition": "translated",
       "production": {
@@ -539,11 +555,11 @@
   ],
   "closed_categories": [
     {
-      "name": "ConstructionDefaultProvider",
+      "name": "DefaultValueProvider",
       "variants": ["StructField", "UnionPayload", "CallableParameter"],
       "production": {
-        "path": "crates/bray-codegen-llvm/src/translation/unit/construction.rs",
-        "symbol": "MirHelperReference::ConstructionDefault"
+        "path": "crates/bray-codegen-llvm/src/translation/unit/call/translation.rs",
+        "symbol": "MirHelperReference::DefaultValue"
       }
     },
     {
@@ -588,7 +604,7 @@
     },
     {
       "name": "MirCallArgument",
-      "variants": ["Receiver", "Explicit", "Default"],
+      "variants": ["Receiver", "Explicit"],
       "production": {
         "path": "crates/bray-codegen-llvm/src/translation/unit/call_arguments.rs",
         "symbol": "evaluate_call_arguments"
@@ -596,10 +612,18 @@
     },
     {
       "name": "MirCallTarget",
-      "variants": ["Direct", "Indirect", "Runtime"],
+      "variants": ["Direct", "DefaultValue", "Indirect", "Runtime"],
       "production": {
         "path": "crates/bray-codegen-llvm/src/translation/unit/call/translation.rs",
         "symbol": "call.target()"
+      }
+    },
+    {
+      "name": "MirDefaultOwner",
+      "variants": ["Callable", "Type"],
+      "production": {
+        "path": "crates/bray-compilation/src/compilation/product/realization/defaults.rs",
+        "symbol": "concrete_codegen_default_value"
       }
     },
     {
@@ -608,14 +632,6 @@
       "production": {
         "path": "crates/bray-codegen-llvm/src/translation/unit/effect/body.rs",
         "symbol": "MirHelperReference::Cleanup"
-      }
-    },
-    {
-      "name": "MirConstructionInput",
-      "variants": ["Explicit", "Default"],
-      "production": {
-        "path": "crates/bray-codegen-llvm/src/translation/unit/construction.rs",
-        "symbol": "for input in construction.inputs()"
       }
     },
     {

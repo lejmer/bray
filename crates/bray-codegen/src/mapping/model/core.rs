@@ -624,8 +624,10 @@ fn validate_symbol_structure(
 
     names.sort_unstable();
 
-    if names.windows(2).any(|pair| pair[0] == pair[1]) {
-        return Err(CodegenMappingsBuildError::DuplicateBinarySymbolName);
+    if let Some(pair) = names.windows(2).find(|pair| pair[0] == pair[1]) {
+        return Err(CodegenMappingsBuildError::DuplicateBinarySymbolName {
+            name: pair[0].as_str().into(),
+        });
     }
 
     if symbols.iter().any(|symbol| {
@@ -656,7 +658,7 @@ fn validate_symbol_structure(
 }
 
 /// A contract violation that prevents creation of code generation mappings.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum CodegenMappingsBuildError {
     /// MIR and mapping target contracts do not identify the same target.
     TargetMismatch,
@@ -695,7 +697,10 @@ pub enum CodegenMappingsBuildError {
     /// One MIR block terminator appears more than once.
     DuplicateTerminator,
     /// Two semantic symbols select the same binary spelling.
-    DuplicateBinarySymbolName,
+    DuplicateBinarySymbolName {
+        /// Exact conflicting binary spelling.
+        name: Arc<str>,
+    },
     /// One MIR source anchor appears more than once.
     DuplicateDebugLocation,
     /// One selected linkage is unsupported by the target contract.

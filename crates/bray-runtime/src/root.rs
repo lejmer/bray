@@ -7,10 +7,10 @@ use bray_runtime_model::ProtectedFrameStateId;
 
 use crate::context::{with_run_cancellation_context, with_task_execution_context};
 use crate::{
-    CancellationContext, CleanupIncidentOrigin, CleanupIncidentProducer, CleanupReportSink,
-    ExecutionLane, ExecutionLanePlacement, ExecutionWorkload, ProtectedFrame, ReadyTask,
-    RunOutcome, Scheduler, SchedulerError, TaskControlBlock, TaskExecutionContext, TaskId,
-    TaskObservationError, TaskResumeError, TaskResumeStatus, TaskStartError,
+    CancellationContext, CleanupIncidentOrigin, CleanupReportSink, ExecutionLane,
+    ExecutionLanePlacement, ExecutionWorkload, ProtectedFrame, ReadyTask, RunOutcome, Scheduler,
+    SchedulerError, TaskControlBlock, TaskExecutionContext, TaskId, TaskObservationError,
+    TaskResumeError, TaskResumeStatus,
 };
 
 /// Product-host authority to request cancellation of the executable root run.
@@ -81,8 +81,6 @@ impl RootCancellationSource {
 /// Failure to enter, drive, or observe an executable root run.
 #[derive(Debug)]
 pub enum RootExecutionError {
-    /// Stable root-task storage could not be created.
-    TaskStart(TaskStartError),
     /// The selected scheduler rejected root registration or dispatch.
     Scheduler(SchedulerError),
     /// The protected root frame could not be resumed.
@@ -93,12 +91,6 @@ pub enum RootExecutionError {
     WrongExecutionLane(ExecutionLane),
     /// The scheduler produced a task other than the host-owned root.
     UnexpectedTask(TaskId),
-}
-
-impl From<TaskStartError> for RootExecutionError {
-    fn from(error: TaskStartError) -> Self {
-        Self::TaskStart(error)
-    }
 }
 
 impl From<SchedulerError> for RootExecutionError {
@@ -149,6 +141,7 @@ pub fn execute_synchronous_root<T>(
 
 /// Transfers an async entry frame into a host-owned root task and drives it to completion.
 pub fn execute_async_root<T, F>(
+    admission: crate::TaskAdmission,
     scheduler: &Scheduler,
     main_thread: &RuntimeThread,
     frame: F,
@@ -160,7 +153,7 @@ where
     T: 'static,
     F: ProtectedFrame<Output = T>,
 {
-    let root = TaskControlBlock::start_local(frame)?;
+    let root = TaskControlBlock::start_local(admission, frame);
     let source = Arc::new(AtomicU8::new(0));
     let initial_state = ProtectedFrameStateId::new(0);
 
@@ -236,8 +229,8 @@ where
         let panic = root.resolve_runtime_failure();
 
         if let Some(panic) = panic {
-            cleanup_reports.transfer(
-                CleanupIncidentProducer::Task(root.id()),
+            root.transfer_cleanup_incident(
+                cleanup_reports,
                 CleanupIncidentOrigin::new(root.descriptor().frame(), state),
                 panic,
             );
@@ -332,6 +325,7 @@ mod tests {
         let reports = CleanupReportSink::new();
 
         let outcome = execute_async_root(
+            crate::test_support::admit_task(),
             &scheduler,
             runtime.runtime(),
             TestFrame::main_thread_self_waking(29),
@@ -368,6 +362,7 @@ mod tests {
         let reports = CleanupReportSink::new();
 
         let result = execute_async_root(
+            crate::test_support::admit_task(),
             &scheduler,
             runtime.runtime(),
             TestFrame::main_thread_then_movable(29),
@@ -399,6 +394,7 @@ mod tests {
         let reports = CleanupReportSink::new();
 
         let result = execute_async_root(
+            crate::test_support::admit_task(),
             &scheduler,
             runtime.runtime(),
             TestFrame::panicking_with_cleanup_panic(),
@@ -432,6 +428,7 @@ mod tests {
         let reports = CleanupReportSink::new();
 
         let outcome = execute_async_root(
+            crate::test_support::admit_task(),
             &scheduler,
             runtime.runtime(),
             TestFrame::main_thread_cancellation_aware(),
@@ -460,8 +457,10 @@ mod tests {
             SchedulerLimits::new(nonzero(4), nonzero(4)),
         );
 
-        let child = TaskControlBlock::start_local(TestFrame::main_thread_self_waking(11))
-            .unwrap_or_else(|error| panic!("child task must start: {error:?}"));
+        let child = TaskControlBlock::start_local(
+            crate::test_support::admit_task(),
+            TestFrame::main_thread_self_waking(11),
+        );
 
         let child_registration = register_task(&scheduler, &child, runtime.runtime().id());
 
@@ -474,6 +473,7 @@ mod tests {
         let reports = CleanupReportSink::new();
 
         let outcome = execute_async_root(
+            crate::test_support::admit_task(),
             &scheduler,
             runtime.runtime(),
             TestFrame::main_thread_self_waking(29),

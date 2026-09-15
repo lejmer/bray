@@ -266,9 +266,9 @@ impl Compilation {
 
         for member in surface.value().lifecycle_members() {
             needs = match member.slot() {
-                TypeAssociatedLifecycleSlot::Finalizer => {
-                    needs.with(CodegenLifecycleNeeds::FINALIZE)
-                }
+                TypeAssociatedLifecycleSlot::Finalizer => needs
+                    .with(CodegenLifecycleNeeds::FINALIZE)
+                    .with(CodegenLifecycleNeeds::DESTROY),
                 TypeAssociatedLifecycleSlot::Destructor => {
                     needs.with(CodegenLifecycleNeeds::DESTROY)
                 }

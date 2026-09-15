@@ -28,13 +28,13 @@ trusted internal func start_with_completion<State, T>(
             control =
             {
                 state = std.atomic.Atomic<u32>(THREAD_RUNNING),
-                panic_payload = std.atomic.Atomic<usize>(0),
                 cancellation = std.atomic.Atomic<u32>(0),
                 identity = std.atomic.Atomic<u64>(0),
                 park_token = std.atomic.Atomic<u32>(0),
                 completion_event = completion_event,
             },
             result = std.memory.uninit<T>(),
+            report = std.memory.uninit<PanicReport>(),
         },
     );
 
@@ -59,6 +59,7 @@ trusted internal func start_with_completion<State, T>(
             operation = operation,
             context = work_address,
             control = control,
+            report = trusted internal thread_report_destination<T>(storage),
         },
     );
 
@@ -256,11 +257,7 @@ trusted internal func native_thread_cancellation_requested(pos context: usize) -
     return control.cancellation.load(order = std.atomic.LoadOrder.Acquire);
 }
 
-trusted internal func publish_native_thread_outcome(
-    pos control_pointer: RawPointer<ThreadControl>,
-    pos outcome: u32,
-    pos payload: usize,
-)
+trusted internal func publish_native_thread_outcome(pos control_pointer: RawPointer<ThreadControl>, pos outcome: u32)
 {
     let control: &ThreadControl = trusted std.memory.borrow_from<ThreadControl, RawPointer<ThreadControl>>(
         &control_pointer,
@@ -274,11 +271,6 @@ trusted internal func publish_native_thread_outcome(
         case 2 { yield THREAD_PANICKED; }
         case _ { yield THREAD_FAILED; }
     };
-
-    if state == THREAD_PANICKED
-    {
-        control.panic_payload.store(payload, order = std.atomic.StoreOrder.Release);
-    }
 
     control.state.store(state, order = std.atomic.StoreOrder.Release);
     control.state.notify_all();
@@ -314,17 +306,16 @@ trusted internal func run_native_thread_start(pos context: RawPointer<u8>)
     );
 
     let cancellation_context: usize = trusted core.target.expose_address<ThreadControl>(native_start.control);
-    let mut panic_payload: usize = 0;
 
     let outcome: u32 = internal execute_native_thread(
         operation,
         context = operation_context,
         cancellation = cancellation,
         cancellation_context = cancellation_context,
-        panic_payload = std.memory.address_of_mut<usize>(&mut panic_payload),
+        panic_report = native_start.report,
     );
 
-    trusted internal publish_native_thread_outcome(native_start.control, outcome, panic_payload);
+    trusted internal publish_native_thread_outcome(native_start.control, outcome);
 }
 
 trusted internal func observe_thread<T>(
@@ -393,11 +384,9 @@ trusted internal func observe_thread<T>(
         }
         case THREAD_PANICKED
         {
-            let payload: usize = terminal.control.panic_payload.load(order = std.atomic.LoadOrder.Acquire);
-
-            assert(payload != 0, "a panicked native thread did not publish its panic report");
-
-            let panicked: RunResult<T> = .Panicked(trusted internal recover_native_thread_panic_report(payload));
+            let panicked: RunResult<T> = .Panicked(
+                trusted std.memory.move_initialized<PanicReport>(&mut terminal.report)
+            );
 
             yield panicked;
         }

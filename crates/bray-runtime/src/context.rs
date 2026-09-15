@@ -95,13 +95,12 @@ impl TaskExecutionContext {
 
 /// Returns the current task-local execution context.
 pub fn current_task_execution_context() -> Option<TaskExecutionContext> {
-    CURRENT_CONTEXT.with(|context| context.borrow().clone())
+    CURRENT_CONTEXT.with_borrow(Clone::clone)
 }
 
 pub(crate) fn current_task_start_site() -> Option<TaskStartSite> {
-    CURRENT_CONTEXT.with(|context| {
+    CURRENT_CONTEXT.with_borrow(|context| {
         context
-            .borrow()
             .as_ref()
             .map(|context| TaskStartSite::new(context.task, context.state))
     })
@@ -109,25 +108,24 @@ pub(crate) fn current_task_start_site() -> Option<TaskStartSite> {
 
 /// Returns whether cancellation is currently observable in the current run.
 pub fn current_run_cancellation_observable() -> bool {
-    CURRENT_RUN_CANCELLATION.with(|context| {
+    CURRENT_RUN_CANCELLATION.with_borrow(|context| {
         context
-            .borrow()
             .as_ref()
             .is_some_and(CancellationContext::is_requested)
     })
 }
 
 pub(crate) fn enter_current_run_cleanup_shield() {
-    CURRENT_RUN_CANCELLATION.with(|context| {
-        if let Some(context) = context.borrow().as_ref() {
+    CURRENT_RUN_CANCELLATION.with_borrow(|context| {
+        if let Some(context) = context.as_ref() {
             context.enter_shield();
         }
     });
 }
 
 pub(crate) fn leave_current_run_cleanup_shield() {
-    CURRENT_RUN_CANCELLATION.with(|context| {
-        if let Some(context) = context.borrow().as_ref() {
+    CURRENT_RUN_CANCELLATION.with_borrow(|context| {
+        if let Some(context) = context.as_ref() {
             context.leave_shield();
         }
     });
@@ -135,9 +133,8 @@ pub(crate) fn leave_current_run_cleanup_shield() {
 
 /// Returns whether cancellation was requested for the current run, including while shielded.
 pub fn current_run_cancellation_requested() -> bool {
-    let requested = CURRENT_RUN_CANCELLATION.with(|context| {
+    let requested = CURRENT_RUN_CANCELLATION.with_borrow(|context| {
         context
-            .borrow()
             .as_ref()
             .is_some_and(|context| context.observation().requested())
     });
@@ -146,11 +143,9 @@ pub fn current_run_cancellation_requested() -> bool {
 }
 
 fn native_thread_cancellation_requested() -> bool {
-    NATIVE_THREAD_CANCELLATION.with(|cancellation| {
-        cancellation
-            .get()
-            .is_some_and(NativeThreadCancellation::requested)
-    })
+    NATIVE_THREAD_CANCELLATION
+        .get()
+        .is_some_and(NativeThreadCancellation::requested)
 }
 
 pub(crate) fn with_native_thread_cancellation<T>(
@@ -158,8 +153,8 @@ pub(crate) fn with_native_thread_cancellation<T>(
     context: usize,
     operation: impl FnOnce() -> T,
 ) -> T {
-    let previous = NATIVE_THREAD_CANCELLATION
-        .with(|current| current.replace(Some(NativeThreadCancellation { callback, context })));
+    let previous =
+        NATIVE_THREAD_CANCELLATION.replace(Some(NativeThreadCancellation { callback, context }));
 
     let _guard = NativeThreadCancellationGuard(previous);
 
@@ -173,10 +168,9 @@ pub(crate) fn with_task_execution_context<T>(
 ) -> T {
     let cancellation = context.cancellation.clone();
     let output = context.output.clone();
-    let previous = CURRENT_CONTEXT.with(|current| current.replace(Some(context)));
+    let previous = CURRENT_CONTEXT.replace(Some(context));
 
-    let previous_cancellation =
-        CURRENT_RUN_CANCELLATION.with(|current| current.replace(Some(cancellation)));
+    let previous_cancellation = CURRENT_RUN_CANCELLATION.replace(Some(cancellation));
 
     let _guard = ContextGuard {
         task: previous,
@@ -208,7 +202,7 @@ pub(crate) fn with_run_cancellation_context<T>(
     cancellation: CancellationContext,
     callback: impl FnOnce() -> T,
 ) -> T {
-    let previous = CURRENT_RUN_CANCELLATION.with(|current| current.replace(Some(cancellation)));
+    let previous = CURRENT_RUN_CANCELLATION.replace(Some(cancellation));
 
     let _guard = RunCancellationGuard(previous);
 
@@ -225,13 +219,9 @@ impl Drop for ContextGuard {
         let previous_task = self.task.take();
         let previous_cancellation = self.cancellation.take();
 
-        CURRENT_CONTEXT.with(|context| {
-            context.replace(previous_task);
-        });
+        CURRENT_CONTEXT.set(previous_task);
 
-        CURRENT_RUN_CANCELLATION.with(|context| {
-            context.replace(previous_cancellation);
-        });
+        CURRENT_RUN_CANCELLATION.set(previous_cancellation);
     }
 }
 
@@ -241,19 +231,13 @@ struct NativeThreadCancellationGuard(Option<NativeThreadCancellation>);
 
 impl Drop for NativeThreadCancellationGuard {
     fn drop(&mut self) {
-        NATIVE_THREAD_CANCELLATION.with(|current| {
-            current.set(self.0.take());
-        });
+        NATIVE_THREAD_CANCELLATION.set(self.0.take());
     }
 }
 
 impl Drop for RunCancellationGuard {
     fn drop(&mut self) {
-        let previous = self.0.take();
-
-        CURRENT_RUN_CANCELLATION.with(|context| {
-            context.replace(previous);
-        });
+        CURRENT_RUN_CANCELLATION.set(self.0.take());
     }
 }
 
@@ -285,8 +269,8 @@ mod tests {
         let runtime = RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("runtime thread must initialize: {error:?}"));
 
-        let task = TaskControlBlock::start(TestFrame::completing(1))
-            .unwrap_or_else(|error| panic!("test task must start: {error:?}"));
+        let task =
+            TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(1));
 
         let lane = ExecutionLane::new(
             ExecutionLanePlacement::PinnedWorker(runtime.runtime().id()),
@@ -356,8 +340,7 @@ mod tests {
         let output = RunOutputContext::captured(32, 64);
 
         let task = with_run_output_context(output.clone(), || {
-            TaskControlBlock::start(TestFrame::completing(1))
-                .unwrap_or_else(|error| panic!("test task must start: {error:?}"))
+            TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(1))
         });
 
         let scheduler = Scheduler::new(
@@ -430,8 +413,8 @@ mod tests {
             super::enter_current_run_cleanup_shield();
             super::enter_current_run_cleanup_shield();
 
-            super::CURRENT_RUN_CANCELLATION.with(|context| {
-                assert!(context.borrow().as_ref().unwrap().request());
+            super::CURRENT_RUN_CANCELLATION.with_borrow(|context| {
+                assert!(context.as_ref().unwrap().request());
             });
 
             assert!(current_run_cancellation_requested());

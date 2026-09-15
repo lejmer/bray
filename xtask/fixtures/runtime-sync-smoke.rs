@@ -1,3 +1,5 @@
+include!("panic_report.rs");
+
 #[repr(transparent)]
 #[derive(Clone, Copy, Eq, PartialEq)]
 struct RunState(u32);
@@ -7,10 +9,10 @@ impl RunState {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy)]
 struct RunOutcome {
     state: RunState,
     payload: usize,
+    report: PanicReport,
 }
 
 unsafe extern "C" {
@@ -27,6 +29,7 @@ extern "C" fn root(destination: usize, outcome: *mut RunOutcome) {
         outcome.write(RunOutcome {
             state: RunState::COMPLETED,
             payload: destination,
+            report: PanicReport::empty(),
         });
     }
 }

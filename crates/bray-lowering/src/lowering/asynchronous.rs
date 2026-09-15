@@ -243,6 +243,13 @@ impl Lowerer<'_> {
             storages.push(self.place_for_identity(identity, ty, origin)?.storage());
         }
 
+        // Inputs already evaluated for a pending call or construction survive later awaits.
+        storages.extend(
+            self.input_temporaries
+                .iter()
+                .map(|input| input.place.storage()),
+        );
+
         // Entry initializes every guard, including guards for values created after resumption.
         storages.extend(self.initialization_guards.values().flat_map(|state| {
             std::iter::once(state.guard.storage())
@@ -284,7 +291,7 @@ fn call_receiver(
                 // The async operation owns the same immutable operand independently of the call.
                 Some(value.clone())
             }
-            MirCallArgument::Explicit { .. } | MirCallArgument::Default { .. } => None,
+            MirCallArgument::Explicit { .. } => None,
         })
         .ok_or(LoweringError::InvalidTaskOperation(expression))
 }

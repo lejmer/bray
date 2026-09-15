@@ -32,17 +32,11 @@ pub(super) extern "C-unwind" fn drain_thread_statics() {
 pub(crate) fn drain_product_thread_statics(product: usize) -> Option<NativeProductHostObservation> {
     let (mut entries, attachment) = THREAD_STATICS.with(|registry| {
         let mut registry = registry.borrow_mut();
-        let mut selected = Vec::new();
 
-        registry.entries.retain(|entry| {
-            if entry.product == product {
-                selected.push(*entry);
-
-                false
-            } else {
-                true
-            }
-        });
+        let selected = registry
+            .entries
+            .extract_if(.., |entry| entry.product == product)
+            .collect::<Vec<_>>();
 
         let attachment = registry.products.remove(&product);
 
@@ -78,7 +72,9 @@ fn run_thread_cleanups(entries: Vec<ThreadStaticEntry>) {
 }
 
 fn run_product_thread_cleanups(product: usize, entries: Vec<ThreadStaticEntry>) {
-    let owner = entries.first().copied();
+    let owner = entries
+        .first()
+        .map(|entry| (entry.product, entry.static_identity));
 
     let runtime = product_hosts()
         .lock()
@@ -86,13 +82,18 @@ fn run_product_thread_cleanups(product: usize, entries: Vec<ThreadStaticEntry>) 
         .and_then(|hosts| hosts.get(&product).map(|host| host.runtime.clone()));
 
     let cleanup = || {
-        for entry in entries {
-            let incidents =
-                run_static_cleanup(entry.prepare, entry.finalizer, entry.destroy, entry.detach);
+        for mut entry in entries {
+            let incidents = run_static_cleanup(
+                &mut entry.admission,
+                entry.prepare,
+                entry.finalizer,
+                entry.destroy,
+                entry.detach,
+            );
 
-            let count = incidents.len();
+            let count = incidents.iter().flatten().count();
 
-            for incident in incidents {
+            for incident in incidents.into_iter().flatten() {
                 let _ = incident.report();
             }
 
@@ -109,13 +110,13 @@ fn run_product_thread_cleanups(product: usize, entries: Vec<ThreadStaticEntry>) 
         return;
     };
 
-    let count = runtime_incidents.len();
+    let count = usize::from(runtime_incidents.is_some());
 
-    for incident in runtime_incidents {
+    if let Some(incident) = runtime_incidents {
         let _ = incident.report();
     }
 
-    report_incidents(owner.product, owner.static_identity, count);
+    report_incidents(owner.0, owner.1, count);
 }
 
 fn release_attachment(product: usize, worker: bool) -> Option<NativeProductHostObservation> {

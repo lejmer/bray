@@ -45,7 +45,7 @@ pub use operation::{
 };
 pub use reference::{
     MirAnonymousCallableReference, MirCall, MirCallArgument, MirCallIntrinsic, MirCallTarget,
-    MirCallableReference, MirFieldReference, MirRuntimeReference,
+    MirCallableReference, MirDefaultOwner, MirFieldReference, MirRuntimeReference,
 };
 pub use source::{MirSourceAnchor, MirSourceOrigin};
 pub use storage::{MirPlace, MirProjection, MirProjectionKind, MirStorage, MirStorageKind};

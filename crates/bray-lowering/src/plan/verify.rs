@@ -369,6 +369,16 @@ impl<'unit> VerifiedLoweringPlans<'unit> {
             .and_then(bray_bound_tree::AsyncStorageRequirement::parts)
     }
 
+    pub(crate) fn cleanup_type(
+        &self,
+        ty: bray_symbols::TypeId,
+    ) -> Option<&bray_bound_tree::StorageCleanupType> {
+        self.analysis
+            .cleanup_types()
+            .iter()
+            .find(|shape| shape.ty() == ty)
+    }
+
     /// Rejects represented projections that contradict their semantic type constructors.
     pub(crate) fn validate_cleanup_types(
         &self,

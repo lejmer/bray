@@ -12,30 +12,30 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
         let checks_call_panic = self.checked_call_operations.contains(&operation);
 
-        let checked_default_context = if checks_call_panic
-            && call
-                .arguments()
-                .iter()
-                .any(|argument| matches!(argument, MirCallArgument::Default { .. }))
-        {
-            Some(self.checked_call_panic_report_context()?)
-        } else {
-            None
-        };
-
         let helpers = self.operation_helpers(operation)?;
         let mut helpers = helpers.iter();
-
-        let evaluated =
-            self.evaluate_call_arguments(call, &mut helpers, checked_default_context)?;
-
-        let (semantic_arguments, checked_defaults) = evaluated.into_parts();
-
+        let semantic_arguments = self.evaluate_call_arguments(call)?;
         let semantic_arguments = semantic_arguments.as_slice();
+
+        let default_helper = match call.target() {
+            MirCallTarget::DefaultValue { provider, .. } => {
+                Some(super::super::support::next_helper(
+                    &mut helpers,
+                    &bray_ir::MirHelperReference::DefaultValue(*provider),
+                )?)
+            }
+            _ => None,
+        };
 
         if helpers.next().is_some() {
             return Err(CodegenFailure::GeneratedModuleInvariant);
         }
+
+        let outgoing = if call.is_cleanup() {
+            self.activate_outgoing_call(operation)?
+        } else {
+            None
+        };
 
         let result = match call.target() {
             MirCallTarget::Direct(_) => {
@@ -49,19 +49,29 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     let operand_type = call
                         .arguments()
                         .first()
-                        .and_then(MirCallArgument::value)
+                        .map(MirCallArgument::value)
                         .map(|operand| self.operand_type(operand))
                         .transpose()?
                         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-                    return self
-                        .translate_intrinsic_call(
-                            intrinsic,
-                            operand_type,
-                            call.result().ty(),
-                            semantic_arguments,
-                        )
-                        .map(Some);
+                    let result = self.translate_intrinsic_call(
+                        intrinsic,
+                        operand_type,
+                        call.result().ty(),
+                        semantic_arguments,
+                    )?;
+
+                    if checks_call_panic {
+                        let context = self.checked_call_panic_report_context()?;
+
+                        self.set_pending_call_context(context)?;
+                    }
+
+                    if let Some(record) = outgoing {
+                        self.retire_outgoing_call(record)?;
+                    }
+
+                    return Ok(Some(result));
                 }
 
                 let instance = mapping
@@ -84,25 +94,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let signature = symbol.signature().clone();
 
                 if call.may_propagate_panic() && checks_call_panic {
-                    if let Some(context) = checked_default_context {
-                        self.invoke_function_with_panic_report_context(
-                            function,
-                            &signature,
-                            semantic_arguments,
-                            "call",
-                            Some(context),
-                        )
-                    } else {
-                        self.invoke_checked_function(
-                            function,
-                            &signature,
-                            semantic_arguments,
-                            "call",
-                        )
-                    }
+                    self.invoke_checked_function(function, &signature, semantic_arguments, "call")
                 } else {
                     self.invoke_function(function, &signature, semantic_arguments, "call")
                 }
+            }
+            MirCallTarget::DefaultValue { .. } => {
+                let helper = default_helper.ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+                self.invoke_operation_helper(operation, helper, semantic_arguments)
             }
             MirCallTarget::Runtime(runtime) => self.invoke_runtime(*runtime, semantic_arguments),
             MirCallTarget::Indirect { callee, .. } => {
@@ -125,24 +125,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let function_type = self.types.function_type(&signature)?;
 
                 if call.may_propagate_panic() && checks_call_panic {
-                    if let Some(context) = checked_default_context {
-                        self.invoke_indirect_with_panic_report_context(
-                            function_type,
-                            pointer,
-                            &signature,
-                            semantic_arguments,
-                            "call.indirect",
-                            Some(context),
-                        )
-                    } else {
-                        self.invoke_checked_indirect(
-                            function_type,
-                            pointer,
-                            &signature,
-                            semantic_arguments,
-                            "call.indirect",
-                        )
-                    }
+                    self.invoke_checked_indirect(
+                        function_type,
+                        pointer,
+                        &signature,
+                        semantic_arguments,
+                        "call.indirect",
+                    )
                 } else {
                     self.invoke_indirect(
                         function_type,
@@ -155,11 +144,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             }
         }?;
 
-        let result = if let Some(defaults) = checked_defaults {
-            self.finish_checked_default_evaluation(defaults, result)?
-        } else {
-            result
-        };
+        if let Some(record) = outgoing {
+            self.retire_outgoing_call(record)?;
+        }
 
         if result.is_some() {
             return Ok(result);

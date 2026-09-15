@@ -1,3 +1,5 @@
+include!("panic_report.rs");
+
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 #[repr(transparent)]
@@ -42,10 +44,10 @@ impl RunState {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy)]
 struct RunOutcome {
     state: RunState,
     payload: usize,
+    report: PanicReport,
 }
 
 #[repr(transparent)]
@@ -83,11 +85,11 @@ struct FrameState {
 struct FrameProgressKind(u32);
 
 #[repr(C)]
-#[derive(Clone, Copy)]
 struct FrameProgress {
     kind: FrameProgressKind,
     state: u32,
     payload: usize,
+    report: PanicReport,
 }
 
 #[repr(transparent)]
@@ -105,10 +107,10 @@ struct ProtectedFrame {
     completion_size: usize,
     completion_alignment: usize,
     state: extern "C" fn(usize, u32) -> FrameState,
-    resume: extern "C-unwind" fn(usize) -> FrameProgress,
-    cancel: extern "C-unwind" fn(usize) -> FrameProgress,
+    resume: extern "C-unwind" fn(&mut FrameProgress, usize),
+    cancel: extern "C-unwind" fn(&mut FrameProgress, usize),
     broadcast_tasks: extern "C-unwind" fn(usize),
-    resolve_lifecycle: extern "C-unwind" fn(usize, FrameExit),
+    resolve_lifecycle: extern "C-unwind" fn(&mut FrameProgress, usize, FrameExit),
     move_completion: extern "C-unwind" fn(usize, usize),
     destroy: extern "C-unwind" fn(usize),
 }
@@ -123,10 +125,7 @@ struct InactiveFrame {
 struct ProtectedFrameTransfer(usize);
 
 unsafe extern "C" {
-    safe fn bray_runtime_initialization(
-        worker_capacity: usize,
-        timer_capacity: usize,
-    ) -> Status;
+    safe fn bray_runtime_initialization(worker_capacity: usize, timer_capacity: usize) -> Status;
     safe fn bray_runtime_root_execution(
         frame: ProtectedFrameTransfer,
         configuration: Configuration,
@@ -144,17 +143,22 @@ unsafe extern "C" {
         source_version: u64,
         message_data: *const u8,
         message_length: usize,
-    ) -> usize;
-    safe fn bray_runtime_panic_reporting(payload: usize) -> Status;
-    safe fn bray_runtime_panic_report_destruction(payload: usize) -> Status;
+    ) -> PanicReport;
+    safe fn bray_runtime_outgoing_admission(count: usize, outcome: &mut RunOutcome);
+    safe fn bray_runtime_outgoing_activation() -> usize;
+    safe fn bray_runtime_outgoing_retirement(record: usize, outcome: &mut RunOutcome);
+    safe fn bray_runtime_outgoing_discharge(count: usize);
+    safe fn bray_runtime_panic_report_suppression(
+        primary: &mut PanicReport,
+        incident: &mut PanicReport,
+    ) -> PanicReport;
+    safe fn bray_runtime_panic_reporting(report: &mut PanicReport) -> Status;
+    safe fn bray_runtime_panic_report_destruction(report: &mut PanicReport) -> Status;
     safe fn bray_runtime_entry_failure_reporting(payload: usize, size: usize) -> Status;
     safe fn bray_runtime_wake(task: TaskHandle, state: u32) -> Status;
     safe fn bray_runtime_main_thread_lane_startup(configuration: Configuration) -> Status;
     safe fn bray_runtime_task_allocation() -> TaskAllocation;
-    safe fn bray_runtime_task_start(
-        task: TaskHandle,
-        frame: InactiveFrame,
-    ) -> Status;
+    safe fn bray_runtime_task_start(task: TaskHandle, frame: InactiveFrame) -> Status;
     safe fn bray_runtime_main_thread_lane_drive() -> Status;
     safe fn bray_runtime_structured_shutdown() -> Status;
 }
@@ -166,12 +170,15 @@ extern "C" fn frame_state(_: usize, _: u32) -> FrameState {
     }
 }
 
-extern "C-unwind" fn resume_frame(_: usize) -> FrameProgress {
-    FrameProgress {
-        kind: FrameProgressKind(1),
-        state: 0,
-        payload: 17,
-    }
+extern "C-unwind" fn resume_frame(destination: &mut FrameProgress, _: usize) {
+    *destination = {
+        FrameProgress {
+            kind: FrameProgressKind(1),
+            state: 0,
+            payload: 17,
+            report: PanicReport::empty(),
+        }
+    };
 }
 
 static ROOT: AtomicU64 = AtomicU64::new(0);
@@ -181,73 +188,84 @@ static FAILURE_ROOT: AtomicU64 = AtomicU64::new(0);
 static FAILURE_RESUMES: AtomicUsize = AtomicUsize::new(0);
 static FAILURE_CLEANUP: AtomicUsize = AtomicUsize::new(0);
 
-extern "C-unwind" fn cancel_frame(_: usize) -> FrameProgress {
-    CANCELLATIONS.fetch_add(1, Ordering::Relaxed);
+extern "C-unwind" fn cancel_frame(destination: &mut FrameProgress, _: usize) {
+    *destination = {
+        CANCELLATIONS.fetch_add(1, Ordering::Relaxed);
 
-    FrameProgress {
-        kind: FrameProgressKind(2),
-        state: 0,
-        payload: 0,
-    }
+        FrameProgress {
+            kind: FrameProgressKind(2),
+            state: 0,
+            payload: 0,
+            report: PanicReport::empty(),
+        }
+    };
 }
 
-extern "C-unwind" fn suspend_and_wake(_: usize) -> FrameProgress {
+extern "C-unwind" fn suspend_and_wake(destination: &mut FrameProgress, _: usize) {
     if RESUMES.fetch_add(1, Ordering::Relaxed) == 0 {
-        assert!(
-            bray_runtime_wake(TaskHandle(ROOT.load(Ordering::Relaxed)), 1)
-                == Status::SUCCESS
-        );
+        assert!(bray_runtime_wake(TaskHandle(ROOT.load(Ordering::Relaxed)), 1) == Status::SUCCESS);
 
-        return FrameProgress {
+        *destination = FrameProgress {
             kind: FrameProgressKind(0),
             state: 1,
             payload: 0,
+            report: PanicReport::empty(),
         };
+
+        return;
     }
 
-    resume_frame(0)
+    resume_frame(destination, 0)
 }
 
-extern "C-unwind" fn suspend(_: usize) -> FrameProgress {
-    FrameProgress {
-        kind: FrameProgressKind(0),
-        state: 1,
-        payload: 0,
-    }
-}
-
-extern "C-unwind" fn suspend_then_fail(_: usize) -> FrameProgress {
-    if FAILURE_RESUMES.fetch_add(1, Ordering::Relaxed) == 0 {
-        assert!(
-            bray_runtime_wake(
-                TaskHandle(FAILURE_ROOT.load(Ordering::Relaxed)),
-                1,
-            ) == Status::SUCCESS
-        );
-
-        return FrameProgress {
+extern "C-unwind" fn suspend(destination: &mut FrameProgress, _: usize) {
+    *destination = {
+        FrameProgress {
             kind: FrameProgressKind(0),
             state: 1,
             payload: 0,
-        };
-    }
-
-    FrameProgress {
-        kind: FrameProgressKind(4),
-        state: 0,
-        payload: 0,
-    }
+            report: PanicReport::empty(),
+        }
+    };
 }
 
-extern "C-unwind" fn panic_frame(_: usize) -> FrameProgress {
-    FrameProgress {
+extern "C-unwind" fn suspend_then_fail(destination: &mut FrameProgress, _: usize) {
+    *destination = (|| {
+        if FAILURE_RESUMES.fetch_add(1, Ordering::Relaxed) == 0 {
+            assert!(
+                bray_runtime_wake(TaskHandle(FAILURE_ROOT.load(Ordering::Relaxed)), 1,)
+                    == Status::SUCCESS
+            );
+
+            return FrameProgress {
+                kind: FrameProgressKind(0),
+                state: 1,
+                payload: 0,
+                report: PanicReport::empty(),
+            };
+        }
+
+        FrameProgress {
+            kind: FrameProgressKind(4),
+            state: 0,
+            payload: 0,
+            report: PanicReport::empty(),
+        }
+    })();
+}
+
+extern "C-unwind" fn panic_frame(destination: &mut FrameProgress, _: usize) {
+    *destination = FrameProgress {
         kind: FrameProgressKind(3),
         state: 0,
-        payload: panic_report(),
-    }
+        payload: 0,
+        report: panic_report(),
+    };
+
+    panic!("callback unwinds after publishing its Bray report");
 }
 
-fn panic_report() -> usize {
+fn panic_report() -> PanicReport {
     const MESSAGE: &[u8] = b"runtime smoke panic";
 
     bray_runtime_panic_report_construction(
@@ -268,9 +286,9 @@ extern "C-unwind" fn fail_action(_: usize) {
     panic!("cleanup callback failure");
 }
 
-extern "C-unwind" fn ignore_resolution(_: usize, _: FrameExit) {}
+extern "C-unwind" fn ignore_resolution(_: &mut FrameProgress, _: usize, _: FrameExit) {}
 
-extern "C-unwind" fn record_failure_resolution(_: usize, _: FrameExit) {
+extern "C-unwind" fn record_failure_resolution(_: &mut FrameProgress, _: usize, _: FrameExit) {
     FAILURE_CLEANUP.fetch_add(1, Ordering::Relaxed);
 }
 
@@ -289,8 +307,8 @@ extern "C-unwind" fn record_failure_action(_: usize) {
 
 fn protected_frame(
     identity: u8,
-    resume: extern "C-unwind" fn(usize) -> FrameProgress,
-    cancel: extern "C-unwind" fn(usize) -> FrameProgress,
+    resume: extern "C-unwind" fn(&mut FrameProgress, usize),
+    cancel: extern "C-unwind" fn(&mut FrameProgress, usize),
     action: extern "C-unwind" fn(usize),
 ) -> ProtectedFrame {
     ProtectedFrame {
@@ -330,6 +348,8 @@ fn start_root(frame: ProtectedFrame) -> RootHandle {
 }
 
 fn main() {
+    admitted_reports_survive_failed_reservation();
+
     let root = start_root(protected_frame(
         7,
         suspend_and_wake,
@@ -358,19 +378,15 @@ fn main() {
     assert!(bray_runtime_root_completion_resolution(root) == Status::SUCCESS);
     assert!(bray_runtime_structured_shutdown() == Status::SUCCESS);
 
-    let root = start_root(protected_frame(
-        9,
-        panic_frame,
-        cancel_frame,
-        ignore_action,
-    ));
+    let root = start_root(protected_frame(9, panic_frame, cancel_frame, ignore_action));
 
-    let outcome = bray_runtime_root_terminal_observation(root);
+    let mut outcome = bray_runtime_root_terminal_observation(root);
 
     assert!(outcome.state == RunState::PANICKED);
-    assert!(bray_runtime_panic_reporting(outcome.payload) == Status::SUCCESS);
-    assert!(bray_runtime_panic_report_destruction(panic_report()) == Status::SUCCESS);
+    assert_eq!(outcome.report.count, 1);
     assert!(bray_runtime_root_completion_resolution(root) == Status::SUCCESS);
+    assert!(bray_runtime_panic_reporting(&mut outcome.report) == Status::SUCCESS);
+    assert!(bray_runtime_panic_report_destruction(&mut panic_report()) == Status::SUCCESS);
     assert!(bray_runtime_structured_shutdown() == Status::SUCCESS);
 
     let root = start_root(ProtectedFrame {
@@ -412,15 +428,11 @@ fn main() {
     let failure = 42_i32;
 
     assert!(
-        bray_runtime_entry_failure_reporting(
-            (&raw const failure).addr(),
-            size_of::<i32>(),
-        ) == Status::SUCCESS
+        bray_runtime_entry_failure_reporting((&raw const failure).addr(), size_of::<i32>(),)
+            == Status::SUCCESS
     );
 
-    assert!(
-        bray_runtime_initialization(8, 8) == Status::SUCCESS
-    );
+    assert!(bray_runtime_initialization(8, 8) == Status::SUCCESS);
 
     assert!(
         bray_runtime_main_thread_lane_startup(Configuration {
@@ -448,4 +460,71 @@ fn main() {
     assert!(bray_runtime_task_start(task, frame) == Status::SUCCESS);
     assert!(bray_runtime_main_thread_lane_drive() == Status::SUCCESS);
     assert!(bray_runtime_structured_shutdown() == Status::SUCCESS);
+}
+
+static REPORT_RELEASES: AtomicUsize = AtomicUsize::new(0);
+
+extern "C" fn release_report(id: usize, _: usize) {
+    let previous = REPORT_RELEASES.fetch_add(id, Ordering::Relaxed);
+    assert_eq!(previous, if id == 1 { 0 } else { 1 });
+}
+
+fn admitted_reports_survive_failed_reservation() {
+    let mut admission = RunOutcome {
+        state: RunState::COMPLETED,
+        payload: 0,
+        report: PanicReport::empty(),
+    };
+
+    bray_runtime_outgoing_admission(2, &mut admission);
+    assert!(admission.state == RunState::COMPLETED);
+
+    let records = [
+        bray_runtime_outgoing_activation(),
+        bray_runtime_outgoing_activation(),
+    ];
+
+    let mut reports = records.into_iter().enumerate().map(|(index, record)| {
+        let mut report = PanicReport::empty();
+        report.source = [1, 17, 23, 29];
+        report.source_version = 31;
+        report.cause = 1;
+        report.message = if index == 0 { 1 } else { 10 };
+        report.release_message = Some(release_report);
+
+        let mut outcome = RunOutcome {
+            state: RunState::PANICKED,
+            payload: 0,
+            report,
+        };
+
+        bray_runtime_outgoing_retirement(record, &mut outcome);
+
+        outcome.report
+    });
+
+    let mut primary = reports.next().unwrap();
+    let mut incident = reports.next().unwrap();
+    bray_runtime_outgoing_discharge(2);
+
+    // This valid-layout request exceeds the address space on supported 64-bit hosts.
+    // It exercises actual reservation failure, not a test-only runtime switch.
+    let impossible = usize::MAX / 4096;
+
+    for _ in 0..2 {
+        bray_runtime_outgoing_admission(impossible, &mut admission);
+        assert!(admission.state == RunState::PANICKED);
+        assert_eq!(admission.report.cause, 4);
+        assert!(bray_runtime_panic_report_destruction(&mut admission.report) == Status::SUCCESS);
+        admission.state = RunState::COMPLETED;
+    }
+
+    let mut report = bray_runtime_panic_report_suppression(&mut primary, &mut incident);
+    assert_eq!(report.source, [1, 17, 23, 29]);
+    assert_eq!(report.source_version, 31);
+    assert_eq!(report.count, 1);
+    assert_eq!(REPORT_RELEASES.load(Ordering::Relaxed), 0);
+    assert!(bray_runtime_panic_report_destruction(&mut report) == Status::SUCCESS);
+    assert!(bray_runtime_panic_report_destruction(&mut report) == Status::SUCCESS);
+    assert_eq!(REPORT_RELEASES.load(Ordering::Relaxed), 11);
 }

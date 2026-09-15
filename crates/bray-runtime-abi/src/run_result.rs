@@ -117,8 +117,11 @@ impl NativeRunResultLayout {
                 .completed_offset
                 .is_multiple_of(self.completed_alignment)
             && self.panicked_offset >= self.tag_size
-            && self.panicked_offset.is_multiple_of(align_of::<usize>())
-            && size_of::<usize>() <= self.size.saturating_sub(self.panicked_offset)
+            && self
+                .panicked_offset
+                .is_multiple_of(align_of::<crate::NativePanicReport>())
+            && size_of::<crate::NativePanicReport>()
+                <= self.size.saturating_sub(self.panicked_offset)
     }
 }
 
@@ -179,7 +182,7 @@ mod tests {
         panicked_offset: usize,
     ) -> NativeRunResultLayout {
         NativeRunResultLayout::new(
-            16,
+            112,
             8,
             1,
             completed_tag,

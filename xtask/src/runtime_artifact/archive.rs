@@ -102,7 +102,7 @@ pub(super) fn support_exports(kind: RuntimeArchiveKind) -> impl Iterator<Item = 
         RuntimeArchiveKind::Callback | RuntimeArchiveKind::TestHost
     )
     .then_some([
-        "bray_runtime_substrate_panic_reporting",
+        "bray_runtime_substrate_panic_report_initialization",
         "bray_runtime_substrate_synchronous_root_execution",
         "bray_runtime_substrate_foreign_callback_execution",
         "bray_runtime_substrate_native_thread_execution",

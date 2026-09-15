@@ -121,6 +121,9 @@ pub(super) fn lowering_failure(
         LoweringError::InvalidTaskOperation(expression) => {
             Kind::InvalidTaskOperation(bound_identity(expression.unit(), expression.ordinal()))
         }
+        LoweringError::MissingInputCleanup(expression) => {
+            Kind::MissingInputCleanup(bound_identity(expression.unit(), expression.ordinal()))
+        }
         LoweringError::MissingCallableResultType => Kind::MissingCallableResultType,
         LoweringError::InvalidCleanupScopeDepth {
             scope_depth,

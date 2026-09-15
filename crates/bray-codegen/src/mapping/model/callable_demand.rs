@@ -141,6 +141,8 @@ fn operation_callable_instances(
         | MirOperationKind::Destroy(_)
         | MirOperationKind::Cleanup { .. }
         | MirOperationKind::Async(_)
+        | MirOperationKind::AdmitOutgoing { .. }
+        | MirOperationKind::DischargeOutgoing { .. }
         | MirOperationKind::Host(_) => return Vec::new(),
     };
 

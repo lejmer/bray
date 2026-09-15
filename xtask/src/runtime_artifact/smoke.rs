@@ -6,6 +6,7 @@ use bray_target::NativeTarget;
 
 use super::command::{CommandError, Package, RuntimeArchiveKind};
 
+const PANIC_REPORT_SOURCE: &str = include_str!("../../fixtures/runtime-panic-report.rs");
 const SMOKE_SOURCE: &str = include_str!("../../fixtures/runtime-smoke.rs");
 const SYNC_SMOKE_SOURCE: &str = include_str!("../../fixtures/runtime-sync-smoke.rs");
 const BOOTSTRAP_SMOKE_SOURCE: &str = include_str!("../../fixtures/runtime-bootstrap-smoke.c");
@@ -199,6 +200,8 @@ fn compile_smoke(
         name.to_owned()
     });
 
+    let report = directory.join("panic_report.rs");
+    fs::write(&report, PANIC_REPORT_SOURCE).map_err(|error| CommandError::write(&report, error))?;
     fs::write(&source, source_text).map_err(|error| CommandError::write(&source, error))?;
 
     let mut command = Command::new("rustc");

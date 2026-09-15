@@ -63,6 +63,7 @@ pub(super) fn declare_static_finalizer<'context>(
 
     Ok(StaticFinalizerCallbacks {
         execution,
+        outgoing_capacity: mapping.outgoing_capacity(),
         result_size,
         result_alignment,
         start,

@@ -844,6 +844,7 @@ fn map_arguments(
             parameter: signature.parameter(),
             ordinal,
             provider,
+            ty: parameters[index].ty(),
         });
     }
 
@@ -1205,6 +1206,7 @@ mod tests {
                     parameter: parameter(1),
                     ordinal: 0,
                     provider: default_provider(1),
+                    ty: fixture.value_type,
                 },
             ]
         );

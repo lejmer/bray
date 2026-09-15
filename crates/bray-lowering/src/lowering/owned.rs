@@ -50,7 +50,7 @@ impl Lowerer<'_> {
         call: StorageProtocolCall,
         target: TypeId,
     ) -> Result<MirPlace, LoweringError> {
-        let value = self.push_storage_protocol_call(block, source, owner, call)?;
+        let value = self.push_storage_protocol_call(block, source, owner, call, false)?;
 
         let storage = self.builder.push_storage(
             Self::retained_source(source),
@@ -106,6 +106,7 @@ impl Lowerer<'_> {
         source: &MirSourceAnchor,
         owner: &MirPlace,
         call: StorageProtocolCall,
+        cleanup: bool,
     ) -> Result<MirOperand, LoweringError> {
         let data = self.input.semantic_values().type_data(owner.ty())?;
 
@@ -140,6 +141,7 @@ impl Lowerer<'_> {
             policy,
             borrow,
             BoundCallResult::Immediate(call.result()),
+            cleanup,
             |operation, result| {
                 self.push_operation(block, Self::retained_source(source), operation, result)
             },

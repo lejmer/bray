@@ -8,9 +8,9 @@ use bray_symbols::AnySymbolId;
 
 use crate::{
     MirAggregateKind, MirAsyncOperation, MirBlockKind, MirCallArgument, MirCallTarget,
-    MirConstructionInput, MirGeneratorOperation, MirOperand, MirOperation, MirOperationId,
-    MirOperationKind, MirPlace, MirProjectionKind, MirStorage, MirStorageId, MirStorageKind,
-    MirTaskTerminalState, MirUnit, MirUnitBuildError, MirValueId,
+    MirGeneratorOperation, MirOperand, MirOperation, MirOperationId, MirOperationKind, MirPlace,
+    MirProjectionKind, MirStorage, MirStorageId, MirStorageKind, MirTaskTerminalState, MirUnit,
+    MirUnitBuildError, MirValueId,
 };
 
 use super::core::{validate_frame_state, validate_runtime_role};
@@ -27,6 +27,12 @@ pub(super) fn validate_operation(
     validate_operation_block(block_kind, id, operation.kind())?;
 
     match operation.kind() {
+        MirOperationKind::AdmitOutgoing { runtime, .. } => {
+            validate_runtime_role(unit, *runtime, RuntimeAbiRole::OutgoingAdmission)?
+        }
+        MirOperationKind::DischargeOutgoing { runtime, .. } => {
+            validate_runtime_role(unit, *runtime, RuntimeAbiRole::OutgoingDischarge)?
+        }
         MirOperationKind::AnonymousCallable(key) => {
             if matches!(
                 key,
@@ -197,6 +203,8 @@ fn validate_operation_block(
         | MirOperationKind::Call(_)
         | MirOperationKind::Memory(_)
         | MirOperationKind::Text(_)
+        | MirOperationKind::AdmitOutgoing { .. }
+        | MirOperationKind::DischargeOutgoing { .. }
         | MirOperationKind::PanicReport(_) => true,
     };
 
@@ -242,7 +250,9 @@ fn validate_operation_result(
 
     let rejects_result = matches!(
         operation.kind(),
-        MirOperationKind::Store { .. }
+        MirOperationKind::AdmitOutgoing { .. }
+            | MirOperationKind::DischargeOutgoing { .. }
+            | MirOperationKind::Store { .. }
             | MirOperationKind::Generator(
                 MirGeneratorOperation::Begin { .. }
                     | MirGeneratorOperation::Push { .. }
@@ -628,12 +638,40 @@ fn validate_call(
     operation: MirOperationId,
     call: &crate::MirCall,
 ) -> Result<(), MirUnitBuildError> {
+    if call.is_cleanup()
+        && (!matches!(call.target(), MirCallTarget::Direct(_))
+            || !matches!(
+                call.result(),
+                bray_bound_tree::BoundCallResult::Immediate(_)
+            ))
+    {
+        return Err(MirUnitBuildError::InvalidCall(operation));
+    }
+
     match call.target() {
         MirCallTarget::Direct(reference) => {
             if let Some(contract) = call
                 .contract()
                 .and_then(bray_symbols::CallableContractTemplate::source_template)
                 && contract.owner() != reference.instance().definition().callable_symbol()
+            {
+                return Err(MirUnitBuildError::InvalidCall(operation));
+            }
+        }
+        MirCallTarget::DefaultValue { owner, provider } => {
+            let accepts_default = match owner {
+                crate::MirDefaultOwner::Callable(_) => matches!(
+                    provider,
+                    bray_bound_tree::DefaultValueProvider::CallableParameter(_)
+                ),
+                crate::MirDefaultOwner::Type { target, .. } => target.accepts_default(*provider),
+            };
+
+            if !accepts_default
+                || !matches!(
+                    call.result(),
+                    bray_bound_tree::BoundCallResult::Immediate(_)
+                )
             {
                 return Err(MirUnitBuildError::InvalidCall(operation));
             }
@@ -667,13 +705,11 @@ fn validate_call(
     let mut parameters = BTreeSet::new();
     let mut ordinals = BTreeSet::new();
     let mut saw_receiver = false;
-    let mut saw_default = false;
-    let mut last_default_ordinal = None;
 
     for argument in call.arguments() {
         match argument {
             MirCallArgument::Receiver { parameter, value } => {
-                if saw_receiver || !parameters.is_empty() || saw_default {
+                if saw_receiver || !parameters.is_empty() {
                     return Err(MirUnitBuildError::InvalidCall(operation));
                 }
 
@@ -689,7 +725,7 @@ fn validate_call(
                 ordinal,
                 value,
             } => {
-                if saw_default || !ordinals.insert(*ordinal) {
+                if !ordinals.insert(*ordinal) {
                     return Err(MirUnitBuildError::InvalidCall(operation));
                 }
 
@@ -700,19 +736,6 @@ fn validate_call(
                 {
                     return Err(MirUnitBuildError::InvalidCall(operation));
                 }
-            }
-            MirCallArgument::Default {
-                parameter, ordinal, ..
-            } => {
-                if !parameters.insert(AnySymbolId::from(*parameter))
-                    || !ordinals.insert(*ordinal)
-                    || last_default_ordinal.is_some_and(|last| last >= *ordinal)
-                {
-                    return Err(MirUnitBuildError::InvalidCall(operation));
-                }
-
-                saw_default = true;
-                last_default_ordinal = Some(*ordinal);
             }
         }
     }
@@ -765,7 +788,6 @@ fn validate_construction(
 ) -> Result<(), MirUnitBuildError> {
     let mut inputs = BTreeSet::new();
     let mut ordinals = BTreeSet::new();
-    let mut last_default_ordinal = None;
 
     for supplied in construction.inputs() {
         let input = supplied.input();
@@ -777,28 +799,15 @@ fn validate_construction(
             return Err(MirUnitBuildError::InvalidConstructionInput(operation));
         }
 
-        match supplied {
-            MirConstructionInput::Explicit { value, .. } => {
-                if last_default_ordinal.is_some() {
-                    return Err(MirUnitBuildError::InvalidConstructionInput(operation));
-                }
+        validate_operand(unit, supplied.value(), block, Some(operation))?;
+    }
 
-                validate_operand(unit, value, block, Some(operation))?;
-            }
-            MirConstructionInput::Default {
-                input,
-                ordinal,
-                provider,
-            } => {
-                if !input.accepts_default(*provider)
-                    || last_default_ordinal.is_some_and(|last| last >= *ordinal)
-                {
-                    return Err(MirUnitBuildError::InvalidConstructionInput(operation));
-                }
-
-                last_default_ordinal = Some(*ordinal);
-            }
-        }
+    if ordinals
+        .iter()
+        .enumerate()
+        .any(|(expected, actual)| u32::try_from(expected) != Ok(*actual))
+    {
+        return Err(MirUnitBuildError::InvalidConstructionInput(operation));
     }
 
     Ok(())
