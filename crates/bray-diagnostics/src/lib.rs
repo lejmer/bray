@@ -40,7 +40,7 @@ pub use argument::{
     DiagnosticLinkOptimizationReportProblem, DiagnosticLinkRequirement,
     DiagnosticLinkRequirementKind, DiagnosticLinkedArtifactKind, DiagnosticLinkedProductKind,
     DiagnosticLoweringFailure, DiagnosticLoweringFailureKind, DiagnosticLoweringIdentity,
-    DiagnosticLoweringInputFailure, DiagnosticLoweringInputFailureKind, DiagnosticLoweringRoot,
+    DiagnosticLoweringRoot,
     DiagnosticMirUnitBuildFailure, DiagnosticMirUnitBuildFailureContext,
     DiagnosticMirUnitBuildFailureKind, DiagnosticMirUnitLocalIdentity, DiagnosticModuleTrust,
     DiagnosticNameKind, DiagnosticNamedType, DiagnosticNativeLinkInputFailure,

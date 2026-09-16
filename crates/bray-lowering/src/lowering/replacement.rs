@@ -20,7 +20,6 @@ impl Lowerer<'_> {
     ) -> Result<MirBlockId, LoweringError> {
         let plan = self
             .input
-            .lowering_plans()
             .replacement(expression)
             .ok_or(LoweringError::MissingSemanticSelection(expression))?;
 
@@ -218,7 +217,6 @@ impl Lowerer<'_> {
                     guard,
                     None,
                     self.input
-                        .lowering_plans()
                         .finalizer_is_complete(plan.expression().into(), plan.access()),
                     None,
                 )

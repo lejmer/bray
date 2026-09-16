@@ -4,7 +4,7 @@ use serde::Serialize;
 use super::emission::{
     DiagnosticEmissionFieldJson, checker_failure_context, diagnostic_failure_context,
     fact_runtime_failure_context, foreign_query_failure_context, lowering_failure_context,
-    lowering_input_failure_context, native_link_input_failure_context,
+    native_link_input_failure_context,
     product_query_failure_context, push_source_span, semantic_value_failure_context, text_field,
 };
 use super::{
@@ -518,7 +518,6 @@ impl DiagnosticNativeProductFailureJson {
                 Some(failure) => semantic_value_failure_context(failure),
                 None => diagnostic_failure_context(failure.context()),
             },
-            Kind::EvaluationLoweringInput(failure) => lowering_input_failure_context(*failure),
             Kind::EvaluationLowering(failure) => lowering_failure_context(*failure),
             Kind::EvaluationProduct(failure) => product_query_failure_context(failure),
             Kind::EvaluationForeign(failure) => foreign_query_failure_context(failure),

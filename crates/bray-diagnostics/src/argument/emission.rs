@@ -10,7 +10,7 @@ pub use backend::{
 };
 pub use lowering::{
     DiagnosticFrameDescriptorFailure, DiagnosticLoweringFailure, DiagnosticLoweringFailureKind,
-    DiagnosticLoweringIdentity, DiagnosticLoweringInputFailure, DiagnosticLoweringInputFailureKind,
+    DiagnosticLoweringIdentity,
     DiagnosticLoweringRoot, DiagnosticMirUnitBuildFailure, DiagnosticMirUnitBuildFailureContext,
     DiagnosticMirUnitBuildFailureKind, DiagnosticMirUnitLocalIdentity,
     DiagnosticSourceConstructKind,

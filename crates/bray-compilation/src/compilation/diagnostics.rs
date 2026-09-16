@@ -235,7 +235,6 @@ pub(super) const fn code_production_failure_source(
     failure: &DiagnosticEmissionEvaluationFailure,
 ) -> Option<SourceSpan> {
     match failure {
-        DiagnosticEmissionEvaluationFailure::LoweringInput(failure) => Some(failure.source()),
         DiagnosticEmissionEvaluationFailure::Lowering(failure) => Some(failure.source()),
         _ => None,
     }

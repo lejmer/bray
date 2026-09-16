@@ -178,7 +178,6 @@ impl Lowerer<'_> {
 
         let requires_lifecycle_storage = self
             .input
-            .lowering_plans()
             .requires_lifecycle_storage(temporary);
 
         if !required && !requires_lifecycle_storage {

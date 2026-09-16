@@ -2,10 +2,9 @@ use bray_checker::CheckerInfrastructureError;
 use bray_diagnostics::{
     DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticFailureValue, DiagnosticKind,
     DiagnosticLabelKind, DiagnosticLoweringFailure, DiagnosticLoweringFailureKind,
-    DiagnosticLoweringInputFailure, DiagnosticLoweringInputFailureKind,
     DiagnosticNativeProductFailureKind, DiagnosticNoteKind, DiagnosticSemanticValueFailure,
 };
-use bray_lowering::{LoweringError, LoweringInputError};
+use bray_lowering::LoweringError;
 use bray_messages::DiagnosticRenderer;
 use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
 use bray_symbols::{PackageIdentity, ProductIdentity, SemanticValueKind, SemanticValueStoreError};
@@ -173,16 +172,6 @@ fn native_product_evaluation_failures_preserve_specific_reasons() {
         (
             FactQueryError::UninitInitializerResultUnavailable,
             Kind::EvaluationUninitInitializerResultUnavailable,
-        ),
-        (
-            FactQueryError::LoweringInput(LocatedLoweringFailure::new(
-                LoweringInputError::InvalidPatternInput,
-                source,
-            )),
-            Kind::EvaluationLoweringInput(DiagnosticLoweringInputFailure::new(
-                DiagnosticLoweringInputFailureKind::InvalidPatternInput,
-                source,
-            )),
         ),
         (
             FactQueryError::Lowering(LocatedLoweringFailure::new(
@@ -439,44 +428,6 @@ fn code_production_node_failures_name_the_highlighted_syntax_category() {
 
     assert!(rendered.message().contains("pattern"));
     assert!(!rendered.message().contains("node"));
-}
-
-#[test]
-fn code_production_input_failures_retain_explanatory_values() {
-    let package = PackageIdentity::try_new("example")
-        .unwrap_or_else(|| panic!("test package identity must be valid"));
-
-    let product = ProductIdentity::try_new(package, "application")
-        .unwrap_or_else(|| panic!("test product identity must be valid"));
-
-    let source = SourceSpan::new(
-        SourceId::new(1),
-        TextRange::new(TextSize::new(10), TextSize::new(20)),
-    );
-
-    let failure = DiagnosticNativeProductFailureKind::EvaluationLoweringInput(
-        DiagnosticLoweringInputFailure::new(
-            DiagnosticLoweringInputFailureKind::StorageOperationCountMismatch {
-                expected: 3,
-                actual: 2,
-            },
-            source,
-        ),
-    );
-
-    let diagnostic =
-        native_product_preparation_diagnostic(failure.clone(), &product, "x86_64-pc-windows-msvc");
-
-    assert_native_product_failure(&diagnostic, &failure);
-
-    assert_eq!(diagnostic.primary_span(), Some(source));
-
-    assert!(
-        diagnostic
-            .notes()
-            .iter()
-            .any(|note| note.kind() == DiagnosticNoteKind::ReportCompilerDefect)
-    );
 }
 
 fn assert_native_product_failure(

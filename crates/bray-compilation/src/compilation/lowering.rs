@@ -10,8 +10,7 @@ use bray_checker::ConstantReferenceResolution;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_ir::MirTargetContract;
 use bray_lowering::{
-    CompileTimeUnit, LoweredUnit, LoweringError, LoweringInput, LoweringInputError,
-    VerifiedLoweringPlans, executable_unit_kind, lower_unit,
+    CompileTimeUnit, LoweredUnit, LoweringError, LoweringInput, executable_unit_kind, lower_unit,
 };
 use bray_source::SourceSpan;
 use bray_symbols::{
@@ -157,8 +156,13 @@ impl Compilation {
         let completed =
             self.completed_unit_cleanup(key, body.result().value().asynchronous(), cancellation)?;
 
-        let lowering_plans = VerifiedLoweringPlans::try_new(
+        let input = LoweringInput::new(
             unit.result().value(),
+            control_flow.result().value(),
+            expressions.result().value().types(),
+            patterns.result().value(),
+            expressions.result().value().literals(),
+            body.result().value().refinements(),
             storage.result().value(),
             body.result().value().liveness(),
             body.result().value().storage_flow(),
@@ -166,32 +170,13 @@ impl Compilation {
             expressions.result().value().selections(),
             self.available_compiler_known_symbols(),
             body.result().value().asynchronous(),
-        )
-        .and_then(|plans| plans.with_completed_finalizers(completed))
-        .map_err(LoweringInputError::from);
-
-        let input = lowering_plans
-            .and_then(|lowering_plans| {
-                LoweringInput::try_new(
-                    unit.result().value(),
-                    control_flow.result().value(),
-                    expressions.result().value().types(),
-                    patterns.result().value(),
-                    expressions.result().value().literals(),
-                    body.result().value().refinements(),
-                    lowering_plans,
-                    behavior.result().value(),
-                    semantic_values,
-                    unit_kind,
-                    target,
-                )
-            })
-            .and_then(|input| input.with_constant_reference_values(&constant_reference_values))
-            .map_err(|error| {
-                let source = lowering_input_failure_source(&error, unit.result().value());
-
-                FactQueryError::LoweringInput(LocatedLoweringFailure::new(error, source))
-            })?;
+            completed,
+            behavior.result().value(),
+            semantic_values,
+            &constant_reference_values,
+            unit_kind,
+            target,
+        );
 
         let runtime_calls =
             self.runtime_lowering_calls(expressions.result().value().selections(), cancellation)?;
@@ -453,37 +438,6 @@ impl Compilation {
             ),
             ty,
         )))
-    }
-}
-
-fn lowering_input_failure_source(error: &LoweringInputError, unit: &BoundUnit) -> SourceSpan {
-    match error {
-        LoweringInputError::MissingSemanticSelection(expression)
-        | LoweringInputError::MissingExpressionType(expression)
-        | LoweringInputError::InvalidStorageOperation(expression) => {
-            expression_source(unit, *expression)
-        }
-        LoweringInputError::InvalidStorageExit(block) => {
-            node_source(unit, (*block).into()).unwrap_or_else(|| unit_source(unit))
-        }
-        LoweringInputError::InvalidPlan(failure) => failure
-            .expression()
-            .map(|expression| expression_source(unit, expression))
-            .or_else(|| failure.exit().and_then(|exit| node_source(unit, exit)))
-            .or_else(|| {
-                failure
-                    .scope()
-                    .and_then(|scope| node_source(unit, scope.into()))
-            })
-            .unwrap_or_else(|| unit_source(unit)),
-        LoweringInputError::ForeignInput { .. }
-        | LoweringInputError::InputKindMismatch { .. }
-        | LoweringInputError::InvalidPatternInput
-        | LoweringInputError::InvalidInputContents(_)
-        | LoweringInputError::StorageOperationCountMismatch { .. }
-        | LoweringInputError::LiteralTargetWidthMismatch { .. }
-        | LoweringInputError::ExecutableHostRequiresSyntheticInput
-        | LoweringInputError::CompileTimeUnitRequiresClassification => unit_source(unit),
     }
 }
 

@@ -1,95 +1,15 @@
 use bray_bound_tree::AnyBoundNodeId;
 use bray_diagnostics::{
     DiagnosticLoweringFailure, DiagnosticLoweringFailureKind, DiagnosticLoweringIdentity,
-    DiagnosticLoweringInputFailure, DiagnosticLoweringInputFailureKind, DiagnosticLoweringRoot,
+    DiagnosticLoweringRoot,
     DiagnosticMirUnitBuildFailure, DiagnosticMirUnitBuildFailureContext,
     DiagnosticMirUnitBuildFailureKind, DiagnosticMirUnitLocalIdentity,
     DiagnosticSourceConstructKind,
 };
 use bray_ir::MirUnitBuildError;
-use bray_lowering::{LoweringError, LoweringInputError};
+use bray_lowering::LoweringError;
 
 use crate::LocatedLoweringFailure;
-
-pub(super) fn lowering_input_failure(
-    failure: &LocatedLoweringFailure<LoweringInputError>,
-) -> DiagnosticLoweringInputFailure {
-    use DiagnosticLoweringInputFailureKind as Kind;
-
-    let kind = match failure.cause() {
-        LoweringInputError::ForeignInput {
-            input,
-            expected,
-            actual,
-        } => Kind::ForeignInput {
-            input: lowering_input_kind(*input),
-            expected_unit: expected.raw(),
-            actual_unit: actual.raw(),
-        },
-        LoweringInputError::InputKindMismatch {
-            input,
-            expected,
-            actual,
-        } => Kind::InputKindMismatch {
-            input: lowering_input_kind(*input),
-            expected_kind: expected.as_str(),
-            actual_kind: actual.as_str(),
-        },
-        LoweringInputError::MissingSemanticSelection(expression) => {
-            Kind::MissingSemanticSelection(bound_identity(expression.unit(), expression.ordinal()))
-        }
-        LoweringInputError::MissingExpressionType(expression) => {
-            Kind::MissingExpressionType(bound_identity(expression.unit(), expression.ordinal()))
-        }
-        LoweringInputError::InvalidPatternInput => Kind::InvalidPatternInput,
-        LoweringInputError::InvalidInputContents(input) => {
-            Kind::InvalidInputContents(lowering_input_kind(*input))
-        }
-        LoweringInputError::InvalidStorageOperation(expression) => {
-            Kind::InvalidStorageOperation(bound_identity(expression.unit(), expression.ordinal()))
-        }
-        LoweringInputError::StorageOperationCountMismatch { expected, actual } => {
-            Kind::StorageOperationCountMismatch {
-                expected: u64::try_from(*expected).unwrap_or(u64::MAX),
-                actual: u64::try_from(*actual).unwrap_or(u64::MAX),
-            }
-        }
-        LoweringInputError::InvalidStorageExit(block) => {
-            Kind::InvalidStorageExit(bound_identity(block.unit(), block.ordinal()))
-        }
-        LoweringInputError::InvalidPlan(error) => Kind::InvalidPlan {
-            plan: error.kind().as_str(),
-            cause: error.cause().as_str(),
-            expression: error
-                .expression()
-                .map(|expression| bound_identity(expression.unit(), expression.ordinal())),
-            scope: error
-                .scope()
-                .map(|scope| bound_identity(scope.unit(), scope.ordinal())),
-            exit: error.exit().map(any_bound_identity),
-            storage: error
-                .storage()
-                .map(|storage| bound_identity(storage.unit(), storage.ordinal())),
-            access: error
-                .access()
-                .map(|access| bound_identity(access.unit(), access.ordinal())),
-        },
-        LoweringInputError::LiteralTargetWidthMismatch { expected, actual } => {
-            Kind::LiteralTargetWidthMismatch {
-                expected: expected.get(),
-                actual: actual.get(),
-            }
-        }
-        LoweringInputError::ExecutableHostRequiresSyntheticInput => {
-            Kind::ExecutableHostRequiresSyntheticInput
-        }
-        LoweringInputError::CompileTimeUnitRequiresClassification => {
-            Kind::CompileTimeUnitRequiresClassification
-        }
-    };
-
-    DiagnosticLoweringInputFailure::new(kind, failure.source())
-}
 
 pub(super) fn lowering_failure(
     failure: &LocatedLoweringFailure<LoweringError>,
@@ -263,21 +183,6 @@ const fn callable_execution(execution: bray_symbols::CallableExecution) -> &'sta
     match execution {
         bray_symbols::CallableExecution::Synchronous => "synchronous",
         bray_symbols::CallableExecution::Asynchronous => "asynchronous",
-    }
-}
-
-const fn lowering_input_kind(kind: bray_lowering::LoweringInputKind) -> &'static str {
-    use bray_lowering::LoweringInputKind as Kind;
-
-    match kind {
-        Kind::ControlFlow => "control_flow",
-        Kind::ExpressionTypes => "expression_types",
-        Kind::Patterns => "patterns",
-        Kind::LiteralValues => "literal_values",
-        Kind::ConstantReferences => "constant_references",
-        Kind::Refinements => "refinements",
-        Kind::LoweringPlans => "lowering_plans",
-        Kind::BodyBehavior => "body_behavior",
     }
 }
 
@@ -496,84 +401,14 @@ const fn cleanup_phase(phase: bray_ir::MirCleanupPhase) -> &'static str {
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::{
-        DiagnosticLoweringFailure, DiagnosticLoweringFailureKind, DiagnosticLoweringInputFailure,
-        DiagnosticLoweringInputFailureKind, DiagnosticMirUnitBuildFailure,
+        DiagnosticLoweringFailureKind, DiagnosticMirUnitBuildFailure,
         DiagnosticMirUnitBuildFailureContext, DiagnosticMirUnitBuildFailureKind,
     };
     use bray_ir::MirUnitBuildError;
-    use bray_lowering::{LoweringError, LoweringInputError};
+    use bray_lowering::LoweringError;
     use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
 
     use crate::LocatedLoweringFailure;
-
-    #[test]
-    fn lowering_contract_failures_retain_their_exact_categories() {
-        let source = SourceSpan::new(
-            SourceId::new(0),
-            TextRange::new(TextSize::new(10), TextSize::new(20)),
-        );
-
-        assert_eq!(
-            super::lowering_input_failure(&LocatedLoweringFailure::new(
-                LoweringInputError::InvalidPatternInput,
-                source,
-            )),
-            DiagnosticLoweringInputFailure::new(
-                DiagnosticLoweringInputFailureKind::InvalidPatternInput,
-                source,
-            )
-        );
-
-        assert_eq!(
-            super::lowering_failure(&LocatedLoweringFailure::new(
-                LoweringError::Mir(MirUnitBuildError::InvalidHostSequence),
-                source,
-            )),
-            DiagnosticLoweringFailure::new(
-                DiagnosticLoweringFailureKind::Mir(DiagnosticMirUnitBuildFailure::new(
-                    DiagnosticMirUnitBuildFailureKind::InvalidHostSequence,
-                    DiagnosticMirUnitBuildFailureContext::None,
-                ),),
-                source,
-            )
-        );
-    }
-
-    #[test]
-    fn lowering_contract_failures_retain_non_mir_payloads() {
-        let source = SourceSpan::new(
-            SourceId::new(0),
-            TextRange::new(TextSize::new(10), TextSize::new(20)),
-        );
-
-        let input = super::lowering_input_failure(&LocatedLoweringFailure::new(
-            LoweringInputError::ForeignInput {
-                input: bray_lowering::LoweringInputKind::LoweringPlans,
-                expected: bray_bound_tree::BoundUnitId::new(7),
-                actual: bray_bound_tree::BoundUnitId::new(11),
-            },
-            source,
-        ));
-
-        assert_eq!(
-            input.kind(),
-            DiagnosticLoweringInputFailureKind::ForeignInput {
-                input: "lowering_plans",
-                expected_unit: 7,
-                actual_unit: 11,
-            }
-        );
-
-        let lowering = super::lowering_failure(&LocatedLoweringFailure::new(
-            LoweringError::MissingRepresentation(bray_compiler_known::RepresentationRole::Task),
-            source,
-        ));
-
-        assert_eq!(
-            lowering.kind(),
-            DiagnosticLoweringFailureKind::MissingRepresentation("Task")
-        );
-    }
 
     #[test]
     fn mir_failures_retain_unit_local_identity_payloads() {

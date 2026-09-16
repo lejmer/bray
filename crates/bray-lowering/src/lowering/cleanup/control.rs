@@ -9,7 +9,7 @@ use bray_symbols::TypeId;
 use crate::lowering::LoweringError;
 use crate::lowering::inputs::{InputExit, InputTemporary};
 use crate::lowering::lowerer::Lowerer;
-use crate::plan::ScopeExitCleanupStatus;
+use crate::input::ScopeExitCleanupStatus;
 
 #[derive(Clone, Copy)]
 pub(super) enum CleanupDestination {
@@ -293,7 +293,6 @@ impl Lowerer<'_> {
         exit: AnyBoundNodeId,
     ) -> Result<Vec<bray_bound_tree::AsyncScopeExitPlan>, LoweringError> {
         self.input
-            .lowering_plans()
             .cleanup_plans(&self.active_scopes, scope_depth, exit)
             .map_err(Into::into)
     }
@@ -304,7 +303,6 @@ impl Lowerer<'_> {
         exit: AnyBoundNodeId,
     ) -> Result<ScopeExitCleanupStatus, LoweringError> {
         self.input
-            .lowering_plans()
             .scope_cleanup_status(scope, exit)
             .map_err(Into::into)
     }
@@ -360,7 +358,6 @@ impl Lowerer<'_> {
                 if parts.is_empty() {
                     let completed = self
                         .input
-                        .lowering_plans()
                         .finalizer_is_complete(plan.exit(), *access);
 
                     (block, value) = self.push_guarded_cleanup(

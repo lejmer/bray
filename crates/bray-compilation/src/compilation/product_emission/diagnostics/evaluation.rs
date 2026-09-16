@@ -73,9 +73,6 @@ pub(crate) fn diagnostic_evaluation_failure(
         FactQueryError::Binding(error) => DiagnosticEmissionEvaluationFailure::Binding(
             crate::fact::diagnostic_binding_failure(error),
         ),
-        FactQueryError::LoweringInput(error) => DiagnosticEmissionEvaluationFailure::LoweringInput(
-            super::super::super::lowering_diagnostic::lowering_input_failure(error),
-        ),
         FactQueryError::Lowering(error) => DiagnosticEmissionEvaluationFailure::Lowering(
             super::super::super::lowering_diagnostic::lowering_failure(error),
         ),

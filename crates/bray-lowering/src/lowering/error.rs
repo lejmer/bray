@@ -36,7 +36,7 @@ pub enum LoweringError {
         /// Exact bound occurrence initiating cleanup.
         exit: AnyBoundNodeId,
     },
-    /// The verified plan set has no decision for one active scope and exit.
+    /// Checked async analysis has no decision for one active scope and exit.
     MissingScopeExitPlan {
         /// Active lexical scope whose decision is absent.
         scope: BoundBlockId,
@@ -110,10 +110,10 @@ impl From<SemanticValueStoreError> for LoweringError {
     }
 }
 
-impl From<crate::plan::CleanupPlanLookupError> for LoweringError {
-    fn from(error: crate::plan::CleanupPlanLookupError) -> Self {
+impl From<crate::input::CleanupPlanLookupError> for LoweringError {
+    fn from(error: crate::input::CleanupPlanLookupError) -> Self {
         match error {
-            crate::plan::CleanupPlanLookupError::InvalidScopeDepth {
+            crate::input::CleanupPlanLookupError::InvalidScopeDepth {
                 scope_depth,
                 active_scope_count,
                 exit,
@@ -122,7 +122,7 @@ impl From<crate::plan::CleanupPlanLookupError> for LoweringError {
                 active_scope_count,
                 exit,
             },
-            crate::plan::CleanupPlanLookupError::MissingScopeExit { scope, exit } => {
+            crate::input::CleanupPlanLookupError::MissingScopeExit { scope, exit } => {
                 Self::MissingScopeExitPlan { scope, exit }
             }
         }
