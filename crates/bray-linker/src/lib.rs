@@ -49,7 +49,7 @@ pub use input::{
 pub use lld::{EmbeddedLldHost, LldDriver, LldDriverBuildError, LldFlavor};
 pub use optimization::{LinkOptimizationReport, LinkOptimizationReportProblem};
 pub use outcome::{
-    LinkFailure, LinkOutcome, LinkStatus, LinkedArtifactSet, link_failure_diagnostics,
+    LinkFailure, LinkOutcome, LinkStatus, link_failure_diagnostics,
 };
 pub use output::{
     LinkedArtifact, LinkedArtifactKind, LinkedArtifactRequirement, LinkedProductKind,

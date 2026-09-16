@@ -22,7 +22,7 @@ pub use artifact::{
     ArtifactDigest, ArtifactDigestAlgorithm, ArtifactSpool, ArtifactSpoolError,
     ArtifactSpoolOperation, ArtifactSpoolWriter, AssemblySyntaxKind, BackendArtifactContribution,
     BackendArtifactId, BackendArtifactKind, BackendArtifactRequest, BackendArtifactRequestEntry,
-    BackendArtifactRequirement, BackendArtifactSet,
+    BackendArtifactRequirement,
     BackendBitcodeSemantics,
     BackendSerializationOptions, DebugInformationOutputMode, LinkableArtifactKind,
     LinkableArtifactRequirement,

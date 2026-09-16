@@ -7,7 +7,7 @@ pub use content::{
     ArtifactDigest, ArtifactDigestAlgorithm, ArtifactSpool, ArtifactSpoolError,
     ArtifactSpoolOperation, ArtifactSpoolWriter,
 };
-pub use contribution::{BackendArtifactContribution, BackendArtifactSet};
+pub use contribution::BackendArtifactContribution;
 pub use request::{
     AssemblySyntaxKind, BackendArtifactId, BackendArtifactKind, BackendArtifactRequest,
     BackendArtifactRequestEntry, BackendArtifactRequirement, BackendBitcodeSemantics,

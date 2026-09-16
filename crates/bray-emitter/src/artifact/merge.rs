@@ -2,9 +2,7 @@ use std::collections::BTreeMap;
 use std::io;
 
 use bray_base::Cancellation;
-use bray_codegen::{
-    ArtifactDigest, BackendArtifactId, BackendArtifactSet,
-};
+use bray_codegen::{ArtifactDigest, BackendArtifactContribution, BackendArtifactId};
 
 use super::content::{ContentValidationError, validate_content};
 use crate::{
@@ -13,15 +11,15 @@ use crate::{
 };
 
 impl BackendContributionSet {
-    /// Validates content and merges completed backend sets in deterministic plan order.
+    /// Validates and merges completed backend contributions in deterministic plan order.
     pub fn try_from_backend<'artifact>(
         plan: &EmissionPlan,
-        sets: impl IntoIterator<Item = &'artifact BackendArtifactSet>,
+        completed: impl IntoIterator<Item = &'artifact [BackendArtifactContribution]>,
         cancellation: &dyn Cancellation,
     ) -> Result<Self, BackendContributionMergeError> {
-        let contributions: BTreeMap<_, _> = sets
+        let contributions: BTreeMap<_, _> = completed
             .into_iter()
-            .flat_map(BackendArtifactSet::contributions)
+            .flatten()
             .map(|contribution| (contribution.id().clone(), contribution))
             .collect();
 

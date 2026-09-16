@@ -3,7 +3,7 @@ use std::path::Path;
 use bray_base::Cancellation;
 use bray_codegen::ArtifactDigest;
 use bray_linker::{
-    LinkInputProvenance, LinkInputSource, LinkPlan, LinkedArtifactRequirement, LinkedArtifactSet,
+    LinkInputProvenance, LinkInputSource, LinkPlan, LinkedArtifact, LinkedArtifactRequirement,
 };
 
 use crate::artifact::content::{ContentValidationError, validate_staged_content};
@@ -45,7 +45,7 @@ pub(super) enum LinkedPreparationError {
 pub(super) fn prepare_linked_artifacts<'plan, 'link>(
     emission: &'plan EmissionPlan,
     link_plan: &'link LinkPlan,
-    linked: &LinkedArtifactSet,
+    linked: &'link [LinkedArtifact],
     cancellation: &dyn Cancellation,
 ) -> Result<Vec<PreparedLinkedArtifact<'plan, 'link>>, LinkedPreparationError> {
     let planned: Vec<_> = emission
@@ -53,10 +53,14 @@ pub(super) fn prepare_linked_artifacts<'plan, 'link>(
         .filter(|artifact| matches!(artifact.producer(), ArtifactProducer::Linker(_)))
         .collect();
 
-    let mut prepared = Vec::with_capacity(linked.artifacts().len());
+    let mut prepared = Vec::with_capacity(linked.len());
 
     for (planned, output) in planned.into_iter().zip(link_plan.outputs()) {
-        let Some(artifact) = linked.artifact(output.destination().id()) else {
+        let Some(artifact) = linked
+            .binary_search_by_key(&output.destination().id(), LinkedArtifact::destination)
+            .ok()
+            .map(|index| &linked[index])
+        else {
             assert_eq!(
                 output.requirement(),
                 LinkedArtifactRequirement::Optional,

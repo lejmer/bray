@@ -4986,7 +4986,7 @@ public func invoke<T>(pos value: T)
 
                 let contribution = outcome
                     .artifacts()
-                    .and_then(|artifacts| artifacts.contributions().first())
+                    .and_then(|artifacts| artifacts.first())
                     .unwrap_or_else(|| panic!("test codegen must publish one artifact"));
 
                 match contribution.content().source() {

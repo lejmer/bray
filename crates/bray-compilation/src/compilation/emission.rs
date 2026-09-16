@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bray_codegen::{
-    BackendArtifactSet, CodegenFailure, CodegenMappings, CodegenOptions, CodegenStatus,
+    BackendArtifactContribution, CodegenFailure, CodegenMappings, CodegenOptions, CodegenStatus,
     CodegenTarget, CodegenUnit, CodegenUnitKey,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
@@ -235,17 +235,17 @@ struct CodegenUnitEntry<'inputs> {
     mappings: Option<&'inputs CodegenMappings>,
 }
 
-fn complete_sets<'outcome>(
+fn complete_contributions<'outcome>(
     requests: &[bray_codegen::BackendArtifactRequest],
     outcomes: &'outcome [Result<Arc<bray_codegen::CodegenOutcome>, EmissionCodegenErrorKind>],
-) -> Result<Vec<&'outcome BackendArtifactSet>, EmissionCodegenErrorKind> {
-    let mut sets = Vec::with_capacity(outcomes.len());
+) -> Result<Vec<&'outcome [BackendArtifactContribution]>, EmissionCodegenErrorKind> {
+    let mut contributions = Vec::with_capacity(outcomes.len());
 
     for (request, outcome) in requests.iter().zip(outcomes) {
         let outcome = outcome.as_ref().map_err(Clone::clone)?;
 
         match outcome.status() {
-            CodegenStatus::Complete(artifacts) => sets.push(artifacts.as_ref()),
+            CodegenStatus::Complete(artifacts) => contributions.push(artifacts.as_ref()),
             CodegenStatus::Failed(failure) => {
                 return Err(EmissionCodegenErrorKind::Generation {
                     unit: request.unit().clone(),
@@ -258,7 +258,7 @@ fn complete_sets<'outcome>(
         }
     }
 
-    Ok(sets)
+    Ok(contributions)
 }
 
 fn finish_backend_contributions(
@@ -274,12 +274,13 @@ fn finish_backend_contributions(
             .map(|outcome| outcome.diagnostics()),
     );
 
-    let sets = match complete_sets(requests, outcomes) {
-        Ok(sets) => sets,
+    let completed = match complete_contributions(requests, outcomes) {
+        Ok(completed) => completed,
         Err(kind) => return Err(EmissionCodegenError::new(kind, diagnostics)),
     };
 
-    let contributions = match BackendContributionSet::try_from_backend(plan, sets, cancellation) {
+    let contributions =
+        match BackendContributionSet::try_from_backend(plan, completed, cancellation) {
         Ok(contributions) => contributions,
         Err(error) => {
             return Err(EmissionCodegenError::new(

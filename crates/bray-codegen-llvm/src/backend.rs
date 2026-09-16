@@ -580,9 +580,9 @@ mod tests {
             panic!("successful generation must publish requested artifacts");
         };
 
-        assert_eq!(artifacts.contributions().len(), 2);
+        assert_eq!(artifacts.len(), 2);
 
-        for contribution in artifacts.contributions() {
+        for contribution in artifacts {
             assert_eq!(
                 contribution.id().kind(),
                 BackendArtifactKind::RelocatableObject
@@ -661,7 +661,7 @@ mod tests {
             panic!("successful generation must publish bitcode");
         };
 
-        assert!(artifacts.contributions().iter().all(|contribution| {
+        assert!(artifacts.iter().all(|contribution| {
             contribution.id().kind() == BackendArtifactKind::BackendBitcode
         }));
     }
@@ -900,7 +900,6 @@ mod tests {
         };
 
         artifacts
-            .contributions()
             .iter()
             .map(|contribution| match contribution.content().source() {
                 ArtifactContentSource::Memory(bytes) => bytes.to_vec(),

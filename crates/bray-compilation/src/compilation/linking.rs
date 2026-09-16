@@ -297,10 +297,10 @@ mod tests {
                 panic!("test link must produce complete staging artifacts");
             };
 
-            assert_eq!(artifacts.artifacts().len(), artifact_count);
+            assert_eq!(artifacts.len(), artifact_count);
 
             assert_eq!(
-                artifacts.artifacts()[0].kind(),
+                artifacts[0].kind(),
                 plan.product_kind().primary_artifact_kind()
             );
         }
@@ -501,7 +501,7 @@ mod tests {
             panic!("async test link must produce complete staging artifacts");
         };
 
-        assert_eq!(artifacts.artifacts().len(), 2);
+        assert_eq!(artifacts.len(), 2);
 
         assert_eq!(
             plan.inputs(),

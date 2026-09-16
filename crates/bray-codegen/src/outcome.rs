@@ -8,7 +8,7 @@ use bray_diagnostics::{
 
 use crate::{
     ArtifactContentBuildError, BackendArtifactContribution, BackendArtifactKind,
-    BackendArtifactSet, CodegenRequest,
+    CodegenRequest,
 };
 
 /// Structured reason one backend operation could not produce a complete artifact set.
@@ -61,7 +61,7 @@ pub enum CodegenFailure {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum CodegenStatus {
     /// Every requested required artifact was generated and validated.
-    Complete(Box<BackendArtifactSet>),
+    Complete(Arc<[BackendArtifactContribution]>),
     /// Generation failed without returning partial artifacts.
     Failed(CodegenFailure),
     /// Cancellation was observed before artifacts were completed.
@@ -81,10 +81,12 @@ impl CodegenOutcome {
         contributions: impl IntoIterator<Item = BackendArtifactContribution>,
         diagnostics: DiagnosticBag,
     ) -> Self {
-        let artifacts = BackendArtifactSet::new(contributions);
+        let mut contributions: Vec<_> = contributions.into_iter().collect();
+
+        contributions.sort_unstable_by(|left, right| left.id().cmp(right.id()));
 
         Self {
-            status: CodegenStatus::Complete(Box::new(artifacts)),
+            status: CodegenStatus::Complete(contributions.into()),
             diagnostics,
         }
     }
@@ -138,9 +140,9 @@ impl CodegenOutcome {
     }
 
     /// Returns the complete artifact set only after successful generation.
-    pub fn artifacts(&self) -> Option<&BackendArtifactSet> {
+    pub fn artifacts(&self) -> Option<&[BackendArtifactContribution]> {
         match &self.status {
-            CodegenStatus::Complete(artifacts) => Some(artifacts.as_ref()),
+            CodegenStatus::Complete(artifacts) => Some(artifacts),
             CodegenStatus::Failed(_) | CodegenStatus::Cancelled => None,
         }
     }
@@ -309,15 +311,18 @@ mod tests {
     #[test]
     fn completed_outcomes_retain_backend_produced_artifacts() {
         let fixture = codegen_request();
-        let artifact = contribution(fixture.required_artifact().clone());
+        let first = contribution(fixture.required_artifact().clone());
+        let second = contribution(fixture.optional_artifact().clone());
 
-        let outcome = CodegenOutcome::complete([artifact], DiagnosticBag::new());
+        let outcome = CodegenOutcome::complete([second, first], DiagnosticBag::new());
 
         let Some(artifacts) = outcome.artifacts() else {
             panic!("complete outcome must retain backend artifacts");
         };
 
-        assert_eq!(artifacts.contributions().len(), 1);
+        assert_eq!(artifacts.len(), 2);
+        assert_eq!(artifacts[0].id(), fixture.required_artifact());
+        assert_eq!(artifacts[1].id(), fixture.optional_artifact());
     }
 
     #[test]

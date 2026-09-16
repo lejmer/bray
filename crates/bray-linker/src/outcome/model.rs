@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::{
     ExternalToolFailure, ExternalToolOutput, ExternalToolResponseFileOperation, ExternalToolStream,
     LinkInputId, LinkPlan, LinkedArtifact, StagingDestinationId, UnsupportedLinkRequirement,
@@ -10,7 +12,6 @@ use bray_diagnostics::{
 };
 use bray_platform::{PlatformErrorKind, PlatformOperation};
 
-use super::artifact::LinkedArtifactSet;
 use super::diagnostics::{diagnostic_driver_identity, optimization_report_diagnostic};
 
 pub(crate) fn failed_outcome(plan: &LinkPlan, failure: LinkFailure) -> LinkOutcome {
@@ -483,7 +484,7 @@ pub enum LinkFailure {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum LinkStatus {
     /// Every required staged artifact was produced and validated.
-    Complete(LinkedArtifactSet),
+    Complete(Arc<[LinkedArtifact]>),
     /// Linking failed without returning partial staged outputs.
     Failed(LinkFailure),
     /// Cancellation was observed before a successful result was available.
@@ -588,10 +589,12 @@ impl LinkOutcome {
         artifacts: impl IntoIterator<Item = LinkedArtifact>,
         diagnostics: DiagnosticBag,
     ) -> Self {
-        let artifacts = LinkedArtifactSet::new(artifacts);
+        let mut artifacts: Vec<_> = artifacts.into_iter().collect();
+
+        artifacts.sort_unstable_by_key(LinkedArtifact::destination);
 
         Self {
-            status: LinkStatus::Complete(artifacts),
+            status: LinkStatus::Complete(artifacts.into()),
             diagnostics,
             optimization: None,
         }
@@ -653,7 +656,7 @@ impl LinkOutcome {
     }
 
     /// Returns complete staged artifacts only after successful validation.
-    pub const fn artifacts(&self) -> Option<&LinkedArtifactSet> {
+    pub fn artifacts(&self) -> Option<&[LinkedArtifact]> {
         match &self.status {
             LinkStatus::Complete(artifacts) => Some(artifacts),
             LinkStatus::Failed(_) | LinkStatus::Cancelled => None,
@@ -663,6 +666,7 @@ impl LinkOutcome {
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroU64;
     use std::sync::Arc;
 
     use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind};
@@ -670,11 +674,11 @@ mod tests {
     use super::{
         LinkFailure, LinkOutcome, LinkStatus, failed_outcome, link_failure_diagnostics,
     };
-    use crate::test_support::{link_plan, linked_artifact};
+    use crate::test_support::link_plan;
     use crate::{
         DeadStripPolicy, DebugLinkPolicy, LinkInputKind, LinkInputMode, LinkModel, LinkRuntimeMode,
         LinkSearchPathKind, LinkStartupMode, LinkSubsystem, LinkSymbolRequirement,
-        LinkTimeOptimizationKind, LinkedArtifactKind, LinkedProductKind,
+        LinkTimeOptimizationKind, LinkedArtifact, LinkedArtifactKind, LinkedProductKind,
         SectionGarbageCollectionPolicy, StagingDestinationId, UnsupportedLinkRequirement,
     };
     use bray_platform::{PlatformError, PlatformErrorKind, PlatformOperation};
@@ -682,16 +686,27 @@ mod tests {
 
     #[test]
     fn complete_outcomes_retain_linker_produced_artifacts() {
-        let plan = link_plan();
-        let artifact = linked_artifact(&plan);
+        let first = LinkedArtifact::new(
+            LinkedArtifactKind::Executable,
+            StagingDestinationId::new(0),
+            NonZeroU64::MIN,
+        );
 
-        let outcome = LinkOutcome::complete([artifact], DiagnosticBag::new());
+        let second = LinkedArtifact::new(
+            LinkedArtifactKind::DebugCompanion,
+            StagingDestinationId::new(1),
+            NonZeroU64::MIN,
+        );
+
+        let outcome = LinkOutcome::complete([second, first], DiagnosticBag::new());
 
         let Some(artifacts) = outcome.artifacts() else {
             panic!("complete outcome must retain staged artifacts");
         };
 
-        assert_eq!(artifacts.artifacts().len(), 1);
+        assert_eq!(artifacts.len(), 2);
+        assert_eq!(artifacts[0].destination(), StagingDestinationId::new(0));
+        assert_eq!(artifacts[1].destination(), StagingDestinationId::new(1));
     }
 
     #[test]
