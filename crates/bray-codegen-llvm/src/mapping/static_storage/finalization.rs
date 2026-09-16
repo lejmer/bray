@@ -48,7 +48,9 @@ pub(super) fn declare_static_finalizer<'context>(
                     let layout = mappings
                         .instance_ty(mapping.owner(), ty)
                         .and_then(bray_codegen::CodegenTypeMapping::layout)
-                        .expect("static-storage realization requires an established mapping or value");
+                        .expect(
+                            "static-storage realization requires an established mapping or value",
+                        );
 
                     (layout.size(), layout.alignment().get())
                 }

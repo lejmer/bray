@@ -7,8 +7,7 @@ use bray_diagnostics::{
 };
 
 use crate::{
-    ArtifactContentBuildError, BackendArtifactContribution, BackendArtifactKind,
-    CodegenRequest,
+    ArtifactContentBuildError, BackendArtifactContribution, BackendArtifactKind, CodegenRequest,
 };
 
 /// Structured reason one backend operation could not produce a complete artifact set.

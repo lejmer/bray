@@ -17,7 +17,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         match operation.kind() {
             CheckedMemoryOperationKind::AtomicInitialize { value: value_type } => {
                 let [value_operand] = operation.operands() else {
-                    panic!("checked MIR memory translation violated an established compiler contract");
+                    panic!(
+                        "checked MIR memory translation violated an established compiler contract"
+                    );
                 };
 
                 let value = self.operand(value_operand)?;
@@ -32,7 +34,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 order,
             } => {
                 let [storage, value_operand] = operation.operands() else {
-                    panic!("checked MIR memory translation violated an established compiler contract");
+                    panic!(
+                        "checked MIR memory translation violated an established compiler contract"
+                    );
                 };
 
                 let storage = self.memory_pointer(storage)?;
@@ -56,7 +60,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 value,
             } => {
                 let [storage, expected, desired] = operation.operands() else {
-                    panic!("checked MIR memory translation violated an established compiler contract");
+                    panic!(
+                        "checked MIR memory translation violated an established compiler contract"
+                    );
                 };
 
                 let storage = self.memory_pointer(storage)?;
@@ -85,7 +91,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 Ok(None)
             }
             CheckedMemoryOperationKind::AtomicNotify { .. } => Ok(None),
-            unexpected => panic!("checked MIR memory translation violated an established compiler contract: {unexpected:?}"),
+            unexpected => panic!(
+                "checked MIR memory translation violated an established compiler contract: {unexpected:?}"
+            ),
         }
     }
 
@@ -163,7 +171,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let expected = self.atomic_storage_type(value_type)?;
 
                 if previous.get_type().as_basic_type_enum() != expected {
-                    panic!("checked MIR memory translation violated an established compiler contract");
+                    panic!(
+                        "checked MIR memory translation violated an established compiler contract"
+                    );
                 }
 
                 self.atomic_decode_value(previous.into(), value_type)
@@ -185,7 +195,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Ok((value, None));
         }
 
-        let pointer = pointer_value(value).expect("checked MIR memory translation requires an established mapping or value");
+        let pointer = pointer_value(value)
+            .expect("checked MIR memory translation requires an established mapping or value");
 
         let integer = llvm(self.builder.build_ptr_to_int(
             pointer,
@@ -257,7 +268,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .and_then(|layout| layout.size().checked_mul(8))
                     .and_then(|bits| u32::try_from(bits).ok())
                     .and_then(std::num::NonZeroU32::new)
-                    .expect("checked MIR memory translation requires an established mapping or value");
+                    .expect(
+                        "checked MIR memory translation requires an established mapping or value",
+                    );
 
                 self.types
                     .context()
@@ -265,7 +278,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .map(BasicTypeEnum::from)
                     .map_err(CodegenFailure::backend_library)
             }
-            unexpected => panic!("checked MIR memory translation violated an established compiler contract: {unexpected:?}"),
+            unexpected => panic!(
+                "checked MIR memory translation violated an established compiler contract: {unexpected:?}"
+            ),
         }
     }
 
@@ -281,7 +296,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         }
 
         if self.atomic_value_is_boolean(value_type) {
-            let value = int_value(value).expect("checked MIR memory translation requires an established mapping or value");
+            let value = int_value(value)
+                .expect("checked MIR memory translation requires an established mapping or value");
 
             return llvm(self.builder.build_int_z_extend(
                 value,
@@ -313,7 +329,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         }
 
         if self.atomic_value_is_boolean(value_type) {
-            let value = int_value(value).expect("checked MIR memory translation requires an established mapping or value");
+            let value = int_value(value)
+                .expect("checked MIR memory translation requires an established mapping or value");
 
             return llvm(self.builder.build_int_truncate(
                 value,
@@ -384,8 +401,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             ));
         }
 
-        let left = pointer_value(left).expect("checked MIR memory translation requires an established mapping or value");
-        let right = pointer_value(right).expect("checked MIR memory translation requires an established mapping or value");
+        let left = pointer_value(left)
+            .expect("checked MIR memory translation requires an established mapping or value");
+
+        let right = pointer_value(right)
+            .expect("checked MIR memory translation requires an established mapping or value");
 
         llvm(self.builder.build_int_compare(
             IntPredicate::EQ,

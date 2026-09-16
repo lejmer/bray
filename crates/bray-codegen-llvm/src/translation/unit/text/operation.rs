@@ -157,7 +157,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .map(bray_codegen::CodegenTypeMapping::kind)
         {
             Some(CodegenTypeKind::Aggregate(fields)) => fields.clone(),
-            unexpected => panic!("checked MIR text translation violated an established compiler contract: {unexpected:?}"),
+            unexpected => panic!(
+                "checked MIR text translation violated an established compiler contract: {unexpected:?}"
+            ),
         };
 
         let valid = extract_value(
@@ -442,7 +444,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         valid: IntValue<'context>,
         string: BasicValueEnum<'context>,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        let result = result.expect("checked MIR text translation requires an established mapping or value");
+        let result =
+            result.expect("checked MIR text translation requires an established mapping or value");
 
         let mapping = self
             .type_mapping(result)
@@ -469,7 +472,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .cloned()
             .expect("checked MIR text translation requires an established mapping or value");
 
-        let tag = (*tag).expect("checked MIR text translation requires an established mapping or value");
+        let tag =
+            (*tag).expect("checked MIR text translation requires an established mapping or value");
+
         let success = self.union_value(result, tag, &success, Some(string))?;
         let failure = self.union_value(result, tag, &failure, None)?;
 
@@ -495,17 +500,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             panic!("checked MIR text translation violated an established compiler contract");
         };
 
-        llvm(
-            self.builder.build_store(
-                storage,
-                integer_constant(
-                    tag_type,
-                    variant
-                        .tag()
-                        .expect("checked MIR text translation requires an established mapping or value"),
+        llvm(self.builder.build_store(
+            storage,
+            integer_constant(
+                tag_type,
+                variant.tag().expect(
+                    "checked MIR text translation requires an established mapping or value",
                 ),
             ),
-        )?;
+        ))?;
 
         if let Some(payload) = payload {
             let field = variant
@@ -525,10 +528,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         )
     }
 
-    pub(super) fn result_string_type(
-        &self,
-        result: bray_symbols::TypeId,
-    ) -> bray_symbols::TypeId {
+    pub(super) fn result_string_type(&self, result: bray_symbols::TypeId) -> bray_symbols::TypeId {
         let mapping = self
             .type_mapping(result)
             .unwrap_or_else(|| panic!("text result type {result:?} has no codegen mapping"));

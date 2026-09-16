@@ -4,10 +4,10 @@ use std::sync::Arc;
 use bray_bound_tree::{BoundNodeOrigin, StorageCleanupPart, StorageCleanupProjectionKind};
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{
-    MirAggregate, MirAggregateKind, MirAsyncOperation, MirBlockId, MirCleanupPhase, MirEdge,
-    MirGeneratorOperation, MirImmediateValue, MirOperand, MirOperationCommit, MirOperationKind,
-    MirPlace, MirProjection, MirProjectionKind, MirSourceAnchor, MirStorageId, MirStorageKind,
-    MirCapacityError, MirStoreKind, MirTerminatorKind, MirUnitBuilder,
+    MirAggregate, MirAggregateKind, MirAsyncOperation, MirBlockId, MirCapacityError,
+    MirCleanupPhase, MirEdge, MirGeneratorOperation, MirImmediateValue, MirOperand,
+    MirOperationCommit, MirOperationKind, MirPlace, MirProjection, MirProjectionKind,
+    MirSourceAnchor, MirStorageId, MirStorageKind, MirStoreKind, MirTerminatorKind, MirUnitBuilder,
 };
 use bray_symbols::{TypeData, TypeId};
 
@@ -31,10 +31,7 @@ impl Lowerer<'_> {
         entry: MirBlockId,
         source: &MirSourceAnchor,
     ) -> Result<(), LoweringError> {
-        let accesses = self
-            .input
-            .initialization_guards()
-            .collect::<BTreeSet<_>>();
+        let accesses = self.input.initialization_guards().collect::<BTreeSet<_>>();
 
         if accesses.is_empty() {
             return Ok(());
@@ -45,23 +42,35 @@ impl Lowerer<'_> {
         for access in accesses {
             let storage = self.input.storage_plan();
 
-            let identity = storage
-                .root_identity(access)
-                .unwrap_or_else(|| panic!("lowering contract violation: MissingStorageIdentity {value:?}", value = access));
+            let identity = storage.root_identity(access).unwrap_or_else(|| {
+                panic!(
+                    "lowering contract violation: MissingStorageIdentity {value:?}",
+                    value = access
+                )
+            });
 
-            let record = storage
-                .identity(identity)
-                .unwrap_or_else(|| panic!("lowering contract violation: MissingStorageIdentityRecord {value:?}", value = identity));
+            let record = storage.identity(identity).unwrap_or_else(|| {
+                panic!(
+                    "lowering contract violation: MissingStorageIdentityRecord {value:?}",
+                    value = identity
+                )
+            });
 
-            let access = storage
-                .access(access)
-                .unwrap_or_else(|| panic!("lowering contract violation: MissingStorageAccessRecord {value:?}", value = access));
+            let access = storage.access(access).unwrap_or_else(|| {
+                panic!(
+                    "lowering contract violation: MissingStorageAccessRecord {value:?}",
+                    value = access
+                )
+            });
 
             let initialized = record.is_initialized_at_entry();
 
-            let ty = storage
-                .storage_type(identity)
-                .unwrap_or_else(|| panic!("lowering contract violation: MissingStorageIdentityRecord {value:?}", value = identity));
+            let ty = storage.storage_type(identity).unwrap_or_else(|| {
+                panic!(
+                    "lowering contract violation: MissingStorageIdentityRecord {value:?}",
+                    value = identity
+                )
+            });
 
             let place =
                 self.place_for_identity(identity, ty, BoundNodeOrigin::source(access.source()))?;

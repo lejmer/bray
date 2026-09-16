@@ -224,7 +224,8 @@ fn declare_static_accessor<'context>(
     builder.position_at_end(entry);
 
     if let Some(attachment) = attachment {
-        let product_host = product_host.expect("static-storage realization requires an established mapping or value");
+        let product_host = product_host
+            .expect("static-storage realization requires an established mapping or value");
 
         let registration = declare_thread_static_registration(
             module,

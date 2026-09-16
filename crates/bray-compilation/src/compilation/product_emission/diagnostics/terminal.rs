@@ -1,8 +1,7 @@
 use bray_diagnostics::{
     Diagnostic, DiagnosticBag, DiagnosticEmissionCodegenFailure, DiagnosticEmissionFailure,
-    DiagnosticFailureField,
-    DiagnosticFailureValue, DiagnosticIoErrorKind, DiagnosticLabel, DiagnosticLabelKind,
-    DiagnosticNote, DiagnosticNoteKind, DiagnosticPackageInterfaceFailure,
+    DiagnosticFailureField, DiagnosticFailureValue, DiagnosticIoErrorKind, DiagnosticLabel,
+    DiagnosticLabelKind, DiagnosticNote, DiagnosticNoteKind, DiagnosticPackageInterfaceFailure,
     DiagnosticRelatedLocation, DiagnosticRelatedLocationKind,
 };
 use bray_emitter::BackendContributionMergeErrorKind;
@@ -450,8 +449,8 @@ fn package_compiler_defect_diagnostic(
     target: &TargetIdentity,
 ) -> Diagnostic {
     package_failure_diagnostic(failure, product, target).with_note(DiagnosticNote::new(
-            DiagnosticNoteKind::ReportCompilerDefect,
-        ))
+        DiagnosticNoteKind::ReportCompilerDefect,
+    ))
 }
 
 fn with_duplicate_declaration_locations(
@@ -725,9 +724,8 @@ mod tests {
     fn package_evaluation_mir_capacity_failures_do_not_invent_source_context() {
         let (product, target) = identities();
 
-        let capacity_failure = || {
-            FactQueryError::MirCapacity(bray_ir::MirCapacityError::IdentityCapacityExceeded)
-        };
+        let capacity_failure =
+            || FactQueryError::MirCapacity(bray_ir::MirCapacityError::IdentityCapacityExceeded);
 
         let errors = [
             PackageInterfaceExportError::ConstantCallableEvaluation {
@@ -752,10 +750,12 @@ mod tests {
 
             assert_eq!(diagnostic.primary_span(), None);
 
-            assert!(!diagnostic
-                .labels()
-                .iter()
-                .any(|label| label.kind() == DiagnosticLabelKind::CompilerDefectSource));
+            assert!(
+                !diagnostic
+                    .labels()
+                    .iter()
+                    .any(|label| label.kind() == DiagnosticLabelKind::CompilerDefectSource)
+            );
 
             assert!(diagnostic.args().iter().any(|arg| {
                 let DiagnosticArgValue::EmissionFailure(

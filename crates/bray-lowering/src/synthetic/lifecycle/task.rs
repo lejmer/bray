@@ -23,7 +23,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         let completion = symbols
             .unary_representation_argument(values, RepresentationRole::Task, task.ty())
             .unwrap_or_else(|| {
-                panic!("task type {:?} must provide its completion argument", task.ty())
+                panic!(
+                    "task type {:?} must provide its completion argument",
+                    task.ty()
+                )
             });
 
         let result = symbols

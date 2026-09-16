@@ -31,13 +31,9 @@ fn static_constant<'context>(
     mappings: &CodegenMappings,
     types: &mut LlvmTypeMappings<'context, '_>,
 ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-    let constant = mappings
-        .constant(value)
-        .unwrap_or_else(|| {
-            panic!(
-                "static storage {storage:?} for {owner:?} references unmapped constant {value:?}"
-            )
-        });
+    let constant = mappings.constant(value).unwrap_or_else(|| {
+        panic!("static storage {storage:?} for {owner:?} references unmapped constant {value:?}")
+    });
 
     let ty = types.map(representation)?;
 
@@ -242,7 +238,9 @@ fn static_constant<'context>(
             mappings,
             types,
         ),
-        bray_symbols::ConstantValueKind::Error => panic!("static-storage realization violated an established compiler contract"),
+        bray_symbols::ConstantValueKind::Error => {
+            panic!("static-storage realization violated an established compiler contract")
+        }
     }
 }
 
@@ -299,7 +297,9 @@ fn static_string_constant<'context>(
                 types,
             )
         }
-        unexpected => panic!("static-storage realization violated an established compiler contract: {unexpected:?}"),
+        unexpected => panic!(
+            "static-storage realization violated an established compiler contract: {unexpected:?}"
+        ),
     }
 }
 
@@ -608,7 +608,7 @@ fn type_mapping<'mappings>(
     ty: bray_symbols::TypeId,
     mappings: &'mappings CodegenMappings,
 ) -> &'mappings bray_codegen::CodegenTypeMapping {
-    mappings
-        .instance_ty(owner, ty)
-        .unwrap_or_else(|| panic!("static storage requires a type mapping for {owner:?} and {ty:?}"))
+    mappings.instance_ty(owner, ty).unwrap_or_else(|| {
+        panic!("static storage requires a type mapping for {owner:?} and {ty:?}")
+    })
 }

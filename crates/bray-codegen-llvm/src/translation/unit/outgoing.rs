@@ -52,14 +52,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         Ok(self
             .invoke_runtime(
-            MirRuntimeReference::new(
-                RuntimeAbiRole::OutgoingActivation,
-                self.unit.target().runtime_abi(),
-            ),
-            &[],
-        )?
-        .map(Some)
-        .expect("outgoing activation runtime must return its record"))
+                MirRuntimeReference::new(
+                    RuntimeAbiRole::OutgoingActivation,
+                    self.unit.target().runtime_abi(),
+                ),
+                &[],
+            )?
+            .map(Some)
+            .expect("outgoing activation runtime must return its record"))
     }
 
     pub(super) fn retire_outgoing_call(

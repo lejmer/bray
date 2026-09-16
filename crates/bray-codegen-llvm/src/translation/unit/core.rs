@@ -130,7 +130,12 @@ fn instance_function<'context, 'request>(
     let symbol = request
         .mappings()
         .instance_symbol(instance.key())
-        .unwrap_or_else(|| panic!("codegen instance {:?} has no symbol mapping", instance.key()));
+        .unwrap_or_else(|| {
+            panic!(
+                "codegen instance {:?} has no symbol mapping",
+                instance.key()
+            )
+        });
 
     let function = module
         .get_function(symbol.name().as_str())
@@ -282,10 +287,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         )
     }
 
-    pub(super) fn pointer_field_index(
-        &self,
-        fields: &[CodegenFieldLayout],
-    ) -> usize {
+    pub(super) fn pointer_field_index(&self, fields: &[CodegenFieldLayout]) -> usize {
         fields
             .iter()
             .position(|field| {
@@ -590,9 +592,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         Ok(())
     }
 
-    pub(super) fn frame_context_argument(
-        &self,
-    ) -> inkwell::values::IntValue<'context> {
+    pub(super) fn frame_context_argument(&self) -> inkwell::values::IntValue<'context> {
         self.function
             .get_nth_param(crate::native::frame_parameter_index(
                 self.request.target(),
@@ -743,8 +743,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                             self.unit.storage(storage).map(bray_ir::MirStorage::kind),
                             Some(MirStorageKind::BorrowedParameter(_))
                         ) {
-                            let pointer = pointer_value(value)
-                                .expect("checked MIR translation requires an established mapping or value");
+                            let pointer = pointer_value(value).expect(
+                                "checked MIR translation requires an established mapping or value",
+                            );
 
                             self.storages.insert(storage, pointer);
                         } else {

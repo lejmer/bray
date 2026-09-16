@@ -23,7 +23,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .map(|mapping| mapping.kind().clone())
         {
             Some(CodegenTypeKind::Aggregate(fields)) => fields,
-            unexpected => panic!("checked MIR translation violated an established compiler contract: {unexpected:?}"),
+            unexpected => panic!(
+                "checked MIR translation violated an established compiler contract: {unexpected:?}"
+            ),
         };
 
         let start_index = self.aggregate_element(&fields, 0)?;
@@ -38,7 +40,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         {
             Some(CodegenTypeKind::SignedInteger(_)) => IntPredicate::SLT,
             Some(CodegenTypeKind::UnsignedInteger(_)) => IntPredicate::ULT,
-            unexpected => panic!("checked MIR translation violated an established compiler contract: {unexpected:?}"),
+            unexpected => panic!(
+                "checked MIR translation violated an established compiler contract: {unexpected:?}"
+            ),
         };
 
         let present = llvm(

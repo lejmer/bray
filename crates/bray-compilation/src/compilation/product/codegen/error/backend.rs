@@ -30,10 +30,7 @@ pub(super) fn codegen_backend_failure_kind(
         Error::UnsupportedArtifact(artifact) => {
             Kind::CodegenBackendUnsupportedArtifact(failure_detail(
                 "codegen_backend_unsupported_artifact",
-                [text_failure_field(
-                    "artifact_kind",
-                    artifact.as_str(),
-                )],
+                [text_failure_field("artifact_kind", artifact.as_str())],
             ))
         }
         Error::InvalidConfiguration => Kind::CodegenBackendInvalidConfiguration,
@@ -76,10 +73,7 @@ pub(super) fn codegen_backend_failure_kind(
         Error::ArtifactConstruction(artifact) => {
             Kind::CodegenBackendArtifactConstruction(failure_detail(
                 "codegen_backend_artifact_construction",
-                [text_failure_field(
-                    "artifact_kind",
-                    artifact.as_str(),
-                )],
+                [text_failure_field("artifact_kind", artifact.as_str())],
             ))
         }
         Error::ArtifactSerialization { artifact, report } => {

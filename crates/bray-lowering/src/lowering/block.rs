@@ -68,15 +68,18 @@ impl Lowerer<'_> {
         id: BoundBlockId,
         mut current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
-        let block = self
-            .input
-            .unit()
-            .view()
-            .block(id)
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingBoundNode {value:?}", value = id));
+        let block = self.input.unit().view().block(id).unwrap_or_else(|| {
+            panic!(
+                "lowering contract violation: MissingBoundNode {value:?}",
+                value = id
+            )
+        });
 
         if block.is_recovered() {
-            panic!("lowering contract violation: RecoveredBoundNode {value:?}", value = id);
+            panic!(
+                "lowering contract violation: RecoveredBoundNode {value:?}",
+                value = id
+            );
         }
 
         let source = self.source(block.origin());
@@ -127,7 +130,12 @@ impl Lowerer<'_> {
             .view()
             .block(id)
             .map(|block| block.origin().source_anchor().syntax())
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingBoundNode {value:?}", value = id));
+            .unwrap_or_else(|| {
+                panic!(
+                    "lowering contract violation: MissingBoundNode {value:?}",
+                    value = id
+                )
+            });
 
         self.yield_targets.push(YieldTarget::Result {
             syntax,
@@ -149,7 +157,10 @@ impl Lowerer<'_> {
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
         if binding.is_recovered() {
-            panic!("lowering contract violation: RecoveredBoundNode {value:?}", value = binding.pattern());
+            panic!(
+                "lowering contract violation: RecoveredBoundNode {value:?}",
+                value = binding.pattern()
+            );
         }
 
         let initializer = self.lower_expression(binding.initializer(), current)?;
@@ -159,7 +170,10 @@ impl Lowerer<'_> {
         };
 
         let Some(mut value) = initializer.value else {
-            panic!("lowering contract violation: MissingOperationResult {value:?}", value = binding.initializer());
+            panic!(
+                "lowering contract violation: MissingOperationResult {value:?}",
+                value = binding.initializer()
+            );
         };
 
         let source = self.source(binding.origin());

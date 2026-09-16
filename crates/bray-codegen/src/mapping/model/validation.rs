@@ -1,12 +1,12 @@
 use std::collections::BTreeSet;
 
-use bray_ir::{
-    MirAsyncOperation, MirGeneratorOperation, MirHostOperation, MirOperationKind,
-    MirRuntimeReference, MirSourceAnchor, MirTerminatorKind,
-};
 use crate::{
     CodegenOperationMapping, CodegenSymbolKey, CodegenSymbolMapping, CodegenUnit,
     FOREIGN_CALLBACK_RUNTIME_ROLES,
+};
+use bray_ir::{
+    MirAsyncOperation, MirGeneratorOperation, MirHostOperation, MirOperationKind,
+    MirRuntimeReference, MirSourceAnchor, MirTerminatorKind,
 };
 
 /// Returns source anchors directly demanded by one code generation unit.

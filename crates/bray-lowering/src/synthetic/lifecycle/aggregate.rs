@@ -64,11 +64,11 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 source,
                 operations.into_iter().flatten(),
             )
-        .map_err(|cause| self.capacity_error(cause))?;
+            .map_err(|cause| self.capacity_error(cause))?;
 
         cleanup
             .close(builder, completed, source, None)
-        .map_err(|cause| self.capacity_error(cause))?;
+            .map_err(|cause| self.capacity_error(cause))?;
 
         self.finish_cleanup_outcome(builder, cleanup.continuation, source, &outcome)
     }

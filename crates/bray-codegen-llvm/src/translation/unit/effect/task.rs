@@ -56,7 +56,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         };
 
         let layout = self.run_result_layout(result, variants)?;
-        let task = int_value(task).expect("checked MIR effect translation requires an established mapping or value");
+
+        let task = int_value(task)
+            .expect("checked MIR effect translation requires an established mapping or value");
 
         let boolean = self
             .types
@@ -164,7 +166,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .and_then(|mapping| mapping.layout())
             .expect("checked MIR effect translation requires an established mapping or value");
 
-        let tag = (*tag).expect("checked MIR effect translation requires an established mapping or value");
+        let tag = (*tag)
+            .expect("checked MIR effect translation requires an established mapping or value");
 
         let tag_size = self
             .type_mapping(tag)
@@ -193,30 +196,25 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 .expect("run-result discriminants must fit the native runtime layout")
         };
 
-        let value = layout_type.const_named_struct(&[
-            usize_constant(represented.size()),
-            usize_constant(represented.alignment().get()),
-            usize_constant(tag_size),
-            tag_constant(
-                completed
-                    .tag()
-                    .expect("checked MIR effect translation requires an established mapping or value"),
-            ),
-            usize_constant(completed_field.offset_bytes()),
-            usize_constant(completed_layout.size()),
-            usize_constant(completed_layout.alignment().get()),
-            tag_constant(
-                panicked
-                    .tag()
-                    .expect("checked MIR effect translation requires an established mapping or value"),
-            ),
-            usize_constant(panicked_field.offset_bytes()),
-            tag_constant(
-                cancelled
-                    .tag()
-                    .expect("checked MIR effect translation requires an established mapping or value"),
-            ),
-        ]);
+        let value =
+            layout_type.const_named_struct(&[
+                usize_constant(represented.size()),
+                usize_constant(represented.alignment().get()),
+                usize_constant(tag_size),
+                tag_constant(completed.tag().expect(
+                    "checked MIR effect translation requires an established mapping or value",
+                )),
+                usize_constant(completed_field.offset_bytes()),
+                usize_constant(completed_layout.size()),
+                usize_constant(completed_layout.alignment().get()),
+                tag_constant(panicked.tag().expect(
+                    "checked MIR effect translation requires an established mapping or value",
+                )),
+                usize_constant(panicked_field.offset_bytes()),
+                tag_constant(cancelled.tag().expect(
+                    "checked MIR effect translation requires an established mapping or value",
+                )),
+            ]);
 
         let storage = self.allocate_temporary(layout_type, "task.result.layout")?;
 
@@ -230,7 +228,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         status: BasicValueEnum<'context>,
         name: &str,
     ) -> Result<(), CodegenFailure> {
-        let status = int_value(status).expect("checked MIR effect translation requires an established mapping or value");
+        let status = int_value(status)
+            .expect("checked MIR effect translation requires an established mapping or value");
 
         let function = self
             .builder

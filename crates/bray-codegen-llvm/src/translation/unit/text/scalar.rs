@@ -196,7 +196,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .map(bray_codegen::CodegenTypeMapping::kind)
         {
             Some(CodegenTypeKind::Aggregate(fields)) => fields.clone(),
-            unexpected => panic!("checked MIR text translation violated an established compiler contract: {unexpected:?}"),
+            unexpected => panic!(
+                "checked MIR text translation violated an established compiler contract: {unexpected:?}"
+            ),
         };
 
         let data = extract_value(&self.builder, text, self.aggregate_element(&fields, 0)?)?;

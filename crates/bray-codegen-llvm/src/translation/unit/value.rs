@@ -25,7 +25,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         BasicTypeEnum::IntType(ty) => {
                             Ok(ty.const_int(u64::from(*value), false).into())
                         }
-                        unexpected => panic!("checked MIR value translation violated an established compiler contract: {unexpected:?}"),
+                        unexpected => panic!(
+                            "checked MIR value translation violated an established compiler contract: {unexpected:?}"
+                        ),
                     },
                     MirImmediateValue::Unit | MirImmediateValue::NullableAbsent => {
                         Ok(ty.const_zero())
@@ -266,14 +268,18 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             }
             ConstantValueKind::Boolean(value) => {
                 let BasicTypeEnum::IntType(ty) = self.types.map(ty)? else {
-                    panic!("checked MIR value translation violated an established compiler contract");
+                    panic!(
+                        "checked MIR value translation violated an established compiler contract"
+                    );
                 };
 
                 Ok(ty.const_int(u64::from(value), false).into())
             }
             ConstantValueKind::Character(value) => {
                 let BasicTypeEnum::IntType(ty) = self.types.map(ty)? else {
-                    panic!("checked MIR value translation violated an established compiler contract");
+                    panic!(
+                        "checked MIR value translation violated an established compiler contract"
+                    );
                 };
 
                 Ok(ty.const_int(u64::from(u32::from(value)), false).into())
@@ -304,12 +310,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 self.aggregate_constant(ty, children.iter().copied())
             }
             ConstantValueKind::Product(fields) => {
-                let mapping = self
-                    .type_mapping(ty)
-                    .expect("checked MIR value translation requires an established mapping or value");
+                let mapping = self.type_mapping(ty).expect(
+                    "checked MIR value translation requires an established mapping or value",
+                );
 
                 let CodegenTypeKind::Aggregate(layout) = mapping.kind() else {
-                    panic!("checked MIR value translation violated an established compiler contract");
+                    panic!(
+                        "checked MIR value translation violated an established compiler contract"
+                    );
                 };
 
                 let mut value = self.types.map(ty)?.const_zero();
@@ -374,7 +382,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             32 => self.types.context().f32_type().into(),
             64 => self.types.context().f64_type().into(),
             128 => self.types.context().f128_type().into(),
-            unexpected => panic!("checked MIR value translation violated an established compiler contract: {unexpected:?}"),
+            unexpected => panic!(
+                "checked MIR value translation violated an established compiler contract: {unexpected:?}"
+            ),
         };
 
         self.real_bits(target, bits)
@@ -544,7 +554,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             | CodegenTypeKind::UnsizedSlice { .. }
             | CodegenTypeKind::UnsizedTraitView
             | CodegenTypeKind::Union { .. }
-            | CodegenTypeKind::Callable(_) => panic!("checked MIR value translation violated an established compiler contract"),
+            | CodegenTypeKind::Callable(_) => {
+                panic!("checked MIR value translation violated an established compiler contract")
+            }
         }
     }
 

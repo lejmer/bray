@@ -25,8 +25,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 then_edge,
                 else_edge,
             } => {
-                let condition = int_value(self.operand(condition)?)
-                    .expect("checked MIR control translation requires an established mapping or value");
+                let condition = int_value(self.operand(condition)?).expect(
+                    "checked MIR control translation requires an established mapping or value",
+                );
 
                 let (source, pending_moves) = self.take_control_source()?;
 
@@ -45,15 +46,18 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 cases,
                 otherwise,
             } => {
-                let discriminant = int_value(self.operand(discriminant)?)
-                    .expect("checked MIR control translation requires an established mapping or value");
+                let discriminant = int_value(self.operand(discriminant)?).expect(
+                    "checked MIR control translation requires an established mapping or value",
+                );
 
                 let case_values = cases
                     .iter()
                     .map(|case| {
                         Ok(int_value(self.constant(case.value())?)
                             .filter(|value| value.get_type() == discriminant.get_type())
-                            .expect("switch cases must use the discriminant's represented integer type"))
+                            .expect(
+                                "switch cases must use the discriminant's represented integer type",
+                            ))
                     })
                     .collect::<Result<Vec<_>, _>>()?;
 
@@ -84,13 +88,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             MirTerminatorKind::Return(value) => {
                 if self.frame_context.is_some() {
                     if value.is_some() {
-                        panic!("checked MIR control translation violated an established compiler contract");
+                        panic!(
+                            "checked MIR control translation violated an established compiler contract"
+                        );
                     }
 
-                    let progress = self
-                        .frame_progress
-                        .take()
-                        .expect("checked MIR control translation requires an established mapping or value");
+                    let progress = self.frame_progress.take().expect(
+                        "checked MIR control translation requires an established mapping or value",
+                    );
 
                     self.return_frame_progress(progress)?;
                 } else {
@@ -292,7 +297,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
             let payload = match payload.map(|payload| self.operand(payload)).transpose()? {
                 Some(BasicValueEnum::IntValue(payload)) => payload,
-                Some(_) => panic!("checked MIR control translation violated an established compiler contract"),
+                Some(_) => panic!(
+                    "checked MIR control translation violated an established compiler contract"
+                ),
                 None => self.types.context().i64_type().const_zero(),
             };
 
@@ -382,15 +389,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .callable(self.instance.key(), CodegenCallSite::Terminator(block))
             .expect("checked MIR control translation requires an established mapping or value");
 
-        let symbol = self
-            .request
-            .mappings()
-            .instance_symbol(
-                mapping
-                    .instance()
-                    .expect("checked MIR control translation requires an established mapping or value"),
-            )
-            .expect("checked MIR control translation requires an established mapping or value");
+        let symbol =
+            self.request
+                .mappings()
+                .instance_symbol(mapping.instance().expect(
+                    "checked MIR control translation requires an established mapping or value",
+                ))
+                .expect("checked MIR control translation requires an established mapping or value");
 
         let function = self
             .module
@@ -471,10 +476,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .request
                     .mappings()
                     .terminator(self.instance.key(), block)
-                    .expect("checked MIR control translation requires an established mapping or value");
+                    .expect(
+                        "checked MIR control translation requires an established mapping or value",
+                    );
 
                 let [literal] = mapping.constants() else {
-                    panic!("checked MIR control translation violated an established compiler contract");
+                    panic!(
+                        "checked MIR control translation violated an established compiler contract"
+                    );
                 };
 
                 let literal = self.constant(*literal)?;
@@ -486,7 +495,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .request
                     .mappings()
                     .constant_term(self.instance.key(), term)
-                    .expect("checked MIR control translation requires an established mapping or value");
+                    .expect(
+                        "checked MIR control translation requires an established mapping or value",
+                    );
 
                 let value = self.constant(value)?;
 
@@ -541,7 +552,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             (BasicValueEnum::StructValue(left), BasicValueEnum::StructValue(right)) => {
                 self.equal_aggregate(left.into(), right.into(), left.get_type().count_fields())
             }
-            unexpected => panic!("checked MIR control translation violated an established compiler contract: {unexpected:?}"),
+            unexpected => panic!(
+                "checked MIR control translation violated an established compiler contract: {unexpected:?}"
+            ),
         }
     }
 
@@ -597,7 +610,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             match mapping.kind() {
                 CodegenTypeKind::Union { tag, .. } => {
                     let Some(tag) = *tag else {
-                        panic!("checked MIR control translation violated an established compiler contract");
+                        panic!(
+                            "checked MIR control translation violated an established compiler contract"
+                        );
                     };
 
                     let storage =
@@ -608,16 +623,19 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     break (storage, tag);
                 }
                 CodegenTypeKind::Pointer { target, .. } => {
-                    let storage =
-                        pointer_value(subject).expect("checked MIR control translation requires an established mapping or value");
+                    let storage = pointer_value(subject).expect(
+                        "checked MIR control translation requires an established mapping or value",
+                    );
 
-                    let target_mapping = self
-                        .type_mapping(*target)
-                        .expect("checked MIR control translation requires an established mapping or value");
+                    let target_mapping = self.type_mapping(*target).expect(
+                        "checked MIR control translation requires an established mapping or value",
+                    );
 
                     if let CodegenTypeKind::Union { tag, .. } = target_mapping.kind() {
                         let Some(tag) = *tag else {
-                            panic!("checked MIR control translation violated an established compiler contract");
+                            panic!(
+                                "checked MIR control translation violated an established compiler contract"
+                            );
                         };
 
                         break (storage, tag);
@@ -631,7 +649,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                     subject_type = *target;
                 }
-                unexpected => panic!("checked MIR control translation violated an established compiler contract: {unexpected:?}"),
+                unexpected => panic!(
+                    "checked MIR control translation violated an established compiler contract: {unexpected:?}"
+                ),
             }
         };
 
@@ -642,7 +662,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 .build_load(mapped_tag, storage, "pattern.union.tag"),
         )?;
 
-        let tag = int_value(tag).expect("checked MIR control translation requires an established mapping or value");
+        let tag = int_value(tag)
+            .expect("checked MIR control translation requires an established mapping or value");
 
         Ok(tag)
     }
@@ -661,7 +682,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             match mapping.kind() {
                 kind @ CodegenTypeKind::Union { .. } => break kind,
                 CodegenTypeKind::Pointer { target, .. } => subject_type = *target,
-                unexpected => panic!("checked MIR control translation violated an established compiler contract: {unexpected:?}"),
+                unexpected => panic!(
+                    "checked MIR control translation violated an established compiler contract: {unexpected:?}"
+                ),
             }
         };
 
@@ -683,7 +706,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     let ty = self.operand_type(value);
 
                     if self.mapped_type_size(ty) != 0 {
-                        panic!("checked MIR control translation violated an established compiler contract");
+                        panic!(
+                            "checked MIR control translation violated an established compiler contract"
+                        );
                     }
                 }
 
@@ -691,7 +716,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 llvm(self.builder.build_return(None))?;
             }
             CodegenResultMapping::Direct { .. } => {
-                let value = value.expect("checked MIR control translation requires an established mapping or value");
+                let value = value.expect(
+                    "checked MIR control translation requires an established mapping or value",
+                );
+
                 let value = self.operand(value)?;
 
                 self.clear_moved_places()?;
@@ -699,13 +727,17 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 llvm(self.builder.build_return(Some(&value)))?;
             }
             CodegenResultMapping::Indirect { pointee, .. } => {
-                let value = value.expect("checked MIR control translation requires an established mapping or value");
+                let value = value.expect(
+                    "checked MIR control translation requires an established mapping or value",
+                );
 
                 let destination = self
                     .function
                     .get_first_param()
                     .and_then(pointer_value)
-                    .expect("checked MIR control translation requires an established mapping or value");
+                    .expect(
+                        "checked MIR control translation requires an established mapping or value",
+                    );
 
                 let source_type = self.operand_type(value);
                 let value = self.operand(value)?;
@@ -733,7 +765,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .function
                     .get_first_param()
                     .and_then(pointer_value)
-                    .expect("checked MIR control translation requires an established mapping or value");
+                    .expect(
+                        "checked MIR control translation requires an established mapping or value",
+                    );
 
                 llvm(self.builder.build_store(destination, value))?;
                 llvm(self.builder.build_return(None))?;

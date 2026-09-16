@@ -141,10 +141,7 @@ pub(super) fn validate_operation(
 
     Some(())
 }
-fn validate_operation_block(
-    block_kind: MirBlockKind,
-    kind: &MirOperationKind,
-) -> Option<()> {
+fn validate_operation_block(block_kind: MirBlockKind, kind: &MirOperationKind) -> Option<()> {
     let valid = match kind {
         MirOperationKind::Async(MirAsyncOperation::ExecuteCleanupBroadcast { .. }) => {
             block_kind == MirBlockKind::CleanupBroadcast
@@ -210,10 +207,7 @@ fn validate_operation_block(
 
     Some(())
 }
-fn validate_operation_result(
-    unit: &MirUnit,
-    operation: &MirOperation,
-) -> Option<()> {
+fn validate_operation_result(unit: &MirUnit, operation: &MirOperation) -> Option<()> {
     let requires_result = matches!(
         operation.kind(),
         MirOperationKind::AnonymousCallable(_)

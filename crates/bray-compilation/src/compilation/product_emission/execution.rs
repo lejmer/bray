@@ -767,8 +767,8 @@ mod tests {
     use bray_target::test_support::test_target_profile;
     use bray_target::{TargetOutputDescription, TargetOutputKind, TargetOutputName};
     use bray_testing::{
-        TemporaryFile, assert_goal_state_diagnostic_kind,
-        test_bound_unit, test_executable_host_contract_for, test_mir_target,
+        TemporaryFile, assert_goal_state_diagnostic_kind, test_bound_unit,
+        test_executable_host_contract_for, test_mir_target,
     };
 
     use super::{ProductEmissionError, ProductEmissionErrorKind, ProductEmissionInputs};

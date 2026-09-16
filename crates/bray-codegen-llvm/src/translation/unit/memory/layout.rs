@@ -103,9 +103,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             panic!("checked MIR memory translation violated an established compiler contract");
         };
 
-        let count = self
-            .operand(count)
-            .map(|value| int_value(value).expect("checked MIR memory translation requires an established mapping or value"))?;
+        let count = self.operand(count).map(|value| {
+            int_value(value)
+                .expect("checked MIR memory translation requires an established mapping or value")
+        })?;
 
         let count = self.pointer_sized_integer(count.into())?;
         let integer = self.pointer_integer_type();

@@ -12,7 +12,10 @@ pub(super) fn lifecycle_operation_block_kind(
         | bray_ir::MirGeneratedLifecycleRole::StaticFinalize
         | bray_ir::MirGeneratedLifecycleRole::Cleanup(
             bray_ir::MirCleanupPhase::LifecycleResolution,
-        ) => panic!("synthetic lowering contract violation: UnsupportedLifecycleRole {value:?}", value = role),
+        ) => panic!(
+            "synthetic lowering contract violation: UnsupportedLifecycleRole {value:?}",
+            value = role
+        ),
     }
 }
 pub(super) fn lifecycle_phase(

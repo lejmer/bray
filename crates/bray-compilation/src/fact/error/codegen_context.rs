@@ -100,9 +100,7 @@ fn push_backend_artifact_request(
         identity_list_field("backend_artifact_entries", entries),
         text_list_field(
             "backend_artifact_kinds",
-            entries
-                .iter()
-                .map(|entry| entry.id().kind().as_str()),
+            entries.iter().map(|entry| entry.id().kind().as_str()),
         ),
         text_list_field(
             "backend_artifact_ordinals",

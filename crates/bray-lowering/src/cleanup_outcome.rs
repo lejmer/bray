@@ -1,8 +1,8 @@
 use bray_bound_tree::BoundCallResult;
 use bray_ir::{
-    MirBlockId, MirBlockKind, MirCall, MirCallPanicEdge, MirCallTarget, MirCleanupEdge,
-    MirCleanupPhase, MirEdge, MirImmediateValue, MirOperand, MirOperationKind, MirPlace,
-    MirCapacityError, MirRuntimeReference, MirSourceAnchor, MirStorageKind, MirStoreKind,
+    MirBlockId, MirBlockKind, MirCall, MirCallPanicEdge, MirCallTarget, MirCapacityError,
+    MirCleanupEdge, MirCleanupPhase, MirEdge, MirImmediateValue, MirOperand, MirOperationKind,
+    MirPlace, MirRuntimeReference, MirSourceAnchor, MirStorageKind, MirStoreKind,
     MirTerminatorKind, MirUnitBuilder,
 };
 use bray_runtime_interface::{RuntimeAbiRole, RuntimeAbiVersion};

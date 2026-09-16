@@ -58,11 +58,12 @@ impl Lowerer<'_> {
         pattern: BoundPatternId,
         subject: MirOperand,
     ) -> Result<MirOperand, LoweringError> {
-        let check = self
-            .input
-            .patterns()
-            .pattern(pattern)
-            .unwrap_or_else(|| panic!("lowering contract violation: UnsupportedPattern {value:?}", value = pattern));
+        let check = self.input.patterns().pattern(pattern).unwrap_or_else(|| {
+            panic!(
+                "lowering contract violation: UnsupportedPattern {value:?}",
+                value = pattern
+            )
+        });
 
         if !matches!(
             check.test(),
@@ -163,19 +164,28 @@ impl Lowerer<'_> {
         origin: bray_bound_tree::BoundNodeOrigin,
         current: MirBlockId,
     ) -> Result<(), LoweringError> {
-        let checked = self
-            .input
-            .patterns()
-            .pattern(pattern)
-            .unwrap_or_else(|| panic!("lowering contract violation: UnsupportedPattern {value:?}", value = pattern));
+        let checked = self.input.patterns().pattern(pattern).unwrap_or_else(|| {
+            panic!(
+                "lowering contract violation: UnsupportedPattern {value:?}",
+                value = pattern
+            )
+        });
 
         let StorageBinding::Identity(identity) = self
             .input
             .storage_plan()
             .binding(StorageBindingTarget::PatternDiscard(pattern))
-            .unwrap_or_else(|| panic!("lowering contract violation: UnsupportedPattern {value:?}", value = pattern))
+            .unwrap_or_else(|| {
+                panic!(
+                    "lowering contract violation: UnsupportedPattern {value:?}",
+                    value = pattern
+                )
+            })
         else {
-            panic!("lowering contract violation: UnsupportedPattern {value:?}", value = pattern);
+            panic!(
+                "lowering contract violation: UnsupportedPattern {value:?}",
+                value = pattern
+            );
         };
 
         let destination = self.place_for_identity(identity, checked.input_type(), origin)?;
@@ -307,11 +317,12 @@ impl Lowerer<'_> {
             return Ok(());
         }
 
-        let check = self
-            .input
-            .patterns()
-            .pattern(pattern)
-            .unwrap_or_else(|| panic!("lowering contract violation: UnsupportedPattern {value:?}", value = pattern));
+        let check = self.input.patterns().pattern(pattern).unwrap_or_else(|| {
+            panic!(
+                "lowering contract violation: UnsupportedPattern {value:?}",
+                value = pattern
+            )
+        });
 
         let projects_after_test = matches!(
             (check.test(), check.projection()),
@@ -398,11 +409,12 @@ impl Lowerer<'_> {
         current: MirBlockId,
         operation: PatternOperation,
     ) -> Result<MirOperand, LoweringError> {
-        let check = self
-            .input
-            .patterns()
-            .pattern(pattern)
-            .unwrap_or_else(|| panic!("lowering contract violation: UnsupportedPattern {value:?}", value = pattern));
+        let check = self.input.patterns().pattern(pattern).unwrap_or_else(|| {
+            panic!(
+                "lowering contract violation: UnsupportedPattern {value:?}",
+                value = pattern
+            )
+        });
 
         let Some(projection) = check.projection() else {
             return Ok(subject);
@@ -412,7 +424,10 @@ impl Lowerer<'_> {
 
         if projection == PatternProjection::OwnedTarget {
             let (MirOperand::Copy(owner) | MirOperand::Move(owner)) = &subject else {
-                panic!("lowering contract violation: UnsupportedPattern {value:?}", value = pattern);
+                panic!(
+                    "lowering contract violation: UnsupportedPattern {value:?}",
+                    value = pattern
+                );
             };
 
             let mut projections = owner.projections().to_vec();
@@ -425,13 +440,19 @@ impl Lowerer<'_> {
                 | PatternOperation::Copy
                 | PatternOperation::SharedBorrow => BorrowKind::Shared,
                 PatternOperation::Recovered => {
-                    panic!("lowering contract violation: UnsupportedPattern {value:?}", value = pattern);
+                    panic!(
+                        "lowering contract violation: UnsupportedPattern {value:?}",
+                        value = pattern
+                    );
                 }
             };
 
-            let call = self
-                .owned_target_call(owner.ty(), kind)
-                .unwrap_or_else(|| panic!("lowering contract violation: UnsupportedPattern {value:?}", value = pattern));
+            let call = self.owned_target_call(owner.ty(), kind).unwrap_or_else(|| {
+                panic!(
+                    "lowering contract violation: UnsupportedPattern {value:?}",
+                    value = pattern
+                )
+            });
 
             let place =
                 self.project_owned_target(current, &source, &owner, call, check.input_type())?;
@@ -468,10 +489,12 @@ impl Lowerer<'_> {
             Some(check.input_type()),
         )?;
 
-        Ok(result
-            .result()
-            .map(MirOperand::Value)
-            .unwrap_or_else(|| panic!("lowering contract violation: UnsupportedPattern {value:?}", value = pattern)))
+        Ok(result.result().map(MirOperand::Value).unwrap_or_else(|| {
+            panic!(
+                "lowering contract violation: UnsupportedPattern {value:?}",
+                value = pattern
+            )
+        }))
     }
 
     fn pattern_projected_place_operand(
@@ -490,7 +513,10 @@ impl Lowerer<'_> {
                 let kind = match operation {
                     PatternOperation::SharedBorrow => BorrowKind::Shared,
                     PatternOperation::MutableBorrow => BorrowKind::Mutable,
-                    _ => panic!("lowering contract violation: UnsupportedPattern {value:?}", value = pattern),
+                    _ => panic!(
+                        "lowering contract violation: UnsupportedPattern {value:?}",
+                        value = pattern
+                    ),
                 };
 
                 let result = self.push_operation(
@@ -500,12 +526,17 @@ impl Lowerer<'_> {
                     Some(result_type),
                 )?;
 
-                Ok(result
-                    .result()
-                    .map(MirOperand::Value)
-                    .unwrap_or_else(|| panic!("lowering contract violation: UnsupportedPattern {value:?}", value = pattern)))
+                Ok(result.result().map(MirOperand::Value).unwrap_or_else(|| {
+                    panic!(
+                        "lowering contract violation: UnsupportedPattern {value:?}",
+                        value = pattern
+                    )
+                }))
             }
-            PatternOperation::Recovered => panic!("lowering contract violation: UnsupportedPattern {value:?}", value = pattern),
+            PatternOperation::Recovered => panic!(
+                "lowering contract violation: UnsupportedPattern {value:?}",
+                value = pattern
+            ),
         }
     }
 
@@ -558,7 +589,12 @@ impl Lowerer<'_> {
             .input
             .patterns()
             .binding_type(binding)
-            .unwrap_or_else(|| panic!("lowering contract violation: UnsupportedPattern {value:?}", value = pattern));
+            .unwrap_or_else(|| {
+                panic!(
+                    "lowering contract violation: UnsupportedPattern {value:?}",
+                    value = pattern
+                )
+            });
 
         let operation = if !self.guard_bindings.is_empty() {
             PatternOperation::Observe
@@ -570,7 +606,12 @@ impl Lowerer<'_> {
             .input
             .storage_plan()
             .binding(StorageBindingTarget::Local(binding))
-            .unwrap_or_else(|| panic!("lowering contract violation: UnsupportedPattern {value:?}", value = pattern));
+            .unwrap_or_else(|| {
+                panic!(
+                    "lowering contract violation: UnsupportedPattern {value:?}",
+                    value = pattern
+                )
+            });
 
         if operation == PatternOperation::Observe && matches!(storage, StorageBinding::Access(_)) {
             // Observed bindings already name the checked source access and acquire no storage.
@@ -602,10 +643,12 @@ impl Lowerer<'_> {
                         Some(binding_type.ty()),
                     )?;
 
-                    commit
-                        .result()
-                        .map(MirOperand::Value)
-                        .unwrap_or_else(|| panic!("lowering contract violation: UnsupportedPattern {value:?}", value = pattern))
+                    commit.result().map(MirOperand::Value).unwrap_or_else(|| {
+                        panic!(
+                            "lowering contract violation: UnsupportedPattern {value:?}",
+                            value = pattern
+                        )
+                    })
                 }
             }
             None => subject,
@@ -648,11 +691,12 @@ impl Lowerer<'_> {
         place: MirPlace,
         current: MirBlockId,
     ) -> Result<MirOperand, LoweringError> {
-        let check = self
-            .input
-            .patterns()
-            .pattern(pattern)
-            .unwrap_or_else(|| panic!("lowering contract violation: UnsupportedPattern {value:?}", value = pattern));
+        let check = self.input.patterns().pattern(pattern).unwrap_or_else(|| {
+            panic!(
+                "lowering contract violation: UnsupportedPattern {value:?}",
+                value = pattern
+            )
+        });
 
         match check.operation() {
             PatternOperation::Consume => Ok(MirOperand::Move(place)),
@@ -665,7 +709,10 @@ impl Lowerer<'_> {
                     | PatternOperation::Consume
                     | PatternOperation::Copy
                     | PatternOperation::Recovered => {
-                        panic!("lowering contract violation: UnsupportedPattern {value:?}", value = pattern);
+                        panic!(
+                            "lowering contract violation: UnsupportedPattern {value:?}",
+                            value = pattern
+                        );
                     }
                 };
 
@@ -678,48 +725,59 @@ impl Lowerer<'_> {
                     Some(check.input_type()),
                 )?;
 
-                Ok(result
-                    .result()
-                    .map(MirOperand::Value)
-                    .unwrap_or_else(|| panic!("lowering contract violation: UnsupportedPattern {value:?}", value = pattern)))
+                Ok(result.result().map(MirOperand::Value).unwrap_or_else(|| {
+                    panic!(
+                        "lowering contract violation: UnsupportedPattern {value:?}",
+                        value = pattern
+                    )
+                }))
             }
-            PatternOperation::Recovered => panic!("lowering contract violation: UnsupportedPattern {value:?}", value = pattern),
+            PatternOperation::Recovered => panic!(
+                "lowering contract violation: UnsupportedPattern {value:?}",
+                value = pattern
+            ),
         }
     }
 
-    fn pattern_operation(
-        &self,
-        pattern: BoundPatternId,
-    ) -> PatternOperation {
+    fn pattern_operation(&self, pattern: BoundPatternId) -> PatternOperation {
         self.input
             .patterns()
             .pattern(pattern)
             .map(bray_bound_tree::PatternCheckEntry::operation)
             .filter(|operation| *operation != PatternOperation::Recovered)
-            .unwrap_or_else(|| panic!("lowering contract violation: UnsupportedPattern {value:?}", value = pattern))
+            .unwrap_or_else(|| {
+                panic!(
+                    "lowering contract violation: UnsupportedPattern {value:?}",
+                    value = pattern
+                )
+            })
     }
 
-    fn pattern_introduces_direct_bindings(
-        &self,
-        pattern: BoundPatternId,
-    ) -> bool {
+    fn pattern_introduces_direct_bindings(&self, pattern: BoundPatternId) -> bool {
         self.input
             .patterns()
             .pattern(pattern)
             .map(|pattern| pattern.target().is_none())
-            .unwrap_or_else(|| panic!("lowering contract violation: UnsupportedPattern {value:?}", value = pattern))
+            .unwrap_or_else(|| {
+                panic!(
+                    "lowering contract violation: UnsupportedPattern {value:?}",
+                    value = pattern
+                )
+            })
     }
 
-    fn pattern(
-        &self,
-        pattern: BoundPatternId,
-    ) -> bray_bound_tree::BoundPattern {
+    fn pattern(&self, pattern: BoundPatternId) -> bray_bound_tree::BoundPattern {
         // Recursive lowering must release the immutable unit view before mutating the MIR builder.
         self.input
             .unit()
             .view()
             .pattern(pattern)
             .cloned()
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingBoundNode {value:?}", value = pattern))
+            .unwrap_or_else(|| {
+                panic!(
+                    "lowering contract violation: MissingBoundNode {value:?}",
+                    value = pattern
+                )
+            })
     }
 }

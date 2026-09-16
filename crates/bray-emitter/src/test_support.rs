@@ -13,8 +13,8 @@ use bray_testing::test_mir_unit;
 
 use crate::{
     ArtifactId, ArtifactKind, ArtifactProducer, ArtifactRequirement, ArtifactRole, EmissionPlan,
-    EmissionRequest, EmittedArtifact, OutputSink, PlannedArtifact,
-    PlannedArtifactDestination, ProductIdentity, ProductKind, ReplacementPolicy, RequestedArtifact,
+    EmissionRequest, EmittedArtifact, OutputSink, PlannedArtifact, PlannedArtifactDestination,
+    ProductIdentity, ProductKind, ReplacementPolicy, RequestedArtifact,
     RequestedArtifactDestination,
 };
 

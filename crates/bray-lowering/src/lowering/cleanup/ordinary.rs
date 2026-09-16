@@ -114,7 +114,12 @@ impl Lowerer<'_> {
                 .active_scopes
                 .iter()
                 .position(|scope| *scope == plan.scope())
-                .unwrap_or_else(|| panic!("lowering contract violation: MissingBoundNode {value:?}", value = plan.scope()));
+                .unwrap_or_else(|| {
+                    panic!(
+                        "lowering contract violation: MissingBoundNode {value:?}",
+                        value = plan.scope()
+                    )
+                });
 
             let catch = self
                 .catch_targets

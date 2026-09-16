@@ -28,15 +28,18 @@ impl Lowerer<'_> {
         id: BoundExpressionId,
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
-        let expression = self
-            .input
-            .unit()
-            .view()
-            .expression(id)
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingBoundNode {value:?}", value = id));
+        let expression = self.input.unit().view().expression(id).unwrap_or_else(|| {
+            panic!(
+                "lowering contract violation: MissingBoundNode {value:?}",
+                value = id
+            )
+        });
 
         if expression.is_recovered() {
-            panic!("lowering contract violation: RecoveredBoundNode {value:?}", value = id);
+            panic!(
+                "lowering contract violation: RecoveredBoundNode {value:?}",
+                value = id
+            );
         }
 
         let lowered = match expression {
@@ -50,7 +53,12 @@ impl Lowerer<'_> {
                     .input
                     .literal_values()
                     .expression(id)
-                    .unwrap_or_else(|| panic!("lowering contract violation: MissingLiteralValue {value:?}", value = id));
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "lowering contract violation: MissingLiteralValue {value:?}",
+                            value = id
+                        )
+                    });
 
                 let ty = self.expression_type(id);
 
@@ -115,14 +123,20 @@ impl Lowerer<'_> {
                 };
 
                 let Some(operand) = lowered.value else {
-                    panic!("lowering contract violation: MissingOperationResult {value:?}", value = expression.operand());
+                    panic!(
+                        "lowering contract violation: MissingOperationResult {value:?}",
+                        value = expression.operand()
+                    );
                 };
 
                 // Retain the checked selection before recursively mutating lowering state.
                 let selection = self.selected_operation(id).clone();
 
                 let SelectedOperation::Conversion(conversion) = selection else {
-                    panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = id);
+                    panic!(
+                        "lowering contract violation: MissingSemanticSelection {value:?}",
+                        value = id
+                    );
                 };
 
                 let source = self.source(expression.origin());
@@ -180,7 +194,10 @@ impl Lowerer<'_> {
             BoundExpression::UnresolvedReference(_)
             | BoundExpression::ErrorCall(_)
             | BoundExpression::ErrorConversion(_)
-            | BoundExpression::Error(_) => panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id),
+            | BoundExpression::Error(_) => panic!(
+                "lowering contract violation: UnsupportedExpression {value:?}",
+                value = id
+            ),
         }?;
 
         self.materialize_temporary(id, lowered)
@@ -209,7 +226,10 @@ impl Lowerer<'_> {
 
         let instance = match self.input.semantic_selections().expression(expression) {
             Some(SemanticSelection::CallableReference(instance)) => *instance,
-            Some(_) => panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = expression),
+            Some(_) => panic!(
+                "lowering contract violation: MissingSemanticSelection {value:?}",
+                value = expression
+            ),
             None => {
                 let owner = GenericOwnerId::try_new(definition.symbol())
                     .unwrap_or_else(|| {
@@ -245,7 +265,10 @@ impl Lowerer<'_> {
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
         let [operand] = operands else {
-            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
+            panic!(
+                "lowering contract violation: UnsupportedExpression {value:?}",
+                value = id
+            );
         };
 
         let selection = self.selected_operator(id);
@@ -256,7 +279,10 @@ impl Lowerer<'_> {
         };
 
         let Some(operand) = lowered.value else {
-            panic!("lowering contract violation: MissingOperationResult {value:?}", value = *operand);
+            panic!(
+                "lowering contract violation: MissingOperationResult {value:?}",
+                value = *operand
+            );
         };
 
         let source = self.expression_source(id);
@@ -358,7 +384,10 @@ impl Lowerer<'_> {
         }
 
         let [left_id, right_id] = operands else {
-            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
+            panic!(
+                "lowering contract violation: UnsupportedExpression {value:?}",
+                value = id
+            );
         };
 
         let (selection, result_type) = self.selected_operator_operation(id);
@@ -386,7 +415,10 @@ impl Lowerer<'_> {
         };
 
         let Some(left) = left.value else {
-            panic!("lowering contract violation: MissingOperationResult {value:?}", value = *left_id);
+            panic!(
+                "lowering contract violation: MissingOperationResult {value:?}",
+                value = *left_id
+            );
         };
 
         let right = self.lower_operator_operand(id, *right_id, selection, current)?;
@@ -396,7 +428,10 @@ impl Lowerer<'_> {
         };
 
         let Some(right) = right.value else {
-            panic!("lowering contract violation: MissingOperationResult {value:?}", value = *right_id);
+            panic!(
+                "lowering contract violation: MissingOperationResult {value:?}",
+                value = *right_id
+            );
         };
 
         let source = self.expression_source(id);
@@ -628,7 +663,10 @@ impl Lowerer<'_> {
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
         let [destination, value_id] = operands else {
-            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
+            panic!(
+                "lowering contract violation: UnsupportedExpression {value:?}",
+                value = id
+            );
         };
 
         let (current, destination) = match self.lower_expression_place(
@@ -640,13 +678,11 @@ impl Lowerer<'_> {
             super::super::access::LoweredPlace::Terminated(completion) => return Ok(completion),
         };
 
-        let compound = operator
-            .binary_operator()
-            .map(|operator| {
-                let (selection, result_type) = self.selected_operator_operation(id);
+        let compound = operator.binary_operator().map(|operator| {
+            let (selection, result_type) = self.selected_operator_operation(id);
 
-                (operator, selection, result_type)
-            });
+            (operator, selection, result_type)
+        });
 
         let value = match compound {
             Some((operator, selection, result_type)) => self.lower_compound_assignment_value(
@@ -666,7 +702,10 @@ impl Lowerer<'_> {
         };
 
         let Some(mut value) = value.value else {
-            panic!("lowering contract violation: MissingOperationResult {value:?}", value = *value_id);
+            panic!(
+                "lowering contract violation: MissingOperationResult {value:?}",
+                value = *value_id
+            );
         };
 
         let source = self.expression_source(id);
@@ -736,7 +775,10 @@ impl Lowerer<'_> {
         };
 
         let Some(right) = right.value else {
-            panic!("lowering contract violation: MissingOperationResult {value:?}", value = value);
+            panic!(
+                "lowering contract violation: MissingOperationResult {value:?}",
+                value = value
+            );
         };
 
         let (current, value) = self.lower_binary_operation(
@@ -780,7 +822,12 @@ impl Lowerer<'_> {
                 BoundExpression::Call(call) => Some(call),
                 _ => None,
             })
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingBoundNode {value:?}", value = id));
+            .unwrap_or_else(|| {
+                panic!(
+                    "lowering contract violation: MissingBoundNode {value:?}",
+                    value = id
+                )
+            });
 
         // Retain the checked call before recursively mutating lowering state.
         let selection = self
@@ -791,7 +838,12 @@ impl Lowerer<'_> {
                 SemanticSelection::Call(call) => Some(call),
                 _ => None,
             })
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = id))
+            .unwrap_or_else(|| {
+                panic!(
+                    "lowering contract violation: MissingSemanticSelection {value:?}",
+                    value = id
+                )
+            })
             .clone();
 
         let source = self.source(expression.origin());
@@ -898,7 +950,10 @@ impl Lowerer<'_> {
                     current = continuation;
 
                     let Some(callee) = callee.value else {
-                        panic!("lowering contract violation: MissingOperationResult {value:?}", value = callee_expression);
+                        panic!(
+                            "lowering contract violation: MissingOperationResult {value:?}",
+                            value = callee_expression
+                        );
                     };
 
                     MirCallTarget::Indirect {
@@ -907,7 +962,10 @@ impl Lowerer<'_> {
                     }
                 }
                 BoundCallableTarget::Predicate(_) | BoundCallableTarget::Anonymous(_) => {
-                    panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
+                    panic!(
+                        "lowering contract violation: UnsupportedExpression {value:?}",
+                        value = id
+                    );
                 }
             }
         };
@@ -922,7 +980,10 @@ impl Lowerer<'_> {
             current = continuation;
 
             let Some(operand) = lowered.value else {
-                panic!("lowering contract violation: MissingOperationResult {value:?}", value = receiver.expression());
+                panic!(
+                    "lowering contract violation: MissingOperationResult {value:?}",
+                    value = receiver.expression()
+                );
             };
 
             let value =
@@ -943,7 +1004,10 @@ impl Lowerer<'_> {
                     ty,
                 } => {
                     let MirCallTarget::Direct(callable) = &target else {
-                        panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = id);
+                        panic!(
+                            "lowering contract violation: MissingSemanticSelection {value:?}",
+                            value = id
+                        );
                     };
 
                     let preceding = self.default_value_arguments(
@@ -1003,7 +1067,10 @@ impl Lowerer<'_> {
                     current = continuation;
 
                     let Some(operand) = lowered.value else {
-                        panic!("lowering contract violation: MissingOperationResult {value:?}", value = *expression);
+                        panic!(
+                            "lowering contract violation: MissingOperationResult {value:?}",
+                            value = *expression
+                        );
                     };
 
                     let (continuation, value) = self.convert_operand(
@@ -1166,7 +1233,12 @@ impl Lowerer<'_> {
                 _ => None,
             });
 
-        operation.unwrap_or_else(|| panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = expression))
+        operation.unwrap_or_else(|| {
+            panic!(
+                "lowering contract violation: MissingSemanticSelection {value:?}",
+                value = expression
+            )
+        })
     }
 
     fn selected_operator(&self, expression: BoundExpressionId) -> OperatorTarget {
@@ -1179,13 +1251,19 @@ impl Lowerer<'_> {
     ) -> (OperatorTarget, TypeId) {
         let operation = self.selected_operation(expression);
 
-        let target = operation
-            .operator_target()
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = expression));
+        let target = operation.operator_target().unwrap_or_else(|| {
+            panic!(
+                "lowering contract violation: MissingSemanticSelection {value:?}",
+                value = expression
+            )
+        });
 
-        let result_type = operation
-            .operator_value_type()
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = expression));
+        let result_type = operation.operator_value_type().unwrap_or_else(|| {
+            panic!(
+                "lowering contract violation: MissingSemanticSelection {value:?}",
+                value = expression
+            )
+        });
 
         (target, result_type)
     }
@@ -1227,10 +1305,12 @@ impl Lowerer<'_> {
     ) -> Result<MirOperand, LoweringError> {
         let commit = self.push_operation(current, source, operation, Some(result_type))?;
 
-        Ok(commit
-            .result()
-            .map(MirOperand::Value)
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingOperationResult {value:?}", value = expression)))
+        Ok(commit.result().map(MirOperand::Value).unwrap_or_else(|| {
+            panic!(
+                "lowering contract violation: MissingOperationResult {value:?}",
+                value = expression
+            )
+        }))
     }
 
     pub(in crate::lowering) fn push_checked_call(
@@ -1285,15 +1365,17 @@ impl Lowerer<'_> {
         }
     }
 
-    pub(in crate::lowering) fn expression_type(
-        &self,
-        expression: BoundExpressionId,
-    ) -> TypeId {
+    pub(in crate::lowering) fn expression_type(&self, expression: BoundExpressionId) -> TypeId {
         self.input
             .expression_types()
             .expression(expression)
             .map(|result| result.ty())
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingExpressionType {value:?}", value = expression))
+            .unwrap_or_else(|| {
+                panic!(
+                    "lowering contract violation: MissingExpressionType {value:?}",
+                    value = expression
+                )
+            })
     }
 
     pub(in crate::lowering::expression) fn expression_source(
@@ -1305,7 +1387,12 @@ impl Lowerer<'_> {
             .view()
             .expression(expression)
             .map(|expression| self.source(expression.origin()))
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingBoundNode {value:?}", value = expression))
+            .unwrap_or_else(|| {
+                panic!(
+                    "lowering contract violation: MissingBoundNode {value:?}",
+                    value = expression
+                )
+            })
     }
 
     pub(in crate::lowering) const fn unit_operand(&self, ty: TypeId) -> MirOperand {
@@ -1363,11 +1450,12 @@ impl Lowerer<'_> {
         let storage = match self.storages.get(&id).copied() {
             Some(storage) => storage,
             None => {
-                let identity = self
-                    .input
-                    .storage_plan()
-                    .identity(id)
-                    .unwrap_or_else(|| panic!("lowering contract violation: MissingStorageIdentityRecord {value:?}", value = id));
+                let identity = self.input.storage_plan().identity(id).unwrap_or_else(|| {
+                    panic!(
+                        "lowering contract violation: MissingStorageIdentityRecord {value:?}",
+                        value = id
+                    )
+                });
 
                 let mut kind = storage_kind(identity, self.parameter_positions.get(&id).copied());
 

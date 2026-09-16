@@ -239,10 +239,12 @@ pub(super) fn staging_failure_diagnostics(
     let failure = match error {
         LinkStagingError::Storage(error) => {
             // The emission error retains its owned context after diagnostic rendering.
-            return DiagnosticBag::single(error.as_ref().clone().into_diagnostic(
-                DiagnosticId::new(0),
-                SeverityKind::Error,
-            ));
+            return DiagnosticBag::single(
+                error
+                    .as_ref()
+                    .clone()
+                    .into_diagnostic(DiagnosticId::new(0), SeverityKind::Error),
+            );
         }
         LinkStagingError::DuplicateContribution(artifact) => {
             DiagnosticEmissionStagingFailure::DuplicateContribution(diagnostic_artifact(artifact))

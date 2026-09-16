@@ -40,9 +40,7 @@ impl Lowerer<'_> {
     ) -> bray_bound_tree::StorageOperationDecision {
         self.find_storage_decision_matching(expression, |plan| accepts(plan.purpose()))
             .unwrap_or_else(|| {
-                panic!(
-                    "lowering contract violation: MissingStorageAccess {expression:?}"
-                )
+                panic!("lowering contract violation: MissingStorageAccess {expression:?}")
             })
     }
 
@@ -84,10 +82,18 @@ impl Lowerer<'_> {
                     && decision.access() == plan.access()
                     && plan.purpose().matches_checked(decision.purpose())
             })
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingStorageAccess {value:?}", value = expression));
+            .unwrap_or_else(|| {
+                panic!(
+                    "lowering contract violation: MissingStorageAccess {value:?}",
+                    value = expression
+                )
+            });
 
         if decision.status() != StorageOperationStatus::Valid {
-            panic!("lowering contract violation: RecoveredBoundNode {value:?}", value = expression);
+            panic!(
+                "lowering contract violation: RecoveredBoundNode {value:?}",
+                value = expression
+            );
         }
 
         Some(decision)
@@ -99,14 +105,18 @@ impl Lowerer<'_> {
         id: StorageAccessId,
         current: MirBlockId,
     ) -> Result<LoweredPlace, LoweringError> {
-        let access = self
-            .input
-            .storage_plan()
-            .access(id)
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingStorageAccessRecord {value:?}", value = id));
+        let access = self.input.storage_plan().access(id).unwrap_or_else(|| {
+            panic!(
+                "lowering contract violation: MissingStorageAccessRecord {value:?}",
+                value = id
+            )
+        });
 
         if access.is_recovered() {
-            panic!("lowering contract violation: RecoveredBoundNode {value:?}", value = expression);
+            panic!(
+                "lowering contract violation: RecoveredBoundNode {value:?}",
+                value = expression
+            );
         }
 
         let reached_type = access.reached_type();
@@ -115,13 +125,23 @@ impl Lowerer<'_> {
             .input
             .storage_plan()
             .root_identity(id)
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingStorageIdentity {value:?}", value = id));
+            .unwrap_or_else(|| {
+                panic!(
+                    "lowering contract violation: MissingStorageIdentity {value:?}",
+                    value = id
+                )
+            });
 
         let projections = self
             .input
             .storage_plan()
             .resolved_projections(id)
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingStorageAccessRecord {value:?}", value = id))
+            .unwrap_or_else(|| {
+                panic!(
+                    "lowering contract violation: MissingStorageAccessRecord {value:?}",
+                    value = id
+                )
+            })
             .to_vec();
 
         let (mut current, root) =
@@ -167,7 +187,12 @@ impl Lowerer<'_> {
 
                 let call = self
                     .owned_target_call(source_type, kind)
-                    .unwrap_or_else(|| panic!("lowering contract violation: UnsupportedStorageAccess {value:?}", value = id));
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "lowering contract violation: UnsupportedStorageAccess {value:?}",
+                            value = id
+                        )
+                    });
 
                 let owner = MirPlace::new(storage, lowered, source_type);
                 let source = self.expression_source(expression);
@@ -273,7 +298,12 @@ impl Lowerer<'_> {
             .input
             .storage_plan()
             .identity(identity)
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingStorageIdentityRecord {value:?}", value = identity));
+            .unwrap_or_else(|| {
+                panic!(
+                    "lowering contract violation: MissingStorageIdentityRecord {value:?}",
+                    value = identity
+                )
+            });
 
         let static_reference = if let StorageIdentity::Static(declaration) = model {
             let selection = crate::lowering::expression::static_access::static_reference(
@@ -332,7 +362,10 @@ impl Lowerer<'_> {
             };
 
             let Some(value) = lowered.value else {
-                panic!("lowering contract violation: MissingOperationResult {value:?}", value = owner);
+                panic!(
+                    "lowering contract violation: MissingOperationResult {value:?}",
+                    value = owner
+                );
             };
 
             current = continuation;
@@ -347,14 +380,18 @@ impl Lowerer<'_> {
         id: StorageAccessId,
         project_borrowed_root: bool,
     ) -> Result<MirPlace, LoweringError> {
-        let access = self
-            .input
-            .storage_plan()
-            .access(id)
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingStorageAccessRecord {value:?}", value = id));
+        let access = self.input.storage_plan().access(id).unwrap_or_else(|| {
+            panic!(
+                "lowering contract violation: MissingStorageAccessRecord {value:?}",
+                value = id
+            )
+        });
 
         if access.is_recovered() {
-            panic!("lowering contract violation: UnsupportedStorageAccess {value:?}", value = id);
+            panic!(
+                "lowering contract violation: UnsupportedStorageAccess {value:?}",
+                value = id
+            );
         }
 
         let reached_type = access.reached_type();
@@ -364,13 +401,23 @@ impl Lowerer<'_> {
             .input
             .storage_plan()
             .root_identity(id)
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingStorageIdentity {value:?}", value = id));
+            .unwrap_or_else(|| {
+                panic!(
+                    "lowering contract violation: MissingStorageIdentity {value:?}",
+                    value = id
+                )
+            });
 
         let projections = self
             .input
             .storage_plan()
             .resolved_projections(id)
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingStorageAccessRecord {value:?}", value = id));
+            .unwrap_or_else(|| {
+                panic!(
+                    "lowering contract violation: MissingStorageAccessRecord {value:?}",
+                    value = id
+                )
+            });
 
         let root_type = self.storage_identity_type(identity);
         let static_reference = self.static_accesses.get(&id).cloned();
@@ -403,7 +450,10 @@ impl Lowerer<'_> {
             source_type = self.append_projection_dereferences(source_type, &mut lowered);
 
             let Some(kind) = static_projection_kind(projection) else {
-                panic!("lowering contract violation: UnsupportedStorageAccess {value:?}", value = id);
+                panic!(
+                    "lowering contract violation: UnsupportedStorageAccess {value:?}",
+                    value = id
+                );
             };
 
             let result_type = self.projection_result_type(identity, &projections[..=index]);
@@ -419,13 +469,15 @@ impl Lowerer<'_> {
         Ok(MirPlace::new(root.storage(), lowered, source_type))
     }
 
-    pub(in crate::lowering) fn storage_identity_type(
-        &self,
-        identity: StorageIdentityId,
-    ) -> TypeId {
+    pub(in crate::lowering) fn storage_identity_type(&self, identity: StorageIdentityId) -> TypeId {
         self.input
             .storage_plan()
             .storage_type(identity)
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingStorageIdentityRecord {value:?}", value = identity))
+            .unwrap_or_else(|| {
+                panic!(
+                    "lowering contract violation: MissingStorageIdentityRecord {value:?}",
+                    value = identity
+                )
+            })
     }
 }

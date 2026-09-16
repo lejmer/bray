@@ -30,14 +30,18 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let kind = self
             .type_mapping(result)
             .map(|mapping| mapping.kind().clone())
-            .expect("checked MIR construction translation requires an established mapping or value");
+            .expect(
+                "checked MIR construction translation requires an established mapping or value",
+            );
 
         let mut value = self.types.map(result)?.const_zero();
 
         match aggregate.kind() {
             MirAggregateKind::Tuple | MirAggregateKind::Range => {
                 let CodegenTypeKind::Aggregate(fields) = &kind else {
-                    panic!("checked MIR construction translation violated an established compiler contract");
+                    panic!(
+                        "checked MIR construction translation violated an established compiler contract"
+                    );
                 };
 
                 for (index, operand) in aggregate.operands().iter().enumerate() {
@@ -57,11 +61,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             }
             MirAggregateKind::RepeatedArray => {
                 let [element] = aggregate.operands() else {
-                    panic!("checked MIR construction translation violated an established compiler contract");
+                    panic!(
+                        "checked MIR construction translation violated an established compiler contract"
+                    );
                 };
 
                 let CodegenTypeKind::Array { length, .. } = kind else {
-                    panic!("checked MIR construction translation violated an established compiler contract");
+                    panic!(
+                        "checked MIR construction translation violated an established compiler contract"
+                    );
                 };
 
                 let element = self.operand(element)?;
@@ -74,7 +82,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             }
             MirAggregateKind::NullablePresent => {
                 let [operand] = aggregate.operands() else {
-                    panic!("checked MIR construction translation violated an established compiler contract");
+                    panic!(
+                        "checked MIR construction translation violated an established compiler contract"
+                    );
                 };
 
                 let operand = self.operand(operand)?;
@@ -101,14 +111,18 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         match construction.target() {
             ConstructionTarget::Struct(_) => {
                 if helpers.next().is_some() {
-                    panic!("checked MIR construction translation violated an established compiler contract");
+                    panic!(
+                        "checked MIR construction translation violated an established compiler contract"
+                    );
                 }
 
                 self.construct_product(result, construction, &inputs)
             }
             ConstructionTarget::UnionVariant(variant) => {
                 if helpers.next().is_some() {
-                    panic!("checked MIR construction translation violated an established compiler contract");
+                    panic!(
+                        "checked MIR construction translation violated an established compiler contract"
+                    );
                 }
 
                 self.construct_union(result, variant, construction, &inputs)
@@ -122,7 +136,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .expect("checked MIR construction translation requires an established mapping or value");
 
                 if helpers.next().is_some() {
-                    panic!("checked MIR construction translation violated an established compiler contract");
+                    panic!(
+                        "checked MIR construction translation violated an established compiler contract"
+                    );
                 }
 
                 Ok(value)
@@ -144,7 +160,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 .insert(input.ordinal(), EvaluatedConstructionInput { value, ty })
                 .is_some()
             {
-                panic!("checked MIR construction translation violated an established compiler contract");
+                panic!(
+                    "checked MIR construction translation violated an established compiler contract"
+                );
             }
         }
 
@@ -167,12 +185,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         construction: &MirConstruction,
         inputs: &[EvaluatedConstructionInput<'context>],
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        let mapping = self
-            .type_mapping(result)
-            .expect("checked MIR construction translation requires an established mapping or value");
+        let mapping = self.type_mapping(result).expect(
+            "checked MIR construction translation requires an established mapping or value",
+        );
 
         let CodegenTypeKind::Aggregate(fields) = mapping.kind() else {
-            panic!("checked MIR construction translation violated an established compiler contract");
+            panic!(
+                "checked MIR construction translation violated an established compiler contract"
+            );
         };
 
         // Field layout is shared and must outlive the mapping borrow during operand translation.
@@ -187,10 +207,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     construction_input.ordinal(),
                     "construction_input_ordinal",
                 )?)
-                .expect("checked MIR construction translation requires an established mapping or value");
+                .expect(
+                    "checked MIR construction translation requires an established mapping or value",
+                );
 
             let ConstructionInputId::StructField(field) = input else {
-                panic!("checked MIR construction translation violated an established compiler contract");
+                panic!(
+                    "checked MIR construction translation violated an established compiler contract"
+                );
             };
 
             let index = fields
@@ -198,7 +222,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 .position(|layout| {
                     layout.reference() == Some(bray_ir::MirFieldReference::Struct(field))
                 })
-                .expect("checked MIR construction translation requires an established mapping or value");
+                .expect(
+                    "checked MIR construction translation requires an established mapping or value",
+                );
 
             let input_value =
                 self.convert(input_value.value, input_value.ty, fields[index].ty())?;
@@ -224,19 +250,19 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         construction: &MirConstruction,
         inputs: &[EvaluatedConstructionInput<'context>],
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        let mapping = self
-            .type_mapping(result)
-            .expect("checked MIR construction translation requires an established mapping or value");
+        let mapping = self.type_mapping(result).expect(
+            "checked MIR construction translation requires an established mapping or value",
+        );
 
         let CodegenTypeKind::Union { tag, .. } = mapping.kind() else {
-            panic!("checked MIR construction translation violated an established compiler contract");
+            panic!(
+                "checked MIR construction translation violated an established compiler contract"
+            );
         };
 
-        let variant = mapping
-            .kind()
-            .union_variant(variant)
-            .cloned()
-            .expect("checked MIR construction translation requires an established mapping or value");
+        let variant = mapping.kind().union_variant(variant).cloned().expect(
+            "checked MIR construction translation requires an established mapping or value",
+        );
 
         let llvm_type = self.types.map(result)?;
         let storage = self.allocate_temporary(llvm_type, "construction.union")?;
@@ -253,15 +279,19 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     construction_input.ordinal(),
                     "construction_input_ordinal",
                 )?)
-                .expect("checked MIR construction translation requires an established mapping or value");
+                .expect(
+                    "checked MIR construction translation requires an established mapping or value",
+                );
 
             let ConstructionInputId::UnionPayloadField(field) = input else {
-                panic!("checked MIR construction translation violated an established compiler contract");
+                panic!(
+                    "checked MIR construction translation violated an established compiler contract"
+                );
             };
 
-            let layout = variant
-                .payload_field(field)
-                .expect("checked MIR construction translation requires an established mapping or value");
+            let layout = variant.payload_field(field).expect(
+                "checked MIR construction translation requires an established mapping or value",
+            );
 
             let destination = self.constant_offset_pointer(storage, layout.offset_bytes())?;
             let input_value = self.convert(input_value.value, input_value.ty, layout.ty())?;
@@ -299,7 +329,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .expect("conversion helpers must return their converted value"))
             }
             ConversionTarget::TraitConstraint { .. } => {
-                panic!("checked MIR construction translation violated an established compiler contract")
+                panic!(
+                    "checked MIR construction translation violated an established compiler contract"
+                )
             }
             ConversionTarget::Composite(children) => {
                 let source_fields = self.aggregate_fields(conversion.source_type());
@@ -360,8 +392,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 self.project_value(subject, subject_type, result_type)?
             }
             PatternProjection::OwnedTarget => {
-                let pointer =
-                    pointer_value(subject).expect("checked MIR construction translation requires an established mapping or value");
+                let pointer = pointer_value(subject).expect(
+                    "checked MIR construction translation requires an established mapping or value",
+                );
 
                 llvm(self.builder.build_load(
                     self.types.map(result_type)?,
@@ -382,7 +415,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 Ok(storage.into())
             }
-            PatternOperation::Recovered => panic!("checked MIR construction translation violated an established compiler contract"),
+            PatternOperation::Recovered => panic!(
+                "checked MIR construction translation violated an established compiler contract"
+            ),
         }
     }
 
@@ -393,21 +428,27 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         reference: bray_ir::MirFieldReference,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let BasicValueEnum::StructValue(subject) = subject else {
-            panic!("checked MIR construction translation violated an established compiler contract");
+            panic!(
+                "checked MIR construction translation violated an established compiler contract"
+            );
         };
 
-        let mapping = self
-            .type_mapping(subject_type)
-            .expect("checked MIR construction translation requires an established mapping or value");
+        let mapping = self.type_mapping(subject_type).expect(
+            "checked MIR construction translation requires an established mapping or value",
+        );
 
         let CodegenTypeKind::Aggregate(fields) = mapping.kind() else {
-            panic!("checked MIR construction translation violated an established compiler contract");
+            panic!(
+                "checked MIR construction translation violated an established compiler contract"
+            );
         };
 
         let index = fields
             .iter()
             .position(|field| field.reference() == Some(reference))
-            .expect("checked MIR construction translation requires an established mapping or value");
+            .expect(
+                "checked MIR construction translation requires an established mapping or value",
+            );
 
         extract_value(
             &self.builder,
@@ -420,17 +461,18 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &self,
         ty: bray_symbols::TypeId,
     ) -> std::sync::Arc<[bray_codegen::CodegenFieldLayout]> {
-        let mapping = self
-            .type_mapping(ty)
-            .unwrap_or_else(|| {
-                panic!(
-                    "codegen instance {:?} has no aggregate mapping for type {ty:?}",
-                    self.instance.key()
-                )
-            });
+        let mapping = self.type_mapping(ty).unwrap_or_else(|| {
+            panic!(
+                "codegen instance {:?} has no aggregate mapping for type {ty:?}",
+                self.instance.key()
+            )
+        });
 
         let CodegenTypeKind::Aggregate(fields) = mapping.kind() else {
-            panic!("type {ty:?} must map to an aggregate, got {:?}", mapping.kind());
+            panic!(
+                "type {ty:?} must map to an aggregate, got {:?}",
+                mapping.kind()
+            );
         };
 
         // Composite conversion releases the mapping borrow while translating child values.
@@ -445,15 +487,17 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         field: bray_symbols::UnionPayloadFieldSymbolId,
         result_type: bray_symbols::TypeId,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        let mapping = self
-            .type_mapping(subject_type)
-            .expect("checked MIR construction translation requires an established mapping or value");
+        let mapping = self.type_mapping(subject_type).expect(
+            "checked MIR construction translation requires an established mapping or value",
+        );
 
         let layout = mapping
             .kind()
             .union_variant(variant)
             .and_then(|layout| layout.payload_field(field))
-            .expect("checked MIR construction translation requires an established mapping or value");
+            .expect(
+                "checked MIR construction translation requires an established mapping or value",
+            );
 
         let storage = self.allocate_temporary(subject.get_type(), "pattern.union")?;
 

@@ -25,7 +25,10 @@ impl Lowerer<'_> {
                 };
 
                 let Some(value) = lowered.value else {
-                    panic!("lowering contract violation: MissingOperationResult {value:?}", value = operand);
+                    panic!(
+                        "lowering contract violation: MissingOperationResult {value:?}",
+                        value = operand
+                    );
                 };
 
                 return self.finish_control_transfer(id, expression, current, source, Some(value));
@@ -69,7 +72,10 @@ impl Lowerer<'_> {
                         Some(value)
                     }
                     (None, None) => None,
-                    _ => panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id),
+                    _ => panic!(
+                        "lowering contract violation: UnsupportedExpression {value:?}",
+                        value = id
+                    ),
                 };
 
                 self.finish_return(current, &source, value, id.into())?;
@@ -108,7 +114,10 @@ impl Lowerer<'_> {
                 self.finish_exit_to_block(current, &source, scope_depth, target, None, id.into())?;
             }
             BoundControlTransferKind::Yield => {
-                panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
+                panic!(
+                    "lowering contract violation: UnsupportedExpression {value:?}",
+                    value = id
+                );
             }
         }
 
@@ -133,7 +142,12 @@ impl Lowerer<'_> {
         }
         // Lowering mutates the MIR builder after releasing the target-stack borrow.
         .cloned()
-        .unwrap_or_else(|| panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id));
+        .unwrap_or_else(|| {
+            panic!(
+                "lowering contract violation: UnsupportedExpression {value:?}",
+                value = id
+            )
+        });
 
         match target {
             YieldTarget::Result {
@@ -201,7 +215,12 @@ impl Lowerer<'_> {
                 .find(|target| target.syntax == syntax),
             None => self.loop_targets.last(),
         }
-        .unwrap_or_else(|| panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id))
+        .unwrap_or_else(|| {
+            panic!(
+                "lowering contract violation: UnsupportedExpression {value:?}",
+                value = id
+            )
+        })
     }
 
     fn adapt_control_transfer_value(

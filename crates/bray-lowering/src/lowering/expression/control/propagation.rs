@@ -34,7 +34,10 @@ impl Lowerer<'_> {
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
         let [operand] = expression.operands() else {
-            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
+            panic!(
+                "lowering contract violation: UnsupportedExpression {value:?}",
+                value = id
+            );
         };
 
         self.lower_expression(*operand, current)
@@ -47,7 +50,10 @@ impl Lowerer<'_> {
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
         let [operand_id] = expression.operands() else {
-            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
+            panic!(
+                "lowering contract violation: UnsupportedExpression {value:?}",
+                value = id
+            );
         };
 
         let operand_type = self.expression_type(*operand_id);
@@ -55,7 +61,10 @@ impl Lowerer<'_> {
         let data = self.input.semantic_values().type_data(operand_type);
 
         let TypeData::Nullable(value_type) = data.as_ref() else {
-            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
+            panic!(
+                "lowering contract violation: UnsupportedExpression {value:?}",
+                value = id
+            );
         };
 
         let value_type = *value_type;
@@ -66,7 +75,10 @@ impl Lowerer<'_> {
                 result_type,
             } => (*boundary, *result_type),
             SelectedPropagation::Result { .. } | SelectedPropagation::CurrentRun => {
-                panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = id);
+                panic!(
+                    "lowering contract violation: MissingSemanticSelection {value:?}",
+                    value = id
+                );
             }
         };
 
@@ -78,7 +90,10 @@ impl Lowerer<'_> {
         };
 
         let Some(operand) = operand.value else {
-            panic!("lowering contract violation: MissingOperationResult {value:?}", value = *operand_id);
+            panic!(
+                "lowering contract violation: MissingOperationResult {value:?}",
+                value = *operand_id
+            );
         };
 
         let source = self.source(expression.origin());
@@ -122,7 +137,10 @@ impl Lowerer<'_> {
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
         let [operand_id] = expression.operands() else {
-            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
+            panic!(
+                "lowering contract violation: UnsupportedExpression {value:?}",
+                value = id
+            );
         };
 
         let operand_type = self.expression_type(*operand_id);
@@ -138,7 +156,10 @@ impl Lowerer<'_> {
                 operand_type,
                 current,
             ),
-            _ => panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id),
+            _ => panic!(
+                "lowering contract violation: UnsupportedExpression {value:?}",
+                value = id
+            ),
         }
     }
 
@@ -153,7 +174,10 @@ impl Lowerer<'_> {
         let arguments = self.named_type_arguments(operand_type);
 
         let [success_type, error_type] = arguments.as_slice() else {
-            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
+            panic!(
+                "lowering contract violation: UnsupportedExpression {value:?}",
+                value = id
+            );
         };
 
         let representation = self.result_representation();
@@ -168,7 +192,10 @@ impl Lowerer<'_> {
                 (*boundary, *result_type, error_conversion.clone())
             }
             SelectedPropagation::Nullable { .. } | SelectedPropagation::CurrentRun => {
-                panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = id);
+                panic!(
+                    "lowering contract violation: MissingSemanticSelection {value:?}",
+                    value = id
+                );
             }
         };
 
@@ -181,7 +208,10 @@ impl Lowerer<'_> {
         };
 
         let Some(operand) = operand.value else {
-            panic!("lowering contract violation: MissingOperationResult {value:?}", value = operand_id);
+            panic!(
+                "lowering contract violation: MissingOperationResult {value:?}",
+                value = operand_id
+            );
         };
 
         let source = self.source(expression.origin());
@@ -250,13 +280,19 @@ impl Lowerer<'_> {
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
         if self.selected_propagation(id) != &SelectedPropagation::CurrentRun {
-            panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = id);
+            panic!(
+                "lowering contract violation: MissingSemanticSelection {value:?}",
+                value = id
+            );
         }
 
         let arguments = self.named_type_arguments(operand_type);
 
         let [value_type] = arguments.as_slice() else {
-            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
+            panic!(
+                "lowering contract violation: UnsupportedExpression {value:?}",
+                value = id
+            );
         };
 
         let representation = self.run_result_representation();
@@ -271,7 +307,10 @@ impl Lowerer<'_> {
         };
 
         let Some(operand) = operand.value else {
-            panic!("lowering contract violation: MissingOperationResult {value:?}", value = operand_id);
+            panic!(
+                "lowering contract violation: MissingOperationResult {value:?}",
+                value = operand_id
+            );
         };
 
         let source = self.source(expression.origin());
@@ -461,16 +500,15 @@ impl Lowerer<'_> {
             Some(result_type),
         )?;
 
-        Ok(commit
-            .result()
-            .map(MirOperand::Value)
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingOperationResult {value:?}", value = id)))
+        Ok(commit.result().map(MirOperand::Value).unwrap_or_else(|| {
+            panic!(
+                "lowering contract violation: MissingOperationResult {value:?}",
+                value = id
+            )
+        }))
     }
 
-    fn selected_propagation(
-        &self,
-        expression: BoundExpressionId,
-    ) -> &SelectedPropagation {
+    fn selected_propagation(&self, expression: BoundExpressionId) -> &SelectedPropagation {
         self.input
             .semantic_selections()
             .expression(expression)
@@ -478,6 +516,11 @@ impl Lowerer<'_> {
                 SemanticSelection::Propagation(selection) => Some(selection),
                 _ => None,
             })
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = expression))
+            .unwrap_or_else(|| {
+                panic!(
+                    "lowering contract violation: MissingSemanticSelection {value:?}",
+                    value = expression
+                )
+            })
     }
 }

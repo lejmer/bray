@@ -37,9 +37,17 @@ impl Lowerer<'_> {
                 if active {
                     let boolean = self.representation_type(RepresentationRole::ScalarBool)?;
 
-                    let (guard, _) =
-                        part_guard_for_place(part, boolean, &self.ownership_place(&place))
-                            .unwrap_or_else(|| panic!("lowering contract violation: UnsupportedStorageAccess {value:?}", value = access));
+                    let (guard, _) = part_guard_for_place(
+                        part,
+                        boolean,
+                        &self.ownership_place(&place),
+                    )
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "lowering contract violation: UnsupportedStorageAccess {value:?}",
+                            value = access
+                        )
+                    });
 
                     (block, value) = self.push_guarded_cleanup(
                         block,
@@ -71,13 +79,26 @@ impl Lowerer<'_> {
                         .filter(|part| {
                             part.plan.release().is_some() && part.plan.projections().len() == depth
                         })
-                        .unwrap_or_else(|| panic!("lowering contract violation: UnsupportedStorageAccess {value:?}", value = access));
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "lowering contract violation: UnsupportedStorageAccess {value:?}",
+                                value = access
+                            )
+                        });
 
                     let boolean = self.representation_type(RepresentationRole::ScalarBool)?;
 
-                    let (guard, _) =
-                        part_guard_for_place(release, boolean, &self.ownership_place(&place))
-                            .unwrap_or_else(|| panic!("lowering contract violation: UnsupportedStorageAccess {value:?}", value = access));
+                    let (guard, _) = part_guard_for_place(
+                        release,
+                        boolean,
+                        &self.ownership_place(&place),
+                    )
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "lowering contract violation: UnsupportedStorageAccess {value:?}",
+                            value = access
+                        )
+                    });
 
                     self.guarded_cleanup_region(
                         block,
@@ -110,7 +131,12 @@ impl Lowerer<'_> {
                 StorageCleanupProjectionKind::Component(_)
                 | StorageCleanupProjectionKind::UnionPayloadElement { .. } => {
                     let kind = static_cleanup_projection_kind(projection.projection())
-                        .unwrap_or_else(|| panic!("lowering contract violation: UnsupportedStorageAccess {value:?}", value = access));
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "lowering contract violation: UnsupportedStorageAccess {value:?}",
+                                value = access
+                            )
+                        });
 
                     let projected = MirPlace::new(
                         place.storage(),
@@ -262,10 +288,8 @@ impl Lowerer<'_> {
     ) -> Result<MirOperand, LoweringError> {
         let commit = self.push_operation(block, Self::retained_source(source), kind, Some(ty))?;
 
-        Ok(MirOperand::Value(
-            commit
-                .result()
-                .expect("value-producing MIR operation must publish a result"),
-        ))
+        Ok(MirOperand::Value(commit.result().expect(
+            "value-producing MIR operation must publish a result",
+        )))
     }
 }

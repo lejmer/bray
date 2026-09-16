@@ -97,9 +97,11 @@ impl Lowerer<'_> {
     ) -> Result<MirOperand, LoweringError> {
         let commit = self.push_operation(current, source, operation, Some(result_type))?;
 
-        Ok(commit
-            .result()
-            .map(MirOperand::Value)
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingOperationResult {value:?}", value = expression)))
+        Ok(commit.result().map(MirOperand::Value).unwrap_or_else(|| {
+            panic!(
+                "lowering contract violation: MissingOperationResult {value:?}",
+                value = expression
+            )
+        }))
     }
 }

@@ -45,7 +45,10 @@ impl Lowerer<'_> {
             }
             BoundStructuredExpressionKind::Condition
             | BoundStructuredExpressionKind::PatternBinding => {
-                panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id)
+                panic!(
+                    "lowering contract violation: UnsupportedExpression {value:?}",
+                    value = id
+                )
             }
             BoundStructuredExpressionKind::While => self.lower_while(id, expression, current),
             BoundStructuredExpressionKind::Loop => self.lower_loop(id, expression, current),
@@ -102,7 +105,10 @@ impl Lowerer<'_> {
         if conditions.is_empty()
             || (blocks.len() != conditions.len() && blocks.len() != conditions.len() + 1)
         {
-            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
+            panic!(
+                "lowering contract violation: UnsupportedExpression {value:?}",
+                value = id
+            );
         }
 
         let mut current = current;
@@ -198,7 +204,10 @@ impl Lowerer<'_> {
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
         let [left_id, right_id] = operands else {
-            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
+            panic!(
+                "lowering contract violation: UnsupportedExpression {value:?}",
+                value = id
+            );
         };
 
         let left = self.lower_expression(*left_id, current)?;
@@ -208,7 +217,10 @@ impl Lowerer<'_> {
         };
 
         let Some(left) = left.value else {
-            panic!("lowering contract violation: MissingOperationResult {value:?}", value = *left_id);
+            panic!(
+                "lowering contract violation: MissingOperationResult {value:?}",
+                value = *left_id
+            );
         };
 
         let source = self.expression_source(id);
@@ -233,9 +245,7 @@ impl Lowerer<'_> {
         let (then_edge, else_edge) = match operator {
             BoundOperator::LogicalOr => (short_edge, right_edge),
             BoundOperator::LogicalAnd => (right_edge, short_edge),
-            _ => panic!(
-                "lowering contract violation: operator {operator:?} is invalid for {id:?}"
-            ),
+            _ => panic!("lowering contract violation: operator {operator:?} is invalid for {id:?}"),
         };
 
         self.set_terminator(
@@ -252,7 +262,10 @@ impl Lowerer<'_> {
 
         if let Some(right_block) = right.block {
             let Some(right) = right.value else {
-                panic!("lowering contract violation: MissingOperationResult {value:?}", value = *right_id);
+                panic!(
+                    "lowering contract violation: MissingOperationResult {value:?}",
+                    value = *right_id
+                );
             };
 
             self.set_terminator(

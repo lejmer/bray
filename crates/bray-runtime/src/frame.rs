@@ -1,5 +1,6 @@
 use std::any::Any;
 use std::fmt;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::pin::Pin;
 
 use bray_runtime_model::{
@@ -461,6 +462,77 @@ where
     F: ?Sized + ProtectedFrame,
 {
     frame.resume(context)
+}
+
+pub(crate) fn terminalize_frame<T, F>(
+    mut frame: Pin<Box<F>>,
+    progress: FrameProgress<T>,
+    outgoing: &mut crate::outgoing::OutgoingRecords,
+) -> Option<crate::RunOutcome<T>>
+where
+    F: ?Sized + ProtectedFrame<Output = T>,
+{
+    let (mut outcome, mut exit) = match progress {
+        FrameProgress::Suspended(_) => unreachable!("suspended frames are not terminalized"),
+        FrameProgress::Completed(value) => (
+            Some(crate::RunOutcome::Completed(value)),
+            FrameExit::Completed,
+        ),
+        FrameProgress::Cancelled => (Some(crate::RunOutcome::Cancelled), FrameExit::Cancelled),
+        FrameProgress::Panicked(panic) => (
+            Some(crate::RunOutcome::Panicked(panic)),
+            FrameExit::Panicked,
+        ),
+        FrameProgress::RuntimeFailure => (None, FrameExit::RuntimeFailure),
+    };
+
+    if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
+        frame.as_mut().broadcast_tasks();
+    })) {
+        record_terminal_panic(&mut outcome, payload, outgoing);
+
+        if exit != FrameExit::RuntimeFailure {
+            exit = FrameExit::Panicked;
+        }
+    }
+
+    if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
+        frame.as_mut().resolve_lifecycle(exit);
+    })) {
+        record_terminal_panic(&mut outcome, payload, outgoing);
+    }
+
+    if let Err(payload) = catch_unwind(AssertUnwindSafe(|| drop(frame))) {
+        record_terminal_panic(&mut outcome, payload, outgoing);
+    }
+
+    outcome
+}
+
+fn record_terminal_panic<T>(
+    outcome: &mut Option<crate::RunOutcome<T>>,
+    payload: Box<dyn Any + Send>,
+    outgoing: &mut crate::outgoing::OutgoingRecords,
+) {
+    let panic = match outcome.take() {
+        Some(crate::RunOutcome::Panicked(mut panic)) => {
+            panic.push_suppressed(payload, outgoing);
+
+            panic
+        }
+        Some(crate::RunOutcome::Completed(value)) => {
+            let mut panic = RuntimePanic::from_payload(payload);
+
+            if let Err(payload) = catch_unwind(AssertUnwindSafe(|| drop(value))) {
+                panic.push_suppressed(payload, outgoing);
+            }
+
+            panic
+        }
+        Some(crate::RunOutcome::Cancelled) | None => RuntimePanic::from_payload(payload),
+    };
+
+    *outcome = Some(crate::RunOutcome::Panicked(panic));
 }
 
 pub(crate) fn suspension_state(

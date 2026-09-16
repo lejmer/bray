@@ -88,7 +88,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                         },
                         Some(borrowed),
                     )
-            .map_err(|cause| self.capacity_error(cause))?;
+                    .map_err(|cause| self.capacity_error(cause))?;
 
                 let buffer = buffer
                     .result()
@@ -141,7 +141,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                         MirOperationKind::Call(call),
                         Some(status),
                     )
-            .map_err(|cause| self.capacity_error(cause))?;
+                    .map_err(|cause| self.capacity_error(cause))?;
             }
             bray_bound_tree::LifecycleAction::Task => match role {
                 bray_ir::MirGeneratedLifecycleRole::Finalize
@@ -267,7 +267,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
             block = outcome
                 .check(builder, block, source)
-            .map_err(|cause| self.capacity_error(cause))?;
+                .map_err(|cause| self.capacity_error(cause))?;
         }
 
         self.finish_cleanup_outcome(builder, block, source, &outcome)

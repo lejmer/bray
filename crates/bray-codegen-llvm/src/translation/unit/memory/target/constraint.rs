@@ -25,7 +25,9 @@ pub(super) fn assembly_constraints(
         let modifier = match descriptor.kind() {
             InlineAssemblyOperandKind::Output | InlineAssemblyOperandKind::EarlyInOut => "=&",
             InlineAssemblyOperandKind::LateOutput | InlineAssemblyOperandKind::InOut => "=",
-            unexpected => panic!("checked MIR memory translation violated an established compiler contract: {unexpected:?}"),
+            unexpected => panic!(
+                "checked MIR memory translation violated an established compiler contract: {unexpected:?}"
+            ),
         };
 
         append_constraint(&mut normalized, modifier);
@@ -82,22 +84,17 @@ fn operand_constraint(
 
     let start = usize::from(start);
 
-    let end = start
-        .checked_add(usize::from(length))
-        .unwrap_or_else(|| {
-            panic!("inline-assembly constraint range overflows: start={start}, length={length}")
-        });
+    let end = start.checked_add(usize::from(length)).unwrap_or_else(|| {
+        panic!("inline-assembly constraint range overflows: start={start}, length={length}")
+    });
 
-    let constraint = constraints
-        .get(start..end)
-        .unwrap_or_else(|| {
-            panic!(
-                "inline-assembly operand constraint range {start}..{end} is outside {constraints:?}"
-            )
-        });
+    let constraint = constraints.get(start..end).unwrap_or_else(|| {
+        panic!("inline-assembly operand constraint range {start}..{end} is outside {constraints:?}")
+    });
 
-    InlineAssemblyConstraint::try_parse(constraint)
-        .unwrap_or_else(|| panic!("checked inline assembly retained invalid constraint {constraint:?}"))
+    InlineAssemblyConstraint::try_parse(constraint).unwrap_or_else(|| {
+        panic!("checked inline assembly retained invalid constraint {constraint:?}")
+    })
 }
 
 fn append_constraint(constraints: &mut String, constraint: &str) {
@@ -131,12 +128,8 @@ fn append_constraint_class(
     } else if matches!(class, "r" | "i" | "s" | "m") {
         constraints.push_str(class);
     } else {
-        constraints.push_str(
-            control
-                .register_constraint(class)
-                .unwrap_or_else(|| {
-                    panic!("target control has no inline-assembly register class for {class:?}")
-                }),
-        );
+        constraints.push_str(control.register_constraint(class).unwrap_or_else(|| {
+            panic!("target control has no inline-assembly register class for {class:?}")
+        }));
     }
 }

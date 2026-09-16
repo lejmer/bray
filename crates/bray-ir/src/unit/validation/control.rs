@@ -336,11 +336,7 @@ fn validate_call_panic_check(
     Some(())
 }
 
-fn validate_local_edge(
-    unit: &MirUnit,
-    source: MirBlockId,
-    edge: &MirEdge,
-) -> Option<()> {
+fn validate_local_edge(unit: &MirUnit, source: MirBlockId, edge: &MirEdge) -> Option<()> {
     validate_edge(unit, source, edge)?;
 
     let source_kind = unit.block(source).map(MirBlock::kind)?;
@@ -352,11 +348,7 @@ fn validate_local_edge(
     Some(())
 }
 
-fn validate_goto_edge(
-    unit: &MirUnit,
-    source: MirBlockId,
-    edge: &MirEdge,
-) -> Option<()> {
+fn validate_goto_edge(unit: &MirUnit, source: MirBlockId, edge: &MirEdge) -> Option<()> {
     validate_edge(unit, source, edge)?;
 
     let source_kind = unit.block(source).map(MirBlock::kind)?;
@@ -373,11 +365,7 @@ fn validate_goto_edge(
     Some(())
 }
 
-fn validate_ordinary_edge(
-    unit: &MirUnit,
-    source: MirBlockId,
-    edge: &MirEdge,
-) -> Option<()> {
+fn validate_ordinary_edge(unit: &MirUnit, source: MirBlockId, edge: &MirEdge) -> Option<()> {
     validate_edge(unit, source, edge)?;
 
     if unit.block(edge.target()).map(MirBlock::kind) != Some(MirBlockKind::Ordinary) {
@@ -423,11 +411,7 @@ fn validate_cleanup_edge(
 
     Some(())
 }
-fn validate_edge(
-    unit: &MirUnit,
-    source: MirBlockId,
-    edge: &MirEdge,
-) -> Option<()> {
+fn validate_edge(unit: &MirUnit, source: MirBlockId, edge: &MirEdge) -> Option<()> {
     let Some(target) = unit.block(edge.target()) else {
         return None;
     };

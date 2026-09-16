@@ -35,7 +35,12 @@ impl Lowerer<'_> {
         let receiver = selection
             .receiver()
             .filter(|_| selection.arguments().is_empty())
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = id));
+            .unwrap_or_else(|| {
+                panic!(
+                    "lowering contract violation: MissingSemanticSelection {value:?}",
+                    value = id
+                )
+            });
 
         let (lowered, operand_type) = self.lower_call_receiver(receiver, current)?;
 
@@ -44,7 +49,10 @@ impl Lowerer<'_> {
         };
 
         let Some(receiver) = lowered.value else {
-            panic!("lowering contract violation: MissingOperationResult {value:?}", value = receiver.expression());
+            panic!(
+                "lowering contract violation: MissingOperationResult {value:?}",
+                value = receiver.expression()
+            );
         };
 
         let usize_type = self.representation_type(RepresentationRole::ScalarUsize)?;

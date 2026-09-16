@@ -6,10 +6,10 @@ use bray_ir::{
 use bray_runtime_interface::RuntimeAbiRole;
 use bray_symbols::TypeId;
 
+use crate::input::ScopeExitCleanupStatus;
 use crate::lowering::LoweringError;
 use crate::lowering::inputs::{InputExit, InputTemporary};
 use crate::lowering::lowerer::Lowerer;
-use crate::input::ScopeExitCleanupStatus;
 
 #[derive(Clone, Copy, Debug)]
 pub(super) enum CleanupDestination {
@@ -326,7 +326,12 @@ impl Lowerer<'_> {
                 .active_scopes
                 .iter()
                 .position(|scope| *scope == plan.scope())
-                .unwrap_or_else(|| panic!("lowering contract violation: MissingBoundNode {value:?}", value = plan.scope()))
+                .unwrap_or_else(|| {
+                    panic!(
+                        "lowering contract violation: MissingBoundNode {value:?}",
+                        value = plan.scope()
+                    )
+                })
                 + 1;
 
             block = self.push_input_cleanup(block, source, phase, &mut temporaries, depth)?;
@@ -356,9 +361,7 @@ impl Lowerer<'_> {
                     .unwrap_or_default();
 
                 if parts.is_empty() {
-                    let completed = self
-                        .input
-                        .finalizer_is_complete(plan.exit(), *access);
+                    let completed = self.input.finalizer_is_complete(plan.exit(), *access);
 
                     (block, value) = self.push_guarded_cleanup(
                         block, source, phase, place, guard, None, completed, value,

@@ -139,9 +139,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .filter(|value| !value.is_empty())
         {
             if let Some(abi) = clobber.strip_prefix("abi:") {
-                let registers = control
-                    .abi_clobbers(abi)
-                    .expect("checked MIR memory translation requires an established mapping or value");
+                let registers = control.abi_clobbers(abi).expect(
+                    "checked MIR memory translation requires an established mapping or value",
+                );
 
                 for register in registers {
                     append_clobber(&mut constraints, register);
@@ -161,38 +161,36 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         for descriptor in descriptors.iter().copied() {
             let argument = if descriptor.kind() == InlineAssemblyOperandKind::Immediate {
-                let constant = descriptor
-                    .constant()
-                    .expect("checked MIR memory translation requires an established mapping or value");
+                let constant = descriptor.constant().expect(
+                    "checked MIR memory translation requires an established mapping or value",
+                );
 
                 self.constant(constant)?
             } else if descriptor.kind() == InlineAssemblyOperandKind::Symbol {
-                let reference = symbols
-                    .get(symbol_index)
-                    .copied()
-                    .expect("checked MIR memory translation requires an established mapping or value");
+                let reference = symbols.get(symbol_index).copied().expect(
+                    "checked MIR memory translation requires an established mapping or value",
+                );
 
                 let mapping = self
                     .request
                     .mappings()
                     .callable(self.instance.key(), site.call_site(symbol_index))
                     .filter(|mapping| mapping.reference() == reference)
-                    .expect("checked MIR memory translation requires an established mapping or value");
+                    .expect(
+                        "checked MIR memory translation requires an established mapping or value",
+                    );
 
-                let instance = mapping
-                    .instance()
-                    .expect("checked MIR memory translation requires an established mapping or value");
+                let instance = mapping.instance().expect(
+                    "checked MIR memory translation requires an established mapping or value",
+                );
 
-                let symbol = self
-                    .request
-                    .mappings()
-                    .instance_symbol(instance)
-                    .expect("checked MIR memory translation requires an established mapping or value");
+                let symbol = self.request.mappings().instance_symbol(instance).expect(
+                    "checked MIR memory translation requires an established mapping or value",
+                );
 
-                let function = self
-                    .module
-                    .get_function(symbol.name().as_str())
-                    .expect("checked MIR memory translation requires an established mapping or value");
+                let function = self.module.get_function(symbol.name().as_str()).expect(
+                    "checked MIR memory translation requires an established mapping or value",
+                );
 
                 symbol_index += 1;
 
@@ -209,11 +207,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             if descriptor.kind() == InlineAssemblyOperandKind::Memory {
                 let target = match self
                     .type_mapping(descriptor.ty())
-                    .expect("checked MIR memory translation requires an established mapping or value")
+                    .expect(
+                        "checked MIR memory translation requires an established mapping or value",
+                    )
                     .kind()
                 {
                     CodegenTypeKind::Pointer { target, .. } => *target,
-                    unexpected => panic!("checked MIR memory translation violated an established compiler contract: {unexpected:?}"),
+                    unexpected => panic!(
+                        "checked MIR memory translation violated an established compiler contract: {unexpected:?}"
+                    ),
                 };
 
                 parameter_attributes.push((
@@ -319,7 +321,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             };
         };
 
-        let output_type = output_type.expect("checked MIR memory translation requires an established mapping or value");
+        let output_type = output_type
+            .expect("checked MIR memory translation requires an established mapping or value");
 
         let output = self.assembly_output(raw_output, output_type, &outputs)?;
 
@@ -629,10 +632,8 @@ mod tests {
         let input = &explicit[1..];
 
         for invalid in ["rax", "{reg}", "{bogus}"] {
-            let panic = std::panic::catch_unwind(|| {
-                assembly_constraints(control, invalid, input)
-            })
-            .expect_err("invalid checked assembly constraint must panic");
+            let panic = std::panic::catch_unwind(|| assembly_constraints(control, invalid, input))
+                .expect_err("invalid checked assembly constraint must panic");
 
             let message = bray_testing::panic_payload_text(panic.as_ref());
             let spelling = invalid.trim_matches(|character| character == '{' || character == '}');

@@ -671,9 +671,7 @@ mod tests {
 
     use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind};
 
-    use super::{
-        LinkFailure, LinkOutcome, LinkStatus, failed_outcome, link_failure_diagnostics,
-    };
+    use super::{LinkFailure, LinkOutcome, LinkStatus, failed_outcome, link_failure_diagnostics};
     use crate::test_support::link_plan;
     use crate::{
         DeadStripPolicy, DebugLinkPolicy, LinkInputKind, LinkInputMode, LinkModel, LinkRuntimeMode,

@@ -91,13 +91,17 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             }
             MirProjectionKind::ElementFromEnd(index) => {
                 let CodegenTypeKind::Array { length, .. } = kind else {
-                    panic!("checked MIR place translation violated an established compiler contract");
+                    panic!(
+                        "checked MIR place translation violated an established compiler contract"
+                    );
                 };
 
                 let index = length
                     .checked_sub(u64::from(*index))
                     .and_then(|value| value.checked_sub(1))
-                    .expect("checked MIR place translation requires an established mapping or value");
+                    .expect(
+                        "checked MIR place translation requires an established mapping or value",
+                    );
 
                 self.static_element_pointer(
                     pointer,
@@ -130,7 +134,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let field = kind
                     .union_variant(*variant)
                     .and_then(|layout| layout.payload_element(*ordinal))
-                    .expect("checked MIR place translation requires an established mapping or value");
+                    .expect(
+                        "checked MIR place translation requires an established mapping or value",
+                    );
 
                 self.constant_offset_pointer(pointer, field.offset_bytes())
             }
@@ -174,7 +180,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         kind: &CodegenTypeKind,
         index: BasicValueEnum<'context>,
     ) -> Result<PointerValue<'context>, CodegenFailure> {
-        let index = int_value(index).expect("checked MIR place translation requires an established mapping or value");
+        let index = int_value(index)
+            .expect("checked MIR place translation requires an established mapping or value");
 
         match kind {
             CodegenTypeKind::Array { element, .. } => {
@@ -198,13 +205,17 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         CodegenTypeKind::Pointer { target, .. } => Some(*target),
                         _ => None,
                     })
-                    .expect("checked MIR place translation requires an established mapping or value");
+                    .expect(
+                        "checked MIR place translation requires an established mapping or value",
+                    );
 
                 let stride = self.mapped_type_size(element);
 
                 self.dynamic_offset_pointer(data, index, stride)
             }
-            unexpected => panic!("checked MIR place translation violated an established compiler contract: {unexpected:?}"),
+            unexpected => panic!(
+                "checked MIR place translation violated an established compiler contract: {unexpected:?}"
+            ),
         }
     }
 
@@ -246,7 +257,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         CodegenTypeKind::Pointer { target, .. } => Some(*target),
                         _ => None,
                     })
-                    .expect("checked MIR place translation requires an established mapping or value");
+                    .expect(
+                        "checked MIR place translation requires an established mapping or value",
+                    );
 
                 (data, self.pointer_sized_integer(length.into())?, element)
             }
@@ -255,7 +268,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 (data, length, *element)
             }
-            unexpected => panic!("checked MIR place translation violated an established compiler contract: {unexpected:?}"),
+            unexpected => panic!(
+                "checked MIR place translation violated an established compiler contract: {unexpected:?}"
+            ),
         };
 
         let end = match end {
@@ -329,8 +344,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         )?;
 
         Ok((
-            pointer_value(data).expect("checked MIR place translation requires an established mapping or value"),
-            int_value(length).expect("checked MIR place translation requires an established mapping or value"),
+            pointer_value(data)
+                .expect("checked MIR place translation requires an established mapping or value"),
+            int_value(length)
+                .expect("checked MIR place translation requires an established mapping or value"),
         ))
     }
 
@@ -365,14 +382,20 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             pointer_field,
             "slice.data",
         ))
-        .map(|value| pointer_value(value).expect("checked MIR place translation requires an established mapping or value"))?;
+        .map(|value| {
+            pointer_value(value)
+                .expect("checked MIR place translation requires an established mapping or value")
+        })?;
 
         let length = llvm(self.builder.build_load(
             self.types.map(fields[length_index].ty())?,
             length_field,
             "slice.length",
         ))
-        .map(|value| int_value(value).expect("checked MIR place translation requires an established mapping or value"))?;
+        .map(|value| {
+            int_value(value)
+                .expect("checked MIR place translation requires an established mapping or value")
+        })?;
 
         Ok((data, length))
     }
@@ -427,10 +450,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             ))?)
             .expect("pointer-represented nullable values must load a pointer payload")),
             CodegenTypeKind::Aggregate(fields) => {
-                let payload = fields
-                    .len()
-                    .checked_sub(1)
-                    .expect("checked MIR place translation requires an established mapping or value");
+                let payload = fields.len().checked_sub(1).expect(
+                    "checked MIR place translation requires an established mapping or value",
+                );
 
                 llvm(self.builder.build_struct_gep(
                     self.types.map(source_type)?,
@@ -439,7 +461,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     "nullable.value",
                 ))
             }
-            unexpected => panic!("checked MIR place translation violated an established compiler contract: {unexpected:?}"),
+            unexpected => panic!(
+                "checked MIR place translation violated an established compiler contract: {unexpected:?}"
+            ),
         }
     }
 
@@ -482,7 +506,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &self,
         value: BasicValueEnum<'context>,
     ) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
-        let value = int_value(value).expect("checked MIR place translation requires an established mapping or value");
+        let value = int_value(value)
+            .expect("checked MIR place translation requires an established mapping or value");
 
         let integer_type = self
             .types
@@ -509,7 +534,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let index = fields
                     .iter()
                     .position(|field| field.reference() == Some(*reference))
-                    .expect("checked MIR place translation requires an established mapping or value");
+                    .expect(
+                        "checked MIR place translation requires an established mapping or value",
+                    );
 
                 self.aggregate_element(fields, index)
             }
@@ -523,10 +550,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             (CodegenTypeKind::Aggregate(fields), MirProjectionKind::ElementFromEnd(index)) => {
                 let index: usize = crate::conversion::resource_limit(*index, "place_field_index")?;
 
-                let index = fields
-                    .len()
-                    .checked_sub(index + 1)
-                    .expect("checked MIR place translation requires an established mapping or value");
+                let index = fields.len().checked_sub(index + 1).expect(
+                    "checked MIR place translation requires an established mapping or value",
+                );
 
                 self.aggregate_element(fields, index)
             }
@@ -536,7 +562,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 | MirProjectionKind::Variant(_)
                 | MirProjectionKind::OwnedStorage,
             ) => Ok(0),
-            unexpected => panic!("checked MIR place translation violated an established compiler contract: {unexpected:?}"),
+            unexpected => panic!(
+                "checked MIR place translation violated an established compiler contract: {unexpected:?}"
+            ),
         }
     }
 
@@ -603,7 +631,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 .map(Into::into)
             }
             (value, target) if value.get_type() == target => Ok(value),
-            unexpected => panic!("checked MIR place translation violated an established compiler contract: {unexpected:?}"),
+            unexpected => panic!(
+                "checked MIR place translation violated an established compiler contract: {unexpected:?}"
+            ),
         }
     }
 
@@ -650,10 +680,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         )
     }
 
-    pub(super) fn operation_result_type(
-        &self,
-        operation: &MirOperation,
-    ) -> bray_symbols::TypeId {
+    pub(super) fn operation_result_type(&self, operation: &MirOperation) -> bray_symbols::TypeId {
         operation
             .result()
             .and_then(|result| self.unit.value(result))
@@ -691,7 +718,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             | CodegenTypeKind::UnsizedSlice { .. }
             | CodegenTypeKind::UnsizedTraitView
             | CodegenTypeKind::Union { .. }
-            | CodegenTypeKind::Callable(_) => panic!("checked MIR place translation violated an established compiler contract"),
+            | CodegenTypeKind::Callable(_) => {
+                panic!("checked MIR place translation violated an established compiler contract")
+            }
         }
     }
 

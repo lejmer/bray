@@ -81,9 +81,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             panic!("checked MIR memory translation violated an established compiler contract");
         };
 
-        let address = self
-            .operand(address)
-            .map(|value| int_value(value).expect("checked MIR memory translation requires an established mapping or value"))?;
+        let address = self.operand(address).map(|value| {
+            int_value(value)
+                .expect("checked MIR memory translation requires an established mapping or value")
+        })?;
 
         let result = self.operation_result_type(operation);
 

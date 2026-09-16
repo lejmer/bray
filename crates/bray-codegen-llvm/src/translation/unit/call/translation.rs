@@ -43,7 +43,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .request
                     .mappings()
                     .callable(self.instance.key(), CodegenCallSite::Operation(operation))
-                    .expect("checked MIR call translation requires an established mapping or value");
+                    .expect(
+                        "checked MIR call translation requires an established mapping or value",
+                    );
 
                 if let Some(intrinsic) = mapping.intrinsic_operation() {
                     let operand_type = call
@@ -51,7 +53,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         .first()
                         .map(MirCallArgument::value)
                         .map(|operand| self.operand_type(operand))
-                        .expect("checked MIR call translation requires an established mapping or value");
+                        .expect(
+                            "checked MIR call translation requires an established mapping or value",
+                        );
 
                     let result = self.translate_intrinsic_call(
                         intrinsic,
@@ -73,20 +77,17 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     return Ok(Some(result));
                 }
 
-                let instance = mapping
-                    .instance()
-                    .expect("checked MIR call translation requires an established mapping or value");
+                let instance = mapping.instance().expect(
+                    "checked MIR call translation requires an established mapping or value",
+                );
 
-                let symbol = self
-                    .request
-                    .mappings()
-                    .instance_symbol(instance)
-                    .expect("checked MIR call translation requires an established mapping or value");
+                let symbol = self.request.mappings().instance_symbol(instance).expect(
+                    "checked MIR call translation requires an established mapping or value",
+                );
 
-                let function = self
-                    .module
-                    .get_function(symbol.name().as_str())
-                    .expect("checked MIR call translation requires an established mapping or value");
+                let function = self.module.get_function(symbol.name().as_str()).expect(
+                    "checked MIR call translation requires an established mapping or value",
+                );
 
                 // Owning the signature releases the immutable mapping borrow before invocation
                 // mutates translation state.
@@ -99,7 +100,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 }
             }
             MirCallTarget::DefaultValue { .. } => {
-                let helper = default_helper.expect("checked MIR call translation requires an established mapping or value");
+                let helper = default_helper.expect(
+                    "checked MIR call translation requires an established mapping or value",
+                );
 
                 self.invoke_operation_helper(operation, helper, semantic_arguments)
             }
@@ -107,19 +110,22 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             MirCallTarget::Indirect { callee, .. } => {
                 let callee_type = self.operand_type(callee);
 
-                let mapping = self
-                    .type_mapping(callee_type)
-                    .expect("checked MIR call translation requires an established mapping or value");
+                let mapping = self.type_mapping(callee_type).expect(
+                    "checked MIR call translation requires an established mapping or value",
+                );
 
                 let CodegenTypeKind::Callable(signature) = mapping.kind() else {
-                    panic!("checked MIR call translation violated an established compiler contract");
+                    panic!(
+                        "checked MIR call translation violated an established compiler contract"
+                    );
                 };
 
                 // Translation mutates its value cache after releasing the borrowed mapping.
                 let signature = signature.clone();
 
-                let pointer = pointer_value(self.operand(callee)?)
-                    .expect("checked MIR call translation requires an established mapping or value");
+                let pointer = pointer_value(self.operand(callee)?).expect(
+                    "checked MIR call translation requires an established mapping or value",
+                );
 
                 let function_type = self.types.function_type(&signature)?;
 

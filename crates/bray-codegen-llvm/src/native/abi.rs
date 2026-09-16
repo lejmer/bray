@@ -78,9 +78,8 @@ pub(crate) fn runtime_attributes(
         return Ok(attributes);
     }
 
-    let signature = runtime_function_type(context, target, role).unwrap_or_else(|| {
-        panic!("runtime attributes require a native ABI role, got {role:?}")
-    });
+    let signature = runtime_function_type(context, target, role)
+        .unwrap_or_else(|| panic!("runtime attributes require a native ABI role, got {role:?}"));
 
     let zero_extend = crate::mapping::enum_attribute("zeroext", 0, context)?;
 

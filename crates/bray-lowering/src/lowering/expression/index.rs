@@ -15,7 +15,10 @@ impl Lowerer<'_> {
     ) -> Result<LoweredExpression, LoweringError> {
         let target = match self.selected_operation(id) {
             SelectedOperation::Index { target, .. } => *target,
-            _ => panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = id),
+            _ => panic!(
+                "lowering contract violation: MissingSemanticSelection {value:?}",
+                value = id
+            ),
         };
 
         match target {
@@ -35,7 +38,10 @@ impl Lowerer<'_> {
     ) -> Result<LoweredExpression, LoweringError> {
         let target = match self.selected_operation(id) {
             SelectedOperation::Index { target, .. } => *target,
-            _ => panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = id),
+            _ => panic!(
+                "lowering contract violation: MissingSemanticSelection {value:?}",
+                value = id
+            ),
         };
 
         match target {
@@ -71,7 +77,10 @@ impl Lowerer<'_> {
             IndexTarget::ArrayElement
             | IndexTarget::SliceElement
             | IndexTarget::ArraySlice
-            | IndexTarget::Slice => panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = id),
+            | IndexTarget::Slice => panic!(
+                "lowering contract violation: MissingSemanticSelection {value:?}",
+                value = id
+            ),
         }
     }
 
@@ -98,7 +107,12 @@ impl Lowerer<'_> {
                 BoundExpression::Structured(expression) => Some(expression),
                 _ => None,
             })
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingBoundNode {value:?}", value = id));
+            .unwrap_or_else(|| {
+                panic!(
+                    "lowering contract violation: MissingBoundNode {value:?}",
+                    value = id
+                )
+            });
 
         let kind = expression.kind();
         let operands = expression.operands().to_vec();
@@ -109,7 +123,10 @@ impl Lowerer<'_> {
         let mut arguments = Vec::with_capacity(3);
 
         let Some(receiver) = operands.first().copied() else {
-            panic!("lowering contract violation: MissingBoundNode {value:?}", value = id);
+            panic!(
+                "lowering contract violation: MissingBoundNode {value:?}",
+                value = id
+            );
         };
 
         let lowered = self.lower_implicit_borrow(id, receiver, block, borrow_kind)?;
@@ -119,7 +136,10 @@ impl Lowerer<'_> {
         };
 
         let Some(value) = lowered.value else {
-            panic!("lowering contract violation: MissingOperationResult {value:?}", value = receiver);
+            panic!(
+                "lowering contract violation: MissingOperationResult {value:?}",
+                value = receiver
+            );
         };
 
         block = continuation;
@@ -135,7 +155,10 @@ impl Lowerer<'_> {
                     };
 
                     let Some(value) = lowered.value else {
-                        panic!("lowering contract violation: MissingOperationResult {value:?}", value = operand);
+                        panic!(
+                            "lowering contract violation: MissingOperationResult {value:?}",
+                            value = operand
+                        );
                     };
 
                     block = continuation;
@@ -143,8 +166,12 @@ impl Lowerer<'_> {
                 }
             }
             BoundStructuredExpressionKind::SliceIndex => {
-                let bounds =
-                    slice_bounds.unwrap_or_else(|| panic!("lowering contract violation: MissingBoundNode {value:?}", value = id));
+                let bounds = slice_bounds.unwrap_or_else(|| {
+                    panic!(
+                        "lowering contract violation: MissingBoundNode {value:?}",
+                        value = id
+                    )
+                });
 
                 let bound_type = self.index_bound_type(requirement);
 
@@ -170,7 +197,10 @@ impl Lowerer<'_> {
                     };
 
                     let Some(value) = lowered.value else {
-                        panic!("lowering contract violation: MissingOperationResult {value:?}", value = bound);
+                        panic!(
+                            "lowering contract violation: MissingOperationResult {value:?}",
+                            value = bound
+                        );
                     };
 
                     block = continuation;
@@ -186,7 +216,10 @@ impl Lowerer<'_> {
                     arguments.push(value);
                 }
             }
-            _ => panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = id),
+            _ => panic!(
+                "lowering contract violation: MissingSemanticSelection {value:?}",
+                value = id
+            ),
         }
 
         let witnesses = witness.into_iter().map(|witness| {

@@ -22,10 +22,8 @@ pub use artifact::{
     ArtifactDigest, ArtifactDigestAlgorithm, ArtifactSpool, ArtifactSpoolError,
     ArtifactSpoolOperation, ArtifactSpoolWriter, AssemblySyntaxKind, BackendArtifactContribution,
     BackendArtifactId, BackendArtifactKind, BackendArtifactRequest, BackendArtifactRequestEntry,
-    BackendArtifactRequirement,
-    BackendBitcodeSemantics,
-    BackendSerializationOptions, DebugInformationOutputMode, LinkableArtifactKind,
-    LinkableArtifactRequirement,
+    BackendArtifactRequirement, BackendBitcodeSemantics, BackendSerializationOptions,
+    DebugInformationOutputMode, LinkableArtifactKind, LinkableArtifactRequirement,
 };
 pub use backend::{BackendIdentity, CodeGenerator};
 pub use capability::{
@@ -57,8 +55,8 @@ pub use options::{
     CodegenOptions, DebugInformationMode, OptimizationLevel, RuntimeObservationMode, SizePreference,
 };
 pub use outcome::{
-    CodegenFailure, CodegenOutcome, CodegenStatus,
-    codegen_failure_diagnostic, codegen_failure_diagnostics,
+    CodegenFailure, CodegenOutcome, CodegenStatus, codegen_failure_diagnostic,
+    codegen_failure_diagnostics,
 };
 pub use registry::{
     BackendSelectionError, CodeGeneratorRegistry, CodeGeneratorRegistryBuildError,
