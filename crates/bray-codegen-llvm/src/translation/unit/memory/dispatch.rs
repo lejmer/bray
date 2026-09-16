@@ -47,117 +47,18 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         memory: &MirMemoryOperation,
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
         match memory.kind() {
-            CheckedMemoryOperationKind::Address { .. } => {
-                let [value] = memory.operands() else {
-                    panic!("checked MIR memory translation violated an established compiler contract");
-                };
-
-                self.operand(value)
-                    .map(|value| {
-                        BasicValueEnum::from(pointer_value(value)
-                            .expect("address operations require represented pointer operands"))
-                    })
-                    .map(Some)
-            }
-            CheckedMemoryOperationKind::Null { .. } => {
-                let result = self.operation_result_type(operation);
-
-                let BasicTypeEnum::PointerType(pointer) = self.types.map(result)? else {
-                    panic!("checked MIR memory translation violated an established compiler contract");
-                };
-
-                Ok(Some(pointer.const_null().into()))
-            }
-            CheckedMemoryOperationKind::IsNull { .. } => {
-                let [pointer] = memory.operands() else {
-                    panic!("checked MIR memory translation violated an established compiler contract");
-                };
-
-                let pointer = self.memory_pointer(pointer)?;
-
-                llvm(self.builder.build_int_compare(
-                    IntPredicate::EQ,
-                    self.pointer_address(pointer)?,
-                    self.pointer_integer_type().const_zero(),
-                    "memory.is_null",
-                ))
-                .map(|value| Some(value.into()))
-            }
-            CheckedMemoryOperationKind::Offset { unit, pointee } => {
-                let [pointer, offset] = memory.operands() else {
-                    panic!("checked MIR memory translation violated an established compiler contract");
-                };
-
-                let pointer = self.memory_pointer(pointer)?;
-
-                let offset = self.operand(offset)?;
-
-                let offset = int_value(offset)
-                    .expect("pointer offsets require represented integer operands");
-
-                let stride = match unit {
-                    MemoryOffsetUnit::Element => self.memory_layout(pointee).size(),
-                    MemoryOffsetUnit::Byte => 1,
-                };
-
-                self.dynamic_offset_pointer(pointer, offset, stride)
-                    .map(|value| Some(value.into()))
-            }
-            CheckedMemoryOperationKind::Reinterpret { .. } => {
-                let [pointer] = memory.operands() else {
-                    panic!("checked MIR memory translation violated an established compiler contract");
-                };
-
-                self.memory_pointer(pointer).map(|value| Some(value.into()))
-            }
-            CheckedMemoryOperationKind::CallableFromPointer { .. }
-            | CheckedMemoryOperationKind::PointerFromCallable { .. } => {
-                let [value] = memory.operands() else {
-                    panic!("checked MIR memory translation violated an established compiler contract");
-                };
-
-                self.memory_pointer(value).map(|value| Some(value.into()))
-            }
-            CheckedMemoryOperationKind::CallbackState { .. } => {
-                let [context] = memory.operands() else {
-                    panic!("checked MIR memory translation violated an established compiler contract");
-                };
-
-                self.memory_pointer(context).map(|value| Some(value.into()))
-            }
-            CheckedMemoryOperationKind::Read { pointee, .. } => {
-                let [pointer] = memory.operands() else {
-                    panic!("checked MIR memory translation violated an established compiler contract");
-                };
-
-                let pointer = self.memory_pointer(pointer)?;
-
-                llvm(
-                    self.builder
-                        .build_load(self.types.map(pointee)?, pointer, "memory.read"),
-                )
-                .map(Some)
-            }
-            CheckedMemoryOperationKind::Write { .. } => {
-                let [pointer, value] = memory.operands() else {
-                    panic!("checked MIR memory translation violated an established compiler contract");
-                };
-
-                let pointer = self.memory_pointer(pointer)?;
-                let value = self.operand(value)?;
-
-                llvm(self.builder.build_store(pointer, value))?;
-
-                Ok(None)
-            }
-            CheckedMemoryOperationKind::Copy { pointee, kind } => {
-                let [source, destination, count] = memory.operands() else {
-                    panic!("checked MIR memory translation violated an established compiler contract");
-                };
-
-                self.translate_memory_copy(destination, source, count, pointee, kind)?;
-
-                Ok(None)
+            kind @ (CheckedMemoryOperationKind::Address { .. }
+            | CheckedMemoryOperationKind::Null { .. }
+            | CheckedMemoryOperationKind::IsNull { .. }
+            | CheckedMemoryOperationKind::Offset { .. }
+            | CheckedMemoryOperationKind::Reinterpret { .. }
+            | CheckedMemoryOperationKind::CallableFromPointer { .. }
+            | CheckedMemoryOperationKind::PointerFromCallable { .. }
+            | CheckedMemoryOperationKind::CallbackState { .. }
+            | CheckedMemoryOperationKind::Read { .. }
+            | CheckedMemoryOperationKind::Write { .. }
+            | CheckedMemoryOperationKind::Copy { .. }) => {
+                self.translate_pointer_memory(operation, memory, kind)
             }
             CheckedMemoryOperationKind::LayoutQuery { ty, kind } => self
                 .translate_layout_query(operation, memory, ty, kind)
@@ -283,6 +184,153 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         }
     }
 
+    fn translate_pointer_memory(
+        &mut self,
+        operation: &MirOperation,
+        memory: &MirMemoryOperation,
+        kind: CheckedMemoryOperationKind,
+    ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
+        match kind {
+            CheckedMemoryOperationKind::Address { .. } => {
+                let [value] = memory.operands() else {
+                    panic!(
+                        "checked MIR memory translation violated an established compiler contract"
+                    );
+                };
+
+                self.operand(value)
+                    .map(|value| {
+                        BasicValueEnum::from(
+                            pointer_value(value)
+                                .expect("address operations require represented pointer operands"),
+                        )
+                    })
+                    .map(Some)
+            }
+            CheckedMemoryOperationKind::Null { .. } => {
+                let result = self.operation_result_type(operation);
+
+                let BasicTypeEnum::PointerType(pointer) = self.types.map(result)? else {
+                    panic!(
+                        "checked MIR memory translation violated an established compiler contract"
+                    );
+                };
+
+                Ok(Some(pointer.const_null().into()))
+            }
+            CheckedMemoryOperationKind::IsNull { .. } => {
+                let [pointer] = memory.operands() else {
+                    panic!(
+                        "checked MIR memory translation violated an established compiler contract"
+                    );
+                };
+
+                let pointer = self.memory_pointer(pointer)?;
+
+                llvm(self.builder.build_int_compare(
+                    IntPredicate::EQ,
+                    self.pointer_address(pointer)?,
+                    self.pointer_integer_type().const_zero(),
+                    "memory.is_null",
+                ))
+                .map(|value| Some(value.into()))
+            }
+            CheckedMemoryOperationKind::Offset { unit, pointee } => {
+                let [pointer, offset] = memory.operands() else {
+                    panic!(
+                        "checked MIR memory translation violated an established compiler contract"
+                    );
+                };
+
+                let pointer = self.memory_pointer(pointer)?;
+
+                let offset = self.operand(offset)?;
+
+                let offset = int_value(offset)
+                    .expect("pointer offsets require represented integer operands");
+
+                let stride = match unit {
+                    MemoryOffsetUnit::Element => self.memory_layout(pointee).size(),
+                    MemoryOffsetUnit::Byte => 1,
+                };
+
+                self.dynamic_offset_pointer(pointer, offset, stride)
+                    .map(|value| Some(value.into()))
+            }
+            CheckedMemoryOperationKind::Reinterpret { .. } => {
+                let [pointer] = memory.operands() else {
+                    panic!(
+                        "checked MIR memory translation violated an established compiler contract"
+                    );
+                };
+
+                self.memory_pointer(pointer).map(|value| Some(value.into()))
+            }
+            CheckedMemoryOperationKind::CallableFromPointer { .. }
+            | CheckedMemoryOperationKind::PointerFromCallable { .. } => {
+                let [value] = memory.operands() else {
+                    panic!(
+                        "checked MIR memory translation violated an established compiler contract"
+                    );
+                };
+
+                self.memory_pointer(value).map(|value| Some(value.into()))
+            }
+            CheckedMemoryOperationKind::CallbackState { .. } => {
+                let [context] = memory.operands() else {
+                    panic!(
+                        "checked MIR memory translation violated an established compiler contract"
+                    );
+                };
+
+                self.memory_pointer(context).map(|value| Some(value.into()))
+            }
+            CheckedMemoryOperationKind::Read { pointee, .. } => {
+                let [pointer] = memory.operands() else {
+                    panic!(
+                        "checked MIR memory translation violated an established compiler contract"
+                    );
+                };
+
+                let pointer = self.memory_pointer(pointer)?;
+
+                llvm(
+                    self.builder
+                        .build_load(self.types.map(pointee)?, pointer, "memory.read"),
+                )
+                .map(Some)
+            }
+            CheckedMemoryOperationKind::Write { .. } => {
+                let [pointer, value] = memory.operands() else {
+                    panic!(
+                        "checked MIR memory translation violated an established compiler contract"
+                    );
+                };
+
+                let pointer = self.memory_pointer(pointer)?;
+                let value = self.operand(value)?;
+
+                llvm(self.builder.build_store(pointer, value))?;
+
+                Ok(None)
+            }
+            CheckedMemoryOperationKind::Copy { pointee, kind } => {
+                let [source, destination, count] = memory.operands() else {
+                    panic!(
+                        "checked MIR memory translation violated an established compiler contract"
+                    );
+                };
+
+                self.translate_memory_copy(destination, source, count, pointee, kind)?;
+
+                Ok(None)
+            }
+            _ => {
+                panic!("checked MIR memory translation violated an established compiler contract")
+            }
+        }
+    }
+
     fn translate_control_memory(
         &mut self,
         kind: CheckedMemoryOperationKind,
@@ -315,7 +363,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             CheckedMemoryOperationKind::TargetFeatureEnabled { feature } => {
                 self.translate_target_feature(feature).map(Some)
             }
-            unexpected => panic!("checked MIR memory translation violated an established compiler contract: {unexpected:?}"),
+            unexpected => panic!(
+                "checked MIR memory translation violated an established compiler contract: {unexpected:?}"
+            ),
         }
     }
 
@@ -406,7 +456,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             | CheckedMemoryOperationKind::AtomicFetch { value, .. }
             | CheckedMemoryOperationKind::AtomicWait { value, .. }
             | CheckedMemoryOperationKind::AtomicNotify { value, .. } => value,
-            unexpected => panic!("checked MIR memory translation violated an established compiler contract: {unexpected:?}"),
+            unexpected => panic!(
+                "checked MIR memory translation violated an established compiler contract: {unexpected:?}"
+            ),
         };
 
         let mapping = self

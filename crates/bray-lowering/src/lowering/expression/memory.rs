@@ -40,7 +40,10 @@ impl Lowerer<'_> {
                 ..
             } = argument
             else {
-                panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = id);
+                panic!(
+                    "lowering contract violation: MissingSemanticSelection {value:?}",
+                    value = id
+                );
             };
 
             selected_arguments.push((*ordinal, *expression, conversion));
@@ -54,7 +57,10 @@ impl Lowerer<'_> {
                 .map(|(_, expression, _)| expression)
                 .ne(operation.arguments())
         {
-            panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = id);
+            panic!(
+                "lowering contract violation: MissingSemanticSelection {value:?}",
+                value = id
+            );
         }
 
         let mut arguments = Vec::with_capacity(operation.arguments().len());
@@ -89,7 +95,10 @@ impl Lowerer<'_> {
 
             let lowered = if assembly_inputs {
                 let CheckedMemoryOperationKind::InlineAssembly { contract, .. } = kind else {
-                    panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = id);
+                    panic!(
+                        "lowering contract violation: MissingSemanticSelection {value:?}",
+                        value = id
+                    );
                 };
 
                 self.lower_inline_assembly_inputs(*expression, current, contract)?
@@ -104,7 +113,10 @@ impl Lowerer<'_> {
             current = continuation;
 
             let Some(operand) = lowered.value else {
-                panic!("lowering contract violation: MissingOperationResult {value:?}", value = *expression);
+                panic!(
+                    "lowering contract violation: MissingOperationResult {value:?}",
+                    value = *expression
+                );
             };
 
             let (continuation, operand) = self.convert_memory_operand(
@@ -120,7 +132,10 @@ impl Lowerer<'_> {
 
             let operand_type = if assembly_inputs {
                 let CheckedMemoryOperationKind::InlineAssembly { contract, .. } = kind else {
-                    panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = id);
+                    panic!(
+                        "lowering contract violation: MissingSemanticSelection {value:?}",
+                        value = id
+                    );
                 };
 
                 self.inline_assembly_runtime_input_type(contract)?
@@ -156,7 +171,10 @@ impl Lowerer<'_> {
                 .enumerate()
                 .any(|(expected, (actual, _, _))| expected != *actual)
         {
-            panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = id);
+            panic!(
+                "lowering contract violation: MissingSemanticSelection {value:?}",
+                value = id
+            );
         }
 
         let (operands, operand_types): (Vec<_>, Vec<_>) = arguments
@@ -185,54 +203,16 @@ impl Lowerer<'_> {
         let result_type = self.expression_type(id);
         let result = kind.produces_value().then_some(result_type);
 
-        if let CheckedMemoryOperationKind::InlineAssembly {
-            inputs: inputs_type,
-            output: Some(output_type),
-            labels: Some(_),
-            contract,
-            ..
-        } = kind
-        {
-            let [inputs] = operands.as_slice() else {
-                panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = id);
-            };
-
-            let labels =
-                inline_assembly_labels.unwrap_or_else(|| panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = id));
-
-            let alternates = self.inline_assembly_alternates(id, &source, labels)?;
-
-            let normal = self
-                .builder
-                .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
-
-            let output = self.builder.push_block_parameter(
-                normal,
-                Self::retained_source(&source),
-                output_type,
-            )?;
-
-            self.set_terminator(
-                current,
-                Self::retained_source(&source),
-                MirTerminatorKind::InlineAssembly(MirInlineAssemblyTerminator::new(
-                    contract,
-                    // The terminator owns the sole compact MIR operand while the shared ordinary
-                    // lowering path retains the operand vector through this branch.
-                    inputs.clone(),
-                    inputs_type,
-                    output_type,
-                    normal,
-                    alternates,
-                    inline_assembly_symbols,
-                )),
-            )?;
-
-            return Ok(LoweredExpression::continuing(
-                normal,
-                Some(MirOperand::Value(output)),
-                source,
-            ));
+        if let Some(lowered) = self.lower_inline_assembly_terminator(
+            id,
+            current,
+            &source,
+            kind,
+            &operands,
+            inline_assembly_labels,
+            &inline_assembly_symbols,
+        )? {
+            return Ok(lowered);
         }
 
         let commit = self.push_operation(
@@ -266,6 +246,76 @@ impl Lowerer<'_> {
         };
 
         Ok(LoweredExpression::continuing(current, Some(value), source))
+    }
+
+    fn lower_inline_assembly_terminator(
+        &mut self,
+        expression: BoundExpressionId,
+        current: MirBlockId,
+        source: &MirSourceAnchor,
+        kind: CheckedMemoryOperationKind,
+        operands: &[MirOperand],
+        labels: Option<Vec<InlineAssemblyLabel>>,
+        symbols: &[MirCallableReference],
+    ) -> Result<Option<LoweredExpression>, LoweringError> {
+        let CheckedMemoryOperationKind::InlineAssembly {
+            inputs: inputs_type,
+            output: Some(output_type),
+            labels: Some(_),
+            contract,
+            ..
+        } = kind
+        else {
+            return Ok(None);
+        };
+
+        let [inputs] = operands else {
+            panic!(
+                "lowering contract violation: MissingSemanticSelection {value:?}",
+                value = expression
+            );
+        };
+
+        let labels = labels.unwrap_or_else(|| {
+            panic!(
+                "lowering contract violation: MissingSemanticSelection {value:?}",
+                value = expression
+            )
+        });
+
+        let alternates = self.inline_assembly_alternates(expression, source, labels)?;
+
+        let normal = self
+            .builder
+            .push_block(Self::retained_source(source), MirBlockKind::Ordinary)?;
+
+        let output = self.builder.push_block_parameter(
+            normal,
+            Self::retained_source(source),
+            output_type,
+        )?;
+
+        self.set_terminator(
+            current,
+            Self::retained_source(source),
+            MirTerminatorKind::InlineAssembly(MirInlineAssemblyTerminator::new(
+                contract,
+                // The terminator owns the sole compact MIR operand while the shared ordinary
+                // lowering path retains the operand vector through this branch.
+                inputs.clone(),
+                inputs_type,
+                output_type,
+                normal,
+                alternates,
+                symbols.iter().copied(),
+            )),
+        )?;
+
+        Ok(Some(LoweredExpression::continuing(
+            normal,
+            Some(MirOperand::Value(output)),
+            source.clone(),
+        )))
     }
 
     fn convert_memory_operand(
@@ -308,9 +358,15 @@ impl Lowerer<'_> {
             self.expression_source(expression),
         );
 
-        Ok(self.materialize_typed_for_later_evaluation(expression, lowered, operand_type)?
+        Ok(self
+            .materialize_typed_for_later_evaluation(expression, lowered, operand_type)?
             .value
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingOperationResult {value:?}", value = expression)))
+            .unwrap_or_else(|| {
+                panic!(
+                    "lowering contract violation: MissingOperationResult {value:?}",
+                    value = expression
+                )
+            }))
     }
 
     fn lower_inline_assembly_inputs(
@@ -322,11 +378,17 @@ impl Lowerer<'_> {
         let Some(BoundExpression::Structured(tuple)) =
             self.input.unit().view().expression(expression)
         else {
-            panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = expression);
+            panic!(
+                "lowering contract violation: MissingSemanticSelection {value:?}",
+                value = expression
+            );
         };
 
         if tuple.kind() != BoundStructuredExpressionKind::Tuple {
-            panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = expression);
+            panic!(
+                "lowering contract violation: MissingSemanticSelection {value:?}",
+                value = expression
+            );
         }
 
         let mut runtime = contract
@@ -345,11 +407,17 @@ impl Lowerer<'_> {
 
         for ((runtime_ordinal, source_ordinal), _) in runtime {
             if usize::from(runtime_ordinal) != operands.len() {
-                panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = expression);
+                panic!(
+                    "lowering contract violation: MissingSemanticSelection {value:?}",
+                    value = expression
+                );
             }
 
             let Some(element) = tuple.operands().get(usize::from(source_ordinal)).copied() else {
-                panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = expression);
+                panic!(
+                    "lowering contract violation: MissingSemanticSelection {value:?}",
+                    value = expression
+                );
             };
 
             let lowered = self.lower_expression(element, current)?;
@@ -360,7 +428,10 @@ impl Lowerer<'_> {
             };
 
             let Some(value) = lowered.value else {
-                panic!("lowering contract violation: MissingOperationResult {value:?}", value = element);
+                panic!(
+                    "lowering contract violation: MissingOperationResult {value:?}",
+                    value = element
+                );
             };
 
             current = continuation;
@@ -389,11 +460,17 @@ impl Lowerer<'_> {
         let Some(BoundExpression::Structured(tuple)) =
             self.input.unit().view().expression(expression)
         else {
-            panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = expression);
+            panic!(
+                "lowering contract violation: MissingSemanticSelection {value:?}",
+                value = expression
+            );
         };
 
         if tuple.kind() != BoundStructuredExpressionKind::Tuple {
-            panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = expression);
+            panic!(
+                "lowering contract violation: MissingSemanticSelection {value:?}",
+                value = expression
+            );
         }
 
         let elements = tuple.operands().to_vec();
@@ -406,11 +483,17 @@ impl Lowerer<'_> {
             let lowered = self.materialize_for_later_evaluation(element, lowered)?;
 
             let Some(continuation) = lowered.block else {
-                panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = element);
+                panic!(
+                    "lowering contract violation: MissingSemanticSelection {value:?}",
+                    value = element
+                );
             };
 
             let Some(callable) = lowered.value else {
-                panic!("lowering contract violation: MissingOperationResult {value:?}", value = element);
+                panic!(
+                    "lowering contract violation: MissingOperationResult {value:?}",
+                    value = element
+                );
             };
 
             current = continuation;
@@ -436,7 +519,10 @@ impl Lowerer<'_> {
             let data = self.input.semantic_values().type_data(label.ty);
 
             let TypeData::Callable(callable) = data.as_ref() else {
-                panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = expression);
+                panic!(
+                    "lowering contract violation: MissingSemanticSelection {value:?}",
+                    value = expression
+                );
             };
 
             let alternate = self
@@ -500,10 +586,7 @@ impl Lowerer<'_> {
     }
 }
 
-fn memory_argument_index(
-    expression: BoundExpressionId,
-    ordinal: u32,
-) -> usize {
+fn memory_argument_index(expression: BoundExpressionId, ordinal: u32) -> usize {
     usize::try_from(ordinal).unwrap_or_else(|_| {
         panic!(
             "lowering contract violation: memory argument {ordinal} for {expression:?} must index the host collection"
