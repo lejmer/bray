@@ -9,12 +9,12 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use bray_runtime_model::{ProtectedFrameDescriptor, ProtectedFrameStateId};
 
 use crate::context::{TaskOutput, current_task_output, current_task_start_site};
-use crate::frame::suspension_state;
+use crate::frame::{suspension_state, terminalize_frame};
 use crate::root::is_propagated_cancellation;
 use crate::{
     CancellationContext, ErasedProtectedFrame, ErasedSendableProtectedFrame, FrameContext,
-    FrameExit, FrameProgress, FrameSuspension, ProtectedFrame, RunOutcome, RunOutcomeKind,
-    RuntimePanic, SendableProtectedFrame, TaskSnapshot, TaskStartSite, erase_protected_frame,
+    FrameProgress, FrameSuspension, ProtectedFrame, RunOutcome, RunOutcomeKind, RuntimePanic,
+    SendableProtectedFrame, TaskSnapshot, TaskStartSite, erase_protected_frame,
     erase_sendable_protected_frame,
 };
 
@@ -51,8 +51,6 @@ impl TaskState {
 pub enum TaskFailureKind {
     /// The frame suspended with a state absent from its descriptor.
     UnknownSuspensionState(ProtectedFrameStateId),
-    /// The task lost its executable frame before reaching a terminal state.
-    MissingFrame,
     /// Runtime infrastructure could not continue driving the frame.
     ExecutionInfrastructure,
     /// The frame reported a compiler/runtime contract violation.
@@ -150,12 +148,12 @@ where
             .get_mut()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-        if data.frame.is_none() {
+        let Some(frame) = data.frame.take() else {
             return;
-        }
+        };
 
         // This is the invariant fallback when an explicit owner failed to terminalize the task.
-        let _ = resolve_failed_frame(&mut data.frame, &mut data.outgoing);
+        let _ = terminalize_frame(frame, FrameProgress::RuntimeFailure, &mut data.outgoing);
     }
 }
 
@@ -322,93 +320,83 @@ where
             return Err(TaskResumeError::AlreadyRunning);
         };
 
-        let mut data = self.lock_data()?;
+        let (mut frame, mut outgoing) = {
+            let mut data = self.lock_data()?;
 
-        if !matches!(data.state, TaskState::Ready | TaskState::Suspended(_)) {
-            return Err(TaskResumeError::NotResumable(data.state));
-        }
+            if !matches!(data.state, TaskState::Ready | TaskState::Suspended(_)) {
+                return Err(TaskResumeError::NotResumable(data.state));
+            }
 
-        data.state = TaskState::Running;
+            let frame = data
+                .frame
+                .take()
+                .unwrap_or_else(|| panic!("a resumable task must retain its executable frame"));
+
+            data.state = TaskState::Running;
+
+            (frame, std::mem::take(&mut data.outgoing))
+        };
 
         let context = FrameContext::new(self.cancellation_observable());
 
-        let progress = {
-            let Some(frame) = data.frame.as_mut() else {
-                let failure = TaskFailureKind::MissingFrame;
-
-                data.state = TaskState::Failed(failure);
-
-                return Err(TaskResumeError::NotResumable(TaskState::Failed(failure)));
-            };
-
-            match catch_unwind(AssertUnwindSafe(|| frame.as_mut().resume(context))) {
-                Ok(progress) => progress,
-                Err(payload) if is_propagated_cancellation(payload.as_ref()) => {
-                    FrameProgress::Cancelled
-                }
-                Err(payload) => FrameProgress::Panicked(RuntimePanic::from_payload(payload)),
+        let progress = match catch_unwind(AssertUnwindSafe(|| frame.as_mut().resume(context))) {
+            Ok(progress) => progress,
+            Err(payload) if is_propagated_cancellation(payload.as_ref()) => {
+                FrameProgress::Cancelled
             }
+            Err(payload) => FrameProgress::Panicked(RuntimePanic::from_payload(payload)),
         };
 
-        let (status, waiters) = match progress {
-            FrameProgress::Suspended(suspension) => {
-                if suspension_state(&self.descriptor, suspension).is_none() {
-                    let failure = TaskFailureKind::UnknownSuspensionState(suspension.state());
-                    let waiters = fail_task(&mut data, failure);
-
-                    drop(data);
-
-                    wake_all(waiters);
-
-                    return Err(TaskResumeError::UnknownSuspensionState(suspension.state()));
-                }
-
-                data.state = TaskState::Suspended(suspension.state());
-                data.frame_state = suspension.state();
-
-                (TaskResumeStatus::Suspended(suspension), BTreeMap::new())
+        let failure = match &progress {
+            FrameProgress::Suspended(suspension)
+                if suspension_state(&self.descriptor, *suspension).is_none() =>
+            {
+                Some(TaskFailureKind::UnknownSuspensionState(suspension.state()))
             }
-            FrameProgress::RuntimeFailure => {
-                let failure = TaskFailureKind::FrameContract;
-                let waiters = fail_task(&mut data, failure);
-
-                drop(data);
-
-                wake_all(waiters);
-
-                return Err(TaskResumeError::RuntimeFailed(failure));
-            }
-            terminal => {
-                let TaskData {
-                    frame, outgoing, ..
-                } = &mut *data;
-
-                let Some(active) = frame.as_mut() else {
-                    let failure = TaskFailureKind::MissingFrame;
-
-                    data.state = TaskState::Failed(failure);
-
-                    return Err(TaskResumeError::NotResumable(TaskState::Failed(failure)));
-                };
-
-                let outcome = finish_frame(active.as_mut(), terminal, outgoing);
-                let outcome = destroy_frame(frame.take(), outcome, outgoing);
-                let kind = outcome.kind();
-
-                data.state = task_state(kind);
-                data.outcome = Some(outcome);
-
-                let waiters = std::mem::take(&mut data.join_waiters);
-
-                (TaskResumeStatus::Terminal(kind), waiters)
-            }
+            FrameProgress::RuntimeFailure => Some(TaskFailureKind::FrameContract),
+            _ => None,
         };
 
-        drop(data);
+        if let Some(failure) = failure {
+            let outcome = terminalize_frame(frame, FrameProgress::RuntimeFailure, &mut outgoing);
 
-        wake_all(waiters);
+            self.publish_terminal(TaskState::Failed(failure), outcome, outgoing);
 
-        Ok(status)
+            return Err(match failure {
+                TaskFailureKind::UnknownSuspensionState(state) => {
+                    TaskResumeError::UnknownSuspensionState(state)
+                }
+                _ => TaskResumeError::RuntimeFailed(failure),
+            });
+        }
+
+        if let FrameProgress::Suspended(suspension) = progress {
+            let mut data = self
+                .data
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+            assert!(
+                data.frame.is_none(),
+                "a running task cannot retain a second executable frame"
+            );
+
+            data.frame = Some(frame);
+            data.outgoing.append(&mut outgoing);
+            data.state = TaskState::Suspended(suspension.state());
+            data.frame_state = suspension.state();
+
+            return Ok(TaskResumeStatus::Suspended(suspension));
+        }
+
+        let outcome = terminalize_frame(frame, progress, &mut outgoing)
+            .unwrap_or_else(|| unreachable!("normal frame terminalization retains an outcome"));
+
+        let kind = outcome.kind();
+
+        self.publish_terminal(task_state(kind), Some(outcome), outgoing);
+
+        Ok(TaskResumeStatus::Terminal(kind))
     }
 
     pub(crate) fn transfer_cleanup_incident(
@@ -518,13 +506,16 @@ where
     }
 
     pub(crate) fn resolve_runtime_failure(&self) -> Option<RuntimePanic> {
-        let (panic, waiters) = {
+        let _resume = ResumeGuard::acquire(&self.resuming)
+            .expect("runtime failure resolution requires exclusive task execution");
+
+        let (frame, mut outgoing) = {
             let mut data = self
                 .data
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-            if data.frame.is_none() {
+            let Some(frame) = data.frame.take() else {
                 if !matches!(data.state, TaskState::Failed(_)) {
                     return None;
                 }
@@ -533,22 +524,57 @@ where
                     Some(RunOutcome::Panicked(panic)) => Some(panic),
                     _ => None,
                 };
+            };
+
+            data.state = TaskState::Running;
+
+            (frame, std::mem::take(&mut data.outgoing))
+        };
+
+        let outcome = terminalize_frame(frame, FrameProgress::RuntimeFailure, &mut outgoing);
+
+        let panic = match outcome {
+            Some(RunOutcome::Panicked(panic)) => Some(panic),
+            Some(RunOutcome::Completed(_) | RunOutcome::Cancelled) => {
+                unreachable!("failed frame terminalization cannot complete normally")
             }
+            None => None,
+        };
 
-            let TaskData {
-                frame, outgoing, ..
-            } = &mut *data;
+        self.publish_terminal(
+            TaskState::Failed(TaskFailureKind::ExecutionInfrastructure),
+            None,
+            outgoing,
+        );
 
-            let panic = resolve_failed_frame(frame, outgoing);
+        panic
+    }
 
-            data.state = TaskState::Failed(TaskFailureKind::ExecutionInfrastructure);
+    fn publish_terminal(
+        &self,
+        state: TaskState,
+        outcome: Option<RunOutcome<T>>,
+        mut outgoing: crate::outgoing::OutgoingRecords,
+    ) {
+        let waiters = {
+            let mut data = self
+                .data
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-            (panic, std::mem::take(&mut data.join_waiters))
+            assert!(
+                data.outcome.is_none(),
+                "a running task cannot retain a prior terminal outcome"
+            );
+
+            data.outgoing.append(&mut outgoing);
+            data.state = state;
+            data.outcome = outcome;
+
+            std::mem::take(&mut data.join_waiters)
         };
 
         wake_all(waiters);
-
-        panic
     }
 
     pub(crate) fn state_id_for_reporting(&self) -> ProtectedFrameStateId {
@@ -645,130 +671,6 @@ impl Drop for ResumeGuard<'_> {
     }
 }
 
-fn finish_frame<T: 'static, F>(
-    mut frame: Pin<&mut F>,
-    progress: FrameProgress<T>,
-    outgoing: &mut crate::outgoing::OutgoingRecords,
-) -> RunOutcome<T>
-where
-    F: ?Sized + ProtectedFrame<Output = T>,
-{
-    let (mut outcome, mut exit) = match progress {
-        FrameProgress::Suspended(_) => {
-            unreachable!("suspended frames are not terminalized")
-        }
-        FrameProgress::Completed(value) => (RunOutcome::Completed(value), FrameExit::Completed),
-        FrameProgress::Cancelled => (RunOutcome::Cancelled, FrameExit::Cancelled),
-        FrameProgress::Panicked(panic) => (RunOutcome::Panicked(panic), FrameExit::Panicked),
-        FrameProgress::RuntimeFailure => {
-            unreachable!("failed frames are not terminalized")
-        }
-    };
-
-    if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
-        frame.as_mut().broadcast_tasks();
-    })) {
-        merge_panic(&mut outcome, payload, outgoing);
-        exit = FrameExit::Panicked;
-    }
-
-    if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
-        frame.as_mut().resolve_lifecycle(exit);
-    })) {
-        merge_panic(&mut outcome, payload, outgoing);
-    }
-
-    outcome
-}
-
-fn destroy_frame<T: 'static, F>(
-    frame: Option<Pin<Box<F>>>,
-    mut outcome: RunOutcome<T>,
-    outgoing: &mut crate::outgoing::OutgoingRecords,
-) -> RunOutcome<T>
-where
-    F: ?Sized + ProtectedFrame<Output = T>,
-{
-    if let Err(payload) = catch_unwind(AssertUnwindSafe(|| drop(frame))) {
-        merge_panic(&mut outcome, payload, outgoing);
-    }
-
-    outcome
-}
-
-fn resolve_failed_frame<T, F>(
-    frame: &mut Option<Pin<Box<F>>>,
-    outgoing: &mut crate::outgoing::OutgoingRecords,
-) -> Option<RuntimePanic>
-where
-    F: ?Sized + ProtectedFrame<Output = T>,
-{
-    let mut panic = None;
-
-    if let Some(frame) = frame.as_mut() {
-        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
-            frame.as_mut().broadcast_tasks();
-        })) {
-            RuntimePanic::record(&mut panic, payload, outgoing);
-        }
-
-        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
-            frame.as_mut().resolve_lifecycle(FrameExit::RuntimeFailure);
-        })) {
-            RuntimePanic::record(&mut panic, payload, outgoing);
-        }
-    }
-
-    if let Err(payload) = catch_unwind(AssertUnwindSafe(|| drop(frame.take()))) {
-        RuntimePanic::record(&mut panic, payload, outgoing);
-    }
-
-    panic
-}
-
-fn fail_task<T, F>(
-    data: &mut TaskData<T, F>,
-    failure: TaskFailureKind,
-) -> BTreeMap<u64, Arc<dyn JoinWake>>
-where
-    F: ?Sized + ProtectedFrame<Output = T>,
-{
-    data.outcome =
-        resolve_failed_frame(&mut data.frame, &mut data.outgoing).map(RunOutcome::Panicked);
-
-    data.state = TaskState::Failed(failure);
-
-    std::mem::take(&mut data.join_waiters)
-}
-
-fn merge_panic<T>(
-    outcome: &mut RunOutcome<T>,
-    payload: Box<dyn std::any::Any + Send>,
-    outgoing: &mut crate::outgoing::OutgoingRecords,
-) {
-    let previous = std::mem::replace(outcome, RunOutcome::Cancelled);
-
-    let panic = match previous {
-        RunOutcome::Panicked(mut panic) => {
-            panic.push_suppressed(payload, outgoing);
-
-            panic
-        }
-        RunOutcome::Completed(value) => {
-            let mut panic = RuntimePanic::from_payload(payload);
-
-            if let Err(payload) = catch_unwind(AssertUnwindSafe(|| drop(value))) {
-                panic.push_suppressed(payload, outgoing);
-            }
-
-            panic
-        }
-        RunOutcome::Cancelled => RuntimePanic::from_payload(payload),
-    };
-
-    *outcome = RunOutcome::Panicked(panic);
-}
-
 const fn task_state(kind: RunOutcomeKind) -> TaskState {
     match kind {
         RunOutcomeKind::Completed => TaskState::Completed,
@@ -789,7 +691,7 @@ mod tests {
     use std::pin::Pin;
     use std::rc::Rc;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::{Arc, Barrier};
+    use std::sync::{Arc, Barrier, Mutex};
     use std::thread;
 
     use bray_platform::RuntimeThreadScope;
@@ -1202,6 +1104,60 @@ mod tests {
     }
 
     #[test]
+    fn frame_callbacks_and_release_run_once_without_the_task_data_lock() {
+        for runtime_failure in [false, true] {
+            let callback = Arc::new(Mutex::new(None));
+            let callbacks = Arc::new(AtomicUsize::new(0));
+            let releases = Arc::new(AtomicUsize::new(0));
+
+            let task = TaskControlBlock::start(
+                crate::test_support::admit_task(),
+                LockCheckingFrame {
+                    inner: TestFrame::completing(47),
+                    callback: Arc::clone(&callback),
+                    releases: Arc::clone(&releases),
+                },
+            );
+
+            let observed_task = Arc::clone(&task);
+            let observed_callbacks = Arc::clone(&callbacks);
+
+            *callback.lock().unwrap() = Some(Box::new(move || {
+                let data = observed_task
+                    .data
+                    .try_lock()
+                    .expect("frame callbacks and destruction must not hold task data");
+
+                assert_eq!(data.state, TaskState::Running);
+                assert!(data.frame.is_none());
+                drop(data);
+
+                assert_eq!(observed_task.resume(), Err(TaskResumeError::AlreadyRunning));
+                observed_callbacks.fetch_add(1, Ordering::Relaxed);
+            }) as Box<dyn Fn() + Send + Sync>);
+
+            if runtime_failure {
+                assert!(task.resolve_runtime_failure().is_none());
+                assert_eq!(callbacks.load(Ordering::Relaxed), 3);
+
+                assert_eq!(
+                    task.state().unwrap(),
+                    TaskState::Failed(TaskFailureKind::ExecutionInfrastructure)
+                );
+            } else {
+                assert!(matches!(task.resume(), Ok(TaskResumeStatus::Terminal(_))));
+                assert!(matches!(task.take_outcome(), Ok(RunOutcome::Completed(47))));
+                assert_eq!(callbacks.load(Ordering::Relaxed), 4);
+            }
+
+            assert_eq!(releases.load(Ordering::Relaxed), 1);
+
+            // Release the callback's task ownership after the frame has been destroyed.
+            callback.lock().unwrap().take();
+        }
+    }
+
+    #[test]
     fn observation_before_terminal_state_is_rejected() {
         let task =
             TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(1));
@@ -1253,6 +1209,49 @@ mod tests {
         frame: TestFrame,
         broadcasts: Arc<AtomicUsize>,
         resolutions: Arc<AtomicUsize>,
+    }
+
+    struct LockCheckingFrame {
+        inner: TestFrame,
+        callback: Arc<Mutex<Option<Box<dyn Fn() + Send + Sync>>>>,
+        releases: Arc<AtomicUsize>,
+    }
+
+    impl LockCheckingFrame {
+        fn check(&self) {
+            if let Some(callback) = self.callback.lock().unwrap().as_ref() {
+                callback();
+            }
+        }
+    }
+
+    impl ProtectedFrame for LockCheckingFrame {
+        type Output = i32;
+
+        fn descriptor(&self) -> &bray_runtime_model::ProtectedFrameDescriptor {
+            self.inner.descriptor()
+        }
+
+        fn resume(self: Pin<&mut Self>, context: FrameContext) -> FrameProgress<Self::Output> {
+            self.check();
+
+            Pin::new(&mut self.get_mut().inner).resume(context)
+        }
+
+        fn broadcast_tasks(self: Pin<&mut Self>) {
+            self.check();
+        }
+
+        fn resolve_lifecycle(self: Pin<&mut Self>, _exit: FrameExit) {
+            self.check();
+        }
+    }
+
+    impl Drop for LockCheckingFrame {
+        fn drop(&mut self) {
+            self.check();
+            self.releases.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     impl ProtectedFrame for TrackedFrame {
