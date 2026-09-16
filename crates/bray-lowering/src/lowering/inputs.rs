@@ -96,7 +96,6 @@ impl Lowerer<'_> {
 
         let cleanup = self
             .input
-            .lowering_plans()
             .cleanup_type(ty)
             .map(|shape| shape.cleanup())
             .ok_or(LoweringError::MissingInputCleanup(expression))?;

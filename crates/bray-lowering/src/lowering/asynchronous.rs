@@ -27,7 +27,6 @@ impl Lowerer<'_> {
 
         let suspension = self
             .input
-            .lowering_plans()
             .suspension(id)
             // Lowering mutates its builder while retaining this immutable checked decision.
             .cloned()
@@ -115,7 +114,7 @@ impl Lowerer<'_> {
         source: MirSourceAnchor,
         call: MirCall,
     ) -> Result<(MirBlockId, MirOperand), LoweringError> {
-        let task_operation = self.input.lowering_plans().task_operation(expression);
+        let task_operation = self.input.task_operation(expression);
 
         let operation = match task_operation {
             Some(AsyncTaskOperationKind::Start) => {
@@ -263,7 +262,7 @@ impl Lowerer<'_> {
     }
 
     pub(super) fn frame_affinity(&self) -> bray_runtime_interface::ProtectedFrameAffinity {
-        frame_affinity(self.input.lowering_plans().frame_dependencies())
+        frame_affinity(self.input.frame_dependencies())
     }
 }
 

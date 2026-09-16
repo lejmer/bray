@@ -119,7 +119,6 @@ impl Lowerer<'_> {
 
                 let suspension = self
                     .input
-                    .lowering_plans()
                     .suspension(expression)
                     .filter(|suspension| suspension.kind() == AsyncSuspensionKind::Yield)
                     .cloned()

@@ -9,7 +9,6 @@ pub(super) const fn native_product_failure_is_internal(
         | Kind::EvaluationSemanticValueStoreCreate
         | Kind::EvaluationSemanticValue(_)
         | Kind::EvaluationBinding(_)
-        | Kind::EvaluationLoweringInput(_)
         | Kind::EvaluationLowering(_)
         | Kind::EvaluationConstantCallableBodyUnavailable
         | Kind::EvaluationConstantCallableRootUnavailable

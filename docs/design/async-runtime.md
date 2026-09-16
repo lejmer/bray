@@ -45,7 +45,7 @@ The plan retains partial-move masks, guards, and ordering across nested aggregat
 broadcast and lifecycle resolution are distinct phases. Descriptor traversal must discover owned tasks before waits or
 destruction begin.
 
-Lowering consumes verified plans rather than searching syntax or recursively rediscovering ownership. Typed MIR
+Lowering consumes those plans rather than searching syntax or recursively rediscovering ownership. Typed MIR
 operations express frame composition, task admission, waits, completion, report transfer, and cleanup. MIR validation
 checks representation and phase consistency, and completed MIR determines the exact generated helpers and runtime roles.
 

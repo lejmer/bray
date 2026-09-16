@@ -34,7 +34,6 @@ impl Lowerer<'_> {
     ) -> Result<(), LoweringError> {
         let accesses = self
             .input
-            .lowering_plans()
             .initialization_guards()
             .collect::<BTreeSet<_>>();
 
@@ -71,7 +70,7 @@ impl Lowerer<'_> {
             let guard = self.new_initialization_guard(entry, source, boolean, &[], initialized)?;
             let mut parts = Vec::new();
 
-            if let Some(checked) = self.input.lowering_plans().cleanup_parts(identity) {
+            if let Some(checked) = self.input.cleanup_parts(identity) {
                 for part in checked {
                     let mut array_types = Vec::new();
                     let mut element = boolean;

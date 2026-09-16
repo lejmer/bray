@@ -1,5 +1,5 @@
 use bray_checker::CheckerInfrastructureError;
-use bray_lowering::{LoweringError, LoweringInputError};
+use bray_lowering::LoweringError;
 use bray_source::SourceSpan;
 
 use crate::compilation::{SemanticQueryError, SemanticQueryFailure};
@@ -307,8 +307,6 @@ pub enum FactQueryError {
     Product(crate::ProductQueryError),
     /// Foreign-boundary compilation violated an exact query contract.
     Foreign(crate::ForeignQueryError),
-    /// Checked lowering inputs violated the lowering boundary contract.
-    LoweringInput(LocatedLoweringFailure<LoweringInputError>),
     /// MIR lowering violated a checked semantic or MIR construction contract.
     Lowering(LocatedLoweringFailure<LoweringError>),
 }
@@ -466,13 +464,6 @@ impl std::fmt::Display for FactQueryError {
             Self::SemanticQuery(error) => write!(formatter, "{error}"),
             Self::Product(error) => write!(formatter, "product query failed: {error:?}"),
             Self::Foreign(error) => write!(formatter, "foreign query failed: {error:?}"),
-            Self::LoweringInput(error) => {
-                write!(
-                    formatter,
-                    "lowering input validation failed: {:?}",
-                    error.cause()
-                )
-            }
             Self::Lowering(error) => {
                 write!(formatter, "MIR lowering failed: {:?}", error.cause())
             }

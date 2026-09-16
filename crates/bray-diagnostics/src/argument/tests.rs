@@ -7,8 +7,7 @@ use bray_syntax::SyntaxKind;
 use super::{
     DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticArtifactDigest,
     DiagnosticArtifactDigestAlgorithm, DiagnosticIoErrorKind, DiagnosticLoweringFailure,
-    DiagnosticLoweringFailureKind, DiagnosticLoweringInputFailure,
-    DiagnosticLoweringInputFailureKind, DiagnosticNameKind, DiagnosticNativeLinkInputFailure,
+    DiagnosticLoweringFailureKind, DiagnosticNameKind, DiagnosticNativeLinkInputFailure,
     DiagnosticNativeProductFailureDetail, DiagnosticNativeProductFailureKind,
 };
 
@@ -166,12 +165,6 @@ fn native_product_failure_keys_are_unique_and_domain_named() {
             provenance_identity: Some("test".to_owned()),
         }),
         Kind::EvaluationCycle(crate::DiagnosticEvaluationFailureDetail::new("cycle", [])),
-        Kind::EvaluationLoweringInput(DiagnosticLoweringInputFailure::new(
-            DiagnosticLoweringInputFailureKind::InvalidStorageExit(
-                crate::DiagnosticLoweringIdentity::new(3, 5),
-            ),
-            source,
-        )),
         Kind::EvaluationLowering(DiagnosticLoweringFailure::new(
             DiagnosticLoweringFailureKind::MissingStorageIdentity(
                 crate::DiagnosticLoweringIdentity::new(3, 5),

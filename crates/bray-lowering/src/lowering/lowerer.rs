@@ -328,7 +328,7 @@ mod tests {
     use bray_testing::{test_bound_unit, test_mir_target};
 
     use super::lower_unit;
-    use crate::{LoweringInput, VerifiedLoweringPlans};
+    use crate::LoweringInput;
 
     fn synchronous_callable_unit(
         template: &BoundUnit,
@@ -1041,8 +1041,13 @@ mod tests {
         fn input(&self) -> LoweringInput<'_> {
             let target = test_mir_target();
 
-            let lowering_plans = VerifiedLoweringPlans::try_new(
+            LoweringInput::new(
                 &self.unit,
+                &self.control_flow,
+                &self.types,
+                &self.patterns,
+                &self.literals,
+                &self.refinements,
                 &self.storage,
                 &self.liveness,
                 &self.storage_flow,
@@ -1050,23 +1055,13 @@ mod tests {
                 &self.selections,
                 available_compiler_known_symbols(),
                 &self.async_analysis,
-            )
-            .unwrap_or_else(|error| panic!("test lowering plans must validate: {error:?}"));
-
-            LoweringInput::try_new(
-                &self.unit,
-                &self.control_flow,
-                &self.types,
-                &self.patterns,
-                &self.literals,
-                &self.refinements,
-                lowering_plans,
+                std::collections::BTreeSet::new(),
                 &self.behavior,
                 &self.values,
+                &[],
                 MirUnitKind::Synchronous,
                 target,
             )
-            .unwrap_or_else(|error| panic!("test lowering input must validate: {error:?}"))
         }
     }
 

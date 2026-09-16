@@ -26,7 +26,7 @@ pub use emission::{
     DiagnosticCodegenVerificationStage, DiagnosticDebugInformationMode, DiagnosticDebugOutputMode,
     DiagnosticEmissionArtifactOperation, DiagnosticFrameDescriptorFailure,
     DiagnosticLoweringFailure, DiagnosticLoweringFailureKind, DiagnosticLoweringIdentity,
-    DiagnosticLoweringInputFailure, DiagnosticLoweringInputFailureKind, DiagnosticLoweringRoot,
+    DiagnosticLoweringRoot,
     DiagnosticMirUnitBuildFailure, DiagnosticMirUnitBuildFailureContext,
     DiagnosticMirUnitBuildFailureKind, DiagnosticMirUnitLocalIdentity,
     DiagnosticNativeLinkInputFailure, DiagnosticNativeProductFailureDetail,

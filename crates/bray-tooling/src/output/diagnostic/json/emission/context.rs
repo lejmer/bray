@@ -8,7 +8,7 @@ use super::failure::{
 };
 use super::foreign_query::foreign_query_failure_context;
 use super::product_query::product_query_failure_context;
-use super::{checker_failure_context, lowering_failure_context, lowering_input_failure_context};
+use super::{checker_failure_context, lowering_failure_context};
 
 pub(super) fn planning_failure_context(
     failure: &bray_diagnostics::DiagnosticEmissionPlanningFailure,
@@ -235,7 +235,6 @@ pub(super) fn evaluation_failure_context(
             Some(failure) => semantic_value_failure_context(failure),
             None => diagnostic_failure_context(failure.context()),
         },
-        Failure::LoweringInput(failure) => lowering_input_failure_context(*failure),
         Failure::Lowering(failure) => lowering_failure_context(*failure),
         Failure::Product(failure) => product_query_failure_context(failure),
         Failure::Foreign(failure) => foreign_query_failure_context(failure),
@@ -590,7 +589,6 @@ mod tests {
         DiagnosticPackageInterfaceFailure, DiagnosticSemanticValueFailure,
     };
 
-    use super::super::lowering_input_failure_context;
     use super::{
         diagnostic_failure_context, package_interface_failure_context,
         semantic_value_failure_context,
@@ -651,92 +649,6 @@ mod tests {
             context[0]["value"]["value"]["context"][1]["value"]["value"],
             29
         );
-    }
-
-    #[test]
-    fn lowering_count_mismatches_serialize_expected_and_actual_values() {
-        let context = lowering_input_failure_context(
-            bray_diagnostics::DiagnosticLoweringInputFailure::new(
-            bray_diagnostics::DiagnosticLoweringInputFailureKind::StorageOperationCountMismatch {
-                expected: 5,
-                actual: 8,
-            },
-                bray_source::SourceSpan::new(
-                    bray_source::SourceId::new(2),
-                    bray_source::TextRange::new(
-                        bray_source::TextSize::new(3),
-                        bray_source::TextSize::new(4),
-                    ),
-                ),
-            ),
-        );
-
-        let context = serde_json::to_value(context)
-            .unwrap_or_else(|error| panic!("lowering context should serialize: {error:?}"));
-
-        assert_eq!(context[1]["name"], "expected");
-        assert_eq!(context[1]["value"]["value"], 5);
-        assert_eq!(context[2]["name"], "actual");
-        assert_eq!(context[2]["value"]["value"], 8);
-    }
-
-    #[test]
-    fn verified_plan_failures_serialize_one_unit_with_each_exact_identity() {
-        use bray_diagnostics::DiagnosticLoweringIdentity;
-
-        let identity = |ordinal| DiagnosticLoweringIdentity::new(13, ordinal);
-
-        let context =
-            lowering_input_failure_context(bray_diagnostics::DiagnosticLoweringInputFailure::new(
-                bray_diagnostics::DiagnosticLoweringInputFailureKind::InvalidPlan {
-                    plan: "storage_disposition",
-                    cause: "contradictory",
-                    expression: Some(identity(17)),
-                    scope: Some(identity(19)),
-                    exit: Some(identity(23)),
-                    storage: Some(identity(29)),
-                    access: Some(identity(31)),
-                },
-                bray_source::SourceSpan::new(
-                    bray_source::SourceId::new(2),
-                    bray_source::TextRange::new(
-                        bray_source::TextSize::new(3),
-                        bray_source::TextSize::new(4),
-                    ),
-                ),
-            ));
-
-        let context = serde_json::to_value(context)
-            .unwrap_or_else(|error| panic!("verified-plan context should serialize: {error:?}"));
-
-        let names = context
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|field| field["name"].as_str())
-            .collect::<Vec<_>>();
-
-        assert_eq!(
-            names,
-            [
-                "cause",
-                "plan",
-                "plan_failure",
-                "bound_unit",
-                "expression",
-                "scope",
-                "exit",
-                "storage",
-                "storage_access",
-            ]
-        );
-
-        assert_eq!(context[3]["value"]["value"], 13);
-        assert_eq!(context[4]["value"]["value"], 17);
-        assert_eq!(context[5]["value"]["value"], 19);
-        assert_eq!(context[6]["value"]["value"], 23);
-        assert_eq!(context[7]["value"]["value"], 29);
-        assert_eq!(context[8]["value"]["value"], 31);
     }
 
     #[test]

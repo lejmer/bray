@@ -1,4 +1,4 @@
 mod model;
-mod validation;
 
-pub use model::{LoweringInput, LoweringInputError, LoweringInputKind};
+pub use model::LoweringInput;
+pub(crate) use model::{CleanupPlanLookupError, ScopeExitCleanupStatus};
