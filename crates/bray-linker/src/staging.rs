@@ -4,8 +4,7 @@ use bray_diagnostics::DiagnosticBag;
 
 use crate::outcome::failed_outcome;
 use crate::{
-    LinkFailure, LinkInputSource, LinkOutcome, LinkOutcomeBuildError, LinkPlan, LinkedArtifact,
-    LinkedArtifactRequirement, LinkedArtifactSetBuildError,
+    LinkFailure, LinkInputSource, LinkOutcome, LinkPlan, LinkedArtifact, LinkedArtifactRequirement,
 };
 
 pub(crate) fn validate_file_inputs(plan: &LinkPlan) -> Result<(), LinkFailure> {
@@ -57,20 +56,5 @@ pub(crate) fn complete_linked_outputs(plan: &LinkPlan) -> LinkOutcome {
         ));
     }
 
-    LinkOutcome::try_complete(plan, artifacts, DiagnosticBag::new())
-        .unwrap_or_else(|error| failed_outcome(plan, link_outcome_failure(error)))
-}
-
-fn link_outcome_failure(error: LinkOutcomeBuildError) -> LinkFailure {
-    match error {
-        LinkOutcomeBuildError::ErrorDiagnostics(_) => LinkFailure::Invocation,
-        LinkOutcomeBuildError::InvalidArtifacts(LinkedArtifactSetBuildError::MissingRequired(
-            destination,
-        )) => LinkFailure::MissingOutput(destination),
-        LinkOutcomeBuildError::InvalidArtifacts(
-            LinkedArtifactSetBuildError::DuplicateArtifact(destination)
-            | LinkedArtifactSetBuildError::UnplannedArtifact(destination)
-            | LinkedArtifactSetBuildError::KindMismatch(destination),
-        ) => LinkFailure::InvalidOutput(destination),
-    }
+    LinkOutcome::complete(artifacts, DiagnosticBag::new())
 }

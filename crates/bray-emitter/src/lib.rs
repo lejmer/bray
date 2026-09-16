@@ -34,10 +34,10 @@ pub use link::{
     LinkStagingError, ProductLinkInputs, StagedArtifact, StagedArtifactBuildError,
     construct_link_plan,
 };
-pub use outcome::{EmissionFailure, EmissionOutcome, EmissionOutcomeBuildError, EmissionStatus};
+pub use outcome::{EmissionFailure, EmissionOutcome, EmissionStatus};
 pub use plan::{
-    BackendEmissionPolicy, EmissionBackend, EmissionBackendBuildError, EmissionPlan,
-    EmissionPlanner, EmissionPlanningError, PlannedArtifact, PlannedArtifactDestination,
+    BackendEmissionPolicy, EmissionBackend, EmissionPlan, EmissionPlanner, EmissionPlanningError,
+    PlannedArtifact, PlannedArtifactDestination,
 };
 pub use publication::{ArtifactPublisher, PublicationValidator};
 pub use publication::{

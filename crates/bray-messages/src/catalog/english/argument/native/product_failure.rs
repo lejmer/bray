@@ -44,17 +44,13 @@ pub(super) const fn native_product_failure_is_internal(
         | Kind::ExecutableHostMissingMainThreadLane
         | Kind::ExecutableHostMissingProtectedFrameAbi
         | Kind::ExecutableHostMissingRole(_)
-        | Kind::EmissionBackendDuplicateUnit
         | Kind::CodegenBackendInvalidConfiguration
         | Kind::CodegenBackendInvalidConfigurationDetail(_)
         | Kind::CodegenBackendResourceExhausted
         | Kind::CodegenBackendResourceLimit(_)
         | Kind::CodegenBackendLibraryFailure(_)
         | Kind::CodegenBackendToolFailure(_)
-        | Kind::CodegenBackendInvalidRuntimeMetadata(_)
-        | Kind::CodegenBackendInvalidOutcome(_)
         | Kind::CodegenBackendArtifactConstruction(_)
-        | Kind::CodegenInvalidRequest(_)
         | Kind::CodegenInvalidInstance(_)
         | Kind::CodegenInvalidUnit(_)
         | Kind::CodegenUnitMismatch(_)

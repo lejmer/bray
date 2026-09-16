@@ -87,15 +87,6 @@ const NATIVE_PRODUCT_PREPARATION_FAILED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text(": "),
     MessageTemplatePart::Arg(DiagnosticArgName::NativeProductFailureKind),
 ];
-const EMISSION_LINKED_PLAN_MISSING: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("cannot publish linked product "),
-    MessageTemplatePart::Arg(DiagnosticArgName::ActualProductIdentity),
-    MessageTemplatePart::Text(" for target "),
-    MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
-    MessageTemplatePart::Text(
-        " because its completed native output was not requested for this product",
-    ),
-];
 const EMISSION_FAILED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("cannot emit product "),
     MessageTemplatePart::Arg(DiagnosticArgName::ActualProductIdentity),
@@ -2863,9 +2854,6 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
             MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
             MessageTemplatePart::Text(" was cancelled. A subsequent operation can resume cleanup."),
         ]),
-        DiagnosticKind::EmissionLinkedPlanMissing => {
-            MessageTemplate::new(EMISSION_LINKED_PLAN_MISSING)
-        }
         DiagnosticKind::EmissionFailed => MessageTemplate::new(EMISSION_FAILED),
         DiagnosticKind::EmissionTargetMismatch => MessageTemplate::new(EMISSION_TARGET_MISMATCH),
         DiagnosticKind::EmissionProductMismatch => MessageTemplate::new(EMISSION_PRODUCT_MISMATCH),

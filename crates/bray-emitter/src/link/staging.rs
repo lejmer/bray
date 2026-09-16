@@ -780,7 +780,7 @@ mod tests {
         destination: std::path::PathBuf,
         linkable: LinkableArtifactKind,
     ) -> crate::EmissionPlan {
-        let backend = EmissionBackend::try_new(
+        let backend = EmissionBackend::new(
             backend_identity(),
             backend_capabilities(),
             [codegen_unit_key(1)],
@@ -790,8 +790,7 @@ mod tests {
                 Some(linkable),
                 BackendSerializationOptions::new(AssemblySyntaxKind::TargetDefault),
             ),
-        )
-        .unwrap_or_else(|error| panic!("test emission backend must be valid: {error:?}"));
+        );
 
         let request = EmissionRequest::try_new(
             product_identity(),

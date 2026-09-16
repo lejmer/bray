@@ -13,7 +13,7 @@ use bray_testing::test_mir_unit;
 
 use crate::{
     ArtifactId, ArtifactKind, ArtifactProducer, ArtifactRequirement, ArtifactRole, EmissionPlan,
-    EmissionRequest, EmittedArtifact, LinkerProducerId, OutputSink, PlannedArtifact,
+    EmissionRequest, EmittedArtifact, OutputSink, PlannedArtifact,
     PlannedArtifactDestination, ProductIdentity, ProductKind, ReplacementPolicy, RequestedArtifact,
     RequestedArtifactDestination,
 };
@@ -162,50 +162,16 @@ pub(crate) fn emission_plan() -> EmissionPlan {
         }),
     );
 
-    let Ok(plan) = EmissionPlan::try_new(
+    let plan = EmissionPlan::new(
         request,
         None,
         None,
         [artifact],
         [],
         Some(interface_artifact()),
-    ) else {
-        panic!("test emission plan must be valid");
-    };
+    );
 
     plan
-}
-
-pub(crate) fn linked_artifact(
-    kind: ArtifactKind,
-    role: ArtifactRole,
-    path: &str,
-    ordinal: u32,
-) -> PlannedArtifact {
-    let path = std::path::Path::new(path);
-
-    let root = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| std::path::Path::new("."));
-
-    let name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or_else(|| panic!("test linked path must have a portable file name"));
-
-    PlannedArtifact::new(
-        ArtifactId::new(product_identity(), kind, 0),
-        ArtifactRequirement::Required,
-        role,
-        ArtifactProducer::Linker(LinkerProducerId::new(ordinal)),
-        PlannedArtifactDestination::Publish(OutputSink::ManagedFilesystem {
-            root: root.to_owned(),
-            artifact: crate::ManagedArtifactPath::try_new(name)
-                .unwrap_or_else(|| panic!("test managed path must be valid")),
-            published: path.to_owned(),
-        }),
-    )
 }
 
 pub(crate) fn backend_artifact_plan_parts() -> (
@@ -234,7 +200,7 @@ pub(crate) fn backend_artifact_plan_parts() -> (
 
     let serialization = BackendSerializationOptions::new(AssemblySyntaxKind::TargetDefault);
 
-    let Ok(backend_request) = BackendArtifactRequest::try_new(
+    let backend_request = BackendArtifactRequest::new(
         backend_artifact.unit().clone(),
         [backend_entry],
         DebugInformationOutputMode::Omit,
@@ -243,9 +209,7 @@ pub(crate) fn backend_artifact_plan_parts() -> (
             BackendArtifactRequirement::Required,
         )),
         serialization,
-    ) else {
-        panic!("test backend request must be valid");
-    };
+    );
 
     let artifact = PlannedArtifact::new(
         ArtifactId::new(

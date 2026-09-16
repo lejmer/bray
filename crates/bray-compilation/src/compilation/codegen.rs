@@ -1,14 +1,14 @@
 use std::sync::Arc;
 
 use bray_codegen::{
-    BackendArtifactRequest, CodegenInstance, CodegenInstanceBuildError, CodegenMappings,
-    CodegenOptions, CodegenOutcome, CodegenRequest,
-    CodegenRequestBuildError, CodegenTarget, CodegenUnit, CodegenUnitBuildError, CodegenUnitKey,
+    BackendArtifactRequest, CodegenCallableSignature, CodegenInstance, CodegenInstanceBuildError,
+    CodegenMappings, CodegenOptions, CodegenOutcome, CodegenRequest, CodegenTarget, CodegenUnit,
+    CodegenUnitBuildError, CodegenUnitKey,
 };
 #[cfg(test)]
 use bray_codegen::{
-    CodegenCallableSignature, CodegenLinkage, CodegenResultMapping, CodegenSymbolKey,
-    CodegenSymbolMapping, demanded_runtime_references,
+    CodegenLinkage, CodegenResultMapping, CodegenSymbolKey, CodegenSymbolMapping,
+    demanded_runtime_references,
 };
 use bray_diagnostics::DiagnosticBag;
 #[cfg(test)]
@@ -230,19 +230,6 @@ impl Compilation {
         let capability_revision = codegen.selected_capabilities().revision();
         let product = self.product_kind();
 
-        CodegenRequest::try_new(
-            unit,
-            backend,
-            capability_revision,
-            product,
-            target,
-            mappings,
-            options,
-            artifacts,
-            &self.state.cancellation,
-        )
-        .map_err(CodegenPreparationError::InvalidRequest)?;
-
         let key = CodegenArtifactQueryKey::new(
             unit.key().clone(),
             mappings.clone(),
@@ -263,7 +250,7 @@ impl Compilation {
             |shared_cancellation| {
                 self.record_codegen_configuration();
 
-                let request = CodegenRequest::try_new(
+                let request = CodegenRequest::new(
                     unit,
                     backend,
                     capability_revision,
@@ -273,15 +260,7 @@ impl Compilation {
                     options,
                     artifacts,
                     shared_cancellation,
-                )
-                .map_err(|cause| {
-                    FactQueryError::from(
-                        super::product::ProductQueryFailure::InvalidCodegenRequest {
-                            unit: unit.key().clone(),
-                            cause,
-                        },
-                    )
-                })?;
+                );
 
                 let span = self.state.fact_runtime.profile().map(|profile| {
                     profile.start(crate::profile::ProfileOperation::CodeGeneration, None)
@@ -433,8 +412,6 @@ fn symbol_mapping(
 pub enum CodegenPreparationError {
     /// This compilation was composed without a code generation backend.
     CodegenUnavailable,
-    /// The supplied code generation inputs do not form a coherent request.
-    InvalidRequest(CodegenRequestBuildError),
     /// A plan-named MIR unit is unavailable from this compilation.
     MirUnavailable(MirUnitKey),
     /// A demanded declaration has neither executable code nor an imported native symbol.
@@ -463,9 +440,9 @@ pub enum CodegenPreparationError {
         /// Closed runtime role selected by build metadata.
         role: bray_runtime_interface::RuntimeAbiRole,
         /// Target-classified ABI required by the role.
-        expected: bray_codegen::CodegenCallableSignature,
+        expected: CodegenCallableSignature,
         /// Target-classified ABI produced by the source declaration.
-        actual: bray_codegen::CodegenCallableSignature,
+        actual: CodegenCallableSignature,
     },
     /// A constant term needed by code generation still contains unresolved parameters.
     OpenConstantTerm(bray_symbols::ConstantTermId),

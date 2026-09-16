@@ -379,16 +379,7 @@ impl Compilation {
                 crate::compilation::linking::product_emission_error(kind, &diagnostics, &plan)
             })?;
 
-        outcome
-            .try_with_prior_diagnostics(&diagnostics)
-            .map_err(|error| {
-                ProductEmissionError::new(
-                    ProductEmissionErrorKind::Outcome(error),
-                    diagnostics,
-                    &product,
-                    &target,
-                )
-            })
+        Ok(outcome.with_prior_diagnostics(&diagnostics))
     }
 
     fn validate_product_request(
@@ -752,9 +743,6 @@ fn product_linked_emission_error(
 ) -> ProductEmissionErrorKind {
     match error {
         crate::LinkedProductEmissionError::Query(error) => product_query_error(error),
-        crate::LinkedProductEmissionError::Outcome(error) => {
-            ProductEmissionErrorKind::Outcome(error)
-        }
     }
 }
 
@@ -1090,7 +1078,7 @@ mod tests {
         host: bray_runtime_interface::ExecutableHostContract,
         unit: &bray_codegen::CodegenUnit,
     ) -> bray_emitter::EmissionPlan {
-        let backend = EmissionBackend::try_new(
+        let backend = EmissionBackend::new(
             test_backend_identity(),
             test_backend_capabilities(),
             [unit.key().clone()],
@@ -1102,8 +1090,7 @@ mod tests {
                     bray_codegen::AssemblySyntaxKind::TargetDefault,
                 ),
             ),
-        )
-        .unwrap_or_else(|error| panic!("test emission backend must be valid: {error:?}"));
+        );
 
         let name = TargetOutputName::try_new(TargetOutputKind::Executable, "", "")
             .unwrap_or_else(|error| panic!("test executable name must be valid: {error:?}"));

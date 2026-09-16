@@ -3,7 +3,6 @@ use bray_codegen::{
     CodegenTargetBuildError, CodegenUnitBuildError,
 };
 use bray_diagnostics::DiagnosticBag;
-use bray_emitter::EmissionBackendBuildError;
 use bray_ir::MirCapacityError;
 use bray_linker::LinkTargetBuildError;
 use bray_runtime_interface::{ExecutableHostContractBuildError, RuntimeArtifactSelectionError};
@@ -80,8 +79,6 @@ pub enum NativeProductPlanningError {
     InvalidExecutableHost(ExecutableHostContractBuildError),
     /// Runtime metadata cannot supply an exact physical component selection.
     InvalidRuntimeSelection(RuntimeArtifactSelectionError),
-    /// The selected emitter backend description is invalid.
-    InvalidEmissionBackend(EmissionBackendBuildError),
     /// The selected linker target is invalid.
     InvalidLinkTarget(LinkTargetBuildError),
     /// The configured standard library cannot supply a required native artifact.

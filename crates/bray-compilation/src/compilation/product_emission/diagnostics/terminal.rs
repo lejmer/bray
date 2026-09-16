@@ -88,39 +88,6 @@ fn contribution_merge_failure_diagnostics(
 ) -> DiagnosticBag {
     let failure = match error {
         BackendContributionMergeErrorKind::Cancelled => return DiagnosticBag::new(),
-        BackendContributionMergeErrorKind::DuplicateUnit(unit) => {
-            DiagnosticEmissionCodegenFailure::MergeDuplicateUnit(codegen_unit_identity(unit))
-        }
-        BackendContributionMergeErrorKind::MissingUnit(unit) => {
-            DiagnosticEmissionCodegenFailure::MergeMissingUnit(codegen_unit_identity(unit))
-        }
-        BackendContributionMergeErrorKind::UnrequestedUnit(unit) => {
-            DiagnosticEmissionCodegenFailure::MergeUnrequestedUnit(codegen_unit_identity(unit))
-        }
-        BackendContributionMergeErrorKind::BackendMismatch(unit) => {
-            DiagnosticEmissionCodegenFailure::MergeBackendMismatch(codegen_unit_identity(unit))
-        }
-        BackendContributionMergeErrorKind::CapabilityRevisionMismatch(unit) => {
-            DiagnosticEmissionCodegenFailure::MergeCapabilityMismatch(codegen_unit_identity(unit))
-        }
-        BackendContributionMergeErrorKind::TargetMismatch(unit) => {
-            DiagnosticEmissionCodegenFailure::MergeTargetMismatch(codegen_unit_identity(unit))
-        }
-        BackendContributionMergeErrorKind::MissingArtifact(artifact) => {
-            DiagnosticEmissionCodegenFailure::MergeMissingArtifact(diagnostic_backend_artifact(
-                artifact,
-            ))
-        }
-        BackendContributionMergeErrorKind::UnrequestedArtifact(artifact) => {
-            DiagnosticEmissionCodegenFailure::MergeUnrequestedArtifact(diagnostic_backend_artifact(
-                artifact,
-            ))
-        }
-        BackendContributionMergeErrorKind::ArtifactKindMismatch(artifact) => {
-            DiagnosticEmissionCodegenFailure::MergeArtifactKindMismatch(
-                diagnostic_backend_artifact(artifact),
-            )
-        }
         BackendContributionMergeErrorKind::Read { artifact, kind } => {
             DiagnosticEmissionCodegenFailure::MergeReadFailed {
                 artifact: diagnostic_backend_artifact(artifact),

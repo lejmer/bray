@@ -3,10 +3,7 @@ use std::io::{self, Write};
 
 use bray_base::Cancellation;
 use bray_codegen::{ArtifactContent, ArtifactDigest, ArtifactDigestAlgorithm};
-use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticNote,
-    DiagnosticNoteKind, SeverityKind,
-};
+use bray_diagnostics::DiagnosticBag;
 use bray_linker::{LinkOutcome, LinkPlan, LinkStatus};
 
 use super::diagnostic::{PublicationDiagnostics, PublicationError, PublicationErrorKind};
@@ -62,7 +59,7 @@ impl<'host> ArtifactPublisher<'host> {
         contributions: impl IntoIterator<Item = ArtifactContribution>,
         link_plan: &LinkPlan,
         link_outcome: &LinkOutcome,
-    ) -> Result<EmissionOutcome, crate::EmissionOutcomeBuildError> {
+    ) -> EmissionOutcome {
         let _staging_cleanup = LinkStagingCleanup::new(link_plan);
         let link_diagnostics = link_outcome.diagnostics();
 
@@ -75,11 +72,11 @@ impl<'host> ArtifactPublisher<'host> {
 
         let linked = match link_outcome.status() {
             LinkStatus::Failed(_) => {
-                return Ok(EmissionOutcome::failed(
+                return EmissionOutcome::failed(
                     crate::EmissionFailure::Linking,
                     publication_set(plan, []),
                     link_diagnostics.clone(),
-                ));
+                );
             }
             LinkStatus::Cancelled => {
                 let outcome =
@@ -95,27 +92,6 @@ impl<'host> ArtifactPublisher<'host> {
                             publication_set(plan, []),
                             DiagnosticBag::new(),
                         );
-
-                        return merge_link_diagnostics(outcome, link_diagnostics);
-                    }
-                    Err(LinkedPreparationError::MissingLinkedPlan) => {
-                        let outcome = EmissionOutcome::failed(
-                            crate::EmissionFailure::Planning,
-                            publication_set(plan, []),
-                            linked_plan_missing_diagnostics(plan),
-                        );
-
-                        return merge_link_diagnostics(outcome, link_diagnostics);
-                    }
-                    Err(LinkedPreparationError::InvalidRelationship(artifact)) => {
-                        let error = PublicationError::new(
-                            artifact,
-                            None,
-                            PublicationErrorKind::InvalidContribution,
-                        );
-
-                        let outcome =
-                            PublicationDiagnostics::new().failed(publication_set(plan, []), error);
 
                         return merge_link_diagnostics(outcome, link_diagnostics);
                     }
@@ -188,12 +164,11 @@ impl<'host> ArtifactPublisher<'host> {
                         diagnostics.warning(warning);
                     }
 
-                    EmissionOutcome::try_complete(
+                    EmissionOutcome::complete(
                         publication.artifacts,
                         Some(publication.generation),
                         diagnostics.into_bag(),
                     )
-                    .unwrap_or_else(super::super::EmissionOutcomeBuildError::into_failed_outcome)
                 }
                 Err(ArtifactPublicationFailure::Cancelled) => {
                     diagnostics.cancelled(publication_set(plan, []))
@@ -228,8 +203,7 @@ impl<'host> ArtifactPublisher<'host> {
         let diagnostics = diagnostics.into_bag();
         let artifacts = publication_set(plan, emitted);
 
-        EmissionOutcome::try_complete(artifacts, None, diagnostics)
-            .unwrap_or_else(super::super::EmissionOutcomeBuildError::into_failed_outcome)
+        EmissionOutcome::complete(artifacts, None, diagnostics)
     }
 
     fn publish_artifact(
@@ -417,27 +391,8 @@ fn publication_set(
 fn merge_link_diagnostics(
     outcome: EmissionOutcome,
     diagnostics: &DiagnosticBag,
-) -> Result<EmissionOutcome, crate::EmissionOutcomeBuildError> {
-    outcome.try_with_prior_diagnostics(diagnostics)
-}
-
-fn linked_plan_missing_diagnostics(plan: &EmissionPlan) -> DiagnosticBag {
-    DiagnosticBag::single(
-        Diagnostic::new(
-            DiagnosticId::new(0),
-            DiagnosticKind::EmissionLinkedPlanMissing,
-            SeverityKind::Error,
-        )
-        .with_arg(DiagnosticArg::actual_product_identity(
-            plan.request().product().to_string(),
-        ))
-        .with_arg(DiagnosticArg::target_triple(
-            plan.request().target().as_str(),
-        ))
-        .with_note(DiagnosticNote::new(
-            DiagnosticNoteKind::ReportCompilerDefect,
-        )),
-    )
+) -> EmissionOutcome {
+    outcome.with_prior_diagnostics(diagnostics)
 }
 
 pub(super) struct PreparedArtifact<'plan, 'link> {
@@ -776,8 +731,10 @@ mod tests {
     use std::sync::{Arc, Barrier, Mutex};
 
     use bray_codegen::{ArtifactContent, ArtifactDigest, ArtifactDigestAlgorithm};
-    use bray_diagnostics::DiagnosticBag;
-    use bray_diagnostics::{DiagnosticArgName, DiagnosticArgValue, DiagnosticKind, SeverityKind};
+    use bray_diagnostics::{
+        Diagnostic, DiagnosticArgName, DiagnosticArgValue, DiagnosticBag, DiagnosticId,
+        DiagnosticKind, SeverityKind,
+    };
     use bray_linker::{
         DebugLinkPolicy, LinkFailure, LinkInput, LinkInputId, LinkInputKind, LinkInputMode,
         LinkInputProvenance, LinkInputSource, LinkModel, LinkOutcome, LinkPlan, LinkPlanBuilder,
@@ -1603,7 +1560,7 @@ mod tests {
         let base = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
 
         let profile_plan = |profile| {
-            EmissionPlan::try_new(
+            EmissionPlan::new(
                 base.request().clone().with_storage_profile(profile),
                 None,
                 None,
@@ -1611,7 +1568,6 @@ mod tests {
                 [],
                 None,
             )
-            .unwrap()
         };
 
         let old_plan = profile_plan("debug");
@@ -2433,13 +2389,12 @@ mod tests {
 
             let fixture = linked_publication_fixture(directory.path(), case);
 
-            let outcome =
-                valid_linked_outcome(ArtifactPublisher::new(&never_cancelled).publish_linked(
-                    &fixture.emission,
-                    [],
-                    &fixture.link,
-                    &fixture.outcome,
-                ));
+            let outcome = ArtifactPublisher::new(&never_cancelled).publish_linked(
+                &fixture.emission,
+                [],
+                &fixture.link,
+                &fixture.outcome,
+            );
 
             assert!(
                 matches!(outcome.status(), EmissionStatus::Complete),
@@ -2474,47 +2429,6 @@ mod tests {
     }
 
     #[test]
-    fn linked_publication_reports_an_emission_plan_without_linked_artifacts() {
-        let Ok(directory) = tempfile::tempdir() else {
-            panic!("test output directory must be created");
-        };
-
-        let fixture = linked_publication_fixture(
-            directory.path(),
-            linked_case(
-                LinkedProductKind::Executable,
-                ArtifactKind::Executable,
-                LinkedArtifactKind::Executable,
-                None,
-            ),
-        );
-
-        let Some(collector) = OutputSinkId::try_new("test.missing-linked-plan") else {
-            panic!("test collector identity must be valid");
-        };
-
-        let outcome =
-            valid_linked_outcome(ArtifactPublisher::new(&never_cancelled).publish_linked(
-                &memory_plan(collector),
-                [],
-                &fixture.link,
-                &fixture.outcome,
-            ));
-
-        assert!(matches!(
-            outcome.status(),
-            EmissionStatus::Failed(EmissionFailure::Planning)
-        ));
-
-        assert_eq!(outcome.diagnostics().len(), 1);
-
-        assert_goal_state_diagnostic_kind(
-            outcome.diagnostics(),
-            DiagnosticKind::EmissionLinkedPlanMissing,
-        );
-    }
-
-    #[test]
     fn linked_output_validation_preserves_every_existing_destination() {
         let Ok(directory) = tempfile::tempdir() else {
             panic!("test output directory must be created");
@@ -2538,13 +2452,12 @@ mod tests {
                 .unwrap_or_else(|error| panic!("test destination must be written: {error}"));
         }
 
-        let outcome =
-            valid_linked_outcome(ArtifactPublisher::new(&never_cancelled).publish_linked(
-                &fixture.emission,
-                [],
-                &fixture.link,
-                &fixture.outcome,
-            ));
+        let outcome = ArtifactPublisher::new(&never_cancelled).publish_linked(
+            &fixture.emission,
+            [],
+            &fixture.link,
+            &fixture.outcome,
+        );
 
         assert!(matches!(
             outcome.status(),
@@ -2592,16 +2505,14 @@ mod tests {
             LinkedArtifact::new(output.kind(), output.destination().id(), NonZeroU64::MIN)
         });
 
-        fixture.outcome = LinkOutcome::try_complete(&fixture.link, linked, DiagnosticBag::new())
-            .unwrap_or_else(|error| panic!("test link outcome must be valid: {error:?}"));
+        fixture.outcome = LinkOutcome::complete(linked, DiagnosticBag::new());
 
-        let outcome =
-            valid_linked_outcome(ArtifactPublisher::new(&never_cancelled).publish_linked(
-                &fixture.emission,
-                [],
-                &fixture.link,
-                &fixture.outcome,
-            ));
+        let outcome = ArtifactPublisher::new(&never_cancelled).publish_linked(
+            &fixture.emission,
+            [],
+            &fixture.link,
+            &fixture.outcome,
+        );
 
         assert!(matches!(
             outcome.status(),
@@ -2649,13 +2560,12 @@ mod tests {
                 LinkOutcome::cancelled(DiagnosticBag::new())
             };
 
-            let outcome =
-                valid_linked_outcome(ArtifactPublisher::new(&never_cancelled).publish_linked(
-                    &fixture.emission,
-                    [],
-                    &fixture.link,
-                    &fixture.outcome,
-                ));
+            let outcome = ArtifactPublisher::new(&never_cancelled).publish_linked(
+                &fixture.emission,
+                [],
+                &fixture.link,
+                &fixture.outcome,
+            );
 
             assert!(!matches!(outcome.status(), EmissionStatus::Complete));
             assert_eq!(file_bytes(&artifact.final_path), b"existing");
@@ -2683,13 +2593,12 @@ mod tests {
         std::fs::write(&artifact.final_path, b"existing")
             .unwrap_or_else(|error| panic!("test destination must be written: {error}"));
 
-        let outcome =
-            valid_linked_outcome(ArtifactPublisher::new(&always_cancelled).publish_linked(
-                &fixture.emission,
-                [],
-                &fixture.link,
-                &fixture.outcome,
-            ));
+        let outcome = ArtifactPublisher::new(&always_cancelled).publish_linked(
+            &fixture.emission,
+            [],
+            &fixture.link,
+            &fixture.outcome,
+        );
 
         assert!(matches!(outcome.status(), EmissionStatus::Cancelled));
         assert_eq!(file_bytes(&artifact.final_path), b"existing");
@@ -2805,9 +2714,7 @@ mod tests {
             });
         }
 
-        let Ok(emission) = EmissionPlan::try_new(request, None, None, planned, [], None) else {
-            panic!("test linked emission plan must be valid");
-        };
+        let emission = EmissionPlan::new(request, None, None, planned, [], None);
 
         let input_path = directory.join("input.o");
 
@@ -2881,8 +2788,7 @@ mod tests {
                 LinkedArtifact::new(output.kind(), output.destination().id(), byte_len)
             });
 
-        let outcome = LinkOutcome::try_complete(&link, artifacts, DiagnosticBag::new())
-            .unwrap_or_else(|error| panic!("test link outcome must be valid: {error:?}"));
+        let outcome = LinkOutcome::complete(artifacts, DiagnosticBag::new());
 
         LinkedPublicationFixture {
             emission,
@@ -3079,10 +2985,7 @@ mod tests {
             )
         });
 
-        let Ok(plan) = EmissionPlan::try_new(request, None, None, planned, [], package_interface)
-        else {
-            panic!("test filesystem publication plan must be valid");
-        };
+        let plan = EmissionPlan::new(request, None, None, planned, [], package_interface);
 
         plan
     }
@@ -3119,9 +3022,7 @@ mod tests {
             PlannedArtifactDestination::Publish(sink),
         );
 
-        let Ok(plan) = EmissionPlan::try_new(request, None, None, [artifact], [], None) else {
-            panic!("test publication plan must be valid");
-        };
+        let plan = EmissionPlan::new(request, None, None, [artifact], [], None);
 
         plan
     }
@@ -3170,10 +3071,7 @@ mod tests {
             )
         });
 
-        let Ok(plan) = EmissionPlan::try_new(request, None, None, planned, [], package_interface)
-        else {
-            panic!("test memory publication plan must be valid");
-        };
+        let plan = EmissionPlan::new(request, None, None, planned, [], package_interface);
 
         plan
     }
@@ -3493,10 +3391,40 @@ mod tests {
         Ok(())
     }
 
-    fn valid_linked_outcome(
-        result: Result<EmissionOutcome, crate::EmissionOutcomeBuildError>,
-    ) -> EmissionOutcome {
-        result.unwrap_or_else(|error| panic!("test linked publication must validate: {error:?}"))
+    #[test]
+    fn prior_error_diagnostics_discard_a_completed_generation() {
+        let Ok(output) = tempfile::tempdir() else {
+            panic!("test output directory must be created");
+        };
+
+        let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
+
+        let outcome = ArtifactPublisher::new(&never_cancelled)
+            .publish(&plan, [contribution(&plan, b"artifact bytes", None)]);
+
+        assert!(outcome.generation().is_some());
+
+        let prior = DiagnosticBag::single(Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::CodegenBackendLibraryFailed,
+            SeverityKind::Error,
+        ));
+
+        let outcome = outcome.with_prior_diagnostics(&prior);
+
+        assert!(matches!(
+            outcome.status(),
+            EmissionStatus::Failed(EmissionFailure::IncompleteProduct)
+        ));
+
+        assert!(outcome.generation().is_none());
+
+        assert!(
+            outcome
+                .diagnostics()
+                .iter()
+                .any(|diagnostic| diagnostic.kind() == DiagnosticKind::CodegenBackendLibraryFailed)
+        );
     }
 
     fn never_cancelled() -> bool {

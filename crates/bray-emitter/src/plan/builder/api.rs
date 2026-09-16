@@ -1,6 +1,5 @@
 use bray_codegen::{
-    AssemblySyntaxKind, BackendArtifactKind, BackendArtifactRequestBuildError,
-    DebugInformationMode, DebugInformationOutputMode,
+    AssemblySyntaxKind, BackendArtifactKind, DebugInformationMode, DebugInformationOutputMode,
 };
 use bray_package_interface::{InterfaceArtifact, PackageInterfaceIdentity};
 use bray_symbols::ProductKind;
@@ -134,8 +133,4 @@ pub enum EmissionPlanningError {
     ArtifactOrdinalOverflow(ArtifactKind),
     /// Two published artifacts resolve to the same exact sink.
     OutputCollision(OutputSink),
-    /// Derived backend policy could not form a valid per-unit request.
-    InvalidBackendRequest(BackendArtifactRequestBuildError),
-    /// Derived artifacts violated the complete plan contract.
-    InconsistentPlan,
 }

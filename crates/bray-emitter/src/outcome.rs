@@ -1,7 +1,6 @@
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticEmissionArtifact,
-    DiagnosticEmissionFailure, DiagnosticEmissionPlanningFailure, DiagnosticId, DiagnosticKind,
-    SeverityKind,
+    DiagnosticEmissionFailure, DiagnosticId, DiagnosticKind, SeverityKind,
 };
 
 use crate::{ArtifactId, EmittedArtifactSet, PublishedProductGeneration};
@@ -9,10 +8,6 @@ use crate::{ArtifactId, EmittedArtifactSet, PublishedProductGeneration};
 /// Structured reason one emission operation could not publish a complete product.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EmissionFailure {
-    /// The host request could not be validated.
-    InvalidRequest,
-    /// Complete deterministic planning could not be established.
-    Planning,
     /// One required planned contribution was not available.
     MissingContribution(ArtifactId),
     /// One contribution did not match its planned identity or producer.
@@ -46,25 +41,21 @@ pub struct EmissionOutcome {
 }
 
 impl EmissionOutcome {
-    pub(crate) fn try_complete(
+    pub(crate) fn complete(
         artifacts: EmittedArtifactSet,
         generation: Option<PublishedProductGeneration>,
         diagnostics: DiagnosticBag,
-    ) -> Result<Self, EmissionOutcomeBuildError> {
+    ) -> Self {
         if diagnostics.has_errors() {
-            return Err(EmissionOutcomeBuildError::ErrorDiagnostics {
-                artifacts,
-                generation,
-                diagnostics,
-            });
+            return Self::failed(EmissionFailure::IncompleteProduct, artifacts, diagnostics);
         }
 
-        Ok(Self {
+        Self {
             status: EmissionStatus::Complete,
             artifacts,
             generation,
             diagnostics,
-        })
+        }
     }
 
     /// Creates a failed outcome without a partial product success claim.
@@ -121,22 +112,16 @@ impl EmissionOutcome {
     }
 
     /// Prepends diagnostics completed before emitter publication without contradicting success.
-    pub fn try_with_prior_diagnostics(
-        mut self,
-        diagnostics: &DiagnosticBag,
-    ) -> Result<Self, EmissionOutcomeBuildError> {
+    pub fn with_prior_diagnostics(mut self, diagnostics: &DiagnosticBag) -> Self {
         let merged = diagnostics.merged(&self.diagnostics);
 
         if matches!(self.status, EmissionStatus::Complete) && merged.has_errors() {
-            return Err(EmissionOutcomeBuildError::PriorErrorDiagnostics {
-                outcome: Box::new(self),
-                diagnostics: diagnostics.clone(),
-            });
+            return Self::failed(EmissionFailure::IncompleteProduct, self.artifacts, merged);
         }
 
         self.diagnostics = merged;
 
-        Ok(self)
+        self
     }
 }
 
@@ -164,11 +149,8 @@ fn diagnostics_explain_failure(failure: &EmissionFailure, diagnostics: &Diagnost
                         | DiagnosticKind::EmissionGenerationCollision
                         | DiagnosticKind::EmissionGenerationManifestInvalid
                 ),
-                EmissionFailure::Planning => {
-                    diagnostic.kind() == DiagnosticKind::EmissionLinkedPlanMissing
-                }
                 EmissionFailure::Linking => is_linker_failure_diagnostic(diagnostic.kind()),
-                EmissionFailure::InvalidRequest | EmissionFailure::IncompleteProduct => {
+                EmissionFailure::IncompleteProduct => {
                     diagnostic.kind() == DiagnosticKind::EmissionFailed
                 }
             }
@@ -206,69 +188,11 @@ const fn is_linker_failure_diagnostic(kind: DiagnosticKind) -> bool {
     )
 }
 
-/// A contract violation that prevents construction of a successful emission outcome.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum EmissionOutcomeBuildError {
-    /// Error diagnostics contradict a successful product emission status.
-    ErrorDiagnostics {
-        /// Artifacts published before the contradictory success claim.
-        artifacts: EmittedArtifactSet,
-        /// Managed generation published before the contradictory success claim.
-        generation: Option<PublishedProductGeneration>,
-        /// Error diagnostics that prevent a successful status.
-        diagnostics: DiagnosticBag,
-    },
-    /// Diagnostics merged after publication contradict the completed emission status.
-    PriorErrorDiagnostics {
-        /// Completed outcome that must not be reported as successful.
-        outcome: Box<EmissionOutcome>,
-        /// Prior error diagnostics that contradict the outcome.
-        diagnostics: DiagnosticBag,
-    },
-}
-
-impl EmissionOutcomeBuildError {
-    /// Returns diagnostics that caused the outcome contract violation.
-    pub fn diagnostics(&self) -> DiagnosticBag {
-        match self {
-            Self::ErrorDiagnostics { diagnostics, .. } => diagnostics.clone(),
-            Self::PriorErrorDiagnostics {
-                outcome,
-                diagnostics,
-            } => diagnostics.merged(outcome.diagnostics()),
-        }
-    }
-
-    pub(crate) fn into_failed_outcome(self) -> EmissionOutcome {
-        match self {
-            Self::ErrorDiagnostics {
-                artifacts,
-                generation: _,
-                diagnostics,
-            } => {
-                EmissionOutcome::failed(EmissionFailure::IncompleteProduct, artifacts, diagnostics)
-            }
-            Self::PriorErrorDiagnostics {
-                outcome,
-                diagnostics,
-            } => EmissionOutcome::failed(
-                EmissionFailure::IncompleteProduct,
-                outcome.artifacts,
-                diagnostics.merged(&outcome.diagnostics),
-            ),
-        }
-    }
-}
-
 fn terminal_failure_diagnostics(
     failure: &EmissionFailure,
     artifacts: &EmittedArtifactSet,
 ) -> DiagnosticBag {
     let failure = match failure {
-        EmissionFailure::InvalidRequest => DiagnosticEmissionFailure::InvalidRequest,
-        EmissionFailure::Planning => {
-            DiagnosticEmissionFailure::Planning(DiagnosticEmissionPlanningFailure::Incomplete)
-        }
         EmissionFailure::MissingContribution(artifact) => {
             DiagnosticEmissionFailure::MissingContribution(diagnostic_artifact(artifact))
         }
@@ -318,14 +242,13 @@ mod tests {
 
         let artifacts = crate::EmittedArtifactSet::from_publication(&plan, [artifact]);
 
-        let complete = EmissionOutcome::try_complete(artifacts, None, DiagnosticBag::new())
-            .unwrap_or_else(|error| panic!("test emission must complete: {error:?}"));
+        let complete = EmissionOutcome::complete(artifacts, None, DiagnosticBag::new());
 
         assert!(matches!(complete.status(), EmissionStatus::Complete));
         assert_eq!(complete.artifacts().artifacts().len(), 1);
 
         let failed = EmissionOutcome::failed(
-            EmissionFailure::Planning,
+            EmissionFailure::Linking,
             crate::EmittedArtifactSet::from_publication(&plan, []),
             DiagnosticBag::new(),
         );
@@ -346,7 +269,7 @@ mod tests {
         let plan = emission_plan();
 
         let outcome = EmissionOutcome::failed(
-            EmissionFailure::InvalidRequest,
+            EmissionFailure::Linking,
             crate::EmittedArtifactSet::from_publication(&plan, []),
             DiagnosticBag::new(),
         );
@@ -365,12 +288,11 @@ mod tests {
             bray_diagnostics::SeverityKind::Error,
         ));
 
+        let outcome = EmissionOutcome::complete(artifacts, None, diagnostics);
+
         assert!(matches!(
-            EmissionOutcome::try_complete(artifacts, None, diagnostics.clone()),
-            Err(super::EmissionOutcomeBuildError::ErrorDiagnostics {
-                diagnostics: actual,
-                ..
-            }) if actual == diagnostics
+            outcome.status(),
+            EmissionStatus::Failed(EmissionFailure::IncompleteProduct)
         ));
     }
 }

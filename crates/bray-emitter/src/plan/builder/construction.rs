@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsStr;
 use std::path::Path;
 
@@ -8,12 +8,10 @@ use bray_codegen::{
 };
 use bray_package_interface::InterfaceArtifact;
 
-use super::super::{
-    EmissionPlan, EmissionPlanBuildError, PlannedArtifact, PlannedArtifactDestination,
-};
+use super::super::{EmissionPlan, PlannedArtifact, PlannedArtifactDestination};
 use super::validation::{linked_product, should_plan_artifact};
 use super::{EmissionPlanner, EmissionPlanningError};
-use crate::sink::is_valid_host_file_name;
+use crate::sink::{OutputSinkCollisionKey, is_valid_host_file_name};
 use crate::{
     ArtifactId, ArtifactKind, ArtifactProducer, ArtifactRequirement, ArtifactRole,
     DependencyMetadataProducerId, EmissionRequest, LinkerProducerId, ManagedArtifactPath,
@@ -28,6 +26,7 @@ pub(super) struct PlanBuilder<'planner> {
     backend_entries:
         BTreeMap<bray_codegen::CodegenUnitKey, BTreeMap<BackendArtifactKind, ArtifactRequirement>>,
     next_artifact_ordinals: BTreeMap<ArtifactKind, u32>,
+    output_sinks: BTreeSet<OutputSinkCollisionKey>,
 }
 
 impl<'planner> PlanBuilder<'planner> {
@@ -43,6 +42,7 @@ impl<'planner> PlanBuilder<'planner> {
             artifacts: Vec::new(),
             backend_entries: BTreeMap::new(),
             next_artifact_ordinals: BTreeMap::new(),
+            output_sinks: BTreeSet::new(),
         }
     }
 
@@ -65,7 +65,7 @@ impl<'planner> PlanBuilder<'planner> {
             self.add_link_inputs()?;
         }
 
-        let backend_requests = self.backend_requests()?;
+        let backend_requests = self.backend_requests();
 
         let (backend, capability_revision) = if backend_requests.is_empty() {
             (None, None)
@@ -79,15 +79,14 @@ impl<'planner> PlanBuilder<'planner> {
             )
         };
 
-        EmissionPlan::try_new(
+        Ok(EmissionPlan::new(
             self.request,
             backend,
             capability_revision,
             self.artifacts,
             backend_requests,
             self.package_interface,
-        )
-        .map_err(map_plan_error)
+        ))
     }
 
     fn planned_linked_product(&self) -> Option<RequestedArtifact> {
@@ -228,7 +227,7 @@ impl<'planner> PlanBuilder<'planner> {
     }
 
     fn published_destination(
-        &self,
+        &mut self,
         id: &ArtifactId,
         unit_ordinal: Option<u32>,
         role: ArtifactRole,
@@ -270,6 +269,10 @@ impl<'planner> PlanBuilder<'planner> {
                 OutputSink::Stream(stream.clone())
             }
         };
+
+        if !self.output_sinks.insert(sink.collision_key()) {
+            return Err(EmissionPlanningError::OutputCollision(sink));
+        }
 
         Ok(PlannedArtifactDestination::Publish(sink))
     }
@@ -361,9 +364,9 @@ impl<'planner> PlanBuilder<'planner> {
             .or_insert(requirement);
     }
 
-    fn backend_requests(&self) -> Result<Vec<BackendArtifactRequest>, EmissionPlanningError> {
+    fn backend_requests(&self) -> Vec<BackendArtifactRequest> {
         let Some(backend) = self.planner.backend() else {
-            return Ok(Vec::new());
+            return Vec::new();
         };
 
         let linkable_artifact = self.planned_linked_product().and_then(|artifact| {
@@ -384,14 +387,13 @@ impl<'planner> PlanBuilder<'planner> {
                 });
 
                 // The request and its entries independently retain the same structural unit key.
-                BackendArtifactRequest::try_new(
+                BackendArtifactRequest::new(
                     unit.clone(),
                     entries,
                     backend.policy().debug_output(),
                     linkable_artifact,
                     backend.policy().serialization(),
                 )
-                .map_err(EmissionPlanningError::InvalidBackendRequest)
             })
             .collect()
     }
@@ -454,38 +456,6 @@ fn output_stem(name: &str, unit_ordinal: Option<u32>) -> String {
     match unit_ordinal {
         Some(ordinal) => format!("{name}.{ordinal}"),
         None => String::from(name),
-    }
-}
-
-fn map_plan_error(error: EmissionPlanBuildError) -> EmissionPlanningError {
-    match error {
-        EmissionPlanBuildError::DuplicateSink(sink) => EmissionPlanningError::OutputCollision(sink),
-        EmissionPlanBuildError::Empty
-        | EmissionPlanBuildError::BackendCapabilityIdentityMismatch
-        | EmissionPlanBuildError::ForeignProduct(_)
-        | EmissionPlanBuildError::DuplicateArtifact(_)
-        | EmissionPlanBuildError::MemoryArtifactIdentityMismatch(_)
-        | EmissionPlanBuildError::IndependentProductFilesystemSink(_)
-        | EmissionPlanBuildError::MultipleManagedRoots
-        | EmissionPlanBuildError::MixedPublicationModes
-        | EmissionPlanBuildError::MissingRequestedArtifact(_)
-        | EmissionPlanBuildError::UnrequestedPublishedArtifact(_)
-        | EmissionPlanBuildError::RequirementMismatch(_)
-        | EmissionPlanBuildError::RoleDestinationMismatch(_)
-        | EmissionPlanBuildError::KindRoleMismatch(_)
-        | EmissionPlanBuildError::ProducerKindMismatch(_)
-        | EmissionPlanBuildError::BackendIdentityMismatch(_)
-        | EmissionPlanBuildError::MissingBackend(_)
-        | EmissionPlanBuildError::BackendArtifactKindMismatch(_)
-        | EmissionPlanBuildError::DuplicateBackendRequest(_)
-        | EmissionPlanBuildError::MissingBackendRequest(_)
-        | EmissionPlanBuildError::UnmappedBackendRequest(_)
-        | EmissionPlanBuildError::BackendRequirementMismatch(_)
-        | EmissionPlanBuildError::MissingPackageInterfaceArtifact
-        | EmissionPlanBuildError::UnexpectedPackageInterfaceArtifact
-        | EmissionPlanBuildError::PackageInterfaceProductMismatch => {
-            EmissionPlanningError::InconsistentPlan
-        }
     }
 }
 
@@ -802,7 +772,17 @@ mod tests {
         };
 
         assert_eq!(staged.requirement(), ArtifactRequirement::Optional);
-        assert_eq!(plan.backend_requests()[0].optional().count(), 1);
+
+        assert_eq!(
+            plan.backend_requests()[0]
+                .entries()
+                .iter()
+                .filter(|entry| {
+                    entry.requirement() == bray_codegen::BackendArtifactRequirement::Optional
+                })
+                .count(),
+            1
+        );
 
         assert_eq!(
             plan.backend_requests()[0].linkable_artifact(),
@@ -1213,12 +1193,12 @@ mod tests {
         units: impl IntoIterator<Item = bray_codegen::CodegenUnitKey>,
         policy: BackendEmissionPolicy,
     ) -> Option<EmissionBackend> {
-        let Ok(backend) = EmissionBackend::try_new(backend_identity(), capabilities, units, policy)
-        else {
-            panic!("test emission backend must be valid");
-        };
-
-        Some(backend)
+        Some(EmissionBackend::new(
+            backend_identity(),
+            capabilities,
+            units,
+            policy,
+        ))
     }
 
     fn capabilities_with_artifacts(

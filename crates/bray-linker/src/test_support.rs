@@ -1,4 +1,3 @@
-use std::num::NonZeroU64;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::{Mutex, MutexGuard};
@@ -13,8 +12,8 @@ use crate::{
     DeadStripPolicy, DebugLinkPolicy, ExternalToolFailure, ExternalToolHost,
     ExternalToolInvocation, ExternalToolOutput, LinkInput, LinkInputId, LinkInputKind,
     LinkInputMode, LinkInputProvenance, LinkInputSource, LinkModel, LinkPlan, LinkPlanBuilder,
-    LinkPolicy, LinkTarget, LinkedArtifact, LinkedArtifactKind, LinkedArtifactRequirement,
-    LinkedProductKind, LinkerDriverIdentity, LinkerDriverKind, PlannedLinkedArtifact,
+    LinkPolicy, LinkTarget, LinkedArtifactKind, LinkedArtifactRequirement, LinkedProductKind,
+    LinkerDriverIdentity, LinkerDriverKind, PlannedLinkedArtifact,
     SectionGarbageCollectionPolicy, StagingDestination, StagingDestinationId, StagingPathKey,
 };
 
@@ -300,14 +299,6 @@ fn staging_destination_with_key(ordinal: u32, path: &str, path_key: &str) -> Sta
     };
 
     destination
-}
-
-pub(crate) fn linked_artifact(plan: &LinkPlan) -> LinkedArtifact {
-    let Some(output) = plan.outputs().first() else {
-        panic!("test link plan must contain a primary output");
-    };
-
-    LinkedArtifact::new(output.kind(), output.destination().id(), NonZeroU64::MIN)
 }
 
 pub(crate) fn executable_host_contract() -> ExecutableHostContract {

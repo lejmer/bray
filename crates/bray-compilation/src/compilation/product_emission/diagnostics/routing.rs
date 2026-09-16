@@ -129,16 +129,6 @@ pub(super) fn product_emission_failure_diagnostics(
             link_plan_failure_diagnostics(error, product, target)
         }
         ProductEmissionErrorKind::Query(error) => query_failure_diagnostics(error, product, target),
-        ProductEmissionErrorKind::Outcome(error) => {
-            let outer = emission_failure_diagnostics(
-                // rust-style: allow(context-erasing-failure-conversion, reason = "the emission diagnostic bag retains the exact causes")
-                DiagnosticEmissionFailure::IncompleteProduct,
-                product,
-                target,
-            );
-
-            error.diagnostics().merged(&outer)
-        }
     }
 }
 

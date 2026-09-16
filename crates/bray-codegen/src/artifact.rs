@@ -7,12 +7,10 @@ pub use content::{
     ArtifactDigest, ArtifactDigestAlgorithm, ArtifactSpool, ArtifactSpoolError,
     ArtifactSpoolOperation, ArtifactSpoolWriter,
 };
-pub use contribution::{
-    BackendArtifactContribution, BackendArtifactSet, BackendArtifactSetBuildError,
-};
+pub use contribution::BackendArtifactContribution;
 pub use request::{
     AssemblySyntaxKind, BackendArtifactId, BackendArtifactKind, BackendArtifactRequest,
-    BackendArtifactRequestBuildError, BackendArtifactRequestEntry, BackendArtifactRequirement,
-    BackendBitcodeSemantics, BackendSerializationOptions, DebugInformationOutputMode,
-    LinkableArtifactKind, LinkableArtifactRequirement,
+    BackendArtifactRequestEntry, BackendArtifactRequirement, BackendBitcodeSemantics,
+    BackendSerializationOptions, DebugInformationOutputMode, LinkableArtifactKind,
+    LinkableArtifactRequirement,
 };

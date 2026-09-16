@@ -7,9 +7,8 @@ use bray_codegen::{
     BackendCapabilities, BackendCapabilityRevision, BackendIdentity,
     BackendOptimizationCapabilities, BackendOutputCapabilities, BackendRuntimeCapabilities,
     BackendTargetCapabilities, BackendTargetConfiguration, CodeGenerator, CodegenFailure,
-    CodegenOutcome, CodegenRequest, CodegenRuntimeMetadata, CodegenTarget, DebugInformationMode,
-    DebugInformationOutputMode, OptimizationLevel, ProtectedAsyncFrameMetadata,
-    ReproducibilityLevel, SizePreference,
+    CodegenOutcome, CodegenRequest, CodegenTarget, DebugInformationMode,
+    DebugInformationOutputMode, OptimizationLevel, ReproducibilityLevel, SizePreference,
 };
 use bray_diagnostics::DiagnosticBag;
 use bray_runtime_interface::RuntimeAbiVersion;
@@ -215,10 +214,6 @@ impl LlvmCodeGenerator {
                 // Contributions retain Arc-backed request identities after generation returns.
                 entry.id().clone(),
                 content,
-                // Contributions retain Arc-backed backend and target identities.
-                self.identity.clone(),
-                request.capability_revision(),
-                request.target().identity().clone(),
                 None,
             ));
         }
@@ -227,15 +222,7 @@ impl LlvmCodeGenerator {
             return Ok(CodegenOutcome::cancelled(DiagnosticBag::new()));
         }
 
-        let runtime_metadata = runtime_metadata(request)?;
-
-        CodegenOutcome::try_complete(
-            request,
-            contributions,
-            runtime_metadata,
-            DiagnosticBag::new(),
-        )
-        .map_err(CodegenFailure::InvalidOutcome)
+        Ok(CodegenOutcome::complete(contributions, DiagnosticBag::new()))
     }
 
     fn serialize_artifact(
@@ -396,81 +383,6 @@ fn verify_generated_module(
             target.identity().as_str()
         )
     });
-}
-
-fn runtime_metadata(request: CodegenRequest<'_>) -> Result<CodegenRuntimeMetadata, CodegenFailure> {
-    let frames = request
-        .unit()
-        .instances()
-        .iter()
-        .filter_map(|instance| {
-            let frame = instance.protected_frame_identity()?;
-            let descriptor = instance.mir().frame_descriptor()?;
-
-            let operations = bray_runtime_interface::ProtectedFrameOperations::new(
-                frame_symbol(
-                    request,
-                    frame,
-                    bray_runtime_interface::ProtectedFrameOperation::MoveBeforeStart,
-                )?,
-                frame_symbol(
-                    request,
-                    frame,
-                    bray_runtime_interface::ProtectedFrameOperation::StateDescription,
-                )?,
-                frame_symbol(
-                    request,
-                    frame,
-                    bray_runtime_interface::ProtectedFrameOperation::Resume,
-                )?,
-                frame_symbol(
-                    request,
-                    frame,
-                    bray_runtime_interface::ProtectedFrameOperation::CancellationEntry,
-                )?,
-                frame_symbol(
-                    request,
-                    frame,
-                    bray_runtime_interface::ProtectedFrameOperation::TaskBroadcast,
-                )?,
-                frame_symbol(
-                    request,
-                    frame,
-                    bray_runtime_interface::ProtectedFrameOperation::LifecycleResolution,
-                )?,
-                frame_symbol(
-                    request,
-                    frame,
-                    bray_runtime_interface::ProtectedFrameOperation::CompletionMove,
-                )?,
-                frame_symbol(
-                    request,
-                    frame,
-                    bray_runtime_interface::ProtectedFrameOperation::Destruction,
-                )?,
-            );
-
-            Some(ProtectedAsyncFrameMetadata::new(
-                frame,
-                descriptor.frame_abi(),
-                operations,
-            ))
-        })
-        .collect::<Vec<_>>();
-
-    CodegenRuntimeMetadata::try_new(request.unit(), frames)
-        .map_err(CodegenFailure::InvalidRuntimeMetadata)
-}
-
-fn frame_symbol(
-    request: CodegenRequest<'_>,
-    frame: bray_runtime_interface::ProtectedAsyncFrameId,
-    operation: bray_runtime_interface::ProtectedFrameOperation,
-) -> Option<bray_runtime_interface::BinarySymbolName> {
-    request
-        .mappings()
-        .symbol(&bray_codegen::CodegenSymbolKey::ProtectedFrame { frame, operation })
-        .map(|symbol| symbol.name().clone())
 }
 
 fn llvm_target_is_built(architecture: TargetArchitecture) -> bool {
@@ -668,9 +580,9 @@ mod tests {
             panic!("successful generation must publish requested artifacts");
         };
 
-        assert_eq!(artifacts.contributions().len(), 2);
+        assert_eq!(artifacts.len(), 2);
 
-        for contribution in artifacts.contributions() {
+        for contribution in artifacts {
             assert_eq!(
                 contribution.id().kind(),
                 BackendArtifactKind::RelocatableObject
@@ -749,7 +661,7 @@ mod tests {
             panic!("successful generation must publish bitcode");
         };
 
-        assert!(artifacts.contributions().iter().all(|contribution| {
+        assert!(artifacts.iter().all(|contribution| {
             contribution.id().kind() == BackendArtifactKind::BackendBitcode
         }));
     }
@@ -988,7 +900,6 @@ mod tests {
         };
 
         artifacts
-            .contributions()
             .iter()
             .map(|contribution| match contribution.content().source() {
                 ArtifactContentSource::Memory(bytes) => bytes.to_vec(),

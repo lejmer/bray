@@ -55,7 +55,7 @@ impl CodegenRequestFixture {
         &'request self,
         cancellation: &'request dyn Cancellation,
     ) -> CodegenRequest<'request> {
-        let Ok(request) = CodegenRequest::try_new(
+        CodegenRequest::new(
             &self.unit,
             &self.backend,
             self.capability_revision,
@@ -65,11 +65,7 @@ impl CodegenRequestFixture {
             &self.options,
             &self.artifacts,
             cancellation,
-        ) else {
-            panic!("test codegen request must be valid");
-        };
-
-        request
+        )
     }
 
     /// Returns the fixture's required artifact identity.
@@ -124,7 +120,7 @@ impl CodegenRequestFixture {
             BackendSerializationOptions::new(crate::AssemblySyntaxKind::TargetDefault)
                 .with_bitcode_semantics(crate::BackendBitcodeSemantics::ThinLto);
 
-        self.artifacts = BackendArtifactRequest::try_new(
+        self.artifacts = BackendArtifactRequest::new(
             self.unit.key().clone(),
             entries,
             DebugInformationOutputMode::Omit,
@@ -133,8 +129,7 @@ impl CodegenRequestFixture {
                 BackendArtifactRequirement::Required,
             )),
             serialization,
-        )
-        .unwrap_or_else(|error| panic!("test bitcode request must be valid: {error:?}"));
+        );
 
         self
     }
@@ -228,7 +223,7 @@ pub fn codegen_request_for_unit_with_debug_information(
 
     let serialization = BackendSerializationOptions::new(crate::AssemblySyntaxKind::TargetDefault);
 
-    let Ok(artifacts) = BackendArtifactRequest::try_new(
+    let artifacts = BackendArtifactRequest::new(
         unit.key().clone(),
         entries,
         match debug_information {
@@ -242,9 +237,7 @@ pub fn codegen_request_for_unit_with_debug_information(
             BackendArtifactRequirement::Required,
         )),
         serialization,
-    ) else {
-        panic!("test artifact request must be valid");
-    };
+    );
 
     CodegenRequestFixture {
         unit,
@@ -391,19 +384,9 @@ pub fn artifact_content() -> ArtifactContent {
     content
 }
 
-/// Creates a contribution owned by the fixture's backend and target.
-pub fn contribution(
-    fixture: &CodegenRequestFixture,
-    id: BackendArtifactId,
-) -> BackendArtifactContribution {
-    BackendArtifactContribution::new(
-        id,
-        artifact_content(),
-        fixture.request().backend().clone(),
-        fixture.request().capability_revision(),
-        fixture.request().target().identity().clone(),
-        None,
-    )
+/// Creates a contribution for one logical backend artifact.
+pub fn contribution(id: BackendArtifactId) -> BackendArtifactContribution {
+    BackendArtifactContribution::new(id, artifact_content(), None)
 }
 
 fn codegen_unit(seed: u8, target: &CodegenTarget) -> CodegenUnit {

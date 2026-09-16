@@ -254,7 +254,6 @@ fn format_english_native_product_failure_detail(
         Kind::StandardLibraryUnavailable => {
             "the configured standard library cannot supply a required native artifact"
         }
-        Kind::EmissionBackendDuplicateUnit => "native-code work contains a duplicate work item",
         Kind::LinkTargetEmptyTriple => "the native link target has an empty target triple",
         Kind::CodegenBackendUnsupportedTarget => {
             "native code generation is unavailable for the selected target"
@@ -281,17 +280,10 @@ fn format_english_native_product_failure_detail(
         Kind::CodegenBackendToolFailure(_) => {
             "native code generation received an unsuccessful support-program result"
         }
-        Kind::CodegenBackendInvalidRuntimeMetadata(_) => {
-            "generated runtime metadata violated an internal publication contract"
-        }
-        Kind::CodegenBackendInvalidOutcome(_) => {
-            "a completed native-code result violated an internal publication contract"
-        }
         Kind::CodegenBackendArtifactConstruction(_) => {
             "a requested native artifact could not be constructed"
         }
         Kind::CodegenBackendUnavailable => "no native-code generator is available",
-        Kind::CodegenInvalidRequest(_) => "the code generation request is internally inconsistent",
         Kind::CodegenMirUnavailable(_) => "the program is not ready for native code generation",
         Kind::CodegenMissingCallableImplementation { callable, .. } => {
             return format!(

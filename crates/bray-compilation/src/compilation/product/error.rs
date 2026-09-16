@@ -1,6 +1,6 @@
 use bray_codegen::{
     BackendSelectionError, CodegenCallSite, CodegenImplementationWitness, CodegenInstanceKey,
-    CodegenRequestBuildError, CodegenStaticInstanceKey, CodegenTarget, CodegenUnitKey,
+    CodegenStaticInstanceKey, CodegenTarget, CodegenUnitKey,
 };
 use bray_compiler_known::CompilerKnownDeclarationKey;
 use bray_declarations::{ContainerId, DeclarationId};
@@ -597,13 +597,6 @@ pub(crate) enum ProductQueryFailure {
         /// Its compiler-known representation, when one exists.
         actual: Option<bray_compiler_known::RepresentationRole>,
     },
-    /// Code generation request construction rejected one partitioned unit.
-    InvalidCodegenRequest {
-        /// The exact partitioned code generation unit.
-        unit: CodegenUnitKey,
-        /// The exact request contract failure.
-        cause: CodegenRequestBuildError,
-    },
     /// Backend selection failed for one partitioned code generation unit.
     CodegenBackendSelection {
         /// The exact partitioned code generation unit.
@@ -699,9 +692,7 @@ impl ProductQueryFailure {
             | Self::InvalidTestErrorTypeIdentity { .. }
             | Self::InvalidModulePath { .. }
             | Self::UnsupportedEntryResultType { .. } => ProductQueryErrorKind::ContractViolation,
-            Self::InvalidCodegenRequest { .. } | Self::CodegenBackendSelection { .. } => {
-                ProductQueryErrorKind::ContractViolation
-            }
+            Self::CodegenBackendSelection { .. } => ProductQueryErrorKind::ContractViolation,
         }
     }
 }

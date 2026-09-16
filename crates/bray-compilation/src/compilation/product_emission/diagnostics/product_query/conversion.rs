@@ -141,7 +141,7 @@ pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_
                 DiagnosticFailureValue::IdentityList(
                     instances
                         .iter()
-                        .map(crate::fact::diagnostic_context::identity)
+                        .map(identity)
                         .collect::<Vec<_>>()
                         .into_boxed_slice(),
                 ),
@@ -411,13 +411,6 @@ pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_
 
             ("product_query_unsupported_entry_result_type", fields)
         }
-        Failure::InvalidCodegenRequest { unit, cause } => (
-            "product_query_invalid_codegen_request",
-            vec![
-                identity_field("codegen_unit", unit),
-                text_field("codegen_cause", codegen_request_failure(*cause)),
-            ],
-        ),
         Failure::CodegenBackendSelection { unit, cause } => {
             let (reason, backend) = backend_selection_failure(cause);
 
@@ -446,19 +439,6 @@ const fn product_test_catalog_failure(
         Error::ProductMismatch => "product_mismatch",
         Error::DuplicateIdentity => "duplicate_identity",
         Error::InvalidResultMetadata => "invalid_result_metadata",
-    }
-}
-
-const fn codegen_request_failure(cause: bray_codegen::CodegenRequestBuildError) -> &'static str {
-    use bray_codegen::CodegenRequestBuildError as Error;
-
-    match cause {
-        Error::ArtifactUnitMismatch => "artifact_unit_mismatch",
-        Error::MappingUnitMismatch => "mapping_unit_mismatch",
-        Error::MappingTargetMismatch => "mapping_target_mismatch",
-        Error::DebugInformationMismatch => "debug_information_mismatch",
-        Error::DebugMappingCoverageMismatch => "debug_mapping_coverage_mismatch",
-        Error::TargetMismatch => "target_mismatch",
     }
 }
 

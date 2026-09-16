@@ -1,12 +1,11 @@
 use bray_codegen::{
     AssemblySyntaxKind, BackendArtifactKind, DebugInformationMode, DebugInformationOutputMode,
 };
-use bray_package_interface::InterfaceArtifact;
+use bray_package_interface::{InterfaceArtifact, InterfaceProductKind};
 use bray_symbols::ProductKind;
 
 use super::{EmissionPlanner, EmissionPlanningError};
 use crate::plan::EmissionBackend;
-use crate::plan::model::package_interface_matches_product;
 use crate::{
     ArtifactKind, ArtifactRequirement, EmissionRequest, RequestedArtifact,
     RequestedArtifactDestination,
@@ -101,6 +100,23 @@ fn validate_package_interface(
         }
         (Some(_), Some(_)) => Ok(()),
     }
+}
+
+fn package_interface_matches_product(
+    package_interface: &InterfaceArtifact,
+    request: &EmissionRequest,
+) -> bool {
+    let identity = package_interface.identity();
+
+    let expected_kind = match request.product_kind() {
+        ProductKind::Executable => InterfaceProductKind::Executable,
+        ProductKind::Library => InterfaceProductKind::Library,
+        ProductKind::Test => InterfaceProductKind::Test,
+    };
+
+    identity.package() == request.product().package()
+        && identity.product().as_str() == request.product().name()
+        && identity.kind() == expected_kind
 }
 
 fn validate_destination_shape(

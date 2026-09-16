@@ -11,8 +11,6 @@ use crate::{
     CodegenTerminatorMapping, CodegenTypeMapping, CodegenUnit, CodegenUnitKey,
 };
 
-use super::validation::demanded_debug_sources;
-
 /// Canonical code generation mappings demanded by one concrete code generation unit.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CodegenMappings {
@@ -376,13 +374,6 @@ impl CodegenMappings {
             .map(|index| &self.debug_locations[index])
     }
 
-    pub(crate) fn covers_debug_sources(&self, unit: &CodegenUnit) -> bool {
-        demanded_debug_sources(unit).iter().all(|anchor| {
-            self.debug_locations
-                .binary_search_by(|location| location.anchor().cmp(anchor))
-                .is_ok()
-        })
-    }
 }
 
 #[cfg(test)]
@@ -444,32 +435,6 @@ mod tests {
         );
 
         assert_eq!(first, second);
-        assert!(first.covers_debug_sources(request.unit()));
-    }
-
-    #[test]
-    fn debug_mapping_coverage_remains_an_explicit_request_boundary() {
-        let fixture = codegen_request();
-        let request = fixture.request();
-        let mappings = request.mappings();
-
-        let without_debug = CodegenMappings::new(
-            request.unit(),
-            request.target(),
-            mappings.types().iter().cloned(),
-            mappings.instance_types().iter().cloned(),
-            mappings.symbols().iter().cloned(),
-            mappings.constants().iter().cloned(),
-            mappings.constant_terms().iter().cloned(),
-            mappings.callables().iter().cloned(),
-            mappings.operations().iter().cloned(),
-            mappings.static_storages().iter().cloned(),
-            mappings.native_storages().iter().cloned(),
-            mappings.terminators().iter().cloned(),
-            [],
-        );
-
-        assert!(!without_debug.covers_debug_sources(request.unit()));
     }
 
     #[test]

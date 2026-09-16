@@ -11,7 +11,6 @@ mod options;
 mod outcome;
 mod registry;
 mod request;
-mod runtime;
 mod target;
 mod unit;
 
@@ -22,9 +21,9 @@ pub use artifact::{
     ArtifactContent, ArtifactContentBuildError, ArtifactContentReader, ArtifactContentSource,
     ArtifactDigest, ArtifactDigestAlgorithm, ArtifactSpool, ArtifactSpoolError,
     ArtifactSpoolOperation, ArtifactSpoolWriter, AssemblySyntaxKind, BackendArtifactContribution,
-    BackendArtifactId, BackendArtifactKind, BackendArtifactRequest,
-    BackendArtifactRequestBuildError, BackendArtifactRequestEntry, BackendArtifactRequirement,
-    BackendArtifactSet, BackendArtifactSetBuildError, BackendBitcodeSemantics,
+    BackendArtifactId, BackendArtifactKind, BackendArtifactRequest, BackendArtifactRequestEntry,
+    BackendArtifactRequirement,
+    BackendBitcodeSemantics,
     BackendSerializationOptions, DebugInformationOutputMode, LinkableArtifactKind,
     LinkableArtifactRequirement,
 };
@@ -58,17 +57,14 @@ pub use options::{
     CodegenOptions, DebugInformationMode, OptimizationLevel, RuntimeObservationMode, SizePreference,
 };
 pub use outcome::{
-    CodegenFailure, CodegenOutcome, CodegenOutcomeBuildError, CodegenStatus,
+    CodegenFailure, CodegenOutcome, CodegenStatus,
     codegen_failure_diagnostic, codegen_failure_diagnostics,
 };
 pub use registry::{
     BackendSelectionError, CodeGeneratorRegistry, CodeGeneratorRegistryBuildError,
     CodegenConfiguration,
 };
-pub use request::{CodegenRequest, CodegenRequestBuildError};
-pub use runtime::{
-    CodegenRuntimeMetadata, CodegenRuntimeMetadataBuildError, ProtectedAsyncFrameMetadata,
-};
+pub use request::CodegenRequest;
 pub use target::{
     CallableAbiMapping, CodegenLinkage, CodegenTarget, CodegenTargetBuildError, TargetAbi,
     TargetAbiBuildError, TargetAddressSpace, TargetAddressSpaceKind, TargetCallingConvention,

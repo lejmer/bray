@@ -1359,10 +1359,6 @@ impl DiagnosticKind {
             | Self::BuildStorageCancelled => {
                 Self::quality_artifact(&[FilePath], primary_components!(&[FilePath]))
             }
-            Self::EmissionLinkedPlanMissing => Self::quality_artifact(
-                &[ActualProductIdentity, TargetTriple],
-                compiler_defect_components!(&[ActualProductIdentity, TargetTriple]),
-            ),
             Self::EmissionFailed => Self::quality_artifact(
                 &[ActualProductIdentity, TargetTriple, EmissionFailure],
                 primary_components!(&[ActualProductIdentity, TargetTriple, EmissionFailure]),

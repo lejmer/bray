@@ -8,10 +8,10 @@ use super::super::source::{
     format_english_output_sink,
 };
 use super::kind::{
-    format_english_artifact_requirement, format_english_assembly_syntax,
-    format_english_debug_information_mode, format_english_debug_output_mode,
-    format_english_link_input_kind, format_english_linked_artifact_kind,
-    format_english_linked_product_kind, format_english_product_kind,
+    format_english_assembly_syntax, format_english_debug_information_mode,
+    format_english_debug_output_mode, format_english_link_input_kind,
+    format_english_linked_artifact_kind, format_english_linked_product_kind,
+    format_english_product_kind,
 };
 pub(crate) fn format_english_emission_failure(
     failure: &bray_diagnostics::DiagnosticEmissionFailure,
@@ -165,38 +165,6 @@ fn format_english_emission_planning_failure(
             "multiple artifacts resolve to output destination {}",
             format_english_output_sink(sink),
         ),
-        Failure::BackendRequestEmpty => {
-            "a native-code work item has no requested outputs".to_owned()
-        }
-        Failure::BackendRequestForeignUnit(artifact) => format_artifact_failure(
-            "a generated output belongs to another native-code work item",
-            *artifact,
-        ),
-        Failure::BackendRequestDuplicateIdentity(artifact) => format_artifact_failure(
-            "a generated output identity appears more than once",
-            *artifact,
-        ),
-        Failure::BackendRequestMissingLinkableArtifact { kind, requirement } => format!(
-            "the native-code request lacks its {} {} artifact",
-            format_english_artifact_requirement(*requirement),
-            format_english_artifact_kind(*kind),
-        ),
-        Failure::BackendRequestMissingRequiredDebugCompanion => {
-            "the native-code request lacks its required debug companion".to_owned()
-        }
-        Failure::BackendRequestUnexpectedDebugCompanion => {
-            "the native-code request contains an inapplicable debug companion".to_owned()
-        }
-        Failure::BackendRequestUnexpectedAssemblySyntax => {
-            "the native-code request selects assembly syntax without assembly output".to_owned()
-        }
-        Failure::BackendRequestUnexpectedBitcodeSemantics => {
-            "link-time optimization requires a linked executable or library, but this build requests only standalone artifacts"
-                .to_owned()
-        }
-        Failure::InconsistentPlan => {
-            "the derived artifacts do not match the complete output request".to_owned()
-        }
     }
 }
 
@@ -503,34 +471,6 @@ fn format_english_emission_codegen_failure(
         Failure::Generation(unit) => {
             format_unit_failure("failed while generating native code", unit)
         }
-        Failure::MergeDuplicateUnit(unit) => {
-            format_unit_failure("has more than one generated result", unit)
-        }
-        Failure::MergeMissingUnit(unit) => format_unit_failure("has no generated result", unit),
-        Failure::MergeUnrequestedUnit(unit) => {
-            format_unit_failure("was produced without an emission-plan request", unit)
-        }
-        Failure::MergeBackendMismatch(unit) => {
-            format_unit_failure("was produced by another native-code generator", unit)
-        }
-        Failure::MergeCapabilityMismatch(unit) => {
-            format_unit_failure("uses another native-code generator revision", unit)
-        }
-        Failure::MergeTargetMismatch(unit) => {
-            format_unit_failure("was produced for another target", unit)
-        }
-        Failure::MergeMissingArtifact(artifact) => format_artifact_failure(
-            "a required native-code artifact was not produced",
-            *artifact,
-        ),
-        Failure::MergeUnrequestedArtifact(artifact) => format_artifact_failure(
-            "the native-code generator produced an artifact absent from the output request",
-            *artifact,
-        ),
-        Failure::MergeArtifactKindMismatch(artifact) => format_artifact_failure(
-            "the generated artifact category disagrees with the output request",
-            *artifact,
-        ),
         Failure::MergeReadFailed { artifact, error } => format!(
             "{} artifact #{} could not be read because {}",
             format_english_artifact_kind(artifact.kind()),

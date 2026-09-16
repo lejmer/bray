@@ -69,20 +69,6 @@ pub(super) fn planning_failure_context(
             "output_sink",
             DiagnosticEmissionFieldValueJson::OutputSink(DiagnosticOutputSinkJson::from_sink(sink)),
         )],
-        Failure::BackendRequestForeignUnit(artifact)
-        | Failure::BackendRequestDuplicateIdentity(artifact) => {
-            vec![artifact_field("artifact", *artifact)]
-        }
-        Failure::BackendRequestMissingLinkableArtifact { kind, requirement } => vec![
-            field(
-                "artifact_kind",
-                DiagnosticEmissionFieldValueJson::ArtifactKind(kind.as_str()),
-            ),
-            field(
-                "requirement",
-                DiagnosticEmissionFieldValueJson::ArtifactRequirement(requirement.as_str()),
-            ),
-        ],
         Failure::Incomplete
         | Failure::MissingPackageInterfaceArtifact
         | Failure::MissingTestCatalogArtifact
@@ -99,13 +85,7 @@ pub(super) fn planning_failure_context(
         | Failure::MultipleArtifactsForSingleSink
         | Failure::MissingExplicitFileName
         | Failure::InvalidExplicitFileName
-        | Failure::ManagedProductDestinationRequired
-        | Failure::BackendRequestEmpty
-        | Failure::BackendRequestMissingRequiredDebugCompanion
-        | Failure::BackendRequestUnexpectedDebugCompanion
-        | Failure::BackendRequestUnexpectedAssemblySyntax
-        | Failure::BackendRequestUnexpectedBitcodeSemantics
-        | Failure::InconsistentPlan => Vec::new(),
+        | Failure::ManagedProductDestinationRequired => Vec::new(),
     }
 }
 
@@ -307,7 +287,7 @@ pub(in crate::output::diagnostic::json) fn diagnostic_failure_context(
                 }
                 bray_diagnostics::DiagnosticFailureValue::InterfaceSymbolGraphProblem(value) => {
                     DiagnosticEmissionFieldValueJson::InterfaceSymbolGraphProblem(
-                        super::super::interface_symbol_graph_problem_json(value),
+                        interface_symbol_graph_problem_json(value),
                     )
                 }
                 bray_diagnostics::DiagnosticFailureValue::InterfaceValidationFailure(value) => {
@@ -433,17 +413,8 @@ pub(super) fn codegen_failure_context(
         | Failure::MissingUnit(unit)
         | Failure::MissingMappings(unit)
         | Failure::Request(unit)
-        | Failure::Generation(unit)
-        | Failure::MergeDuplicateUnit(unit)
-        | Failure::MergeMissingUnit(unit)
-        | Failure::MergeUnrequestedUnit(unit)
-        | Failure::MergeBackendMismatch(unit)
-        | Failure::MergeCapabilityMismatch(unit)
-        | Failure::MergeTargetMismatch(unit) => vec![digest_field("codegen_unit", unit)],
-        Failure::MergeMissingArtifact(artifact)
-        | Failure::MergeUnrequestedArtifact(artifact)
-        | Failure::MergeArtifactKindMismatch(artifact)
-        | Failure::MergeInvalidContent(artifact) => vec![artifact_field("artifact", *artifact)],
+        | Failure::Generation(unit) => vec![digest_field("codegen_unit", unit)],
+        Failure::MergeInvalidContent(artifact) => vec![artifact_field("artifact", *artifact)],
         Failure::MergeReadFailed { artifact, error } => vec![
             artifact_field("artifact", *artifact),
             field(
@@ -681,7 +652,7 @@ mod tests {
             &DiagnosticPackageInterfaceFailure::ExecutableTemplateEvaluation {
                 declaration: package("example.template"),
                 cause: DiagnosticEmissionEvaluationFailure::Cycle(
-                    bray_diagnostics::DiagnosticEvaluationFailureDetail::new("cycle", []),
+                    DiagnosticEvaluationFailureDetail::new("cycle", []),
                 ),
             },
         );
