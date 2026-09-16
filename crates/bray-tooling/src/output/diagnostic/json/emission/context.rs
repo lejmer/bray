@@ -216,7 +216,7 @@ pub(super) fn evaluation_failure_context(
     use bray_diagnostics::DiagnosticEmissionEvaluationFailure as Failure;
 
     match failure {
-        Failure::Cycle(failure) | Failure::SemanticContext(failure) => {
+        Failure::Cycle(failure) => {
             let mut context = vec![text_field("cause", failure.reason())];
             context.extend(diagnostic_failure_context(failure.context()));
 
@@ -626,15 +626,13 @@ mod tests {
         let context = diagnostic_failure_context(&[DiagnosticFailureField::new(
             "evaluation_cause",
             DiagnosticFailureValue::Evaluation(Box::new(
-                DiagnosticEmissionEvaluationFailure::SemanticContext(
-                    DiagnosticEvaluationFailureDetail::new(
-                        "missing_owner",
-                        [DiagnosticFailureField::new(
-                            "owner",
-                            DiagnosticFailureValue::Count(29),
-                        )],
-                    ),
-                ),
+                DiagnosticEmissionEvaluationFailure::Cycle(DiagnosticEvaluationFailureDetail::new(
+                    "missing_owner",
+                    [DiagnosticFailureField::new(
+                        "owner",
+                        DiagnosticFailureValue::Count(29),
+                    )],
+                )),
             )),
         )]);
 

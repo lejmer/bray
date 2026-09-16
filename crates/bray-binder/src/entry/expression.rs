@@ -1,6 +1,6 @@
 use bray_bound_tree::{
     BoundBlock, BoundBlockId, BoundBlockItem, BoundExpressionId, BoundNodeOrigin, BoundUnitId,
-    BoundUnitKey,
+    BoundUnitKey, BoundUnitRoot,
 };
 use bray_symbols::{
     AnySymbolId, CallableSignatureQuery, LocalScopeId, PredicateDefinitionSymbolId,
@@ -14,141 +14,80 @@ use bray_syntax::{
 use super::BoundUnitBindingError;
 use super::support::{
     anchored_descendant, create_binder, error_type, insert_callable_inputs, insert_surface,
-    map_assembly_error, map_binding_error, map_query_error, missing_owner, missing_syntax,
-    path_context, push_callable_inputs,
+    map_binding_error, map_query_error, missing_owner, missing_syntax, path_context,
+    push_callable_inputs,
 };
 use crate::binder::{Binder, BinderOutput};
 use crate::binding::{ExpressionBinder, callable_normal_completion_has_value, push_contract_scope};
-use crate::publication::{
-    assemble_constant_template, assemble_constraint, assemble_contract_clause,
-    assemble_embedded_constant, assemble_predicate_definition, assemble_runtime_default,
-    assemble_target_gate, direct_nested_units,
-};
+use crate::publication::assemble_bound_unit;
 use crate::{BindingQueryContext, BoundUnitComputation, SymbolQueryProvider};
 
-macro_rules! define_pending_expression_unit {
-    (
-        $pending:ident,
-        $bind:ident,
-        $assemble:ident,
-        $bind_helper:ident,
-        $root:ty,
-        [$($query_contract:ty),* $(,)?],
-        $pending_description:literal,
-        $bind_description:literal
-    ) => {
-        #[doc = $pending_description]
-        pub struct $pending {
-            output: BinderOutput,
-            nested_units: Vec<BoundUnitKey>,
-            root: $root,
-        }
-
-        impl $pending {
-            /// Returns directly nested anonymous callable keys in canonical source order.
-            pub fn nested_units(&self) -> &[BoundUnitKey] {
-                &self.nested_units
-            }
-
-            /// Completes and returns the bound semantic unit.
-            pub fn finish<Upstream>(
-                self,
-            ) -> Result<BoundUnitComputation, BoundUnitBindingError<Upstream>> {
-                $assemble(self.output, self.nested_units, self.root).map_err(map_assembly_error)
-            }
-        }
-
-        #[doc = $bind_description]
+macro_rules! define_expression_unit {
+    ($bind:ident, $helper:ident, $root:ident, [$($query_contract:ty),* $(,)?], $description:literal) => {
+        #[doc = $description]
         pub fn $bind<C>(
             binding_context: &C,
             unit: BoundUnitId,
             key: BoundUnitKey,
-        ) -> Result<$pending, BoundUnitBindingError<C::UpstreamError>>
+        ) -> Result<BoundUnitComputation, BoundUnitBindingError<C::UpstreamError>>
         where
             C: BindingQueryContext + ?Sized,
             $(C::SymbolSemantics: SymbolQueryProvider<$query_contract>,)*
         {
-            let (output, root) = $bind_helper(binding_context, unit, key)?;
+            let (output, root) = $helper(binding_context, unit, key)?;
 
-            let nested_units = direct_nested_units(output.unit().key(), output.dependencies());
-
-            Ok($pending {
-                output,
-                nested_units,
-                root,
-            })
+            Ok(assemble_bound_unit(output, BoundUnitRoot::$root(root)))
         }
     };
 }
 
-define_pending_expression_unit!(
-    PendingBoundRuntimeDefault,
+define_expression_unit!(
     bind_runtime_default,
-    assemble_runtime_default,
     bind_runtime_default_unit,
-    BoundExpressionId,
+    Expression,
     [CallableSignatureQuery],
-    "A bound runtime-default expression ready to complete its semantic unit.",
     "Binds one runtime-default expression into committed task-local state."
 );
-define_pending_expression_unit!(
-    PendingBoundConstantTemplate,
+define_expression_unit!(
     bind_constant_template,
-    assemble_constant_template,
     bind_expression_unit,
-    BoundExpressionId,
+    Expression,
     [],
-    "A bound constant-template expression ready to complete its semantic unit.",
     "Binds one constant-template expression into committed task-local state."
 );
-define_pending_expression_unit!(
-    PendingBoundEmbeddedConstant,
+define_expression_unit!(
     bind_embedded_constant,
-    assemble_embedded_constant,
     bind_embedded_constant_unit,
-    BoundExpressionId,
+    Expression,
     [],
-    "A bound embedded constant expression ready to complete its semantic unit.",
     "Binds one embedded constant expression into committed task-local state."
 );
-define_pending_expression_unit!(
-    PendingBoundPredicateDefinition,
+define_expression_unit!(
     bind_predicate_definition,
-    assemble_predicate_definition,
     bind_predicate_definition_unit,
-    BoundExpressionId,
+    Expression,
     [PredicateSignatureTemplateQuery],
-    "A bound predicate-definition expression ready to complete its semantic unit.",
     "Binds one predicate-definition expression into committed task-local state."
 );
-define_pending_expression_unit!(
-    PendingBoundConstraint,
+define_expression_unit!(
     bind_constraint,
-    assemble_constraint,
     bind_constraint_unit,
-    BoundBlockId,
+    ExpressionSequence,
     [],
-    "A bound constraint expression sequence ready to complete its semantic unit.",
     "Binds one constraint expression sequence into committed task-local state."
 );
-define_pending_expression_unit!(
-    PendingBoundContractClause,
+define_expression_unit!(
     bind_contract_clause,
-    assemble_contract_clause,
     bind_contract_clause_unit,
-    BoundBlockId,
+    ExpressionSequence,
     [CallableSignatureQuery],
-    "A bound contract-clause expression sequence ready to complete its semantic unit.",
     "Binds one contract-clause expression sequence into committed task-local state."
 );
-define_pending_expression_unit!(
-    PendingBoundTargetGate,
+define_expression_unit!(
     bind_target_gate,
-    assemble_target_gate,
     bind_expression_unit,
-    BoundExpressionId,
+    Expression,
     [],
-    "A bound module target-selection expression ready to complete its semantic unit.",
     "Binds one module target-selection expression into committed task-local state."
 );
 
@@ -327,9 +266,7 @@ where
     let root =
         bind_root(&mut expression_binder, &mut binder, root_scope).map_err(map_binding_error)?;
 
-    let output = binder
-        .finish()
-        .map_err(BoundUnitBindingError::Construction)?;
+    let output = binder.finish();
 
     Ok((output, root))
 }
@@ -490,9 +427,7 @@ where
         .map_err(crate::unit::BoundUnitConstructionError::from)
         .map_err(BoundUnitBindingError::Construction)?;
 
-    let output = binder
-        .finish()
-        .map_err(BoundUnitBindingError::Construction)?;
+    let output = binder.finish();
 
     Ok((output, root))
 }

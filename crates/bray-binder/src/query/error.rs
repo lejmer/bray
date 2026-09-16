@@ -44,8 +44,6 @@ pub enum BindingQueryError<Upstream = std::convert::Infallible> {
     Construction(crate::BoundUnitConstructionError),
     /// Binding violated an exact local contract.
     Binding(crate::BindingError<Upstream>),
-    /// Bound-unit assembly rejected the completed local structures.
-    Assembly(crate::BoundUnitAssemblyError),
     /// The coordinating query layer returned one of its own exact failures.
     Upstream(Upstream),
 }
@@ -76,7 +74,6 @@ impl BindingQueryError {
             }
             Self::Construction(error) => BindingQueryError::Construction(error),
             Self::Binding(error) => BindingQueryError::Binding(error.with_upstream()),
-            Self::Assembly(error) => BindingQueryError::Assembly(error),
             Self::Upstream(error) => match error {},
         }
     }
@@ -88,7 +85,7 @@ pub type BindingQueryResult<T, Upstream = std::convert::Infallible> =
 
 #[cfg(test)]
 mod tests {
-    use bray_bound_tree::{BoundNodeKind, BoundTreeBuildError, BoundUnitId};
+    use bray_bound_tree::BoundTreeBuildError;
     use bray_symbols::{GenericSubstitutionShapeError, SemanticValueKind, SemanticValueStoreError};
 
     use super::BindingQueryError;
@@ -109,12 +106,9 @@ mod tests {
 
     #[test]
     fn local_binding_failures_survive_upstream_widening() {
-        let construction =
-            BoundUnitConstructionError::BoundTree(BoundTreeBuildError::ForeignNode {
-                expected: BoundUnitId::new(4),
-                actual: BoundUnitId::new(9),
-                kind: BoundNodeKind::Expression,
-            });
+        let construction = BoundUnitConstructionError::BoundTree(
+            BoundTreeBuildError::ArenaCapacityExceeded(bray_bound_tree::BoundNodeKind::Pattern),
+        );
 
         assert_eq!(
             BindingQueryError::Construction(construction).with_upstream::<u8>(),

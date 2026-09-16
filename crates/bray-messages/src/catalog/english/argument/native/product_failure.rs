@@ -23,7 +23,6 @@ pub(super) const fn native_product_failure_is_internal(
         | Kind::EvaluationProduct(_)
         | Kind::EvaluationForeign(_)
         | Kind::EvaluationChecker(_)
-        | Kind::SemanticContextFailure(_)
         | Kind::CheckingInfrastructureFailure
         | Kind::ReachabilityEmptyRoots
         | Kind::ReachabilityDuplicateInstance

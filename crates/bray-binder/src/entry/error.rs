@@ -1,7 +1,7 @@
 use bray_bound_tree::BoundSourceAnchor;
 use bray_symbols::{AnySymbolId, SemanticValueStoreError, SymbolKey};
 
-use crate::{BindingError, BoundUnitAssemblyError, BoundUnitConstructionError};
+use crate::{BindingError, BoundUnitConstructionError};
 
 /// A failure outside ordinary source diagnostics while binding one semantic unit.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -44,10 +44,8 @@ pub enum BoundUnitBindingError<Upstream = std::convert::Infallible> {
     },
     /// A canonical semantic value could not be created.
     SemanticValue(SemanticValueStoreError),
-    /// Bound-tree or local-symbol validation failed with the retained exact cause.
+    /// A bound-tree or local-symbol allocation reached its capacity limit.
     Construction(BoundUnitConstructionError),
     /// Binding could not establish a complete recovery-aware root.
     Binding(BindingError<Upstream>),
-    /// Bound-unit validation failed with the retained exact cause.
-    Assembly(BoundUnitAssemblyError),
 }

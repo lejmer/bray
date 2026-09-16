@@ -83,10 +83,9 @@ where
         length: result_length,
     } = result_data.as_ref()
     else {
-        return Err(CheckerInfrastructureError::InvalidExpressionTypeInput {
-            expression: expression_id,
-        }
-        .into());
+        panic!(
+            "checked array generator {expression_id:?} must have an array result, got {result_data:?}"
+        );
     };
 
     let Some(iteration_id) = expression.operands().first().copied() else {

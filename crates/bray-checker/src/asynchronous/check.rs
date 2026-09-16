@@ -22,10 +22,10 @@ use crate::analysis::{
     ControlFlowGraphBuildOutcome, build_storage_control_flow_graph,
 };
 use crate::diagnostic::{diagnostic_id, expression_span};
-use crate::unit::storage_flow_input_failure;
+use crate::unit::assert_unit_inputs;
 use crate::{
     CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
-    CheckerSemanticQueryProvider, CheckerStorageFlowFailure, CheckerUnitView, StorageFlowInputKind,
+    CheckerSemanticQueryProvider, CheckerStorageFlowFailure, CheckerUnitView,
 };
 
 #[expect(
@@ -49,7 +49,7 @@ where
         return CheckerOutcome::Cancelled;
     }
 
-    if let Some(error) = input_failure(
+    assert_inputs(
         request,
         types,
         selections,
@@ -58,9 +58,7 @@ where
         storage,
         refinements,
         flow,
-    ) {
-        return CheckerOutcome::InfrastructureFailure(error);
-    }
+    );
 
     let graph = match build_storage_control_flow_graph(request, storage, selections, None) {
         ControlFlowGraphBuildOutcome::Complete(graph) => graph,
@@ -355,7 +353,7 @@ where
     Ok(())
 }
 
-fn input_failure<C>(
+fn assert_inputs<C>(
     request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
     selections: &CheckedSemanticSelections,
@@ -364,41 +362,25 @@ fn input_failure<C>(
     storage: &StoragePlan,
     refinements: &CheckedRefinements,
     flow: &StorageFlow,
-) -> Option<CheckerInfrastructureError>
-where
+) where
     C: CheckerRequestContext + ?Sized,
 {
-    storage_flow_input_failure(
+    assert_unit_inputs(
         request,
         [
+            ("expression types", (types.unit(), types.kind())),
             (
-                StorageFlowInputKind::ExpressionTypes,
-                (types.unit(), types.kind()),
-            ),
-            (
-                StorageFlowInputKind::SemanticSelections,
+                "semantic selections",
                 (selections.unit(), selections.kind()),
             ),
+            ("liveness", (liveness.unit(), liveness.kind())),
             (
-                StorageFlowInputKind::Liveness,
-                (liveness.unit(), liveness.kind()),
-            ),
-            (
-                StorageFlowInputKind::DependencyContracts,
+                "dependency contracts",
                 (dependencies.unit(), dependencies.kind()),
             ),
-            (
-                StorageFlowInputKind::StoragePlan,
-                (storage.unit(), storage.kind()),
-            ),
-            (
-                StorageFlowInputKind::Refinements,
-                (refinements.unit(), refinements.kind()),
-            ),
-            (
-                StorageFlowInputKind::StorageFlow,
-                (flow.unit(), flow.kind()),
-            ),
+            ("storage plan", (storage.unit(), storage.kind())),
+            ("refinements", (refinements.unit(), refinements.kind())),
+            ("storage flow", (flow.unit(), flow.kind())),
         ],
     )
 }
@@ -710,8 +692,7 @@ mod tests {
         let context = TestCheckerContext::new(false);
         let semantic_context = callable_entry(unit.key());
 
-        let request = CheckerUnitView::new(&unit, &semantic_context, &context)
-            .unwrap_or_else(|error| panic!("test checker unit must validate: {error:?}"));
+        let request = CheckerUnitView::new(&unit, &semantic_context, &context);
 
         for (key, expected) in [
             ("FutureStart", AnalysisTaskOperationKind::Start),
@@ -755,8 +736,7 @@ mod tests {
         let context = TestCheckerContext::new(false);
         let semantic_context = callable_entry(unit.key());
 
-        let request = CheckerUnitView::new(&unit, &semantic_context, &context)
-            .unwrap_or_else(|error| panic!("test checker unit must validate: {error:?}"));
+        let request = CheckerUnitView::new(&unit, &semantic_context, &context);
 
         let mut diagnostics = DiagnosticBag::new();
 
@@ -976,8 +956,7 @@ mod tests {
         let context = TestCheckerContext::new(false);
         let semantic_context = callable_entry(unit.key());
 
-        let request = CheckerUnitView::new(&unit, &semantic_context, &context)
-            .unwrap_or_else(|error| panic!("test checker unit must validate: {error:?}"));
+        let request = CheckerUnitView::new(&unit, &semantic_context, &context);
 
         let result = ExpressionTypeResult::new(error_type(), ExpressionTypeStatus::Valid);
         let types = checked_expression_types(&unit, expressions.iter().copied(), result);

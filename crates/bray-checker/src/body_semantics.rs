@@ -13,9 +13,9 @@ use crate::analysis::{
 use crate::asynchronous::check_async_analysis_with_graph;
 use crate::behavior::collect_body_behavior;
 use crate::dependency::check_dependency_contracts;
-use crate::unit::semantic_input_failure;
+use crate::unit::assert_unit_inputs;
 use crate::{
-    CheckerInfrastructureError, CheckerInputKind, CheckerOutcome, CheckerRequestContext,
+    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext,
     CheckerSemanticQueryProvider, CheckerUnitView,
 };
 
@@ -51,33 +51,19 @@ pub(crate) fn check_body_semantics<C>(
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
-    if let Some(error) = semantic_input_failure(
+    assert_unit_inputs(
         request,
         [
+            ("control flow", (control_flow.unit(), control_flow.kind())),
             (
-                CheckerInputKind::ControlFlow,
-                (control_flow.unit(), control_flow.kind()),
-            ),
-            (
-                CheckerInputKind::ExpressionSemantics,
+                "expression semantics",
                 (expressions.unit(), expressions.kind()),
             ),
-            (
-                CheckerInputKind::Patterns,
-                (patterns.unit(), patterns.kind()),
-            ),
-            (
-                CheckerInputKind::StoragePlan,
-                (storage.unit(), storage.kind()),
-            ),
-            (
-                CheckerInputKind::MemoryOperations,
-                (memory.unit(), memory.kind()),
-            ),
+            ("patterns", (patterns.unit(), patterns.kind())),
+            ("storage plan", (storage.unit(), storage.kind())),
+            ("memory operations", (memory.unit(), memory.kind())),
         ],
-    ) {
-        return CheckerOutcome::InfrastructureFailure(error);
-    }
+    );
 
     let graph =
         match build_storage_control_flow_graph(request, storage, expressions.selections(), None) {

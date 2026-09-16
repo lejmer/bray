@@ -71,7 +71,7 @@ where
             return Ok(SessionProgress::Cancelled);
         }
 
-        let Some(nodes) = collect_nodes(request)? else {
+        let Some(nodes) = collect_nodes(request) else {
             return Ok(SessionProgress::Cancelled);
         };
 
@@ -102,7 +102,7 @@ where
         initialize_block_variables(request, &nodes.blocks, &mut block_variables, &mut inference)?;
 
         let block_owners =
-            crate::unit::expression_block_owners(request, nodes.expressions.iter().copied())?;
+            crate::unit::expression_block_owners(request, nodes.expressions.iter().copied());
 
         if request.is_cancelled() {
             return Ok(SessionProgress::Cancelled);
@@ -164,19 +164,18 @@ where
         input: &ExpressionTypeInput,
         replacements: &BTreeSet<BoundExpressionId>,
     ) -> Result<(), CheckerInfrastructureError> {
-        validate_input(self.request, input)?;
-
         for &(expression, policy) in input.box_storage_policies() {
-            if self
-                .types
-                .box_storage_policies
-                .get(&expression)
-                .is_some_and(|previous| *previous != policy)
-            {
-                return Err(CheckerInfrastructureError::InvalidExpressionTypeInput { expression });
-            }
+            assert!(
+                matches!(self.request.view().expression(expression), Some(BoundExpression::BoxConstruction(construction)) if construction.policy().is_some()),
+                "box policy input must describe an explicit box policy at {expression:?}"
+            );
 
-            self.types.box_storage_policies.insert(expression, policy);
+            let previous = self.types.box_storage_policies.insert(expression, policy);
+
+            assert!(
+                previous.is_none_or(|previous| previous == policy),
+                "box policy for {expression:?} must not change during type inference"
+            );
         }
 
         let mut applied_replacements = BTreeSet::new();
@@ -185,9 +184,9 @@ where
             if replacements.contains(&evidence.expression())
                 && applied_replacements.insert(evidence.expression())
             {
-                self.replace_evidence(evidence.expression(), evidence.ty())?;
+                self.replace_evidence(evidence.expression(), evidence.ty());
             } else {
-                self.apply_evidence(*evidence)?;
+                self.apply_evidence(*evidence);
             }
         }
 
@@ -203,47 +202,34 @@ where
         Ok(())
     }
 
-    pub(crate) fn add_evidence(
-        &mut self,
-        expression: BoundExpressionId,
-        ty: TypeId,
-    ) -> Result<(), CheckerInfrastructureError> {
-        self.validate_expression(expression)?;
-
+    pub(crate) fn add_evidence(&mut self, expression: BoundExpressionId, ty: TypeId) {
         let Some(variable) = self.variables.get(&expression).copied() else {
-            return Err(CheckerInfrastructureError::InvalidExpressionTypeInput { expression });
+            panic!(
+                "expression {:?} must have a committed node and inference input",
+                expression
+            );
         };
 
         self.inference.add_evidence(variable, ty, expression);
-
-        Ok(())
     }
 
-    fn replace_evidence(
-        &mut self,
-        expression: BoundExpressionId,
-        ty: TypeId,
-    ) -> Result<(), CheckerInfrastructureError> {
-        self.validate_expression(expression)?;
-
+    fn replace_evidence(&mut self, expression: BoundExpressionId, ty: TypeId) {
         let Some(variable) = self.variables.get(&expression).copied() else {
-            return Err(CheckerInfrastructureError::InvalidExpressionTypeInput { expression });
+            panic!(
+                "expression {:?} must have a committed node and inference input",
+                expression
+            );
         };
 
         self.inference.replace_evidence(variable, ty);
-
-        Ok(())
     }
 
-    fn apply_evidence(
-        &mut self,
-        evidence: ExpressionTypeEvidence,
-    ) -> Result<(), CheckerInfrastructureError> {
+    fn apply_evidence(&mut self, evidence: ExpressionTypeEvidence) {
         if self
             .expression_type(evidence.expression())
             .is_some_and(|current| current.ty() == evidence.ty() && !current.is_recovered())
         {
-            return Ok(());
+            return;
         }
 
         self.add_evidence(evidence.expression(), evidence.ty())
@@ -254,8 +240,6 @@ where
         expression: BoundExpressionId,
         ty: TypeId,
     ) -> Result<(), CheckerInfrastructureError> {
-        self.validate_expression(expression)?;
-
         match add_expectations(
             self.request,
             [ExpressionTypeExpectation::new(expression, ty)],
@@ -395,17 +379,6 @@ where
         }
     }
 
-    fn validate_expression(
-        &self,
-        expression: BoundExpressionId,
-    ) -> Result<(), CheckerInfrastructureError> {
-        if !self.variables.contains_key(&expression) {
-            return Err(CheckerInfrastructureError::InvalidExpressionTypeInput { expression });
-        }
-
-        Ok(())
-    }
-
     fn add_return_expectations(
         &mut self,
         result_type: TypeId,
@@ -456,9 +429,7 @@ struct CollectedNodes {
     blocks: Vec<BoundBlockId>,
 }
 
-fn collect_nodes<C>(
-    request: CheckerUnitView<'_, C>,
-) -> Result<Option<CollectedNodes>, CheckerInfrastructureError>
+fn collect_nodes<C>(request: CheckerUnitView<'_, C>) -> Option<CollectedNodes>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -501,17 +472,20 @@ where
 
     match outcome {
         BoundWalkOutcome::Completed => {}
-        BoundWalkOutcome::Stopped => return Ok(None),
+        BoundWalkOutcome::Stopped => return None,
         BoundWalkOutcome::MissingNode(node) => {
-            return Err(CheckerInfrastructureError::InvalidBoundNode { node });
+            panic!(
+                "bound node {:?} must belong to the committed tree and checked inputs",
+                node
+            );
         }
     }
 
-    Ok(Some(CollectedNodes {
+    Some(CollectedNodes {
         expressions: expressions.into_iter().collect(),
         non_value_expressions: non_value_expressions.into_iter().collect(),
         blocks: blocks.into_iter().collect(),
-    }))
+    })
 }
 
 fn initialize_non_value_expressions(
@@ -546,7 +520,10 @@ where
         }
 
         let Some(bound) = request.view().expression(expression) else {
-            return Err(CheckerInfrastructureError::InvalidExpressionTypeInput { expression });
+            panic!(
+                "expression {:?} must have a committed node and inference input",
+                expression
+            );
         };
 
         let Some(variable) = inference.fresh(bound.is_recovered()) else {
@@ -597,9 +574,10 @@ where
         }
 
         let Some(bound) = request.view().block(block) else {
-            return Err(CheckerInfrastructureError::InvalidBoundNode {
-                node: AnyBoundNodeId::from(block),
-            });
+            panic!(
+                "bound node {:?} must belong to the committed tree and checked inputs",
+                AnyBoundNodeId::from(block)
+            );
         };
 
         let Some(variable) = inference.fresh(bound.is_recovered()) else {
@@ -607,47 +585,6 @@ where
         };
 
         variables.insert(block, variable);
-    }
-
-    Ok(())
-}
-
-fn validate_input<C>(
-    request: CheckerUnitView<'_, C>,
-    input: &ExpressionTypeInput,
-) -> Result<(), CheckerInfrastructureError>
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    for evidence in input.evidence() {
-        validate_input_expression(request, evidence.expression())?;
-    }
-
-    for expectation in input.expectations() {
-        validate_input_expression(request, expectation.expression())?;
-    }
-
-    for &(expression, _) in input.box_storage_policies() {
-        if !matches!(request.view().expression(expression), Some(BoundExpression::BoxConstruction(construction)) if construction.policy().is_some())
-        {
-            return Err(CheckerInfrastructureError::InvalidExpressionTypeInput { expression });
-        }
-
-        validate_input_expression(request, expression)?;
-    }
-
-    Ok(())
-}
-
-fn validate_input_expression<C>(
-    request: CheckerUnitView<'_, C>,
-    expression: BoundExpressionId,
-) -> Result<(), CheckerInfrastructureError>
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    if request.view().expression(expression).is_none() {
-        return Err(CheckerInfrastructureError::InvalidExpressionTypeInput { expression });
     }
 
     Ok(())

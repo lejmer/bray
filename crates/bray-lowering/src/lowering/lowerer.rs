@@ -340,7 +340,7 @@ mod tests {
             .push_callable_body(BoundCallableBody::block(origin, block))
             .unwrap_or_else(|error| panic!("test callable body must fit: {error:?}"));
 
-        BoundUnit::try_new(
+        BoundUnit::new(
             template.key().clone(),
             tree.finish(),
             template.local_symbols().clone(),
@@ -350,7 +350,6 @@ mod tests {
                 body,
             },
         )
-        .unwrap_or_else(|error| panic!("test bound unit must validate: {error:?}"))
     }
 
     fn uniform_expression_types(

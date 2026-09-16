@@ -225,7 +225,7 @@ where
                     .request
                     .view()
                     .callable_body(id)
-                    .ok_or_else(|| invalid_node(id))?;
+                    .unwrap_or_else(|| missing_node(id));
 
                 let block = match body.kind() {
                     BoundCallableBodyKind::Block(block) => Some(block),
@@ -633,7 +633,7 @@ where
             .request
             .view()
             .block(id)
-            .ok_or_else(|| invalid_node(id))?
+            .unwrap_or_else(|| missing_node(id))
             .clone();
 
         for item in block.items() {
@@ -742,10 +742,11 @@ where
     })
 }
 
-pub(super) fn invalid_node<Upstream>(
-    id: impl Into<bray_bound_tree::AnyBoundNodeId>,
-) -> PlanError<Upstream> {
-    CheckerInfrastructureError::InvalidBoundNode { node: id.into() }.into()
+pub(super) fn missing_node(id: impl Into<bray_bound_tree::AnyBoundNodeId>) -> ! {
+    panic!(
+        "storage node {:?} must belong to the committed tree and checked inputs",
+        id.into()
+    );
 }
 
 fn storage_signature_error(error: CallableSignatureTemplateError) -> CheckerInfrastructureError {

@@ -40,9 +40,6 @@ where
             FactQueryError::Binding(BoundUnitBindingError::Construction(error))
         }
         BindingQueryError::Binding(error) => binding_error(error),
-        BindingQueryError::Assembly(error) => {
-            FactQueryError::Binding(BoundUnitBindingError::Assembly(error))
-        }
         BindingQueryError::Upstream(error) => error.into(),
     }
 }
@@ -182,9 +179,6 @@ where
         ),
         BindingError::Construction(error) => {
             FactQueryError::Binding(BoundUnitBindingError::Construction(error))
-        }
-        BindingError::Assembly(error) => {
-            FactQueryError::Binding(BoundUnitBindingError::Assembly(error))
         }
         BindingError::CallableSignature(error) => error.into(),
         BindingError::GenericSubstitution(cause) => {

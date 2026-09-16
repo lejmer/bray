@@ -599,10 +599,7 @@ mod tests {
             Err(error) => panic!("valid expression block must bind: {error:?}"),
         };
 
-        let result = match binder.finish() {
-            Ok(result) => result,
-            Err(error) => panic!("bound expression block must freeze: {error:?}"),
-        };
+        let result = binder.finish();
 
         assert!(
             result.diagnostics().is_empty(),
@@ -841,10 +838,7 @@ mod tests {
             Err(error) => panic!("malformed expression block must recover: {error:?}"),
         };
 
-        let result = match binder.finish() {
-            Ok(result) => result,
-            Err(error) => panic!("recovered expression block must freeze: {error:?}"),
-        };
+        let result = binder.finish();
 
         assert!(result.diagnostics().is_empty());
 
@@ -898,10 +892,7 @@ mod tests {
             Err(error) => panic!("malformed expressions must recover: {error:?}"),
         };
 
-        let result = match binder.finish() {
-            Ok(result) => result,
-            Err(error) => panic!("recovered expressions must freeze: {error:?}"),
-        };
+        let result = binder.finish();
 
         let Some(block) = result.unit().tree().block(block) else {
             panic!("recovered block must remain in the tree");
@@ -990,10 +981,7 @@ mod tests {
             Err(error) => panic!("binding must succeed: {error:?}"),
         };
 
-        let result = match binder.finish() {
-            Ok(result) => result,
-            Err(error) => panic!("binding result must publish: {error:?}"),
-        };
+        let result = binder.finish();
 
         assert!(
             result.diagnostics().is_empty(),

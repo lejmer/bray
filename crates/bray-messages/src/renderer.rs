@@ -714,20 +714,6 @@ mod tests {
         let callable = DiagnosticCheckerSymbol::new("callable_overload", 41);
 
         let cases = [
-            CheckerFailure::StorageFlow(StorageFlowFailure::IncompatibleInput {
-                input: "expression_types",
-                expected_unit: 1,
-                expected_kind: "callable_body",
-                actual_unit: 2,
-                actual_kind: "constant_template",
-            }),
-            CheckerFailure::StorageFlow(StorageFlowFailure::IncompatibleInput {
-                input: "future_input",
-                expected_unit: 1,
-                expected_kind: "future_expected_kind",
-                actual_unit: 2,
-                actual_kind: "future_actual_kind",
-            }),
             CheckerFailure::StorageFlow(StorageFlowFailure::FlowConstruction(
                 "duplicate_suspension",
             )),

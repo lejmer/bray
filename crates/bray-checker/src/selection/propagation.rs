@@ -36,7 +36,7 @@ where
     let block_owners = crate::unit::expression_block_owners(
         request,
         types.entries().iter().map(|entry| entry.expression()),
-    )?;
+    );
 
     let mut events = Vec::new();
 
@@ -54,7 +54,10 @@ where
         BoundWalkOutcome::Completed => {}
         BoundWalkOutcome::Stopped => return Ok(None),
         BoundWalkOutcome::MissingNode(node) => {
-            return Err(CheckerInfrastructureError::InvalidBoundNode { node }.into());
+            panic!(
+                "bound node {:?} must belong to the committed tree and checked inputs",
+                node
+            );
         }
     }
 

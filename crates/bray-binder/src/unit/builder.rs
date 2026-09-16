@@ -150,19 +150,19 @@ impl BoundUnitLocalBuilder {
         &mut self,
         scope: LocalScopeId,
         symbol: impl Into<AnyLocalSymbolId>,
-    ) -> Result<(), BoundUnitConstructionError> {
+    ) {
         let symbol = symbol.into();
 
-        if self.activated_locals.contains(&symbol) {
-            return Err(BoundUnitConstructionError::LocalAlreadyActivated(symbol));
-        }
+        assert!(
+            !self.activated_locals.contains(&symbol),
+            "local {symbol:?} must only be activated once in {:?}",
+            self.key
+        );
 
         self.local_symbols.insert_local_name(scope, symbol);
 
         self.activated_locals.insert(symbol);
         self.activated_local_log.push(symbol);
-
-        Ok(())
     }
 
     pub(crate) fn insert_surface_name(
@@ -229,14 +229,14 @@ impl BoundUnitLocalBuilder {
         ordinal: Option<SymbolOrdinal>,
         is_recovered: bool,
     ) -> Result<AnonymousCallableBoundary, BoundUnitConstructionError> {
-        self.validate_anonymous_source(source)?;
+        self.assert_anonymous_source(source);
 
         let BoundUnitKeyData::AnonymousCallable(unit) = self.key.data() else {
-            return Err(BoundUnitConstructionError::AnonymousCallableBoundaryMismatch);
+            panic!("anonymous callable boundary must match unit {:?}", self.key);
         };
 
         if unit.source() != source {
-            return Err(BoundUnitConstructionError::AnonymousCallableBoundaryMismatch);
+            panic!("anonymous callable boundary must match unit {:?}", self.key);
         }
 
         self.push_anonymous_callable_for_unit(
@@ -250,14 +250,11 @@ impl BoundUnitLocalBuilder {
         )
     }
 
-    pub(crate) fn nested_anonymous_callable_key(
-        &self,
-        source: BoundSourceAnchor,
-    ) -> Result<BoundUnitKey, BoundUnitConstructionError> {
-        self.validate_anonymous_source(source)?;
+    pub(crate) fn nested_anonymous_callable_key(&self, source: BoundSourceAnchor) -> BoundUnitKey {
+        self.assert_anonymous_source(source);
 
         // The enclosing and nested units retain the Arc-backed parent identity.
-        Ok(BoundUnitKey::anonymous_callable(self.key.clone(), source))
+        BoundUnitKey::anonymous_callable(self.key.clone(), source)
     }
 
     fn push_anonymous_callable_for_unit(
@@ -272,14 +269,11 @@ impl BoundUnitLocalBuilder {
         let syntax = source.syntax();
         let identity = (introduction_scope, syntax, ordinal);
 
-        if self.anonymous_callables.contains(&identity) {
-            return Err(
-                BoundUnitConstructionError::AnonymousCallableAlreadyAssigned {
-                    introduction_scope,
-                    ordinal,
-                },
-            );
-        }
+        assert!(
+            !self.anonymous_callables.contains(&identity),
+            "anonymous callable {identity:?} must be assigned once in {:?}",
+            self.key
+        );
 
         let callable_scope = self.local_symbols.push_scope(
             Some(introduction_scope),
@@ -315,18 +309,19 @@ impl BoundUnitLocalBuilder {
         mode: bray_symbols::CallableParameterMode,
         is_recovered: bool,
     ) -> Result<AnonymousCallableParameterSymbolId, BoundUnitConstructionError> {
-        self.validate_anonymous_boundary(boundary)?;
+        assert_eq!(
+            boundary.unit(),
+            &self.key,
+            "anonymous parameter boundary must match its builder"
+        );
 
         let identity = (boundary.callable(), ordinal);
 
-        if self.anonymous_parameters.contains(&identity) {
-            return Err(
-                BoundUnitConstructionError::AnonymousCallableParameterAlreadyAssigned {
-                    callable: boundary.callable(),
-                    ordinal,
-                },
-            );
-        }
+        assert!(
+            !self.anonymous_parameters.contains(&identity),
+            "anonymous parameter {identity:?} must be assigned once in {:?}",
+            self.key
+        );
 
         let parameter = self.local_symbols.push_anonymous_parameter(
             boundary.callable(),
@@ -409,58 +404,27 @@ impl BoundUnitLocalBuilder {
         true
     }
 
-    pub(crate) fn finish(self) -> Result<BoundUnitConstructionResult, BoundUnitConstructionError> {
+    pub(crate) fn finish(self) -> BoundUnitConstructionResult {
         let local_symbols = self.local_symbols.finish();
         let tree = self.tree.finish();
 
-        Ok(BoundUnitConstructionResult::new(
-            self.key,
-            tree,
-            local_symbols,
-            self.root_scope,
-        ))
+        BoundUnitConstructionResult::new(self.key, tree, local_symbols, self.root_scope)
     }
 
-    fn validate_anonymous_source(
-        &self,
-        source: BoundSourceAnchor,
-    ) -> Result<(), BoundUnitConstructionError> {
-        let expected_source = self.key.source().syntax().source_id();
-        let actual_source = source.syntax().source_id();
+    fn assert_anonymous_source(&self, source: BoundSourceAnchor) {
+        assert_eq!(
+            source.syntax().source_id(),
+            self.key.source().syntax().source_id(),
+            "anonymous callable source must match its enclosing unit {:?}",
+            self.key
+        );
 
-        if actual_source != expected_source {
-            return Err(
-                BoundUnitConstructionError::AnonymousCallableSourceMismatch {
-                    expected: expected_source,
-                    actual: actual_source,
-                },
-            );
-        }
-
-        let expected = self.key.source().source_version();
-        let actual = source.source_version();
-
-        if actual != expected {
-            return Err(
-                BoundUnitConstructionError::AnonymousCallableSourceVersionMismatch {
-                    expected,
-                    actual,
-                },
-            );
-        }
-
-        Ok(())
-    }
-
-    fn validate_anonymous_boundary(
-        &self,
-        boundary: &AnonymousCallableBoundary,
-    ) -> Result<(), BoundUnitConstructionError> {
-        if boundary.unit() != &self.key {
-            return Err(BoundUnitConstructionError::AnonymousCallableBoundaryMismatch);
-        }
-
-        Ok(())
+        assert_eq!(
+            source.source_version(),
+            self.key.source().source_version(),
+            "anonymous callable source revision must match its enclosing unit {:?}",
+            self.key
+        );
     }
 }
 
@@ -476,7 +440,6 @@ mod tests {
         SymbolOrdinal, TypeData,
     };
 
-    use crate::unit::BoundUnitConstructionError;
     use crate::unit::builder::BoundUnitLocalBuilder;
     use crate::unit::test_support::{
         builder as new_builder, finish, fixture, push_binding, push_root_anonymous_callable,
@@ -499,13 +462,13 @@ mod tests {
 
         let binding = push_binding(&mut builder, block, fixture.first, true);
 
-        assert_eq!(builder.activate_local(block, binding), Ok(()));
+        builder.activate_local(block, binding);
 
-        assert_eq!(
-            builder.activate_local(block, binding),
-            Err(BoundUnitConstructionError::LocalAlreadyActivated(
-                binding.into()
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                || builder.activate_local(block, binding)
             ))
+            .is_err()
         );
 
         let result = finish(builder);
@@ -672,7 +635,7 @@ mod tests {
 
         let outer_binding = push_binding(&mut builder, root, fixture.first, false);
 
-        assert_eq!(builder.activate_local(root, outer_binding), Ok(()));
+        builder.activate_local(root, outer_binding);
 
         let parameter = match builder.push_anonymous_parameter(
             &boundary,
@@ -686,37 +649,29 @@ mod tests {
             Err(error) => panic!("anonymous parameter must build: {error:?}"),
         };
 
-        assert_eq!(
-            builder.push_anonymous_parameter(
-                &boundary,
-                symbol_name("duplicate"),
-                [fixture.second],
-                SymbolOrdinal::new(0),
-                bray_symbols::CallableParameterMode::Immutable,
-                true,
-            ),
-            Err(
-                BoundUnitConstructionError::AnonymousCallableParameterAlreadyAssigned {
-                    callable: boundary.callable(),
-                    ordinal: SymbolOrdinal::new(0),
-                }
-            )
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| builder
+                .push_anonymous_parameter(
+                    &boundary,
+                    symbol_name("duplicate"),
+                    [fixture.second],
+                    SymbolOrdinal::new(0),
+                    bray_symbols::CallableParameterMode::Immutable,
+                    true,
+                )))
+            .is_err()
         );
 
-        assert_eq!(
-            builder.push_root_anonymous_callable(
-                root,
-                BoundSourceAnchor::new(fixture.first, fixture.version),
-                fixture.first.full_range().start(),
-                Some(SymbolOrdinal::new(0)),
-                true,
-            ),
-            Err(
-                BoundUnitConstructionError::AnonymousCallableAlreadyAssigned {
-                    introduction_scope: root,
-                    ordinal: Some(SymbolOrdinal::new(0)),
-                }
-            )
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| builder
+                .push_root_anonymous_callable(
+                    root,
+                    BoundSourceAnchor::new(fixture.first, fixture.version),
+                    fixture.first.full_range().start(),
+                    Some(SymbolOrdinal::new(0)),
+                    true,
+                )))
+            .is_err()
         );
 
         let callable_scope = boundary.scope();
@@ -755,10 +710,7 @@ mod tests {
         let outer = new_builder(&fixture, LocalSymbolRegionId::new(10));
         let source = BoundSourceAnchor::new(fixture.first, fixture.version);
 
-        let key = match outer.nested_anonymous_callable_key(source) {
-            Ok(key) => key,
-            Err(error) => panic!("nested callable key must build: {error:?}"),
-        };
+        let key = outer.nested_anonymous_callable_key(source);
 
         let mut builder = match BoundUnitLocalBuilder::new(
             BoundUnitId::new(10),
@@ -776,24 +728,17 @@ mod tests {
         let mismatched =
             BoundSourceAnchor::new(fixture.first, SourceVersion::new(fixture.version.raw() + 1));
 
-        assert_eq!(
-            builder.push_root_anonymous_callable(root, foreign, TextSize::ZERO, None, true),
-            Err(
-                BoundUnitConstructionError::AnonymousCallableSourceMismatch {
-                    expected: fixture.first.source_id(),
-                    actual: fixture.foreign.source_id(),
-                }
-            )
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                || builder.push_root_anonymous_callable(root, foreign, TextSize::ZERO, None, true)
+            ))
+            .is_err()
         );
 
-        assert_eq!(
-            builder.push_root_anonymous_callable(root, mismatched, TextSize::ZERO, None, true),
-            Err(
-                BoundUnitConstructionError::AnonymousCallableSourceVersionMismatch {
-                    expected: fixture.version,
-                    actual: mismatched.source_version(),
-                }
-            )
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| builder
+                .push_root_anonymous_callable(root, mismatched, TextSize::ZERO, None, true)))
+            .is_err()
         );
 
         let snapshot = finish(builder);
@@ -810,13 +755,13 @@ mod tests {
         let checkpoint = builder.checkpoint();
         let abandoned = push_binding(&mut builder, root, fixture.first, false);
 
-        assert_eq!(builder.activate_local(root, abandoned), Ok(()));
+        builder.activate_local(root, abandoned);
         assert!(builder.rollback(checkpoint));
 
         let reused = push_binding(&mut builder, root, fixture.first, false);
 
         assert_eq!(reused, abandoned);
-        assert_eq!(builder.activate_local(root, reused), Ok(()));
+        builder.activate_local(root, reused);
 
         let result = finish(builder);
 
@@ -837,7 +782,7 @@ mod tests {
         let root = builder.root_scope();
         let retained = push_binding(&mut builder, root, fixture.first, false);
 
-        assert_eq!(builder.activate_local(root, retained), Ok(()));
+        builder.activate_local(root, retained);
 
         let expression = push_error_expression(&mut builder, &fixture);
         let mut other = new_builder(&fixture, region);
@@ -896,10 +841,7 @@ mod tests {
         let outer = new_builder(fixture, region);
         let source = BoundSourceAnchor::new(fixture.first, fixture.version);
 
-        let key = match outer.nested_anonymous_callable_key(source) {
-            Ok(key) => key,
-            Err(error) => panic!("nested callable key must build: {error:?}"),
-        };
+        let key = outer.nested_anonymous_callable_key(source);
 
         let mut builder =
             match BoundUnitLocalBuilder::new(BoundUnitId::new(7), key, region, TextSize::ZERO) {

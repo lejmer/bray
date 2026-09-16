@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bray_binder::malformed_directive_argument_diagnostic;
+use bray_binder::semantic_unit_context;
 use bray_bound_tree::{BoundReferenceTarget, BoundUnitKey, BoundUnitKind};
 use bray_checker::{
     ConstantEvaluationInput, ConstantEvaluator, ConstantReferenceResolution,
@@ -34,7 +35,7 @@ use super::semantic_error::{
     SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
 };
 use super::substitution::named_type;
-use super::unit::semantic_unit_context_for;
+
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
 
 impl Compilation {
@@ -248,8 +249,7 @@ impl Compilation {
         let semantics = self.expression_semantics_with_cancellation(key.clone(), cancellation)?;
         let context = self.checker_context_for(&key, cancellation)?;
 
-        let semantic_context =
-            semantic_unit_context_for(context.symbols(), bound.result().value())?;
+        let semantic_context = semantic_unit_context(context.symbols(), bound.result().value());
 
         let mut dependencies_by_expression = BTreeMap::new();
 
@@ -274,7 +274,7 @@ impl Compilation {
         .with_references(references);
 
         let unit =
-            super::unit::checker_unit_view(bound.result().value(), &semantic_context, &context)?;
+            bray_checker::CheckerUnitView::new(bound.result().value(), &semantic_context, &context);
 
         let evaluated = checker_result(
             DefaultConstantEvaluator.evaluate_constant_with_references(unit, &input),

@@ -626,7 +626,7 @@ where
             };
 
             if expected_type_directed_variant(request, argument.expression()) {
-                session.add_evidence(argument.expression(), expected)?;
+                session.add_evidence(argument.expression(), expected);
             }
 
             session.add_expectation(argument.expression(), expected)?;
@@ -644,7 +644,7 @@ where
         };
 
         if let Some(callable_type) = common_candidate_type(&candidates) {
-            session.add_evidence(call.callee(), callable_type)?;
+            session.add_evidence(call.callee(), callable_type);
         }
 
         for (ordinal, argument) in call.arguments().iter().enumerate() {
@@ -1160,7 +1160,7 @@ where
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
     };
 
-    session.add_evidence(call.callee(), candidate.callable_type())?;
+    session.add_evidence(call.callee(), candidate.callable_type());
 
     let callable = request
         .semantic_values()
@@ -1206,7 +1206,7 @@ where
         session.add_expectation(*expression, selected.ty())?;
     }
 
-    session.add_evidence(prepared.expression, selection.resolution().result().ty())?;
+    session.add_evidence(prepared.expression, selection.resolution().result().ty());
 
     Ok(())
 }
@@ -1321,9 +1321,10 @@ where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
     let Some(BoundExpression::Call(call)) = request.view().expression(prepared.expression) else {
-        return Err(CheckerQueryError::Infrastructure(
-            CheckerInfrastructureError::InvalidSemanticSelectionInput,
-        ));
+        panic!(
+            "prepared callable selection {:?} must name a committed call",
+            prepared.expression
+        );
     };
 
     let member = member_targets.get(&call.callee()).cloned();
@@ -1662,10 +1663,7 @@ mod tests {
         let context = TestCheckerContext::cancelling_after(8);
         let semantic_context = callable_entry(unit.key());
 
-        let request = match CheckerUnitView::new(&unit, &semantic_context, &context) {
-            Ok(request) => request,
-            Err(error) => panic!("test checker unit view must be valid: {error:?}"),
-        };
+        let request = CheckerUnitView::new(&unit, &semantic_context, &context);
 
         let result = prepare_calls(request, &[], &candidates);
 

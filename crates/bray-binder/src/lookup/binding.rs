@@ -5,7 +5,7 @@ use bray_symbols::{
 
 use super::category::ResolvedName;
 use super::path::NameAccess;
-use crate::unit::{BoundUnitConstructionError, BoundUnitLocalBuilder};
+use crate::unit::BoundUnitLocalBuilder;
 
 pub(super) type NameLookupResult<T> = MemberLookupResult<T, ResolvedName>;
 
@@ -16,7 +16,7 @@ pub(crate) fn lookup_unqualified_name(
     module: Option<ModuleSymbolId>,
     name: &str,
     access: NameAccess,
-) -> Result<NameLookupResult<ResolvedName>, BoundUnitConstructionError> {
+) -> NameLookupResult<ResolvedName> {
     let mut current = Some(scope);
 
     while let Some(scope) = current {
@@ -27,10 +27,10 @@ pub(crate) fn lookup_unqualified_name(
                 let is_recovered = unit.local_symbol_is_recovered(result.into());
                 let result = ResolvedName::Local(result.into());
 
-                return Ok(match is_recovered {
+                return match is_recovered {
                     true => MemberLookupResult::Malformed(Box::new([result])),
                     false => MemberLookupResult::Found(result),
-                });
+                };
             }
         }
 
@@ -57,7 +57,9 @@ pub(crate) fn lookup_unqualified_name(
                     }
                     Some(false) => {}
                     None => {
-                        return Err(BoundUnitConstructionError::UnknownSurfaceSymbol(*surface));
+                        panic!(
+                            "local scope {scope:?} references surface symbol {surface:?} absent from its symbol graph"
+                        );
                     }
                 }
             }
@@ -70,13 +72,13 @@ pub(crate) fn lookup_unqualified_name(
                 .collect::<Vec<_>>();
 
             if has_recovered_local || has_recovered_surface {
-                return Ok(MemberLookupResult::Malformed(candidates.into_boxed_slice()));
+                return MemberLookupResult::Malformed(candidates.into_boxed_slice());
             }
 
-            return Ok(match candidates.as_slice() {
+            return match candidates.as_slice() {
                 [candidate] => MemberLookupResult::Found(*candidate),
                 _ => MemberLookupResult::Ambiguous(candidates.into_boxed_slice()),
-            });
+            };
         }
 
         let boundary = unit.scope_boundary(scope);
@@ -94,7 +96,7 @@ pub(crate) fn lookup_unqualified_name(
         .unwrap_or(MemberLookupResult::NotFound);
 
     if !matches!(generic_lookup, MemberLookupResult::NotFound) {
-        return Ok(generic_lookup);
+        return generic_lookup;
     }
 
     let module_lookup = module
@@ -108,7 +110,7 @@ pub(crate) fn lookup_unqualified_name(
         access,
     );
 
-    Ok(combine_name_lookups(module_lookup, ambient_lookup))
+    combine_name_lookups(module_lookup, ambient_lookup)
 }
 
 fn lookup_visible_generic_parameter(
@@ -229,6 +231,32 @@ mod tests {
     use super::lookup_unqualified_name;
     use crate::lookup::NameAccess;
     use crate::unit::test_support::{builder, fixture};
+
+    #[test]
+    #[should_panic(expected = "absent from its symbol graph")]
+    fn unqualified_lookup_exposes_unknown_surface_symbol() {
+        let fixture = fixture();
+        let mut unit = builder(&fixture, LocalSymbolRegionId::new(11));
+        let scope = unit.root_scope();
+
+        let symbol =
+            bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(u32::MAX));
+
+        unit.insert_surface_name(
+            scope,
+            bray_symbols::SymbolName::try_new("value").expect("valid test name"),
+            symbol.into(),
+        );
+
+        lookup_unqualified_name(
+            &unit,
+            &fixture.graph,
+            scope,
+            None,
+            "value",
+            NameAccess::Internal,
+        );
+    }
 
     #[test]
     #[should_panic(expected = "belongs to another region")]

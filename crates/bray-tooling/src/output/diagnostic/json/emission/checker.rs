@@ -35,31 +35,11 @@ pub(in crate::output::diagnostic::json) fn checker_failure_context(
         Failure::CompilerKnownRepresentationUnavailable(role) => {
             fields.push(text_field("representation_role", role));
         }
-        Failure::InvalidExpressionTypeInput { expression }
-        | Failure::InvalidBoundNode { node: expression } => {
-            push_node(&mut fields, "node", expression);
-        }
-        Failure::IncompatibleInput {
-            input,
-            expected_unit,
-            expected_kind,
-            actual_unit,
-            actual_kind,
-        } => push_input_mismatch(
-            &mut fields,
-            input,
-            expected_unit,
-            expected_kind,
-            actual_unit,
-            actual_kind,
-        ),
         Failure::CheckedConstantTerms { owner, source } => {
             push_symbol(&mut fields, owner);
             push_source_span(&mut fields, source);
         }
         Failure::LiteralValue(failure) => push_literal_failure(&mut fields, failure),
-        Failure::PatternInput(failure) => push_pattern_failure(&mut fields, failure),
-        Failure::ConstantInput(failure) => push_constant_input_failure(&mut fields, failure),
         Failure::ConstantEvaluation(failure) => {
             push_constant_evaluation_failure(&mut fields, failure);
         }
@@ -147,7 +127,6 @@ pub(in crate::output::diagnostic::json) fn checker_failure_context(
             failure.actual_unit(),
             failure.actual_kind(),
         ),
-        Failure::InvalidUnitView(problem) => fields.push(text_field("unit_view_problem", problem)),
         Failure::SemanticValueUnavailable
         | Failure::AtomicRepresentationTypeUnavailable
         | Failure::AtomicRepresentationArgumentsUnavailable
@@ -262,50 +241,6 @@ fn push_literal_failure(
     }
 }
 
-fn push_pattern_failure(
-    fields: &mut Vec<DiagnosticEmissionFieldJson>,
-    failure: bray_diagnostics::DiagnosticPatternInputFailure,
-) {
-    use bray_diagnostics::DiagnosticPatternInputFailure as Failure;
-
-    let (kind, name, node) = match failure {
-        Failure::ConflictingDeclaredPattern(node) => {
-            ("conflicting_declared_pattern", "pattern", node)
-        }
-        Failure::ConflictingConstantPattern(node) => {
-            ("conflicting_constant_pattern", "pattern", node)
-        }
-        Failure::ConflictingGuard(node) => ("conflicting_guard", "expression", node),
-    };
-
-    fields.push(text_field("pattern_input_failure", kind));
-    push_node(fields, name, node);
-}
-
-fn push_constant_input_failure(
-    fields: &mut Vec<DiagnosticEmissionFieldJson>,
-    failure: bray_diagnostics::DiagnosticConstantInputFailure,
-) {
-    match failure {
-        bray_diagnostics::DiagnosticConstantInputFailure::ConflictingReference(node) => {
-            fields.push(text_field(
-                "constant_input_failure",
-                "conflicting_reference",
-            ));
-
-            push_node(fields, "expression", node);
-        }
-        bray_diagnostics::DiagnosticConstantInputFailure::ConflictingLocalTerm(local) => {
-            fields.push(text_field(
-                "constant_input_failure",
-                "conflicting_local_term",
-            ));
-
-            push_local(fields, local);
-        }
-    }
-}
-
 fn push_constant_evaluation_failure(
     fields: &mut Vec<DiagnosticEmissionFieldJson>,
     failure: bray_diagnostics::DiagnosticConstantEvaluationFailure,
@@ -394,24 +329,6 @@ fn push_storage_flow_failure(
     use bray_diagnostics::DiagnosticStorageFlowFailure as Failure;
 
     match failure {
-        Failure::IncompatibleInput {
-            input,
-            expected_unit,
-            expected_kind,
-            actual_unit,
-            actual_kind,
-        } => {
-            fields.push(text_field("storage_flow_failure", "incompatible_input"));
-
-            push_input_mismatch(
-                fields,
-                input,
-                expected_unit,
-                expected_kind,
-                actual_unit,
-                actual_kind,
-            );
-        }
         Failure::FlowConstruction(problem) => {
             push_storage_problem(fields, "flow_construction", problem);
         }
@@ -625,17 +542,18 @@ mod tests {
 
     #[test]
     fn nested_checker_failures_retain_leaf_category_and_identity() {
-        let fields =
-            checker_failure_context(bray_diagnostics::DiagnosticCheckerFailure::PatternInput(
-                bray_diagnostics::DiagnosticPatternInputFailure::ConflictingGuard(
+        let fields = checker_failure_context(
+            bray_diagnostics::DiagnosticCheckerFailure::ConstantEvaluation(
+                bray_diagnostics::DiagnosticConstantEvaluationFailure::MissingExpression(
                     bray_diagnostics::DiagnosticCheckerNode::new("expression", 13, 21),
                 ),
-            ));
+            ),
+        );
 
         let json = serde_json::to_value(fields)
             .unwrap_or_else(|error| panic!("checker context should serialize: {error:?}"));
 
-        assert_eq!(json[1]["value"]["value"], "conflicting_guard");
+        assert_eq!(json[1]["value"]["value"], "missing_expression");
         assert_eq!(json[3]["value"]["value"], 13);
         assert_eq!(json[4]["value"]["value"], 21);
     }

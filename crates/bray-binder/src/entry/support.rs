@@ -10,7 +10,6 @@ use super::BoundUnitBindingError;
 use crate::binder::Binder;
 use crate::binding::BindingError;
 use crate::lookup::{NameAccess, PathBindingContext};
-use crate::publication::BoundUnitAssemblyError;
 use crate::unit::BoundUnitLocalBuilder;
 use crate::{BindingQueryContext, SymbolQueryProvider};
 
@@ -283,7 +282,6 @@ pub(super) fn map_binding_error<Upstream>(
         BindingError::SemanticValue(error) => BoundUnitBindingError::SemanticValue(error),
         BindingError::Upstream(error) => BoundUnitBindingError::Upstream(error),
         BindingError::Construction(error) => BoundUnitBindingError::Construction(error),
-        BindingError::Assembly(error) => BoundUnitBindingError::Assembly(error),
         error @ (BindingError::DependencyUnavailable
         | BindingError::MissingSyntax { .. }
         | BindingError::MissingOwner { .. }
@@ -324,12 +322,6 @@ fn map_signature_error<Upstream>(
     BoundUnitBindingError::Binding(BindingError::CallableSignature(error))
 }
 
-pub(super) fn map_assembly_error<Upstream>(
-    error: BoundUnitAssemblyError,
-) -> BoundUnitBindingError<Upstream> {
-    BoundUnitBindingError::Assembly(error)
-}
-
 pub(super) fn map_query_error<Upstream>(
     error: crate::BindingQueryError<Upstream>,
 ) -> BoundUnitBindingError<Upstream> {
@@ -365,31 +357,23 @@ pub(super) fn map_query_error<Upstream>(
         }
         crate::BindingQueryError::Construction(error) => BoundUnitBindingError::Construction(error),
         crate::BindingQueryError::Binding(error) => map_binding_error(error),
-        crate::BindingQueryError::Assembly(error) => BoundUnitBindingError::Assembly(error),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use bray_bound_tree::{BoundTreeBuildError, BoundUnitBuildError, BoundUnitId};
+    use bray_bound_tree::BoundTreeBuildError;
 
-    use super::{map_assembly_error, map_binding_error, map_query_error};
+    use super::{map_binding_error, map_query_error};
     use crate::{
-        BindingError, BindingQueryError, BoundUnitAssemblyError, BoundUnitBindingError,
-        BoundUnitConstructionError,
+        BindingError, BindingQueryError, BoundUnitBindingError, BoundUnitConstructionError,
     };
 
     #[test]
     fn unit_binding_mappers_preserve_exact_local_causes() {
-        let construction =
-            BoundUnitConstructionError::BoundTree(BoundTreeBuildError::ForeignNode {
-                expected: BoundUnitId::new(2),
-                actual: BoundUnitId::new(7),
-                kind: bray_bound_tree::BoundNodeKind::Pattern,
-            });
-
-        let assembly =
-            BoundUnitAssemblyError::InvalidBoundUnit(BoundUnitBuildError::RootKindMismatch);
+        let construction = BoundUnitConstructionError::BoundTree(
+            BoundTreeBuildError::ArenaCapacityExceeded(bray_bound_tree::BoundNodeKind::Pattern),
+        );
 
         assert_eq!(
             map_binding_error::<u8>(BindingError::Construction(construction)),
@@ -399,11 +383,6 @@ mod tests {
         assert_eq!(
             map_binding_error::<u8>(BindingError::ControlTargetMismatch),
             BoundUnitBindingError::Binding(BindingError::ControlTargetMismatch)
-        );
-
-        assert_eq!(
-            map_assembly_error::<u8>(assembly),
-            BoundUnitBindingError::Assembly(assembly)
         );
 
         assert_eq!(

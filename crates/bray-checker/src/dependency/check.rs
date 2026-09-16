@@ -10,10 +10,10 @@ use bray_symbols::CallableSignatureQuery;
 
 use super::call::{selected_call_contracts, selected_iteration_contract};
 use super::operation::{operation_access_requirements, operation_requirements};
-use crate::unit::storage_flow_input_failure;
+use crate::unit::assert_unit_inputs;
 use crate::{
     CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
-    CheckerSemanticQueryProvider, CheckerStorageFlowFailure, CheckerUnitView, StorageFlowInputKind,
+    CheckerSemanticQueryProvider, CheckerStorageFlowFailure, CheckerUnitView,
 };
 
 pub(crate) fn check_dependency_contracts<C>(
@@ -30,35 +30,19 @@ where
         return CheckerOutcome::Cancelled;
     }
 
-    if let Some(error) = crate::unit::semantic_input_failure(
-        request,
-        [(
-            crate::CheckerInputKind::Patterns,
-            (patterns.unit(), patterns.kind()),
-        )],
-    ) {
-        return CheckerOutcome::InfrastructureFailure(error);
-    }
+    crate::unit::assert_unit_inputs(request, [("patterns", (patterns.unit(), patterns.kind()))]);
 
-    if let Some(error) = storage_flow_input_failure(
+    assert_unit_inputs(
         request,
         [
             (
-                StorageFlowInputKind::SemanticSelections,
+                "semantic selections",
                 (selections.unit(), selections.kind()),
             ),
-            (
-                StorageFlowInputKind::StoragePlan,
-                (storage.unit(), storage.kind()),
-            ),
-            (
-                StorageFlowInputKind::StorageFlow,
-                (flow.unit(), flow.kind()),
-            ),
+            ("storage plan", (storage.unit(), storage.kind())),
+            ("storage flow", (flow.unit(), flow.kind())),
         ],
-    ) {
-        return CheckerOutcome::InfrastructureFailure(error);
-    }
+    );
 
     let mut diagnostics = DiagnosticBag::new();
     let mut expression_requirements = BTreeMap::new();

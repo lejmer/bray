@@ -8,7 +8,6 @@ use bray_source::SourceSpan;
 use bray_symbols::{AnyLocalSymbolId, ConstantTermId, ConstantValueId, TypeId};
 
 use super::{ConstantCallResolver, ConstantEvaluationLimits, EvaluatedConstantCall};
-use crate::CheckerConstantInputFailure;
 
 /// The exact root evaluated by one constant request.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -46,7 +45,6 @@ pub struct ConstantEvaluationInput<'input, Upstream = std::convert::Infallible> 
     result_type: Option<TypeId>,
     references: BTreeMap<BoundExpressionId, ConstantReferenceResolution>,
     local_terms: BTreeMap<AnyLocalSymbolId, ConstantTermId>,
-    failure: Option<CheckerConstantInputFailure>,
     call_resolver: Option<&'input dyn ConstantCallResolver<UpstreamError = Upstream>>,
     allow_static_address_borrows: bool,
     retain_nested_term_types: bool,
@@ -80,7 +78,6 @@ impl<'input, Upstream> ConstantEvaluationInput<'input, Upstream> {
             result_type: None,
             references: BTreeMap::new(),
             local_terms: BTreeMap::new(),
-            failure: None,
             call_resolver: None,
             allow_static_address_borrows: false,
             retain_nested_term_types: false,
@@ -141,16 +138,12 @@ impl<'input, Upstream> ConstantEvaluationInput<'input, Upstream> {
         references: impl IntoIterator<Item = (BoundExpressionId, ConstantReferenceResolution)>,
     ) -> Self {
         for (expression, resolution) in references {
-            if self
-                .references
-                .insert(expression, resolution)
-                .is_some_and(|existing| existing != resolution)
-            {
-                self.failure
-                    .get_or_insert(CheckerConstantInputFailure::ConflictingReference {
-                        expression,
-                    });
-            }
+            let previous = self.references.insert(expression, resolution);
+
+            assert!(
+                previous.is_none_or(|previous| previous == resolution),
+                "constant reference {expression:?} must have one resolution"
+            );
         }
 
         self
@@ -163,14 +156,12 @@ impl<'input, Upstream> ConstantEvaluationInput<'input, Upstream> {
         terms: impl IntoIterator<Item = (AnyLocalSymbolId, ConstantTermId)>,
     ) -> Self {
         for (local, term) in terms {
-            if self
-                .local_terms
-                .insert(local, term)
-                .is_some_and(|existing| existing != term)
-            {
-                self.failure
-                    .get_or_insert(CheckerConstantInputFailure::ConflictingLocalTerm { local });
-            }
+            let previous = self.local_terms.insert(local, term);
+
+            assert!(
+                previous.is_none_or(|previous| previous == term),
+                "local constant {local:?} must have one symbolic term"
+            );
         }
 
         self
@@ -218,10 +209,6 @@ impl<'input, Upstream> ConstantEvaluationInput<'input, Upstream> {
         &self,
     ) -> Option<&dyn ConstantCallResolver<UpstreamError = Upstream>> {
         self.call_resolver
-    }
-
-    pub(crate) const fn failure(&self) -> Option<CheckerConstantInputFailure> {
-        self.failure
     }
 
     pub(crate) const fn allows_static_address_borrows(&self) -> bool {

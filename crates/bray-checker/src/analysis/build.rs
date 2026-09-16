@@ -827,9 +827,7 @@ mod tests {
         let entry = callable_entry(&key);
         let context = TestCheckerContext::new(false);
 
-        let Ok(request) = CheckerUnitView::new(&unit, &entry, &context) else {
-            panic!("matching test roots must produce checker unit views");
-        };
+        let request = CheckerUnitView::new(&unit, &entry, &context);
 
         let ControlFlowGraphBuildOutcome::Complete(graph) = build_control_flow_graph(request)
         else {
@@ -1370,8 +1368,7 @@ mod tests {
 
         let context = TestCheckerContext::new(false).with_semantic_values(values);
 
-        let request = CheckerUnitView::new(&unit, &entry, &context)
-            .unwrap_or_else(|error| panic!("matching test roots must produce a view: {error:?}"));
+        let request = CheckerUnitView::new(&unit, &entry, &context);
 
         assert!(
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| build_control_flow_graph(
@@ -1447,8 +1444,7 @@ mod tests {
         let entry = callable_entry(&key);
         let context = TestCheckerContext::new(false);
 
-        let request = CheckerUnitView::new(&unit, &entry, &context)
-            .unwrap_or_else(|error| panic!("matching test roots must produce a view: {error:?}"));
+        let request = CheckerUnitView::new(&unit, &entry, &context);
 
         let ControlFlowGraphBuildOutcome::Complete(graph) =
             build_storage_control_flow_graph(request, &storage, &selections, None)
@@ -1626,9 +1622,7 @@ mod tests {
         let entry = callable_entry(key);
         let context = TestCheckerContext::new(false);
 
-        let Ok(request) = CheckerUnitView::new(&unit, &entry, &context) else {
-            panic!("matching test roots must produce checker unit views");
-        };
+        let request = CheckerUnitView::new(&unit, &entry, &context);
 
         let ControlFlowGraphBuildOutcome::Complete(graph) = build_control_flow_graph(request)
         else {

@@ -1,37 +1,30 @@
 use bray_binder::{BoundUnitBindingError, BoundUnitConstructionError};
 use bray_compiler_known::CompilerKnownScopeId;
 use bray_diagnostics::DiagnosticFailureValue;
-use bray_symbols::{
-    AnySymbolId, CompilerKnownSymbolBuildError, FunctionSymbolId, SymbolGraphBuildError, SymbolId,
-};
+use bray_symbols::{CompilerKnownSymbolBuildError, SymbolGraphBuildError};
 
 use super::{diagnostic_binding_failure, diagnostic_symbol_graph_failure};
 
 #[test]
-fn binding_construction_retains_leaf_reason_and_identity() {
-    let symbol = AnySymbolId::Function(FunctionSymbolId::from_symbol_id(SymbolId::new(19)));
-
+fn binding_construction_retains_capacity_cause() {
     let failure = diagnostic_binding_failure(&BoundUnitBindingError::Construction(
-        BoundUnitConstructionError::UnknownSurfaceSymbol(symbol),
+        BoundUnitConstructionError::BoundTree(
+            bray_bound_tree::BoundTreeBuildError::ArenaCapacityExceeded(
+                bray_bound_tree::BoundNodeKind::Expression,
+            ),
+        ),
     ));
 
     assert_eq!(
         failure.as_str(),
-        "binding_construction_unknown_surface_symbol"
+        "binding_construction_bound_tree_capacity_exceeded"
     );
 
-    assert_eq!(failure.context()[0].name(), "symbol_kind");
+    assert_eq!(failure.context()[0].name(), "node_kind");
 
     assert_eq!(
         failure.context()[0].value(),
-        &DiagnosticFailureValue::Text("function".to_owned())
-    );
-
-    assert_eq!(failure.context()[1].name(), "symbol");
-
-    assert_eq!(
-        failure.context()[1].value(),
-        &DiagnosticFailureValue::Count(19)
+        &DiagnosticFailureValue::Text("expression".to_owned())
     );
 }
 

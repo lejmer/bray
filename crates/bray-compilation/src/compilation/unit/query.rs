@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use bray_binder::semantic_unit_context;
 use bray_binder::{BinderDependency, BoundUnitComputation};
 use bray_bound_tree::{
     AnyBoundNodeId, BoundExpression, BoundUnit, BoundUnitKey, BoundWalkControl, BoundWalkEvent,
@@ -14,8 +15,8 @@ use bray_checker::{
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 
 use super::support::{
-    bind_unit, check_control_flow, check_patterns, checker_unit_view, expression_candidates,
-    map_binding_error, semantic_unit_context_for, unit_walk_failure,
+    bind_unit, check_control_flow, check_patterns, expression_candidates, map_binding_error,
+    unit_walk_failure,
 };
 use super::view::{
     AsyncAnalysisView, DependencyContractsView, ExpressionTypesView, LiteralValuesView,
@@ -272,7 +273,7 @@ impl Compilation {
                 let context = self.checker_context_for(&key, cancellation)?;
 
                 let semantic_context =
-                    semantic_unit_context_for(context.symbols(), bound.result().value())?;
+                    semantic_unit_context(context.symbols(), bound.result().value());
 
                 check_control_flow(bound.result().value(), &semantic_context, &context)
             },
@@ -392,10 +393,10 @@ impl Compilation {
 
         let context = self.checker_context_for(key, cancellation)?;
 
-        let semantic_context =
-            semantic_unit_context_for(context.symbols(), bound.result().value())?;
+        let semantic_context = semantic_unit_context(context.symbols(), bound.result().value());
 
-        let unit = checker_unit_view(bound.result().value(), &semantic_context, &context)?;
+        let unit =
+            bray_checker::CheckerUnitView::new(bound.result().value(), &semantic_context, &context);
 
         let result = checker_result(DefaultExpressionSemanticChecker.check_expression_semantics(
             unit,
@@ -479,9 +480,13 @@ impl Compilation {
                 let context = self.checker_context_for(&key, cancellation)?;
 
                 let semantic_context =
-                    semantic_unit_context_for(context.symbols(), bound.result().value())?;
+                    semantic_unit_context(context.symbols(), bound.result().value());
 
-                let unit = checker_unit_view(bound.result().value(), &semantic_context, &context)?;
+                let unit = bray_checker::CheckerUnitView::new(
+                    bound.result().value(),
+                    &semantic_context,
+                    &context,
+                );
 
                 let (input, constant_diagnostics) = self.add_constant_pattern_evidence(
                     unit,
@@ -650,7 +655,7 @@ impl Compilation {
 mod tests {
     use std::sync::Arc;
 
-    use bray_binder::{SemanticUnitContextError, semantic_unit_context};
+    use bray_binder::semantic_unit_context;
     use bray_bound_tree::{
         AnyBoundNodeId, BoundCallResult, BoundCallableTarget, BoundDependencyRequirement,
         BoundDependencySubject, BoundExpression, BoundExpressionId, BoundReferenceTarget,
@@ -662,7 +667,7 @@ mod tests {
         StorageAccessRoot, StorageBinding, StorageBindingTarget, StorageIdentity,
         StorageProjection, walk_bound_unit_view,
     };
-    use bray_checker::{CheckerInfrastructureError, CheckerUnitViewError, SemanticUnitContext};
+    use bray_checker::{CheckerInfrastructureError, SemanticUnitContext};
     use bray_compiler_known::{CompilerKnownOperationRole, ImplementationHook, RepresentationRole};
     use bray_diagnostics::{
         Diagnostic, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue,
@@ -681,7 +686,7 @@ mod tests {
     };
     use bray_testing::assert_goal_state_diagnostic_kind;
 
-    use super::{Compilation, check_control_flow, semantic_unit_context_for};
+    use super::{Compilation, check_control_flow};
     use crate::CompilationRequest;
     use crate::fact::{CancellationToken, FactCellTestEvent, FactQueryError, QueryPriority};
     use crate::test_support::{
@@ -5741,8 +5746,10 @@ func main(pos value: &Guard?) -> usize
             .checker_context_for(&key, &compilation.state.cancellation)
             .unwrap();
 
-        let semantic_context = semantic_unit_context_for(context.symbols(), bound.value()).unwrap();
-        let request = super::checker_unit_view(bound.value(), &semantic_context, &context).unwrap();
+        let semantic_context = semantic_unit_context(context.symbols(), bound.value());
+
+        let request =
+            bray_checker::CheckerUnitView::new(bound.value(), &semantic_context, &context);
 
         assert!(!storage.value().is_recovered());
         assert!(!refinements.value().is_recovered());
@@ -10142,7 +10149,8 @@ func main()
     }
 
     #[test]
-    fn invalid_checker_unit_views_preserve_their_typed_infrastructure_error() {
+    #[should_panic(expected = "checker context category must match")]
+    fn invalid_checker_unit_views_expose_the_request_bug() {
         let compilation = callable_compilation();
         let key = source_callable_body_key(&compilation);
 
@@ -10156,30 +10164,19 @@ func main()
             Err(error) => panic!("checker context must be available: {error:?}"),
         };
 
-        let canonical = match semantic_unit_context(context.symbols(), bound.value()) {
-            Ok(entry) => entry,
-            Err(error) => panic!("semantic unit context must be available: {error:?}"),
-        };
+        let canonical = semantic_unit_context(context.symbols(), bound.value());
 
         let SemanticUnitContext::CallableBody(declaration) = canonical else {
             panic!("callable body must produce a callable-body checker entry");
         };
 
         let invalid = SemanticUnitContext::Constraint(declaration);
-        let result = check_control_flow(bound.value(), &invalid, &context);
-
-        assert!(matches!(
-            result,
-            Err(FactQueryError::CheckerInfrastructure(
-                CheckerInfrastructureError::InvalidUnitView(
-                    CheckerUnitViewError::SemanticContextMismatch
-                )
-            ))
-        ));
+        let _ = check_control_flow(bound.value(), &invalid, &context);
     }
 
     #[test]
-    fn invalid_semantic_unit_contexts_preserve_their_typed_cause() {
+    #[should_panic(expected = "must have an owner in its symbol graph")]
+    fn invalid_semantic_unit_contexts_expose_the_producer_bug() {
         let primary = callable_compilation();
         let key = source_callable_body_key(&primary);
 
@@ -10201,13 +10198,7 @@ func other()
             Err(error) => panic!("foreign symbol graph must be available: {error:?}"),
         };
 
-        assert!(matches!(
-            semantic_unit_context_for(symbols, bound.value()),
-            Err(FactQueryError::SemanticUnitContext(
-                SemanticUnitContextError::MissingOwner { unit }
-            ))
-            if unit == key
-        ));
+        semantic_unit_context(symbols, bound.value());
     }
 
     #[test]

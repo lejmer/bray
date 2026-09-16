@@ -9,7 +9,7 @@ use bray_symbols::{
     TypeId,
 };
 
-use super::super::plan::{PlanError, Planner, invalid_node};
+use super::super::plan::{PlanError, Planner, missing_node};
 use crate::{CheckerInfrastructureError, CheckerRequestContext};
 
 pub(super) enum MemberStorage {
@@ -165,7 +165,7 @@ where
             .request
             .view()
             .expression(expression)
-            .ok_or_else(|| invalid_node(expression))?;
+            .unwrap_or_else(|| missing_node(expression));
 
         let (receiver, selector) = match bound {
             bray_bound_tree::BoundExpression::MemberAccess(member) => {
@@ -397,7 +397,7 @@ where
             .request
             .view()
             .expression(expression)
-            .ok_or_else(|| invalid_node(expression))?;
+            .unwrap_or_else(|| missing_node(expression));
 
         let capability = PlannedBorrowCapability::new(
             BorrowCapabilityOrigin::Expression(expression),
@@ -438,7 +438,7 @@ where
             .request
             .view()
             .expression(expression)
-            .ok_or_else(|| invalid_node(expression))?;
+            .unwrap_or_else(|| missing_node(expression));
 
         let result = self.expression_type(expression)?;
 
@@ -490,7 +490,7 @@ where
             .request
             .view()
             .expression(expression)
-            .ok_or_else(|| invalid_node(expression))?;
+            .unwrap_or_else(|| missing_node(expression));
 
         let capability = PlannedBorrowCapability::new(
             BorrowCapabilityOrigin::Expression(expression),
@@ -562,7 +562,7 @@ where
             .request
             .view()
             .expression(expression)
-            .ok_or_else(|| invalid_node(expression))?;
+            .unwrap_or_else(|| missing_node(expression));
 
         let source = node.origin().source_anchor();
         let is_recovered = node.is_recovered();
@@ -592,7 +592,7 @@ where
             .request
             .view()
             .expression(expression)
-            .ok_or_else(|| invalid_node(expression))?;
+            .unwrap_or_else(|| missing_node(expression));
 
         let source = node.origin().source_anchor();
         let result = self.expression_type(expression)?;
@@ -642,7 +642,7 @@ where
             .request
             .view()
             .expression(expression)
-            .ok_or_else(|| invalid_node(expression))?;
+            .unwrap_or_else(|| missing_node(expression));
 
         let builder = self.builder()?;
 

@@ -82,38 +82,12 @@ pub(super) fn format_english_checker_failure(
                 format_compiler_known_representation(role),
             ));
         }
-        Failure::InvalidExpressionTypeInput { expression } => {
-            let _ = expression;
-
-            return super::format_internal_compiler_error(format!(
-                "associated the highlighted expression with the wrong source body while determining its type",
-            ));
-        }
-        Failure::IncompatibleInput {
-            input,
-            expected_kind,
-            actual_kind,
-            ..
-        } => {
-            return super::format_internal_compiler_error(format!(
-                "associated {} for the highlighted {} with a different {}",
-                format_checker_input(input),
-                format_bound_unit_kind(actual_kind),
-                format_bound_unit_kind(expected_kind),
-            ));
-        }
         Failure::CheckedConstantTerms { .. } => (
             true,
             "more than one checked value was retained for the same constant expression",
         ),
         Failure::LiteralValue(failure) => {
             return super::format_internal_compiler_error(format_literal_value_failure(failure));
-        }
-        Failure::PatternInput(failure) => {
-            return super::format_internal_compiler_error(format_pattern_input_failure(failure));
-        }
-        Failure::ConstantInput(failure) => {
-            return super::format_internal_compiler_error(format_constant_input_failure(failure));
         }
         Failure::ConstantEvaluation(failure) => {
             return super::format_internal_compiler_error(format_constant_evaluation_failure(
@@ -209,25 +183,10 @@ pub(super) fn format_english_checker_failure(
                 format_bound_unit_kind(failure.actual_kind()),
             ));
         }
-        Failure::InvalidBoundNode { node } => {
-            return super::format_internal_compiler_error(format!(
-                "lost the highlighted {} required to compile its source body",
-                format_checker_node_kind(node.kind()),
-            ));
-        }
         Failure::ExpressionTypeCapacityExceeded => (
             false,
             "an internal compiler limit prevented Bray from determining every expression type in a source body",
         ),
-        Failure::InvalidUnitView("semantic_context_mismatch") => (
-            true,
-            "analysis results belonged to the wrong source declaration or body",
-        ),
-        Failure::InvalidUnitView(reason) => {
-            return super::format_internal_compiler_error(format!(
-                "could not use a source declaration or body because its `{reason}` consistency check failed"
-            ));
-        }
     };
 
     if is_internal {
@@ -439,43 +398,6 @@ fn format_literal_value_failure(
     }
 }
 
-fn format_pattern_input_failure(
-    failure: bray_diagnostics::DiagnosticPatternInputFailure,
-) -> String {
-    use bray_diagnostics::DiagnosticPatternInputFailure as Failure;
-
-    match failure {
-        Failure::ConflictingDeclaredPattern(pattern) => format!(
-            "retained conflicting declared types for the highlighted {}",
-            format_checker_node_kind(pattern.kind()),
-        ),
-        Failure::ConflictingConstantPattern(pattern) => format!(
-            "retained conflicting constant values for the highlighted {}",
-            format_checker_node_kind(pattern.kind()),
-        ),
-        Failure::ConflictingGuard(expression) => format!(
-            "retained conflicting constant values for the highlighted {} guard",
-            format_checker_node_kind(expression.kind()),
-        ),
-    }
-}
-
-fn format_constant_input_failure(
-    failure: bray_diagnostics::DiagnosticConstantInputFailure,
-) -> String {
-    use bray_diagnostics::DiagnosticConstantInputFailure as Failure;
-
-    match failure {
-        Failure::ConflictingReference(expression) => format!(
-            "retained conflicting resolutions for the highlighted {}",
-            format_checker_node_kind(expression.kind()),
-        ),
-        Failure::ConflictingLocalTerm(_) => {
-            "retained conflicting values for a local constant".to_owned()
-        }
-    }
-}
-
 fn format_constant_evaluation_failure(
     failure: bray_diagnostics::DiagnosticConstantEvaluationFailure,
 ) -> String {
@@ -507,37 +429,10 @@ fn format_constant_evaluation_failure(
     }
 }
 
-fn format_checker_input(input: &str) -> &str {
-    match input {
-        "async_analysis" => "asynchronous analysis",
-        "control_flow" => "control-flow analysis",
-        "declared_value_types" => "declared value types",
-        "expression_semantics" => "expression semantics",
-        "expression_types" => "expression types",
-        "literal_values" => "literal values",
-        "memory_operations" => "memory operations",
-        "patterns" => "pattern results",
-        "semantic_selections" => "selected calls and operations",
-        "storage_plan" => "local-value layout",
-        _ => "semantic information",
-    }
-}
-
 fn format_storage_flow_failure(failure: bray_diagnostics::DiagnosticStorageFlowFailure) -> String {
     use bray_diagnostics::DiagnosticStorageFlowFailure as Failure;
 
     match failure {
-        Failure::IncompatibleInput {
-            input,
-            expected_kind,
-            actual_kind,
-            ..
-        } => format!(
-            "associated {} for the highlighted {} with a different {}",
-            format_storage_flow_input(input),
-            format_bound_unit_kind(actual_kind),
-            format_bound_unit_kind(expected_kind),
-        ),
         Failure::FlowConstruction(reason) => format!(
             "could not retain the ownership result for this source body because {}",
             format_storage_flow_construction(reason),
@@ -617,20 +512,6 @@ fn format_storage_flow_failure(failure: bray_diagnostics::DiagnosticStorageFlowF
             "lost the highlighted {} while examining its source body's lexical scopes",
             format_checker_node_kind(pattern.kind()),
         ),
-    }
-}
-
-fn format_storage_flow_input(input: &str) -> &str {
-    match input {
-        "expression_types" => "expression types",
-        "semantic_selections" => "selected calls and operations",
-        "storage_plan" => "local-value layout",
-        "liveness" => "value lifetimes",
-        "refinements" => "known conditions and matched patterns",
-        "memory_operations" => "memory operations",
-        "storage_flow" => "ownership results",
-        "dependency_contracts" => "value dependencies",
-        _ => "ownership information",
     }
 }
 

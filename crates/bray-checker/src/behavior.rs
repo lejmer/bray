@@ -9,8 +9,8 @@ use bray_compiler_known::ImplementationHook;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::CurrentRunCancellation;
 
-use crate::unit::semantic_input_failure;
-use crate::{CheckerInputKind, CheckerOutcome, CheckerRequestContext, CheckerUnitView};
+use crate::unit::assert_unit_inputs;
+use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView};
 
 pub(crate) fn collect_body_behavior<C>(
     request: CheckerUnitView<'_, C>,
@@ -25,25 +25,20 @@ where
         return CheckerOutcome::Cancelled;
     }
 
-    if let Some(error) = semantic_input_failure(
+    assert_unit_inputs(
         request,
         [
+            ("control flow", (control_flow.unit(), control_flow.kind())),
             (
-                CheckerInputKind::ControlFlow,
-                (control_flow.unit(), control_flow.kind()),
-            ),
-            (
-                CheckerInputKind::SemanticSelections,
+                "semantic selections",
                 (selections.unit(), selections.kind()),
             ),
             (
-                CheckerInputKind::AsyncAnalysis,
+                "async analysis",
                 (async_analysis.unit(), async_analysis.kind()),
             ),
         ],
-    ) {
-        return CheckerOutcome::InfrastructureFailure(error);
-    }
+    );
 
     let mut calls = Vec::new();
     let mut defaults = Vec::new();
@@ -379,8 +374,7 @@ mod tests {
         let context = TestCheckerContext::new(false);
         let semantic_context = callable_entry(unit.key());
 
-        let request = CheckerUnitView::new(&unit, &semantic_context, &context)
-            .unwrap_or_else(|error| panic!("test checker unit must validate: {error:?}"));
+        let request = CheckerUnitView::new(&unit, &semantic_context, &context);
 
         let result = DefaultBodyBehaviorCollector.collect_body_behavior(
             request,

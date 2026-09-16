@@ -18,9 +18,9 @@ use bray_symbols::{
 
 use super::classification::classify_operation;
 use crate::diagnostic::{diagnostic_id, expression_span};
-use crate::unit::semantic_input_failure;
+use crate::unit::assert_unit_inputs;
 use crate::{
-    CheckerInfrastructureError, CheckerInputKind, CheckerOutcome, CheckerRequestContext,
+    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext,
     CheckerSemanticQueryProvider, CheckerUnitView,
 };
 
@@ -39,21 +39,16 @@ where
         return CheckerOutcome::Cancelled;
     }
 
-    if let Some(error) = semantic_input_failure(
+    assert_unit_inputs(
         request,
         [
             (
-                CheckerInputKind::SemanticSelections,
+                "semantic selections",
                 (selections.unit(), selections.kind()),
             ),
-            (
-                CheckerInputKind::LiteralValues,
-                (literals.unit(), literals.kind()),
-            ),
+            ("literal values", (literals.unit(), literals.kind())),
         ],
-    ) {
-        return CheckerOutcome::InfrastructureFailure(error);
-    }
+    );
 
     let mut operations = Vec::new();
     let mut read_kinds = BTreeMap::new();

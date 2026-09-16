@@ -10,7 +10,7 @@ mod target_diagnostic;
 pub use diagnostic::diagnostic_semantic_value_failure;
 pub(crate) use diagnostic::{
     diagnostic_binding_failure, diagnostic_checker_failure, diagnostic_cycle_failure,
-    diagnostic_semantic_context_failure, diagnostic_symbol_graph_failure,
+    diagnostic_symbol_graph_failure,
 };
 pub use model::{FactCycle, FactQueryError, ImportedQueryFailure, LocatedLoweringFailure};
 pub(crate) use runtime_diagnostic::diagnostic_fact_runtime_failure;

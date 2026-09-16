@@ -584,9 +584,7 @@ mod tests {
 
         let context = TestCheckerContext::new(false);
 
-        let Ok(request) = CheckerUnitView::new(&unit, &entry, &context) else {
-            panic!("matching test roots must produce checker unit views");
-        };
+        let request = CheckerUnitView::new(&unit, &entry, &context);
 
         assert!(std::ptr::eq(
             request.available_compiler_known_symbols(),
@@ -624,9 +622,7 @@ mod tests {
 
         let context = TestCheckerContext::new(true);
 
-        let Ok(request) = CheckerUnitView::new(&unit, &entry, &context) else {
-            panic!("matching test roots must produce checker unit views");
-        };
+        let request = CheckerUnitView::new(&unit, &entry, &context);
 
         let outcome = DefaultControlFlowChecker.check_control_flow(request);
 
@@ -645,9 +641,7 @@ mod tests {
 
         let context = TestCheckerContext::new(false);
 
-        let Ok(request) = CheckerUnitView::new(&unit, &entry, &context) else {
-            panic!("matching test roots must produce checker unit views");
-        };
+        let request = CheckerUnitView::new(&unit, &entry, &context);
 
         let outcome = DefaultControlFlowChecker.check_control_flow(request);
 
@@ -678,16 +672,14 @@ mod tests {
 
         let context = TestCheckerContext::new(false);
 
-        let request = match CheckerUnitView::new(&unit, &entry, &context) {
-            Ok(request) => request,
-            Err(error) => panic!("canonical checker unit view must validate: {error:?}"),
-        };
+        let request = CheckerUnitView::new(&unit, &entry, &context);
 
         assert_eq!(request.root(), CheckerUnitRoot::CallableBody(root));
         assert_ne!(request.root(), CheckerUnitRoot::CallableBody(non_root));
     }
 
     #[test]
+    #[should_panic(expected = "checker context category must match")]
     fn unit_views_reject_semantic_contexts_for_another_unit_category() {
         let key = callable_key();
 
@@ -701,16 +693,12 @@ mod tests {
 
         let entry = SemanticUnitContext::RuntimeDefault(declaration);
         let context = TestCheckerContext::new(false);
-        let request = CheckerUnitView::new(&unit, &entry, &context);
-
-        assert!(matches!(
-            request,
-            Err(crate::CheckerUnitViewError::SemanticContextMismatch)
-        ));
+        CheckerUnitView::new(&unit, &entry, &context);
     }
 
     #[test]
-    fn unit_views_reject_forged_semantic_contexts() {
+    #[should_panic(expected = "checker context must describe")]
+    fn unit_views_reject_contexts_for_another_unit() {
         let key = callable_key();
 
         let (tree, root) = recovered_tree(BoundUnitId::new(10), &key);
@@ -720,15 +708,18 @@ mod tests {
         let context = TestCheckerContext::new(false);
         let forged = AnySymbolId::from(FunctionSymbolId::from_symbol_id(SymbolId::new(1)));
 
+        let foreign_key = bray_bound_tree::BoundUnitKey::callable_body(
+            crate::test_support::declaration_key(bray_symbols::SymbolKind::Function, 1),
+            key.source(),
+        )
+        .expect("function key must form a callable unit");
+
         let entry = SemanticUnitContext::CallableBody(DeclaredUnitContext::new(
-            key.clone(),
+            foreign_key,
             forged,
             forged,
         ));
 
-        assert!(matches!(
-            CheckerUnitView::new(&unit, &entry, &context),
-            Err(crate::CheckerUnitViewError::SemanticContextMismatch)
-        ));
+        CheckerUnitView::new(&unit, &entry, &context);
     }
 }

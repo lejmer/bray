@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use bray_binder::semantic_unit_context;
 use bray_binder::{BindingQueryContext, BindingQueryError, SymbolQueryProvider};
 use bray_bound_tree::{BoundCallableTarget, BoundUnitKind, SemanticSelection};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
@@ -11,7 +12,7 @@ use bray_symbols::{
 use super::binding::{CompilationSymbolQueryEvaluator, binder_error};
 use super::cache::CompilationSymbolSemantics;
 use crate::compilation::binder::{BindingQueryResult, CompilationBindingContext};
-use crate::compilation::unit::{checker_unit_view, semantic_unit_context_for};
+
 use crate::fact::SymbolQueryCache;
 
 impl CompilationSymbolQueryEvaluator<CallableResultDependenciesQuery>
@@ -168,8 +169,8 @@ fn infer_checked_result(
         .checker_context_for(key, context.cancellation)
         .map_err(binder_error)?;
 
-    let semantic = semantic_unit_context_for(checker.symbols(), bound).map_err(binder_error)?;
-    let request = checker_unit_view(bound, &semantic, &checker).map_err(binder_error)?;
+    let semantic = semantic_unit_context(checker.symbols(), bound);
+    let request = bray_checker::CheckerUnitView::new(bound, &semantic, &checker);
 
     bray_checker::infer_result_dependencies(
         request,

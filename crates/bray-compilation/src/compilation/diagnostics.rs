@@ -139,7 +139,7 @@ fn checker_failure_source(
 ) -> Option<SourceSpan> {
     use bray_checker::{
         CheckedConstantTermsBuildError, CheckerConstantEvaluationFailure,
-        CheckerConstantInputFailure, CheckerInfrastructureError as Error,
+        CheckerInfrastructureError as Error,
     };
 
     match error {
@@ -147,9 +147,6 @@ fn checker_failure_source(
             let syntax = key.syntax();
 
             Some(SourceSpan::new(syntax.source_id(), syntax.full_range()))
-        }
-        Error::ConstantInput(CheckerConstantInputFailure::ConflictingLocalTerm { local }) => {
-            bound.and_then(|bound| local_symbol_source(bound, (*local).into()))
         }
         Error::ConstantEvaluation(CheckerConstantEvaluationFailure::MissingPatternBinding {
             binding,
@@ -164,15 +161,12 @@ fn checker_failure_node(
 ) -> Option<AnyBoundNodeId> {
     use bray_checker::{
         CheckerConstantEvaluationFailure as ConstantEvaluation,
-        CheckerConstantInputFailure as ConstantInput, CheckerInfrastructureError as Error,
-        CheckerLiteralValueFailure as Literal, CheckerPatternInputFailure as Pattern,
+        CheckerInfrastructureError as Error, CheckerLiteralValueFailure as Literal,
         CheckerStorageFlowFailure as Flow,
     };
 
     match error {
-        Error::InvalidExpressionTypeInput { expression }
-        | Error::InvalidStorageOperation { expression, .. } => Some((*expression).into()),
-        Error::InvalidBoundNode { node } => Some(*node),
+        Error::InvalidStorageOperation { expression, .. } => Some((*expression).into()),
         Error::LiteralValue(failure) => match failure {
             Literal::InvalidLiteral { expression }
             | Literal::MissingExpressionType { expression }
@@ -180,15 +174,6 @@ fn checker_failure_node(
             | Literal::ValueTypeMismatch { expression }
             | Literal::DuplicateExpression { expression } => Some((*expression).into()),
             Literal::ForeignExpressionTypes => None,
-        },
-        Error::PatternInput(failure) => match failure {
-            Pattern::ConflictingDeclaredPattern { pattern }
-            | Pattern::ConflictingConstantPattern { pattern } => Some((*pattern).into()),
-            Pattern::ConflictingGuard { expression } => Some((*expression).into()),
-        },
-        Error::ConstantInput(failure) => match failure {
-            ConstantInput::ConflictingReference { expression } => Some((*expression).into()),
-            ConstantInput::ConflictingLocalTerm { .. } => None,
         },
         Error::ConstantEvaluation(failure) => match failure {
             ConstantEvaluation::InvalidExpressionRoot { expression }
@@ -1493,10 +1478,7 @@ func main(value: r16)
             Err(error) => panic!("symbol graph must be available: {error:?}"),
         };
 
-        let entry = match semantic_unit_context(symbols, bound.value()) {
-            Ok(entry) => entry,
-            Err(error) => panic!("semantic unit context must be available: {error:?}"),
-        };
+        let entry = semantic_unit_context(symbols, bound.value());
 
         let SemanticUnitContext::ContractClause(entry) = entry else {
             panic!("contract clause must produce a contract-clause checker entry");
@@ -1554,10 +1536,7 @@ func main(value: r16)
 
             assert!(bound.diagnostics().is_empty());
 
-            let entry = match semantic_unit_context(symbols, bound.value()) {
-                Ok(entry) => entry,
-                Err(error) => panic!("semantic unit context must be available: {error:?}"),
-            };
+            let entry = semantic_unit_context(symbols, bound.value());
 
             let SemanticUnitContext::ContractClause(entry) = entry else {
                 panic!("contract clause must produce a contract-clause checker entry");

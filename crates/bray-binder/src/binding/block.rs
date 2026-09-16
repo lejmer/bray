@@ -212,7 +212,7 @@ where
         let context = operations.path_context(self, scope)?;
 
         let symbol = match symbol_name(syntax.source(), &token) {
-            Some(name) if name_is_available(self, context, syntax.source(), &token)? => {
+            Some(name) if name_is_available(self, context, syntax.source(), &token) => {
                 let symbol = self.unit_mut().push_constant(
                     scope,
                     name,
@@ -221,7 +221,7 @@ where
                     syntax.is_recovered(),
                 )?;
 
-                self.unit_mut().activate_local(scope, symbol)?;
+                self.unit_mut().activate_local(scope, symbol);
 
                 if let Some(ty) = declared_type.ty() {
                     self.record_value_type(BoundReferenceTarget::Local(symbol.into()), ty);
@@ -300,10 +300,7 @@ mod tests {
             Err(error) => panic!("valid block must bind: {error:?}"),
         };
 
-        let result = match binder.finish() {
-            Ok(result) => result,
-            Err(error) => panic!("bound block must freeze: {error:?}"),
-        };
+        let result = binder.finish();
 
         let Some(block) = result.unit().tree().block(block_id) else {
             panic!("bound block must be published");
@@ -390,10 +387,7 @@ mod tests {
 
         let created = operations.created_expressions.clone();
 
-        let result = match binder.finish() {
-            Ok(result) => result,
-            Err(error) => panic!("rolled-back binder must freeze: {error:?}"),
-        };
+        let result = binder.finish();
 
         for expression in created {
             assert!(result.unit().tree().expression(expression).is_none());
@@ -427,10 +421,7 @@ mod tests {
             Err(error) => panic!("malformed locals must recover: {error:?}"),
         };
 
-        let result = match binder.finish() {
-            Ok(result) => result,
-            Err(error) => panic!("recovered locals must freeze: {error:?}"),
-        };
+        let result = binder.finish();
 
         let Some(block) = result.unit().tree().block(block) else {
             panic!("recovered block must be published");
@@ -481,10 +472,7 @@ mod tests {
             Err(error) => panic!("shadowing declarations must recover: {error:?}"),
         };
 
-        let result = match binder.finish() {
-            Ok(result) => result,
-            Err(error) => panic!("recovered block must freeze: {error:?}"),
-        };
+        let result = binder.finish();
 
         bray_testing::assert_goal_state_diagnostic_kind(
             result.diagnostics(),

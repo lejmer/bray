@@ -1,11 +1,12 @@
 use bray_binder::BindingQueryContext;
+use bray_binder::semantic_unit_context;
 use bray_bound_tree::BoundExpression;
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::TypeId;
 
 use super::super::Compilation;
 use super::super::binder::CompilationBindingContext;
-use super::super::unit::semantic_unit_context_for;
+
 use crate::compilation::operation::OperationSubject;
 use crate::compilation::{SemanticDataKind, SemanticQueryViolation};
 use crate::fact::{CancellationToken, FactQueryError};
@@ -36,10 +37,9 @@ impl Compilation {
         let target_type = expression_type(types, key.expression())?;
 
         let context = self.checker_context_for(key.unit(), cancellation)?;
-        let semantic_context = semantic_unit_context_for(binding_context.symbols(), unit)?;
+        let semantic_context = semantic_unit_context(binding_context.symbols(), unit);
 
-        let request =
-            crate::compilation::unit::checker_unit_view(unit, &semantic_context, &context)?;
+        let request = bray_checker::CheckerUnitView::new(unit, &semantic_context, &context);
 
         let candidate = self
             .resolve_conversion_plan(

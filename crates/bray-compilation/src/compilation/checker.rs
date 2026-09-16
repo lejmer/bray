@@ -6,7 +6,7 @@ use std::sync::{Arc, OnceLock};
 use bray_binder::{
     BindingQueryContext, BindingQueryError, SymbolQueryErrorProvider, SymbolQueryProvider,
 };
-use bray_bound_tree::{BoundSourceAnchor, BoundUnit, BoundUnitKey};
+use bray_bound_tree::{BoundSourceAnchor, BoundUnitKey};
 use bray_checker::{
     CheckedConstantTerms, CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext,
     CheckerSemanticQueryProvider, CheckerSource, DefaultTargetValidityChecker,
@@ -449,15 +449,6 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
                 Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into())
             }
         }
-    }
-
-    fn semantic_context_matches(
-        &self,
-        unit: &BoundUnit,
-        context: &bray_checker::SemanticUnitContext,
-    ) -> bool {
-        bray_binder::semantic_unit_context(self.symbols(), unit)
-            .is_ok_and(|expected| expected == *context)
     }
 
     fn semantic_values(&self) -> &SemanticValueStore {
@@ -927,13 +918,6 @@ pub(in crate::compilation) fn checker_binder_error(
                 error
             )))
         }
-        BindingQueryError::Assembly(error) => {
-            CheckerQueryError::Upstream(super::binder::binding_query_error(BindingQueryError::<
-                FactQueryError,
-            >::Assembly(
-                error
-            )))
-        }
         BindingQueryError::Upstream(error) => CheckerQueryError::Upstream(error),
     }
 }
@@ -980,11 +964,6 @@ where
                 BindingQueryError::Binding(error) => {
                     CheckerQueryError::Upstream(super::binder::binding_query_error(
                         BindingQueryError::<FactQueryError>::Binding(error),
-                    ))
-                }
-                BindingQueryError::Assembly(error) => {
-                    CheckerQueryError::Upstream(super::binder::binding_query_error(
-                        BindingQueryError::<FactQueryError>::Assembly(error),
                     ))
                 }
                 BindingQueryError::Upstream(error) => CheckerQueryError::Upstream(error),
@@ -1172,15 +1151,9 @@ mod tests {
             Err(error) => panic!("bound unit must be available: {error:?}"),
         };
 
-        let entry = match semantic_unit_context(context.symbols(), bound.value()) {
-            Ok(entry) => entry,
-            Err(error) => panic!("semantic unit context must be available: {error:?}"),
-        };
+        let entry = semantic_unit_context(context.symbols(), bound.value());
 
-        let request = match CheckerUnitView::new(bound.value(), &entry, &context) {
-            Ok(request) => request,
-            Err(error) => panic!("checker unit view must be valid: {error:?}"),
-        };
+        let request = CheckerUnitView::new(bound.value(), &entry, &context);
 
         let graph = match compilation.symbol_graph() {
             Ok(graph) => graph,

@@ -18,10 +18,10 @@ use super::result::{
 };
 use crate::expression::{TemplateResolution, resolve_type_template};
 use crate::pattern::input::{PatternCheckInput, PatternConstantEvidence};
-use crate::unit::semantic_input_failure;
+use crate::unit::assert_unit_inputs;
 use crate::{
-    CheckerInfrastructureError, CheckerInputKind, CheckerOutcome, CheckerQueryError,
-    CheckerQueryResult, CheckerRequestContext, CheckerSemanticQueryProvider, CheckerUnitView,
+    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerQueryResult,
+    CheckerRequestContext, CheckerSemanticQueryProvider, CheckerUnitView,
 };
 
 pub(crate) fn check_patterns<C>(
@@ -44,9 +44,7 @@ where
         return CheckerOutcome::Cancelled;
     }
 
-    if let Err(error) = checker.collect_subjects() {
-        return query_outcome(error);
-    }
+    checker.collect_subjects();
 
     if checker.request.is_cancelled() {
         return CheckerOutcome::Cancelled;
@@ -150,21 +148,13 @@ where
         expression_types: &'view CheckedExpressionTypes,
         input: &'input PatternCheckInput,
     ) -> Result<Self, CheckerQueryError<C::UpstreamError>> {
-        if let Some(error) = semantic_input_failure(
+        assert_unit_inputs(
             request,
             [(
-                CheckerInputKind::ExpressionTypes,
+                "expression types",
                 (expression_types.unit(), expression_types.kind()),
             )],
-        ) {
-            return Err(CheckerQueryError::Infrastructure(error));
-        }
-
-        if let Some(failure) = input.failure() {
-            return Err(CheckerQueryError::Infrastructure(
-                CheckerInfrastructureError::PatternInput(failure),
-            ));
-        }
+        );
 
         let error_type = request
             .semantic_values()
@@ -214,89 +204,73 @@ where
         })
     }
 
-    fn collect_subjects(&mut self) -> Result<(), CheckerQueryError<C::UpstreamError>> {
-        let mut failure = None;
+    fn collect_subjects(&mut self) {
+        let outcome = walk_bound_unit_view(
+            self.request.view(),
+            self.request.unit().root(),
+            |event| {
+                if self.request.is_cancelled() {
+                    return BoundWalkControl::Stop;
+                }
 
-        walk_bound_unit_view(self.request.view(), self.request.unit().root(), |event| {
-            if self.request.is_cancelled() {
-                return BoundWalkControl::Stop;
-            }
-
-            match event {
-                BoundWalkEvent::Enter(AnyBoundNodeId::Block(block)) => {
-                    let Some(block) = self.request.view().block(block) else {
-                        failure = Some(CheckerQueryError::Infrastructure(
-                            CheckerInfrastructureError::InvalidBoundNode { node: block.into() },
-                        ));
-
-                        return BoundWalkControl::Stop;
-                    };
-
-                    for item in block.items() {
-                        let bray_bound_tree::BoundBlockItem::LocalBinding(binding) = item else {
-                            continue;
+                match event {
+                    BoundWalkEvent::Enter(AnyBoundNodeId::Block(block)) => {
+                        let Some(block) = self.request.view().block(block) else {
+                            panic!(
+                                "bound node {:?} must belong to the committed tree and checked inputs",
+                                block
+                            );
                         };
 
-                        match self.expression_type(binding.initializer()) {
-                            Ok(mut subject) => {
-                                if let Some(declared) =
-                                    self.declared_patterns.get(&binding.pattern()).copied()
+                        for item in block.items() {
+                            let bray_bound_tree::BoundBlockItem::LocalBinding(binding) = item
+                            else {
+                                continue;
+                            };
+
+                            let mut subject = self.expression_type(binding.initializer());
+
+                            if let Some(declared) =
+                                self.declared_patterns.get(&binding.pattern()).copied()
+                            {
+                                let data = self.request.semantic_values().type_data(declared);
+
+                                if matches!(data.as_ref(), TypeData::Nullable(contained) if *contained == subject.ty)
                                 {
-                                    let data = self.request.semantic_values().type_data(declared);
-
-                                    if matches!(data.as_ref(), TypeData::Nullable(contained) if *contained == subject.ty)
-                                    {
-                                        subject.ty = declared;
-                                    }
+                                    subject.ty = declared;
                                 }
-
-                                self.subjects.insert(binding.pattern(), subject);
                             }
-                            Err(error) => {
-                                failure = Some(error);
 
-                                return BoundWalkControl::Stop;
-                            }
+                            self.subjects.insert(binding.pattern(), subject);
                         }
                     }
-                }
-                BoundWalkEvent::Enter(AnyBoundNodeId::Expression(expression)) => {
-                    let Some(bound) = self.request.view().expression(expression) else {
-                        failure = Some(CheckerQueryError::Infrastructure(
-                            CheckerInfrastructureError::InvalidBoundNode {
-                                node: expression.into(),
-                            },
-                        ));
+                    BoundWalkEvent::Enter(AnyBoundNodeId::Expression(expression)) => {
+                        let Some(bound) = self.request.view().expression(expression) else {
+                            panic!(
+                                "bound node {:?} must belong to the committed tree and checked inputs",
+                                expression
+                            );
+                        };
 
-                        return BoundWalkControl::Stop;
-                    };
-
-                    if let Err(error) = self.collect_expression_subjects(bound) {
-                        failure = Some(error);
-
-                        return BoundWalkControl::Stop;
+                        self.collect_expression_subjects(bound);
                     }
+                    BoundWalkEvent::Enter(_) | BoundWalkEvent::Exit(_) => {}
                 }
-                BoundWalkEvent::Enter(_) | BoundWalkEvent::Exit(_) => {}
-            }
 
-            BoundWalkControl::Continue
-        });
+                BoundWalkControl::Continue
+            },
+        );
 
-        if self.request.is_cancelled() {
-            return Ok(());
-        }
-
-        failure.map_or(Ok(()), Err)
+        assert!(
+            self.request.is_cancelled() || outcome == bray_bound_tree::BoundWalkOutcome::Completed,
+            "committed pattern subject traversal must complete: {outcome:?}"
+        );
     }
 
-    fn collect_expression_subjects(
-        &mut self,
-        expression: &BoundExpression,
-    ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
+    fn collect_expression_subjects(&mut self, expression: &BoundExpression) {
         match expression {
             BoundExpression::Match(expression) => {
-                let subject = self.expression_type(expression.subject())?;
+                let subject = self.expression_type(expression.subject());
 
                 for arm in expression.arms() {
                     self.subjects.insert(arm.pattern(), subject);
@@ -317,10 +291,10 @@ where
                 ) =>
             {
                 let Some(operand) = expression.operands().first().copied() else {
-                    return Ok(());
+                    return;
                 };
 
-                let subject = self.expression_type(operand)?;
+                let subject = self.expression_type(operand);
 
                 for pattern in expression.patterns() {
                     self.subjects.insert(*pattern, subject);
@@ -332,8 +306,6 @@ where
             }
             _ => {}
         }
-
-        Ok(())
     }
 
     fn collect_iteration_subject(&mut self, pattern: BoundPatternId) {
@@ -353,14 +325,12 @@ where
     pub(in crate::pattern) fn expression_type(
         &self,
         expression: BoundExpressionId,
-    ) -> Result<PatternSubject, CheckerQueryError<C::UpstreamError>> {
+    ) -> PatternSubject {
         let Some(result) = self.expression_types.expression(expression) else {
-            return Err(CheckerQueryError::Infrastructure(
-                CheckerInfrastructureError::InvalidExpressionTypeInput { expression },
-            ));
+            panic!("pattern subject {expression:?} must have a checked expression type");
         };
 
-        Ok(PatternSubject {
+        PatternSubject {
             ty: result.ty(),
             is_recovered: result.is_recovered(),
             trusted_variant: matches!(
@@ -368,7 +338,7 @@ where
                 Some(BoundExpression::Structured(expression))
                     if expression.kind() == BoundStructuredExpressionKind::TrustBoundary
             ),
-        })
+        }
     }
 
     fn check_subjects(&mut self) -> Result<(), CheckerQueryError<C::UpstreamError>> {
@@ -406,9 +376,10 @@ where
         }
 
         let Some(pattern) = self.request.view().pattern(id) else {
-            return Err(CheckerQueryError::Infrastructure(
-                CheckerInfrastructureError::InvalidBoundNode { node: id.into() },
-            ));
+            panic!(
+                "bound node {:?} must belong to the committed tree and checked inputs",
+                id
+            );
         };
 
         let (matched_subject, type_data) = self.matched_subject(subject);

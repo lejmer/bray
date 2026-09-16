@@ -110,7 +110,7 @@ where
         }
 
         if is_boolean_result_operator(operation.operator) {
-            session.add_evidence(operation.expression, boolean)?;
+            session.add_evidence(operation.expression, boolean);
         } else if let Some(ty) = numeric_operation_type(
             request,
             operation.expression,
@@ -118,7 +118,7 @@ where
             operation.operator,
             session,
         )? {
-            session.add_evidence(operation.expression, ty)?;
+            session.add_evidence(operation.expression, ty);
 
             for operand in expression.child_expressions() {
                 session.add_expectation(operand, ty)?;
@@ -170,7 +170,7 @@ where
                 session.add_evidence(
                     operation.expression,
                     result_type(request, operation.operator, ty)?,
-                )?;
+                );
             }
         } else if let Some(ty) = built_in_operand_type(request, types, *right, operation.operator)?
         {
@@ -180,7 +180,7 @@ where
                 session.add_evidence(
                     operation.expression,
                     result_type(request, operation.operator, ty)?,
-                )?;
+                );
             }
         }
     }

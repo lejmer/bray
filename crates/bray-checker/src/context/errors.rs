@@ -1,7 +1,7 @@
-use crate::{CheckedConstantTermsBuildError, CheckerUnitViewError};
+use crate::CheckedConstantTermsBuildError;
 use bray_bound_tree::{
     AnyBoundNodeId, AsyncAnalysisBuildError, BorrowCapabilityId, BoundBlockId,
-    BoundDependencyContractId, BoundExpressionId, BoundPatternId, BoundUnitId, BoundUnitKind,
+    BoundDependencyContractId, BoundExpressionId, BoundPatternId,
     CheckedMemoryOperationsBuildError, DependencyContractsBuildError, LivenessBuildError,
     SemanticSelectionTableBuildError, SemanticSnapshotBuildError, StorageAccessId,
     StorageFlowBuildError, StorageIdentityId, StorageOperationStatus, StoragePlanBuildError,
@@ -9,8 +9,8 @@ use bray_bound_tree::{
 use bray_compiler_known::{ImplementationHook, RepresentationRole};
 use bray_source::{SourceId, SourceSpan, SourceVersion};
 use bray_symbols::{
-    AnyLocalSymbolId, AnySymbolId, ConstantTermId, GenericArgumentKind,
-    GenericSubstitutionShapeError, LocalBindingSymbolId, SymbolQueryKind,
+    AnySymbolId, ConstantTermId, GenericArgumentKind, GenericSubstitutionShapeError,
+    LocalBindingSymbolId, SymbolQueryKind,
 };
 
 /// A checker infrastructure failure that is neither a source diagnostic nor cancellation.
@@ -72,32 +72,10 @@ pub enum CheckerInfrastructureError {
         /// The unavailable representation role.
         role: RepresentationRole,
     },
-    /// Type-checking input names an expression outside the requested unit.
-    InvalidExpressionTypeInput {
-        /// The invalid expression identity.
-        expression: BoundExpressionId,
-    },
-    /// One correlated checker input belongs to another bound unit.
-    IncompatibleInput {
-        /// The input table whose identity disagreed with the requested unit.
-        input: CheckerInputKind,
-        /// Requested bound unit identity.
-        expected_unit: BoundUnitId,
-        /// Requested bound unit category.
-        expected_kind: BoundUnitKind,
-        /// Input table's bound unit identity.
-        actual_unit: BoundUnitId,
-        /// Input table's bound unit category.
-        actual_kind: BoundUnitKind,
-    },
     /// Checked constant occurrences could not form one unambiguous term table.
     CheckedConstantTerms(CheckedConstantTermsBuildError),
     /// Literal-value table construction rejected one exact input relationship.
     LiteralValue(CheckerLiteralValueFailure),
-    /// Pattern-checking input construction retained conflicting evidence.
-    PatternInput(CheckerPatternInputFailure),
-    /// Constant-evaluation input construction retained conflicting evidence.
-    ConstantInput(CheckerConstantInputFailure),
     /// Constant evaluation encountered an invalid source-correlated input.
     ConstantEvaluation(CheckerConstantEvaluationFailure),
     /// Constant comparison rejected one exact scalar operation.
@@ -183,15 +161,8 @@ pub enum CheckerInfrastructureError {
     InvalidBodySemantics,
     /// Correlated semantic results describe different bound units or unit categories.
     SemanticSnapshot(SemanticSnapshotBuildError),
-    /// A committed bound relationship names a node absent from the requested unit.
-    InvalidBoundNode {
-        /// The missing bound node identity.
-        node: AnyBoundNodeId,
-    },
     /// One unit contains more expression variables than the checker can identify compactly.
     ExpressionTypeCapacityExceeded,
-    /// A checker unit view did not match its canonical bound unit.
-    InvalidUnitView(CheckerUnitViewError),
 }
 
 /// Exact scalar-operation failure retained when checking constant equality.
@@ -210,49 +181,6 @@ pub enum CheckerConstantOperationFailure {
         /// Maximum permitted demand.
         maximum: u64,
     },
-}
-
-/// Identifies one correlated semantic input supplied to a checker service.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum CheckerInputKind {
-    /// Checked asynchronous behavior.
-    AsyncAnalysis,
-    /// Checked control-flow structure.
-    ControlFlow,
-    /// Declaration-provided value type templates.
-    DeclaredValueTypes,
-    /// Complete checked expression semantics.
-    ExpressionSemantics,
-    /// Checked expression types.
-    ExpressionTypes,
-    /// Checked literal values.
-    LiteralValues,
-    /// Checked memory operations.
-    MemoryOperations,
-    /// Checked pattern semantics.
-    Patterns,
-    /// Checked semantic selections.
-    SemanticSelections,
-    /// Planned storage operations.
-    StoragePlan,
-}
-
-impl CheckerInputKind {
-    /// Returns this input category's stable machine-readable name.
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::AsyncAnalysis => "async_analysis",
-            Self::ControlFlow => "control_flow",
-            Self::DeclaredValueTypes => "declared_value_types",
-            Self::ExpressionSemantics => "expression_semantics",
-            Self::ExpressionTypes => "expression_types",
-            Self::LiteralValues => "literal_values",
-            Self::MemoryOperations => "memory_operations",
-            Self::Patterns => "patterns",
-            Self::SemanticSelections => "semantic_selections",
-            Self::StoragePlan => "storage_plan",
-        }
-    }
 }
 
 /// One exact literal-value table contract violation retained by the checker boundary.
@@ -284,41 +212,6 @@ pub enum CheckerLiteralValueFailure {
     DuplicateExpression {
         /// The repeated literal expression identity.
         expression: BoundExpressionId,
-    },
-}
-
-/// Conflicting evidence retained while constructing one pattern-checking request.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum CheckerPatternInputFailure {
-    /// One pattern has conflicting declared type templates.
-    ConflictingDeclaredPattern {
-        /// The pattern with conflicting declared types.
-        pattern: BoundPatternId,
-    },
-    /// One pattern has conflicting constant evidence.
-    ConflictingConstantPattern {
-        /// The pattern with conflicting constants.
-        pattern: BoundPatternId,
-    },
-    /// One guard expression has conflicting constant values.
-    ConflictingGuard {
-        /// The guard expression with conflicting constants.
-        expression: BoundExpressionId,
-    },
-}
-
-/// Conflicting evidence retained while constructing one constant-evaluation request.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum CheckerConstantInputFailure {
-    /// One reference expression has conflicting resolutions.
-    ConflictingReference {
-        /// The reference expression with conflicting resolutions.
-        expression: BoundExpressionId,
-    },
-    /// One local constant has conflicting symbolic terms.
-    ConflictingLocalTerm {
-        /// The local constant with conflicting terms.
-        local: AnyLocalSymbolId,
     },
 }
 
@@ -380,19 +273,6 @@ pub enum CheckerConstantEvaluationFailure {
 /// The exact storage-flow contract violated by checker inputs or constructed analysis.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum CheckerStorageFlowFailure {
-    /// One analysis input belongs to a different checked source body.
-    IncompatibleInput {
-        /// Input table whose identity disagreed with the requested source body.
-        input: StorageFlowInputKind,
-        /// Requested source body identity.
-        expected_unit: BoundUnitId,
-        /// Requested source body category.
-        expected_kind: BoundUnitKind,
-        /// Input table's source body identity.
-        actual_unit: BoundUnitId,
-        /// Input table's source body category.
-        actual_kind: BoundUnitKind,
-    },
     /// Durable storage-flow construction rejected an exact invariant.
     FlowConstruction(StorageFlowBuildError),
     /// A selected call or iteration produced a dependency contract for another source body.
@@ -434,19 +314,6 @@ pub enum CheckerStorageFlowFailure {
     UnbalancedScopes { open_scope: Option<BoundBlockId> },
     /// A pattern referenced while assigning lexical ownership is absent from its source body.
     MissingPattern { pattern: BoundPatternId },
-}
-
-/// Identifies one correlated input to storage-flow-related analysis.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum StorageFlowInputKind {
-    ExpressionTypes,
-    SemanticSelections,
-    StoragePlan,
-    Liveness,
-    Refinements,
-    MemoryOperations,
-    StorageFlow,
-    DependencyContracts,
 }
 
 /// A failure while requesting a checker dependency.

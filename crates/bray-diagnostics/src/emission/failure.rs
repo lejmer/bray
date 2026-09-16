@@ -338,7 +338,6 @@ pub enum DiagnosticEmissionEvaluationFailure {
     AtomicInitializerResultUnavailable,
     UninitInitializerResultUnavailable,
     ImportedExecutableTemplateMismatch,
-    SemanticContext(DiagnosticEvaluationFailureDetail),
     /// A semantic query failed with an exact compiler-owned category.
     SemanticQuery(DiagnosticSemanticQueryFailure),
     /// Product specialization or realization violated an exact retained contract.
@@ -740,7 +739,6 @@ impl DiagnosticEmissionEvaluationFailure {
             Self::AtomicInitializerResultUnavailable => "atomic_initializer_result_unavailable",
             Self::UninitInitializerResultUnavailable => "uninit_initializer_result_unavailable",
             Self::ImportedExecutableTemplateMismatch => "imported_executable_template_mismatch",
-            Self::SemanticContext(failure) => failure.reason(),
             Self::SemanticQuery(failure) => failure.as_str(),
             Self::Product(failure) => failure.as_str(),
             Self::Foreign(failure) => failure.as_str(),

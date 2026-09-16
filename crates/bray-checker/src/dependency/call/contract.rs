@@ -510,8 +510,7 @@ mod tests {
         let context = TestCheckerContext::new(false);
         let semantic_context = callable_entry(unit.key());
 
-        let request = CheckerUnitView::new(&unit, &semantic_context, &context)
-            .unwrap_or_else(|error| panic!("test checker unit must validate: {error:?}"));
+        let request = CheckerUnitView::new(&unit, &semantic_context, &context);
 
         let empty = request
             .semantic_values()
@@ -758,8 +757,7 @@ mod tests {
         let context = TestCheckerContext::new(false);
         let semantic_context = callable_entry(unit.key());
 
-        let request = CheckerUnitView::new(&unit, &semantic_context, &context)
-            .unwrap_or_else(|error| panic!("test checker unit must validate: {error:?}"));
+        let request = CheckerUnitView::new(&unit, &semantic_context, &context);
 
         let mut context =
             CallInstantiationContext::hidden(request, &storage, source_access, cursor_access);
@@ -878,8 +876,7 @@ mod tests {
         let context = TestCheckerContext::new(false);
         let semantic_context = callable_entry(unit.key());
 
-        let request = CheckerUnitView::new(unit, &semantic_context, &context)
-            .unwrap_or_else(|error| panic!("test checker unit must validate: {error:?}"));
+        let request = CheckerUnitView::new(unit, &semantic_context, &context);
 
         selected_call_contracts(
             request,

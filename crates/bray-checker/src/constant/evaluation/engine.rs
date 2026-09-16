@@ -20,14 +20,14 @@ use crate::constant::literal::{normalize_integer_literal, parse_literal};
 use crate::constant::operation::negate_real;
 use crate::diagnostic::{diagnostic_id, expression_category, expression_span};
 use crate::representation::type_representation;
-use crate::unit::semantic_input_failure;
+use crate::unit::assert_unit_inputs;
 
 use super::flow::EvaluationFlow;
 use super::result::EvaluatedConstant;
 use super::support::EvaluationFailure;
 
 use crate::{
-    CheckerConstantEvaluationFailure, CheckerInfrastructureError, CheckerInputKind, CheckerOutcome,
+    CheckerConstantEvaluationFailure, CheckerInfrastructureError, CheckerOutcome,
     CheckerQueryError, CheckerRequestContext, CheckerUnitRoot, CheckerUnitView,
     ConstantEvaluationInput, ConstantReferenceResolution,
 };
@@ -190,44 +190,28 @@ where
         }
     };
 
-    if let Some(error) = semantic_input_failure(
+    assert_unit_inputs(
         request,
         [
             (
-                CheckerInputKind::ExpressionTypes,
+                "expression types",
                 (
                     input.expression_types().unit(),
                     input.expression_types().kind(),
                 ),
             ),
             (
-                CheckerInputKind::SemanticSelections,
+                "semantic selections",
                 (
                     input.semantic_selections().unit(),
                     input.semantic_selections().kind(),
                 ),
             ),
         ],
-    ) {
-        return Err(EvaluationAbort::Infrastructure(error));
-    }
+    );
 
-    if let Some(patterns) = input.patterns()
-        && let Some(error) = semantic_input_failure(
-            request,
-            [(
-                CheckerInputKind::Patterns,
-                (patterns.unit(), patterns.kind()),
-            )],
-        )
-    {
-        return Err(EvaluationAbort::Infrastructure(error));
-    }
-
-    if let Some(failure) = input.failure() {
-        return Err(EvaluationAbort::Infrastructure(
-            CheckerInfrastructureError::ConstantInput(failure),
-        ));
+    if let Some(patterns) = input.patterns() {
+        assert_unit_inputs(request, [("patterns", (patterns.unit(), patterns.kind()))]);
     }
 
     let mut evaluator = Evaluator::new(request, input, retain_target_literals);
@@ -486,9 +470,10 @@ where
         self.budget.charge_step(expression)?;
 
         let Some(bound) = self.request.view().expression(expression) else {
-            return Err(EvaluationFailure::Infrastructure(
-                CheckerInfrastructureError::InvalidExpressionTypeInput { expression },
-            ));
+            panic!(
+                "expression {:?} must have a committed node and inference input",
+                expression
+            );
         };
 
         let ty = self.expression_type(expression)?;
@@ -936,13 +921,12 @@ mod tests {
         semantic_values, trait_callable_instance, tuple_type,
     };
     use crate::{
-        CheckerConstantInputFailure, CheckerInfrastructureError, CheckerOutcome,
-        CheckerQueryResult, CheckerUnitView, ConstantCallRequest, ConstantCallResolution,
-        ConstantCallResolver, ConstantChecker, ConstantEvaluationInput, ConstantEvaluationLimits,
-        ConstantEvaluationUsage, ConstantEvaluator, ConstantReferenceResolution,
-        DeclaredUnitContext, DefaultConstantChecker, DefaultConstantEvaluator,
-        DefaultExpressionTypeChecker, EvaluatedConstantCall, ExpressionTypeChecker,
-        ExpressionTypeExpectation, ExpressionTypeInput, SemanticUnitContext,
+        CheckerOutcome, CheckerQueryResult, CheckerUnitView, ConstantCallRequest,
+        ConstantCallResolution, ConstantCallResolver, ConstantChecker, ConstantEvaluationInput,
+        ConstantEvaluationLimits, ConstantEvaluationUsage, ConstantEvaluator,
+        ConstantReferenceResolution, DeclaredUnitContext, DefaultConstantChecker,
+        DefaultConstantEvaluator, DefaultExpressionTypeChecker, EvaluatedConstantCall,
+        ExpressionTypeChecker, ExpressionTypeExpectation, ExpressionTypeInput, SemanticUnitContext,
     };
 
     #[test]
@@ -1125,10 +1109,7 @@ mod tests {
         let input = ConstantEvaluationInput::new(&types, &selections);
         let entry = checker_entry(&unit);
 
-        let request = match CheckerUnitView::new(&unit, &entry, &context) {
-            Ok(request) => request,
-            Err(error) => panic!("constant checker unit view must be valid: {error:?}"),
-        };
+        let request = CheckerUnitView::new(&unit, &entry, &context);
 
         let Some(result) = DefaultConstantEvaluator
             .evaluate_constant(request, &input)
@@ -1261,8 +1242,7 @@ mod tests {
         let input = ConstantEvaluationInput::new(&types, &selections);
         let entry = checker_entry(&unit);
 
-        let request = CheckerUnitView::new(&unit, &entry, &context)
-            .unwrap_or_else(|error| panic!("constant checker unit view must be valid: {error:?}"));
+        let request = CheckerUnitView::new(&unit, &entry, &context);
 
         let result = DefaultConstantEvaluator
             .evaluate_constant(request, &input)
@@ -1369,8 +1349,7 @@ mod tests {
         let input = ConstantEvaluationInput::new(&types, &selections).with_call_resolver(&resolver);
         let entry = checker_entry(&unit);
 
-        let request = CheckerUnitView::new(&unit, &entry, &context)
-            .unwrap_or_else(|error| panic!("constant checker unit view must be valid: {error:?}"));
+        let request = CheckerUnitView::new(&unit, &entry, &context);
 
         let result = DefaultConstantEvaluator
             .evaluate_constant(request, &input)
@@ -1396,8 +1375,7 @@ mod tests {
         let cycle_input =
             ConstantEvaluationInput::new(&types, &selections).with_call_resolver(&cycle_resolver);
 
-        let request = CheckerUnitView::new(&unit, &entry, &context)
-            .unwrap_or_else(|error| panic!("constant checker unit view must be valid: {error:?}"));
+        let request = CheckerUnitView::new(&unit, &entry, &context);
 
         let cycle = DefaultConstantEvaluator
             .evaluate_constant(request, &cycle_input)
@@ -1416,8 +1394,7 @@ mod tests {
             .with_call_resolver(&resolver)
             .with_limits(ConstantEvaluationLimits::default().with_call_depth(0));
 
-        let request = CheckerUnitView::new(&unit, &entry, &context)
-            .unwrap_or_else(|error| panic!("constant checker unit view must be valid: {error:?}"));
+        let request = CheckerUnitView::new(&unit, &entry, &context);
 
         let limited = DefaultConstantEvaluator
             .evaluate_constant(request, &limited_input)
@@ -1441,8 +1418,7 @@ mod tests {
             .with_call_resolver(&transitive_resolver)
             .with_limits(ConstantEvaluationLimits::new(50, 50, 50));
 
-        let request = CheckerUnitView::new(&unit, &entry, &context)
-            .unwrap_or_else(|error| panic!("constant checker unit view must be valid: {error:?}"));
+        let request = CheckerUnitView::new(&unit, &entry, &context);
 
         let transitive = DefaultConstantEvaluator
             .evaluate_constant(request, &transitive_input)
@@ -1462,8 +1438,7 @@ mod tests {
         let ineligible_input = ConstantEvaluationInput::new(&types, &selections)
             .with_call_resolver(&ineligible_resolver);
 
-        let request = CheckerUnitView::new(&unit, &entry, &context)
-            .unwrap_or_else(|error| panic!("constant checker unit view must be valid: {error:?}"));
+        let request = CheckerUnitView::new(&unit, &entry, &context);
 
         let ineligible = DefaultConstantChecker
             .check_constant_term(request, &ineligible_input)
@@ -1766,10 +1741,7 @@ mod tests {
 
         let entry = checker_entry(&unit);
 
-        let request = match CheckerUnitView::new(&unit, &entry, &cancelled) {
-            Ok(request) => request,
-            Err(error) => panic!("constant checker unit view must be valid: {error:?}"),
-        };
+        let request = CheckerUnitView::new(&unit, &entry, &cancelled);
 
         let outcome = DefaultConstantEvaluator.evaluate_constant(request, &input);
 
@@ -1855,28 +1827,18 @@ mod tests {
         let types = checked_types(&unit, root, &context, expected);
         let selections = empty_selections(&unit, &types);
 
-        let input = ConstantEvaluationInput::new(&types, &selections).with_references([
-            (
-                root,
-                ConstantReferenceResolution::Cycle { definition: None },
-            ),
-            (root, ConstantReferenceResolution::Value(referenced_value)),
-        ]);
-
-        let entry = checker_entry(&unit);
-
-        let request = match CheckerUnitView::new(&unit, &entry, &context) {
-            Ok(request) => request,
-            Err(error) => panic!("constant checker unit view must be valid: {error:?}"),
-        };
-
-        let outcome = DefaultConstantEvaluator.evaluate_constant(request, &input);
-
-        assert_eq!(
-            outcome,
-            CheckerOutcome::InfrastructureFailure(CheckerInfrastructureError::ConstantInput(
-                CheckerConstantInputFailure::ConflictingReference { expression: root }
-            ))
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                ConstantEvaluationInput::<std::convert::Infallible>::new(&types, &selections)
+                    .with_references([
+                        (
+                            root,
+                            ConstantReferenceResolution::Cycle { definition: None },
+                        ),
+                        (root, ConstantReferenceResolution::Value(referenced_value)),
+                    ])
+            }))
+            .is_err()
         );
     }
 
@@ -1907,10 +1869,7 @@ mod tests {
 
         let entry = checker_entry(&unit);
 
-        let request = match CheckerUnitView::new(&unit, &entry, &context) {
-            Ok(request) => request,
-            Err(error) => panic!("constant checker unit view must be valid: {error:?}"),
-        };
+        let request = CheckerUnitView::new(&unit, &entry, &context);
 
         let Some(checked) = DefaultConstantChecker
             .check_constant_term(request, &input)
@@ -1922,10 +1881,7 @@ mod tests {
         assert_eq!(*checked.value(), target_property);
         assert!(checked.diagnostics().is_empty());
 
-        let request = match CheckerUnitView::new(&unit, &entry, &context) {
-            Ok(request) => request,
-            Err(error) => panic!("constant checker unit view must be valid: {error:?}"),
-        };
+        let request = CheckerUnitView::new(&unit, &entry, &context);
 
         let Some(closed) = DefaultConstantEvaluator
             .evaluate_constant(request, &input)
@@ -2046,8 +2002,7 @@ mod tests {
 
         let entry = checker_entry(&unit);
 
-        let request = CheckerUnitView::new(&unit, &entry, &context)
-            .unwrap_or_else(|error| panic!("constant checker unit view must be valid: {error:?}"));
+        let request = CheckerUnitView::new(&unit, &entry, &context);
 
         let result = DefaultConstantChecker
             .check_constant_term(request, &input)
@@ -2160,8 +2115,7 @@ mod tests {
         let input = ConstantEvaluationInput::new(&types, &selections);
         let entry = checker_entry(&unit);
 
-        let request = CheckerUnitView::new(&unit, &entry, &context)
-            .unwrap_or_else(|error| panic!("constant checker unit view must be valid: {error:?}"));
+        let request = CheckerUnitView::new(&unit, &entry, &context);
 
         let result = DefaultConstantEvaluator
             .evaluate_constant(request, &input)
@@ -2255,8 +2209,7 @@ mod tests {
 
         let entry = checker_entry(&unit);
 
-        let request = CheckerUnitView::new(&unit, &entry, &context)
-            .unwrap_or_else(|error| panic!("constant checker unit view must be valid: {error:?}"));
+        let request = CheckerUnitView::new(&unit, &entry, &context);
 
         let result = DefaultConstantChecker
             .check_constant_term(request, &input)
@@ -2333,10 +2286,7 @@ mod tests {
 
         let entry = checker_entry(unit);
 
-        let request = match CheckerUnitView::new(unit, &entry, context) {
-            Ok(request) => request,
-            Err(error) => panic!("constant checker unit view must be valid: {error:?}"),
-        };
+        let request = CheckerUnitView::new(unit, &entry, context);
 
         let outcome = DefaultConstantEvaluator.evaluate_constant(request, &input);
 
@@ -2411,17 +2361,13 @@ mod tests {
         let root = build(&mut tree, &origins, BoundNodeOrigin::source(key.source()));
         let local_symbols = local_symbols(unit, &key);
 
-        let unit = BoundUnit::try_new(
+        let unit = BoundUnit::new(
             key,
             tree.finish(),
             local_symbols,
             [],
             BoundUnitRoot::Expression(root),
         );
-
-        let Ok(unit) = unit else {
-            panic!("constant test unit must be valid");
-        };
 
         (unit, root, TestCheckerContext::with_source(source))
     }
@@ -2528,10 +2474,7 @@ mod tests {
 
         let entry = checker_entry(unit);
 
-        let request = match CheckerUnitView::new(unit, &entry, context) {
-            Ok(request) => request,
-            Err(error) => panic!("constant checker unit view must be valid: {error:?}"),
-        };
+        let request = CheckerUnitView::new(unit, &entry, context);
 
         let outcome = DefaultConstantEvaluator.evaluate_constant(request, &input);
 
@@ -2609,8 +2552,7 @@ mod tests {
         let input = ConstantEvaluationInput::new(&types, &selections).with_limits(limits);
         let entry = checker_entry(&unit);
 
-        let request = CheckerUnitView::new(&unit, &entry, &context)
-            .unwrap_or_else(|error| panic!("constant checker unit view must be valid: {error:?}"));
+        let request = CheckerUnitView::new(&unit, &entry, &context);
 
         DefaultConstantEvaluator
             .evaluate_constant(request, &input)
@@ -2684,8 +2626,7 @@ mod tests {
         let input = ConstantEvaluationInput::new(&types, &selections).with_limits(limits);
         let entry = checker_entry(&unit);
 
-        let request = CheckerUnitView::new(&unit, &entry, &context)
-            .unwrap_or_else(|error| panic!("constant checker unit view must be valid: {error:?}"));
+        let request = CheckerUnitView::new(&unit, &entry, &context);
 
         DefaultConstantEvaluator
             .evaluate_constant(request, &input)
@@ -2723,10 +2664,7 @@ mod tests {
         let input = ConstantEvaluationInput::new(&types, &selections);
         let entry = checker_entry(unit);
 
-        let request = match CheckerUnitView::new(unit, &entry, context) {
-            Ok(request) => request,
-            Err(error) => panic!("constant checker unit view must be valid: {error:?}"),
-        };
+        let request = CheckerUnitView::new(unit, &entry, context);
 
         let outcome = DefaultConstantChecker.check_constant_term(request, &input);
 
@@ -2758,10 +2696,7 @@ mod tests {
 
         let entry = checker_entry(unit);
 
-        let request = match CheckerUnitView::new(unit, &entry, context) {
-            Ok(request) => request,
-            Err(error) => panic!("constant checker unit view must be valid: {error:?}"),
-        };
+        let request = CheckerUnitView::new(unit, &entry, context);
 
         let outcome = DefaultExpressionTypeChecker.check_expression_types(request, &input);
 
@@ -2791,10 +2726,7 @@ mod tests {
     ) -> TypeId {
         let entry = checker_entry(unit);
 
-        let request = match CheckerUnitView::new(unit, &entry, context) {
-            Ok(request) => request,
-            Err(error) => panic!("constant checker unit view must be valid: {error:?}"),
-        };
+        let request = CheckerUnitView::new(unit, &entry, context);
 
         match representation_type(request, role) {
             Ok(ty) => ty,

@@ -26,25 +26,17 @@ pub fn infer_result_dependencies<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    if let Some(error) = crate::unit::semantic_input_failure(
+    crate::unit::assert_unit_inputs(
         request,
         [
+            ("expression types", (types.unit(), types.kind())),
             (
-                crate::CheckerInputKind::ExpressionTypes,
-                (types.unit(), types.kind()),
-            ),
-            (
-                crate::CheckerInputKind::SemanticSelections,
+                "semantic selections",
                 (selections.unit(), selections.kind()),
             ),
-            (
-                crate::CheckerInputKind::Patterns,
-                (patterns.unit(), patterns.kind()),
-            ),
+            ("patterns", (patterns.unit(), patterns.kind())),
         ],
-    ) {
-        return Err(error.into());
-    }
+    );
 
     let mut inference = ResultInference {
         request,

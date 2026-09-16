@@ -592,8 +592,7 @@ where
             context.module,
             reference.text(),
             context.access,
-        )
-        .map_err(crate::BindingQueryError::Construction)?;
+        );
 
         let module_prefix = source_module_prefix(
             self.binding_context().symbols(),
@@ -681,8 +680,7 @@ where
             context.module,
             first.text(),
             context.access,
-        )
-        .map_err(crate::BindingQueryError::Construction)?;
+        );
 
         bind_path_with_ordinary(
             self.binding_context().symbols(),
@@ -1061,7 +1059,7 @@ mod tests {
 
         let local = push_binding(&mut unit, root, unit_fixture.first, false);
 
-        assert_eq!(unit.activate_local(root, local), Ok(()));
+        unit.activate_local(root, local);
 
         let (module, owner) = source_module(&binding_context);
 
@@ -1203,7 +1201,7 @@ mod tests {
 
         let local = push_binding(&mut unit, root, unit_fixture.first, true);
 
-        assert_eq!(unit.activate_local(root, local), Ok(()));
+        unit.activate_local(root, local);
 
         let (module, owner) = source_module(&binding_context);
 
@@ -1723,9 +1721,6 @@ mod tests {
     fn finish<C: BindingQueryContext + ?Sized>(
         binder: Binder<'_, C>,
     ) -> crate::binder::BinderOutput {
-        match binder.finish() {
-            Ok(result) => result,
-            Err(error) => panic!("test binding binder must publish: {error:?}"),
-        }
+        binder.finish()
     }
 }

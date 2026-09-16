@@ -443,8 +443,7 @@ mod tests {
         let context = TestCheckerContext::new(false);
         let entry = callable_entry(unit.key());
 
-        let request = CheckerUnitView::new(&unit, &entry, &context)
-            .unwrap_or_else(|error| panic!("variadic promotion request must validate: {error:?}"));
+        let request = CheckerUnitView::new(&unit, &entry, &context);
 
         for (source, target) in [
             (
@@ -553,9 +552,8 @@ mod tests {
     ) -> Result<bool, crate::CheckerInfrastructureError> {
         let entry = callable_entry(unit.key());
 
-        match CheckerUnitView::new(unit, &entry, context) {
-            Ok(request) => validate_conversion(request, conversion),
-            Err(error) => panic!("conversion test request must validate: {error:?}"),
-        }
+        let request = CheckerUnitView::new(unit, &entry, context);
+
+        validate_conversion(request, conversion)
     }
 }

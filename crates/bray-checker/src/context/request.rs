@@ -1,6 +1,6 @@
 use crate::SemanticUnitContext;
 use bray_base::Cancellation;
-use bray_bound_tree::{BoundSourceAnchor, BoundUnit};
+use bray_bound_tree::BoundSourceAnchor;
 use bray_compiler_known::ImplementationHook;
 use bray_diagnostics::DiagnosticResult;
 use bray_source::{SourceSpan, TextRange, TextSize};
@@ -86,9 +86,6 @@ impl<'source> CheckerSource<'source> {
 pub trait CheckerRequestContext: Sync {
     /// Exact failure type owned by the coordinating query layer.
     type UpstreamError;
-
-    /// Returns whether semantic context exactly describes the supplied bound unit.
-    fn semantic_context_matches(&self, unit: &BoundUnit, context: &SemanticUnitContext) -> bool;
 
     /// Returns the canonical semantic values used by bound structure and queries.
     fn semantic_values(&self) -> &SemanticValueStore;

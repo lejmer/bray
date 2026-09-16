@@ -94,11 +94,6 @@ pub(crate) fn diagnostic_evaluation_failure(
         FactQueryError::UninitInitializerResultUnavailable => {
             DiagnosticEmissionEvaluationFailure::UninitInitializerResultUnavailable
         }
-        FactQueryError::SemanticUnitContext(error) => {
-            DiagnosticEmissionEvaluationFailure::SemanticContext(
-                crate::fact::diagnostic_semantic_context_failure(error),
-            )
-        }
         FactQueryError::SemanticQuery(error) => DiagnosticEmissionEvaluationFailure::SemanticQuery(
             crate::fact::diagnostic_semantic_query_failure(error),
         ),

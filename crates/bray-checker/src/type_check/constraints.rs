@@ -383,15 +383,25 @@ where
             return Ok(None);
         }
 
-        let Some(variable) = variables.get(&expectation.expression()).copied() else {
-            continue;
-        };
+        let variable = variables
+            .get(&expectation.expression())
+            .copied()
+            .unwrap_or_else(|| {
+                panic!(
+                    "expectation expression {:?} must have an inference variable",
+                    expectation.expression()
+                )
+            });
 
-        let Some(expression) = request.view().expression(expectation.expression()) else {
-            inference.add_expectation(variable, expectation.ty(), expectation.expression());
-
-            continue;
-        };
+        let expression = request
+            .view()
+            .expression(expectation.expression())
+            .unwrap_or_else(|| {
+                panic!(
+                    "expectation expression {:?} must be committed",
+                    expectation.expression()
+                )
+            });
 
         let data = request.semantic_values().type_data(expectation.ty());
 

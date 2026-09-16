@@ -121,11 +121,6 @@ macro_rules! define_bound_node_ids {
                 }
             }
 
-            pub(crate) const fn slot(self) -> u32 {
-                match self {
-                    $(Self::$variant(id) => id.slot,)+
-                }
-            }
         }
 
         $(

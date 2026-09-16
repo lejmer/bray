@@ -70,24 +70,6 @@ pub(crate) fn diagnostic_checker_failure(
         Error::CompilerKnownRepresentationUnavailable { role } => {
             DiagnosticCheckerFailure::CompilerKnownRepresentationUnavailable(role.as_str())
         }
-        Error::InvalidExpressionTypeInput { expression } => {
-            DiagnosticCheckerFailure::InvalidExpressionTypeInput {
-                expression: diagnostic_bound_node(expression.into()),
-            }
-        }
-        Error::IncompatibleInput {
-            input,
-            expected_unit,
-            expected_kind,
-            actual_unit,
-            actual_kind,
-        } => DiagnosticCheckerFailure::IncompatibleInput {
-            input: input.as_str(),
-            expected_unit: expected_unit.raw(),
-            expected_kind: expected_kind.as_str(),
-            actual_unit: actual_unit.raw(),
-            actual_kind: actual_kind.as_str(),
-        },
         Error::CheckedConstantTerms(
             bray_checker::CheckedConstantTermsBuildError::DuplicateOccurrence(key),
         ) => DiagnosticCheckerFailure::CheckedConstantTerms {
@@ -96,12 +78,6 @@ pub(crate) fn diagnostic_checker_failure(
         },
         Error::LiteralValue(error) => {
             DiagnosticCheckerFailure::LiteralValue(diagnostic_literal_value_failure(error))
-        }
-        Error::PatternInput(error) => {
-            DiagnosticCheckerFailure::PatternInput(diagnostic_pattern_input_failure(error))
-        }
-        Error::ConstantInput(error) => {
-            DiagnosticCheckerFailure::ConstantInput(diagnostic_constant_input_failure(error))
         }
         Error::ConstantEvaluation(error) => DiagnosticCheckerFailure::ConstantEvaluation(
             diagnostic_constant_evaluation_failure(error),
@@ -197,17 +173,9 @@ pub(crate) fn diagnostic_checker_failure(
                 error.actual_kind().as_str(),
             ))
         }
-        Error::InvalidBoundNode { node } => DiagnosticCheckerFailure::InvalidBoundNode {
-            node: diagnostic_bound_node(node),
-        },
         Error::ExpressionTypeCapacityExceeded => {
             DiagnosticCheckerFailure::ExpressionTypeCapacityExceeded
         }
-        Error::InvalidUnitView(error) => DiagnosticCheckerFailure::InvalidUnitView(match error {
-            bray_checker::CheckerUnitViewError::SemanticContextMismatch => {
-                "semantic_context_mismatch"
-            }
-        }),
     }
 }
 
@@ -299,19 +267,6 @@ fn diagnostic_storage_flow_failure(
     use bray_diagnostics::DiagnosticStorageFlowFailure as DiagnosticFailure;
 
     match failure {
-        Failure::IncompatibleInput {
-            input,
-            expected_unit,
-            expected_kind,
-            actual_unit,
-            actual_kind,
-        } => DiagnosticFailure::IncompatibleInput {
-            input: diagnostic_storage_flow_input(input),
-            expected_unit: expected_unit.raw(),
-            expected_kind: expected_kind.as_str(),
-            actual_unit: actual_unit.raw(),
-            actual_kind: actual_kind.as_str(),
-        },
         Failure::FlowConstruction(error) => DiagnosticFailure::FlowConstruction(match error {
             bray_bound_tree::StorageFlowBuildError::ForeignUnit => "foreign_unit",
             bray_bound_tree::StorageFlowBuildError::DuplicateSuspension => "duplicate_suspension",
@@ -409,21 +364,6 @@ fn diagnostic_storage_flow_failure(
     }
 }
 
-const fn diagnostic_storage_flow_input(input: bray_checker::StorageFlowInputKind) -> &'static str {
-    use bray_checker::StorageFlowInputKind as Input;
-
-    match input {
-        Input::ExpressionTypes => "expression_types",
-        Input::SemanticSelections => "semantic_selections",
-        Input::StoragePlan => "storage_plan",
-        Input::Liveness => "liveness",
-        Input::Refinements => "refinements",
-        Input::MemoryOperations => "memory_operations",
-        Input::StorageFlow => "storage_flow",
-        Input::DependencyContracts => "dependency_contracts",
-    }
-}
-
 const fn diagnostic_checker_symbol(
     symbol: bray_symbols::AnySymbolId,
 ) -> bray_diagnostics::DiagnosticCheckerSymbol {
@@ -471,41 +411,6 @@ fn diagnostic_literal_value_failure(
         }
         Failure::DuplicateExpression { expression } => {
             DiagnosticFailure::DuplicateExpression(diagnostic_bound_node(expression.into()))
-        }
-    }
-}
-
-fn diagnostic_pattern_input_failure(
-    failure: bray_checker::CheckerPatternInputFailure,
-) -> bray_diagnostics::DiagnosticPatternInputFailure {
-    use bray_checker::CheckerPatternInputFailure as Failure;
-    use bray_diagnostics::DiagnosticPatternInputFailure as DiagnosticFailure;
-
-    match failure {
-        Failure::ConflictingDeclaredPattern { pattern } => {
-            DiagnosticFailure::ConflictingDeclaredPattern(diagnostic_bound_node(pattern.into()))
-        }
-        Failure::ConflictingConstantPattern { pattern } => {
-            DiagnosticFailure::ConflictingConstantPattern(diagnostic_bound_node(pattern.into()))
-        }
-        Failure::ConflictingGuard { expression } => {
-            DiagnosticFailure::ConflictingGuard(diagnostic_bound_node(expression.into()))
-        }
-    }
-}
-
-fn diagnostic_constant_input_failure(
-    failure: bray_checker::CheckerConstantInputFailure,
-) -> bray_diagnostics::DiagnosticConstantInputFailure {
-    use bray_checker::CheckerConstantInputFailure as Failure;
-    use bray_diagnostics::DiagnosticConstantInputFailure as DiagnosticFailure;
-
-    match failure {
-        Failure::ConflictingReference { expression } => {
-            DiagnosticFailure::ConflictingReference(diagnostic_bound_node(expression.into()))
-        }
-        Failure::ConflictingLocalTerm { local } => {
-            DiagnosticFailure::ConflictingLocalTerm(diagnostic_local_symbol(local))
         }
     }
 }

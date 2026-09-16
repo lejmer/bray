@@ -1173,7 +1173,7 @@ mod tests {
             .push_callable_body(BoundCallableBody::block(origin, block))
             .unwrap_or_else(|error| panic!("test callable body must be valid: {error:?}"));
 
-        let unit = BoundUnit::try_new(
+        let unit = BoundUnit::new(
             template.key().clone(),
             tree.finish(),
             template.local_symbols().clone(),
@@ -1182,8 +1182,7 @@ mod tests {
                 execution: bray_symbols::CallableExecution::Synchronous,
                 body,
             },
-        )
-        .unwrap_or_else(|error| panic!("test bound unit must be valid: {error:?}"));
+        );
 
         (unit, call)
     }

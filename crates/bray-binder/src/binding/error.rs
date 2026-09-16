@@ -1,8 +1,6 @@
 use std::hash::{Hash, Hasher};
 
-use crate::{
-    BindingQueryError, publication::BoundUnitAssemblyError, unit::BoundUnitConstructionError,
-};
+use crate::{BindingQueryError, unit::BoundUnitConstructionError};
 
 /// A typed failure encountered while binding one source construct.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -144,8 +142,6 @@ pub enum BindingError<Upstream = std::convert::Infallible> {
     BoundWalkStopped(bray_bound_tree::AnyBoundNodeId),
     /// Bound-tree or local-symbol construction rejected an exact relationship.
     Construction(BoundUnitConstructionError),
-    /// Bound-unit assembly rejected the completed local structures.
-    Assembly(BoundUnitAssemblyError),
     /// A callable signature template violated its typed contract.
     CallableSignature(bray_symbols::CallableSignatureTemplateError),
     /// A generic substitution violated its ordered parameter and argument shape.
@@ -179,7 +175,6 @@ impl<Upstream: Hash> Hash for BindingError<Upstream> {
                 owner.hash(state);
             }
             Self::Construction(error) => error.hash(state),
-            Self::Assembly(error) => error.hash(state),
             Self::CallableSignature(error) => error.hash(state),
             Self::GenericSubstitution(error) => hash_generic_substitution_error(*error, state),
             Self::SyntaxContract(source) => source.hash(state),
@@ -317,7 +312,6 @@ impl<Upstream> From<BindingQueryError<Upstream>> for BindingError<Upstream> {
             }
             BindingQueryError::Construction(error) => Self::Construction(error),
             BindingQueryError::Binding(error) => error,
-            BindingQueryError::Assembly(error) => Self::Assembly(error),
         }
     }
 }
@@ -432,7 +426,6 @@ impl BindingError {
             },
             Self::BoundWalkStopped(root) => BindingError::BoundWalkStopped(root),
             Self::Construction(error) => BindingError::Construction(error),
-            Self::Assembly(error) => BindingError::Assembly(error),
             Self::CallableSignature(error) => BindingError::CallableSignature(error),
             Self::GenericSubstitution(error) => BindingError::GenericSubstitution(error),
         }
@@ -448,12 +441,6 @@ impl<Upstream> From<bray_symbols::SemanticValueStoreError> for BindingError<Upst
 impl<Upstream> From<BoundUnitConstructionError> for BindingError<Upstream> {
     fn from(error: BoundUnitConstructionError) -> Self {
         Self::Construction(error)
-    }
-}
-
-impl<Upstream> From<BoundUnitAssemblyError> for BindingError<Upstream> {
-    fn from(error: BoundUnitAssemblyError) -> Self {
-        Self::Assembly(error)
     }
 }
 

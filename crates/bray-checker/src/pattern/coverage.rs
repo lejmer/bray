@@ -66,7 +66,7 @@ where
         expression_id: BoundExpressionId,
         expression: &bray_bound_tree::BoundMatchExpression,
     ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
-        let subject = self.expression_type(expression.subject())?;
+        let subject = self.expression_type(expression.subject());
 
         let subject_data = self.request.semantic_values().type_data(subject.ty);
 
@@ -159,9 +159,10 @@ where
         id: BoundPatternId,
     ) -> Result<Coverage, CheckerQueryError<C::UpstreamError>> {
         let Some(pattern) = self.request.view().pattern(id) else {
-            return Err(CheckerQueryError::Infrastructure(
-                CheckerInfrastructureError::InvalidBoundNode { node: id.into() },
-            ));
+            panic!(
+                "bound node {:?} must belong to the committed tree and checked inputs",
+                id
+            );
         };
 
         let Some(checked) = self.patterns.get(&id) else {

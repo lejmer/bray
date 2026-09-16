@@ -50,11 +50,10 @@ pub use constant::{
     resolve_trait_application_template, resolve_type_expression_template,
 };
 pub use context::{
-    CheckerConstantEvaluationFailure, CheckerConstantInputFailure, CheckerConstantOperationFailure,
-    CheckerInfrastructureError, CheckerInputKind, CheckerLiteralValueFailure,
-    CheckerPatternInputFailure, CheckerQueryError, CheckerQueryResult, CheckerRequestContext,
+    CheckerConstantEvaluationFailure, CheckerConstantOperationFailure, CheckerInfrastructureError,
+    CheckerLiteralValueFailure, CheckerQueryError, CheckerQueryResult, CheckerRequestContext,
     CheckerSemanticQueryProvider, CheckerSource, CheckerStorageFlowFailure,
-    ImplementationHookResolution, StorageFlowInputKind,
+    ImplementationHookResolution,
 };
 pub use dependency::infer_result_dependencies;
 pub use diagnostic::diagnostic_type;
@@ -118,4 +117,4 @@ pub use type_representation::{
     DeclaredUnionVariant, RepresentationIntegerType, TypeRepresentationContext,
     check_declared_type_representation,
 };
-pub use unit::{CheckerUnitRoot, CheckerUnitView, CheckerUnitViewError};
+pub use unit::{CheckerUnitRoot, CheckerUnitView};

@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use bray_binder::semantic_unit_context;
 use bray_binder::{BindingQueryContext, qualified_union_variant};
 use bray_bound_tree::{
     AnyBoundNodeId, BoundExpression, BoundExpressionId, BoundStructuredExpressionKind, BoundUnit,
@@ -15,7 +16,7 @@ use bray_symbols::{AnySymbolId, TypeId};
 use super::super::Compilation;
 use super::super::binder::CompilationBindingContext;
 use super::super::checker::checker_result;
-use super::super::unit::semantic_unit_context_for;
+
 use crate::compilation::{
     SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
 };
@@ -180,10 +181,9 @@ impl Compilation {
     ) -> Result<Option<OperationResolution>, FactQueryError> {
         let context = self.checker_context_for(key.unit(), cancellation)?;
 
-        let semantic_context = semantic_unit_context_for(binding_context.symbols(), unit)?;
+        let semantic_context = semantic_unit_context(binding_context.symbols(), unit);
 
-        let request =
-            crate::compilation::unit::checker_unit_view(unit, &semantic_context, &context)?;
+        let request = bray_checker::CheckerUnitView::new(unit, &semantic_context, &context);
 
         let input = OperationSelectionRequest::new(
             key.expression(),
@@ -191,12 +191,9 @@ impl Compilation {
                 binding_context,
                 unit,
                 key.expression(),
-                unit.view().expression(key.expression()).ok_or_else(|| {
-                    operation_contract_failure(
-                        key,
-                        SemanticQueryViolation::Missing(SemanticDataKind::BoundExpression),
-                    )
-                })?,
+                unit.view().expression(key.expression()).unwrap_or_else(|| {
+                    panic!("operation subject {key:?} must name a committed expression")
+                }),
             )?,
             operands,
             candidates,
