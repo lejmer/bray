@@ -95,8 +95,6 @@ pub enum LinkPlanConstructionError {
     InvalidNativeInputKind(LinkInputKind),
     /// A target termination input has an incompatible native category.
     InvalidTerminationInputKind(LinkInputKind),
-    /// The selected runtime archive does not match the executable-host contract.
-    RuntimeContractMismatch,
     /// The link input count exceeds its stable identity range.
     InputOrdinalOverflow,
     /// The linked output count exceeds its stable staging identity range.
@@ -240,15 +238,6 @@ impl<'plan> LinkPlanConstructor<'plan> {
             return Ok(());
         };
 
-        if let Some(host) = self.emission.request().executable_host()
-            && (runtime.contract().validate(host.requirements()).is_err()
-                || host
-                    .runtime()
-                    .is_some_and(|selected| selected != runtime.contract()))
-        {
-            return Err(LinkPlanConstructionError::RuntimeContractMismatch);
-        }
-
         for component in runtime.components() {
             let id = self.next_input_id()?;
 
@@ -374,11 +363,6 @@ impl<'plan> LinkPlanConstructor<'plan> {
         if let Some(entry_point) = &self.inputs.entry_point {
             // The completed link plan owns the Arc-backed binary name.
             self.builder.set_entry_point(entry_point.clone());
-        }
-
-        if let Some(host) = self.emission.request().executable_host() {
-            // The completed link plan shares the immutable executable-host contract.
-            self.builder.set_executable_host(host.clone());
         }
 
         // The link plan owns binary names independently of the product-input borrow.
@@ -681,7 +665,7 @@ mod tests {
     }
 
     #[test]
-    fn async_executable_plans_preserve_runtime_and_host_contracts() {
+    fn async_executable_plans_preserve_runtime_and_entry_contracts() {
         let (plan, runtime) = async_executable_plan();
 
         let host = plan
@@ -691,6 +675,7 @@ mod tests {
 
         let inputs = product_link_inputs()
             .with_runtime(runtime.clone())
+            .with_entry_point(host.native_entry().clone())
             .with_native_inputs([
                 native_library("pthread"),
                 file_input(
@@ -714,12 +699,7 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("async link plan must construct: {error:?}"));
 
-        let linked_host = link_plan
-            .executable_host()
-            .unwrap_or_else(|| panic!("async link plan must retain its host contract"));
-
         assert_eq!(link_plan.entry_point(), Some(host.native_entry()));
-        assert_eq!(linked_host, host);
 
         assert_eq!(
             link_plan
@@ -774,15 +754,15 @@ mod tests {
             &LinkInputProvenance::Runtime(runtime.contract().artifact().clone())
         );
 
-        assert_eq!(linked_host.abi_version(), runtime.contract().abi_version());
+        assert_eq!(host.abi_version(), runtime.contract().abi_version());
 
         assert!(matches!(
-            linked_host.entries()[0].root(),
+            host.entries()[0].root(),
             RootExecution::Asynchronous { .. }
         ));
 
         assert_eq!(
-            linked_host.runtime_capabilities(),
+            host.runtime_capabilities(),
             [
                 RuntimeCapability::CooperativeExecution,
                 RuntimeCapability::MainThreadLane,
@@ -794,7 +774,7 @@ mod tests {
             RuntimeAbiRole::MainThreadLaneDrive,
             RuntimeAbiRole::StructuredShutdown,
         ] {
-            assert!(linked_host.role_binding(role).is_some());
+            assert!(host.role_binding(role).is_some());
         }
     }
 

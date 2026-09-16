@@ -16,18 +16,14 @@ struct RecordedExecution {
     storage: StorageExpectation,
 }
 
-pub(super) fn require_production_symbols_absent(linker_map: &Path) -> Result<(), String> {
+pub(super) fn production_symbol_failures(linker_map: &Path) -> Result<Vec<String>, String> {
     let symbols = linked_symbols(linker_map)?;
 
-    for symbol in observation_symbols() {
-        if symbols.contains(symbol) {
-            return Err(format!(
-                "production performance artifact unexpectedly retains {symbol}"
-            ));
-        }
-    }
-
-    Ok(())
+    Ok(observation_symbols()
+        .into_iter()
+        .filter(|symbol| symbols.contains(*symbol))
+        .map(|symbol| format!("production performance artifact unexpectedly retains {symbol}"))
+        .collect())
 }
 
 pub(super) fn validate_timing_artifact(linker_map: &Path) -> Result<(), String> {
@@ -287,8 +283,41 @@ mod tests {
 
     use super::{
         ALLOCATION_RECORD, CONTROLLED_DURATION_RECORD, COPY_RECORD, ObservationKind,
-        RecordedExecution, read, require_observation_symbols,
+        RecordedExecution, production_symbol_failures, read, require_observation_symbols,
     };
+
+    #[test]
+    fn production_symbol_audit_collects_every_observation_symbol() {
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("observation directory must exist: {error}"));
+
+        let path = directory.path().join("application.map");
+
+        fs::write(
+            &path,
+            format!(
+                "{} {}",
+                bray_runtime_abi::MEMORY_OBSERVATION_BEGIN_SYMBOL,
+                bray_runtime_abi::PERFORMANCE_INTERVAL_END_SYMBOL,
+            ),
+        )
+        .unwrap_or_else(|error| panic!("linker map fixture must write: {error}"));
+
+        assert_eq!(
+            production_symbol_failures(&path)
+                .unwrap_or_else(|error| panic!("production symbols must inspect: {error}")),
+            [
+                format!(
+                    "production performance artifact unexpectedly retains {}",
+                    bray_runtime_abi::MEMORY_OBSERVATION_BEGIN_SYMBOL,
+                ),
+                format!(
+                    "production performance artifact unexpectedly retains {}",
+                    bray_runtime_abi::PERFORMANCE_INTERVAL_END_SYMBOL,
+                ),
+            ]
+        );
+    }
 
     #[test]
     fn fixed_records_preserve_measured_execution_and_storage_work() {

@@ -8,6 +8,7 @@ mod command_help;
 mod diagnostic;
 #[cfg(feature = "mir-unit")]
 mod mir_unit;
+mod panic;
 mod source;
 mod syntax;
 mod temporary_file;
@@ -30,6 +31,7 @@ pub use mir_unit::{
     test_mir_type, test_mir_unit, test_mir_unit_for_target, test_mir_unit_with_declaration,
     test_mir_unit_with_declaration_for_target,
 };
+pub use panic::panic_payload_text;
 pub use source::{
     test_source_at, test_source_inputs, test_source_snapshot, test_source_store,
     try_test_source_store,

@@ -1,7 +1,6 @@
 use bray_diagnostics::DiagnosticBag;
 use bray_emitter::{EmissionPlanningError, LinkPlanConstructionError, LinkStagingError};
 use bray_package_interface::InterfaceValidationError;
-use bray_runtime_interface::ProtectedAsyncFrameId;
 use bray_symbols::ProductIdentity;
 use bray_target::TargetIdentity;
 
@@ -85,10 +84,6 @@ pub enum ProductEmissionErrorKind {
     TestCatalogContent(bray_codegen::ArtifactContentBuildError),
     /// Immutable emitter planning rejected the selected request and producer inputs.
     Planning(EmissionPlanningError),
-    /// An executable plan does not request its generated host-stub codegen unit.
-    MissingExecutableHost,
-    /// An async executable plan does not request its root protected-frame descriptor.
-    MissingRootFrame(ProtectedAsyncFrameId),
     /// Compilation diagnostics prevent complete product publication.
     // rust-style: broad-failure
     InvalidCompilation,

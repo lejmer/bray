@@ -121,9 +121,6 @@ fn runtime_metadata_failure_detail(
     use bray_codegen::CodegenRuntimeMetadataBuildError as Error;
 
     match error {
-        Error::MultipleExecutableHosts => {
-            failure_detail("codegen_backend_runtime_metadata_multiple_hosts", [])
-        }
         Error::DuplicateFrame(frame) => failure_detail(
             "codegen_backend_runtime_metadata_duplicate_frame",
             [text_failure_field("frame", format!("{frame:?}"))],
@@ -135,9 +132,6 @@ fn runtime_metadata_failure_detail(
             "codegen_backend_runtime_metadata_frame_abi",
             [text_failure_field("frame", format!("{frame:?}"))],
         ),
-        Error::ExecutableHostMismatch => {
-            failure_detail("codegen_backend_runtime_metadata_host_mismatch", [])
-        }
     }
 }
 

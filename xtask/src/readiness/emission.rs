@@ -24,7 +24,6 @@ const REQUIRED_CONTRACTS: &[&str] = &[
     "narrow artifact requests",
     "missing runtime capabilities",
     "incompatible runtime ABI",
-    "async host artifact matching",
     "root runtime artifact matching",
     "structured shutdown ordering",
     "source run cancellation in MIR",

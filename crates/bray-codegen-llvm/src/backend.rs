@@ -458,25 +458,7 @@ fn runtime_metadata(request: CodegenRequest<'_>) -> Result<CodegenRuntimeMetadat
         })
         .collect::<Vec<_>>();
 
-    let mut hosts = request.unit().mir_units().filter_map(|unit| {
-        let bray_ir::MirUnitKind::ExecutableHost(host) = unit.kind() else {
-            return None;
-        };
-
-        Some(host)
-    });
-
-    // Runtime metadata owns the small immutable host contract after the MIR borrow ends.
-    let host = hosts.next().cloned();
-
-    if hosts.next().is_some() {
-        panic!(
-            "codegen unit {:?} contains more than one executable host",
-            request.unit().key()
-        );
-    }
-
-    CodegenRuntimeMetadata::try_new(request.unit(), frames, host)
+    CodegenRuntimeMetadata::try_new(request.unit(), frames)
         .map_err(CodegenFailure::InvalidRuntimeMetadata)
 }
 
@@ -640,11 +622,7 @@ mod tests {
         }))
         .expect_err("invalid generated module must panic");
 
-        let message = panic
-            .downcast_ref::<String>()
-            .map(String::as_str)
-            .or_else(|| panic.downcast_ref::<&str>().copied())
-            .expect("panic payload must be text");
+        let message = bray_testing::panic_payload_text(panic.as_ref());
 
         assert!(message.contains(stage));
         assert!(message.contains(target.identity().as_str()));

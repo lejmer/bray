@@ -2850,7 +2850,11 @@ mod tests {
         }
 
         if case.product == LinkedProductKind::Executable {
-            builder.set_executable_host(crate::test_support::executable_host_contract());
+            builder.set_entry_point(
+                crate::test_support::executable_host_contract()
+                    .native_entry()
+                    .clone(),
+            );
         }
 
         let link = builder

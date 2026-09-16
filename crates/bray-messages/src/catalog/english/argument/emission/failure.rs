@@ -90,13 +90,6 @@ fn format_english_emission_planning_failure(
         Failure::MissingCodegenUnits => {
             "native code for the requested program was not prepared".to_owned()
         }
-        Failure::MissingExecutableHost => {
-            "the executable output does not include its generated startup code".to_owned()
-        }
-        Failure::MissingRootFrame(identity) => format!(
-            "the asynchronous executable plan does not request protected root frame {}",
-            format_english_artifact_digest(identity),
-        ),
         Failure::UnsupportedBackendTarget(target) => {
             format!("the native-code generator does not support target {target}")
         }
@@ -664,9 +657,6 @@ fn format_english_emission_link_plan_failure(
             "termination input has incompatible category {}",
             format_english_link_input_kind(*kind),
         ),
-        Failure::RuntimeContractMismatch => {
-            "the selected runtime archive does not match the executable host".to_owned()
-        }
         Failure::InputOrdinalOverflow => {
             "the native input count exceeds the identity range".to_owned()
         }
@@ -711,21 +701,6 @@ fn format_english_emission_link_plan_failure(
         }
         Failure::OutputPathCollision { first, second } => {
             format!("linked outputs #{first} and #{second} use the same staging path")
-        }
-        Failure::MissingExecutableHost => {
-            "the executable link plan has no generated host contract".to_owned()
-        }
-        Failure::UnexpectedExecutableHost => {
-            "a non-executable link plan contains a host contract".to_owned()
-        }
-        Failure::ExecutableHostProductMismatch => {
-            "the executable host belongs to another product".to_owned()
-        }
-        Failure::ExecutableHostTargetMismatch => {
-            "the executable host was generated for another target".to_owned()
-        }
-        Failure::UnexpectedEntryPoint => {
-            "this product category cannot define an explicit native entry point".to_owned()
         }
         Failure::MissingStartupMode => "the linked product has no native startup mode".to_owned(),
         Failure::UnexpectedStartupMode => {

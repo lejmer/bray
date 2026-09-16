@@ -91,9 +91,6 @@ pub(super) fn link_plan_failure_diagnostics(
                 diagnostic_link_input_kind(*kind),
             )
         }
-        LinkPlanConstructionError::RuntimeContractMismatch => {
-            DiagnosticEmissionLinkPlanFailure::RuntimeContractMismatch
-        }
         LinkPlanConstructionError::InputOrdinalOverflow => {
             DiagnosticEmissionLinkPlanFailure::InputOrdinalOverflow
         }
@@ -175,21 +172,6 @@ fn link_plan_contract_failure(error: &LinkPlanBuildError) -> DiagnosticEmissionL
                 second: second.ordinal(),
             }
         }
-        LinkPlanBuildError::MissingExecutableHost => {
-            DiagnosticEmissionLinkPlanFailure::MissingExecutableHost
-        }
-        LinkPlanBuildError::UnexpectedExecutableHost => {
-            DiagnosticEmissionLinkPlanFailure::UnexpectedExecutableHost
-        }
-        LinkPlanBuildError::ExecutableHostProductMismatch => {
-            DiagnosticEmissionLinkPlanFailure::ExecutableHostProductMismatch
-        }
-        LinkPlanBuildError::ExecutableHostTargetMismatch => {
-            DiagnosticEmissionLinkPlanFailure::ExecutableHostTargetMismatch
-        }
-        LinkPlanBuildError::UnexpectedEntryPoint => {
-            DiagnosticEmissionLinkPlanFailure::UnexpectedEntryPoint
-        }
         LinkPlanBuildError::MissingStartupMode => {
             DiagnosticEmissionLinkPlanFailure::MissingStartupMode
         }
@@ -258,8 +240,8 @@ pub(super) fn staging_failure_diagnostics(
         LinkStagingError::Storage(error) => {
             // The emission error retains its owned context after diagnostic rendering.
             return DiagnosticBag::single(error.as_ref().clone().into_diagnostic(
-                bray_diagnostics::DiagnosticId::new(0),
-                bray_diagnostics::SeverityKind::Error,
+                DiagnosticId::new(0),
+                SeverityKind::Error,
             ));
         }
         LinkStagingError::DuplicateContribution(artifact) => {

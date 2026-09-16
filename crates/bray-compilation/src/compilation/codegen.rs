@@ -122,11 +122,9 @@ impl Compilation {
                 Ok(mir.clone())
             }
             MirUnitKey::ExecutableHost(product) => {
-                let Some(host) = executable_host.filter(|host| host.product() == product) else {
-                    return Err(CodegenPreparationError::MirUnavailable(
-                        instance.template().clone(),
-                    ));
-                };
+                let host = executable_host.unwrap_or_else(|| {
+                    panic!("codegen unit for executable host {product:?} has no host contract")
+                });
 
                 let semantics = self.product_semantics_with_cancellation(cancellation)?;
 

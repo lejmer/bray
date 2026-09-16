@@ -66,7 +66,7 @@ impl ProductLinkInputs {
         self
     }
 
-    /// Supplies the selected native entry point for a shared library.
+    /// Supplies the selected native entry point.
     pub fn with_entry_point(mut self, entry_point: BinarySymbolName) -> Self {
         self.entry_point = Some(entry_point);
 

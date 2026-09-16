@@ -482,7 +482,7 @@ mod tests {
             "application.debug.stage",
         ));
 
-        builder.set_executable_host(executable_host.clone());
+        set_host_inputs(&mut builder, &executable_host);
         builder.push_exported_symbol(symbol("bray_export"));
         builder.push_retained_symbol(symbol("bray_root_frame"));
 
@@ -549,7 +549,6 @@ mod tests {
 
         assert_eq!(plan.retained_symbols(), [symbol("bray_root_frame")]);
         assert_eq!(plan.entry_point(), Some(executable_host.native_entry()));
-        assert_eq!(plan.executable_host(), Some(&executable_host));
         assert_eq!(executable_host.native_entry().as_str(), "_bray_host_start");
 
         assert_eq!(
@@ -815,7 +814,7 @@ mod tests {
             output,
         ));
 
-        builder.set_executable_host(synchronous_host());
+        set_host_inputs(&mut builder, &synchronous_host());
 
         builder
             .finish()
@@ -843,11 +842,13 @@ mod tests {
             output,
         ));
 
-        builder.set_executable_host(test_async_executable_host_contract_for(
+        let host = test_async_executable_host_contract_for(
             product(),
             link_target().identity().clone(),
             runtime,
-        ));
+        );
+
+        set_host_inputs(&mut builder, &host);
 
         builder
             .finish()
@@ -946,12 +947,23 @@ mod tests {
         builder.push_output(planned_output(0, artifact_kind, path));
 
         if let Some(host) = host {
-            builder.set_executable_host(host);
+            set_host_inputs(&mut builder, &host);
         }
 
         builder
             .finish()
             .unwrap_or_else(|error| panic!("test link plan must be valid: {error:?}"))
+    }
+
+    fn set_host_inputs(
+        builder: &mut LinkPlanBuilder,
+        host: &bray_runtime_interface::ExecutableHostContract,
+    ) {
+        builder.set_entry_point(host.native_entry().clone());
+
+        if let Some(runtime) = host.runtime_artifact() {
+            builder.set_runtime_artifact(runtime.clone());
+        }
     }
 
     fn plan_builder(product_kind: LinkedProductKind, debug: DebugLinkPolicy) -> LinkPlanBuilder {
