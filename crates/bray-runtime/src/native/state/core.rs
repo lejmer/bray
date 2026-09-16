@@ -14,8 +14,8 @@ use bray_runtime_model::RuntimeCapability;
 
 use crate::{
     CleanupReportSink, ExecutionLane, ExecutionLanePlacement, ExecutionWorkload,
-    JoinWaitRegistration, RuntimeEventRegistration, Scheduler, SchedulerLimits, TaskControlBlock,
-    TaskRegistration,
+    JoinWaitRegistration, RuntimeEvent, RuntimeEventGeneration, RuntimeEventRegistration,
+    Scheduler, SchedulerLimits, TaskControlBlock, TaskRegistration,
 };
 
 use super::super::frame::NativeTerminalState;
@@ -219,9 +219,33 @@ pub(in crate::native) struct StartedTask {
     pub(in crate::native) task: Arc<NativeTask>,
     pub(in crate::native) registration: TaskRegistration,
     pub(in crate::native) waits: Mutex<Vec<JoinWaitRegistration<usize>>>,
-    pub(in crate::native) event_wait: Mutex<Option<RuntimeEventRegistration>>,
+    pub(in crate::native) suspended_wait: Mutex<Option<SuspendedWait>>,
     pub(in crate::native) observation_claimed: AtomicBool,
     pub(in crate::native) terminal: Arc<NativeTerminalState>,
+}
+
+pub(in crate::native) enum SuspendedWait {
+    Awaited(JoinWaitRegistration<usize>),
+    Event {
+        event: RuntimeEvent,
+        observed: RuntimeEventGeneration,
+        _registration: RuntimeEventRegistration,
+    },
+}
+
+impl SuspendedWait {
+    pub(in crate::native) fn is_ready(&self) -> bool {
+        match self {
+            Self::Awaited(registration) => !registration.is_pending(),
+            Self::Event {
+                event, observed, ..
+            } => {
+                let (generation, closed) = event.observation();
+
+                closed || generation != *observed
+            }
+        }
+    }
 }
 
 pub(in crate::native) fn initialize(

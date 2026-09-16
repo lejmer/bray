@@ -1,3 +1,4 @@
+mod awaited;
 mod binding;
 mod core;
 mod execution;

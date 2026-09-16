@@ -155,7 +155,7 @@ unsafe extern "C" {
     safe fn bray_runtime_panic_reporting(report: &mut PanicReport) -> Status;
     safe fn bray_runtime_panic_report_destruction(report: &mut PanicReport) -> Status;
     safe fn bray_runtime_entry_failure_reporting(payload: usize, size: usize) -> Status;
-    safe fn bray_runtime_wake(task: TaskHandle, state: u32) -> Status;
+    safe fn bray_runtime_wake(task: TaskHandle) -> Status;
     safe fn bray_runtime_main_thread_lane_startup(configuration: Configuration) -> Status;
     safe fn bray_runtime_task_allocation() -> TaskAllocation;
     safe fn bray_runtime_task_start(task: TaskHandle, frame: InactiveFrame) -> Status;
@@ -203,7 +203,7 @@ extern "C-unwind" fn cancel_frame(destination: &mut FrameProgress, _: usize) {
 
 extern "C-unwind" fn suspend_and_wake(destination: &mut FrameProgress, _: usize) {
     if RESUMES.fetch_add(1, Ordering::Relaxed) == 0 {
-        assert!(bray_runtime_wake(TaskHandle(ROOT.load(Ordering::Relaxed)), 1) == Status::SUCCESS);
+        assert!(bray_runtime_wake(TaskHandle(ROOT.load(Ordering::Relaxed))) == Status::SUCCESS);
 
         *destination = FrameProgress {
             kind: FrameProgressKind(0),
@@ -233,7 +233,7 @@ extern "C-unwind" fn suspend_then_fail(destination: &mut FrameProgress, _: usize
     *destination = (|| {
         if FAILURE_RESUMES.fetch_add(1, Ordering::Relaxed) == 0 {
             assert!(
-                bray_runtime_wake(TaskHandle(FAILURE_ROOT.load(Ordering::Relaxed)), 1,)
+                bray_runtime_wake(TaskHandle(FAILURE_ROOT.load(Ordering::Relaxed)))
                     == Status::SUCCESS
             );
 

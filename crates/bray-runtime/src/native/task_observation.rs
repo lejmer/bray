@@ -293,7 +293,7 @@ extern "C" fn wake_observer(context: usize) {
         return;
     };
 
-    let _ = with_runtime(|runtime| runtime.wake(owner, 0));
+    let _ = with_runtime(|runtime| runtime.wake(owner));
 }
 
 #[expect(

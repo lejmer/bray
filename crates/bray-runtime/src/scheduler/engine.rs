@@ -54,15 +54,8 @@ pub(super) enum DispatchState {
     Queued(ProtectedFrameStateId),
     Running {
         state: ProtectedFrameStateId,
-        pending: Option<PendingWake>,
+        pending: Option<TaskWakeCause>,
     },
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) struct PendingWake {
-    pub(super) state: ProtectedFrameStateId,
-    pub(super) lane: ExecutionLane,
-    pub(super) cause: TaskWakeCause,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -76,7 +69,6 @@ pub(super) struct QueuedTask {
 #[derive(Clone, Copy, Debug)]
 pub(super) struct TimerWake {
     task: TaskId,
-    state: ProtectedFrameStateId,
 }
 
 impl Scheduler {
@@ -190,12 +182,11 @@ impl Scheduler {
         })
     }
 
-    /// Registers a timer that wakes one task state after its deadline.
+    /// Registers a timer that requests task dispatch after its deadline.
     pub fn register_timer(
         &self,
         deadline: MonotonicDeadline,
         wake: &TaskWakeHandle,
-        state_id: ProtectedFrameStateId,
     ) -> Result<TimerRegistration, SchedulerError> {
         if !Weak::ptr_eq(&wake.scheduler, &Arc::downgrade(&self.data)) {
             return Err(SchedulerError::UnknownTask(wake.task));
@@ -203,11 +194,9 @@ impl Scheduler {
 
         let mut state = self.lock_state()?;
 
-        let Some(task) = state.tasks.get(&wake.task) else {
+        if !state.tasks.contains_key(&wake.task) {
             return Err(SchedulerError::UnknownTask(wake.task));
-        };
-
-        select_task_lane(&self.data, task, state_id)?;
+        }
 
         if state.timer_count >= self.data.limits.timers().get() {
             return Err(SchedulerError::TimerCapacityReached);
@@ -221,13 +210,11 @@ impl Scheduler {
 
         state.next_timer = next_timer;
 
-        state.timers.entry(deadline).or_default().insert(
-            identity,
-            TimerWake {
-                task: wake.task,
-                state: state_id,
-            },
-        );
+        state
+            .timers
+            .entry(deadline)
+            .or_default()
+            .insert(identity, TimerWake { task: wake.task });
 
         state.timer_count += 1;
 
@@ -285,13 +272,7 @@ impl Scheduler {
             let mut wakes = wakes.into_iter();
 
             while let Some((identity, wake)) = wakes.next() {
-                match enqueue_task(
-                    &self.data,
-                    scheduler,
-                    wake.task,
-                    wake.state,
-                    TaskWakeCause::Timer,
-                ) {
+                match enqueue_task(&self.data, scheduler, wake.task, TaskWakeCause::Timer) {
                     Ok(_) | Err(SchedulerError::UnknownTask(_)) => {
                         scheduler.timer_count = scheduler.timer_count.saturating_sub(1);
                     }
@@ -431,7 +412,7 @@ impl Drop for TaskRegistration {
     }
 }
 
-/// Transferable authority to make one registered task state ready.
+/// Transferable authority to request dispatch of one registered task.
 #[derive(Clone, Debug)]
 pub struct TaskWakeHandle {
     task: TaskId,
@@ -439,10 +420,10 @@ pub struct TaskWakeHandle {
 }
 
 impl TaskWakeHandle {
-    /// Makes one protected-frame state ready for compatible execution.
+    /// Requests dispatch at the task's saved suspension state.
     ///
     /// Returns whether this call added a new ready-queue entry.
-    pub fn wake(&self, state_id: ProtectedFrameStateId) -> Result<bool, SchedulerError> {
+    pub fn wake(&self) -> Result<bool, SchedulerError> {
         let Some(scheduler) = self.scheduler.upgrade() else {
             return Err(SchedulerError::UnknownTask(self.task));
         };
@@ -452,13 +433,7 @@ impl TaskWakeHandle {
             .lock()
             .map_err(|_| SchedulerError::SynchronizationPoisoned)?;
 
-        let changed = enqueue_task(
-            &scheduler,
-            &mut state,
-            self.task,
-            state_id,
-            TaskWakeCause::Explicit,
-        )?;
+        let changed = enqueue_task(&scheduler, &mut state, self.task, TaskWakeCause::Explicit)?;
 
         drop(state);
 
@@ -479,18 +454,12 @@ fn wake_cancelled_task(scheduler: &Weak<SchedulerData>, task_id: TaskId) {
         return;
     };
 
-    let Some(DispatchState::Idle(state_id)) = state.tasks.get(&task_id).map(|task| task.dispatch)
-    else {
+    let Some(DispatchState::Idle(_)) = state.tasks.get(&task_id).map(|task| task.dispatch) else {
         return;
     };
 
-    let Ok(changed) = enqueue_task(
-        &scheduler,
-        &mut state,
-        task_id,
-        state_id,
-        TaskWakeCause::Cancellation,
-    ) else {
+    let Ok(changed) = enqueue_task(&scheduler, &mut state, task_id, TaskWakeCause::Cancellation)
+    else {
         return;
     };
 
@@ -556,7 +525,6 @@ impl ReadyTask {
             self.task,
             self.state,
             suspension.state(),
-            true,
         )?;
 
         self.released = true;
@@ -585,9 +553,9 @@ impl Drop for ReadyTask {
             return;
         };
 
-        let Ok(changed) = release_dispatch(
-            &scheduler, &mut state, self.task, self.state, self.state, false,
-        ) else {
+        let Ok(changed) =
+            release_dispatch(&scheduler, &mut state, self.task, self.state, self.state)
+        else {
             return;
         };
 
@@ -605,7 +573,6 @@ fn release_dispatch(
     task_id: TaskId,
     running_state: ProtectedFrameStateId,
     suspended_state: ProtectedFrameStateId,
-    require_matching_pending: bool,
 ) -> Result<bool, SchedulerError> {
     let Some(task) = state.tasks.get(&task_id) else {
         return Err(SchedulerError::UnknownTask(task_id));
@@ -625,41 +592,25 @@ fn release_dispatch(
 
     let lane = select_task_lane(scheduler, task, suspended_state)?;
 
-    let next = match pending {
-        Some(pending) if !require_matching_pending || pending.state == suspended_state => {
-            Some(pending)
-        }
-        Some(pending) => {
-            return Err(SchedulerError::ConflictingWakeState {
-                retained: pending.state,
-                requested: suspended_state,
-            });
-        }
-        None if task.cancellation.is_requested() => Some(PendingWake {
-            state: suspended_state,
-            lane,
-            cause: TaskWakeCause::Cancellation,
-        }),
-        None => None,
-    };
+    let next = pending.or_else(|| {
+        task.cancellation
+            .is_requested()
+            .then_some(TaskWakeCause::Cancellation)
+    });
 
     if let Some(next) = next {
-        state
-            .queues
-            .entry(next.lane)
-            .or_default()
-            .push_back(QueuedTask {
-                task: task_id,
-                state: next.state,
-                cause: next.cause,
-                queued_at: queue_instant(scheduler),
-            });
+        state.queues.entry(lane).or_default().push_back(QueuedTask {
+            task: task_id,
+            state: suspended_state,
+            cause: next,
+            queued_at: queue_instant(scheduler),
+        });
 
         let Some(task) = state.tasks.get_mut(&task_id) else {
             return Err(SchedulerError::UnknownTask(task_id));
         };
 
-        task.dispatch = DispatchState::Queued(next.state);
+        task.dispatch = DispatchState::Queued(suspended_state);
     } else {
         let Some(task) = state.tasks.get_mut(&task_id) else {
             return Err(SchedulerError::UnknownTask(task_id));
@@ -675,39 +626,20 @@ fn enqueue_task(
     scheduler: &SchedulerData,
     state: &mut SchedulerState,
     task_id: TaskId,
-    state_id: ProtectedFrameStateId,
     cause: TaskWakeCause,
 ) -> Result<bool, SchedulerError> {
     let Some(task) = state.tasks.get(&task_id) else {
         return Err(SchedulerError::UnknownTask(task_id));
     };
 
-    let lane = select_task_lane(scheduler, task, state_id)?;
-
-    match task.dispatch {
-        DispatchState::Queued(retained) => {
-            if retained == state_id {
-                return Ok(false);
-            }
-
-            return Err(SchedulerError::ConflictingWakeState {
-                retained,
-                requested: state_id,
-            });
-        }
+    let state_id = match task.dispatch {
+        DispatchState::Queued(_) => return Ok(false),
         DispatchState::Running {
             state: retained,
             pending,
         } => {
-            if let Some(pending) = pending {
-                if retained == state_id || pending.state == state_id {
-                    return Ok(false);
-                }
-
-                return Err(SchedulerError::ConflictingWakeState {
-                    retained: pending.state,
-                    requested: state_id,
-                });
+            if pending.is_some() {
+                return Ok(false);
             }
 
             let Some(task) = state.tasks.get_mut(&task_id) else {
@@ -718,23 +650,15 @@ fn enqueue_task(
 
             task.dispatch = DispatchState::Running {
                 state: retained,
-                pending: Some(PendingWake {
-                    state: state_id,
-                    lane,
-                    cause,
-                }),
+                pending: Some(cause),
             };
 
             return Ok(false);
         }
-        DispatchState::Idle(retained) if retained != state_id => {
-            return Err(SchedulerError::ConflictingWakeState {
-                retained,
-                requested: state_id,
-            });
-        }
-        DispatchState::Idle(_) => {}
-    }
+        DispatchState::Idle(state_id) => state_id,
+    };
+
+    let lane = select_task_lane(scheduler, task, state_id)?;
 
     state.queues.entry(lane).or_default().push_back(QueuedTask {
         task: task_id,
@@ -764,8 +688,8 @@ mod tests {
     use super::{Scheduler, SchedulerError, SchedulerLimits};
     use crate::test_support::{TestFrame, register_task};
     use crate::{
-        ExecutionLane, ExecutionLanePlacement, ExecutionWorkload, FrameSuspensionKind,
-        ScheduledTaskState, TaskControlBlock, TaskResumeStatus, TaskWakeCause,
+        ExecutionLane, ExecutionLanePlacement, ExecutionWorkload, FrameSuspension,
+        FrameSuspensionKind, ScheduledTaskState, TaskControlBlock, TaskResumeStatus, TaskWakeCause,
     };
 
     #[test]
@@ -789,7 +713,7 @@ mod tests {
 
         registration
             .wake_handle()
-            .wake(ProtectedFrameStateId::new(0))
+            .wake()
             .unwrap_or_else(|error| panic!("task must wake: {error:?}"));
 
         let snapshot = scheduler
@@ -834,12 +758,12 @@ mod tests {
 
         first
             .wake_handle()
-            .wake(ProtectedFrameStateId::new(0))
+            .wake()
             .unwrap_or_else(|error| panic!("first task must wake: {error:?}"));
 
         second
             .wake_handle()
-            .wake(ProtectedFrameStateId::new(0))
+            .wake()
             .unwrap_or_else(|error| panic!("second task must wake: {error:?}"));
 
         let lane = cooperative_lane();
@@ -881,12 +805,12 @@ mod tests {
 
         yielding_registration
             .wake_handle()
-            .wake(ProtectedFrameStateId::new(0))
+            .wake()
             .unwrap_or_else(|error| panic!("yielding task must wake: {error:?}"));
 
         ready_registration
             .wake_handle()
-            .wake(ProtectedFrameStateId::new(0))
+            .wake()
             .unwrap_or_else(|error| panic!("ready task must wake: {error:?}"));
 
         let dispatch = scheduler
@@ -911,7 +835,7 @@ mod tests {
 
         yielding_registration
             .wake_handle()
-            .wake(suspension.state())
+            .wake()
             .unwrap_or_else(|error| panic!("yielding task must requeue: {error:?}"));
 
         let next = scheduler
@@ -937,13 +861,13 @@ mod tests {
         let wake = registration.wake_handle();
 
         assert!(
-            wake.wake(ProtectedFrameStateId::new(0))
+            wake.wake()
                 .unwrap_or_else(|error| panic!("first wake must succeed: {error:?}"))
         );
 
         assert!(
             !wake
-                .wake(ProtectedFrameStateId::new(0))
+                .wake()
                 .unwrap_or_else(|error| panic!("duplicate wake must succeed: {error:?}"))
         );
 
@@ -956,7 +880,7 @@ mod tests {
 
         assert!(
             !wake
-                .wake(ProtectedFrameStateId::new(0))
+                .wake()
                 .unwrap_or_else(|error| panic!("running wake must succeed: {error:?}"))
         );
 
@@ -971,7 +895,7 @@ mod tests {
     }
 
     #[test]
-    fn stale_running_wakes_do_not_replace_a_distinct_pending_state() {
+    fn running_wakes_dispatch_the_newly_suspended_state() {
         let runtime = RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("runtime thread must initialize: {error:?}"));
 
@@ -986,7 +910,7 @@ mod tests {
 
         let wake = registration.wake_handle();
 
-        wake.wake(ProtectedFrameStateId::new(0))
+        wake.wake()
             .unwrap_or_else(|error| panic!("initial wake must succeed: {error:?}"));
 
         let lane = cooperative_lane();
@@ -996,13 +920,12 @@ mod tests {
             .unwrap_or_else(|error| panic!("ready queue must be available: {error:?}"))
             .unwrap_or_else(|| panic!("task must be ready"));
 
-        wake.wake(ProtectedFrameStateId::new(1))
-            .unwrap_or_else(|error| panic!("next-state wake must succeed: {error:?}"));
+        wake.wake()
+            .unwrap_or_else(|error| panic!("running wake must succeed: {error:?}"));
 
-        wake.wake(ProtectedFrameStateId::new(0))
-            .unwrap_or_else(|error| panic!("stale wake must coalesce: {error:?}"));
-
-        drop(ready);
+        ready
+            .suspend(FrameSuspension::new(ProtectedFrameStateId::new(1)))
+            .unwrap_or_else(|error| panic!("new suspension state must be retained: {error:?}"));
 
         let pending = scheduler
             .take_ready(lane)
@@ -1053,11 +976,7 @@ mod tests {
             .unwrap_or_else(|| panic!("zero deadline must be representable"));
 
         let _timer = scheduler
-            .register_timer(
-                deadline,
-                &registration.wake_handle(),
-                ProtectedFrameStateId::new(0),
-            )
+            .register_timer(deadline, &registration.wake_handle())
             .unwrap_or_else(|error| panic!("timer must register: {error:?}"));
 
         let ready = scheduler
@@ -1071,7 +990,7 @@ mod tests {
     }
 
     #[test]
-    fn failed_timer_promotion_retains_the_failed_wake() {
+    fn elapsed_timer_coalesces_with_an_already_queued_dispatch() {
         let runtime = RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("runtime thread must initialize: {error:?}"));
 
@@ -1086,7 +1005,7 @@ mod tests {
 
         registration
             .wake_handle()
-            .wake(ProtectedFrameStateId::new(0))
+            .wake()
             .unwrap_or_else(|error| panic!("task must wake: {error:?}"));
 
         let deadline = MonotonicClock
@@ -1094,17 +1013,16 @@ mod tests {
             .unwrap_or_else(|| panic!("zero deadline must be representable"));
 
         let _timer = scheduler
-            .register_timer(
-                deadline,
-                &registration.wake_handle(),
-                ProtectedFrameStateId::new(1),
-            )
+            .register_timer(deadline, &registration.wake_handle())
             .unwrap_or_else(|error| panic!("timer must register: {error:?}"));
 
-        assert!(matches!(
-            scheduler.take_ready(cooperative_lane()),
-            Err(SchedulerError::ConflictingWakeState { .. })
-        ));
+        let ready = scheduler
+            .take_ready(cooperative_lane())
+            .unwrap_or_else(|error| panic!("ready queue must be available: {error:?}"))
+            .unwrap_or_else(|| panic!("task must remain ready"));
+
+        assert_eq!(ready.task(), task.id());
+        drop(ready);
 
         let state = scheduler
             .data
@@ -1112,12 +1030,8 @@ mod tests {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-        assert_eq!(state.timer_count, 1);
-
-        assert_eq!(
-            state.timers.get(&deadline).map(|timers| timers.len()),
-            Some(1)
-        );
+        assert_eq!(state.timer_count, 0);
+        assert!(!state.timers.contains_key(&deadline));
     }
 
     #[test]
@@ -1137,11 +1051,7 @@ mod tests {
             .unwrap_or_else(|| panic!("timer deadline must be representable"));
 
         let timer = scheduler
-            .register_timer(
-                deadline,
-                &registration.wake_handle(),
-                ProtectedFrameStateId::new(0),
-            )
+            .register_timer(deadline, &registration.wake_handle())
             .unwrap_or_else(|error| panic!("timer must register: {error:?}"));
 
         drop(timer);
@@ -1209,7 +1119,7 @@ mod tests {
 
         registration
             .wake_handle()
-            .wake(ProtectedFrameStateId::new(0))
+            .wake()
             .unwrap_or_else(|error| panic!("task must wake: {error:?}"));
 
         let deadline = MonotonicClock
@@ -1217,11 +1127,7 @@ mod tests {
             .unwrap_or_else(|| panic!("timer deadline must be representable"));
 
         let _timer = scheduler
-            .register_timer(
-                deadline,
-                &registration.wake_handle(),
-                ProtectedFrameStateId::new(0),
-            )
+            .register_timer(deadline, &registration.wake_handle())
             .unwrap_or_else(|error| panic!("timer must register: {error:?}"));
 
         drop(registration);

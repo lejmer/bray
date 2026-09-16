@@ -187,7 +187,7 @@ where
             source,
         });
 
-        wake.wake(initial_state)?;
+        wake.wake()?;
 
         loop {
             let ready = scheduler
@@ -245,7 +245,7 @@ mod tests {
     use std::num::NonZeroUsize;
 
     use bray_platform::RuntimeThreadScope;
-    use bray_runtime_model::{ProtectedFrameStateId, RuntimeCapability};
+    use bray_runtime_model::RuntimeCapability;
 
     use super::{
         RootCancellationSource, RootExecutionError, execute_async_root, execute_synchronous_root,
@@ -467,7 +467,7 @@ mod tests {
         let child_wake = child_registration.wake_handle();
 
         child_wake
-            .wake(ProtectedFrameStateId::new(0))
+            .wake()
             .unwrap_or_else(|error| panic!("child task must wake: {error:?}"));
 
         let reports = CleanupReportSink::new();
