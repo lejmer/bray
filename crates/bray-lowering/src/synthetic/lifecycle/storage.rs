@@ -200,7 +200,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     )?;
                 }
             },
-            _ => return Err(SyntheticLoweringError::UnsupportedLifecycleRole(role).into()),
+            _ => panic!("lifecycle storage does not support role {role:?}"),
         }
 
         Ok(block)

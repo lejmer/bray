@@ -19,7 +19,6 @@ pub(super) struct InitializationState<'unit> {
     pub(super) guard: MirPlace,
     pub(super) parts: Vec<InitializedPart<'unit>>,
 }
-
 pub(super) struct InitializedPart<'unit> {
     pub(super) plan: &'unit StorageCleanupPart,
     pub(super) guard: MirPlace,
@@ -48,21 +47,21 @@ impl Lowerer<'_> {
 
             let identity = storage
                 .root_identity(access)
-                .ok_or(LoweringError::MissingStorageIdentity(access))?;
+                .unwrap_or_else(|| panic!("lowering contract violation: MissingStorageIdentity {value:?}", value = access));
 
             let record = storage
                 .identity(identity)
-                .ok_or(LoweringError::MissingStorageIdentityRecord(identity))?;
+                .unwrap_or_else(|| panic!("lowering contract violation: MissingStorageIdentityRecord {value:?}", value = identity));
 
             let access = storage
                 .access(access)
-                .ok_or(LoweringError::MissingStorageAccessRecord(access))?;
+                .unwrap_or_else(|| panic!("lowering contract violation: MissingStorageAccessRecord {value:?}", value = access));
 
             let initialized = record.is_initialized_at_entry();
 
             let ty = storage
                 .storage_type(identity)
-                .ok_or(LoweringError::MissingStorageIdentityRecord(identity))?;
+                .unwrap_or_else(|| panic!("lowering contract violation: MissingStorageIdentityRecord {value:?}", value = identity));
 
             let place =
                 self.place_for_identity(identity, ty, BoundNodeOrigin::source(access.source()))?;

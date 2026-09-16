@@ -12,7 +12,6 @@ pub(in crate::lowering) enum LoweredPlace {
     Continuing { block: MirBlockId, place: MirPlace },
     Terminated(LoweredExpression),
 }
-
 pub(in crate::lowering::expression) enum RootInitialization {
     Continuing { block: MirBlockId, place: MirPlace },
     Terminated(LoweredExpression),
@@ -29,7 +28,7 @@ impl Lowerer<'_> {
             candidate == purpose
                 || purpose == StorageAccessPurpose::Assignment
                     && candidate == StorageAccessPurpose::Write
-        })?;
+        });
 
         self.lower_access_place(expression, decision.access(), current)
     }
@@ -38,17 +37,22 @@ impl Lowerer<'_> {
         &self,
         expression: BoundExpressionId,
         accepts: impl Fn(StorageAccessPurpose) -> bool,
-    ) -> Result<bray_bound_tree::StorageOperationDecision, LoweringError> {
-        self.storage_decision_matching(expression, |plan| accepts(plan.purpose()))
+    ) -> bray_bound_tree::StorageOperationDecision {
+        self.find_storage_decision_matching(expression, |plan| accepts(plan.purpose()))
+            .unwrap_or_else(|| {
+                panic!(
+                    "lowering contract violation: MissingStorageAccess {expression:?}"
+                )
+            })
     }
 
-    pub(in crate::lowering) fn storage_decision_reaching(
+    pub(in crate::lowering) fn find_storage_decision_reaching(
         &self,
         expression: BoundExpressionId,
         reached_type: TypeId,
         accepts: impl Fn(StorageAccessPurpose) -> bool,
-    ) -> Result<bray_bound_tree::StorageOperationDecision, LoweringError> {
-        self.storage_decision_matching(expression, |plan| {
+    ) -> Option<bray_bound_tree::StorageOperationDecision> {
+        self.find_storage_decision_matching(expression, |plan| {
             accepts(plan.purpose())
                 && self
                     .input
@@ -58,17 +62,16 @@ impl Lowerer<'_> {
         })
     }
 
-    fn storage_decision_matching(
+    fn find_storage_decision_matching(
         &self,
         expression: BoundExpressionId,
         accepts: impl Fn(bray_bound_tree::StorageAccessPlan) -> bool,
-    ) -> Result<bray_bound_tree::StorageOperationDecision, LoweringError> {
+    ) -> Option<bray_bound_tree::StorageOperationDecision> {
         let plan = self
             .input
             .storage_plan()
             .expression_plans(expression)
-            .find(|plan| accepts(*plan))
-            .ok_or(LoweringError::MissingStorageAccess(expression))?;
+            .find(|plan| accepts(*plan))?;
 
         let decision = self
             .input
@@ -81,13 +84,13 @@ impl Lowerer<'_> {
                     && decision.access() == plan.access()
                     && plan.purpose().matches_checked(decision.purpose())
             })
-            .ok_or(LoweringError::MissingStorageAccess(expression))?;
+            .unwrap_or_else(|| panic!("lowering contract violation: MissingStorageAccess {value:?}", value = expression));
 
         if decision.status() != StorageOperationStatus::Valid {
-            return Err(LoweringError::RecoveredBoundNode(expression.into()));
+            panic!("lowering contract violation: RecoveredBoundNode {value:?}", value = expression);
         }
 
-        Ok(decision)
+        Some(decision)
     }
 
     pub(in crate::lowering) fn lower_access_place(
@@ -100,10 +103,10 @@ impl Lowerer<'_> {
             .input
             .storage_plan()
             .access(id)
-            .ok_or(LoweringError::MissingStorageAccessRecord(id))?;
+            .unwrap_or_else(|| panic!("lowering contract violation: MissingStorageAccessRecord {value:?}", value = id));
 
         if access.is_recovered() {
-            return Err(LoweringError::RecoveredBoundNode(expression.into()));
+            panic!("lowering contract violation: RecoveredBoundNode {value:?}", value = expression);
         }
 
         let reached_type = access.reached_type();
@@ -112,13 +115,13 @@ impl Lowerer<'_> {
             .input
             .storage_plan()
             .root_identity(id)
-            .ok_or(LoweringError::MissingStorageIdentity(id))?;
+            .unwrap_or_else(|| panic!("lowering contract violation: MissingStorageIdentity {value:?}", value = id));
 
         let projections = self
             .input
             .storage_plan()
             .resolved_projections(id)
-            .ok_or(LoweringError::MissingStorageAccessRecord(id))?
+            .unwrap_or_else(|| panic!("lowering contract violation: MissingStorageAccessRecord {value:?}", value = id))
             .to_vec();
 
         let (mut current, root) =
@@ -138,12 +141,12 @@ impl Lowerer<'_> {
             reached_type,
             projections.is_empty(),
             &mut lowered,
-        )?;
+        );
 
         for (index, projection) in projections.iter().copied().enumerate() {
             source_type = self.append_projection_dereferences(source_type, &mut lowered);
 
-            let result_type = self.projection_result_type(identity, &projections[..=index])?;
+            let result_type = self.projection_result_type(identity, &projections[..=index]);
 
             if projection == StorageProjection::OwnedTarget {
                 let mutable = self
@@ -164,10 +167,10 @@ impl Lowerer<'_> {
 
                 let call = self
                     .owned_target_call(source_type, kind)
-                    .ok_or(LoweringError::UnsupportedStorageAccess(id))?;
+                    .unwrap_or_else(|| panic!("lowering contract violation: UnsupportedStorageAccess {value:?}", value = id));
 
                 let owner = MirPlace::new(storage, lowered, source_type);
-                let source = self.expression_source(expression)?;
+                let source = self.expression_source(expression);
 
                 let target =
                     self.project_owned_target(current, &source, &owner, call, result_type)?;
@@ -270,7 +273,7 @@ impl Lowerer<'_> {
             .input
             .storage_plan()
             .identity(identity)
-            .ok_or(LoweringError::MissingStorageIdentityRecord(identity))?;
+            .unwrap_or_else(|| panic!("lowering contract violation: MissingStorageIdentityRecord {value:?}", value = identity));
 
         let static_reference = if let StorageIdentity::Static(declaration) = model {
             let selection = crate::lowering::expression::static_access::static_reference(
@@ -278,7 +281,7 @@ impl Lowerer<'_> {
                 access,
                 expression,
                 declaration,
-            )?;
+            );
 
             self.static_accesses.insert(access, selection.clone());
 
@@ -300,7 +303,7 @@ impl Lowerer<'_> {
         if let Some(storage) = existing {
             return Ok(RootInitialization::Continuing {
                 block: current,
-                place: MirPlace::new(storage, [], self.storage_identity_type(identity)?),
+                place: MirPlace::new(storage, [], self.storage_identity_type(identity)),
             });
         }
 
@@ -329,7 +332,7 @@ impl Lowerer<'_> {
             };
 
             let Some(value) = lowered.value else {
-                return Err(LoweringError::MissingOperationResult(owner));
+                panic!("lowering contract violation: MissingOperationResult {value:?}", value = owner);
             };
 
             current = continuation;
@@ -348,10 +351,10 @@ impl Lowerer<'_> {
             .input
             .storage_plan()
             .access(id)
-            .ok_or(LoweringError::MissingStorageAccessRecord(id))?;
+            .unwrap_or_else(|| panic!("lowering contract violation: MissingStorageAccessRecord {value:?}", value = id));
 
         if access.is_recovered() {
-            return Err(LoweringError::UnsupportedStorageAccess(id));
+            panic!("lowering contract violation: UnsupportedStorageAccess {value:?}", value = id);
         }
 
         let reached_type = access.reached_type();
@@ -361,15 +364,15 @@ impl Lowerer<'_> {
             .input
             .storage_plan()
             .root_identity(id)
-            .ok_or(LoweringError::MissingStorageIdentity(id))?;
+            .unwrap_or_else(|| panic!("lowering contract violation: MissingStorageIdentity {value:?}", value = id));
 
         let projections = self
             .input
             .storage_plan()
             .resolved_projections(id)
-            .ok_or(LoweringError::MissingStorageAccessRecord(id))?;
+            .unwrap_or_else(|| panic!("lowering contract violation: MissingStorageAccessRecord {value:?}", value = id));
 
-        let root_type = self.storage_identity_type(identity)?;
+        let root_type = self.storage_identity_type(identity);
         let static_reference = self.static_accesses.get(&id).cloned();
 
         let root = self.place_for_identity_with_static(
@@ -391,7 +394,7 @@ impl Lowerer<'_> {
                 reached_type,
                 projections.is_empty(),
                 &mut lowered,
-            )?
+            )
         } else {
             root_type
         };
@@ -400,10 +403,10 @@ impl Lowerer<'_> {
             source_type = self.append_projection_dereferences(source_type, &mut lowered);
 
             let Some(kind) = static_projection_kind(projection) else {
-                return Err(LoweringError::UnsupportedStorageAccess(id));
+                panic!("lowering contract violation: UnsupportedStorageAccess {value:?}", value = id);
             };
 
-            let result_type = self.projection_result_type(identity, &projections[..=index])?;
+            let result_type = self.projection_result_type(identity, &projections[..=index]);
 
             lowered.push(MirProjection::new(kind, source_type, result_type));
             source_type = result_type;
@@ -419,10 +422,10 @@ impl Lowerer<'_> {
     pub(in crate::lowering) fn storage_identity_type(
         &self,
         identity: StorageIdentityId,
-    ) -> Result<TypeId, LoweringError> {
+    ) -> TypeId {
         self.input
             .storage_plan()
             .storage_type(identity)
-            .ok_or(LoweringError::MissingStorageIdentityRecord(identity))
+            .unwrap_or_else(|| panic!("lowering contract violation: MissingStorageIdentityRecord {value:?}", value = identity))
     }
 }

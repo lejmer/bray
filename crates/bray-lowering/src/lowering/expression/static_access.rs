@@ -14,11 +14,11 @@ pub(super) fn static_reference(
     access: StorageAccessId,
     expression: BoundExpressionId,
     declaration: StaticSymbolId,
-) -> Result<StaticReferenceSelection, LoweringError> {
+) -> StaticReferenceSelection {
     let source = input
         .storage_plan()
         .access(access)
-        .ok_or(LoweringError::MissingStorageAccessRecord(access))?
+        .unwrap_or_else(|| panic!("lowering contract violation: MissingStorageAccessRecord {value:?}", value = access))
         .source();
 
     let mut receivers = vec![expression];
@@ -68,9 +68,8 @@ pub(super) fn static_reference(
             }
             _ => None,
         })
-        .ok_or(LoweringError::MissingSemanticSelection(expression))
+        .unwrap_or_else(|| panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = expression))
 }
-
 impl Lowerer<'_> {
     pub(super) fn initialize_access_storage(
         &mut self,
@@ -79,7 +78,7 @@ impl Lowerer<'_> {
         initial_value: Option<(BoundExpressionId, MirOperand)>,
         static_reference: Option<&StaticReferenceSelection>,
     ) -> Result<RootInitialization, LoweringError> {
-        let root_type = self.storage_identity_type(identity)?;
+        let root_type = self.storage_identity_type(identity);
 
         let origin = initial_value.as_ref().map_or_else(
             || bray_bound_tree::BoundNodeOrigin::source(self.input.unit().key().source()),
@@ -102,7 +101,7 @@ impl Lowerer<'_> {
             if !value.reads_from(&place) {
                 self.push_operation(
                     current,
-                    self.expression_source(owner)?,
+                    self.expression_source(owner),
                     MirOperationKind::Store {
                         kind: MirStoreKind::Initialize,
                         destination: place.clone(),

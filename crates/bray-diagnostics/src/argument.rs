@@ -25,10 +25,8 @@ pub use emission::{
     DiagnosticArtifactRequirement, DiagnosticAssemblySyntaxKind,
     DiagnosticCodegenVerificationStage, DiagnosticDebugInformationMode, DiagnosticDebugOutputMode,
     DiagnosticEmissionArtifactOperation,
-    DiagnosticLoweringFailure, DiagnosticLoweringFailureKind, DiagnosticLoweringIdentity,
-    DiagnosticLoweringRoot,
     DiagnosticNativeLinkInputFailure, DiagnosticNativeProductFailureDetail,
-    DiagnosticNativeProductFailureKind, DiagnosticProductKind, DiagnosticSourceConstructKind,
+    DiagnosticNativeProductFailureKind, DiagnosticProductKind,
 };
 pub use external::{
     DiagnosticExternalToolFailureKind, DiagnosticExternalToolOperation, DiagnosticIoErrorKind,

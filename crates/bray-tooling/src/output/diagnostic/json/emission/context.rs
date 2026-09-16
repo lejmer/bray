@@ -8,7 +8,7 @@ use super::failure::{
 };
 use super::foreign_query::foreign_query_failure_context;
 use super::product_query::product_query_failure_context;
-use super::{checker_failure_context, lowering_failure_context};
+use super::checker_failure_context;
 
 pub(super) fn planning_failure_context(
     failure: &bray_diagnostics::DiagnosticEmissionPlanningFailure,
@@ -235,10 +235,10 @@ pub(super) fn evaluation_failure_context(
             Some(failure) => semantic_value_failure_context(failure),
             None => diagnostic_failure_context(failure.context()),
         },
-        Failure::Lowering(failure) => lowering_failure_context(*failure),
         Failure::Product(failure) => product_query_failure_context(failure),
         Failure::Foreign(failure) => foreign_query_failure_context(failure),
         Failure::Cancelled
+        | Failure::MirCapacity
         | Failure::SemanticValueStoreCreate
         | Failure::ConstantCallableBodyUnavailable
         | Failure::ConstantCallableRootUnavailable

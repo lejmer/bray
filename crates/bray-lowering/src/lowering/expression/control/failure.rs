@@ -19,7 +19,7 @@ impl Lowerer<'_> {
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
         let Some(condition_id) = expression.operands().first().copied() else {
-            return Err(LoweringError::UnsupportedExpression(id));
+            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
         };
 
         let condition = self.lower_expression(condition_id, current)?;
@@ -29,11 +29,11 @@ impl Lowerer<'_> {
         };
 
         let Some(condition) = condition.value else {
-            return Err(LoweringError::MissingOperationResult(condition_id));
+            panic!("lowering contract violation: MissingOperationResult {value:?}", value = condition_id);
         };
 
         let source = self.source(expression.origin());
-        let result_type = self.expression_type(id)?;
+        let result_type = self.expression_type(id);
 
         if self.constant_boolean(&condition) == Some(false) {
             self.finish_assertion_failure(id, expression, current, &source)?;
@@ -84,7 +84,7 @@ impl Lowerer<'_> {
                 };
 
                 let Some(message) = lowered.value else {
-                    return Err(LoweringError::MissingOperationResult(message));
+                    panic!("lowering contract violation: MissingOperationResult {value:?}", value = message);
                 };
 
                 (failure, Some(message))
@@ -113,7 +113,7 @@ impl Lowerer<'_> {
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
         let [message_id] = expression.operands() else {
-            return Err(LoweringError::UnsupportedExpression(id));
+            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
         };
 
         let message = self.lower_expression(*message_id, current)?;
@@ -123,7 +123,7 @@ impl Lowerer<'_> {
         };
 
         let Some(message) = message.value else {
-            return Err(LoweringError::MissingOperationResult(*message_id));
+            panic!("lowering contract violation: MissingOperationResult {value:?}", value = *message_id);
         };
 
         let source = self.source(expression.origin());
@@ -150,11 +150,11 @@ impl Lowerer<'_> {
         expression: &BoundStructuredExpression,
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
-        let result_type = self.expression_type(id)?;
-        let arguments = self.named_type_arguments(result_type)?;
+        let result_type = self.expression_type(id);
+        let arguments = self.named_type_arguments(result_type);
 
         let [success_type, report_type] = arguments.as_slice() else {
-            return Err(LoweringError::UnsupportedExpression(id));
+            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
         };
 
         let source = self.source(expression.origin());
@@ -265,7 +265,7 @@ impl Lowerer<'_> {
                 success_type,
                 self.active_scopes.len(),
             ),
-            _ => Err(LoweringError::UnsupportedExpression(id)),
+            _ => panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id),
         }
     }
 
@@ -284,10 +284,10 @@ impl Lowerer<'_> {
             Some(report_type),
         )?;
 
-        commit
+        Ok(commit
             .result()
             .map(MirOperand::Value)
-            .ok_or(LoweringError::MissingOperationResult(id))
+            .unwrap_or_else(|| panic!("lowering contract violation: MissingOperationResult {value:?}", value = id)))
     }
 
     pub(in crate::lowering) fn finish_panic_to_active_catch(
@@ -309,7 +309,9 @@ impl Lowerer<'_> {
             });
 
         if report_type != expected_report_type {
-            return Err(LoweringError::SemanticValueUnavailable);
+            panic!(
+                "lowering panic contract violated for expression {expression:?}: report type {report_type:?} does not match catch type {expected_report_type:?}"
+            );
         }
 
         self.finish_panic(
@@ -397,7 +399,7 @@ impl Lowerer<'_> {
         success: bool,
         value: MirOperand,
     ) -> Result<MirOperand, LoweringError> {
-        let representation = self.result_representation()?;
+        let representation = self.result_representation();
 
         let (variant, field) = if success {
             (representation.success_variant, representation.success_field)
@@ -419,9 +421,9 @@ impl Lowerer<'_> {
             Some(result_type),
         )?;
 
-        commit
+        Ok(commit
             .result()
             .map(MirOperand::Value)
-            .ok_or(LoweringError::MissingOperationResult(id))
+            .unwrap_or_else(|| panic!("lowering contract violation: MissingOperationResult {value:?}", value = id)))
     }
 }

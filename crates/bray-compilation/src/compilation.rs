@@ -26,7 +26,6 @@ mod limits;
 mod linking;
 mod load;
 mod lowering;
-mod lowering_diagnostic;
 mod operation;
 mod overlap;
 mod overload;

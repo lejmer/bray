@@ -24,13 +24,13 @@ impl Lowerer<'_> {
             .unit()
             .view()
             .expression(id)
-            .ok_or(LoweringError::MissingBoundNode(id.into()))?;
+            .unwrap_or_else(|| panic!("lowering contract violation: MissingBoundNode {value:?}", value = id));
 
         if let BoundExpression::Structured(condition) = expression
             && condition.kind() == BoundStructuredExpressionKind::Condition
         {
             let [operand] = condition.operands() else {
-                return Err(LoweringError::UnsupportedExpression(id));
+                panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
             };
 
             return self.lower_condition(*operand, current, matched, unmatched);
@@ -40,12 +40,12 @@ impl Lowerer<'_> {
             && binary.operator() == BoundOperator::LogicalAnd
         {
             let [left, right] = binary.operands() else {
-                return Err(LoweringError::UnsupportedExpression(id));
+                panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
             };
 
             let (left, right) = (*left, *right);
 
-            let source = self.expression_source(id)?;
+            let source = self.expression_source(id);
 
             let next = self
                 .builder
@@ -76,7 +76,7 @@ impl Lowerer<'_> {
         };
 
         let Some(value) = condition.value else {
-            return Err(LoweringError::MissingOperationResult(id));
+            panic!("lowering contract violation: MissingOperationResult {value:?}", value = id);
         };
 
         let terminator = match self.constant_boolean(&value) {
@@ -94,28 +94,25 @@ impl Lowerer<'_> {
         Ok(true)
     }
 
-    pub(super) fn begin_condition_scope(
-        &mut self,
-        id: BoundExpressionId,
-    ) -> Result<Option<BoundBlockId>, LoweringError> {
+    pub(super) fn begin_condition_scope(&mut self, id: BoundExpressionId) -> Option<BoundBlockId> {
         let Some(BoundExpression::Structured(test)) = self.input.unit().view().expression(id)
         else {
-            return Ok(None);
+            return None;
         };
 
         if test.kind() != BoundStructuredExpressionKind::Condition {
-            return Ok(None);
+            return None;
         }
 
         let [scope] = test.blocks() else {
-            return Err(LoweringError::UnsupportedExpression(id));
+            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
         };
 
         let scope = *scope;
 
         self.active_scopes.push(scope);
 
-        Ok(Some(scope))
+        Some(scope)
     }
 
     fn lower_pattern_condition(
@@ -127,7 +124,7 @@ impl Lowerer<'_> {
         unmatched: MirBlockId,
     ) -> Result<bool, LoweringError> {
         let ([subject_id], [pattern]) = (test.operands(), test.patterns()) else {
-            return Err(LoweringError::UnsupportedExpression(id));
+            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
         };
 
         let subject = self.lower_expression(*subject_id, current)?;
@@ -138,7 +135,7 @@ impl Lowerer<'_> {
         };
 
         let Some(value) = subject.value else {
-            return Err(LoweringError::MissingOperationResult(*subject_id));
+            panic!("lowering contract violation: MissingOperationResult {value:?}", value = *subject_id);
         };
 
         self.lower_pattern_branch(*pattern, value, current, matched, unmatched)?;
@@ -171,7 +168,7 @@ impl Lowerer<'_> {
         let source = self.source(expression.origin());
 
         let [scope] = expression.blocks() else {
-            return Err(LoweringError::UnsupportedExpression(id));
+            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
         };
 
         self.active_scopes.push(*scope);

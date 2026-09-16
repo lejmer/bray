@@ -103,7 +103,7 @@ impl Lowerer<'_> {
             CleanupDestination::PropagateCancellation
         };
 
-        let remaining = self.cleanup_plans(0, exit)?;
+        let remaining = self.cleanup_plans(0, exit);
         self.finish_abnormal_cleanup(cancelled, source, None, destination, &remaining, pending)?;
 
         let mut handlers = BTreeMap::new();
@@ -114,7 +114,7 @@ impl Lowerer<'_> {
                 .active_scopes
                 .iter()
                 .position(|scope| *scope == plan.scope())
-                .ok_or(LoweringError::MissingBoundNode(plan.scope().into()))?;
+                .unwrap_or_else(|| panic!("lowering contract violation: MissingBoundNode {value:?}", value = plan.scope()));
 
             let catch = self
                 .catch_targets
@@ -150,7 +150,7 @@ impl Lowerer<'_> {
                         None => (CleanupDestination::PropagatePanic, 0),
                     };
 
-                let remaining = self.cleanup_plans(depth, exit)?;
+                let remaining = self.cleanup_plans(depth, exit);
 
                 self.finish_abnormal_cleanup(
                     panicked,

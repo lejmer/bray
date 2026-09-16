@@ -20,7 +20,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         runtime_abi: bray_runtime_interface::RuntimeAbiVersion,
     ) -> Result<bray_ir::MirBlockId, C::Error> {
         let role = bray_ir::MirGeneratedLifecycleRole::from_reference(reference)
-            .ok_or_else(|| SyntheticLoweringError::MissingHelper(reference.clone()))?;
+            .unwrap_or_else(|| panic!("synthetic lowering contract violation: MissingHelper {value:?}", value = reference.clone()));
 
         let action = self
             .context
@@ -102,7 +102,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                             runtime_abi,
                         ),
                     },
-                    _ => return Err(SyntheticLoweringError::UnsupportedLifecycleRole(role).into()),
+                    _ => panic!("lifecycle representation does not support role {role:?}"),
                 };
 
                 self.push_lifecycle_operation(
@@ -138,7 +138,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         place: MirPlace,
         target: TypeId,
     ) -> Result<bray_ir::MirBlockId, C::Error> {
-        let kind = lifecycle_operation_block_kind(role)?;
+        let kind = lifecycle_operation_block_kind(role);
 
         let present = builder
             .push_block(source.clone(), kind)
@@ -192,7 +192,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         place: MirPlace,
         variants: &[(bray_symbols::UnionVariantSymbolId, std::sync::Arc<[TypeId]>)],
     ) -> Result<bray_ir::MirBlockId, C::Error> {
-        let kind = lifecycle_operation_block_kind(role)?;
+        let kind = lifecycle_operation_block_kind(role);
 
         let merge = builder
             .push_block(source.clone(), kind)
@@ -269,7 +269,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
         for child in children.into_iter().rev() {
             operations.extend(
-                child_lifecycle_operations(role, child?)?
+                child_lifecycle_operations(role, child?)
                     .into_iter()
                     .flatten(),
             );
@@ -282,25 +282,25 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 pub(super) fn child_lifecycle_operations(
     role: bray_ir::MirGeneratedLifecycleRole,
     child: MirPlace,
-) -> Result<[Option<MirOperationKind>; 2], SyntheticLoweringError> {
+) -> [Option<MirOperationKind>; 2] {
     match role {
         bray_ir::MirGeneratedLifecycleRole::Destroy => {
             // Both lifecycle stages operate on the same represented child.
-            Ok([
+            [
                 Some(MirOperationKind::Finalize(child.clone())),
                 Some(MirOperationKind::Destroy(child)),
-            ])
+            ]
         }
-        bray_ir::MirGeneratedLifecycleRole::Cleanup(phase) => Ok([
+        bray_ir::MirGeneratedLifecycleRole::Cleanup(phase) => [
             Some(MirOperationKind::Cleanup {
                 phase,
                 place: child,
             }),
             None,
-        ]),
+        ],
         bray_ir::MirGeneratedLifecycleRole::Finalize
         | bray_ir::MirGeneratedLifecycleRole::StaticFinalize => {
-            Err(SyntheticLoweringError::UnsupportedLifecycleRole(role))
+            panic!("lifecycle cleanup sequence does not support role {role:?}")
         }
     }
 }

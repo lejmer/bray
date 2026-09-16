@@ -38,7 +38,7 @@ impl Lowerer<'_> {
         source: &MirSourceAnchor,
         exit: AnyBoundNodeId,
     ) -> Result<MirCleanupEdge, LoweringError> {
-        let plans = self.cleanup_plans(0, exit)?;
+        let plans = self.cleanup_plans(0, exit);
 
         let broadcast = self.builder.push_block(
             Self::retained_source(source),
@@ -62,7 +62,11 @@ impl Lowerer<'_> {
         let outcome = self
             .cleanup_outcome
             .take()
-            .ok_or(LoweringError::SemanticValueUnavailable)?;
+            .unwrap_or_else(|| {
+                panic!(
+                    "lowering cleanup contract violated: cancellation exit {exit:?} lost its active cleanup outcome"
+                )
+            });
 
         let terminal = self.terminal_state_block(source, TerminalState::Cancelled)?;
 
@@ -135,7 +139,11 @@ impl Lowerer<'_> {
         let outcome = self
             .cleanup_outcome
             .take()
-            .ok_or(LoweringError::SemanticValueUnavailable)?;
+            .unwrap_or_else(|| {
+                panic!(
+                    "lowering cleanup contract violated: cleanup destination {destination:?} lost its active outcome after block {broadcast:?}"
+                )
+            });
 
         if panicking {
             outcome.end_shield(&mut self.builder, lifecycle, source)?;

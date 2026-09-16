@@ -13,7 +13,7 @@ impl Lowerer<'_> {
         origin: BoundNodeOrigin,
     ) -> Result<(MirBlockId, MirValueId, TypeId), LoweringError> {
         let source = self.source(origin);
-        let result_type = self.expression_type(expression)?;
+        let result_type = self.expression_type(expression);
 
         let join = self
             .builder

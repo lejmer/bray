@@ -1,6 +1,6 @@
 use bray_diagnostics::{
-    Diagnostic, DiagnosticBag, DiagnosticEmissionCodegenFailure,
-    DiagnosticEmissionEvaluationFailure, DiagnosticEmissionFailure, DiagnosticFailureField,
+    Diagnostic, DiagnosticBag, DiagnosticEmissionCodegenFailure, DiagnosticEmissionFailure,
+    DiagnosticFailureField,
     DiagnosticFailureValue, DiagnosticIoErrorKind, DiagnosticLabel, DiagnosticLabelKind,
     DiagnosticNote, DiagnosticNoteKind, DiagnosticPackageInterfaceFailure,
     DiagnosticRelatedLocation, DiagnosticRelatedLocationKind,
@@ -257,12 +257,11 @@ fn package_interface_export_failure_diagnostic(
         PackageInterfaceExportError::ConstantCallableEvaluation { declaration, cause } => {
             let cause = diagnostic_evaluation_failure(cause);
 
-            package_evaluation_failure_diagnostic(
+            package_failure_diagnostic(
                 DiagnosticPackageInterfaceFailure::ConstantCallableEvaluation {
                     declaration: declaration.clone(),
-                    cause: cause.clone(),
+                    cause,
                 },
-                cause,
                 product,
                 target,
             )
@@ -270,12 +269,11 @@ fn package_interface_export_failure_diagnostic(
         PackageInterfaceExportError::ExecutableTemplateEvaluation { declaration, cause } => {
             let cause = diagnostic_evaluation_failure(cause);
 
-            package_evaluation_failure_diagnostic(
+            package_failure_diagnostic(
                 DiagnosticPackageInterfaceFailure::ExecutableTemplateEvaluation {
                     declaration: declaration.clone(),
-                    cause: cause.clone(),
+                    cause,
                 },
-                cause,
                 product,
                 target,
             )
@@ -484,39 +482,9 @@ fn package_compiler_defect_diagnostic(
     product: &ProductIdentity,
     target: &TargetIdentity,
 ) -> Diagnostic {
-    let source = match &failure {
-        DiagnosticPackageInterfaceFailure::DeclarationDiscoveryFailure { cause, .. } => {
-            crate::compilation::diagnostics::code_production_failure_source(cause)
-        }
-        _ => None,
-    };
-
-    let diagnostic = package_failure_diagnostic(failure, product, target);
-
-    match source {
-        Some(source) => {
-            crate::compilation::diagnostics::with_compiler_defect_source(diagnostic, source)
-        }
-        None => diagnostic.with_note(DiagnosticNote::new(
+    package_failure_diagnostic(failure, product, target).with_note(DiagnosticNote::new(
             DiagnosticNoteKind::ReportCompilerDefect,
-        )),
-    }
-}
-
-fn package_evaluation_failure_diagnostic(
-    failure: DiagnosticPackageInterfaceFailure,
-    cause: DiagnosticEmissionEvaluationFailure,
-    product: &ProductIdentity,
-    target: &TargetIdentity,
-) -> Diagnostic {
-    let diagnostic = package_failure_diagnostic(failure, product, target);
-
-    match crate::compilation::diagnostics::code_production_failure_source(&cause) {
-        Some(source) => {
-            crate::compilation::diagnostics::with_compiler_defect_source(diagnostic, source)
-        }
-        None => diagnostic,
-    }
+        ))
 }
 
 fn with_duplicate_declaration_locations(
@@ -707,10 +675,8 @@ mod tests {
     use bray_diagnostics::{
         DiagnosticArgValue, DiagnosticEmissionEvaluationFailure, DiagnosticEmissionFailure,
         DiagnosticInterfaceSymbolIdentity, DiagnosticInterfaceSymbolKind, DiagnosticLabelKind,
-        DiagnosticLoweringFailure, DiagnosticLoweringFailureKind, DiagnosticNoteKind,
-        DiagnosticPackageInterfaceFailure, DiagnosticRelatedLocationKind,
+        DiagnosticNoteKind, DiagnosticPackageInterfaceFailure, DiagnosticRelatedLocationKind,
     };
-    use bray_lowering::LoweringError;
     use bray_messages::DiagnosticRenderer;
     use bray_package_interface::{InterfaceSemanticCommitError, InterfaceSemanticTableKind};
     use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
@@ -721,7 +687,6 @@ mod tests {
     use super::{
         package_interface_export_failure_diagnostic, package_interface_fragment_failure_diagnostic,
     };
-    use crate::LocatedLoweringFailure;
     use crate::compilation::PackageInterfaceExportError;
     use crate::fact::{FactQueryError, FactRuntimeFailure};
 
@@ -780,38 +745,21 @@ mod tests {
     }
 
     #[test]
-    fn terminal_evaluation_failures_retain_the_lowering_cause() {
-        let source = SourceSpan::new(
-            SourceId::new(0),
-            TextRange::new(TextSize::new(10), TextSize::new(20)),
-        );
-
+    fn terminal_evaluation_failures_retain_mir_capacity() {
         assert_eq!(
-            diagnostic_evaluation_failure(&FactQueryError::Lowering(LocatedLoweringFailure::new(
-                LoweringError::MirCapacity(bray_ir::MirCapacityError::IdentityCapacityExceeded),
-                source
-            ),)),
-            DiagnosticEmissionEvaluationFailure::Lowering(DiagnosticLoweringFailure::new(
-                DiagnosticLoweringFailureKind::MirCapacity,
-                source,
-            ),)
+            diagnostic_evaluation_failure(&FactQueryError::MirCapacity(
+                bray_ir::MirCapacityError::IdentityCapacityExceeded,
+            )),
+            DiagnosticEmissionEvaluationFailure::MirCapacity
         );
     }
 
     #[test]
-    fn package_evaluation_code_production_failures_retain_source_context() {
+    fn package_evaluation_mir_capacity_failures_do_not_invent_source_context() {
         let (product, target) = identities();
 
-        let source = SourceSpan::new(
-            SourceId::new(0),
-            TextRange::new(TextSize::new(10), TextSize::new(20)),
-        );
-
-        let lowering_failure = || {
-            FactQueryError::Lowering(LocatedLoweringFailure::new(
-                LoweringError::MirCapacity(bray_ir::MirCapacityError::IdentityCapacityExceeded),
-                source,
-            ))
+        let capacity_failure = || {
+            FactQueryError::MirCapacity(bray_ir::MirCapacityError::IdentityCapacityExceeded)
         };
 
         let errors = [
@@ -819,38 +767,28 @@ mod tests {
                 declaration: DiagnosticInterfaceSymbolIdentity::Package(
                     "example.package".to_owned(),
                 ),
-                cause: lowering_failure(),
+                cause: capacity_failure(),
             },
             PackageInterfaceExportError::ExecutableTemplateEvaluation {
                 declaration: DiagnosticInterfaceSymbolIdentity::Package(
                     "example.package".to_owned(),
                 ),
-                cause: lowering_failure(),
+                cause: capacity_failure(),
             },
         ];
 
-        let expected_cause =
-            DiagnosticEmissionEvaluationFailure::Lowering(DiagnosticLoweringFailure::new(
-                DiagnosticLoweringFailureKind::MirCapacity,
-                source,
-            ));
+        let expected_cause = DiagnosticEmissionEvaluationFailure::MirCapacity;
 
         for error in errors {
             let diagnostic = package_interface_export_failure_diagnostic(&error, &product, &target)
                 .unwrap_or_else(|| panic!("package evaluation failure must diagnose"));
 
-            assert_eq!(diagnostic.primary_span(), Some(source));
+            assert_eq!(diagnostic.primary_span(), None);
 
-            assert!(diagnostic.labels().iter().any(|label| {
-                label.kind() == DiagnosticLabelKind::CompilerDefectSource && label.span() == source
-            }));
-
-            assert!(
-                diagnostic
-                    .notes()
-                    .iter()
-                    .any(|note| note.kind() == DiagnosticNoteKind::ReportCompilerDefect)
-            );
+            assert!(!diagnostic
+                .labels()
+                .iter()
+                .any(|label| label.kind() == DiagnosticLabelKind::CompilerDefectSource));
 
             assert!(diagnostic.args().iter().any(|arg| {
                 let DiagnosticArgValue::EmissionFailure(

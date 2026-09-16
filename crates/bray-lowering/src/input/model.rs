@@ -14,19 +14,6 @@ use bray_symbols::{AvailableCompilerKnownSymbols, ConstantValueId, SemanticValue
 use crate::result::requires_mir;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub(crate) enum CleanupPlanLookupError {
-    InvalidScopeDepth {
-        scope_depth: usize,
-        active_scope_count: usize,
-        exit: AnyBoundNodeId,
-    },
-    MissingScopeExit {
-        scope: BoundBlockId,
-        exit: AnyBoundNodeId,
-    },
-}
-
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum ScopeExitCleanupStatus {
     /// Checked control flow proves that this syntactic completion cannot run.
     Unreachable,
@@ -358,14 +345,13 @@ impl<'unit> LoweringInput<'unit> {
         active_scopes: &[BoundBlockId],
         scope_depth: usize,
         exit: AnyBoundNodeId,
-    ) -> Result<Vec<AsyncScopeExitPlan>, CleanupPlanLookupError> {
-        let scopes = active_scopes
-            .get(scope_depth..)
-            .ok_or(CleanupPlanLookupError::InvalidScopeDepth {
-                scope_depth,
-                active_scope_count: active_scopes.len(),
-                exit,
-            })?;
+    ) -> Vec<AsyncScopeExitPlan> {
+        let scopes = active_scopes.get(scope_depth..).unwrap_or_else(|| {
+            panic!(
+                "lowering cleanup contract violated: scope depth {scope_depth} exceeds {} active scopes for exit {exit:?}",
+                active_scopes.len()
+            )
+        });
 
         scopes
             .iter()
@@ -376,9 +362,10 @@ impl<'unit> LoweringInput<'unit> {
                     .and_then(|index| self.async_analysis.scope_exits().get(*index))
                     // Lowering mutates its builder while retaining these shared immutable plans.
                     .cloned()
-                    .ok_or(CleanupPlanLookupError::MissingScopeExit {
-                        scope: *scope,
-                        exit,
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "lowering cleanup contract violated: missing scope-exit plan for scope {scope:?} and exit {exit:?}"
+                        )
                     })
             })
             .collect()
@@ -389,28 +376,34 @@ impl<'unit> LoweringInput<'unit> {
         &self,
         scope: BoundBlockId,
         exit: AnyBoundNodeId,
-    ) -> Result<ScopeExitCleanupStatus, CleanupPlanLookupError> {
+    ) -> ScopeExitCleanupStatus {
         let Some(index) = self.scope_exits.get(&(scope, exit)) else {
             let point = StorageExitPoint::new(scope, exit);
 
-            return if self.storage_flow.reachable_exits().binary_search(&point).is_ok() {
-                Err(CleanupPlanLookupError::MissingScopeExit { scope, exit })
-            } else {
-                Ok(ScopeExitCleanupStatus::Unreachable)
-            };
+            if self.storage_flow.reachable_exits().binary_search(&point).is_ok() {
+                panic!(
+                    "lowering cleanup contract violated: missing scope-exit plan for reachable scope {scope:?} and exit {exit:?}"
+                );
+            }
+
+            return ScopeExitCleanupStatus::Unreachable;
         };
 
         let plan = self
             .async_analysis
             .scope_exits()
             .get(*index)
-            .ok_or(CleanupPlanLookupError::MissingScopeExit { scope, exit })?;
+            .unwrap_or_else(|| {
+                panic!(
+                    "lowering cleanup contract violated: scope-exit index for scope {scope:?} and exit {exit:?} is absent"
+                )
+            });
 
-        Ok(if !plan.has_cleanup() {
+        if !plan.has_cleanup() {
             ScopeExitCleanupStatus::NoCleanup
         } else {
             ScopeExitCleanupStatus::Cleanup
-        })
+        }
     }
 
     /// Returns storage occurrences whose cleanup depends on runtime initialization state.
@@ -586,7 +579,7 @@ mod tests {
     use bray_symbols::{CurrentRunCancellation, SemanticValueStore};
     use bray_testing::{test_bound_unit, test_mir_target, test_runtime_default_unit};
 
-    use super::{CleanupPlanLookupError, LoweringInput, ScopeExitCleanupStatus};
+    use super::{LoweringInput, ScopeExitCleanupStatus};
 
     #[test]
     fn input_borrows_the_canonical_unit_and_matching_side_analysis() {
@@ -620,6 +613,7 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "missing scope-exit plan")]
     fn input_preserves_scope_cleanup_lookup_and_reachability() {
         let mut scope = None;
         let mut exit = None;
@@ -706,29 +700,17 @@ mod tests {
 
         assert_eq!(
             input.scope_cleanup_status(scope, exit),
-            Ok(ScopeExitCleanupStatus::NoCleanup)
+            ScopeExitCleanupStatus::NoCleanup
         );
 
-        assert_eq!(
-            input
-                .cleanup_plans(&[scope], 0, exit)
-                .unwrap_or_else(|error| panic!("scope cleanup lookup must succeed: {error:?}"))
-                .len(),
-            1
-        );
+        assert_eq!(input.cleanup_plans(&[scope], 0, exit).len(), 1);
 
         assert_eq!(
             input.scope_cleanup_status(scope, unreachable_exit),
-            Ok(ScopeExitCleanupStatus::Unreachable)
+            ScopeExitCleanupStatus::Unreachable
         );
 
-        assert_eq!(
-            input.cleanup_plans(&[scope], 0, unreachable_exit),
-            Err(CleanupPlanLookupError::MissingScopeExit {
-                scope,
-                exit: unreachable_exit
-            })
-        );
+        input.cleanup_plans(&[scope], 0, unreachable_exit);
     }
 
     #[test]

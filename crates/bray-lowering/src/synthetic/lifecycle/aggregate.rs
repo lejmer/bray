@@ -55,7 +55,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             element,
         );
 
-        let operations = super::representation::child_lifecycle_operations(role, child)?;
+        let operations = super::representation::child_lifecycle_operations(role, child);
 
         let completed = outcome
             .resolve(

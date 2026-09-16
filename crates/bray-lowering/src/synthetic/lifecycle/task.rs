@@ -22,25 +22,20 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
         let completion = symbols
             .unary_representation_argument(values, RepresentationRole::Task, task.ty())
-            .ok_or_else(|| SyntheticLoweringError::MissingRepresentation {
-                role: RepresentationRole::Task,
-                argument: Some(task.ty()),
-            })?;
+            .unwrap_or_else(|| {
+                panic!("task type {:?} must provide its completion argument", task.ty())
+            });
 
         let result = symbols
             .unary_representation_type(values, RepresentationRole::RunResult, completion)
             .map_err(SyntheticLoweringError::SemanticValue)?
-            .ok_or_else(|| SyntheticLoweringError::MissingRepresentation {
-                role: RepresentationRole::RunResult,
-                argument: Some(completion),
-            })?;
+            .unwrap_or_else(|| {
+                panic!("completion type {completion:?} must have a run-result representation")
+            });
 
-        let representation = symbols.run_result_representation().ok_or_else(|| {
-            SyntheticLoweringError::MissingRepresentation {
-                role: RepresentationRole::RunResult,
-                argument: None,
-            }
-        })?;
+        let representation = symbols
+            .run_result_representation()
+            .expect("compiler-known symbols must provide the run-result representation");
 
         let variants = bray_ir::MirRunResultVariants::new(
             representation.completed_variant(),

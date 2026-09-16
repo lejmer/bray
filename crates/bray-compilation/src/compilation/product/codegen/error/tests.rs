@@ -1,12 +1,8 @@
 use bray_checker::CheckerInfrastructureError;
 use bray_diagnostics::{
     DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticFailureValue, DiagnosticKind,
-    DiagnosticLabelKind, DiagnosticLoweringFailure, DiagnosticLoweringFailureKind,
     DiagnosticNativeProductFailureKind, DiagnosticNoteKind, DiagnosticSemanticValueFailure,
 };
-use bray_lowering::LoweringError;
-use bray_messages::DiagnosticRenderer;
-use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
 use bray_symbols::{PackageIdentity, ProductIdentity, SemanticValueKind, SemanticValueStoreError};
 use bray_testing::assert_goal_state_diagnostic_kind;
 
@@ -18,7 +14,6 @@ use super::{
     NativeLinkInputPlanningError, NativeProductPlanningError, codegen_preparation_failure_kind,
     native_product_preparation_diagnostic,
 };
-use crate::LocatedLoweringFailure;
 use crate::fact::FactQueryError;
 
 #[test]
@@ -113,11 +108,6 @@ fn codegen_preparation_reports_mir_capacity() {
 fn native_product_evaluation_failures_preserve_specific_reasons() {
     use DiagnosticNativeProductFailureKind as Kind;
 
-    let source = SourceSpan::new(
-        SourceId::new(0),
-        TextRange::new(TextSize::new(10), TextSize::new(20)),
-    );
-
     let capacity = SemanticValueStoreError::CapacityExhausted {
         kind: SemanticValueKind::ConstantValue,
     };
@@ -156,28 +146,14 @@ fn native_product_evaluation_failures_preserve_specific_reasons() {
             Kind::EvaluationUninitInitializerResultUnavailable,
         ),
         (
-            FactQueryError::Lowering(LocatedLoweringFailure::new(
-                LoweringError::MirCapacity(bray_ir::MirCapacityError::IdentityCapacityExceeded),
-                source,
-            )),
-            Kind::EvaluationLowering(DiagnosticLoweringFailure::new(
-                DiagnosticLoweringFailureKind::MirCapacity,
-                source,
-            )),
+            FactQueryError::MirCapacity(bray_ir::MirCapacityError::IdentityCapacityExceeded),
+            Kind::CodegenMirCapacityExceeded,
         ),
         (
-            FactQueryError::Lowering(LocatedLoweringFailure::new(
-                LoweringError::SemanticValue(capacity),
-                source,
-            )),
-            Kind::EvaluationLowering(DiagnosticLoweringFailure::new(
-                DiagnosticLoweringFailureKind::SemanticValue(
-                    DiagnosticSemanticValueFailure::CapacityExhausted {
-                        kind: "constant_value",
-                    },
-                ),
-                source,
-            )),
+            FactQueryError::SemanticValueStore(capacity),
+            Kind::EvaluationSemanticValue(DiagnosticSemanticValueFailure::CapacityExhausted {
+                kind: "constant_value",
+            }),
         ),
     ];
 
@@ -326,96 +302,4 @@ fn unavailable_native_program_provides_recovery_guidance() {
         diagnostic.notes()[0].kind(),
         DiagnosticNoteKind::NativeProductPreparationRecovery
     );
-}
-
-#[test]
-fn compiler_owned_code_production_failures_are_explicit_and_source_anchored() {
-    let package = PackageIdentity::try_new("example")
-        .unwrap_or_else(|| panic!("test package identity must be valid"));
-
-    let product = ProductIdentity::try_new(package, "application")
-        .unwrap_or_else(|| panic!("test product identity must be valid"));
-
-    let source = SourceSpan::new(
-        SourceId::new(1),
-        TextRange::new(TextSize::new(10), TextSize::new(20)),
-    );
-
-    let failure =
-        DiagnosticNativeProductFailureKind::EvaluationLowering(DiagnosticLoweringFailure::new(
-            DiagnosticLoweringFailureKind::MissingSuspensionPoint(
-                bray_diagnostics::DiagnosticLoweringIdentity::new(2, 7),
-            ),
-            source,
-        ));
-
-    let diagnostic =
-        native_product_preparation_diagnostic(failure.clone(), &product, "x86_64-pc-windows-msvc");
-
-    assert_native_product_failure(&diagnostic, &failure);
-
-    assert_eq!(diagnostic.primary_span(), Some(source));
-
-    assert!(diagnostic.labels().iter().any(|label| {
-        label.kind() == DiagnosticLabelKind::CompilerDefectSource && label.span() == source
-    }));
-
-    assert!(
-        diagnostic
-            .notes()
-            .iter()
-            .any(|note| note.kind() == DiagnosticNoteKind::ReportCompilerDefect)
-    );
-
-    let rendered = DiagnosticRenderer::english().render(&diagnostic);
-    let message = rendered.message();
-
-    for forbidden in ["MIR", "lowering", "node", "frame descriptor", "terminator"] {
-        assert!(!message.contains(forbidden));
-    }
-}
-
-#[test]
-fn code_production_node_failures_name_the_highlighted_syntax_category() {
-    let package = PackageIdentity::try_new("example")
-        .unwrap_or_else(|| panic!("test package identity must be valid"));
-
-    let product = ProductIdentity::try_new(package, "application")
-        .unwrap_or_else(|| panic!("test product identity must be valid"));
-
-    let source = SourceSpan::new(
-        SourceId::new(1),
-        TextRange::new(TextSize::new(10), TextSize::new(20)),
-    );
-
-    let failure =
-        DiagnosticNativeProductFailureKind::EvaluationLowering(DiagnosticLoweringFailure::new(
-            DiagnosticLoweringFailureKind::MissingSourceNode {
-                kind: bray_diagnostics::DiagnosticSourceConstructKind::Pattern,
-                identity: bray_diagnostics::DiagnosticLoweringIdentity::new(2, 7),
-            },
-            source,
-        ));
-
-    let diagnostic =
-        native_product_preparation_diagnostic(failure.clone(), &product, "x86_64-pc-windows-msvc");
-
-    assert_native_product_failure(&diagnostic, &failure);
-
-    let rendered = DiagnosticRenderer::english().render(&diagnostic);
-
-    assert!(rendered.message().contains("pattern"));
-    assert!(!rendered.message().contains("node"));
-}
-
-fn assert_native_product_failure(
-    diagnostic: &bray_diagnostics::Diagnostic,
-    expected: &DiagnosticNativeProductFailureKind,
-) {
-    assert!(diagnostic.args().iter().any(|arg| {
-        matches!(
-            arg.value(),
-            DiagnosticArgValue::NativeProductFailureKind(actual) if actual == expected
-        )
-    }));
 }

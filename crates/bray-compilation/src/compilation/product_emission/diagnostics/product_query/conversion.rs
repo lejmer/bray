@@ -342,10 +342,6 @@ pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_
 
             ("product_query_invalid_callable_definition_symbol", fields)
         }
-        Failure::UnsupportedLifecycleRole { role } => (
-            "product_query_unsupported_lifecycle_role",
-            vec![text_field("lifecycle_role", mir_lifecycle_role(*role))],
-        ),
         Failure::SourceSnapshotMismatch {
             source,
             expected,

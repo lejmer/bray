@@ -111,7 +111,10 @@ impl Lowerer<'_> {
         let data = self.input.semantic_values().type_data(owner.ty());
 
         let TypeData::OwnedIndirection { storage, .. } = data.as_ref() else {
-            return Err(LoweringError::SemanticValueUnavailable);
+            panic!(
+                "lowering contract violation: owned place type {:?} must have an owned-indirection representation",
+                owner.ty()
+            );
         };
 
         let policy = MirPlace::new(

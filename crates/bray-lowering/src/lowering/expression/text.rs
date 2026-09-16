@@ -36,7 +36,6 @@ pub(super) const fn text_operation_kind(hook: ImplementationHook) -> Option<MirT
         _ => None,
     }
 }
-
 impl Lowerer<'_> {
     pub(super) fn lower_string_equality(
         &mut self,
@@ -47,7 +46,7 @@ impl Lowerer<'_> {
         operand_type: bray_symbols::TypeId,
         operands: [MirOperand; 2],
     ) -> Result<(MirBlockId, MirOperand), LoweringError> {
-        let result_type = self.expression_type(id)?;
+        let result_type = self.expression_type(id);
 
         let equal = self.push_typed_value_operation(
             id,
@@ -102,7 +101,7 @@ impl Lowerer<'_> {
             current = continuation;
 
             let Some(operand) = lowered.value else {
-                return Err(LoweringError::MissingOperationResult(receiver.expression()));
+                panic!("lowering contract violation: MissingOperationResult {value:?}", value = receiver.expression());
             };
 
             operands.push(operand);
@@ -116,7 +115,7 @@ impl Lowerer<'_> {
                 ..
             } = argument
             else {
-                return Err(LoweringError::MissingSemanticSelection(id));
+                panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = id);
             };
 
             let lowered = self.lower_text_operand(id, *expression, current, &source, conversion)?;
@@ -128,14 +127,14 @@ impl Lowerer<'_> {
             current = continuation;
 
             let Some(operand) = lowered.value else {
-                return Err(LoweringError::MissingOperationResult(*expression));
+                panic!("lowering contract violation: MissingOperationResult {value:?}", value = *expression);
             };
 
             operands.push(operand);
             operand_types.push(conversion.target_type());
         }
 
-        let result_type = self.expression_type(id)?;
+        let result_type = self.expression_type(id);
 
         let commit = self.push_operation(
             current,
@@ -152,7 +151,7 @@ impl Lowerer<'_> {
         let result = commit
             .result()
             .map(MirOperand::Value)
-            .ok_or(LoweringError::MissingOperationResult(id))?;
+            .unwrap_or_else(|| panic!("lowering contract violation: MissingOperationResult {value:?}", value = id));
 
         Ok(LoweredExpression::continuing(current, Some(result), source))
     }
@@ -172,7 +171,7 @@ impl Lowerer<'_> {
         };
 
         let Some(operand) = lowered.value else {
-            return Err(LoweringError::MissingOperationResult(expression));
+            panic!("lowering contract violation: MissingOperationResult {value:?}", value = expression);
         };
 
         let (current, operand) = self.convert_operand(

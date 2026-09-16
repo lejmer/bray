@@ -18,7 +18,6 @@ pub fn lower_lifecycle<C: SyntheticLoweringContext + ?Sized>(
 ) -> Result<MirUnit, C::Error> {
     SyntheticLowerer { context }.lower_lifecycle(key, reference, unit, target)
 }
-
 impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
     fn lower_lifecycle(
         &self,
@@ -29,7 +28,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
     ) -> Result<MirUnit, C::Error> {
         let ty = reference
             .lifecycle_type()
-            .ok_or_else(|| SyntheticLoweringError::MissingHelper(reference.clone()))?;
+            .unwrap_or_else(|| panic!("synthetic lowering contract violation: MissingHelper {value:?}", value = reference.clone()));
 
         let values = self.context.semantic_values();
 
@@ -146,7 +145,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             | MirHelperReference::ComposeAwaitedFrame(_)
             | MirHelperReference::CommitAwaitedCompletion(_)
             | MirHelperReference::DestroyTerminalTask => {
-                return Err(SyntheticLoweringError::MissingHelper(reference.clone()).into());
+                panic!("synthetic lowering helper {reference:?} must be available");
             }
         }
 

@@ -31,7 +31,6 @@ pub(super) enum YieldTarget {
         element_type: bray_symbols::TypeId,
     },
 }
-
 impl YieldTarget {
     pub(super) const fn syntax(&self) -> SyntaxAnchor {
         match self {
@@ -148,12 +147,12 @@ impl<'unit> Lowerer<'unit> {
                     .unit()
                     .view()
                     .callable_body(body_id)
-                    .ok_or_else(|| LoweringError::MissingBoundNode(body_id.into()))?;
+                    .unwrap_or_else(|| panic!("lowering contract violation: MissingBoundNode {value:?}", value = body_id));
 
                 let block = match body.kind() {
                     BoundCallableBodyKind::Block(block) => block,
                     BoundCallableBodyKind::Error(_) => {
-                        return Err(LoweringError::RecoveredBoundNode(body_id.into()));
+                        panic!("lowering contract violation: RecoveredBoundNode {value:?}", value = body_id);
                     }
                 };
 
@@ -184,7 +183,12 @@ impl<'unit> Lowerer<'unit> {
                     .input
                     .expression_types()
                     .callable_result_type()
-                    .ok_or(LoweringError::MissingCallableResultType)?;
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "lowering contract violation: protected-frame unit {:?} has no callable result type",
+                            self.input.unit().key()
+                        )
+                    });
 
                 let value = completion
                     .value
@@ -215,7 +219,12 @@ impl<'unit> Lowerer<'unit> {
                 .input
                 .expression_types()
                 .callable_result_type()
-                .ok_or(LoweringError::MissingCallableResultType)?;
+                .unwrap_or_else(|| {
+                    panic!(
+                        "lowering contract violation: protected frame {frame:?} in unit {:?} has no callable result type",
+                        self.input.unit().key()
+                    )
+                });
 
             let runtime_abi = self.input.target().runtime_abi();
 
@@ -388,6 +397,32 @@ mod tests {
             mir.blocks()[0].terminator().kind(),
             MirTerminatorKind::Return(Some(bray_ir::MirOperand::Value(_)))
         ));
+    }
+
+    #[test]
+    fn lowering_panics_with_the_missing_checked_expression_identity() {
+        let mut fixture = lowering_fixture(101, BoundOperator::Add);
+        let missing = fixture.types.entries()[0].expression();
+
+        fixture.types = CheckedExpressionTypes::new(
+            fixture.unit.unit(),
+            fixture.unit.key().kind(),
+            [],
+        );
+
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = lower_unit(fixture.input());
+        }))
+        .unwrap_err();
+
+        let message = panic
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| panic.downcast_ref::<&str>().copied())
+            .unwrap_or_else(|| panic!("lowering invariant panic must carry a string message"));
+
+        assert!(message.contains("MissingExpressionType"));
+        assert!(message.contains(&format!("{missing:?}")));
     }
 
     #[test]

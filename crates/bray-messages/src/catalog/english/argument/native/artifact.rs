@@ -2,7 +2,6 @@ use super::super::source::{format_english_artifact_digest, format_english_artifa
 use super::checker::format_english_checker_failure;
 use super::foreign_query::format_english_foreign_query_failure;
 use super::linking::format_english_native_link_input_failure;
-use super::lowering::format_english_lowering_failure;
 use super::product_failure::native_product_failure_is_internal;
 use super::product_query::format_english_product_query_failure;
 use bray_diagnostics::DiagnosticArtifactDigest;
@@ -56,7 +55,7 @@ fn format_english_emission_evaluation_failure_detail(
             return format_english_semantic_value_failure(*failure);
         }
         Failure::Binding(failure) => return format_english_binding_failure(failure),
-        Failure::Lowering(failure) => return format_english_lowering_failure(*failure),
+        Failure::MirCapacity => "a MIR identity capacity was exceeded during evaluation",
         Failure::ConstantCallableBodyUnavailable => {
             "the selected constant callable has no available body"
         }
@@ -138,7 +137,6 @@ fn format_english_native_product_failure_detail(
         Kind::EvaluationBinding(failure) => {
             return format_english_binding_failure(failure);
         }
-        Kind::EvaluationLowering(failure) => return format_english_lowering_failure(*failure),
         Kind::EvaluationConstantCallableBodyUnavailable => {
             "the selected constant callable has no available body"
         }
