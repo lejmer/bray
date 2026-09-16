@@ -84,7 +84,7 @@ pub(super) fn format_english_lowering_failure(
         }
         Failure::MissingScopeExitPlan { .. } => {
             return super::format_internal_compiler_error(
-                "could not find the verified lifecycle plan for the highlighted exit",
+                "could not find the checked async cleanup plan for the highlighted exit",
             );
         }
         Failure::MissingLiteralValue(_) => {

@@ -69,7 +69,7 @@ pub enum DiagnosticLoweringFailureKind {
         /// The source occurrence initiating cleanup.
         exit: DiagnosticLoweringIdentity,
     },
-    /// A verified lifecycle plan has no decision for one scope and exit.
+    /// Checked async analysis has no decision for one scope and exit.
     MissingScopeExitPlan {
         /// The lexical scope whose decision is absent.
         scope: DiagnosticLoweringIdentity,

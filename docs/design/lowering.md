@@ -26,15 +26,16 @@ temporary does not become a symbol, and a source expression does not automatical
 Backend machine types and instruction details stay behind the backend boundary. Prefixing an existing semantic type with
 `Mir` is not a reason to duplicate it.
 
-## Validated input
+## Checked input
 
-A source-backed lowering request borrows one bound unit and the exact typed results it needs. These include selected
-operations, storage and dependency decisions, control completion, lifecycle and async plans, and the selected target and
-compiler-known view.
+A source-backed lowering request borrows one bound unit and the exact checker-published results it needs. These include
+selected operations, storage and dependency decisions, control completion, lifecycle and async plans, and the selected
+target and compiler-known view.
 
-Compilation verifies their unit identity, category, and completeness before lowering begins. Recovery remains useful
-during checking, but an incomplete or contradictory plan cannot stand in for executable semantics. Verified cleanup
-plans distinguish absent work from missing information.
+The checker establishes their identity, category, completeness, and recovery contracts before publishing them for
+lowering. Lowering consumes the published results directly instead of reconstructing a second admission plan. Recovery
+remains useful during checking while recovered semantic values continue to provide the inputs required for executable
+semantics. Published cleanup decisions distinguish absent work from missing information.
 
 Compiler-generated hosts have a separate typed input because they have no source bound unit. Compile-time-only units
 have an explicit classification and do not demand execution analyses.
@@ -57,7 +58,7 @@ backend.
 Calls retain the selected target, argument mapping, substitutions, defaults, conversions, ownership modes, and dispatch
 contract. Lowering chooses an execution sequence for those established decisions without repeating selection or proof.
 
-Cleanup follows verified lifecycle and dependency plans. [Cleanup storage and reports](cleanup-storage-and-reports.md)
+Cleanup follows checked lifecycle and dependency plans. [Cleanup storage and reports](cleanup-storage-and-reports.md)
 describes the shared realization used by source lowering and specialization. The graph makes cleanup and report
 ownership explicit enough for MIR validation and code generation.
 
