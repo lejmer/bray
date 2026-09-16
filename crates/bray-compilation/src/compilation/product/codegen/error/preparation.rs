@@ -52,16 +52,6 @@ pub(in crate::compilation) fn codegen_preparation_failure_kind(
             )],
         )),
         CodegenPreparationError::MirCapacity(_) => Kind::CodegenMirCapacityExceeded,
-        CodegenPreparationError::InvalidMappings(cause) => {
-            let fields = match cause {
-                bray_codegen::CodegenMappingsBuildError::DuplicateBinarySymbolName { name } => {
-                    vec![text_failure_field("binary_symbol", name.as_ref())]
-                }
-                _ => Vec::new(),
-            };
-
-            Kind::CodegenInvalidMappings(failure_detail(codegen_mappings_failure(cause), fields))
-        }
         CodegenPreparationError::MissingRuntimeRole(role) => {
             Kind::CodegenMissingRuntimeRole(failure_detail(
                 "codegen_missing_runtime_role",
@@ -143,48 +133,6 @@ pub(super) const fn codegen_unit_preparation_failure(error: CodegenUnitBuildErro
         CodegenUnitBuildError::TargetMismatch => "codegen_unit_target_mismatch",
         CodegenUnitBuildError::WorkBoundExceeded => "codegen_unit_work_bound_exceeded",
         CodegenUnitBuildError::RecipeMismatch => "codegen_unit_recipe_mismatch",
-    }
-}
-
-const fn codegen_mappings_failure(error: &bray_codegen::CodegenMappingsBuildError) -> &'static str {
-    use bray_codegen::CodegenMappingsBuildError as Error;
-
-    match error {
-        Error::TargetMismatch => "codegen_mappings_target_mismatch",
-        Error::DuplicateType => "codegen_mappings_duplicate_type",
-        Error::DuplicateInstanceType => "codegen_mappings_duplicate_instance_type",
-        Error::InvalidInstanceType => "codegen_mappings_invalid_instance_type",
-        Error::InvalidTypeLayout => "codegen_mappings_invalid_type_layout",
-        Error::InvalidAbiTypeLayout => "codegen_mappings_invalid_abi_type_layout",
-        Error::DuplicateSymbol => "codegen_mappings_duplicate_symbol",
-        Error::DuplicateConstant => "codegen_mappings_duplicate_constant",
-        Error::DuplicateConstantTerm => "codegen_mappings_duplicate_constant_term",
-        Error::DuplicateCallable => "codegen_mappings_duplicate_callable",
-        Error::DuplicateOperation => "codegen_mappings_duplicate_operation",
-        Error::DuplicateStaticStorage => "codegen_mappings_duplicate_static_storage",
-        Error::DuplicateNativeStaticStorage => "codegen_mappings_duplicate_native_static_storage",
-        Error::StaticStorageCoverageMismatch => "codegen_mappings_static_storage_coverage_mismatch",
-        Error::InvalidStaticStorage => "codegen_mappings_invalid_static_storage",
-        Error::NativeStaticStorageCoverageMismatch => {
-            "codegen_mappings_native_static_storage_coverage_mismatch"
-        }
-        Error::InvalidNativeStaticStorage => "codegen_mappings_invalid_native_static_storage",
-        Error::DuplicateTerminator => "codegen_mappings_duplicate_terminator",
-        Error::DuplicateBinarySymbolName { .. } => "codegen_mappings_duplicate_binary_symbol_name",
-        Error::DuplicateDebugLocation => "codegen_mappings_duplicate_debug_location",
-        Error::UnsupportedLinkage => "codegen_mappings_unsupported_linkage",
-        Error::InvalidNativeEntry => "codegen_mappings_invalid_native_entry",
-        Error::InstanceSymbolCoverageMismatch => {
-            "codegen_mappings_instance_symbol_coverage_mismatch"
-        }
-        Error::CallableCoverageMismatch => "codegen_mappings_callable_coverage_mismatch",
-        Error::OperationCoverageMismatch => "codegen_mappings_operation_coverage_mismatch",
-        Error::TerminatorCoverageMismatch => "codegen_mappings_terminator_coverage_mismatch",
-        Error::ConstantCoverageMismatch => "codegen_mappings_constant_coverage_mismatch",
-        Error::InvalidConstantRepresentation => "codegen_mappings_invalid_constant_representation",
-        Error::RuntimeSymbolCoverageMismatch => "codegen_mappings_runtime_symbol_coverage_mismatch",
-        Error::FrameSymbolCoverageMismatch => "codegen_mappings_frame_symbol_coverage_mismatch",
-        Error::TypeCoverageMismatch => "codegen_mappings_type_coverage_mismatch",
     }
 }
 

@@ -238,7 +238,6 @@ fn native_product_failure_keys_are_unique_and_domain_named() {
         Kind::CodegenInvalidUnit(native_product_detail("codegen_invalid_unit")),
         Kind::CodegenUnitMismatch(native_product_detail("codegen_unit_mismatch")),
         Kind::CodegenMirCapacityExceeded,
-        Kind::CodegenInvalidMappings(native_product_detail("codegen_invalid_mappings")),
         Kind::CodegenMissingRuntimeRole(native_product_detail("codegen_missing_runtime_role")),
         Kind::CodegenOpenConstantTerm(native_product_detail("codegen_open_constant_term")),
         Kind::CodegenInvalidArrayLength(native_product_detail("codegen_invalid_array_length")),

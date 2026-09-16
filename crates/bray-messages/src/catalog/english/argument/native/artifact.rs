@@ -313,9 +313,6 @@ fn format_english_native_product_failure_detail(
         Kind::CodegenMirCapacityExceeded => {
             "generated executable code exceeded the MIR identity capacity"
         }
-        Kind::CodegenInvalidMappings(_) => {
-            "required native-code metadata is incomplete or inconsistent"
-        }
         Kind::CodegenMissingRuntimeRole(_) => "a required runtime ABI role has no selected binding",
         Kind::CodegenOpenConstantTerm(_) => {
             "a compiled constant still contains unresolved parameters"

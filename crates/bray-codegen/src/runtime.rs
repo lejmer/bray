@@ -421,10 +421,21 @@ mod tests {
             type_mapping.kind().clone(),
         )];
 
-        match CodegenMappings::try_new(unit, &target, types, [], symbols, [], [], [], [], [], []) {
-            Ok(mappings) => mappings,
-            Err(error) => panic!("test frame mappings must validate: {error:?}"),
-        }
+        CodegenMappings::new(
+            unit,
+            &target,
+            types,
+            [],
+            symbols,
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+        )
     }
 
     fn binary_symbol_name(name: &str) -> BinarySymbolName {

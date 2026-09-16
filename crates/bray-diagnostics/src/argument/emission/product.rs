@@ -243,7 +243,6 @@ pub enum DiagnosticNativeProductFailureKind {
     CodegenInvalidUnit(DiagnosticNativeProductFailureDetail),
     CodegenUnitMismatch(DiagnosticNativeProductFailureDetail),
     CodegenMirCapacityExceeded,
-    CodegenInvalidMappings(DiagnosticNativeProductFailureDetail),
     CodegenMissingRuntimeRole(DiagnosticNativeProductFailureDetail),
     CodegenOpenConstantTerm(DiagnosticNativeProductFailureDetail),
     CodegenInvalidArrayLength(DiagnosticNativeProductFailureDetail),
@@ -366,7 +365,6 @@ impl DiagnosticNativeProductFailureKind {
             | Self::CodegenInvalidInstance(detail)
             | Self::CodegenInvalidUnit(detail)
             | Self::CodegenUnitMismatch(detail)
-            | Self::CodegenInvalidMappings(detail)
             | Self::CodegenMissingRuntimeRole(detail)
             | Self::CodegenOpenConstantTerm(detail)
             | Self::CodegenInvalidArrayLength(detail)

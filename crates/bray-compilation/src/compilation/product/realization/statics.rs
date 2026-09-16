@@ -265,7 +265,7 @@ impl Compilation {
         let native_storages =
             self.codegen_native_static_storages(unit, reachability, cancellation)?;
 
-        let mut symbols = self.codegen_symbols(
+        let symbols = self.codegen_symbols(
             product,
             unit,
             &operations,
@@ -357,12 +357,10 @@ impl Compilation {
             &mut instance_type_mappings,
         )?;
 
-        symbols =
+        let symbols =
             self.classify_codegen_symbols(symbols, target, cancellation, &mut type_mappings)?;
 
         let types: Vec<_> = type_mappings.into_values().collect();
-
-        symbols.sort_unstable_by(|left, right| left.key().cmp(right.key()));
 
         let debug_locations = if include_debug_locations {
             self.codegen_debug_locations(unit)?
@@ -370,7 +368,7 @@ impl Compilation {
             Vec::new()
         };
 
-        CodegenMappings::try_new_with_storage_mappings(
+        Ok(CodegenMappings::new(
             unit,
             target,
             types,
@@ -384,8 +382,7 @@ impl Compilation {
             native_storages,
             terminators,
             debug_locations,
-        )
-        .map_err(CodegenPreparationError::InvalidMappings)
+        ))
     }
 
     pub(super) fn codegen_static_storages(

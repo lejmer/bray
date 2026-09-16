@@ -46,16 +46,6 @@ impl DemandedCallableInstance {
     }
 }
 
-/// Returns direct callable references retained by one code generation unit.
-pub fn demanded_callable_references(
-    unit: &CodegenUnit,
-) -> BTreeSet<(CodegenInstanceKey, CodegenCallSite, MirCallableReference)> {
-    demanded_callable_instances(unit)
-        .into_iter()
-        .map(|(owner, demand)| (owner, demand.site(), demand.reference()))
-        .collect()
-}
-
 /// Returns direct callable instances and witness payloads retained by one code generation unit.
 pub fn demanded_callable_instances(
     unit: &CodegenUnit,
@@ -67,16 +57,6 @@ pub fn demanded_callable_instances(
                 .into_iter()
                 .map(|demand| (instance.key().clone(), demand))
         })
-        .collect()
-}
-
-/// Returns direct callable references retained by one MIR definition.
-pub fn demanded_callable_references_for_mir(
-    unit: &bray_ir::MirUnit,
-) -> BTreeSet<(CodegenCallSite, MirCallableReference)> {
-    demanded_callable_instances_for_mir(unit)
-        .into_iter()
-        .map(|demand| (demand.site(), demand.reference()))
         .collect()
 }
 

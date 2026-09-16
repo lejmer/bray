@@ -549,7 +549,6 @@ impl DiagnosticNativeProductFailureJson {
             | Kind::CodegenInvalidInstance(detail)
             | Kind::CodegenInvalidUnit(detail)
             | Kind::CodegenUnitMismatch(detail)
-            | Kind::CodegenInvalidMappings(detail)
             | Kind::CodegenMissingRuntimeRole(detail)
             | Kind::CodegenOpenConstantTerm(detail)
             | Kind::CodegenInvalidArrayLength(detail)

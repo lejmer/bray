@@ -2245,7 +2245,7 @@ mod tests {
 
         let debug = CodegenDebugLocation::new(source, file, NonZeroU32::MIN, NonZeroU32::MIN);
 
-        CodegenMappings::try_new(
+        CodegenMappings::new(
             unit,
             target,
             type_mappings,
@@ -2261,9 +2261,10 @@ mod tests {
             [],
             operation_mappings,
             [],
+            [],
+            [],
             [debug],
         )
-        .unwrap_or_else(|error| panic!("memory test mappings must be valid: {error:?}"))
     }
 
     fn helper_symbol(

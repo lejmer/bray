@@ -981,7 +981,7 @@ mod tests {
             )
         });
 
-        let Ok(mappings) = CodegenMappings::try_new(
+        let mappings = CodegenMappings::new(
             request.unit(),
             request.target(),
             mappings.types().iter().cloned().chain(types),
@@ -991,11 +991,11 @@ mod tests {
             mappings.constant_terms().iter().cloned(),
             mappings.callables().iter().cloned(),
             mappings.operations().iter().cloned(),
+            mappings.static_storages().iter().cloned(),
+            mappings.native_storages().iter().cloned(),
             mappings.terminators().iter().cloned(),
             mappings.debug_locations().iter().cloned(),
-        ) else {
-            panic!("target-classified test signature must validate");
-        };
+        );
 
         let Ok(machine) = LlvmTargetMachine::create(request.target()) else {
             panic!("test target must construct an LLVM machine");

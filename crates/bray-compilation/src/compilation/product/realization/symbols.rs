@@ -27,6 +27,44 @@ use crate::fact::{CancellationToken, FactQueryError};
 
 const CALLBACK_BODY_LINKAGE: CodegenLinkage = CodegenLinkage::LinkOnce;
 
+fn assert_symbol_contract(target: &CodegenTarget, symbol: &CodegenSymbolMapping) {
+    assert!(
+        target.symbols().supports(symbol.linkage()),
+        "codegen symbol {:?} uses unsupported {:?} linkage for target {:?}",
+        symbol.key(),
+        symbol.linkage(),
+        target.identity()
+    );
+
+    let Some(entry) = symbol.native_entry() else {
+        return;
+    };
+
+    assert!(
+        target.symbols().supports(entry.linkage()),
+        "native entry {:?} for codegen symbol {:?} uses unsupported {:?} linkage for target {:?}",
+        entry.name(),
+        symbol.key(),
+        entry.linkage(),
+        target.identity()
+    );
+
+    assert!(
+        matches!(symbol.key(), CodegenSymbolKey::Instance(_))
+            && symbol.name() != entry.name()
+            && symbol.linkage() != CodegenLinkage::Import
+            && matches!(entry.linkage(), CodegenLinkage::Export | CodegenLinkage::Weak)
+            && symbol.signature().abi() != CallableAbi::Bray,
+        "native entry {:?} with {:?} linkage contradicts codegen symbol {:?} with name {:?}, {:?} linkage, and {:?} ABI",
+        entry.name(),
+        entry.linkage(),
+        symbol.key(),
+        symbol.name(),
+        symbol.linkage(),
+        symbol.signature().abi()
+    );
+}
+
 fn default_instance_linkage(
     instance: &CodegenInstance,
     roots: &BTreeSet<bray_codegen::CodegenInstanceKey>,
@@ -158,6 +196,7 @@ impl Compilation {
                 symbol = symbol.with_native_entry(native_entry);
             }
 
+            assert_symbol_contract(target, &symbol);
             symbols.push(symbol);
         }
 
@@ -194,6 +233,7 @@ impl Compilation {
                 symbol = symbol.with_native_entry(native_entry);
             }
 
+            assert_symbol_contract(target, &symbol);
             symbols.push(symbol);
         }
 
@@ -208,12 +248,15 @@ impl Compilation {
 
             let signature = self.codegen_runtime_signature(reference.role())?;
 
-            symbols.push(CodegenSymbolMapping::new(
+            let symbol = CodegenSymbolMapping::new(
                 CodegenSymbolKey::Runtime(reference),
                 symbol_name,
                 CodegenLinkage::Import,
                 signature,
-            ));
+            );
+
+            assert_symbol_contract(target, &symbol);
+            symbols.push(symbol);
         }
 
         for instance in unit.instances() {
@@ -222,12 +265,15 @@ impl Compilation {
             };
 
             for operation in ProtectedFrameOperation::ALL {
-                symbols.push(CodegenSymbolMapping::new(
+                let symbol = CodegenSymbolMapping::new(
                     CodegenSymbolKey::ProtectedFrame { frame, operation },
                     generated_frame_symbol_name(target, frame, operation)?,
                     CodegenLinkage::Internal,
                     void_signature(CallableAbi::Bray),
-                ));
+                );
+
+                assert_symbol_contract(target, &symbol);
+                symbols.push(symbol);
             }
         }
 
@@ -247,12 +293,15 @@ impl Compilation {
                 continue;
             }
 
-            symbols.push(CodegenSymbolMapping::new(
+            let symbol = CodegenSymbolMapping::new(
                 key,
                 generated_frame_symbol_name(target, frame, operation)?,
                 CodegenLinkage::Import,
                 void_signature(CallableAbi::Bray),
-            ));
+            );
+
+            assert_symbol_contract(target, &symbol);
+            symbols.push(symbol);
         }
 
         Ok(symbols)

@@ -11,7 +11,7 @@ use bray_target::{
 };
 use bray_testing::{test_mir_type, test_mir_unit_for_target};
 
-use crate::mapping::{demanded_debug_sources, demanded_types};
+use crate::mapping::demanded_debug_sources;
 use crate::{
     ArtifactContent, BackendArtifactContribution, BackendArtifactId, BackendArtifactKind,
     BackendArtifactRequest, BackendArtifactRequestEntry, BackendArtifactRequirement,
@@ -268,7 +268,11 @@ pub fn codegen_request_for_unit_with_debug_information(
 }
 
 fn codegen_mappings(unit: &CodegenUnit, target: &CodegenTarget) -> CodegenMappings {
-    let mut types = demanded_types(unit);
+    let mut types = unit
+        .instances()
+        .iter()
+        .flat_map(|instance| instance.mir().referenced_types())
+        .collect::<std::collections::BTreeSet<_>>();
 
     let alignment = NonZeroU64::new(4).unwrap_or(NonZeroU64::MIN);
     let width = NonZeroU16::new(32).unwrap_or(NonZeroU16::MIN);
@@ -330,7 +334,7 @@ fn codegen_mappings(unit: &CodegenUnit, target: &CodegenTarget) -> CodegenMappin
         .into_iter()
         .map(|anchor| CodegenDebugLocation::new(anchor, file.clone(), one, one));
 
-    match CodegenMappings::try_new(
+    CodegenMappings::new(
         unit,
         target,
         types,
@@ -341,11 +345,10 @@ fn codegen_mappings(unit: &CodegenUnit, target: &CodegenTarget) -> CodegenMappin
         [],
         [],
         [],
+        [],
+        [],
         debug_locations,
-    ) {
-        Ok(mappings) => mappings,
-        Err(error) => panic!("test code generation mappings must be valid: {error:?}"),
-    }
+    )
 }
 
 fn instance_symbol(
