@@ -208,6 +208,11 @@ pub struct MirUnit {
 }
 
 impl MirUnit {
+    /// Verifies the complete structural contract of a unit at an explicit boundary.
+    pub fn is_valid(&self) -> bool {
+        super::validation::validate_unit(self).is_some()
+    }
+
     /// Returns the stable semantic unit key.
     pub const fn key(&self) -> &MirUnitKey {
         &self.key
@@ -322,7 +327,7 @@ impl MirUnit {
     pub(crate) fn operand_type(
         &self,
         operand: &crate::MirOperand,
-    ) -> Result<bray_symbols::TypeId, super::MirUnitBuildError> {
+    ) -> Option<bray_symbols::TypeId> {
         resolve_operand_type(self.unit, &self.values, operand)
     }
 
@@ -335,20 +340,16 @@ pub(super) fn resolve_operand_type(
     unit: MirUnitId,
     values: &[MirValue],
     operand: &crate::MirOperand,
-) -> Result<bray_symbols::TypeId, super::MirUnitBuildError> {
+) -> Option<bray_symbols::TypeId> {
     match operand {
         crate::MirOperand::Value(value) => {
-            if value.unit() != unit {
-                return Err(super::MirUnitBuildError::ForeignValue(*value));
-            }
-
-            value
-                .to_index()
+            (value.unit() == unit)
+                .then_some(*value)
+                .and_then(|value| value.to_index())
                 .and_then(|index| values.get(index))
                 .map(MirValue::ty)
-                .ok_or(super::MirUnitBuildError::MissingValue(*value))
         }
-        crate::MirOperand::Copy(place) | crate::MirOperand::Move(place) => Ok(place.ty()),
-        crate::MirOperand::Constant { ty, .. } | crate::MirOperand::Immediate { ty, .. } => Ok(*ty),
+        crate::MirOperand::Copy(place) | crate::MirOperand::Move(place) => Some(place.ty()),
+        crate::MirOperand::Constant { ty, .. } | crate::MirOperand::Immediate { ty, .. } => Some(*ty),
     }
 }

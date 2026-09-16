@@ -198,7 +198,7 @@ impl Lowerer<'_> {
 
     pub(super) fn next_frame_state(&self) -> Result<MirFrameStateId, LoweringError> {
         let state = u32::try_from(self.frame_states.len()).map_err(|_| {
-            LoweringError::Mir(bray_ir::MirUnitBuildError::IdentityCapacityExceeded)
+            LoweringError::MirCapacity(bray_ir::MirCapacityError::IdentityCapacityExceeded)
         })?;
 
         Ok(MirFrameStateId::new(state))

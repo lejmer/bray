@@ -12,12 +12,7 @@ impl From<SyntheticLoweringError> for CodegenPreparationError {
             SyntheticLoweringError::SemanticValue(cause) => {
                 FactQueryError::SemanticValueStore(cause).into()
             }
-            SyntheticLoweringError::LifecycleMir(cause) => {
-                Self::InvalidGeneratedLifecycleMir(cause)
-            }
-            SyntheticLoweringError::CompilerProvidedMir { definition, cause } => {
-                Self::InvalidCompilerProvidedMir { definition, cause }
-            }
+            SyntheticLoweringError::Capacity(cause) => Self::MirCapacity(cause),
             SyntheticLoweringError::MissingCallableResult(definition) => {
                 ProductQueryFailure::missing(
                     ProductQueryContext::CallableDefinition(definition),
@@ -37,13 +32,6 @@ impl From<SyntheticLoweringError> for CodegenPreparationError {
             SyntheticLoweringError::UnresolvedType(ty) => Self::UnresolvedType(ty),
             SyntheticLoweringError::UnsupportedLifecycleRole(role) => {
                 ProductQueryFailure::UnsupportedLifecycleRole { role }.into()
-            }
-            SyntheticLoweringError::MissingOperationResult { source, operation } => {
-                ProductQueryFailure::missing(
-                    ProductQueryContext::MirOperation { source, operation },
-                    ProductDataKind::OperationResultType,
-                )
-                .into()
             }
             SyntheticLoweringError::MissingRepresentation { role, argument } => {
                 ProductQueryFailure::missing(
@@ -88,7 +76,7 @@ mod tests {
         DiagnosticInterfaceDeclarationIdentity, DiagnosticInterfaceSymbolIdentity,
         DiagnosticInterfaceSymbolKind, DiagnosticNoteKind,
     };
-    use bray_ir::MirUnitBuildError;
+    use bray_ir::MirCapacityError;
     use bray_lowering::SyntheticLoweringError;
     use bray_messages::DiagnosticRenderer;
     use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
@@ -100,28 +88,10 @@ mod tests {
     use super::CodegenPreparationError;
 
     #[test]
-    fn synthetic_failures_preserve_exact_builder_causes_and_render_product_context() {
-        let definition = CallableDefinitionId::try_new(
-            FunctionSymbolId::from_symbol_id(SymbolId::new(4)).into(),
-        )
-        .unwrap();
-
-        let cause = MirUnitBuildError::SourceOriginMismatch;
-
-        let error = CodegenPreparationError::from(SyntheticLoweringError::CompilerProvidedMir {
-            definition,
-            cause,
-        });
-
-        assert_eq!(
-            error,
-            CodegenPreparationError::InvalidCompilerProvidedMir { definition, cause }
-        );
-
-        assert_eq!(
-            CodegenPreparationError::from(SyntheticLoweringError::LifecycleMir(cause)),
-            CodegenPreparationError::InvalidGeneratedLifecycleMir(cause)
-        );
+    fn synthetic_capacity_failures_render_product_context() {
+        let error = CodegenPreparationError::from(SyntheticLoweringError::Capacity(
+            MirCapacityError::IdentityCapacityExceeded,
+        ));
 
         let failure = codegen_preparation_failure_kind(&error).unwrap();
 
@@ -136,9 +106,7 @@ mod tests {
         assert!(rendered.message().contains("application"));
         assert!(rendered.message().contains("internal compiler error"));
 
-        for forbidden in ["MIR", "SourceOriginMismatch", "lowering", "terminator"] {
-            assert!(!rendered.message().contains(forbidden));
-        }
+        assert!(rendered.message().contains("identity capacity"));
     }
 
     #[test]

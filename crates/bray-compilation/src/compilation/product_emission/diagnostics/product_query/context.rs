@@ -151,12 +151,6 @@ pub(super) fn product_query_context(context: &ProductQueryContext) -> Vec<Diagno
 
             "operation"
         }
-        Context::MirOperation { source, operation } => {
-            fields.push(identity_field("mir_source", source));
-            push_mir_operation_identity(&mut fields, *operation);
-
-            "mir_operation"
-        }
         Context::CallableDefinition(definition) => {
             push_symbol(
                 &mut fields,

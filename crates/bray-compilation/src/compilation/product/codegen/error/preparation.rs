@@ -6,9 +6,7 @@ use bray_diagnostics::{
     DiagnosticNativeProductFailureKind,
 };
 
-use super::context::{
-    count_failure_field, failure_detail, identity_failure_detail, text_failure_field,
-};
+use super::context::{failure_detail, identity_failure_detail, text_failure_field};
 use super::query::fact_query_failure_kind;
 
 pub(in crate::compilation) fn codegen_preparation_failure_kind(
@@ -53,15 +51,7 @@ pub(in crate::compilation) fn codegen_preparation_failure_kind(
                 unit,
             )],
         )),
-        CodegenPreparationError::InvalidHostMir(cause) => {
-            Kind::CodegenInvalidHostMir(mir_unit_failure_detail("codegen_invalid_host_mir", *cause))
-        }
-        CodegenPreparationError::InvalidGeneratedLifecycleMir(cause) => {
-            Kind::CodegenInvalidLifecycleMir(mir_unit_failure_detail(
-                "codegen_invalid_lifecycle_mir",
-                *cause,
-            ))
-        }
+        CodegenPreparationError::MirCapacity(_) => Kind::CodegenMirCapacityExceeded,
         CodegenPreparationError::InvalidMappings(cause) => {
             let fields = match cause {
                 bray_codegen::CodegenMappingsBuildError::DuplicateBinarySymbolName { name } => {
@@ -71,16 +61,6 @@ pub(in crate::compilation) fn codegen_preparation_failure_kind(
             };
 
             Kind::CodegenInvalidMappings(failure_detail(codegen_mappings_failure(cause), fields))
-        }
-        CodegenPreparationError::InvalidCompilerProvidedMir { definition, cause } => {
-            let detail = mir_unit_failure_detail("codegen_invalid_compiler_provided_mir", *cause);
-            let mut context = detail.context().to_vec();
-
-            context.push(crate::fact::diagnostic_context::identity_field(
-                "callable", definition,
-            ));
-
-            Kind::CodegenInvalidCompilerProvidedMir(failure_detail(detail.reason(), context))
         }
         CodegenPreparationError::MissingRuntimeRole(role) => {
             Kind::CodegenMissingRuntimeRole(failure_detail(
@@ -131,7 +111,6 @@ pub(in crate::compilation) fn codegen_preparation_failure_kind(
         CodegenPreparationError::Query(error) => fact_query_failure_kind(error)?,
     })
 }
-
 const fn codegen_request_failure(error: bray_codegen::CodegenRequestBuildError) -> &'static str {
     use bray_codegen::CodegenRequestBuildError as Error;
 
@@ -268,72 +247,4 @@ fn runtime_role_signature_failure_detail(
             crate::fact::diagnostic_context::identity_field("actual_result", actual.result()),
         ],
     )
-}
-
-pub(super) fn mir_unit_failure_detail(
-    reason: &'static str,
-    error: bray_ir::MirUnitBuildError,
-) -> DiagnosticNativeProductFailureDetail {
-    use bray_diagnostics::DiagnosticMirUnitBuildFailureContext as Context;
-
-    let failure = crate::compilation::lowering_diagnostic::mir_unit_failure(&error);
-    let mut context = vec![text_failure_field("cause", failure.as_str())];
-
-    match failure.context() {
-        Context::None => {}
-        Context::UnitMismatch { expected, actual } => {
-            context.push(count_failure_field("expected_unit", expected));
-            context.push(count_failure_field("actual_unit", actual));
-        }
-        Context::Operation(identity) => {
-            push_mir_local_identity(&mut context, "operation", identity)
-        }
-        Context::Storage(identity) => {
-            push_mir_local_identity(&mut context, "storage", identity);
-        }
-        Context::Value(identity) => {
-            push_mir_local_identity(&mut context, "value", identity);
-        }
-        Context::Block(identity) => {
-            push_mir_local_identity(&mut context, "block", identity);
-        }
-        Context::CleanupTarget { phase, target } => {
-            context.push(text_failure_field("cleanup_phase", phase));
-
-            push_mir_local_identity(&mut context, "target_block", target);
-        }
-        Context::RuntimeRoleMismatch { expected, actual } => {
-            context.push(text_failure_field("expected_role", expected));
-            context.push(text_failure_field("actual_role", actual));
-        }
-    }
-
-    failure_detail(reason, context)
-}
-
-fn push_mir_local_identity(
-    context: &mut Vec<DiagnosticFailureField>,
-    prefix: &'static str,
-    identity: bray_diagnostics::DiagnosticMirUnitLocalIdentity,
-) {
-    let unit_name = match prefix {
-        "operation" => "operation_unit",
-        "storage" => "storage_unit",
-        "value" => "value_unit",
-        "block" => "block_unit",
-        "target_block" => "target_block_unit",
-        _ => "mir_unit",
-    };
-
-    let slot_name = match prefix {
-        "operation" => "operation_slot",
-        "storage" => "storage_slot",
-        "value" => "value_slot",
-        "block" => "block_slot",
-        "target_block" => "target_block_slot",
-        _ => "mir_slot",
-    };
-
-    context.push(count_failure_field(unit_name, identity.unit()));
-    context.push(count_failure_field(slot_name, identity.slot()));
 }

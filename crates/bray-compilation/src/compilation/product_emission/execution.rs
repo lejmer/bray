@@ -1217,13 +1217,11 @@ mod tests {
             .push_block(source.clone(), MirBlockKind::Ordinary)
             .unwrap_or_else(|error| panic!("test frame block must be valid: {error:?}"));
 
-        builder
-            .set_terminator(entry, source, MirTerminatorKind::Return(None))
-            .unwrap_or_else(|error| panic!("test frame terminator must be valid: {error:?}"));
+        builder.set_terminator(entry, source, MirTerminatorKind::Return(None));
 
         let state = MirFrameState::new(MirFrameStateId::new(0), entry, [], []);
 
-        let descriptor = MirFrameDescriptor::try_new(
+        let descriptor = MirFrameDescriptor::new(
             frame,
             RuntimeAbiVersion::new(1, 0),
             ProtectedFrameAbiVersions::uniform(RuntimeAbiVersion::new(1, 0)),
@@ -1232,13 +1230,9 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("test frame descriptor must be valid: {error:?}"));
 
-        builder
-            .set_frame_descriptor(descriptor)
-            .unwrap_or_else(|error| panic!("test frame descriptor must commit: {error:?}"));
+        builder.set_frame_descriptor(descriptor);
 
-        builder
-            .finish(entry)
-            .unwrap_or_else(|error| panic!("test frame MIR must be valid: {error:?}"))
+        builder.finish(entry)
     }
 
     fn async_plan(

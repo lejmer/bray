@@ -96,35 +96,17 @@ fn bitcode_target_contract_preserves_backend_failure_leaf_and_report() {
 }
 
 #[test]
-fn codegen_preparation_preserves_nested_mir_leaf_and_identities() {
+fn codegen_preparation_reports_mir_capacity() {
     let failure = codegen_preparation_failure_kind(
-        &crate::compilation::CodegenPreparationError::InvalidHostMir(
-            bray_ir::MirUnitBuildError::ForeignBlock {
-                expected: bray_ir::MirUnitId::new(17),
-                actual: bray_ir::MirUnitId::new(29),
-            },
+        &crate::compilation::CodegenPreparationError::MirCapacity(
+            bray_ir::MirCapacityError::IdentityCapacityExceeded,
         ),
     )
     .unwrap_or_else(|| panic!("codegen preparation failure must diagnose"));
 
-    let DiagnosticNativeProductFailureKind::CodegenInvalidHostMir(detail) = failure else {
-        panic!("host MIR failure must retain its exact diagnostic category");
+    let DiagnosticNativeProductFailureKind::CodegenMirCapacityExceeded = failure else {
+        panic!("MIR capacity failure must retain its diagnostic category");
     };
-
-    assert!(matches!(
-        detail.context()[0].value(),
-        DiagnosticFailureValue::Text(cause) if cause == "executable_code_foreign_path"
-    ));
-
-    assert!(matches!(
-        detail.context()[1].value(),
-        DiagnosticFailureValue::Count(17)
-    ));
-
-    assert!(matches!(
-        detail.context()[2].value(),
-        DiagnosticFailureValue::Count(29)
-    ));
 }
 
 #[test]
@@ -175,15 +157,11 @@ fn native_product_evaluation_failures_preserve_specific_reasons() {
         ),
         (
             FactQueryError::Lowering(LocatedLoweringFailure::new(
-                LoweringError::InvalidFrameDescriptor(
-                    bray_ir::MirFrameDescriptorBuildError::MissingState,
-                ),
+                LoweringError::MirCapacity(bray_ir::MirCapacityError::IdentityCapacityExceeded),
                 source,
             )),
             Kind::EvaluationLowering(DiagnosticLoweringFailure::new(
-                DiagnosticLoweringFailureKind::InvalidFrameDescriptor(
-                    bray_diagnostics::DiagnosticFrameDescriptorFailure::MissingState,
-                ),
+                DiagnosticLoweringFailureKind::MirCapacity,
                 source,
             )),
         ),

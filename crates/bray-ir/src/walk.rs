@@ -467,13 +467,8 @@ mod tests {
             panic!("test MIR block must be valid");
         };
 
-        let Ok(()) = builder.set_terminator(entry, source, MirTerminatorKind::Return(None)) else {
-            panic!("test MIR terminator must be valid");
-        };
+        builder.set_terminator(entry, source, MirTerminatorKind::Return(None));
 
-        match builder.finish(entry) {
-            Ok(unit) => unit,
-            Err(error) => panic!("test MIR unit must be valid: {error:?}"),
-        }
+        builder.finish(entry)
     }
 }

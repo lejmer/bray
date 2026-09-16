@@ -1,8 +1,8 @@
 use bray_bound_tree::BoundCallResult;
 use bray_ir::{
     MirAsyncOperation, MirCall, MirCallTarget, MirCallableReference, MirFrameInitializer,
-    MirFrameReference, MirOperand, MirOperationCommit, MirOperationKind, MirPlace,
-    MirUnitBuildError, MirValueId,
+    MirCapacityError, MirFrameReference, MirOperand, MirOperationCommit, MirOperationKind,
+    MirPlace, MirValueId,
 };
 use bray_symbols::{BorrowKind, TypeId};
 
@@ -17,8 +17,8 @@ pub(crate) fn lower_lifecycle_call(
     mut emit: impl FnMut(
         MirOperationKind,
         Option<TypeId>,
-    ) -> Result<MirOperationCommit, MirUnitBuildError>,
-) -> Result<MirValueId, MirUnitBuildError> {
+    ) -> Result<MirOperationCommit, MirCapacityError>,
+) -> Result<MirValueId, MirCapacityError> {
     let receiver =
         match borrow {
             Some(kind) => {
@@ -27,9 +27,11 @@ pub(crate) fn lower_lifecycle_call(
                     Some(receiver_type),
                 )?;
 
-                MirOperand::Value(commit.result().ok_or(
-                    MirUnitBuildError::MissingOperationResult(commit.operation()),
-                )?)
+                MirOperand::Value(
+                    commit
+                        .result()
+                        .expect("value-producing MIR operation must publish a result"),
+                )
             }
             None => MirOperand::Move(place),
         };
@@ -46,9 +48,7 @@ pub(crate) fn lower_lifecycle_call(
 
     let commit = emit(operation, Some(result.ty()))?;
 
-    commit
+    Ok(commit
         .result()
-        .ok_or(MirUnitBuildError::MissingOperationResult(
-            commit.operation(),
-        ))
+        .expect("value-producing MIR operation must publish a result"))
 }

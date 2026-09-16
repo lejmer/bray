@@ -18,7 +18,6 @@ pub(in crate::output::diagnostic::json) fn lowering_failure_context(
 
             context
         }
-        Failure::Mir(failure) => mir_unit_failure_context(failure),
         Failure::UnsupportedRoot(root) => lowering_root_context(failure.as_str(), root),
         Failure::MissingSourceNode { kind, identity }
         | Failure::RecoveredSourceNode { kind, identity } => {
@@ -81,13 +80,6 @@ pub(in crate::output::diagnostic::json) fn lowering_failure_context(
             text_field("cause", failure.as_str()),
             text_field("representation_role", role),
         ],
-        Failure::InvalidFrameDescriptor(problem) => vec![
-            text_field("cause", failure.as_str()),
-            text_field(
-                "frame_descriptor_problem",
-                frame_descriptor_failure(problem),
-            ),
-        ],
         Failure::MemoryArgumentOrdinalUnrepresentable {
             expression,
             ordinal,
@@ -108,25 +100,13 @@ pub(in crate::output::diagnostic::json) fn lowering_failure_context(
 
             context
         }
-        Failure::MissingCallableResultType | Failure::SemanticValueUnavailable => {
+        Failure::MissingCallableResultType
+        | Failure::SemanticValueUnavailable
+        | Failure::MirCapacity => {
             vec![text_field("cause", failure.as_str())]
         }
     }
 }
-
-const fn frame_descriptor_failure(
-    failure: bray_diagnostics::DiagnosticFrameDescriptorFailure,
-) -> &'static str {
-    use bray_diagnostics::DiagnosticFrameDescriptorFailure as Failure;
-
-    match failure {
-        Failure::MissingState => "missing_state",
-        Failure::NonContiguousState => "non_contiguous_state",
-        Failure::DuplicateStateOrEntry => "duplicate_state_or_entry",
-        Failure::IdentityCapacityExceeded => "identity_capacity_exceeded",
-    }
-}
-
 fn lowering_identity_context(
     cause: &'static str,
     name: &'static str,
@@ -205,43 +185,4 @@ const fn source_construct_kind(
         bray_diagnostics::DiagnosticSourceConstructKind::Block => "block",
         bray_diagnostics::DiagnosticSourceConstructKind::CallableBody => "callable_body",
     }
-}
-
-fn mir_unit_failure_context(
-    failure: bray_diagnostics::DiagnosticMirUnitBuildFailure,
-) -> Vec<DiagnosticEmissionFieldJson> {
-    use bray_diagnostics::DiagnosticMirUnitBuildFailureContext as Context;
-
-    let mut context = vec![text_field("cause", failure.as_str())];
-
-    match failure.context() {
-        Context::None => {}
-        Context::UnitMismatch { expected, actual } => {
-            context.push(count_u64_field("expected_unit", u64::from(expected)));
-            context.push(count_u64_field("actual_unit", u64::from(actual)));
-        }
-        Context::Block(identity) => push_mir_identity(&mut context, "block", identity),
-        Context::Operation(identity) => push_mir_identity(&mut context, "operation", identity),
-        Context::Storage(identity) => push_mir_identity(&mut context, "storage", identity),
-        Context::Value(identity) => push_mir_identity(&mut context, "value", identity),
-        Context::CleanupTarget { phase, target } => {
-            context.push(text_field("cleanup_phase", phase));
-            push_mir_identity(&mut context, "target_block", target);
-        }
-        Context::RuntimeRoleMismatch { expected, actual } => {
-            context.push(text_field("expected_runtime_role", expected));
-            context.push(text_field("actual_runtime_role", actual));
-        }
-    }
-
-    context
-}
-
-fn push_mir_identity(
-    context: &mut Vec<DiagnosticEmissionFieldJson>,
-    name: &'static str,
-    identity: bray_diagnostics::DiagnosticMirUnitLocalIdentity,
-) {
-    context.push(count_u64_field("mir_unit", u64::from(identity.unit())));
-    context.push(count_u64_field(name, u64::from(identity.slot())));
 }

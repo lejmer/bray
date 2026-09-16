@@ -1,7 +1,7 @@
 use bray_bound_tree::BoundUnitKey;
 use bray_ir::{
     MirBlockKind, MirHostOperation, MirOperationKind, MirRuntimeReference, MirSourceAnchor,
-    MirTargetContract, MirTerminatorKind, MirUnit, MirUnitBuildError, MirUnitBuilder, MirUnitId,
+    MirCapacityError, MirTargetContract, MirTerminatorKind, MirUnit, MirUnitBuilder, MirUnitId,
 };
 use bray_runtime_interface::{ExecutableHostContract, ExecutableHostEntryId, RuntimeAbiRole};
 
@@ -63,7 +63,7 @@ impl ExecutableHostLoweringInput {
 /// Lowers one validated product host contract into explicit executable-host MIR.
 pub fn lower_executable_host(
     input: ExecutableHostLoweringInput,
-) -> Result<MirUnit, MirUnitBuildError> {
+) -> Result<MirUnit, MirCapacityError> {
     let ExecutableHostLoweringInput {
         unit,
         roots,
@@ -76,9 +76,11 @@ pub fn lower_executable_host(
     let source = MirSourceAnchor::executable_host(contract.product().clone());
     let runtime_abi = target.runtime_abi();
 
-    if roots.len() != contract.entries().len() {
-        return Err(MirUnitBuildError::InvalidHostSequence);
-    }
+    assert_eq!(
+        roots.len(),
+        contract.entries().len(),
+        "host roots must match the executable-host contract"
+    );
 
     // The finished MIR owns the contract while lowering still reads each entry below.
     let mut builder = MirUnitBuilder::for_executable_host(unit, contract.clone(), target);
@@ -106,7 +108,7 @@ pub fn lower_executable_host(
         roots.into_iter().zip(contract.entries().iter()).enumerate()
     {
         let entry_index = ExecutableHostEntryId::new(
-            u32::try_from(index).map_err(|_| MirUnitBuildError::InvalidHostSequence)?,
+            u32::try_from(index).map_err(|_| MirCapacityError::IdentityCapacityExceeded)?,
         );
 
         let execution = contract_entry.root();
@@ -201,9 +203,9 @@ pub fn lower_executable_host(
         None,
     )?;
 
-    builder.set_terminator(entry, source, MirTerminatorKind::Return(None))?;
+    builder.set_terminator(entry, source, MirTerminatorKind::Return(None));
 
-    builder.finish(entry)
+    Ok(builder.finish(entry))
 }
 
 const fn runtime_reference(
@@ -217,7 +219,7 @@ const fn runtime_reference(
 mod tests {
     use bray_ir::{
         MirBlockKind, MirHostOperation, MirOperationKind, MirSourceAnchor, MirTerminatorKind,
-        MirUnitBuildError, MirUnitBuilder, MirUnitId, MirUnitKey, MirUnitKind,
+        MirUnitBuilder, MirUnitId, MirUnitKey, MirUnitKind,
     };
     use bray_runtime_interface::{
         ExecutableEntryResult, ExecutableHostEntryId, RootExecution, RuntimeAbiRole,
@@ -422,13 +424,8 @@ mod tests {
                 .unwrap_or_else(|error| panic!("host operation must be valid: {error:?}"));
         }
 
-        builder
-            .set_terminator(entry, source, MirTerminatorKind::Return(None))
-            .unwrap_or_else(|error| panic!("host return must be valid: {error:?}"));
+        builder.set_terminator(entry, source, MirTerminatorKind::Return(None));
 
-        assert_eq!(
-            builder.finish(entry),
-            Err(MirUnitBuildError::InvalidHostSequence)
-        );
+        assert!(!builder.finish(entry).is_valid());
     }
 }

@@ -113,8 +113,8 @@ pub enum DiagnosticLoweringFailureKind {
     GenericSubstitution(crate::DiagnosticGenericSubstitutionFailure),
     /// A semantic value could not cross the lowering boundary.
     SemanticValue(crate::DiagnosticSemanticValueFailure),
-    /// Protected-frame metadata violates the lowering contract.
-    InvalidFrameDescriptor(DiagnosticFrameDescriptorFailure),
+    /// A MIR identity table exceeded its compact representation.
+    MirCapacity,
     /// A selected memory argument ordinal cannot index the host collection.
     MemoryArgumentOrdinalUnrepresentable {
         expression: DiagnosticLoweringIdentity,
@@ -125,8 +125,6 @@ pub enum DiagnosticLoweringFailureKind {
         expression: DiagnosticLoweringIdentity,
         ordinal: usize,
     },
-    /// MIR construction rejected the lowered unit.
-    Mir(DiagnosticMirUnitBuildFailure),
 }
 
 impl DiagnosticLoweringFailureKind {
@@ -150,9 +148,7 @@ impl DiagnosticLoweringFailureKind {
             Self::UnsupportedPattern(_) => "code_production_pattern_unsupported",
             Self::UnsupportedOperator { .. } => "code_production_operator_unsupported",
             Self::MissingStorageAccess(_) => "code_production_value_access_unavailable",
-            Self::MissingStorageAccessRecord(_) => {
-                "code_production_value_access_record_unavailable"
-            }
+            Self::MissingStorageAccessRecord(_) => "code_production_value_access_record_unavailable",
             Self::MissingStorageIdentity(_) => "code_production_accessed_value_unavailable",
             Self::MissingStorageIdentityRecord(_) => "code_production_value_record_unavailable",
             Self::MissingIterationStorage(_) => "code_production_iteration_state_unavailable",
@@ -162,25 +158,15 @@ impl DiagnosticLoweringFailureKind {
             Self::SemanticValueUnavailable => "code_production_type_or_constant_unavailable",
             Self::GenericSubstitution(_) => "code_production_generic_substitution_invalid",
             Self::SemanticValue(failure) => failure.as_str(),
-            Self::InvalidFrameDescriptor(_) => "code_production_resumable_state_conflict",
+            Self::MirCapacity => "code_production_mir_capacity_exceeded",
             Self::MemoryArgumentOrdinalUnrepresentable { .. } => {
                 "code_production_memory_argument_ordinal_unrepresentable"
             }
             Self::MatchArmOrdinalUnrepresentable { .. } => {
                 "code_production_match_arm_ordinal_unrepresentable"
             }
-            Self::Mir(failure) => failure.as_str(),
         }
     }
-}
-
-/// Exact protected-frame descriptor failure retained across compiler boundaries.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum DiagnosticFrameDescriptorFailure {
-    MissingState,
-    NonContiguousState,
-    DuplicateStateOrEntry,
-    IdentityCapacityExceeded,
 }
 
 /// The Bray syntax category associated with a compiler-owned source-node failure.
@@ -261,237 +247,4 @@ pub enum DiagnosticLoweringRoot {
     Expression(DiagnosticLoweringIdentity),
     /// A declaration-owned expression-sequence root.
     ExpressionSequence(DiagnosticLoweringIdentity),
-}
-
-/// Exact executable-code construction failure retained through lowering diagnostics.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct DiagnosticMirUnitBuildFailure {
-    kind: DiagnosticMirUnitBuildFailureKind,
-    context: DiagnosticMirUnitBuildFailureContext,
-}
-
-impl DiagnosticMirUnitBuildFailure {
-    /// Creates one MIR construction failure from its leaf category and exact typed context.
-    pub const fn new(
-        kind: DiagnosticMirUnitBuildFailureKind,
-        context: DiagnosticMirUnitBuildFailureContext,
-    ) -> Self {
-        Self { kind, context }
-    }
-
-    /// Returns the exact failure category.
-    pub const fn kind(self) -> DiagnosticMirUnitBuildFailureKind {
-        self.kind
-    }
-
-    /// Returns the exact identities or contract values retained by the failure.
-    pub const fn context(self) -> DiagnosticMirUnitBuildFailureContext {
-        self.context
-    }
-
-    /// Returns the stable machine key for this MIR construction failure.
-    pub const fn as_str(self) -> &'static str {
-        self.kind.as_str()
-    }
-}
-
-/// Stable MIR identity local to one compilation unit.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct DiagnosticMirUnitLocalIdentity {
-    unit: u32,
-    slot: u32,
-}
-
-impl DiagnosticMirUnitLocalIdentity {
-    /// Creates a unit-local MIR identity.
-    pub const fn new(unit: u32, slot: u32) -> Self {
-        Self { unit, slot }
-    }
-
-    /// Returns the compilation-local MIR unit identity.
-    pub const fn unit(self) -> u32 {
-        self.unit
-    }
-
-    /// Returns the unit-local MIR arena slot.
-    pub const fn slot(self) -> u32 {
-        self.slot
-    }
-}
-
-/// Exact payload retained by one MIR construction failure.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum DiagnosticMirUnitBuildFailureContext {
-    /// The failure carries no additional payload.
-    None,
-    /// The failure crossed MIR unit boundaries.
-    UnitMismatch {
-        /// The expected MIR unit identity.
-        expected: u32,
-        /// The actual MIR unit identity.
-        actual: u32,
-    },
-    /// The affected MIR block.
-    Block(DiagnosticMirUnitLocalIdentity),
-    /// The affected MIR operation.
-    Operation(DiagnosticMirUnitLocalIdentity),
-    /// The affected MIR storage identity.
-    Storage(DiagnosticMirUnitLocalIdentity),
-    /// The affected MIR value.
-    Value(DiagnosticMirUnitLocalIdentity),
-    /// A cleanup phase and the block selected as its target.
-    CleanupTarget {
-        /// The cleanup phase.
-        phase: &'static str,
-        /// The selected cleanup target block.
-        target: DiagnosticMirUnitLocalIdentity,
-    },
-    /// The expected and actual runtime ABI roles.
-    RuntimeRoleMismatch {
-        /// The required runtime ABI role.
-        expected: &'static str,
-        /// The supplied runtime ABI role.
-        actual: &'static str,
-    },
-}
-
-/// Stable leaf category for one MIR construction failure.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum DiagnosticMirUnitBuildFailureKind {
-    /// The MIR source origin disagrees with the unit identity.
-    SourceOriginMismatch,
-    /// A unit-local identity could not fit the compact representation.
-    IdentityCapacityExceeded,
-    /// A block belongs to another MIR unit.
-    ForeignBlock,
-    /// An operation belongs to another MIR unit.
-    ForeignOperation,
-    /// A storage identity belongs to another MIR unit.
-    ForeignStorage,
-    /// A value belongs to another MIR unit.
-    ForeignValue,
-    /// A referenced block is absent.
-    MissingBlock,
-    /// A referenced operation is absent.
-    MissingOperation,
-    /// An operation did not publish its required result.
-    MissingOperationResult,
-    /// An operation published a result when none is permitted.
-    UnexpectedOperationResult,
-    /// An operation result has the wrong type.
-    OperationResultTypeMismatch,
-    /// An aggregate operation violates its type contract.
-    InvalidAggregateOperation,
-    /// A memory operation violates its storage contract.
-    InvalidMemoryOperation,
-    /// An anonymous-callable operation violates its callable contract.
-    InvalidAnonymousCallable,
-    /// A construction operation has incompatible inputs.
-    InvalidConstructionInput,
-    /// A call operation violates its callable contract.
-    InvalidCall,
-    /// A host operation violates its lifecycle contract.
-    InvalidHostOperation,
-    /// Host operations are not in the required lifecycle order.
-    InvalidHostSequence,
-    /// A referenced storage identity is absent.
-    MissingStorage,
-    /// A referenced value is absent.
-    MissingValue,
-    /// A block has more than one terminator.
-    DuplicateTerminator,
-    /// A block has no terminator.
-    MissingTerminator,
-    /// Inline assembly uses an invalid terminator shape.
-    InvalidInlineAssemblyTerminator,
-    /// A suspension terminator has an invalid payload.
-    InvalidSuspensionPayload,
-    /// A call terminator has an invalid panic check.
-    InvalidCallPanicCheck,
-    /// A control-flow edge has the wrong argument count.
-    EdgeArgumentCountMismatch,
-    /// A control-flow edge has incompatible argument types.
-    EdgeArgumentTypeMismatch,
-    /// A switch contains a duplicate case.
-    DuplicateSwitchCase,
-    /// A cleanup edge targets a block for another phase.
-    CleanupTargetMismatch,
-    /// Cleanup phases occur in an invalid order.
-    CleanupPhaseOrderViolation,
-    /// A runtime reference uses the wrong ABI role.
-    RuntimeRoleMismatch,
-    /// A runtime reference uses an incompatible ABI version.
-    RuntimeAbiVersionMismatch,
-    /// An operation was inserted into the wrong block.
-    InvalidOperationBlock,
-    /// A storage identity has an incompatible storage kind.
-    StorageKindMismatch,
-    /// A storage identity has an incompatible type.
-    StorageTypeMismatch,
-    /// A value does not dominate one of its uses.
-    ValueDoesNotDominateUse,
-    /// Protected-frame metadata disagrees with the unit contract.
-    ProtectedFrameMismatch,
-    /// A protected unit has no frame descriptor.
-    MissingFrameDescriptor,
-    /// A protected unit has more than one frame descriptor.
-    DuplicateFrameDescriptor,
-    /// An ordinary unit unexpectedly has a frame descriptor.
-    UnexpectedFrameDescriptor,
-    /// A frame-state entry references an invalid block.
-    InvalidFrameStateEntry,
-    /// A required protected-frame state is absent.
-    MissingFrameState,
-}
-
-impl DiagnosticMirUnitBuildFailureKind {
-    /// Returns the stable machine key for this MIR construction category.
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::SourceOriginMismatch => "executable_code_source_declaration_mismatch",
-            Self::IdentityCapacityExceeded => "executable_code_capacity_exceeded",
-            Self::ForeignBlock => "executable_code_foreign_path",
-            Self::ForeignOperation => "executable_code_foreign_instruction",
-            Self::ForeignStorage => "executable_code_foreign_memory",
-            Self::ForeignValue => "executable_code_foreign_value",
-            Self::MissingBlock => "executable_code_missing_path",
-            Self::MissingOperation => "executable_code_missing_instruction",
-            Self::MissingOperationResult => "executable_code_missing_instruction_value",
-            Self::UnexpectedOperationResult => "executable_code_unexpected_value",
-            Self::OperationResultTypeMismatch => "executable_code_value_type_mismatch",
-            Self::InvalidAggregateOperation => "executable_code_aggregate_value_mismatch",
-            Self::InvalidMemoryOperation => "executable_code_value_access_mismatch",
-            Self::InvalidAnonymousCallable => "executable_code_invalid_anonymous_callable",
-            Self::InvalidConstructionInput => "executable_code_construction_value_mismatch",
-            Self::InvalidCall => "executable_code_invalid_call",
-            Self::InvalidHostOperation => "executable_code_program_lifecycle_mismatch",
-            Self::InvalidHostSequence => "executable_code_program_shutdown_order",
-            Self::MissingStorage => "executable_code_missing_memory",
-            Self::MissingValue => "executable_code_missing_value",
-            Self::DuplicateTerminator => "executable_code_multiple_path_outcomes",
-            Self::MissingTerminator => "executable_code_missing_path_outcome",
-            Self::InvalidInlineAssemblyTerminator => {
-                "executable_code_inline_assembly_branch_mismatch"
-            }
-            Self::InvalidSuspensionPayload => "executable_code_suspension_value_mismatch",
-            Self::InvalidCallPanicCheck => "executable_code_call_panic_handling_mismatch",
-            Self::EdgeArgumentCountMismatch => "executable_code_path_value_count_mismatch",
-            Self::EdgeArgumentTypeMismatch => "executable_code_path_value_type_mismatch",
-            Self::DuplicateSwitchCase => "executable_code_duplicate_branch_case",
-            Self::CleanupTargetMismatch => "executable_code_cleanup_stage_mismatch",
-            Self::CleanupPhaseOrderViolation => "executable_code_cleanup_order",
-            Self::RuntimeRoleMismatch => "executable_code_runtime_service_mismatch",
-            Self::RuntimeAbiVersionMismatch => "executable_code_runtime_interface_mismatch",
-            Self::InvalidOperationBlock => "executable_code_instruction_path_mismatch",
-            Self::StorageKindMismatch => "executable_code_ownership_role_mismatch",
-            Self::StorageTypeMismatch => "executable_code_value_access_type_mismatch",
-            Self::ValueDoesNotDominateUse => "executable_code_value_used_before_production",
-            Self::ProtectedFrameMismatch => "executable_code_async_callable_state_mismatch",
-            Self::MissingFrameDescriptor => "executable_code_missing_resumable_state_layout",
-            Self::DuplicateFrameDescriptor => "executable_code_conflicting_resumable_state_layouts",
-            Self::UnexpectedFrameDescriptor => "executable_code_unexpected_resumable_state_layout",
-            Self::InvalidFrameStateEntry => "executable_code_invalid_resume_point",
-            Self::MissingFrameState => "executable_code_missing_resume_point",
-        }
-    }
 }

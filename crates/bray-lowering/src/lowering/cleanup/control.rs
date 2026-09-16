@@ -438,7 +438,7 @@ impl Lowerer<'_> {
             -> Result<(MirBlockId, Option<(bray_ir::MirValueId, TypeId)>), LoweringError>,
     ) -> Result<(MirBlockId, Option<(bray_ir::MirValueId, TypeId)>), LoweringError> {
         if let Some(guard) = guard {
-            let kind = self.builder.block_kind(block)?;
+            let kind = self.builder.block_kind(block);
 
             let perform = self
                 .builder

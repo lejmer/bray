@@ -485,8 +485,7 @@ fn lowering_failure_source(
         | LoweringError::SemanticValueUnavailable
         | LoweringError::GenericSubstitution(_)
         | LoweringError::SemanticValue(_)
-        | LoweringError::InvalidFrameDescriptor(_)
-        | LoweringError::Mir(_) => unit_source(unit),
+        | LoweringError::MirCapacity(_) => unit_source(unit),
         LoweringError::InvalidCleanupScopeDepth { exit, .. } => {
             node_source(unit, *exit).unwrap_or_else(|| unit_source(unit))
         }

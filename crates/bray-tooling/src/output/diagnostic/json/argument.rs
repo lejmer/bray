@@ -530,7 +530,6 @@ impl DiagnosticNativeProductFailureJson {
             | Kind::RuntimeSelectionArchiveDigestMismatch(detail)
             | Kind::PartitionMissingCompatibility(detail)
             | Kind::PartitionInvalidUnit(detail)
-            | Kind::GeneratedHostMirInvalid(detail)
             | Kind::ExecutableHostDuplicateRole(detail)
             | Kind::ExecutableHostRuntimeOwnedBinding(detail)
             | Kind::ExecutableHostIncompatibleRuntime(detail)
@@ -551,9 +550,6 @@ impl DiagnosticNativeProductFailureJson {
             | Kind::CodegenInvalidInstance(detail)
             | Kind::CodegenInvalidUnit(detail)
             | Kind::CodegenUnitMismatch(detail)
-            | Kind::CodegenInvalidHostMir(detail)
-            | Kind::CodegenInvalidLifecycleMir(detail)
-            | Kind::CodegenInvalidCompilerProvidedMir(detail)
             | Kind::CodegenInvalidMappings(detail)
             | Kind::CodegenMissingRuntimeRole(detail)
             | Kind::CodegenOpenConstantTerm(detail)
@@ -613,6 +609,7 @@ impl DiagnosticNativeProductFailureJson {
             | Kind::CodegenBackendGeneratedModuleInvariant
             | Kind::CodegenBackendUnavailable
             | Kind::CodegenMissingEntrypoint
+            | Kind::CodegenMirCapacityExceeded
             | Kind::CodegenInvalidAbiMapping(None)
             | Kind::CodegenInvalidSymbolName => Vec::new(),
         };

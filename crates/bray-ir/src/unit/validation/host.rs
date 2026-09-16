@@ -1,17 +1,16 @@
 use bray_bound_tree::BoundUnitKind;
 use bray_runtime_interface::RuntimeAbiRole;
 
-use crate::{MirHostOperation, MirOperationId, MirUnit, MirUnitBuildError};
+use crate::{MirHostOperation, MirUnit};
 
 use super::core::validate_runtime_role;
 
 pub(super) fn validate_host_operation(
     unit: &MirUnit,
-    operation: MirOperationId,
     host_operation: &MirHostOperation,
-) -> Result<(), MirUnitBuildError> {
+) -> Option<()> {
     let crate::MirUnitKind::ExecutableHost(host) = unit.kind() else {
-        return Err(MirUnitBuildError::InvalidHostOperation(operation));
+        return None;
     };
 
     match host_operation {
@@ -20,10 +19,10 @@ pub(super) fn validate_host_operation(
                 unit.storage(place.storage()).map(crate::MirStorage::kind),
                 Some(crate::MirStorageKind::Static(_))
             ) {
-                return Err(MirUnitBuildError::InvalidHostOperation(operation));
+                return None;
             }
 
-            Ok(())
+            Some(())
         }
         MirHostOperation::SelectTestEntry { entry, runtime } => {
             if host.entry(*entry).is_none()
@@ -31,7 +30,7 @@ pub(super) fn validate_host_operation(
                     .requirements()
                     .requires_role(RuntimeAbiRole::TestEntrySelection)
             {
-                return Err(MirUnitBuildError::InvalidHostOperation(operation));
+                return None;
             }
 
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::TestEntrySelection)
@@ -43,11 +42,11 @@ pub(super) fn validate_host_operation(
             runtime,
         } => {
             let Some(contract_entry) = host.entry(*entry) else {
-                return Err(MirUnitBuildError::InvalidHostOperation(operation));
+                return None;
             };
 
             if root.kind() != BoundUnitKind::CallableBody || *execution != contract_entry.root() {
-                return Err(MirUnitBuildError::InvalidHostOperation(operation));
+                return None;
             }
 
             let role = if *execution == bray_runtime_interface::RootExecution::Synchronous
@@ -64,7 +63,7 @@ pub(super) fn validate_host_operation(
         }
         MirHostOperation::ObserveRootTerminal { entry, runtime } => {
             if host.entry(*entry).is_none() {
-                return Err(MirUnitBuildError::InvalidHostOperation(operation));
+                return None;
             }
 
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::RootTerminalObservation)
@@ -77,7 +76,7 @@ pub(super) fn validate_host_operation(
             entry_failure,
         } => {
             let Some(contract_entry) = host.entry(*entry) else {
-                return Err(MirUnitBuildError::InvalidHostOperation(operation));
+                return None;
             };
 
             let expected_error = match contract_entry.result() {
@@ -89,7 +88,7 @@ pub(super) fn validate_host_operation(
             };
 
             if *error != expected_error {
-                return Err(MirUnitBuildError::InvalidHostOperation(operation));
+                return None;
             }
 
             validate_runtime_role(unit, *completion, RuntimeAbiRole::RootCompletionResolution)?;
@@ -97,7 +96,7 @@ pub(super) fn validate_host_operation(
 
             validate_runtime_role(unit, *entry_failure, RuntimeAbiRole::EntryFailureReporting)
         }
-        MirHostOperation::BeginStaticCleanup => Ok(()),
+        MirHostOperation::BeginStaticCleanup => Some(()),
         MirHostOperation::ReportCleanupIncidents { runtime } => {
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::CleanupIncidentReporting)
         }

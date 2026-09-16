@@ -141,7 +141,7 @@ impl Compilation {
                                     .map(ProductStaticHostEntry::lowering_entry),
                             ),
                         )
-                        .map_err(NativeProductPlanningError::InvalidHostMir)
+                        .map_err(NativeProductPlanningError::MirCapacity)
                     },
                 )?;
 

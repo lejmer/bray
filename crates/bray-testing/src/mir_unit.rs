@@ -44,13 +44,9 @@ pub fn test_mir_unit_with_declaration_for_target(
         panic!("test MIR block must be valid");
     };
 
-    let Ok(()) = builder.set_terminator(entry, source, MirTerminatorKind::Return(None)) else {
-        panic!("test MIR terminator must be valid");
-    };
+    builder.set_terminator(entry, source, MirTerminatorKind::Return(None));
 
-    let Ok(unit) = builder.finish(entry) else {
-        panic!("test MIR unit must be valid");
-    };
+    let unit = builder.finish(entry);
 
     unit
 }

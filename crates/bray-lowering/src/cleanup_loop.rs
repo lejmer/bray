@@ -1,6 +1,6 @@
 use bray_ir::{
     MirBinaryOperator, MirBlockId, MirEdge, MirOperand, MirOperationKind, MirPlace,
-    MirSourceAnchor, MirStorageKind, MirStoreKind, MirTerminatorKind, MirUnitBuildError,
+    MirCapacityError, MirSourceAnchor, MirStorageKind, MirStoreKind, MirTerminatorKind,
     MirUnitBuilder, MirValueId,
 };
 use bray_symbols::TypeId;
@@ -25,8 +25,8 @@ impl ReverseCleanupLoop {
         boolean: TypeId,
         constants: [MirOperand; 2],
         pending: Option<MirOperand>,
-    ) -> Result<Self, MirUnitBuildError> {
-        let integer = builder.operand_type(&length)?;
+    ) -> Result<Self, MirCapacityError> {
+        let integer = builder.operand_type(&length);
         let counter = builder.push_storage(source.clone(), MirStorageKind::Temporary, integer)?;
         let counter = MirPlace::new(counter, [], integer);
 
@@ -41,7 +41,7 @@ impl ReverseCleanupLoop {
             None,
         )?;
 
-        let kind = builder.block_kind(start)?;
+        let kind = builder.block_kind(start);
         let condition = builder.push_block(source.clone(), kind)?;
         let body = builder.push_block(source.clone(), kind)?;
         let continuation = builder.push_block(source.clone(), kind)?;
@@ -50,7 +50,7 @@ impl ReverseCleanupLoop {
             pending
                 .as_ref()
                 .map(|value| {
-                    let ty = builder.operand_type(value)?;
+                    let ty = builder.operand_type(value);
 
                     builder.push_block_parameter(block, source.clone(), ty)
                 })
@@ -65,7 +65,7 @@ impl ReverseCleanupLoop {
             start,
             source.clone(),
             MirTerminatorKind::Goto(MirEdge::new(condition, pending)),
-        )?;
+        );
 
         let [zero, one] = constants;
 
@@ -89,7 +89,7 @@ impl ReverseCleanupLoop {
                 then_edge: MirEdge::new(body, condition_value.map(MirOperand::Value)),
                 else_edge: MirEdge::new(continuation, condition_value.map(MirOperand::Value)),
             },
-        )?;
+        );
 
         let index = push_value(
             builder,
@@ -130,12 +130,14 @@ impl ReverseCleanupLoop {
         block: MirBlockId,
         source: &MirSourceAnchor,
         pending: Option<MirOperand>,
-    ) -> Result<(), MirUnitBuildError> {
+    ) -> Result<(), MirCapacityError> {
         builder.set_terminator(
             block,
             source.clone(),
             MirTerminatorKind::Goto(MirEdge::new(self.condition, pending)),
-        )
+        );
+
+        Ok(())
     }
 }
 
@@ -145,12 +147,14 @@ fn push_value(
     source: &MirSourceAnchor,
     kind: MirOperationKind,
     ty: TypeId,
-) -> Result<MirOperand, MirUnitBuildError> {
+) -> Result<MirOperand, MirCapacityError> {
     let operation = builder.push_operation(block, source.clone(), kind, Some(ty))?;
 
-    Ok(MirOperand::Value(operation.result().ok_or(
-        MirUnitBuildError::MissingOperationResult(operation.operation()),
-    )?))
+    Ok(MirOperand::Value(
+        operation
+            .result()
+            .expect("value-producing MIR operation must publish a result"),
+    ))
 }
 
 #[cfg(test)]
@@ -214,9 +218,9 @@ mod tests {
                             cleanup.continuation_value.map(MirOperand::Value),
                         ),
                     )
-                    .unwrap();
+                    ;
 
-                let unit = builder.finish(entry).unwrap();
+                let unit = builder.finish(entry);
 
                 let (visited, returned) = evaluate_loop(&unit, &values, &cleanup);
 

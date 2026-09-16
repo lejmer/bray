@@ -173,7 +173,7 @@ impl Lowerer<'_> {
 
                             block = continuation;
 
-                            let ty = self.builder.operand_type(&value)?;
+                            let ty = self.builder.operand_type(&value);
 
                             let value =
                                 self.materialize_owned_input(id, block, &source, value, ty)?;
@@ -235,7 +235,7 @@ impl Lowerer<'_> {
                             )?;
 
                             block = continued;
-                            let ty = self.builder.operand_type(&value)?;
+                            let ty = self.builder.operand_type(&value);
 
                             let value =
                                 self.materialize_owned_input(id, block, &source, value, ty)?;
@@ -310,7 +310,7 @@ impl Lowerer<'_> {
             let value = if self
                 .later_evaluation_may_change_block(expressions[index + 1..].iter().copied())?
             {
-                let ty = self.builder.operand_type(&value)?;
+                let ty = self.builder.operand_type(&value);
 
                 self.materialize_owned_input(*expression, current, &lowered.source, value, ty)?
             } else {

@@ -38,7 +38,6 @@ pub(super) const fn native_product_failure_is_internal(
         | Kind::UnitRecipeMismatch
         | Kind::PartitionMissingCompatibility(_)
         | Kind::PartitionInvalidUnit(_)
-        | Kind::GeneratedHostMirInvalid(_)
         | Kind::ExecutableHostDuplicateRole(_)
         | Kind::ExecutableHostMissingRuntime
         | Kind::ExecutableHostRuntimeOwnedBinding(_)
@@ -63,9 +62,7 @@ pub(super) const fn native_product_failure_is_internal(
         | Kind::CodegenInvalidInstance(_)
         | Kind::CodegenInvalidUnit(_)
         | Kind::CodegenUnitMismatch(_)
-        | Kind::CodegenInvalidHostMir(_)
-        | Kind::CodegenInvalidLifecycleMir(_)
-        | Kind::CodegenInvalidCompilerProvidedMir(_)
+        | Kind::CodegenMirCapacityExceeded
         | Kind::CodegenMissingCallableImplementation { .. }
         | Kind::CodegenInvalidMappings(_)
         | Kind::CodegenMissingRuntimeRole(_)

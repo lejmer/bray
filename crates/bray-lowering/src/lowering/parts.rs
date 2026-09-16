@@ -1,6 +1,6 @@
 use bray_ir::{
     MirBlockId, MirEdge, MirOperand, MirOperationKind, MirPatternPredicate, MirPlace,
-    MirProjectionKind, MirSourceAnchor, MirTerminatorKind, MirUnitBuildError, MirValueId,
+    MirProjectionKind, MirSourceAnchor, MirTerminatorKind, MirValueId,
 };
 use bray_symbols::{BorrowKind, TypeData, TypeId};
 
@@ -28,7 +28,7 @@ impl Lowerer<'_> {
 
             let matched = self.builder.push_block(
                 Self::retained_source(source),
-                self.builder.block_kind(block)?,
+                self.builder.block_kind(block),
             )?;
 
             let forwarded = value.map(|(value, ty)| (MirOperand::Value(value), ty));
@@ -56,9 +56,11 @@ impl Lowerer<'_> {
                     Some(ty),
                 )?;
 
-                MirOperand::Value(commit.result().ok_or(
-                    MirUnitBuildError::MissingOperationResult(commit.operation()),
-                )?)
+                MirOperand::Value(
+                    commit
+                        .result()
+                        .expect("value-producing MIR operation must publish a result"),
+                )
             } else {
                 MirOperand::Copy(subject)
             };

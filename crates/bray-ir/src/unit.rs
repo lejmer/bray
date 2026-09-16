@@ -5,7 +5,7 @@ mod model;
 mod validation;
 
 pub use builder::MirUnitBuilder;
-pub use error::MirUnitBuildError;
+pub use error::MirCapacityError;
 pub use kind::MirUnitKind;
 pub use model::{
     MirExecutableTemplateId, MirGeneratedLifecycleKey, MirGeneratedLifecycleRole,

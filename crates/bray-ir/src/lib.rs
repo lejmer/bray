@@ -31,7 +31,7 @@ pub use control::{
     MirTerminator, MirTerminatorKind,
 };
 pub use frame::{
-    MirFrameDescriptor, MirFrameDescriptorBuildError, MirFrameReference, MirFrameState,
+    MirFrameDescriptor, MirFrameReference, MirFrameState,
 };
 pub use helper::{MirHelperReference, MirStandardLibraryHelper};
 pub use id::{MirBlockId, MirFrameStateId, MirOperationId, MirStorageId, MirUnitId, MirValueId};
@@ -52,7 +52,7 @@ pub use storage::{MirPlace, MirProjection, MirProjectionKind, MirStorage, MirSto
 pub use target::MirTargetContract;
 pub use unit::{
     MirExecutableTemplateId, MirGeneratedLifecycleKey, MirGeneratedLifecycleRole,
-    MirImportedExecutableKey, MirUnit, MirUnitBuildError, MirUnitBuilder, MirUnitKey, MirUnitKind,
+    MirImportedExecutableKey, MirUnit, MirCapacityError, MirUnitBuilder, MirUnitKey, MirUnitKind,
 };
 pub use value::{MirImmediateValue, MirOperand, MirValue, MirValueOrigin};
 pub use walk::{MirVisitControl, MirVisitor, walk_mir_unit};

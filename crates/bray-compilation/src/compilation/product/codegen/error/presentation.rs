@@ -15,9 +15,7 @@ use super::backend::codegen_backend_failure_kind;
 use super::context::{failure_detail, identity_failure_detail, text_failure_field};
 use super::link_input::diagnostic_native_link_input_failure;
 use super::model::NativeProductPlanningError;
-use super::preparation::{
-    codegen_preparation_failure_kind, codegen_unit_preparation_failure, mir_unit_failure_detail,
-};
+use super::preparation::{codegen_preparation_failure_kind, codegen_unit_preparation_failure};
 use super::query::fact_query_failure_kind;
 use super::runtime_selection::runtime_selection_failure_kind;
 
@@ -114,9 +112,7 @@ pub(super) fn native_product_failure_kind(
                 failure_detail(codegen_unit_preparation_failure(*cause), []),
             ),
         },
-        NativeProductPlanningError::InvalidHostMir(cause) => Kind::GeneratedHostMirInvalid(
-            mir_unit_failure_detail("generated_host_mir_invalid", *cause),
-        ),
+        NativeProductPlanningError::MirCapacity(_) => Kind::CodegenMirCapacityExceeded,
         NativeProductPlanningError::InvalidExecutableHost(error) => match error {
             ExecutableHostContractBuildError::DuplicateRole(role) => {
                 Kind::ExecutableHostDuplicateRole(runtime_role_detail(

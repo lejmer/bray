@@ -14,7 +14,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
     ) -> Result<(), C::Error> {
         builder
             .push_operation(block, source.clone(), operation, None)
-            .map_err(|cause| self.mir_error(source, cause))?;
+            .map_err(|cause| self.capacity_error(cause))?;
 
         Ok(())
     }
@@ -40,7 +40,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
         let completed = outcome
             .check(builder, block, source)
-            .map_err(|cause| self.mir_error(source, cause))?;
+            .map_err(|cause| self.capacity_error(cause))?;
 
         self.finish_cleanup_outcome(builder, completed, source, &outcome)
     }
@@ -112,15 +112,6 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             true,
             |operation, result| builder.push_operation(block, source.clone(), operation, result),
         )
-        .map_err(|cause| match cause {
-            bray_ir::MirUnitBuildError::MissingOperationResult(operation) => {
-                SyntheticLoweringError::MissingOperationResult {
-                    source: source.clone(),
-                    operation,
-                }
-                .into()
-            }
-            cause => self.mir_error(source, cause),
-        })
+        .map_err(|cause| self.capacity_error(cause))
     }
 }

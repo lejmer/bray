@@ -177,7 +177,7 @@ impl<'unit> Lowerer<'unit> {
                 None => false,
             };
 
-            if required_result || !self.builder.is_reachable(entry, block)? {
+            if required_result || !self.builder.is_reachable(entry, block) {
                 self.set_terminator(block, completion.source, MirTerminatorKind::Unreachable)?;
             } else if self.input.unit_kind().protected_frame().is_some() {
                 let result_type = self
@@ -219,19 +219,18 @@ impl<'unit> Lowerer<'unit> {
 
             let runtime_abi = self.input.target().runtime_abi();
 
-            let descriptor = MirFrameDescriptor::try_new(
+            let descriptor = MirFrameDescriptor::new(
                 frame,
                 runtime_abi,
                 ProtectedFrameAbiVersions::uniform(runtime_abi),
                 result_type,
                 self.frame_states,
-            )
-            .map_err(LoweringError::InvalidFrameDescriptor)?;
+            )?;
 
-            self.builder.set_frame_descriptor(descriptor)?;
+            self.builder.set_frame_descriptor(descriptor);
         }
 
-        self.builder.finish(entry).map_err(Into::into)
+        Ok(self.builder.finish(entry))
     }
 
     pub(super) fn source(&self, origin: BoundNodeOrigin) -> MirSourceAnchor {
@@ -471,7 +470,7 @@ mod tests {
             .set_terminator(retained, source, MirTerminatorKind::Return(None))
             .unwrap();
 
-        let mir = lowerer.builder.finish(entry).unwrap();
+        let mir = lowerer.builder.finish(entry);
 
         let MirTerminatorKind::Branch {
             then_edge,

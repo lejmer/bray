@@ -34,7 +34,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             unit,
             builder.target().runtime_abi(),
         )
-        .map_err(|cause| self.mir_error(source, cause))
+        .map_err(|cause| self.capacity_error(cause))
     }
 
     pub(in crate::synthetic) fn resolve_lifecycle_sequence(
@@ -54,7 +54,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
         let block = outcome
             .resolve(builder, block, source, operations)
-            .map_err(|cause| self.mir_error(source, cause))?;
+            .map_err(|cause| self.capacity_error(cause))?;
 
         self.finish_cleanup_outcome(builder, block, source, &outcome)
     }
@@ -66,8 +66,8 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         source: &MirSourceAnchor,
         outcome: &CleanupOutcome,
     ) -> Result<MirBlockId, C::Error> {
-        let invalid = |cause| self.mir_error(source, cause);
-        let kind = builder.block_kind(block).map_err(invalid)?;
+        let invalid = |cause| self.capacity_error(cause);
+        let kind = builder.block_kind(block);
 
         // Each completion block independently retains generated-body provenance.
         let panicked = builder.push_block(source.clone(), kind).map_err(invalid)?;
@@ -111,8 +111,8 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         value: bray_ir::MirValueId,
         result: bray_symbols::TypeId,
     ) -> Result<(MirBlockId, bray_ir::MirValueId), C::Error> {
-        let invalid = |cause| self.mir_error(source, cause);
-        let kind = builder.block_kind(block).map_err(invalid)?;
+        let invalid = |cause| self.capacity_error(cause);
+        let kind = builder.block_kind(block);
 
         let report_type = self
             .context
@@ -132,17 +132,15 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
         let cancelled = builder.push_block(source.clone(), kind).map_err(invalid)?;
 
-        builder
-            .set_terminator(
-                block,
-                source.clone(),
-                MirTerminatorKind::CheckCallOutcome {
-                    completed: MirEdge::new(completed, [bray_ir::MirOperand::Value(value)]),
-                    panicked: bray_ir::MirCallPanicEdge::new(panicked, report_type),
-                    cancelled: MirEdge::new(cancelled, []),
-                },
-            )
-            .map_err(invalid)?;
+        builder.set_terminator(
+            block,
+            source.clone(),
+            MirTerminatorKind::CheckCallOutcome {
+                completed: MirEdge::new(completed, [bray_ir::MirOperand::Value(value)]),
+                panicked: bray_ir::MirCallPanicEdge::new(panicked, report_type),
+                cancelled: MirEdge::new(cancelled, []),
+            },
+        );
 
         let abi = builder.target().runtime_abi();
 
@@ -178,12 +176,12 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         source: &MirSourceAnchor,
         mut terminator: MirTerminatorKind,
     ) -> Result<(), C::Error> {
-        let invalid = |cause| self.mir_error(source, cause);
+        let invalid = |cause| self.capacity_error(cause);
 
-        if builder.block_kind(block).map_err(invalid)? != MirBlockKind::CleanupBroadcast {
-            return builder
-                .set_terminator(block, source.clone(), terminator)
-                .map_err(invalid);
+        if builder.block_kind(block) != MirBlockKind::CleanupBroadcast {
+            builder.set_terminator(block, source.clone(), terminator);
+
+            return Ok(());
         }
 
         let terminal = builder
@@ -209,19 +207,17 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             None
         };
 
-        builder
-            .set_terminator(
-                block,
-                source.clone(),
-                MirTerminatorKind::ContinueCleanup(MirCleanupEdge::new(
-                    MirCleanupPhase::LifecycleResolution,
-                    MirEdge::new(terminal, argument),
-                )),
-            )
-            .map_err(invalid)?;
+        builder.set_terminator(
+            block,
+            source.clone(),
+            MirTerminatorKind::ContinueCleanup(MirCleanupEdge::new(
+                MirCleanupPhase::LifecycleResolution,
+                MirEdge::new(terminal, argument),
+            )),
+        );
 
-        builder
-            .set_terminator(terminal, source.clone(), terminator)
-            .map_err(invalid)
+        builder.set_terminator(terminal, source.clone(), terminator);
+
+        Ok(())
     }
 }

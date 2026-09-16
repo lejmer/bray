@@ -47,11 +47,11 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
         let entry = builder
             .push_block(source.clone(), MirBlockKind::Ordinary)
-            .map_err(|cause| self.mir_error(&source, cause))?;
+            .map_err(|cause| self.capacity_error(cause))?;
 
         let storage = builder
             .push_storage(source.clone(), MirStorageKind::Parameter(0), pointer)
-            .map_err(|cause| self.mir_error(&source, cause))?;
+            .map_err(|cause| self.capacity_error(cause))?;
 
         let place = MirPlace::new(
             storage,
@@ -113,9 +113,11 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     None
                 };
 
-                builder
-                    .set_terminator(end, source.clone(), MirTerminatorKind::Return(return_value))
-                    .map_err(|cause| self.mir_error(&source, cause))?;
+                builder.set_terminator(
+                    end,
+                    source.clone(),
+                    MirTerminatorKind::Return(return_value),
+                );
             }
             MirHelperReference::Finalize(_) | MirHelperReference::Destroy(_) => {
                 let end = self.push_generated_lifecycle_operations(
@@ -127,9 +129,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     target.runtime_abi(),
                 )?;
 
-                builder
-                    .set_terminator(end, source.clone(), MirTerminatorKind::Return(None))
-                    .map_err(|cause| self.mir_error(&source, cause))?;
+                builder.set_terminator(end, source.clone(), MirTerminatorKind::Return(None));
             }
             MirHelperReference::AnonymousCallable(_)
             | MirHelperReference::DeclaredCallable(_)
@@ -152,12 +152,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
         if let MirHelperReference::Destroy(ty) = reference {
             super::outgoing::discharge_owner(&mut builder, *ty)
-                .map_err(|cause| self.mir_error(&source, cause))?;
+            .map_err(|cause| self.capacity_error(cause))?;
         }
 
-        builder
-            .finish(entry)
-            .map_err(|cause| self.mir_error(&source, cause))
+        Ok(builder.finish(entry))
     }
 
     fn is_void_result(&self, ty: TypeId) -> bool {
@@ -189,22 +187,20 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
     ) -> Result<(), C::Error> {
         let broadcast = builder
             .push_block(source.clone(), MirBlockKind::CleanupBroadcast)
-            .map_err(|cause| self.mir_error(source, cause))?;
+            .map_err(|cause| self.capacity_error(cause))?;
 
         let lifecycle = builder
             .push_block(source.clone(), MirBlockKind::LifecycleResolution)
-            .map_err(|cause| self.mir_error(source, cause))?;
+            .map_err(|cause| self.capacity_error(cause))?;
 
-        builder
-            .set_terminator(
-                entry,
-                source.clone(),
-                MirTerminatorKind::BeginCleanup(MirCleanupEdge::new(
-                    bray_ir::MirCleanupPhase::TaskCancellation,
-                    MirEdge::new(broadcast, []),
-                )),
-            )
-            .map_err(|cause| self.mir_error(source, cause))?;
+        builder.set_terminator(
+            entry,
+            source.clone(),
+            MirTerminatorKind::BeginCleanup(MirCleanupEdge::new(
+                bray_ir::MirCleanupPhase::TaskCancellation,
+                MirEdge::new(broadcast, []),
+            )),
+        );
 
         let (broadcast_end, lifecycle_end) = match phase {
             bray_ir::MirCleanupPhase::TaskCancellation => (
@@ -231,24 +227,20 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             ),
         };
 
-        builder
-            .set_terminator(
-                broadcast_end,
-                source.clone(),
-                MirTerminatorKind::ContinueCleanup(MirCleanupEdge::new(
-                    bray_ir::MirCleanupPhase::LifecycleResolution,
-                    MirEdge::new(lifecycle, []),
-                )),
-            )
-            .map_err(|cause| self.mir_error(source, cause))?;
+        builder.set_terminator(
+            broadcast_end,
+            source.clone(),
+            MirTerminatorKind::ContinueCleanup(MirCleanupEdge::new(
+                bray_ir::MirCleanupPhase::LifecycleResolution,
+                MirEdge::new(lifecycle, []),
+            )),
+        );
 
-        builder
-            .set_terminator(
-                lifecycle_end,
-                source.clone(),
-                MirTerminatorKind::Return(None),
-            )
-            .map_err(|cause| self.mir_error(source, cause))?;
+        builder.set_terminator(
+            lifecycle_end,
+            source.clone(),
+            MirTerminatorKind::Return(None),
+        );
 
         Ok(())
     }

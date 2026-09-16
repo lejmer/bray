@@ -65,7 +65,7 @@ impl Lowerer<'_> {
             scope_depth: depth,
         });
 
-        let mut completion = if self.builder.is_reachable(header, body_entry)? {
+        let mut completion = if self.builder.is_reachable(header, body_entry) {
             self.lower_block(*body, body_entry)?
         } else {
             self.finish_unreachable_blocks(&[body_entry], &source)?;

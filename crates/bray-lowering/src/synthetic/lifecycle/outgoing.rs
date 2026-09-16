@@ -1,12 +1,12 @@
 use bray_ir::{
-    MirOperationKind, MirRuntimeReference, MirTerminatorKind, MirUnitBuildError, MirUnitBuilder,
+    MirCapacityError, MirOperationKind, MirRuntimeReference, MirTerminatorKind, MirUnitBuilder,
 };
 use bray_symbols::TypeId;
 
 pub(super) fn discharge_owner(
     builder: &mut MirUnitBuilder,
     ty: TypeId,
-) -> Result<(), MirUnitBuildError> {
+) -> Result<(), MirCapacityError> {
     let runtime = MirRuntimeReference::new(
         bray_runtime_interface::RuntimeAbiRole::OutgoingDischarge,
         builder.target().runtime_abi(),

@@ -1011,7 +1011,7 @@ impl Lowerer<'_> {
                     )?;
 
                     current = continuation;
-                    let ty = self.builder.operand_type(&value)?;
+                    let ty = self.builder.operand_type(&value);
                     let value = self.materialize_owned_input(id, current, &source, value, ty)?;
 
                     arguments.push(MirCallArgument::Explicit {

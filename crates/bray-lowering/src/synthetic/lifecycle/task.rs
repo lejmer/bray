@@ -59,21 +59,15 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 }),
                 Some(result),
             )
-            .map_err(|cause| self.mir_error(source, cause))?;
+            .map_err(|cause| self.capacity_error(cause))?;
 
-        let operation = resolved.operation();
-
-        let resolved =
-            resolved
-                .result()
-                .ok_or_else(|| SyntheticLoweringError::MissingOperationResult {
-                    source: source.clone(),
-                    operation,
-                })?;
+        let resolved = resolved
+            .result()
+            .expect("value-producing MIR operation must publish a result");
 
         let storage = builder
             .push_storage(source.clone(), MirStorageKind::Temporary, result)
-            .map_err(|cause| self.mir_error(source, cause))?;
+            .map_err(|cause| self.capacity_error(cause))?;
 
         let place = MirPlace::new(storage, [], result);
 
@@ -98,6 +92,6 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     MirOperationKind::Destroy(place),
                 ],
             )
-            .map_err(|cause| self.mir_error(source, cause))
+            .map_err(|cause| self.capacity_error(cause))
     }
 }

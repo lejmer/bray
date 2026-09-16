@@ -1,7 +1,7 @@
 use bray_bound_tree::{BoundNodeOrigin, StorageIdentityId};
 use bray_ir::{
     MirBlockId, MirOperand, MirOperationKind, MirPlace, MirProjection, MirProjectionKind,
-    MirStorageKind, MirStoreKind, MirUnitBuildError,
+    MirStorageKind, MirStoreKind,
 };
 use bray_symbols::{BorrowKind, TypeData, TypeId};
 
@@ -86,9 +86,7 @@ impl Lowerer<'_> {
 
         let value = borrowed
             .result()
-            .ok_or(MirUnitBuildError::MissingOperationResult(
-                borrowed.operation(),
-            ))?;
+            .expect("value-producing MIR operation must publish a result");
 
         self.push_operation(
             block,

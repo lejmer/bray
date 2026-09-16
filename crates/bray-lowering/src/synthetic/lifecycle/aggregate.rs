@@ -47,7 +47,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             [constant(0)?, constant(1)?],
             None,
         )
-        .map_err(|cause| self.mir_error(source, cause))?;
+        .map_err(|cause| self.capacity_error(cause))?;
 
         // The loop owns the counter while its indexed child retains the same storage identity.
         let child = place.project(
@@ -64,11 +64,11 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 source,
                 operations.into_iter().flatten(),
             )
-            .map_err(|cause| self.mir_error(source, cause))?;
+        .map_err(|cause| self.capacity_error(cause))?;
 
         cleanup
             .close(builder, completed, source, None)
-            .map_err(|cause| self.mir_error(source, cause))?;
+        .map_err(|cause| self.capacity_error(cause))?;
 
         self.finish_cleanup_outcome(builder, cleanup.continuation, source, &outcome)
     }

@@ -4,6 +4,7 @@ use bray_codegen::{
 };
 use bray_diagnostics::DiagnosticBag;
 use bray_emitter::EmissionBackendBuildError;
+use bray_ir::MirCapacityError;
 use bray_linker::LinkTargetBuildError;
 use bray_runtime_interface::{ExecutableHostContractBuildError, RuntimeArtifactSelectionError};
 use bray_symbols::ProductIdentity;
@@ -73,8 +74,8 @@ pub enum NativeProductPlanningError {
     InvalidCodegenUnit(CodegenUnitBuildError),
     /// Reachable definitions cannot be partitioned under the selected policy.
     InvalidCodegenPartition(CodegenPartitionError),
-    /// The compiler-generated executable host MIR is invalid.
-    InvalidHostMir(bray_ir::MirUnitBuildError),
+    /// A MIR identity table exceeded its compact representation.
+    MirCapacity(MirCapacityError),
     /// The compiler-generated executable host contract is invalid.
     InvalidExecutableHost(ExecutableHostContractBuildError),
     /// Runtime metadata cannot supply an exact physical component selection.

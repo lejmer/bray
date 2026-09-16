@@ -197,7 +197,6 @@ pub enum DiagnosticNativeProductFailureKind {
     UnitRecipeMismatch,
     PartitionMissingCompatibility(DiagnosticNativeProductFailureDetail),
     PartitionInvalidUnit(DiagnosticNativeProductFailureDetail),
-    GeneratedHostMirInvalid(DiagnosticNativeProductFailureDetail),
     ExecutableHostDuplicateRole(DiagnosticNativeProductFailureDetail),
     ExecutableHostMissingRuntime,
     ExecutableHostRuntimeOwnedBinding(DiagnosticNativeProductFailureDetail),
@@ -244,10 +243,7 @@ pub enum DiagnosticNativeProductFailureKind {
     CodegenInvalidInstance(DiagnosticNativeProductFailureDetail),
     CodegenInvalidUnit(DiagnosticNativeProductFailureDetail),
     CodegenUnitMismatch(DiagnosticNativeProductFailureDetail),
-    CodegenInvalidHostMir(DiagnosticNativeProductFailureDetail),
-    CodegenInvalidLifecycleMir(DiagnosticNativeProductFailureDetail),
-    /// The compiler could not build the body of a compiler-provided declaration.
-    CodegenInvalidCompilerProvidedMir(DiagnosticNativeProductFailureDetail),
+    CodegenMirCapacityExceeded,
     CodegenInvalidMappings(DiagnosticNativeProductFailureDetail),
     CodegenMissingRuntimeRole(DiagnosticNativeProductFailureDetail),
     CodegenOpenConstantTerm(DiagnosticNativeProductFailureDetail),
@@ -328,7 +324,6 @@ impl DiagnosticNativeProductFailureKind {
             Self::UnitRecipeMismatch => "unit_recipe_mismatch",
             Self::PartitionMissingCompatibility(detail)
             | Self::PartitionInvalidUnit(detail)
-            | Self::GeneratedHostMirInvalid(detail)
             | Self::ExecutableHostDuplicateRole(detail)
             | Self::ExecutableHostRuntimeOwnedBinding(detail)
             | Self::ExecutableHostIncompatibleRuntime(detail)
@@ -373,9 +368,6 @@ impl DiagnosticNativeProductFailureKind {
             | Self::CodegenInvalidInstance(detail)
             | Self::CodegenInvalidUnit(detail)
             | Self::CodegenUnitMismatch(detail)
-            | Self::CodegenInvalidHostMir(detail)
-            | Self::CodegenInvalidLifecycleMir(detail)
-            | Self::CodegenInvalidCompilerProvidedMir(detail)
             | Self::CodegenInvalidMappings(detail)
             | Self::CodegenMissingRuntimeRole(detail)
             | Self::CodegenOpenConstantTerm(detail)
@@ -386,6 +378,7 @@ impl DiagnosticNativeProductFailureKind {
             | Self::CodegenUnsupportedType(detail)
             | Self::CodegenMissingHelperInstance(detail)
             | Self::CodegenLayoutOverflow(detail) => detail.reason(),
+            Self::CodegenMirCapacityExceeded => "codegen_mir_capacity_exceeded",
             Self::CodegenMissingEntrypoint => "codegen_missing_entrypoint",
             Self::CodegenInvalidAbiMapping(Some(detail)) => detail.reason(),
             Self::CodegenInvalidAbiMapping(None) => "codegen_invalid_abi_mapping",
