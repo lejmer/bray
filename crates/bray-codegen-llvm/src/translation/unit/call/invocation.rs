@@ -63,7 +63,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let mut arguments = Vec::new();
 
         if !call_argument_count_is_valid(signature, semantic_arguments.len()) {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!(
+                "direct call argument count {} does not match signature {signature:?}",
+                semantic_arguments.len()
+            );
         }
 
         let result_storage = self.prepare_call_arguments(
@@ -143,7 +146,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let mut arguments = Vec::new();
 
         if !call_argument_count_is_valid(signature, semantic_arguments.len()) {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!(
+                "indirect call argument count {} does not match signature {signature:?}",
+                semantic_arguments.len()
+            );
         }
 
         let result_storage = self.prepare_call_arguments(
@@ -219,9 +225,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         match (signature.has_panic_report_context(), panic_report_context) {
             (true, Some(context)) => arguments.push(context.into()),
             (true, None) => {
-                return Err(CodegenFailure::GeneratedModuleInvariant);
+                panic!("call signature requires a panic-report context: {signature:?}");
             }
-            (false, Some(_)) => return Err(CodegenFailure::GeneratedModuleInvariant),
+            (false, Some(context)) => {
+                panic!(
+                    "call supplied unexpected panic-report context {context:?} for {signature:?}"
+                );
+            }
             (false, None) => {}
         }
 
@@ -236,14 +246,17 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
         match signature.result() {
             CodegenResultMapping::Void => Ok(None),
-            CodegenResultMapping::Direct { .. } => call
+            CodegenResultMapping::Direct { .. } => Ok(call
                 .try_as_basic_value()
                 .basic()
                 .map(Some)
-                .ok_or(CodegenFailure::GeneratedModuleInvariant),
+                .expect("direct calls must produce a basic value")),
             CodegenResultMapping::Indirect { .. } => {
                 let Some((storage, pointee)) = result_storage else {
-                    return Err(CodegenFailure::GeneratedModuleInvariant);
+                    panic!(
+                        "indirect call result has no storage for {:?}",
+                        signature.result()
+                    );
                 };
 
                 llvm(self.builder.build_load(

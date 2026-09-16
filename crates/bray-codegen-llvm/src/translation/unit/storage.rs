@@ -16,7 +16,7 @@ impl<'context> UnitTranslator<'context, '_, '_, '_> {
             .request
             .mappings()
             .native_static_storage(self.instance.key(), storage)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR translation requires an established mapping or value");
 
         let global = match mapping.direction() {
             bray_symbols::ForeignCallableDirection::Import => {
@@ -47,7 +47,7 @@ impl<'context> UnitTranslator<'context, '_, '_, '_> {
             bray_symbols::ForeignCallableDirection::Export => self
                 .module
                 .get_global(mapping.symbol().as_str())
-                .ok_or(CodegenFailure::GeneratedModuleInvariant)?,
+                .expect("checked MIR translation requires an established mapping or value"),
         };
 
         llvm(
@@ -66,18 +66,18 @@ impl<'context> UnitTranslator<'context, '_, '_, '_> {
             .request
             .mappings()
             .static_storage(self.instance.key(), storage)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR translation requires an established mapping or value");
 
         let accessor = self
             .module
             .get_function(&mapping.accessor_name())
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR translation requires an established mapping or value");
 
         let pointer = llvm(self.builder.build_call(accessor, &[], "static.access"))?
             .try_as_basic_value()
             .basic()
             .and_then(pointer_value)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR translation requires an established mapping or value");
 
         Ok(pointer)
     }

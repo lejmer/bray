@@ -26,7 +26,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 else_edge,
             } => {
                 let condition = int_value(self.operand(condition)?)
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                    .expect("checked MIR control translation requires an established mapping or value");
 
                 let (source, pending_moves) = self.take_control_source()?;
 
@@ -46,14 +46,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 otherwise,
             } => {
                 let discriminant = int_value(self.operand(discriminant)?)
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                    .expect("checked MIR control translation requires an established mapping or value");
 
                 let case_values = cases
                     .iter()
                     .map(|case| {
-                        int_value(self.constant(case.value())?)
+                        Ok(int_value(self.constant(case.value())?)
                             .filter(|value| value.get_type() == discriminant.get_type())
-                            .ok_or(CodegenFailure::GeneratedModuleInvariant)
+                            .expect("switch cases must use the discriminant's represented integer type"))
                     })
                     .collect::<Result<Vec<_>, _>>()?;
 
@@ -84,13 +84,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             MirTerminatorKind::Return(value) => {
                 if self.frame_context.is_some() {
                     if value.is_some() {
-                        return Err(CodegenFailure::GeneratedModuleInvariant);
+                        panic!("checked MIR control translation violated an established compiler contract");
                     }
 
                     let progress = self
                         .frame_progress
                         .take()
-                        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                        .expect("checked MIR control translation requires an established mapping or value");
 
                     self.return_frame_progress(progress)?;
                 } else {
@@ -111,7 +111,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 llvm(
                     self.builder
-                        .build_unconditional_branch(self.block(cleanup.edge().target())?),
+                        .build_unconditional_branch(self.block(cleanup.edge().target())),
                 )?;
             }
             MirTerminatorKind::PropagatePanic { report, runtime } => {
@@ -141,7 +141,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         }
                     }
                     _ => {
-                        let subject_type = self.operand_type(subject)?;
+                        let subject_type = self.operand_type(subject);
                         let subject = self.observed_operand(subject)?;
 
                         self.translate_pattern_predicate(block, subject, subject_type, *predicate)?
@@ -198,7 +198,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 )?;
             }
             MirTerminatorKind::ForwardRunResult { result, edges } => {
-                let result_type = self.operand_type(result)?;
+                let result_type = self.operand_type(result);
                 let result = self.operand(result)?;
                 let tag = self.union_tag(result, result_type)?;
 
@@ -251,7 +251,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         wake: bray_ir::MirRuntimeReference,
     ) -> Result<(), CodegenFailure> {
         if let Some(frame_context) = self.frame_context {
-            let context = self.frame_context_argument()?;
+            let context = self.frame_context_argument();
 
             let pointer = llvm(
                 self.builder.build_int_to_ptr(
@@ -292,7 +292,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
             let payload = match payload.map(|payload| self.operand(payload)).transpose()? {
                 Some(BasicValueEnum::IntValue(payload)) => payload,
-                Some(_) => return Err(CodegenFailure::GeneratedModuleInvariant),
+                Some(_) => panic!("checked MIR control translation violated an established compiler contract"),
                 None => self.types.context().i64_type().const_zero(),
             };
 
@@ -321,7 +321,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let outcome = self
             .invoke_runtime(registration, &[state])?
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR control translation requires an established mapping or value");
 
         self.return_machine_value(outcome)
     }
@@ -380,7 +380,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .request
             .mappings()
             .callable(self.instance.key(), CodegenCallSite::Terminator(block))
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR control translation requires an established mapping or value");
 
         let symbol = self
             .request
@@ -388,39 +388,39 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .instance_symbol(
                 mapping
                     .instance()
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?,
+                    .expect("checked MIR control translation requires an established mapping or value"),
             )
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR control translation requires an established mapping or value");
 
         let function = self
             .module
             .get_function(symbol.name().as_str())
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR control translation requires an established mapping or value");
 
         let cursor = self.place(cursor)?.into();
 
         let result = self
             .invoke_function(function, symbol.signature(), &[cursor], "iterate.next")?
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR control translation requires an established mapping or value");
 
-        let result_type = result_type(symbol.signature())?;
+        let result_type = result_type(symbol.signature());
         let present = self.nullable_present(result, result_type)?;
         let element = self.project_value(result, result_type, element_type)?;
 
         let item_block = self
             .unit
             .block(item)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR control translation requires an established mapping or value");
 
         let [parameter] = item_block.parameters() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR control translation violated an established compiler contract");
         };
 
         let phi = self
             .phis
             .get(parameter)
             .copied()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR control translation requires an established mapping or value");
 
         let (source, pending_moves) = self.take_control_source()?;
 
@@ -448,12 +448,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .request
             .mappings()
             .symbol(&key)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR control translation requires an established mapping or value");
 
         let function = self
             .module
             .get_function(symbol.name().as_str())
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR control translation requires an established mapping or value");
 
         Ok(function.as_global_value().as_pointer_value())
     }
@@ -471,10 +471,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .request
                     .mappings()
                     .terminator(self.instance.key(), block)
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                    .expect("checked MIR control translation requires an established mapping or value");
 
                 let [literal] = mapping.constants() else {
-                    return Err(CodegenFailure::GeneratedModuleInvariant);
+                    panic!("checked MIR control translation violated an established compiler contract");
                 };
 
                 let literal = self.constant(*literal)?;
@@ -486,7 +486,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .request
                     .mappings()
                     .constant_term(self.instance.key(), term)
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                    .expect("checked MIR control translation requires an established mapping or value");
 
                 let value = self.constant(value)?;
 
@@ -519,7 +519,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         right: BasicValueEnum<'context>,
     ) -> Result<IntValue<'context>, CodegenFailure> {
         if left.get_type() != right.get_type() {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR control translation violated an established compiler contract");
         }
 
         match (left, right) {
@@ -541,7 +541,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             (BasicValueEnum::StructValue(left), BasicValueEnum::StructValue(right)) => {
                 self.equal_aggregate(left.into(), right.into(), left.get_type().count_fields())
             }
-            _ => Err(CodegenFailure::GeneratedModuleInvariant),
+            unexpected => panic!("checked MIR control translation violated an established compiler contract: {unexpected:?}"),
         }
     }
 
@@ -592,12 +592,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let (storage, tag_type) = loop {
             let mapping = self
                 .type_mapping(subject_type)
-                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                .expect("checked MIR control translation requires an established mapping or value");
 
             match mapping.kind() {
                 CodegenTypeKind::Union { tag, .. } => {
                     let Some(tag) = *tag else {
-                        return Err(CodegenFailure::GeneratedModuleInvariant);
+                        panic!("checked MIR control translation violated an established compiler contract");
                     };
 
                     let storage =
@@ -609,15 +609,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 }
                 CodegenTypeKind::Pointer { target, .. } => {
                     let storage =
-                        pointer_value(subject).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                        pointer_value(subject).expect("checked MIR control translation requires an established mapping or value");
 
                     let target_mapping = self
                         .type_mapping(*target)
-                        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                        .expect("checked MIR control translation requires an established mapping or value");
 
                     if let CodegenTypeKind::Union { tag, .. } = target_mapping.kind() {
                         let Some(tag) = *tag else {
-                            return Err(CodegenFailure::GeneratedModuleInvariant);
+                            panic!("checked MIR control translation violated an established compiler contract");
                         };
 
                         break (storage, tag);
@@ -631,7 +631,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                     subject_type = *target;
                 }
-                _ => return Err(CodegenFailure::GeneratedModuleInvariant),
+                unexpected => panic!("checked MIR control translation violated an established compiler contract: {unexpected:?}"),
             }
         };
 
@@ -642,7 +642,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 .build_load(mapped_tag, storage, "pattern.union.tag"),
         )?;
 
-        let tag = int_value(tag).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        let tag = int_value(tag).expect("checked MIR control translation requires an established mapping or value");
 
         Ok(tag)
     }
@@ -656,19 +656,19 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let kind = loop {
             let mapping = self
                 .type_mapping(subject_type)
-                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                .expect("checked MIR control translation requires an established mapping or value");
 
             match mapping.kind() {
                 kind @ CodegenTypeKind::Union { .. } => break kind,
                 CodegenTypeKind::Pointer { target, .. } => subject_type = *target,
-                _ => return Err(CodegenFailure::GeneratedModuleInvariant),
+                unexpected => panic!("checked MIR control translation violated an established compiler contract: {unexpected:?}"),
             }
         };
 
         let tag = kind
             .union_variant(variant)
             .and_then(bray_codegen::CodegenUnionVariantLayout::tag)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR control translation requires an established mapping or value");
 
         Ok(integer_constant(tag_type, tag))
     }
@@ -680,10 +680,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         match self.signature.result() {
             CodegenResultMapping::Void => {
                 if let Some(value) = value {
-                    let ty = self.operand_type(value)?;
+                    let ty = self.operand_type(value);
 
-                    if self.mapped_type_size(ty)? != 0 {
-                        return Err(CodegenFailure::GeneratedModuleInvariant);
+                    if self.mapped_type_size(ty) != 0 {
+                        panic!("checked MIR control translation violated an established compiler contract");
                     }
                 }
 
@@ -691,7 +691,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 llvm(self.builder.build_return(None))?;
             }
             CodegenResultMapping::Direct { .. } => {
-                let value = value.ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                let value = value.expect("checked MIR control translation requires an established mapping or value");
                 let value = self.operand(value)?;
 
                 self.clear_moved_places()?;
@@ -699,15 +699,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 llvm(self.builder.build_return(Some(&value)))?;
             }
             CodegenResultMapping::Indirect { pointee, .. } => {
-                let value = value.ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                let value = value.expect("checked MIR control translation requires an established mapping or value");
 
                 let destination = self
                     .function
                     .get_first_param()
                     .and_then(pointer_value)
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                    .expect("checked MIR control translation requires an established mapping or value");
 
-                let source_type = self.operand_type(value)?;
+                let source_type = self.operand_type(value);
                 let value = self.operand(value)?;
                 let value = self.convert(value, source_type, *pointee)?;
 
@@ -733,13 +733,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .function
                     .get_first_param()
                     .and_then(pointer_value)
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                    .expect("checked MIR control translation requires an established mapping or value");
 
                 llvm(self.builder.build_store(destination, value))?;
                 llvm(self.builder.build_return(None))?;
             }
             CodegenResultMapping::Void => {
-                return Err(CodegenFailure::GeneratedModuleInvariant);
+                panic!("checked MIR control translation violated an established compiler contract");
             }
         }
 

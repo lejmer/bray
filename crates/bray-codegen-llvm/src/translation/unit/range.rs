@@ -23,7 +23,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .map(|mapping| mapping.kind().clone())
         {
             Some(CodegenTypeKind::Aggregate(fields)) => fields,
-            _ => return Err(CodegenFailure::GeneratedModuleInvariant),
+            unexpected => panic!("checked MIR translation violated an established compiler contract: {unexpected:?}"),
         };
 
         let start_index = self.aggregate_element(&fields, 0)?;
@@ -38,7 +38,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         {
             Some(CodegenTypeKind::SignedInteger(_)) => IntPredicate::SLT,
             Some(CodegenTypeKind::UnsignedInteger(_)) => IntPredicate::ULT,
-            _ => return Err(CodegenFailure::GeneratedModuleInvariant),
+            unexpected => panic!("checked MIR translation violated an established compiler contract: {unexpected:?}"),
         };
 
         let present = llvm(
@@ -69,17 +69,17 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let item_block = self
             .unit
             .block(item)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR translation requires an established mapping or value");
 
         let [parameter] = item_block.parameters() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR translation violated an established compiler contract");
         };
 
         let phi = self
             .phis
             .get(parameter)
             .copied()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR translation requires an established mapping or value");
 
         let element: BasicValueEnum<'context> = start.into();
 

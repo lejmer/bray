@@ -12,16 +12,16 @@ use bray_runtime_abi::NativeRunState;
 pub(super) fn incoming_panic_report_context<'context>(
     function: FunctionValue<'context>,
     signature: &CodegenCallableSignature,
-) -> Result<Option<PointerValue<'context>>, CodegenFailure> {
+) -> Option<PointerValue<'context>> {
     if !signature.has_panic_report_context() {
-        return Ok(None);
+        return None;
     }
 
     function
         .get_last_param()
         .and_then(pointer_value)
         .map(Some)
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)
+        .expect("a callable with panic-report context must have a pointer context parameter")
 }
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
@@ -37,7 +37,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         if self.signature.has_panic_report_context() {
             let context = self
                 .panic_report_context
-                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                .expect("checked MIR translation requires an established mapping or value");
 
             let outcome = native_run_outcome_value(
                 self.types.context(),
@@ -68,7 +68,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         if self.signature.has_panic_report_context() {
             let context = self
                 .panic_report_context
-                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                .expect("checked MIR translation requires an established mapping or value");
 
             let ty =
                 crate::native::pointer_integer_type(self.types.context(), self.request.target());
@@ -115,7 +115,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             });
 
         if let Some(operation) = admission
-            && self.outgoing_capacity(operation)? == 0
+            && self.outgoing_capacity(operation) == 0
         {
             return self.translate_goto(completed);
         }
@@ -123,7 +123,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let context = self
             .pending_call_panic_report_context
             .take()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR translation requires an established mapping or value");
 
         let ty = crate::native::run_outcome_type(self.types.context(), self.request.target());
         let outcome = llvm(self.builder.build_load(ty, context, "call.outcome"))?;
@@ -158,7 +158,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .builder
             .get_insert_block()
             .and_then(inkwell::basic_block::BasicBlock::get_parent)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR translation requires an established mapping or value");
 
         let propagate_cancellation = self
             .types
@@ -207,7 +207,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         // only on the failure routes, before another cleanup call can reuse this destination.
         let first = panicked_route
             .get_first_instruction()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR translation requires an established mapping or value");
 
         self.builder.position_before(&first);
         llvm(self.builder.build_store(context, ty.const_zero()))?;
@@ -237,7 +237,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .function
                     .get_first_param()
                     .and_then(pointer_value)
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                    .expect("checked MIR translation requires an established mapping or value");
 
                 llvm(
                     self.builder

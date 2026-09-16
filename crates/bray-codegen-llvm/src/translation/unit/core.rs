@@ -54,8 +54,7 @@ pub(crate) fn translate_instances<'context, 'request>(
             continue;
         }
 
-        let (symbol, function) =
-            instance_function(module, request, instance).map_err(TranslationError::Failed)?;
+        let (symbol, function) = instance_function(module, request, instance);
 
         let translate = symbol.linkage() != CodegenLinkage::Import;
 
@@ -82,8 +81,7 @@ pub(crate) fn translate_instances<'context, 'request>(
         types.select_instance(instance.key());
 
         if instance.protected_frame_identity().is_some() {
-            let (_, function) =
-                instance_function(module, request, instance).map_err(TranslationError::Failed)?;
+            let (_, function) = instance_function(module, request, instance);
 
             apply_instance_optimization_attributes(function, instance, types)
                 .map_err(TranslationError::Failed)?;
@@ -101,9 +99,12 @@ pub(crate) fn translate_instances<'context, 'request>(
             function,
             trampoline,
             translate,
-        } = prepared.ok_or(TranslationError::Failed(
-            CodegenFailure::GeneratedModuleInvariant,
-        ))?;
+        } = prepared.unwrap_or_else(|| {
+            panic!(
+                "non-frame instance must have prepared LLVM translation state: {:?}",
+                instance.key()
+            )
+        });
 
         if !translate {
             continue;
@@ -125,17 +126,23 @@ fn instance_function<'context, 'request>(
     module: &Module<'context>,
     request: CodegenRequest<'request>,
     instance: &CodegenInstance,
-) -> Result<(&'request CodegenSymbolMapping, FunctionValue<'context>), CodegenFailure> {
+) -> (&'request CodegenSymbolMapping, FunctionValue<'context>) {
     let symbol = request
         .mappings()
         .instance_symbol(instance.key())
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .unwrap_or_else(|| panic!("codegen instance {:?} has no symbol mapping", instance.key()));
 
     let function = module
         .get_function(symbol.name().as_str())
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .unwrap_or_else(|| {
+            panic!(
+                "codegen instance {:?} maps to undeclared LLVM function {}",
+                instance.key(),
+                symbol.name().as_str()
+            )
+        });
 
-    Ok((symbol, function))
+    (symbol, function)
 }
 
 fn translate_instance<'context, 'request>(
@@ -154,7 +161,7 @@ fn translate_instance<'context, 'request>(
         .blocks()
         .first()
         .map(bray_ir::MirBlock::source)
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("checked MIR translation requires an established mapping or value");
 
     let debug_scope = debug.and_then(|debug| {
         debug.attach_function(
@@ -243,10 +250,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         self.request.mappings().instance_ty(self.instance.key(), ty)
     }
 
-    pub(super) fn mapped_type_size(&self, ty: bray_symbols::TypeId) -> Result<u64, CodegenFailure> {
+    pub(super) fn mapped_type_size(&self, ty: bray_symbols::TypeId) -> u64 {
         self.type_mapping(ty)
             .and_then(|mapping| mapping.layout().map(|layout| layout.size()))
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)
+            .unwrap_or_else(|| {
+                panic!(
+                    "codegen instance {:?} has no realized layout for type {ty:?}",
+                    self.instance.key()
+                )
+            })
     }
 
     pub(super) fn aggregate_element(
@@ -255,7 +267,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         semantic_index: usize,
     ) -> Result<u32, CodegenFailure> {
         physical_aggregate_element(fields, semantic_index, |field| {
-            self.mapped_type_size(field.ty())
+            Ok(self.mapped_type_size(field.ty()))
         })
     }
 
@@ -273,7 +285,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     pub(super) fn pointer_field_index(
         &self,
         fields: &[CodegenFieldLayout],
-    ) -> Result<usize, CodegenFailure> {
+    ) -> usize {
         fields
             .iter()
             .position(|field| {
@@ -281,7 +293,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     matches!(mapping.kind(), CodegenTypeKind::Pointer { .. })
                 })
             })
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)
+            .expect("checked aggregate must contain its pointer field")
     }
 
     #[expect(
@@ -307,8 +319,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let reachable_blocks = reachable_blocks(unit);
         let checked_call_operations = checked_call_operations(unit);
 
-        let panic_report_context =
-            super::panic::incoming_panic_report_context(function, signature)?;
+        let panic_report_context = super::panic::incoming_panic_report_context(function, signature);
 
         Ok(Self {
             module,
@@ -362,7 +373,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .mappings()
             .instance_symbol(instance.key())
             .map(CodegenSymbolMapping::signature)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR translation requires an established mapping or value");
 
         let unit = instance.mir();
         let dispatch = context.append_basic_block(function, "frame.dispatch");
@@ -412,7 +423,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         self.translate_frame_dispatch()?;
 
         for (id, block) in self.unit.blocks_with_ids() {
-            let llvm_block = self.block(id)?;
+            let llvm_block = self.block(id);
 
             self.builder.position_at_end(llvm_block);
 
@@ -426,7 +437,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let operation = self
                     .unit
                     .operation(*operation_id)
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                    .expect("checked MIR translation requires an established mapping or value");
 
                 self.set_debug_location(operation.source());
 
@@ -457,9 +468,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let descriptor = self
             .unit
             .frame_descriptor()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR translation requires an established mapping or value");
 
-        let context = self.frame_context_argument()?;
+        let context = self.frame_context_argument();
 
         self.builder.position_at_end(dispatch);
 
@@ -503,7 +514,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let mut cases = Vec::with_capacity(descriptor.states().len());
 
         for state in descriptor.states() {
-            let entry = self.block(state.entry())?;
+            let entry = self.block(state.entry());
 
             let cancellation_entry =
                 self.unit
@@ -520,7 +531,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
             let entry = if let Some(cancellation_entry) = cancellation_entry {
                 if !cancellation_entry.arguments().is_empty() {
-                    return Err(CodegenFailure::GeneratedModuleInvariant);
+                    panic!("checked MIR translation violated an established compiler contract");
                 }
 
                 let state_dispatch = self
@@ -535,7 +546,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 llvm(self.builder.build_conditional_branch(
                     requested,
-                    self.block(cancellation_entry.target())?,
+                    self.block(cancellation_entry.target()),
                     entry,
                 ))?;
 
@@ -581,7 +592,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
     pub(super) fn frame_context_argument(
         &self,
-    ) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
+    ) -> inkwell::values::IntValue<'context> {
         self.function
             .get_nth_param(crate::native::frame_parameter_index(
                 self.request.target(),
@@ -589,12 +600,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 0,
             ))
             .and_then(super::support::int_value)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)
+            .expect("protected-frame resume function must carry its context argument")
     }
 
     pub(super) fn create_block_parameters(&mut self) -> Result<(), CodegenFailure> {
         for (id, block) in self.unit.blocks_with_ids() {
-            let llvm_block = self.block(id)?;
+            let llvm_block = self.block(id);
 
             self.builder.position_at_end(llvm_block);
 
@@ -618,11 +629,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         if let Some(frame_context) = self.frame_context {
             let dispatch = self
                 .frame_dispatch
-                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                .expect("checked MIR translation requires an established mapping or value");
 
             self.builder.position_at_end(dispatch);
 
-            let context = self.frame_context_argument()?;
+            let context = self.frame_context_argument();
 
             let pointer = llvm(
                 self.builder.build_int_to_ptr(
@@ -662,7 +673,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Ok(());
         }
 
-        let entry = self.block(self.unit.entry())?;
+        let entry = self.block(self.unit.entry());
 
         self.builder.position_at_end(entry);
 
@@ -725,7 +736,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                             llvm_index,
                             "aggregate_element_index",
                         )?)
-                        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                        .expect("checked MIR translation requires an established mapping or value");
 
                     if let Some(storage) = storage {
                         if matches!(
@@ -733,7 +744,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                             Some(MirStorageKind::BorrowedParameter(_))
                         ) {
                             let pointer = pointer_value(value)
-                                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                                .expect("checked MIR translation requires an established mapping or value");
 
                             self.storages.insert(storage, pointer);
                         } else {
@@ -752,7 +763,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                             "aggregate_element_index",
                         )?)
                         .and_then(pointer_value)
-                        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                        .expect("checked MIR translation requires an established mapping or value");
 
                     let value = llvm(self.builder.build_load(
                         self.types.map(*pointee)?,

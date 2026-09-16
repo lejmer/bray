@@ -31,12 +31,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         entry_failure: bray_ir::MirRuntimeReference,
     ) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
         let bray_ir::MirUnitKind::ExecutableHost(host) = self.unit.kind() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR effect translation violated an established compiler contract");
         };
 
         let entry = host
             .entry(entry)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR effect translation requires an established mapping or value");
 
         let entry_result = entry.result();
         let asynchronous = matches!(entry.root(), RootExecution::Asynchronous { .. });
@@ -51,7 +51,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let status = match entry_result {
             ExecutableEntryResult::Unit => {
                 if result.is_some() {
-                    return Err(CodegenFailure::GeneratedModuleInvariant);
+                    panic!("checked MIR effect translation violated an established compiler contract");
                 }
 
                 integer.const_zero()
@@ -59,7 +59,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             ExecutableEntryResult::I32 => {
                 let result = result
                     .and_then(int_value)
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                    .expect("checked MIR effect translation requires an established mapping or value");
 
                 llvm(
                     self.builder
@@ -71,7 +71,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 error: error_type,
                 success_variant,
             } => {
-                let result = result.ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                let result = result.expect("checked MIR effect translation requires an established mapping or value");
 
                 let tag = self.union_tag(result, ty)?;
                 let success = self.union_variant_tag(ty, success_variant, tag.get_type())?;
@@ -85,29 +85,29 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 let mapping = self
                     .type_mapping(ty)
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                    .expect("checked MIR effect translation requires an established mapping or value");
 
                 let bray_codegen::CodegenTypeKind::Union { variants, .. } = mapping.kind() else {
-                    return Err(CodegenFailure::GeneratedModuleInvariant);
+                    panic!("checked MIR effect translation violated an established compiler contract");
                 };
 
                 let error_variant = variants
                     .iter()
                     .find(|variant| variant.variant() != success_variant)
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                    .expect("checked MIR effect translation requires an established mapping or value");
 
                 let [error_field] = error_variant.fields() else {
-                    return Err(CodegenFailure::GeneratedModuleInvariant);
+                    panic!("checked MIR effect translation violated an established compiler contract");
                 };
 
                 if error_field.ty() != error_type {
-                    return Err(CodegenFailure::GeneratedModuleInvariant);
+                    panic!("checked MIR effect translation violated an established compiler contract");
                 }
 
                 let Some(bray_ir::MirFieldReference::UnionPayload(error_field)) =
                     error_field.reference()
                 else {
-                    return Err(CodegenFailure::GeneratedModuleInvariant);
+                    panic!("checked MIR effect translation violated an established compiler contract");
                 };
 
                 let ty = self.types.map(ty)?;
@@ -146,8 +146,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     integer.const_int(1, false),
                     "host.exit",
                 ))
-                .and_then(|value| {
-                    int_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant)
+                .map(|value| {
+                    int_value(value).expect("host-exit comparison must produce an integer value")
                 })?
             }
         };
@@ -162,15 +162,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             integer.const_int(1, false),
             "root.exit",
         ))
-        .and_then(|value| int_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant))?;
+        .map(|value| int_value(value).expect("checked MIR effect translation requires an established mapping or value"))?;
 
         if asynchronous {
             let root = self
                 .host_root
                 .take()
-                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                .expect("checked MIR effect translation requires an established mapping or value");
 
-            if self.host_role_implementation(completion)?
+            if self.host_role_implementation(completion)
                 != RuntimeRoleImplementation::CompilerLowering
             {
                 self.invoke_native_runtime(completion, &[root])?;
@@ -203,7 +203,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 BasicValueEnum::StructValue(value) => Some(value),
                 _ => None,
             })
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR effect translation requires an established mapping or value");
 
         let (state, payload) = native_run_outcome(&self.builder, outcome.into())?;
 
@@ -221,7 +221,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             "root.panicked",
         )?;
 
-        if self.host_role_implementation(panic)? != RuntimeRoleImplementation::CompilerLowering {
+        if self.host_role_implementation(panic) != RuntimeRoleImplementation::CompilerLowering {
             let report = super::super::support::extract_value(&self.builder, outcome.into(), 2)?;
             self.invoke_native_runtime_if(panicked, panic, &[report])?;
         }
@@ -301,7 +301,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             self.builder
                 .build_select(completed, payload, fallback, "root.completion.handle"),
         )
-        .and_then(|value| int_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant))
+        .map(|value| int_value(value).expect("checked MIR effect translation requires an established mapping or value"))
     }
 
     fn resolve_entry_failure(
@@ -316,20 +316,20 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let helpers = self.operation_helpers(operation)?;
 
         let [finalize, destroy] = helpers.as_slice() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR effect translation violated an established compiler contract");
         };
 
         if finalize.reference() != &bray_ir::MirHelperReference::Finalize(error_type)
             || destroy.reference() != &bray_ir::MirHelperReference::Destroy(error_type)
         {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR effect translation violated an established compiler contract");
         }
 
         let function = self
             .builder
             .get_insert_block()
             .and_then(inkwell::basic_block::BasicBlock::get_parent)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR effect translation requires an established mapping or value");
 
         let failed = self
             .types
@@ -348,7 +348,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         self.builder.position_at_end(failed);
 
-        if self.host_role_implementation(reporter)? != RuntimeRoleImplementation::CompilerLowering {
+        if self.host_role_implementation(reporter) != RuntimeRoleImplementation::CompilerLowering {
             let size =
                 crate::native::pointer_integer_type(self.types.context(), self.request.target())
                     .const_int(
@@ -366,7 +366,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         }
 
         if destroy.symbol().is_some() && self.invoke_helper(destroy, &[error.into()])?.is_some() {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR effect translation violated an established compiler contract");
         }
 
         llvm(self.builder.build_unconditional_branch(resolved))?;
@@ -385,7 +385,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .builder
             .get_insert_block()
             .and_then(inkwell::basic_block::BasicBlock::get_parent)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR effect translation requires an established mapping or value");
 
         let invoke = self
             .types

@@ -24,7 +24,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let entry = self
             .builder
             .get_insert_block()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR effect translation requires an established mapping or value");
 
         let header = self
             .types
@@ -116,7 +116,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let body_end = self
             .builder
             .get_insert_block()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR effect translation requires an established mapping or value");
 
         let done = self
             .types

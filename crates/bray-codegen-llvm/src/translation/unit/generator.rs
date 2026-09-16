@@ -49,18 +49,18 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         exact_count: Option<bray_symbols::ConstantTermId>,
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
         let [helper] = helpers else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR translation violated an established compiler contract");
         };
 
         if helper.reference() != &MirHelperReference::BeginGenerator {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR translation violated an established compiler contract");
         }
 
         let layout = self
             .type_mapping(element)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?
+            .expect("checked MIR translation requires an established mapping or value")
             .layout()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR translation requires an established mapping or value");
 
         let kind = match kind {
             MirGeneratorKind::Array => 0,
@@ -79,7 +79,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 .request
                 .mappings()
                 .constant_term(self.instance.key(), term)
-                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                .expect("checked MIR translation requires an established mapping or value");
 
             arguments.push(self.constant(value)?);
         } else {
@@ -89,7 +89,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         arguments.push(self.helper_boolean_argument(helper, 5, exact_count.is_some())?);
 
         if self.invoke_helper(helper, &arguments)?.is_some() {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR translation violated an established compiler contract");
         }
 
         Ok(None)
@@ -102,20 +102,20 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         value: &bray_ir::MirOperand,
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
         let [helper] = helpers else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR translation violated an established compiler contract");
         };
 
         if helper.reference() != &MirHelperReference::PushGenerator {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR translation violated an established compiler contract");
         }
 
-        let element = self.operand_type(value)?;
+        let element = self.operand_type(value);
 
         let layout = self
             .type_mapping(element)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?
+            .expect("checked MIR translation requires an established mapping or value")
             .layout()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR translation requires an established mapping or value");
 
         let storage =
             self.aligned_alloca(element, layout.alignment().get(), "generator.element")?;
@@ -130,7 +130,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .invoke_helper(helper, &[destination, storage.into()])?
             .is_some()
         {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR translation violated an established compiler contract");
         }
 
         Ok(None)
@@ -142,11 +142,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         destination: &MirPlace,
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
         let [helper] = helpers else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR translation violated an established compiler contract");
         };
 
         if helper.reference() != &MirHelperReference::FinishGenerator {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR translation violated an established compiler contract");
         }
 
         let destination_pointer = self.place(destination)?;
@@ -155,7 +155,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .invoke_helper(helper, &[destination_pointer.into()])?
             .is_some()
         {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR translation violated an established compiler contract");
         }
 
         let value = llvm(self.builder.build_load(
@@ -175,7 +175,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         runtime: bray_ir::MirRuntimeReference,
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
         let [helper] = helpers else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR translation violated an established compiler contract");
         };
 
         let expected = MirHelperReference::Cleanup {
@@ -184,7 +184,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         };
 
         if helper.reference() != &expected {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR translation violated an established compiler contract");
         }
 
         let callback = self.generator_callback_argument(helper, runtime, 1)?;
@@ -194,7 +194,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .invoke_runtime(runtime, &[destination, callback])?
             .is_some()
         {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR translation violated an established compiler contract");
         }
 
         Ok(None)
@@ -208,13 +208,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         runtime: bray_ir::MirRuntimeReference,
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
         let [finalize, destroy] = helpers else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR translation violated an established compiler contract");
         };
 
         if finalize.reference() != &MirHelperReference::Finalize(element)
             || destroy.reference() != &MirHelperReference::Destroy(element)
         {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR translation violated an established compiler contract");
         }
 
         let finalize = self.generator_callback_argument(finalize, runtime, 1)?;
@@ -225,7 +225,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .invoke_runtime(runtime, &[destination, finalize, destroy])?
             .is_some()
         {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR translation violated an established compiler contract");
         }
 
         Ok(None)

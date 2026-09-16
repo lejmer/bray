@@ -12,7 +12,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         memory: &MirMemoryOperation,
     ) -> Result<(), CodegenFailure> {
         let [source, destination, count] = memory.operands() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
         let source = self.memory_pointer(source)?;
@@ -39,9 +39,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let count = self
             .operand(count)
-            .and_then(|value| int_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant))?;
+            .map(|value| int_value(value).expect("checked MIR memory translation requires an established mapping or value"))?;
 
-        let layout = self.memory_layout(pointee)?;
+        let layout = self.memory_layout(pointee);
 
         let bytes = llvm(self.builder.build_int_mul(
             self.pointer_sized_integer(count.into())?,
@@ -78,13 +78,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         memory: &MirMemoryOperation,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let [pointer, index] = memory.operands() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
         let pointer = self.memory_pointer(pointer)?;
         let index = self.pointer_sized_memory_operand(index)?;
         let pointer = self.dynamic_offset_pointer(pointer, index, 1)?;
-        let result = self.operation_result_type(operation)?;
+        let result = self.operation_result_type(operation);
 
         llvm(
             self.builder
@@ -97,16 +97,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         memory: &MirMemoryOperation,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let [slice] = memory.operands() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
         let [operand_type] = memory.operand_types() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
         let mapping = self
             .type_mapping(*operand_type)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR memory translation requires an established mapping or value");
 
         if let CodegenTypeKind::Pointer { target, .. } = mapping.kind()
             && let Some(CodegenTypeKind::Array { length, .. }) =
@@ -114,7 +114,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         {
             let result = memory
                 .result_type()
-                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                .expect("checked MIR memory translation requires an established mapping or value");
 
             return Ok(self
                 .types
@@ -134,14 +134,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         memory: &MirMemoryOperation,
     ) -> Result<(), CodegenFailure> {
         let [destination, value, count] = memory.operands() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
         let destination = self.memory_pointer(destination)?;
 
         let value = self
             .operand(value)
-            .and_then(|value| int_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant))?;
+            .map(|value| int_value(value).expect("checked MIR memory translation requires an established mapping or value"))?;
 
         let count = self.pointer_sized_memory_operand(count)?;
 

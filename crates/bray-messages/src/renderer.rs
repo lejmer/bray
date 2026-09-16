@@ -270,8 +270,8 @@ mod tests {
         DiagnosticArrayGeneratorCardinalityProblem, DiagnosticArrayLength,
         DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm, DiagnosticArtifactKind,
         DiagnosticBag, DiagnosticCallbackStateProblem, DiagnosticCheckerFailure,
-        DiagnosticCheckerNode, DiagnosticCheckerSymbol, DiagnosticCodegenVerificationStage,
-        DiagnosticConstructionInputRejection, DiagnosticDependencyRequirementKind,
+        DiagnosticCheckerNode, DiagnosticCheckerSymbol, DiagnosticConstructionInputRejection,
+        DiagnosticDependencyRequirementKind,
         DiagnosticDependencySubjectKind, DiagnosticEmissionEvaluationFailure,
         DiagnosticEmissionFailure, DiagnosticExpressionCategory, DiagnosticExternalToolExit,
         DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
@@ -651,34 +651,6 @@ mod tests {
         );
 
         assert_eq!(forbidden_ordinary_diagnostic_term(rendered.message()), None);
-    }
-
-    #[test]
-    fn backend_module_rejections_preserve_the_exact_report_and_stage() {
-        let diagnostic = Diagnostic::new(
-            DiagnosticId::new(9),
-            DiagnosticKind::CodegenBackendRejectedModule,
-            SeverityKind::Error,
-        )
-        .with_arg(DiagnosticArg::target_triple("x86_64-unknown-linux-gnu"))
-        .with_arg(DiagnosticArg::codegen_backend_identity("llvm"))
-        .with_arg(DiagnosticArg::codegen_backend_report(
-            "value representation mismatch",
-        ))
-        .with_arg(DiagnosticArg::codegen_verification_stage(
-            DiagnosticCodegenVerificationStage::BeforeOptimization,
-        ))
-        .with_note(DiagnosticNote::new(
-            DiagnosticNoteKind::ReportCompilerDefect,
-        ));
-
-        let rendered = DiagnosticRenderer::english().render(&diagnostic);
-
-        assert!(rendered.message().starts_with(INTERNAL_COMPILER_ERROR));
-        assert!(rendered.message().contains("x86_64-unknown-linux-gnu"));
-        assert!(rendered.message().contains("value representation mismatch"));
-        assert!(rendered.message().contains("before optimization"));
-        assert_eq!(rendered.notes().len(), 1);
     }
 
     #[test]

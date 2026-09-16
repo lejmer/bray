@@ -12,7 +12,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &mut self,
         operation: &MirOperation,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        let result = self.operation_result_type(operation)?;
+        let result = self.operation_result_type(operation);
         let ty = self.types.map(result)?;
 
         Ok(undefined_value(ty))
@@ -23,7 +23,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         memory: &MirMemoryOperation,
     ) -> Result<PointerValue<'context>, CodegenFailure> {
         let [storage] = memory.operands() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
         self.memory_pointer(storage)
@@ -34,7 +34,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         memory: &MirMemoryOperation,
     ) -> Result<PointerValue<'context>, CodegenFailure> {
         let [storage, value] = memory.operands() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
         let storage = self.memory_pointer(storage)?;
@@ -50,7 +50,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         memory: &MirMemoryOperation,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let [storage] = memory.operands() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
         self.operand(storage)
@@ -62,7 +62,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         element: TypeId,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let [storage] = memory.operands() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
         let storage = self.memory_pointer(storage)?;
@@ -78,7 +78,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         memory: &MirMemoryOperation,
     ) -> Result<PointerValue<'context>, CodegenFailure> {
         let [authority, pointer] = memory.operands() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
         self.operand(authority)?;

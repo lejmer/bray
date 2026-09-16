@@ -42,11 +42,11 @@ pub(crate) fn allocate_temporary<'context>(
     let function = source
         .get_insert_block()
         .and_then(BasicBlock::get_parent)
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("LLVM translation requires an established mapping or value");
 
     let entry = function
         .get_first_basic_block()
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("LLVM translation requires an established mapping or value");
 
     let builder = context.create_builder();
     let mut instruction = entry.get_first_instruction();

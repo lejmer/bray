@@ -223,10 +223,6 @@ fn native_product_failure_keys_are_unique_and_domain_named() {
             "codegen_backend_library_failure",
         )),
         Kind::CodegenBackendToolFailure(native_product_detail("codegen_backend_tool_failure")),
-        Kind::CodegenBackendGeneratedModuleInvariant,
-        Kind::CodegenBackendRejectedModule(native_product_detail(
-            "codegen_backend_rejected_module",
-        )),
         Kind::CodegenBackendArtifactConstruction(native_product_detail(
             "codegen_backend_artifact_construction",
         )),

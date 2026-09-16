@@ -12,14 +12,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
         let allocation = self
             .invoke_native_runtime(runtime, &[])?
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR effect translation requires an established mapping or value");
 
         let status = extract_value(&self.builder, allocation, 0)?;
 
         self.require_runtime_success(status, "task.allocation")?;
 
-        int_value(extract_value(&self.builder, allocation, 1)?)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)
+        Ok(int_value(extract_value(&self.builder, allocation, 1)?)
+            .expect("task allocation runtime must return an integer task handle"))
     }
 
     pub(super) fn start_native_task(
@@ -30,7 +30,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<(), CodegenFailure> {
         let status = self
             .invoke_native_runtime(runtime, &[task.into(), frame])?
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR effect translation requires an established mapping or value");
 
         self.require_runtime_success(status, "task.start")?;
 
@@ -52,11 +52,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         lifecycle: &CodegenHelperMapping,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let Some(CodegenSymbolKey::Runtime(runtime)) = creation.symbol() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR effect translation violated an established compiler contract");
         };
 
         let layout = self.run_result_layout(result, variants)?;
-        let task = int_value(task).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        let task = int_value(task).expect("checked MIR effect translation requires an established mapping or value");
 
         let boolean = self
             .types
@@ -85,8 +85,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             lifecycle.into(),
         ];
 
-        self.invoke_native_runtime(*runtime, &arguments)?
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)
+        Ok(self
+            .invoke_native_runtime(*runtime, &arguments)?
+            .expect("task-observation creation runtime must return a frame"))
     }
 
     pub(super) fn resolve_native_task(
@@ -101,14 +102,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let mapping = self
             .type_mapping(result)
             .and_then(|mapping| mapping.layout())
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR effect translation requires an established mapping or value");
 
         let storage = self.aligned_alloca(result, mapping.alignment().get(), "task.result")?;
         let layout = self.run_result_layout(result, variants)?;
 
         let status = self
             .invoke_native_runtime(runtime, &[task.into(), storage.into(), layout.into()])?
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR effect translation requires an established mapping or value");
 
         self.require_runtime_success(status, "task.resolve")?;
 
@@ -126,14 +127,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let mapping = self
             .type_mapping(result)
             .cloned()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR effect translation requires an established mapping or value");
 
         let represented = mapping
             .layout()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR effect translation requires an established mapping or value");
 
         let CodegenTypeKind::Union { tag, .. } = mapping.kind() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR effect translation violated an established compiler contract");
         };
 
         let variant = |identity| {
@@ -141,35 +142,35 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 .kind()
                 .union_variant(identity)
                 .cloned()
-                .ok_or(CodegenFailure::GeneratedModuleInvariant)
+                .expect("run-result variants must be represented in the mapped union")
         };
 
-        let completed = variant(selected.completed())?;
-        let panicked = variant(selected.panicked())?;
-        let cancelled = variant(selected.cancelled())?;
+        let completed = variant(selected.completed());
+        let panicked = variant(selected.panicked());
+        let cancelled = variant(selected.cancelled());
 
         let completed_field = completed
             .fields()
             .first()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR effect translation requires an established mapping or value");
 
         let panicked_field = panicked
             .fields()
             .first()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR effect translation requires an established mapping or value");
 
         let completed_layout = self
             .type_mapping(completed_field.ty())
             .and_then(|mapping| mapping.layout())
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR effect translation requires an established mapping or value");
 
-        let tag = (*tag).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        let tag = (*tag).expect("checked MIR effect translation requires an established mapping or value");
 
         let tag_size = self
             .type_mapping(tag)
             .and_then(|mapping| mapping.layout())
             .map(|layout| layout.size())
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR effect translation requires an established mapping or value");
 
         let layout_type =
             crate::native::run_result_layout_type(self.types.context(), self.request.target());
@@ -189,7 +190,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         .const_int(value, false)
                         .into()
                 })
-                .ok_or(CodegenFailure::GeneratedModuleInvariant)
+                .expect("run-result discriminants must fit the native runtime layout")
         };
 
         let value = layout_type.const_named_struct(&[
@@ -199,22 +200,22 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             tag_constant(
                 completed
                     .tag()
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?,
-            )?,
+                    .expect("checked MIR effect translation requires an established mapping or value"),
+            ),
             usize_constant(completed_field.offset_bytes()),
             usize_constant(completed_layout.size()),
             usize_constant(completed_layout.alignment().get()),
             tag_constant(
                 panicked
                     .tag()
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?,
-            )?,
+                    .expect("checked MIR effect translation requires an established mapping or value"),
+            ),
             usize_constant(panicked_field.offset_bytes()),
             tag_constant(
                 cancelled
                     .tag()
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?,
-            )?,
+                    .expect("checked MIR effect translation requires an established mapping or value"),
+            ),
         ]);
 
         let storage = self.allocate_temporary(layout_type, "task.result.layout")?;
@@ -229,13 +230,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         status: BasicValueEnum<'context>,
         name: &str,
     ) -> Result<(), CodegenFailure> {
-        let status = int_value(status).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        let status = int_value(status).expect("checked MIR effect translation requires an established mapping or value");
 
         let function = self
             .builder
             .get_insert_block()
             .and_then(|block| block.get_parent())
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR effect translation requires an established mapping or value");
 
         let failed = self
             .types

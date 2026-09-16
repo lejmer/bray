@@ -21,15 +21,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         memory: &MirMemoryOperation,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let [bytes, alignment] = memory.operands() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
         let bytes = self.pointer_sized_memory_operand(bytes)?;
         let alignment = self.pointer_sized_memory_operand(alignment)?;
-        let result = self.operation_result_type(operation)?;
+        let result = self.operation_result_type(operation);
 
         let BasicTypeEnum::PointerType(_) = self.types.map(result)? else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
         let helpers = self.operation_helpers(operation_id)?;
@@ -38,12 +38,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let helper = next_helper(
             &mut helpers,
             &MirHelperReference::StandardLibrary(MirStandardLibraryHelper::MemoryAllocate),
-        )?;
+        );
 
         let pointer = self
             .invoke_helper(helper, &[bytes.into(), alignment.into()])?
             .and_then(pointer_value)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR memory translation requires an established mapping or value");
 
         self.observe_memory_allocation(bytes)?;
 
@@ -56,7 +56,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         memory: &MirMemoryOperation,
     ) -> Result<(), CodegenFailure> {
         let [pointer, bytes, alignment] = memory.operands() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
         let pointer = self.memory_pointer(pointer)?;
@@ -68,13 +68,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let helper = next_helper(
             &mut helpers,
             &MirHelperReference::StandardLibrary(MirStandardLibraryHelper::MemoryDeallocate),
-        )?;
+        );
 
         if self
             .invoke_helper(helper, &[pointer.into(), bytes.into(), alignment.into()])?
             .is_some()
         {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         }
 
         Ok(())
@@ -87,27 +87,27 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         memory: &MirMemoryOperation,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let [layout] = memory.operands() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
         let [layout_type] = memory.operand_types() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
         let (layout, layout_fields) = self.memory_aggregate_operand(layout, *layout_type, 2)?;
 
         let bytes = self.memory_aggregate_integer(layout, &layout_fields, 0)?;
         let alignment = self.memory_aggregate_integer(layout, &layout_fields, 1)?;
-        let result = self.operation_result_type(operation)?;
+        let result = self.operation_result_type(operation);
 
-        let result_fields = self.aggregate_fields(result)?;
+        let result_fields = self.aggregate_fields(result);
 
         if result_fields.len() != 3 {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         }
 
         let BasicTypeEnum::PointerType(_) = self.types.map(result_fields[0].ty())? else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
         let helpers = self.operation_helpers(operation_id)?;
@@ -116,12 +116,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let helper = next_helper(
             &mut helpers,
             &MirHelperReference::StandardLibrary(MirStandardLibraryHelper::MemoryAllocate),
-        )?;
+        );
 
         let pointer = self
             .invoke_helper(helper, &[bytes.into(), alignment.into()])?
             .and_then(pointer_value)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR memory translation requires an established mapping or value");
 
         self.observe_memory_allocation(bytes)?;
 
@@ -145,11 +145,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         memory: &MirMemoryOperation,
     ) -> Result<(), CodegenFailure> {
         let [allocation] = memory.operands() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
         let [allocation_type] = memory.operand_types() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
         let (allocation, fields) =
@@ -164,13 +164,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let helper = next_helper(
             &mut helpers,
             &MirHelperReference::StandardLibrary(MirStandardLibraryHelper::MemoryDeallocate),
-        )?;
+        );
 
         if self
             .invoke_helper(helper, &[pointer.into(), bytes.into(), alignment.into()])?
             .is_some()
         {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         }
 
         Ok(())
@@ -182,11 +182,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         ty: bray_symbols::TypeId,
         field_count: usize,
     ) -> Result<(BasicValueEnum<'context>, Arc<[CodegenFieldLayout]>), CodegenFailure> {
-        let fields = self.aggregate_fields(ty)?;
+        let fields = self.aggregate_fields(ty);
 
-        if fields.len() != field_count {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
-        }
+        assert_eq!(
+            fields.len(),
+            field_count,
+            "memory aggregate type {ty:?} has the wrong field count"
+        );
 
         let value = self.operand(operand)?;
 
@@ -200,7 +202,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         index: usize,
     ) -> Result<IntValue<'context>, CodegenFailure> {
         extract_value(&self.builder, value, self.aggregate_element(fields, index)?)
-            .and_then(|value| int_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant))
+            .map(|value| int_value(value).expect("checked MIR memory translation requires an established mapping or value"))
             .and_then(|value| self.pointer_sized_integer(value.into()))
     }
 
@@ -211,7 +213,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         index: usize,
     ) -> Result<PointerValue<'context>, CodegenFailure> {
         extract_value(&self.builder, value, self.aggregate_element(fields, index)?)
-            .and_then(|value| pointer_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant))
+            .map(|value| pointer_value(value).expect("checked MIR memory translation requires an established mapping or value"))
     }
 
     pub(super) fn load_owned_memory(
@@ -229,7 +231,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 CodegenTypeKind::Pointer { target, .. } => Some(*target),
                 _ => None,
             })
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .unwrap_or_else(|| {
+                panic!("owned-memory operand type {owner_type:?} must map to a pointer")
+            });
 
         let fields = self
             .type_mapping(value_type)
@@ -237,11 +241,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 CodegenTypeKind::Aggregate(fields) => Some(fields),
                 _ => None,
             })
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .unwrap_or_else(|| {
+                panic!("owned-memory pointee type {value_type:?} must map to an aggregate")
+            });
 
-        if fields.len() != field_count {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
-        }
+        assert_eq!(
+            fields.len(),
+            field_count,
+            "owned-memory pointee type {value_type:?} has the wrong field count"
+        );
 
         let llvm_type = self.types.map(value_type)?;
         let value = llvm(self.builder.build_load(llvm_type, owner, name))?;
@@ -306,7 +314,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         operand: &bray_ir::MirOperand,
     ) -> Result<PointerValue<'context>, CodegenFailure> {
         self.operand(operand)
-            .and_then(|value| pointer_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant))
+            .map(|value| pointer_value(value).expect("checked MIR memory translation requires an established mapping or value"))
     }
 
     pub(super) fn pointer_sized_memory_operand(
@@ -336,12 +344,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .ptr_sized_int_type(self.types.target_data(), None)
     }
 
-    pub(super) fn memory_layout(
-        &self,
-        ty: bray_symbols::TypeId,
-    ) -> Result<bray_target::TargetValueLayout, CodegenFailure> {
+    pub(super) fn memory_layout(&self, ty: bray_symbols::TypeId) -> bray_target::TargetValueLayout {
         self.type_mapping(ty)
             .and_then(bray_codegen::CodegenTypeMapping::layout)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)
+            .expect("memory operation types must have represented codegen layouts")
     }
 }

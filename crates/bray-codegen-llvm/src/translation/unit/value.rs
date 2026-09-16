@@ -12,11 +12,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         operand: &MirOperand,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         match operand {
-            MirOperand::Value(value) => self
+            MirOperand::Value(value) => Ok(self
                 .values
                 .get(value)
                 .copied()
-                .ok_or(CodegenFailure::GeneratedModuleInvariant),
+                .expect("translated MIR values must be available before use")),
             MirOperand::Immediate { value, ty } => {
                 let ty = self.types.map(*ty)?;
 
@@ -25,7 +25,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         BasicTypeEnum::IntType(ty) => {
                             Ok(ty.const_int(u64::from(*value), false).into())
                         }
-                        _ => Err(CodegenFailure::GeneratedModuleInvariant),
+                        unexpected => panic!("checked MIR value translation violated an established compiler contract: {unexpected:?}"),
                     },
                     MirImmediateValue::Unit | MirImmediateValue::NullableAbsent => {
                         Ok(ty.const_zero())
@@ -80,7 +80,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .request
             .mappings()
             .constant_with_representation(value, representation)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR value translation requires an established mapping or value");
 
         let (semantic_type, representation, kind) = owned_constant_parts(mapping);
 
@@ -120,7 +120,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<(), CodegenFailure> {
         let mapping = self
             .type_mapping(ty)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR value translation requires an established mapping or value");
 
         if mapping.behavior() == Some(CodegenTypeBehavior::String) {
             return self.retain_string(value, ty);
@@ -183,7 +183,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         llvm(self.builder.build_store(storage, value))?;
 
         let BasicTypeEnum::IntType(tag_type) = self.types.map(tag)? else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR value translation violated an established compiler contract");
         };
 
         let tag =
@@ -198,19 +198,19 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .iter()
             .enumerate()
             .map(|(index, variant)| {
-                Ok((
+                (
                     integer_constant(
                         tag_type,
                         variant
                             .tag()
-                            .ok_or(CodegenFailure::GeneratedModuleInvariant)?,
+                            .expect("checked MIR value translation requires an established mapping or value"),
                     ),
                     self.types
                         .context()
                         .append_basic_block(self.function, &format!("copy.union.variant.{index}")),
-                ))
+                )
             })
-            .collect::<Result<Vec<_>, CodegenFailure>>()?;
+            .collect::<Vec<_>>();
 
         llvm(self.builder.build_switch(tag, done, &cases))?;
 
@@ -245,7 +245,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .request
             .mappings()
             .constant(value)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR value translation requires an established mapping or value");
 
         let (semantic_type, representation, kind) = owned_constant_parts(mapping);
 
@@ -262,18 +262,18 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         match kind {
             ConstantValueKind::Error | ConstantValueKind::StaticAddress(_) => {
-                Err(CodegenFailure::GeneratedModuleInvariant)
+                panic!("checked MIR value translation violated an established compiler contract")
             }
             ConstantValueKind::Boolean(value) => {
                 let BasicTypeEnum::IntType(ty) = self.types.map(ty)? else {
-                    return Err(CodegenFailure::GeneratedModuleInvariant);
+                    panic!("checked MIR value translation violated an established compiler contract");
                 };
 
                 Ok(ty.const_int(u64::from(value), false).into())
             }
             ConstantValueKind::Character(value) => {
                 let BasicTypeEnum::IntType(ty) = self.types.map(ty)? else {
-                    return Err(CodegenFailure::GeneratedModuleInvariant);
+                    panic!("checked MIR value translation violated an established compiler contract");
                 };
 
                 Ok(ty.const_int(u64::from(u32::from(value)), false).into())
@@ -306,10 +306,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             ConstantValueKind::Product(fields) => {
                 let mapping = self
                     .type_mapping(ty)
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                    .expect("checked MIR value translation requires an established mapping or value");
 
                 let CodegenTypeKind::Aggregate(layout) = mapping.kind() else {
-                    return Err(CodegenFailure::GeneratedModuleInvariant);
+                    panic!("checked MIR value translation violated an established compiler contract");
                 };
 
                 let mut value = self.types.map(ty)?.const_zero();
@@ -323,7 +323,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                             layout.reference()
                                 == Some(bray_ir::MirFieldReference::Struct(*field.field()))
                         })
-                        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                        .expect("checked MIR value translation requires an established mapping or value");
 
                     value = insert_value(
                         &self.builder,
@@ -347,7 +347,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         value: &bray_symbols::IntegerConstant,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let BasicTypeEnum::IntType(ty) = self.types.map(ty)? else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR value translation violated an established compiler contract");
         };
 
         Ok(integer_constant(ty, value).into())
@@ -374,7 +374,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             32 => self.types.context().f32_type().into(),
             64 => self.types.context().f64_type().into(),
             128 => self.types.context().f128_type().into(),
-            _ => return Err(CodegenFailure::GeneratedModuleInvariant),
+            unexpected => panic!("checked MIR value translation violated an established compiler contract: {unexpected:?}"),
         };
 
         self.real_bits(target, bits)
@@ -386,7 +386,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         bits: RealConstantBits,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let BasicTypeEnum::FloatType(float) = target else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR value translation violated an established compiler contract");
         };
 
         let words = real_words(bits);
@@ -450,22 +450,22 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let mapping = self
             .type_mapping(ty)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR value translation requires an established mapping or value");
 
         let CodegenTypeKind::Aggregate(fields) = mapping.kind() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR value translation violated an established compiler contract");
         };
 
         let payload = fields
             .len()
             .checked_sub(1)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR value translation requires an established mapping or value");
 
         if fields.len() > 1 {
             let tag_type = self.types.map(fields[0].ty())?;
 
             let BasicTypeEnum::IntType(tag_type) = tag_type else {
-                return Err(CodegenFailure::GeneratedModuleInvariant);
+                panic!("checked MIR value translation violated an established compiler contract");
             };
 
             value = insert_value(
@@ -508,7 +508,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let mapping = self
             .type_mapping(representation)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR value translation requires an established mapping or value");
 
         match mapping.kind() {
             CodegenTypeKind::Pointer { .. } => {
@@ -544,7 +544,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             | CodegenTypeKind::UnsizedSlice { .. }
             | CodegenTypeKind::UnsizedTraitView
             | CodegenTypeKind::Union { .. }
-            | CodegenTypeKind::Callable(_) => Err(CodegenFailure::GeneratedModuleInvariant),
+            | CodegenTypeKind::Callable(_) => panic!("checked MIR value translation violated an established compiler contract"),
         }
     }
 
@@ -556,18 +556,18 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<inkwell::values::StructValue<'context>, CodegenFailure> {
         let mapping = self
             .type_mapping(ty)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR value translation requires an established mapping or value");
 
         let CodegenTypeKind::Aggregate(fields) = mapping.kind() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR value translation violated an established compiler contract");
         };
 
         if fields.len() != 3 || mapping.behavior() != Some(CodegenTypeBehavior::String) {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR value translation violated an established compiler contract");
         }
 
         let BasicTypeEnum::StructType(value_type) = self.types.map(ty)? else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR value translation violated an established compiler contract");
         };
 
         let mut values = value_type
@@ -580,18 +580,18 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let length_index = self.aggregate_value_element(fields, 2)?;
 
         let BasicTypeEnum::IntType(length_type) = self.types.map(fields[2].ty())? else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR value translation violated an established compiler contract");
         };
 
         let pointer = values
             .get_mut(pointer_index)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR value translation requires an established mapping or value");
 
         *pointer = data.into();
 
         let length_value = values
             .get_mut(length_index)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR value translation requires an established mapping or value");
 
         *length_value = length_type
             .const_int(
@@ -614,16 +614,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let mapping = self
             .type_mapping(ty)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR value translation requires an established mapping or value");
 
         let CodegenTypeKind::Union { tag, .. } = mapping.kind() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR value translation violated an established compiler contract");
         };
 
         let variant = mapping
             .kind()
             .union_variant(variant)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR value translation requires an established mapping or value");
 
         let llvm_type = self.types.map(ty)?;
         let storage = self.allocate_temporary(llvm_type, "constant.union")?;
@@ -635,7 +635,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         for field in fields {
             let layout = variant
                 .payload_field(*field.field())
-                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                .expect("checked MIR value translation requires an established mapping or value");
 
             let destination = self.constant_offset_pointer(storage, layout.offset_bytes())?;
             let value = self.constant(*field.value())?;
@@ -676,18 +676,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         )
     }
 
-    pub(super) fn operand_type(
-        &self,
-        operand: &MirOperand,
-    ) -> Result<bray_symbols::TypeId, CodegenFailure> {
+    pub(super) fn operand_type(&self, operand: &MirOperand) -> bray_symbols::TypeId {
         match operand {
             MirOperand::Value(value) => self
                 .unit
                 .value(*value)
                 .map(bray_ir::MirValue::ty)
-                .ok_or(CodegenFailure::GeneratedModuleInvariant),
-            MirOperand::Constant { ty, .. } | MirOperand::Immediate { ty, .. } => Ok(*ty),
-            MirOperand::Copy(place) | MirOperand::Move(place) => Ok(place.ty()),
+                .expect("checked MIR operands must reference a value in their unit"),
+            MirOperand::Constant { ty, .. } | MirOperand::Immediate { ty, .. } => *ty,
+            MirOperand::Copy(place) | MirOperand::Move(place) => place.ty(),
         }
     }
 }

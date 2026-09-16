@@ -5,15 +5,12 @@ use bray_runtime_interface::RuntimeAbiRole;
 use inkwell::values::BasicValueEnum;
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
-    pub(super) fn outgoing_capacity(
-        &self,
-        operation: MirOperationId,
-    ) -> Result<u32, CodegenFailure> {
+    pub(super) fn outgoing_capacity(&self, operation: MirOperationId) -> u32 {
         self.request
             .mappings()
             .operation(self.instance.key(), operation)
             .and_then(bray_codegen::CodegenOperationMapping::outgoing_capacity)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)
+            .expect("checked MIR translation requires an outgoing-capacity mapping")
     }
 
     pub(super) fn translate_outgoing(
@@ -21,7 +18,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         operation: MirOperationId,
         runtime: MirRuntimeReference,
     ) -> Result<(), CodegenFailure> {
-        let capacity = self.outgoing_capacity(operation)?;
+        let capacity = self.outgoing_capacity(operation);
 
         if capacity == 0 {
             return Ok(());
@@ -49,11 +46,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &mut self,
         operation: MirOperationId,
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
-        if self.outgoing_capacity(operation)? == 0 {
+        if self.outgoing_capacity(operation) == 0 {
             return Ok(None);
         }
 
-        self.invoke_runtime(
+        Ok(self
+            .invoke_runtime(
             MirRuntimeReference::new(
                 RuntimeAbiRole::OutgoingActivation,
                 self.unit.target().runtime_abi(),
@@ -61,7 +59,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             &[],
         )?
         .map(Some)
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)
+        .expect("outgoing activation runtime must return its record"))
     }
 
     pub(super) fn retire_outgoing_call(
@@ -70,7 +68,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<(), CodegenFailure> {
         let context = self
             .pending_call_panic_report_context
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR translation requires an established mapping or value");
 
         self.invoke_runtime(
             MirRuntimeReference::new(

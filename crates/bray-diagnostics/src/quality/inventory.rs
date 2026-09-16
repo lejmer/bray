@@ -182,7 +182,7 @@ impl DiagnosticKind {
             ActualTargetTriple, ActualType, AlignmentKind, ArrayGeneratorCardinalityProblem,
             ArtifactKind, ArtifactOrdinal, ArtifactPath, ByteCount, CallableAbi,
             CallableOverloadProblem, CallbackStateProblem, CodegenBackendIdentity,
-            CodegenBackendReport, CodegenVerificationStage, ConstantOperation, CopyContractProblem,
+            CodegenBackendReport, ConstantOperation, CopyContractProblem,
             DeclarationName, DependencyRequirementKind, DependencySubjectKind, DocumentColumn,
             DocumentLine, DocumentParseKind, EmissionArtifactOperation, EmissionFailure,
             ExpectedArtifactDigest, ExpectedByteCount, ExpectedCount, ExpectedNameKind,
@@ -1431,20 +1431,6 @@ impl DiagnosticKind {
                     TargetTriple,
                     FilePath,
                     ExternalToolExit,
-                ]),
-            ),
-            Self::CodegenBackendRejectedModule => Self::quality_artifact(
-                &[
-                    CodegenBackendIdentity,
-                    TargetTriple,
-                    CodegenVerificationStage,
-                    CodegenBackendReport,
-                ],
-                compiler_defect_components!(&[
-                    CodegenBackendIdentity,
-                    TargetTriple,
-                    CodegenVerificationStage,
-                    CodegenBackendReport,
                 ]),
             ),
             Self::CodegenUnsupportedArtifact => Self::quality_artifact(

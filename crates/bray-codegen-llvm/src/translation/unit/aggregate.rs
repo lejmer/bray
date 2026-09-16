@@ -17,7 +17,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         };
 
         let BasicTypeEnum::IntType(tag_type) = self.types.map(tag)? else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR translation violated an established compiler contract");
         };
 
         llvm(

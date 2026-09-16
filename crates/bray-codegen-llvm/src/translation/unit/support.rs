@@ -24,38 +24,45 @@ pub(super) fn nonzero_integer<'context>(
 pub(super) fn next_helper<'mapping>(
     helpers: &mut impl Iterator<Item = &'mapping CodegenHelperMapping>,
     expected: &MirHelperReference,
-) -> Result<&'mapping CodegenHelperMapping, CodegenFailure> {
+) -> &'mapping CodegenHelperMapping {
     let helper = helpers
         .next()
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .unwrap_or_else(|| panic!("checked MIR is missing helper {expected:?}"));
 
     if helper.reference() != expected {
-        return Err(CodegenFailure::GeneratedModuleInvariant);
+        panic!(
+            "checked MIR expected helper {expected:?}, got {:?}",
+            helper.reference()
+        );
     }
 
-    Ok(helper)
+    helper
 }
 
 pub(super) fn parameter_type(
     signature: &CodegenCallableSignature,
     parameter: usize,
-) -> Result<bray_symbols::TypeId, CodegenFailure> {
+) -> bray_symbols::TypeId {
     match signature.parameters().get(parameter) {
-        Some(CodegenParameterMapping::Direct { ty, .. }) => Ok(*ty),
-        Some(CodegenParameterMapping::Indirect { pointee, .. }) => Ok(*pointee),
+        Some(CodegenParameterMapping::Direct { ty, .. }) => *ty,
+        Some(CodegenParameterMapping::Indirect { pointee, .. }) => *pointee,
         Some(CodegenParameterMapping::Ignore) | None => {
-            Err(CodegenFailure::GeneratedModuleInvariant)
+            panic!(
+                "callable signature has no represented type for parameter {parameter}: {signature:?}"
+            )
         }
     }
 }
 
 pub(super) fn result_type(
     signature: &CodegenCallableSignature,
-) -> Result<bray_symbols::TypeId, CodegenFailure> {
+) -> bray_symbols::TypeId {
     match signature.result() {
-        CodegenResultMapping::Direct { ty, .. } => Ok(*ty),
-        CodegenResultMapping::Indirect { pointee, .. } => Ok(*pointee),
-        CodegenResultMapping::Void => Err(CodegenFailure::GeneratedModuleInvariant),
+        CodegenResultMapping::Direct { ty, .. } => *ty,
+        CodegenResultMapping::Indirect { pointee, .. } => *pointee,
+        CodegenResultMapping::Void => {
+            panic!("void callable signature has no represented result type: {signature:?}")
+        }
     }
 }
 
@@ -74,7 +81,7 @@ pub(super) fn insert_value<'context>(
         BasicValueEnum::StructValue(aggregate) => {
             llvm(builder.build_insert_value(aggregate, value, index, "aggregate.field"))?
         }
-        _ => return Err(CodegenFailure::GeneratedModuleInvariant),
+        unexpected => panic!("checked MIR translation violated an established compiler contract: {unexpected:?}"),
     };
 
     match value {
@@ -95,7 +102,7 @@ pub(super) fn extract_value<'context>(
         BasicValueEnum::StructValue(aggregate) => {
             llvm(builder.build_extract_value(aggregate, index, "projection.value"))
         }
-        _ => Err(CodegenFailure::GeneratedModuleInvariant),
+        unexpected => panic!("checked MIR translation violated an established compiler contract: {unexpected:?}"),
     }
 }
 
@@ -104,10 +111,10 @@ pub(crate) fn native_run_outcome<'context>(
     outcome: BasicValueEnum<'context>,
 ) -> Result<(IntValue<'context>, IntValue<'context>), CodegenFailure> {
     let state = extract_value(builder, outcome, 0)
-        .and_then(|value| int_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant))?;
+        .map(|value| int_value(value).expect("checked MIR translation requires an established mapping or value"))?;
 
     let payload = extract_value(builder, outcome, 1)
-        .and_then(|value| int_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant))?;
+        .map(|value| int_value(value).expect("checked MIR translation requires an established mapping or value"))?;
 
     Ok((state, payload))
 }
@@ -157,11 +164,11 @@ pub(crate) fn native_run_state_is<'context>(
     )
 }
 
-pub(super) fn aggregate_value_length(value: BasicValueEnum<'_>) -> Result<u32, CodegenFailure> {
+pub(super) fn aggregate_value_length(value: BasicValueEnum<'_>) -> u32 {
     match value {
-        BasicValueEnum::ArrayValue(value) => Ok(value.get_type().len()),
-        BasicValueEnum::StructValue(value) => Ok(value.get_type().count_fields()),
-        _ => Err(CodegenFailure::GeneratedModuleInvariant),
+        BasicValueEnum::ArrayValue(value) => value.get_type().len(),
+        BasicValueEnum::StructValue(value) => value.get_type().count_fields(),
+        unexpected => panic!("checked MIR translation violated an established compiler contract: {unexpected:?}"),
     }
 }
 
@@ -171,7 +178,10 @@ pub(super) fn physical_aggregate_element(
     field_size: impl Fn(&bray_codegen::CodegenFieldLayout) -> Result<u64, CodegenFailure>,
 ) -> Result<u32, CodegenFailure> {
     if semantic_index >= fields.len() {
-        return Err(CodegenFailure::GeneratedModuleInvariant);
+        panic!(
+            "aggregate semantic field index {semantic_index} exceeds field count {}",
+            fields.len()
+        );
     }
 
     let mut element = 0_u32;
@@ -200,7 +210,7 @@ pub(super) fn physical_aggregate_element(
             .ok_or(CodegenFailure::ResourceExhausted)?;
     }
 
-    Err(CodegenFailure::GeneratedModuleInvariant)
+    panic!("checked MIR translation violated an established compiler contract")
 }
 
 pub(super) fn integer_words(magnitude: &[u8]) -> Vec<u64> {
@@ -333,7 +343,7 @@ pub(super) const fn float_predicate(operator: MirBinaryOperator) -> FloatPredica
 
 #[cfg(test)]
 mod tests {
-    use bray_codegen::{CodegenFailure, CodegenFieldLayout};
+    use bray_codegen::CodegenFieldLayout;
     use bray_symbols::{SemanticValueStore, TypeData};
 
     use super::{integer_words, physical_aggregate_element};
@@ -367,9 +377,18 @@ mod tests {
 
         assert_eq!(physical_aggregate_element(&padded, 1, |_| Ok(4)), Ok(2));
 
-        assert_eq!(
-            physical_aggregate_element(&adjacent, 2, |_| Ok(4)),
-            Err(CodegenFailure::GeneratedModuleInvariant)
-        );
+        let panic = std::panic::catch_unwind(|| {
+            physical_aggregate_element(&adjacent, 2, |_| Ok(4))
+        })
+        .expect_err("out-of-range aggregate field must panic");
+
+        let message = panic
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| panic.downcast_ref::<&str>().copied())
+            .expect("panic payload must be text");
+
+        assert!(message.contains("index 2"));
+        assert!(message.contains("field count 2"));
     }
 }

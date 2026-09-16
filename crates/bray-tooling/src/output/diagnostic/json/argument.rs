@@ -43,7 +43,6 @@ pub(in crate::output::diagnostic::json) enum DiagnosticArgValueJson {
     DeclarationName(String),
     ReferencedName(String),
     CodegenBackendIdentity(String),
-    CodegenVerificationStage(&'static str),
     CodegenBackendReport(String),
     LinkerDriverIdentity(DiagnosticLinkerDriverIdentityJson),
     PackageIdentity(String),
@@ -163,9 +162,6 @@ impl DiagnosticArgValueJson {
             DiagnosticArgValue::ReferencedName(name) => Self::ReferencedName(name.to_owned()),
             DiagnosticArgValue::CodegenBackendIdentity(identity) => {
                 Self::CodegenBackendIdentity(identity.to_owned())
-            }
-            DiagnosticArgValue::CodegenVerificationStage(stage) => {
-                Self::CodegenVerificationStage((*stage).as_str())
             }
             DiagnosticArgValue::CodegenBackendReport(report) => {
                 Self::CodegenBackendReport(report.to_owned())
@@ -536,12 +532,10 @@ impl DiagnosticNativeProductFailureJson {
             | Kind::CodegenBackendUnsupportedArtifact(detail)
             | Kind::CodegenBackendUnsupportedTargetDetail(detail)
             | Kind::CodegenBackendInvalidConfigurationDetail(detail)
-            | Kind::CodegenBackendGeneratedModuleInvariantDetail(detail)
             | Kind::CodegenBackendLibraryFailure(detail)
             | Kind::CodegenBackendToolFailure(detail)
             | Kind::CodegenBackendInvalidRuntimeMetadata(detail)
             | Kind::CodegenBackendInvalidOutcome(detail)
-            | Kind::CodegenBackendRejectedModule(detail)
             | Kind::CodegenBackendArtifactConstruction(detail)
             | Kind::CodegenBackendResourceLimit(detail)
             | Kind::CodegenInvalidRequest(detail)
@@ -604,7 +598,6 @@ impl DiagnosticNativeProductFailureJson {
             | Kind::CodegenBackendUnsupportedTarget
             | Kind::CodegenBackendInvalidConfiguration
             | Kind::CodegenBackendResourceExhausted
-            | Kind::CodegenBackendGeneratedModuleInvariant
             | Kind::CodegenBackendUnavailable
             | Kind::CodegenMissingEntrypoint
             | Kind::CodegenMirCapacityExceeded

@@ -34,7 +34,7 @@ pub(in crate::mapping) fn declare_static_storages<'context, 'mappings>(
             .instance_ty(mapping.owner(), mapping.ty())
             .and_then(bray_codegen::CodegenTypeMapping::layout)
             .and_then(|layout| u32::try_from(layout.alignment().get()).ok())
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("static-storage realization requires an established mapping or value");
 
         let global = declare_static_global(module, mapping, target, initializer, alignment);
 
@@ -71,7 +71,7 @@ pub(in crate::mapping) fn declare_static_storages<'context, 'mappings>(
                     .iter()
                     .find(|entry| entry.host_symbol().as_str() == mapping.host_name())
             })
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("static-storage realization requires an established mapping or value");
 
         retained_globals.push(declare_static_host_entry(
             module,
@@ -224,7 +224,7 @@ fn declare_static_accessor<'context>(
     builder.position_at_end(entry);
 
     if let Some(attachment) = attachment {
-        let product_host = product_host.ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        let product_host = product_host.expect("static-storage realization requires an established mapping or value");
 
         let registration = declare_thread_static_registration(
             module,
@@ -237,7 +237,7 @@ fn declare_static_accessor<'context>(
 
         let descriptor = module
             .get_global(product_host.descriptor_symbol().as_str())
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("static-storage realization requires an established mapping or value");
 
         let identity = crate::native::declare_runtime_function(
             module,
@@ -255,7 +255,7 @@ fn declare_static_accessor<'context>(
             .map_err(CodegenFailure::backend_library)?
             .try_as_basic_value()
             .basic()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?
+            .expect("static-storage realization requires an established mapping or value")
             .into_int_value();
 
         let previous = builder
@@ -335,7 +335,7 @@ fn declare_static_accessor<'context>(
             .map_err(CodegenFailure::backend_library)?
             .try_as_basic_value()
             .basic()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?
+            .expect("static-storage realization requires an established mapping or value")
             .into_int_value();
 
         let registered = builder
@@ -436,7 +436,7 @@ fn declare_static_prepare<'context>(
 
     let entry = prepare
         .get_first_basic_block()
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("static-storage realization requires an established mapping or value");
 
     builder.position_at_end(entry);
 
@@ -485,19 +485,19 @@ fn declare_static_lifecycle_phase<'context>(
 
     let entry = callback
         .get_first_basic_block()
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("static-storage realization requires an established mapping or value");
 
     builder.position_at_end(entry);
 
     if let Some(instance) = instance {
-        let (function, signature) = mapped_instance_function(module, mappings, instance)?;
+        let (function, signature) = mapped_instance_function(module, mappings, instance);
 
         invoke_static_boundary(
             &builder,
             function,
             signature,
             &[storage.into()],
-            static_outcome(callback)?,
+            static_outcome(callback),
             "",
             types,
         )?;
@@ -530,7 +530,7 @@ fn declare_static_detach<'context>(
 
     let entry = detach
         .get_first_basic_block()
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("static-storage realization requires an established mapping or value");
 
     builder.position_at_end(entry);
 
@@ -599,7 +599,7 @@ pub(super) fn pointer_type<'context>(
     types: &LlvmTypeMappings<'context, '_>,
 ) -> Result<PointerType<'context>, CodegenFailure> {
     let BasicTypeEnum::PointerType(pointer) = types.default_pointer_type()? else {
-        return Err(CodegenFailure::GeneratedModuleInvariant);
+        panic!("static-storage realization violated an established compiler contract");
     };
 
     Ok(pointer)

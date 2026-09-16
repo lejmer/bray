@@ -18,14 +18,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     let value = self.operand(value)?;
 
                     if receiver.replace(value).is_some() {
-                        return Err(CodegenFailure::GeneratedModuleInvariant);
+                        panic!("checked MIR translation violated an established compiler contract");
                     }
                 }
                 MirCallArgument::Explicit { ordinal, value, .. } => {
                     let value = self.operand(value)?;
 
                     if parameters.insert(*ordinal, value).is_some() {
-                        return Err(CodegenFailure::GeneratedModuleInvariant);
+                        panic!("checked MIR translation violated an established compiler contract");
                     }
                 }
             }
@@ -36,7 +36,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         for (expected, (ordinal, value)) in (0_u32..).zip(parameters) {
             if ordinal != expected {
-                return Err(CodegenFailure::GeneratedModuleInvariant);
+                panic!("checked MIR translation violated an established compiler contract");
             }
 
             arguments.push(value);

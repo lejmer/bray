@@ -20,7 +20,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         signature: &CodegenCallableSignature,
     ) -> Result<PointerValue<'context>, CodegenFailure> {
         if !signature.has_panic_report_context() {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR call translation violated an established compiler contract");
         }
 
         self.checked_call_panic_report_context()
@@ -88,7 +88,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         storage
             .as_instruction_value()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?
+            .expect("checked MIR call translation requires an established mapping or value")
             .set_alignment(alignment)
             .map_err(CodegenFailure::unsupported_target_report)?;
 
@@ -130,18 +130,18 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
         let key = helper
             .symbol()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR call translation requires an established mapping or value");
 
         let symbol = self
             .request
             .mappings()
             .symbol(key)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR call translation requires an established mapping or value");
 
         let function = self
             .module
             .get_function(symbol.name().as_str())
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR call translation requires an established mapping or value");
 
         // Owning the signature releases the immutable mapping borrow before invocation mutates
         // translation state.
@@ -165,7 +165,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .replace(context)
             .is_some()
         {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR call translation violated an established compiler contract");
         }
 
         Ok(())

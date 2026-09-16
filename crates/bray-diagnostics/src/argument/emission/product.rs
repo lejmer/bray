@@ -222,11 +222,8 @@ pub enum DiagnosticNativeProductFailureKind {
     CodegenBackendResourceLimit(DiagnosticNativeProductFailureDetail),
     CodegenBackendLibraryFailure(DiagnosticNativeProductFailureDetail),
     CodegenBackendToolFailure(DiagnosticNativeProductFailureDetail),
-    CodegenBackendGeneratedModuleInvariant,
-    CodegenBackendGeneratedModuleInvariantDetail(DiagnosticNativeProductFailureDetail),
     CodegenBackendInvalidRuntimeMetadata(DiagnosticNativeProductFailureDetail),
     CodegenBackendInvalidOutcome(DiagnosticNativeProductFailureDetail),
-    CodegenBackendRejectedModule(DiagnosticNativeProductFailureDetail),
     CodegenBackendArtifactConstruction(DiagnosticNativeProductFailureDetail),
     CodegenBackendUnavailable,
     CodegenInvalidRequest(DiagnosticNativeProductFailureDetail),
@@ -347,15 +344,10 @@ impl DiagnosticNativeProductFailureKind {
             | Self::CodegenBackendToolFailure(detail)
             | Self::CodegenBackendInvalidRuntimeMetadata(detail)
             | Self::CodegenBackendInvalidOutcome(detail)
-            | Self::CodegenBackendRejectedModule(detail)
             | Self::CodegenBackendArtifactConstruction(detail) => detail.reason(),
             Self::CodegenBackendInvalidConfiguration => "codegen_backend_invalid_configuration",
             Self::CodegenBackendResourceExhausted => "codegen_backend_resource_exhausted",
             Self::CodegenBackendResourceLimit(detail) => detail.reason(),
-            Self::CodegenBackendGeneratedModuleInvariant => {
-                "codegen_backend_generated_module_invariant"
-            }
-            Self::CodegenBackendGeneratedModuleInvariantDetail(detail) => detail.reason(),
             Self::CodegenBackendUnavailable => "codegen_backend_unavailable",
             Self::CodegenMissingCallableImplementation { .. } => {
                 "codegen_missing_callable_implementation"
