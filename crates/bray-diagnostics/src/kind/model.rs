@@ -612,8 +612,6 @@ define_diagnostic_kinds! {
     CodegenBackendToolExited,
     /// Generated backend IR violated the backend module contract.
     CodegenGeneratedModuleInvalid,
-    /// The backend rejected generated native-code input with an exact report.
-    CodegenBackendRejectedModule,
     /// A requested backend artifact could not be constructed.
     CodegenArtifactConstructionFailed,
     /// Native product planning could not complete for an exact structured reason.
@@ -977,7 +975,6 @@ impl DiagnosticKind {
             Self::CodegenBackendLibraryFailed => 9055,
             Self::CodegenBackendToolExited => 9060,
             Self::CodegenGeneratedModuleInvalid => 9056,
-            Self::CodegenBackendRejectedModule => 9059,
             Self::CodegenArtifactConstructionFailed => 9057,
             Self::NativeProductPreparationFailed => 9058,
             Self::LinkerUnsupportedTarget => 9101,
@@ -1450,7 +1447,6 @@ impl DiagnosticKind {
             Self::CodegenBackendLibraryFailed => "codegen_backend_library_failed",
             Self::CodegenBackendToolExited => "codegen_backend_tool_exited",
             Self::CodegenGeneratedModuleInvalid => "codegen_generated_module_invalid",
-            Self::CodegenBackendRejectedModule => "codegen_backend_rejected_module",
             Self::CodegenArtifactConstructionFailed => "codegen_artifact_construction_failed",
             Self::NativeProductPreparationFailed => "native_product_preparation_failed",
             Self::LinkerUnsupportedTarget => "linker_unsupported_target",

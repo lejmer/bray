@@ -281,18 +281,11 @@ fn format_english_native_product_failure_detail(
         Kind::CodegenBackendToolFailure(_) => {
             "native code generation received an unsuccessful support-program result"
         }
-        Kind::CodegenBackendGeneratedModuleInvariant
-        | Kind::CodegenBackendGeneratedModuleInvariantDetail(_) => {
-            "generated native-code input violated an internal module contract"
-        }
         Kind::CodegenBackendInvalidRuntimeMetadata(_) => {
             "generated runtime metadata violated an internal publication contract"
         }
         Kind::CodegenBackendInvalidOutcome(_) => {
             "a completed native-code result violated an internal publication contract"
-        }
-        Kind::CodegenBackendRejectedModule(_) => {
-            "internally generated input did not satisfy backend validation"
         }
         Kind::CodegenBackendArtifactConstruction(_) => {
             "a requested native artifact could not be constructed"
@@ -536,7 +529,6 @@ mod tests {
             bray_diagnostics::DiagnosticNativeProductFailureKind::CheckingInfrastructureFailure,
             bray_diagnostics::DiagnosticNativeProductFailureKind::CodegenMirCapacityExceeded,
             bray_diagnostics::DiagnosticNativeProductFailureKind::InstanceTemplateMismatch,
-            bray_diagnostics::DiagnosticNativeProductFailureKind::CodegenBackendGeneratedModuleInvariant,
         ];
 
         for failure in &failures {

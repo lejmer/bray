@@ -26,7 +26,7 @@ pub(crate) fn translate_protected_instance<'context, 'request>(
     let descriptor = instance
         .mir()
         .frame_descriptor()
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("protected-frame translation requires an established mapping or value");
 
     let context_type = frame_context_type(context, instance, types)?;
 
@@ -37,14 +37,14 @@ pub(crate) fn translate_protected_instance<'context, 'request>(
     translate_action_callbacks(module, request, instance, context_type, types)?;
 
     let resume =
-        frame_operation_function(module, request, instance, ProtectedFrameOperation::Resume)?;
+        frame_operation_function(module, request, instance, ProtectedFrameOperation::Resume);
 
     let source = instance
         .mir()
         .blocks()
         .first()
         .map(bray_ir::MirBlock::source)
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("protected-frame translation requires an established mapping or value");
 
     let debug_scope = debug.and_then(|debug| {
         let linkage_name = resume.get_name().to_str().ok()?;
@@ -66,7 +66,7 @@ pub(crate) fn translate_protected_instance<'context, 'request>(
     .translate()?;
 
     if descriptor.states().is_empty() {
-        return Err(CodegenFailure::GeneratedModuleInvariant);
+        panic!("protected-frame translation violated an established compiler contract");
     }
 
     Ok(())
@@ -80,7 +80,7 @@ fn frame_context_type<'context>(
     let descriptor = instance
         .mir()
         .frame_descriptor()
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("protected-frame translation requires an established mapping or value");
 
     let mut fields = Vec::with_capacity(instance.mir().storages().len() + 3);
 
@@ -105,11 +105,11 @@ fn translate_constructor<'context>(
     let symbol = request
         .mappings()
         .instance_symbol(instance.key())
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("protected-frame translation requires an established mapping or value");
 
     let function = module
         .get_function(symbol.name().as_str())
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("protected-frame translation requires an established mapping or value");
 
     let context = types.context();
     let builder = context.create_builder();
@@ -141,7 +141,7 @@ fn translate_constructor<'context>(
         .try_as_basic_value()
         .basic()
         .and_then(pointer_value)
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("protected-frame translation requires an established mapping or value");
 
     initialize_parameters(
         &builder,
@@ -158,7 +158,7 @@ fn translate_constructor<'context>(
         request,
         instance,
         ProtectedFrameOperation::MoveBeforeStart,
-    )?
+    )
     .as_global_value()
     .as_pointer_value();
 
@@ -166,7 +166,7 @@ fn translate_constructor<'context>(
         CodegenResultMapping::Direct { ty, .. }
         | CodegenResultMapping::Indirect { pointee: ty, .. } => types.map(*ty)?,
         CodegenResultMapping::Void => {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("protected-frame translation violated an established compiler contract");
         }
     };
 
@@ -174,7 +174,7 @@ fn translate_constructor<'context>(
         inkwell::types::BasicTypeEnum::StructType(ty) => Some(ty),
         _ => None,
     }
-    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+    .expect("protected-frame translation requires an established mapping or value");
 
     let inactive = result_type.const_zero();
 
@@ -198,7 +198,7 @@ fn translate_constructor<'context>(
             let destination = function
                 .get_first_param()
                 .and_then(pointer_value)
-                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                .expect("protected-frame translation requires an established mapping or value");
 
             builder
                 .build_store(destination, inactive)
@@ -209,7 +209,7 @@ fn translate_constructor<'context>(
                 .map_err(CodegenFailure::backend_library)?;
         }
         CodegenResultMapping::Void => {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("protected-frame translation violated an established compiler contract");
         }
     }
 
@@ -249,7 +249,7 @@ fn initialize_parameters(
             CodegenParameterMapping::Direct { .. } => {
                 let value = function
                     .get_nth_param(parameter_index)
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                    .expect("protected-frame translation requires an established mapping or value");
 
                 store_frame_parameter(builder, context_type, context, storage, value)?;
 
@@ -259,7 +259,7 @@ fn initialize_parameters(
                 let source = function
                     .get_nth_param(parameter_index)
                     .and_then(pointer_value)
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                    .expect("protected-frame translation requires an established mapping or value");
 
                 let value = builder
                     .build_load(types.map(*pointee)?, source, "frame.parameter.indirect")
@@ -314,12 +314,12 @@ fn translate_frame_adapter<'context>(
         request,
         instance,
         ProtectedFrameOperation::MoveBeforeStart,
-    )?;
+    );
 
     let descriptor = instance
         .mir()
         .frame_descriptor()
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("protected-frame translation requires an established mapping or value");
 
     let context = types.context();
     let builder = context.create_builder();
@@ -358,7 +358,8 @@ fn translate_frame_adapter<'context>(
     ]
     .map(|operation| {
         frame_operation_function(module, request, instance, operation)
-            .map(|function| function.as_global_value().as_pointer_value())
+            .as_global_value()
+            .as_pointer_value()
     });
 
     let [
@@ -380,7 +381,7 @@ fn translate_frame_adapter<'context>(
                 ProtectedFrameOperation::MoveBeforeStart,
                 0,
             ))
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?,
+            .expect("protected-frame translation requires an established mapping or value"),
         identity.into(),
         context
             .i32_type()
@@ -395,13 +396,13 @@ fn translate_frame_adapter<'context>(
         usize
             .const_int(u64::from(completion_layout.1), false)
             .into(),
-        state?.into(),
-        resume?.into(),
-        cancel?.into(),
-        broadcast?.into(),
-        resolve?.into(),
-        move_completion?.into(),
-        destroy?.into(),
+        state.into(),
+        resume.into(),
+        cancel.into(),
+        broadcast.into(),
+        resolve.into(),
+        move_completion.into(),
+        destroy.into(),
     ];
 
     let mut frame = crate::native::protected_frame_type(context, request.target()).get_undef();
@@ -441,12 +442,12 @@ fn translate_state_callback(
         request,
         instance,
         ProtectedFrameOperation::StateDescription,
-    )?;
+    );
 
     let descriptor = instance
         .mir()
         .frame_descriptor()
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("protected-frame translation requires an established mapping or value");
 
     let state = function
         .get_nth_param(1)
@@ -454,7 +455,7 @@ fn translate_state_callback(
             BasicValueEnum::IntValue(value) => Some(value),
             _ => None,
         })
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("protected-frame translation requires an established mapping or value");
 
     let builder = context.create_builder();
     let dispatch = context.append_basic_block(function, "frame.state");
@@ -528,10 +529,10 @@ fn translate_cancellation_entry<'context>(
         request,
         instance,
         ProtectedFrameOperation::CancellationEntry,
-    )?;
+    );
 
     let resume =
-        frame_operation_function(module, request, instance, ProtectedFrameOperation::Resume)?;
+        frame_operation_function(module, request, instance, ProtectedFrameOperation::Resume);
 
     let builder = types.context().create_builder();
 
@@ -557,11 +558,11 @@ fn translate_cancellation_entry<'context>(
 
     let context = function
         .get_nth_param(parameter)
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("protected-frame translation requires an established mapping or value");
 
     let frame = instance
         .protected_frame_identity()
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("protected-frame translation requires an established mapping or value");
 
     let progress = crate::native::invoke_function(
         types.context(),
@@ -575,7 +576,7 @@ fn translate_cancellation_entry<'context>(
         &[context.into()],
         "frame.cancel.progress",
     )?
-    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+    .expect("protected-frame translation requires an established mapping or value");
 
     crate::native::return_frame_result(
         types.context(),
@@ -601,7 +602,7 @@ pub(super) fn integer_pointer<'context>(
             BasicValueEnum::IntValue(value) => Some(value),
             _ => None,
         })
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("protected-frame translation requires an established mapping or value");
 
     builder
         .build_int_to_ptr(

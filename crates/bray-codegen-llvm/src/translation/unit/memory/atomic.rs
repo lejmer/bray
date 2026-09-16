@@ -17,7 +17,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         match operation.kind() {
             CheckedMemoryOperationKind::AtomicInitialize { value: value_type } => {
                 let [value_operand] = operation.operands() else {
-                    return Err(CodegenFailure::GeneratedModuleInvariant);
+                    panic!("checked MIR memory translation violated an established compiler contract");
                 };
 
                 let value = self.operand(value_operand)?;
@@ -32,7 +32,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 order,
             } => {
                 let [storage, value_operand] = operation.operands() else {
-                    return Err(CodegenFailure::GeneratedModuleInvariant);
+                    panic!("checked MIR memory translation violated an established compiler contract");
                 };
 
                 let storage = self.memory_pointer(storage)?;
@@ -56,7 +56,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 value,
             } => {
                 let [storage, expected, desired] = operation.operands() else {
-                    return Err(CodegenFailure::GeneratedModuleInvariant);
+                    panic!("checked MIR memory translation violated an established compiler contract");
                 };
 
                 let storage = self.memory_pointer(storage)?;
@@ -85,7 +85,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 Ok(None)
             }
             CheckedMemoryOperationKind::AtomicNotify { .. } => Ok(None),
-            _ => Err(CodegenFailure::GeneratedModuleInvariant),
+            unexpected => panic!("checked MIR memory translation violated an established compiler contract: {unexpected:?}"),
         }
     }
 
@@ -96,7 +96,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         order: MemoryOrder,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let [storage] = operation.operands() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
         let storage = self.memory_pointer(storage)?;
@@ -120,7 +120,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let instruction = loaded
             .as_instruction_value()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR memory translation requires an established mapping or value");
 
         instruction
             .set_atomic_ordering(llvm_memory_order(order))
@@ -137,7 +137,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         order: MemoryOrder,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let [storage, value] = operation.operands() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
         let storage = self.memory_pointer(storage)?;
@@ -163,7 +163,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let expected = self.atomic_storage_type(value_type)?;
 
                 if previous.get_type().as_basic_type_enum() != expected {
-                    return Err(CodegenFailure::GeneratedModuleInvariant);
+                    panic!("checked MIR memory translation violated an established compiler contract");
                 }
 
                 self.atomic_decode_value(previous.into(), value_type)
@@ -185,7 +185,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Ok((value, None));
         }
 
-        let pointer = pointer_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        let pointer = pointer_value(value).expect("checked MIR memory translation requires an established mapping or value");
 
         let integer = llvm(self.builder.build_ptr_to_int(
             pointer,
@@ -203,7 +203,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         order: MemoryOrder,
     ) -> Result<(), CodegenFailure> {
         let [storage, expected] = operation.operands() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
         let storage = self.memory_pointer(storage)?;
@@ -242,7 +242,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<BasicTypeEnum<'context>, CodegenFailure> {
         let mapping = self
             .type_mapping(value_type)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR memory translation requires an established mapping or value");
 
         match mapping.kind() {
             CodegenTypeKind::Boolean => Ok(self.types.context().i8_type().into()),
@@ -257,7 +257,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .and_then(|layout| layout.size().checked_mul(8))
                     .and_then(|bits| u32::try_from(bits).ok())
                     .and_then(std::num::NonZeroU32::new)
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                    .expect("checked MIR memory translation requires an established mapping or value");
 
                 self.types
                     .context()
@@ -265,7 +265,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .map(BasicTypeEnum::from)
                     .map_err(CodegenFailure::backend_library)
             }
-            _ => Err(CodegenFailure::GeneratedModuleInvariant),
+            unexpected => panic!("checked MIR memory translation violated an established compiler contract: {unexpected:?}"),
         }
     }
 
@@ -280,8 +280,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Ok(value);
         }
 
-        if self.atomic_value_is_boolean(value_type)? {
-            let value = int_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        if self.atomic_value_is_boolean(value_type) {
+            let value = int_value(value).expect("checked MIR memory translation requires an established mapping or value");
 
             return llvm(self.builder.build_int_z_extend(
                 value,
@@ -312,8 +312,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Ok(value);
         }
 
-        if self.atomic_value_is_boolean(value_type)? {
-            let value = int_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        if self.atomic_value_is_boolean(value_type) {
+            let value = int_value(value).expect("checked MIR memory translation requires an established mapping or value");
 
             return llvm(self.builder.build_int_truncate(
                 value,
@@ -347,12 +347,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let result_type = operation
             .result_type()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR memory translation requires an established mapping or value");
 
-        let fields = self.aggregate_fields(result_type)?;
+        let fields = self.aggregate_fields(result_type);
 
         if fields.len() != 2 {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         }
 
         let mut decoded = self.types.map(result_type)?.const_zero();
@@ -364,13 +364,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         insert_value(&self.builder, decoded, succeeded, succeeded_field)
     }
 
-    fn atomic_value_is_boolean(
-        &self,
-        value_type: bray_symbols::TypeId,
-    ) -> Result<bool, CodegenFailure> {
+    fn atomic_value_is_boolean(&self, value_type: bray_symbols::TypeId) -> bool {
         self.type_mapping(value_type)
             .map(|mapping| matches!(mapping.kind(), CodegenTypeKind::Boolean))
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)
+            .expect("atomic value types must have codegen mappings")
     }
 
     fn atomic_values_equal(
@@ -387,8 +384,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             ));
         }
 
-        let left = pointer_value(left).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-        let right = pointer_value(right).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        let left = pointer_value(left).expect("checked MIR memory translation requires an established mapping or value");
+        let right = pointer_value(right).expect("checked MIR memory translation requires an established mapping or value");
 
         llvm(self.builder.build_int_compare(
             IntPredicate::EQ,

@@ -62,35 +62,6 @@ fn runtime_selection_failures_preserve_component_path_io_and_digests() {
 }
 
 #[test]
-fn bitcode_target_contract_preserves_backend_failure_leaf_and_report() {
-    let error = NativeProductPlanningError::BitcodeTargetContract(
-        bray_codegen::CodegenFailure::BackendRejectedModule {
-            stage: bray_diagnostics::DiagnosticCodegenVerificationStage::AfterOptimization,
-            report: std::sync::Arc::from("invalid phi incoming block"),
-        },
-    );
-
-    let failure = native_product_failure_kind(&error)
-        .unwrap_or_else(|| panic!("backend failure must diagnose"));
-
-    let DiagnosticNativeProductFailureKind::CodegenBackendRejectedModule(detail) = failure else {
-        panic!("backend rejection must retain its exact diagnostic leaf");
-    };
-
-    assert_eq!(detail.reason(), "codegen_backend_rejected_module");
-
-    assert!(matches!(
-        detail.context()[0].value(),
-        DiagnosticFailureValue::Text(stage) if stage == "after_optimization"
-    ));
-
-    assert!(matches!(
-        detail.context()[1].value(),
-        DiagnosticFailureValue::Text(report) if report == "invalid phi incoming block"
-    ));
-}
-
-#[test]
 fn codegen_preparation_reports_mir_capacity() {
     let failure = codegen_preparation_failure_kind(
         &crate::compilation::CodegenPreparationError::MirCapacity(

@@ -78,8 +78,9 @@ pub(crate) fn runtime_attributes(
         return Ok(attributes);
     }
 
-    let signature = runtime_function_type(context, target, role)
-        .ok_or(CodegenFailure::CompilerOwnedRuntimeRole(role))?;
+    let signature = runtime_function_type(context, target, role).unwrap_or_else(|| {
+        panic!("runtime attributes require a native ABI role, got {role:?}")
+    });
 
     let zero_extend = crate::mapping::enum_attribute("zeroext", 0, context)?;
 
@@ -153,21 +154,15 @@ pub(super) fn invoke_runtime<'context>(
 ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
     let signature = role
         .native_signature()
-        .ok_or(CodegenFailure::CompilerOwnedRuntimeRole(role))?;
+        .unwrap_or_else(|| panic!("runtime invocation requires a native ABI role, got {role:?}"));
 
-    if signature.parameters().len() != arguments.len() {
-        return Err(CodegenFailure::NativeRuntimeArgumentCount {
-            role,
-            expected: crate::conversion::resource_limit(
-                signature.parameters().len(),
-                "native_runtime_parameter_count",
-            )?,
-            actual: crate::conversion::resource_limit(
-                arguments.len(),
-                "native_runtime_argument_count",
-            )?,
-        });
-    }
+    assert_eq!(
+        signature.parameters().len(),
+        arguments.len(),
+        "runtime invocation argument count must match the native ABI for {role:?}: expected {}, actual {}",
+        signature.parameters().len(),
+        arguments.len()
+    );
 
     let result = runtime_indirect_result_type(context, target, role);
 
@@ -183,11 +178,12 @@ pub(super) fn invoke_runtime<'context>(
         .copied()
         .zip(arguments.iter().copied())
     {
-        let value = BasicValueEnum::try_from(argument)
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        let value = BasicValueEnum::try_from(argument).unwrap_or_else(|_| {
+            panic!("runtime argument for {role:?} must be a basic LLVM value, got {argument:?}")
+        });
 
         let physical = parameter_type(context, target, kind)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("native ABI lowering requires an established mapping or value");
 
         if kind == RuntimeAbiType::PanicReport && value.is_pointer_value() {
             native_arguments.push(value.into());
@@ -242,7 +238,7 @@ pub(super) fn invoke_runtime<'context>(
     };
 
     let logical = runtime_value_type(context, target, signature.result())
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("native ABI lowering requires an established mapping or value");
 
     crate::translation::reinterpret_value(context, builder, value, logical, value.get_type(), name)
         .map(Some)
@@ -258,7 +254,7 @@ mod tests {
     use inkwell::context::Context;
 
     #[test]
-    fn wrong_native_argument_count_preserves_role_and_both_counts() {
+    fn wrong_native_argument_count_exposes_the_role() {
         let context = Context::create();
         let target = CodegenTarget::for_native(NativeTarget::X86_64WindowsMsvc);
         let module = context.create_module("bad.runtime.call");
@@ -270,22 +266,28 @@ mod tests {
         let role = RuntimeAbiRole::CurrentNativeThreadIdentity;
         let function = declare_runtime_function(&module, &context, &target, role).unwrap();
 
-        assert_eq!(
-            invoke_runtime(
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = invoke_runtime(
                 &context,
                 &builder,
                 &target,
                 role,
                 function,
                 &[context.i32_type().const_zero().into()],
-                "bad.call"
-            ),
-            Err(bray_codegen::CodegenFailure::NativeRuntimeArgumentCount {
-                role,
-                expected: 0,
-                actual: 1
-            }),
-        );
+                "bad.call",
+            );
+        }))
+        .expect_err("wrong native argument count must panic");
+
+        let message = panic
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| panic.downcast_ref::<&str>().copied())
+            .expect("panic payload must be text");
+
+        assert!(message.contains("CurrentNativeThreadIdentity"));
+        assert!(message.contains("expected 0"));
+        assert!(message.contains("actual 1"));
     }
 
     #[test]

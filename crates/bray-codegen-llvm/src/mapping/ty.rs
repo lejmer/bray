@@ -74,7 +74,7 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
     pub(crate) fn map(&mut self, ty: TypeId) -> Result<BasicTypeEnum<'context>, CodegenFailure> {
         if let Some(instance) = self.instance {
             let Some(mapping) = self.mappings.instance_ty(instance, ty) else {
-                return Err(CodegenFailure::GeneratedModuleInvariant);
+                panic!("codegen instance {instance:?} has no mapping for type {ty:?}");
             };
 
             if mapping.ty() != ty {
@@ -83,7 +83,7 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
         }
 
         if self.active.contains(&ty) {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("LLVM type realization recursed while mapping type {ty:?}");
         }
 
         if let Some(mapped) = self.mapped.get(&ty) {
@@ -91,7 +91,7 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
         }
 
         let Some(mapping) = self.mappings.ty(ty) else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("codegen mappings contain no realization for type {ty:?}");
         };
 
         if mapping.backend_type() != ty {
@@ -249,7 +249,7 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
     ) -> Result<BasicTypeEnum<'context>, CodegenFailure> {
         let layout = mapping
             .layout()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("LLVM type realization requires an established mapping or value");
 
         let name = self.next_type_name("bray.type")?;
         let structure = self.context.opaque_struct_type(&name);
@@ -260,7 +260,7 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
 
         for field in fields {
             if field.offset_bytes() < current_offset {
-                return Err(CodegenFailure::GeneratedModuleInvariant);
+                panic!("LLVM type realization violated an established compiler contract");
             }
 
             push_padding(
@@ -277,21 +277,21 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
             field_elements.push((element, field.offset_bytes()));
 
             let Some(field_mapping) = self.mappings.ty(field.ty()) else {
-                return Err(CodegenFailure::GeneratedModuleInvariant);
+                panic!("LLVM type realization violated an established compiler contract");
             };
 
             let field_layout = field_mapping
                 .layout()
-                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                .expect("LLVM type realization requires an established mapping or value");
 
             current_offset = field
                 .offset_bytes()
                 .checked_add(field_layout.size())
-                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                .expect("LLVM type realization requires an established mapping or value");
         }
 
         if current_offset > layout.size() {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("LLVM type realization violated an established compiler contract");
         }
 
         push_padding(self.context, &mut elements, layout.size() - current_offset)?;
@@ -314,7 +314,7 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
     ) -> Result<BasicTypeEnum<'context>, CodegenFailure> {
         let layout = mapping
             .layout()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("LLVM type realization requires an established mapping or value");
 
         let name = self.next_type_name("bray.union")?;
         let structure = self.context.opaque_struct_type(&name);
@@ -364,7 +364,7 @@ fn push_alignment_carrier<'context>(
 ) -> Result<(), CodegenFailure> {
     let alignment = mapping
         .layout()
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?
+        .expect("LLVM type realization requires an established mapping or value")
         .alignment()
         .get();
 

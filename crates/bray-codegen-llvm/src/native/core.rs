@@ -207,7 +207,7 @@ pub(crate) fn return_frame_result<'context>(
                 BasicValueEnum::PointerValue(value) => Some(value),
                 _ => None,
             })
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("native ABI lowering requires an established mapping or value");
 
         builder
             .build_store(destination, result)
@@ -220,7 +220,7 @@ pub(crate) fn return_frame_result<'context>(
         let physical = function
             .get_type()
             .get_return_type()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("native ABI lowering requires an established mapping or value");
 
         let result = crate::translation::reinterpret_value(
             context,
@@ -270,19 +270,19 @@ pub(crate) fn frame_operation_function<'context>(
     request: CodegenRequest<'_>,
     instance: &CodegenInstance,
     operation: ProtectedFrameOperation,
-) -> Result<FunctionValue<'context>, CodegenFailure> {
+) -> FunctionValue<'context> {
     let frame = instance
         .protected_frame_identity()
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("native ABI lowering requires an established mapping or value");
 
     let symbol = request
         .mappings()
         .symbol(&CodegenSymbolKey::ProtectedFrame { frame, operation })
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("native ABI lowering requires an established mapping or value");
 
     module
         .get_function(symbol.name().as_str())
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)
+        .unwrap_or_else(|| panic!("protected-frame operation must be declared: {operation:?}"))
 }
 
 pub(crate) fn protected_frame_type<'context>(
@@ -497,10 +497,11 @@ pub(crate) fn declare_runtime_function<'context>(
 ) -> Result<FunctionValue<'context>, CodegenFailure> {
     let name = role
         .native_symbol()
-        .ok_or(CodegenFailure::CompilerOwnedRuntimeRole(role))?;
+        .unwrap_or_else(|| panic!("runtime declaration requires a native ABI role, got {role:?}"));
 
-    let signature = runtime_function_type(context, target, role)
-        .ok_or(CodegenFailure::CompilerOwnedRuntimeRole(role))?;
+    let signature = runtime_function_type(context, target, role).unwrap_or_else(|| {
+        panic!("runtime declaration requires a realizable native ABI for {role:?}")
+    });
 
     let function = module
         .get_function(name)
@@ -787,21 +788,17 @@ mod tests {
     }
 
     #[test]
-    fn native_declarations_reject_compiler_owned_roles_with_exact_identity() {
+    #[should_panic(expected = "runtime declaration requires a native ABI role, got FrameResume")]
+    fn native_declarations_expose_compiler_owned_roles() {
         let context = Context::create();
         let module = context.create_module("compiler.role");
         let target = CodegenTarget::for_native(NativeTarget::X86_64WindowsMsvc);
 
-        assert_eq!(
-            super::declare_runtime_function(
-                &module,
-                &context,
-                &target,
-                RuntimeAbiRole::FrameResume
-            ),
-            Err(bray_codegen::CodegenFailure::CompilerOwnedRuntimeRole(
-                RuntimeAbiRole::FrameResume
-            )),
+        let _ = super::declare_runtime_function(
+            &module,
+            &context,
+            &target,
+            RuntimeAbiRole::FrameResume,
         );
     }
 

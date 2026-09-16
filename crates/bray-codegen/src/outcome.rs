@@ -3,8 +3,7 @@ use std::sync::Arc;
 
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticArtifactKind, DiagnosticBag,
-    DiagnosticCodegenVerificationStage, DiagnosticId, DiagnosticKind, DiagnosticNote,
-    DiagnosticNoteKind, SeverityKind,
+    DiagnosticId, DiagnosticKind, DiagnosticNote, DiagnosticNoteKind, SeverityKind,
 };
 
 use crate::{
@@ -45,27 +44,10 @@ pub enum CodegenFailure {
         program: PathBuf,
         exit: bray_diagnostics::DiagnosticExternalToolExit,
     },
-    /// Generated backend IR violated a backend module invariant.
-    GeneratedModuleInvariant,
-    /// Generated backend IR violated an exact backend module invariant.
-    GeneratedModuleInvariantDetail { report: Arc<str> },
-    /// A compiler-owned role was requested as a native runtime function.
-    CompilerOwnedRuntimeRole(bray_runtime_interface::RuntimeAbiRole),
-    /// A native runtime call supplied a different number of arguments than its role requires.
-    NativeRuntimeArgumentCount {
-        role: bray_runtime_interface::RuntimeAbiRole,
-        expected: u64,
-        actual: u64,
-    },
     /// Generated runtime metadata violated its publication contract.
     InvalidRuntimeMetadata(CodegenRuntimeMetadataBuildError),
     /// A successful backend outcome violated its publication contract.
     InvalidOutcome(CodegenOutcomeBuildError),
-    /// The backend rejected generated native-code input and retained its exact report.
-    BackendRejectedModule {
-        stage: DiagnosticCodegenVerificationStage,
-        report: Arc<str>,
-    },
     /// Serialization failed for one requested artifact kind.
     ArtifactConstruction(BackendArtifactKind),
     /// Backend serialization failed for one requested artifact kind.
@@ -191,13 +173,6 @@ impl CodegenFailure {
         }
     }
 
-    /// Retains an exact generated-module invariant report.
-    pub fn generated_module_invariant(error: impl std::fmt::Debug) -> Self {
-        Self::GeneratedModuleInvariantDetail {
-            report: Arc::from(format!("{error:?}")),
-        }
-    }
-
     /// Retains an exact backend report for an unsupported target.
     pub fn unsupported_target_report(error: impl std::fmt::Display) -> Self {
         Self::UnsupportedTargetReport {
@@ -275,18 +250,8 @@ pub fn codegen_failure_diagnostic(
         CodegenFailure::BackendToolExited { .. } => {
             (DiagnosticKind::CodegenBackendToolExited, None)
         }
-        CodegenFailure::GeneratedModuleInvariant
-        | CodegenFailure::GeneratedModuleInvariantDetail { .. } => {
+        CodegenFailure::InvalidRuntimeMetadata(_) | CodegenFailure::InvalidOutcome(_) => {
             (DiagnosticKind::CodegenGeneratedModuleInvalid, None)
-        }
-        CodegenFailure::CompilerOwnedRuntimeRole(_)
-        | CodegenFailure::NativeRuntimeArgumentCount { .. }
-        | CodegenFailure::InvalidRuntimeMetadata(_)
-        | CodegenFailure::InvalidOutcome(_) => {
-            (DiagnosticKind::CodegenGeneratedModuleInvalid, None)
-        }
-        CodegenFailure::BackendRejectedModule { .. } => {
-            (DiagnosticKind::CodegenBackendRejectedModule, None)
         }
         CodegenFailure::ArtifactConstruction(artifact)
         | CodegenFailure::ArtifactSerialization { artifact, .. }
@@ -308,8 +273,7 @@ pub fn codegen_failure_diagnostic(
 
     match failure {
         CodegenFailure::BackendLibrary { report }
-        | CodegenFailure::InvalidConfigurationReport { report }
-        | CodegenFailure::GeneratedModuleInvariantDetail { report } => {
+        | CodegenFailure::InvalidConfigurationReport { report } => {
             diagnostic =
                 diagnostic.with_arg(DiagnosticArg::codegen_backend_report(report.as_ref()));
         }
@@ -326,21 +290,6 @@ pub fn codegen_failure_diagnostic(
         CodegenFailure::ResourceLimit { resource, actual } => {
             diagnostic = diagnostic.with_arg(DiagnosticArg::codegen_backend_report(format!(
                 "{resource}={actual}"
-            )));
-        }
-        CodegenFailure::CompilerOwnedRuntimeRole(role) => {
-            diagnostic = diagnostic.with_arg(DiagnosticArg::codegen_backend_report(format!(
-                "compiler_owned_runtime_role={}",
-                role.as_str(),
-            )));
-        }
-        CodegenFailure::NativeRuntimeArgumentCount {
-            role,
-            expected,
-            actual,
-        } => {
-            diagnostic = diagnostic.with_arg(DiagnosticArg::codegen_backend_report(format!(
-                "native_runtime_role={} expected_argument_count={expected} actual_argument_count={actual}", role.as_str(),
             )));
         }
         CodegenFailure::InvalidRuntimeMetadata(cause) => {
@@ -360,11 +309,6 @@ pub fn codegen_failure_diagnostic(
                 .with_arg(DiagnosticArg::file_path(program))
                 .with_arg(DiagnosticArg::external_tool_exit(exit.clone()));
         }
-        CodegenFailure::BackendRejectedModule { stage, report } => {
-            diagnostic = diagnostic
-                .with_arg(DiagnosticArg::codegen_verification_stage(*stage))
-                .with_arg(DiagnosticArg::codegen_backend_report(report.as_ref()));
-        }
         _ => {}
     }
 
@@ -376,13 +320,8 @@ pub fn codegen_failure_diagnostic(
             | CodegenFailure::ResourceLimit { .. }
             | CodegenFailure::BackendLibrary { .. }
             | CodegenFailure::BackendToolExited { .. }
-            | CodegenFailure::GeneratedModuleInvariant
-            | CodegenFailure::GeneratedModuleInvariantDetail { .. }
-            | CodegenFailure::CompilerOwnedRuntimeRole(_)
-            | CodegenFailure::NativeRuntimeArgumentCount { .. }
             | CodegenFailure::InvalidRuntimeMetadata(_)
             | CodegenFailure::InvalidOutcome(_)
-            | CodegenFailure::BackendRejectedModule { .. }
             | CodegenFailure::ArtifactConstruction(_)
             | CodegenFailure::ArtifactSerialization { .. }
             | CodegenFailure::InvalidArtifactContent { .. }
@@ -444,7 +383,7 @@ mod tests {
 
         let failed = CodegenOutcome::failed(
             fixture.request(),
-            CodegenFailure::GeneratedModuleInvariant,
+            CodegenFailure::backend_library("test backend failure"),
             DiagnosticBag::new(),
         );
 
@@ -533,31 +472,6 @@ mod tests {
         assert_goal_state_diagnostic_kind(
             backend_tool_exit.diagnostics(),
             DiagnosticKind::CodegenBackendToolExited,
-        );
-
-        let generated_module = CodegenOutcome::failed(
-            fixture.request(),
-            CodegenFailure::GeneratedModuleInvariant,
-            DiagnosticBag::new(),
-        );
-
-        assert_goal_state_diagnostic_kind(
-            generated_module.diagnostics(),
-            DiagnosticKind::CodegenGeneratedModuleInvalid,
-        );
-
-        let rejected_module = CodegenOutcome::failed(
-            fixture.request(),
-            CodegenFailure::BackendRejectedModule {
-                stage: bray_diagnostics::DiagnosticCodegenVerificationStage::BeforeOptimization,
-                report: std::sync::Arc::from("value representation mismatch"),
-            },
-            DiagnosticBag::new(),
-        );
-
-        assert_goal_state_diagnostic_kind(
-            rejected_module.diagnostics(),
-            DiagnosticKind::CodegenBackendRejectedModule,
         );
 
         let artifact_construction = CodegenOutcome::failed(

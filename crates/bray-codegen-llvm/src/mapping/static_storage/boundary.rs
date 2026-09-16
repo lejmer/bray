@@ -10,16 +10,16 @@ pub(super) fn mapped_instance_function<'context, 'mappings>(
     module: &Module<'context>,
     mappings: &'mappings CodegenMappings,
     instance: &CodegenInstanceKey,
-) -> Result<(FunctionValue<'context>, &'mappings CodegenCallableSignature), CodegenFailure> {
+) -> (FunctionValue<'context>, &'mappings CodegenCallableSignature) {
     let symbol = mappings
         .instance_symbol(instance)
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("static-storage realization requires an established mapping or value");
 
     let function = module
         .get_function(symbol.name().as_str())
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("static-storage realization requires an established mapping or value");
 
-    Ok((function, symbol.signature()))
+    (function, symbol.signature())
 }
 
 pub(super) fn invoke_static_boundary<'context>(
@@ -47,16 +47,14 @@ pub(super) fn invoke_static_boundary<'context>(
     Ok(call)
 }
 
-pub(super) fn static_outcome(
-    callback: FunctionValue<'_>,
-) -> Result<PointerValue<'_>, CodegenFailure> {
+pub(super) fn static_outcome(callback: FunctionValue<'_>) -> PointerValue<'_> {
     callback
         .get_last_param()
         .and_then(|value| match value {
             inkwell::values::BasicValueEnum::PointerValue(pointer) => Some(pointer),
             _ => None,
         })
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)
+        .expect("static callback must carry its outcome pointer")
 }
 
 pub(super) fn branch_on_static_failure<'context>(
@@ -69,7 +67,7 @@ pub(super) fn branch_on_static_failure<'context>(
     let outcome = builder
         .build_load(
             crate::native::run_outcome_type(context, types.target()),
-            static_outcome(callback)?,
+            static_outcome(callback),
             "static.outcome",
         )
         .map_err(CodegenFailure::backend_library)?
@@ -120,9 +118,9 @@ pub(super) fn clean_failed_static_allocation<'context>(
     let cleanup = mapping
         .finalization()
         .and_then(bray_codegen::CodegenStaticFinalization::incident_cleanup)
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("static-storage realization requires an established mapping or value");
 
-    let (cleanup, cleanup_signature) = mapped_instance_function(module, mappings, cleanup)?;
+    let (cleanup, cleanup_signature) = mapped_instance_function(module, mappings, cleanup);
 
     let outcome_type = crate::native::run_outcome_type(context, types.target());
 
@@ -224,7 +222,7 @@ fn merge_static_outcomes<'context>(
     let function = builder
         .get_insert_block()
         .and_then(|block| block.get_parent())
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("static-storage realization requires an established mapping or value");
 
     let merge = context.append_basic_block(function, "static.merge");
     let inspect = context.append_basic_block(function, "static.inspect.second");
@@ -260,7 +258,7 @@ fn merge_static_outcomes<'context>(
         &[first_report.into(), second_report.into()],
         "static.suppressed.report",
     )?
-    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+    .expect("static-storage realization requires an established mapping or value");
 
     builder
         .build_store(first_report, report)

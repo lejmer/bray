@@ -22,9 +22,8 @@ pub use artifact::{
 pub use dependency::{DiagnosticDependencyRequirementKind, DiagnosticDependencySubjectKind};
 pub use document::DiagnosticDocumentParseKind;
 pub use emission::{
-    DiagnosticArtifactRequirement, DiagnosticAssemblySyntaxKind,
-    DiagnosticCodegenVerificationStage, DiagnosticDebugInformationMode, DiagnosticDebugOutputMode,
-    DiagnosticEmissionArtifactOperation,
+    DiagnosticArtifactRequirement, DiagnosticAssemblySyntaxKind, DiagnosticDebugInformationMode,
+    DiagnosticDebugOutputMode, DiagnosticEmissionArtifactOperation,
     DiagnosticNativeLinkInputFailure, DiagnosticNativeProductFailureDetail,
     DiagnosticNativeProductFailureKind, DiagnosticProductKind,
 };

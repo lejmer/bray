@@ -36,7 +36,7 @@ fn translate_failure_cleanup<'context>(
         request,
         instance,
         ProtectedFrameOperation::TaskBroadcast,
-    )?;
+    );
 
     let builder = types.context().create_builder();
 
@@ -65,7 +65,7 @@ fn translate_failure_cleanup<'context>(
         request,
         instance,
         ProtectedFrameOperation::LifecycleResolution,
-    )?;
+    );
 
     let block = types
         .context()
@@ -87,7 +87,7 @@ fn translate_failure_cleanup<'context>(
             BasicValueEnum::IntValue(value) => Some(value),
             _ => None,
         })
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("protected-frame translation requires an established mapping or value");
 
     let failed = builder
         .build_int_compare(
@@ -105,15 +105,15 @@ fn translate_failure_cleanup<'context>(
     builder.position_at_end(cleanup);
 
     let resume =
-        frame_operation_function(module, request, instance, ProtectedFrameOperation::Resume)?;
+        frame_operation_function(module, request, instance, ProtectedFrameOperation::Resume);
 
     let context = resolve
         .get_nth_param(1)
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("protected-frame translation requires an established mapping or value");
 
     let frame = instance
         .protected_frame_identity()
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("protected-frame translation requires an established mapping or value");
 
     let outcome = crate::native::invoke_function(
         types.context(),
@@ -127,7 +127,7 @@ fn translate_failure_cleanup<'context>(
         &[context.into()],
         "frame.failure.cleanup",
     )?
-    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+    .expect("protected-frame translation requires an established mapping or value");
 
     let destination = resolve
         .get_first_param()
@@ -135,7 +135,7 @@ fn translate_failure_cleanup<'context>(
             BasicValueEnum::PointerValue(value) => Some(value),
             _ => None,
         })
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("protected-frame translation requires an established mapping or value");
 
     builder
         .build_store(destination, outcome)
@@ -166,12 +166,12 @@ fn translate_completion_move<'context>(
         request,
         instance,
         ProtectedFrameOperation::CompletionMove,
-    )?;
+    );
 
     let descriptor = instance
         .mir()
         .frame_descriptor()
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("protected-frame translation requires an established mapping or value");
 
     let builder = types.context().create_builder();
 
@@ -217,7 +217,7 @@ fn translate_destruction(
         request,
         instance,
         ProtectedFrameOperation::Destruction,
-    )?;
+    );
 
     let context = module.get_context();
     let builder = context.create_builder();
@@ -241,7 +241,7 @@ fn translate_destruction(
             BasicValueEnum::IntValue(value) => Some(value),
             _ => None,
         })
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("protected-frame translation requires an established mapping or value");
 
     let storage = builder
         .build_int_to_ptr(storage, pointer, "frame.storage")

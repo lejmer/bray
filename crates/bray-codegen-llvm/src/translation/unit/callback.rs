@@ -29,7 +29,7 @@ pub(super) fn prepare<'context, 'request>(
     }
 
     let trampoline = declare_native_entry(module, symbol, request.target(), true, types)?
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("checked MIR translation requires an established mapping or value");
 
     Ok((function, Some(trampoline)))
 }
@@ -80,7 +80,7 @@ pub(super) fn translate<'context, 'request>(
             "callback.result.destination",
         )?;
 
-        let result_type = result_type.ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        let result_type = result_type.expect("checked MIR translation requires an established mapping or value");
 
         llvm(builder.build_store(destination, result_type.const_zero()))?;
     }
@@ -111,7 +111,7 @@ pub(super) fn translate<'context, 'request>(
         .mappings()
         .symbol(&key)
         .and_then(|mapping| module.get_function(mapping.name().as_str()))
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("checked MIR translation requires an established mapping or value");
 
     let arguments: [BasicMetadataValueEnum<'context>; 2] = [
         callback.as_global_value().as_pointer_value().into(),
@@ -127,7 +127,7 @@ pub(super) fn translate<'context, 'request>(
         &arguments,
         "callback.boundary",
     )?
-    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+    .expect("checked MIR translation requires an established mapping or value");
 
     resolve_callback_outcome(context, module, request, &builder, trampoline, outcome)?;
 
@@ -136,7 +136,7 @@ pub(super) fn translate<'context, 'request>(
             let source =
                 field_pointer(&builder, state_type, state, field, "callback.result.source")?;
 
-            let result_type = result_type.ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            let result_type = result_type.expect("checked MIR translation requires an established mapping or value");
             let result = llvm(builder.build_load(result_type, source, "callback.result"))?;
 
             llvm(builder.build_return(Some(&result)))?;
@@ -185,7 +185,7 @@ fn resolve_callback_outcome<'context>(
         .mappings()
         .symbol(&key)
         .and_then(|mapping| module.get_function(mapping.name().as_str()))
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("checked MIR translation requires an established mapping or value");
 
     crate::native::invoke_function(
         context,
@@ -196,7 +196,7 @@ fn resolve_callback_outcome<'context>(
         &[payload.into()],
         "callback.report_panic",
     )?
-    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+    .expect("checked MIR translation requires an established mapping or value");
 
     llvm(builder.build_unconditional_branch(complete))?;
     builder.position_at_end(complete);
@@ -217,7 +217,7 @@ fn initialize_indirect_result(
     let destination = trampoline
         .get_first_param()
         .and_then(pointer_value)
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("checked MIR translation requires an established mapping or value");
 
     let result_type = types.map(*pointee)?;
 
@@ -255,7 +255,7 @@ fn declare_callback<'context>(
     let state_handle = callback
         .get_first_param()
         .and_then(int_value)
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("checked MIR translation requires an established mapping or value");
 
     let state = llvm(builder.build_int_to_ptr(
         state_handle,
@@ -302,7 +302,7 @@ fn declare_callback<'context>(
     let outcome = callback
         .get_nth_param(1)
         .and_then(pointer_value)
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("checked MIR translation requires an established mapping or value");
 
     let completed = native_run_outcome_value(
         context,

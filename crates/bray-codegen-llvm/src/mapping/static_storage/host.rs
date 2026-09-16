@@ -57,7 +57,7 @@ pub(super) fn declare_thread_static_registration<'context>(
         .statics()
         .iter()
         .find(|entry| entry.host_symbol().as_str() == mapping.host_name())
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("static-storage realization requires an established mapping or value");
 
     let registration_type = context.struct_type(
         &[
@@ -173,7 +173,7 @@ pub(super) fn declare_static_host_entry<'context>(
         usize
             .const_int(
                 u64::try_from(host_mapping.dependencies().len())
-                    .map_err(CodegenFailure::backend_library)?,
+                    .expect("static dependency count must fit the target index constant"),
                 false,
             )
             .into(),
@@ -241,7 +241,8 @@ fn declare_static_dependency_lookup<'context>(
 
         cases.push((
             usize.const_int(
-                u64::try_from(index).map_err(CodegenFailure::backend_library)?,
+                u64::try_from(index)
+                    .expect("static dependency ordinal must fit the target index constant"),
                 false,
             ),
             block,
@@ -258,7 +259,7 @@ fn declare_static_dependency_lookup<'context>(
 
     let index = dependency
         .get_first_param()
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?
+        .expect("static-storage realization requires an established mapping or value")
         .into_int_value();
 
     builder
@@ -315,7 +316,7 @@ pub(super) fn declare_product_host<'context>(
         usize
             .const_int(
                 u64::try_from(product_host.statics().len())
-                    .map_err(CodegenFailure::backend_library)?,
+                    .expect("product static count must fit the target index constant"),
                 false,
             )
             .into(),
@@ -373,7 +374,7 @@ pub(super) fn declare_product_host<'context>(
 
     let operation = control
         .get_last_param()
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("static-storage realization requires an established mapping or value");
 
     let mut arguments = Vec::new();
 
@@ -381,7 +382,7 @@ pub(super) fn declare_product_host<'context>(
         arguments.push(
             control
                 .get_first_param()
-                .ok_or(CodegenFailure::GeneratedModuleInvariant)?
+                .expect("static-storage realization requires an established mapping or value")
                 .into(),
         );
     }
@@ -472,7 +473,8 @@ fn declare_static_host_lookup<'context>(
 
         cases.push((
             usize.const_int(
-                u64::try_from(index).map_err(CodegenFailure::backend_library)?,
+                u64::try_from(index)
+                    .expect("product static ordinal must fit the target index constant"),
                 false,
             ),
             block,
@@ -489,7 +491,7 @@ fn declare_static_host_lookup<'context>(
 
     let index = lookup
         .get_first_param()
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?
+        .expect("static-storage realization requires an established mapping or value")
         .into_int_value();
 
     builder
@@ -651,7 +653,7 @@ fn usize_type<'context>(
     let width = std::num::NonZeroU32::new(u32::from(
         types.target().machine().pointer_width_bits().get(),
     ))
-    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+    .expect("static-storage realization requires an established mapping or value");
 
     types
         .context()

@@ -73,45 +73,11 @@ pub(super) fn codegen_backend_failure_kind(
                 ],
             ))
         }
-        Error::GeneratedModuleInvariant => Kind::CodegenBackendGeneratedModuleInvariant,
-        Error::GeneratedModuleInvariantDetail { report } => {
-            Kind::CodegenBackendGeneratedModuleInvariantDetail(failure_detail(
-                "codegen_backend_generated_module_invariant_detail",
-                [text_failure_field("report", report.as_ref())],
-            ))
-        }
-        Error::CompilerOwnedRuntimeRole(role) => {
-            Kind::CodegenBackendGeneratedModuleInvariantDetail(failure_detail(
-                "codegen_backend_compiler_owned_runtime_role",
-                [text_failure_field("role", role.as_str())],
-            ))
-        }
-        Error::NativeRuntimeArgumentCount {
-            role,
-            expected,
-            actual,
-        } => Kind::CodegenBackendGeneratedModuleInvariantDetail(failure_detail(
-            "codegen_backend_native_runtime_argument_count",
-            [
-                text_failure_field("role", role.as_str()),
-                DiagnosticFailureField::new("expected", DiagnosticFailureValue::Count(*expected)),
-                DiagnosticFailureField::new("actual", DiagnosticFailureValue::Count(*actual)),
-            ],
-        )),
         Error::InvalidRuntimeMetadata(error) => {
             Kind::CodegenBackendInvalidRuntimeMetadata(runtime_metadata_failure_detail(*error))
         }
         Error::InvalidOutcome(error) => {
             Kind::CodegenBackendInvalidOutcome(outcome_failure_detail(error))
-        }
-        Error::BackendRejectedModule { stage, report } => {
-            Kind::CodegenBackendRejectedModule(failure_detail(
-                "codegen_backend_rejected_module",
-                [
-                    text_failure_field("verification_stage", stage.as_str()),
-                    text_failure_field("report", report.as_ref()),
-                ],
-            ))
         }
         Error::ArtifactConstruction(artifact) => {
             Kind::CodegenBackendArtifactConstruction(failure_detail(

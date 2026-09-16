@@ -22,13 +22,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 Some(super::super::support::next_helper(
                     &mut helpers,
                     &bray_ir::MirHelperReference::DefaultValue(*provider),
-                )?)
+                ))
             }
             _ => None,
         };
 
         if helpers.next().is_some() {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR call translation violated an established compiler contract");
         }
 
         let outgoing = if call.is_cleanup() {
@@ -43,7 +43,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .request
                     .mappings()
                     .callable(self.instance.key(), CodegenCallSite::Operation(operation))
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                    .expect("checked MIR call translation requires an established mapping or value");
 
                 if let Some(intrinsic) = mapping.intrinsic_operation() {
                     let operand_type = call
@@ -51,8 +51,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         .first()
                         .map(MirCallArgument::value)
                         .map(|operand| self.operand_type(operand))
-                        .transpose()?
-                        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                        .expect("checked MIR call translation requires an established mapping or value");
 
                     let result = self.translate_intrinsic_call(
                         intrinsic,
@@ -76,18 +75,18 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 let instance = mapping
                     .instance()
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                    .expect("checked MIR call translation requires an established mapping or value");
 
                 let symbol = self
                     .request
                     .mappings()
                     .instance_symbol(instance)
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                    .expect("checked MIR call translation requires an established mapping or value");
 
                 let function = self
                     .module
                     .get_function(symbol.name().as_str())
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                    .expect("checked MIR call translation requires an established mapping or value");
 
                 // Owning the signature releases the immutable mapping borrow before invocation
                 // mutates translation state.
@@ -100,27 +99,27 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 }
             }
             MirCallTarget::DefaultValue { .. } => {
-                let helper = default_helper.ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                let helper = default_helper.expect("checked MIR call translation requires an established mapping or value");
 
                 self.invoke_operation_helper(operation, helper, semantic_arguments)
             }
             MirCallTarget::Runtime(runtime) => self.invoke_runtime(*runtime, semantic_arguments),
             MirCallTarget::Indirect { callee, .. } => {
-                let callee_type = self.operand_type(callee)?;
+                let callee_type = self.operand_type(callee);
 
                 let mapping = self
                     .type_mapping(callee_type)
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                    .expect("checked MIR call translation requires an established mapping or value");
 
                 let CodegenTypeKind::Callable(signature) = mapping.kind() else {
-                    return Err(CodegenFailure::GeneratedModuleInvariant);
+                    panic!("checked MIR call translation violated an established compiler contract");
                 };
 
                 // Translation mutates its value cache after releasing the borrowed mapping.
                 let signature = signature.clone();
 
                 let pointer = pointer_value(self.operand(callee)?)
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                    .expect("checked MIR call translation requires an established mapping or value");
 
                 let function_type = self.types.function_type(&signature)?;
 
@@ -164,14 +163,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .unit
             .value(result)
             .map(bray_ir::MirValue::ty)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR call translation requires an established mapping or value");
 
         let mapping = self
             .type_mapping(ty)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR call translation requires an established mapping or value");
 
         if mapping.layout().is_none_or(|layout| layout.size() != 0) {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR call translation violated an established compiler contract");
         }
 
         let ty = self.types.map(ty)?;
@@ -195,10 +194,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .unit
             .operation(operation)
             .map(|operation| !operation.kind().helper_references().is_empty())
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR call translation requires an established mapping or value");
 
         if has_helpers {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR call translation violated an established compiler contract");
         }
 
         Ok(Vec::new())

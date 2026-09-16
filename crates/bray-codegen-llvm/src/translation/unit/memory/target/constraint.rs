@@ -1,5 +1,4 @@
 use bray_bound_tree::{InlineAssemblyConstraint, InlineAssemblyOperand, InlineAssemblyOperandKind};
-use bray_codegen::CodegenFailure;
 use bray_target::TargetControlSupport;
 
 pub(super) fn append_clobber(constraints: &mut String, clobber: &str) {
@@ -16,7 +15,7 @@ pub(super) fn assembly_constraints(
     control: TargetControlSupport,
     constraints: &str,
     descriptors: &[InlineAssemblyOperand],
-) -> Result<String, CodegenFailure> {
+) -> String {
     let mut normalized = String::new();
 
     for descriptor in descriptors
@@ -26,7 +25,7 @@ pub(super) fn assembly_constraints(
         let modifier = match descriptor.kind() {
             InlineAssemblyOperandKind::Output | InlineAssemblyOperandKind::EarlyInOut => "=&",
             InlineAssemblyOperandKind::LateOutput | InlineAssemblyOperandKind::InOut => "=",
-            _ => return Err(CodegenFailure::GeneratedModuleInvariant),
+            unexpected => panic!("checked MIR memory translation violated an established compiler contract: {unexpected:?}"),
         };
 
         append_constraint(&mut normalized, modifier);
@@ -34,9 +33,9 @@ pub(super) fn assembly_constraints(
         append_constraint_class(
             &mut normalized,
             control,
-            operand_constraint(constraints, *descriptor)?,
+            operand_constraint(constraints, *descriptor),
             descriptor.kind(),
-        )?;
+        );
     }
 
     for descriptor in descriptors
@@ -46,10 +45,10 @@ pub(super) fn assembly_constraints(
         if let Some(output) = descriptor.output() {
             append_constraint(&mut normalized, &output.to_string());
         } else {
-            let constraint = operand_constraint(constraints, *descriptor)?;
+            let constraint = operand_constraint(constraints, *descriptor);
             append_constraint(&mut normalized, "");
 
-            append_constraint_class(&mut normalized, control, constraint, descriptor.kind())?;
+            append_constraint_class(&mut normalized, control, constraint, descriptor.kind());
         }
     }
 
@@ -60,7 +59,7 @@ pub(super) fn assembly_constraints(
         append_constraint(&mut normalized, "!i");
     }
 
-    Ok(normalized)
+    normalized
 }
 
 pub(super) fn output_descriptors(operands: &[InlineAssemblyOperand]) -> Vec<InlineAssemblyOperand> {
@@ -78,20 +77,27 @@ pub(super) fn output_descriptors(operands: &[InlineAssemblyOperand]) -> Vec<Inli
 fn operand_constraint(
     constraints: &str,
     operand: InlineAssemblyOperand,
-) -> Result<InlineAssemblyConstraint<'_>, CodegenFailure> {
+) -> InlineAssemblyConstraint<'_> {
     let (start, length) = operand.constraint_range();
 
     let start = usize::from(start);
 
     let end = start
         .checked_add(usize::from(length))
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .unwrap_or_else(|| {
+            panic!("inline-assembly constraint range overflows: start={start}, length={length}")
+        });
 
     let constraint = constraints
         .get(start..end)
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .unwrap_or_else(|| {
+            panic!(
+                "inline-assembly operand constraint range {start}..{end} is outside {constraints:?}"
+            )
+        });
 
-    InlineAssemblyConstraint::try_parse(constraint).ok_or(CodegenFailure::GeneratedModuleInvariant)
+    InlineAssemblyConstraint::try_parse(constraint)
+        .unwrap_or_else(|| panic!("checked inline assembly retained invalid constraint {constraint:?}"))
 }
 
 fn append_constraint(constraints: &mut String, constraint: &str) {
@@ -107,7 +113,7 @@ fn append_constraint_class(
     control: TargetControlSupport,
     constraint: InlineAssemblyConstraint<'_>,
     kind: InlineAssemblyOperandKind,
-) -> Result<(), CodegenFailure> {
+) {
     if kind == InlineAssemblyOperandKind::Memory {
         constraints.push('*');
     }
@@ -116,7 +122,7 @@ fn append_constraint_class(
 
     if constraint.explicit() {
         if !control.supports_physical_register(class) {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("target control does not support inline-assembly register {class:?}");
         }
 
         constraints.push('{');
@@ -128,9 +134,9 @@ fn append_constraint_class(
         constraints.push_str(
             control
                 .register_constraint(class)
-                .ok_or(CodegenFailure::GeneratedModuleInvariant)?,
+                .unwrap_or_else(|| {
+                    panic!("target control has no inline-assembly register class for {class:?}")
+                }),
         );
     }
-
-    Ok(())
 }

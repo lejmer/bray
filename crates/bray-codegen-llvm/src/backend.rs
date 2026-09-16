@@ -11,7 +11,7 @@ use bray_codegen::{
     DebugInformationOutputMode, OptimizationLevel, ProtectedAsyncFrameMetadata,
     ReproducibilityLevel, SizePreference,
 };
-use bray_diagnostics::{DiagnosticBag, DiagnosticCodegenVerificationStage};
+use bray_diagnostics::DiagnosticBag;
 use bray_runtime_interface::RuntimeAbiVersion;
 use bray_symbols::ProductKind;
 #[cfg(test)]
@@ -95,7 +95,7 @@ impl LlvmCodeGenerator {
         let mut sessions = self
             .sessions
             .lock()
-            .map_err(CodegenFailure::backend_library)?;
+            .expect("LLVM backend session cache mutex was poisoned");
 
         if let Some(session) = sessions.get(&key) {
             // Generation owns a shared immutable session after releasing the cache lock.
@@ -167,12 +167,7 @@ impl LlvmCodeGenerator {
             return Ok(CodegenOutcome::cancelled(DiagnosticBag::new()));
         }
 
-        module
-            .verify()
-            .map_err(|error| CodegenFailure::BackendRejectedModule {
-                stage: DiagnosticCodegenVerificationStage::BeforeOptimization,
-                report: Arc::from(error.to_string()),
-            })?;
+        verify_generated_module(&module, request.target(), "before optimization");
 
         if request.cancellation().is_cancelled() {
             return Ok(CodegenOutcome::cancelled(DiagnosticBag::new()));
@@ -184,12 +179,7 @@ impl LlvmCodeGenerator {
             return Ok(CodegenOutcome::cancelled(DiagnosticBag::new()));
         }
 
-        module
-            .verify()
-            .map_err(|error| CodegenFailure::BackendRejectedModule {
-                stage: DiagnosticCodegenVerificationStage::AfterOptimization,
-                report: Arc::from(error.to_string()),
-            })?;
+        verify_generated_module(&module, request.target(), "after optimization");
 
         let mut serialized: BTreeMap<BackendArtifactKind, ArtifactContent> = BTreeMap::new();
 
@@ -393,6 +383,21 @@ fn capabilities(supports_thin_lto: bool) -> Result<BackendCapabilities, CodegenF
     ))
 }
 
+fn verify_generated_module(
+    module: &Module<'_>,
+    target: &CodegenTarget,
+    stage: &'static str,
+) {
+    module.verify().unwrap_or_else(|error| {
+        let report = error.to_string();
+
+        panic!(
+            "LLVM rejected compiler-generated IR {stage} for target {}: {report}",
+            target.identity().as_str()
+        )
+    });
+}
+
 fn runtime_metadata(request: CodegenRequest<'_>) -> Result<CodegenRuntimeMetadata, CodegenFailure> {
     let frames = request
         .unit()
@@ -465,7 +470,10 @@ fn runtime_metadata(request: CodegenRequest<'_>) -> Result<CodegenRuntimeMetadat
     let host = hosts.next().cloned();
 
     if hosts.next().is_some() {
-        return Err(CodegenFailure::GeneratedModuleInvariant);
+        panic!(
+            "codegen unit {:?} contains more than one executable host",
+            request.unit().key()
+        );
     }
 
     CodegenRuntimeMetadata::try_new(request.unit(), frames, host)
@@ -543,7 +551,9 @@ mod tests {
     use inkwell::OptimizationLevel;
     use inkwell::targets::{CodeModel, RelocMode, Target, TargetTriple};
 
-    use super::{LLVM_REVISION, LlvmCodeGenerator, representative_triple};
+    use super::{
+        LLVM_REVISION, LlvmCodeGenerator, representative_triple, verify_generated_module,
+    };
     use crate::initialization;
     use crate::serialization::serialize_artifact;
 
@@ -602,6 +612,43 @@ mod tests {
             backend.validate_target(&mismatched),
             Err(CodegenFailure::UnsupportedTarget)
         );
+    }
+
+    #[test]
+    fn verifier_panics_retain_stage_target_and_exact_report() {
+        let context = inkwell::context::Context::create();
+        let module = context.create_module("invalid.generated.module");
+
+        let function = module.add_function(
+            "unterminated",
+            context.void_type().fn_type(&[], false),
+            None,
+        );
+
+        context.append_basic_block(function, "entry");
+
+        let report = module
+            .verify()
+            .expect_err("unterminated generated function must fail verification")
+            .to_string();
+
+        let target = codegen_target();
+        let stage = "test verification stage";
+
+        let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            verify_generated_module(&module, &target, stage);
+        }))
+        .expect_err("invalid generated module must panic");
+
+        let message = panic
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| panic.downcast_ref::<&str>().copied())
+            .expect("panic payload must be text");
+
+        assert!(message.contains(stage));
+        assert!(message.contains(target.identity().as_str()));
+        assert!(message.contains(&report));
     }
 
     #[test]

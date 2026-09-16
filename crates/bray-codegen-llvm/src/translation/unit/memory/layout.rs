@@ -16,7 +16,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         ty: bray_symbols::TypeId,
         kind: MemoryLayoutQueryKind,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        let layout = self.memory_layout(ty)?;
+        let layout = self.memory_layout(ty);
 
         match kind {
             MemoryLayoutQueryKind::Size | MemoryLayoutQueryKind::Stride => {
@@ -39,10 +39,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         operation: &MirOperation,
         value: u64,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        let result = self.operation_result_type(operation)?;
+        let result = self.operation_result_type(operation);
 
         let BasicTypeEnum::IntType(result) = self.types.map(result)? else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
         Ok(result.const_int(value, false).into())
@@ -73,10 +73,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let Some(CodegenTypeBehavior::FlexibleAggregate { element, offset }) =
             self.type_mapping(ty).and_then(|mapping| mapping.behavior())
         else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
-        let stride = self.memory_layout(element)?.size();
+        let stride = self.memory_layout(element).size();
 
         self.translate_layout_components(
             operation,
@@ -100,16 +100,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         alignment: u64,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let [count] = memory.operands() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
         let count = self
             .operand(count)
-            .and_then(|value| int_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant))?;
+            .map(|value| int_value(value).expect("checked MIR memory translation requires an established mapping or value"))?;
 
         let count = self.pointer_sized_integer(count.into())?;
         let integer = self.pointer_integer_type();
-        let result = self.operation_result_type(operation)?;
+        let result = self.operation_result_type(operation);
 
         let maximum_alignment = self
             .request
@@ -216,10 +216,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<bray_symbols::TypeId, CodegenFailure> {
         let mapping = self
             .type_mapping(ty)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR memory translation requires an established mapping or value");
 
         let CodegenTypeKind::Union { variants, .. } = mapping.kind() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
         let [field] = variants
@@ -227,7 +227,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .map(bray_codegen::CodegenUnionVariantLayout::fields)
             .unwrap_or_default()
         else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
         Ok(field.ty())
@@ -244,10 +244,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 CodegenTypeKind::Aggregate(fields) => Some(fields.clone()),
                 _ => None,
             })
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR memory translation requires an established mapping or value");
 
         if fields.len() != values.len() {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         }
 
         let mut result = self.types.map(ty)?.const_zero();
@@ -279,10 +279,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .map(|variant| (*tag, variant)),
                 _ => None,
             })
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR memory translation requires an established mapping or value");
 
         if variant.fields().len() != values.len() {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         }
 
         let llvm_type = self.types.map(ty)?;

@@ -71,17 +71,6 @@ const CODEGEN_GENERATED_MODULE_INVALID: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text(" rejected the generated module for target "),
     MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
 ];
-const CODEGEN_BACKEND_REJECTED_MODULE: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text(super::INTERNAL_COMPILER_ERROR),
-    MessageTemplatePart::Text(": native-code generation failed for target "),
-    MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
-    MessageTemplatePart::Text(": native-code generator "),
-    MessageTemplatePart::Arg(DiagnosticArgName::CodegenBackendIdentity),
-    MessageTemplatePart::Text(" reported "),
-    MessageTemplatePart::Arg(DiagnosticArgName::CodegenBackendReport),
-    MessageTemplatePart::Text(" while validating its input "),
-    MessageTemplatePart::Arg(DiagnosticArgName::CodegenVerificationStage),
-];
 const CODEGEN_ARTIFACT_CONSTRUCTION_FAILED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("native-code generator "),
     MessageTemplatePart::Arg(DiagnosticArgName::CodegenBackendIdentity),
@@ -2903,9 +2892,6 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CodegenGeneratedModuleInvalid => {
             MessageTemplate::new(CODEGEN_GENERATED_MODULE_INVALID)
-        }
-        DiagnosticKind::CodegenBackendRejectedModule => {
-            MessageTemplate::new(CODEGEN_BACKEND_REJECTED_MODULE)
         }
         DiagnosticKind::CodegenArtifactConstructionFailed => {
             MessageTemplate::new(CODEGEN_ARTIFACT_CONSTRUCTION_FAILED)

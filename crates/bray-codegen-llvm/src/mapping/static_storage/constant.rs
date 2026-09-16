@@ -33,31 +33,43 @@ fn static_constant<'context>(
 ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
     let constant = mappings
         .constant(value)
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .unwrap_or_else(|| {
+            panic!(
+                "static storage {storage:?} for {owner:?} references unmapped constant {value:?}"
+            )
+        });
 
     let ty = types.map(representation)?;
 
     match constant.data().kind() {
         bray_symbols::ConstantValueKind::Boolean(value) => {
-            let BasicTypeEnum::IntType(ty) = ty else {
-                return Err(CodegenFailure::GeneratedModuleInvariant);
+            let BasicTypeEnum::IntType(integer) = ty else {
+                panic!(
+                    "boolean constant {value:?} for {owner:?} uses representation {representation:?} mapped to {ty:?}"
+                );
             };
 
-            Ok(ty.const_int(u64::from(*value), false).into())
+            Ok(integer.const_int(u64::from(*value), false).into())
         }
         bray_symbols::ConstantValueKind::Character(value) => {
-            let BasicTypeEnum::IntType(ty) = ty else {
-                return Err(CodegenFailure::GeneratedModuleInvariant);
+            let BasicTypeEnum::IntType(integer) = ty else {
+                panic!(
+                    "character constant {value:?} for {owner:?} uses representation {representation:?} mapped to {ty:?}"
+                );
             };
 
-            Ok(ty.const_int(u64::from(u32::from(*value)), false).into())
+            Ok(integer
+                .const_int(u64::from(u32::from(*value)), false)
+                .into())
         }
         bray_symbols::ConstantValueKind::Integer(value) => {
-            let BasicTypeEnum::IntType(ty) = ty else {
-                return Err(CodegenFailure::GeneratedModuleInvariant);
+            let BasicTypeEnum::IntType(integer) = ty else {
+                panic!(
+                    "integer constant {value:?} for {owner:?} uses representation {representation:?} mapped to {ty:?}"
+                );
             };
 
-            Ok(crate::translation::integer_constant(ty, value).into())
+            Ok(crate::translation::integer_constant(integer, value).into())
         }
         bray_symbols::ConstantValueKind::Real(bits) => static_real_constant(types, *bits),
         bray_symbols::ConstantValueKind::Complex { real, imaginary } => {
@@ -82,7 +94,7 @@ fn static_constant<'context>(
         bray_symbols::ConstantValueKind::StaticAddress(_) => {
             let relocation = storage
                 .relocation(value)
-                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                .expect("static-storage realization requires an established mapping or value");
 
             let target = if let Some(target) = module.get_global(relocation.symbol().as_str()) {
                 target
@@ -113,7 +125,7 @@ fn static_constant<'context>(
         bray_symbols::ConstantValueKind::NullablePresent(child) => {
             let child = mappings
                 .constant(*child)
-                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                .expect("static-storage realization requires an established mapping or value");
 
             let child_value = static_constant(
                 module,
@@ -129,32 +141,32 @@ fn static_constant<'context>(
                 return Ok(child_value);
             }
 
-            let fields = aggregate_fields(owner, representation, mappings)?;
+            let fields = aggregate_fields(owner, representation, mappings);
 
             let payload = fields
                 .last()
-                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                .expect("static-storage realization requires an established mapping or value");
 
-            let total = layout_size(owner, representation, mappings)?;
+            let total = layout_size(owner, representation, mappings);
 
             let mut values = vec![(
                 payload.offset_bytes(),
-                layout_size(owner, payload.ty(), mappings)?,
+                layout_size(owner, payload.ty(), mappings),
                 child_value,
             )];
 
             if fields.len() > 1 {
                 let tag = fields
                     .first()
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                    .expect("static-storage realization requires an established mapping or value");
 
                 let BasicTypeEnum::IntType(tag_type) = types.map(tag.ty())? else {
-                    return Err(CodegenFailure::GeneratedModuleInvariant);
+                    panic!("static-storage realization violated an established compiler contract");
                 };
 
                 values.push((
                     tag.offset_bytes(),
-                    layout_size(owner, tag.ty(), mappings)?,
+                    layout_size(owner, tag.ty(), mappings),
                     tag_type.const_int(1, false).into(),
                 ));
             }
@@ -184,8 +196,8 @@ fn static_constant<'context>(
                 return Ok(ty.const_zero());
             }
 
-            let layout = aggregate_fields(owner, representation, mappings)?;
-            let total = layout_size(owner, representation, mappings)?;
+            let layout = aggregate_fields(owner, representation, mappings);
+            let total = layout_size(owner, representation, mappings);
             let mut values = Vec::with_capacity(fields.len());
 
             for field in fields.iter() {
@@ -195,11 +207,11 @@ fn static_constant<'context>(
                         layout.reference()
                             == Some(bray_ir::MirFieldReference::Struct(*field.field()))
                     })
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                    .expect("static-storage realization requires an established mapping or value");
 
                 let child = mappings
                     .constant(*field.value())
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                    .expect("static-storage realization requires an established mapping or value");
 
                 let value = static_constant(
                     module,
@@ -213,7 +225,7 @@ fn static_constant<'context>(
 
                 values.push((
                     field_layout.offset_bytes(),
-                    layout_size(owner, field_layout.ty(), mappings)?,
+                    layout_size(owner, field_layout.ty(), mappings),
                     value,
                 ));
             }
@@ -230,7 +242,7 @@ fn static_constant<'context>(
             mappings,
             types,
         ),
-        bray_symbols::ConstantValueKind::Error => Err(CodegenFailure::GeneratedModuleInvariant),
+        bray_symbols::ConstantValueKind::Error => panic!("static-storage realization violated an established compiler contract"),
     }
 }
 
@@ -253,7 +265,7 @@ fn static_string_constant<'context>(
         bytes,
     );
 
-    let mapping = type_mapping(owner, representation, mappings)?;
+    let mapping = type_mapping(owner, representation, mappings);
 
     match mapping.kind() {
         CodegenTypeKind::Pointer { .. } => {
@@ -287,7 +299,7 @@ fn static_string_constant<'context>(
                 types,
             )
         }
-        _ => Err(CodegenFailure::GeneratedModuleInvariant),
+        unexpected => panic!("static-storage realization violated an established compiler contract: {unexpected:?}"),
     }
 }
 
@@ -299,34 +311,34 @@ fn string_value<'context>(
     mappings: &CodegenMappings,
     types: &mut LlvmTypeMappings<'context, '_>,
 ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-    let fields = aggregate_fields(owner, representation, mappings)?;
+    let fields = aggregate_fields(owner, representation, mappings);
 
     let pointer = fields
         .first()
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("static-storage realization requires an established mapping or value");
 
     let length_field = fields
         .get(2)
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("static-storage realization requires an established mapping or value");
 
     let BasicTypeEnum::IntType(length_type) = types.map(length_field.ty())? else {
-        return Err(CodegenFailure::GeneratedModuleInvariant);
+        panic!("static-storage realization violated an established compiler contract");
     };
 
     let length = crate::conversion::resource_limit(length, "static_array_length")?;
 
     physical_aggregate(
         types,
-        layout_size(owner, representation, mappings)?,
+        layout_size(owner, representation, mappings),
         [
             (
                 pointer.offset_bytes(),
-                layout_size(owner, pointer.ty(), mappings)?,
+                layout_size(owner, pointer.ty(), mappings),
                 data,
             ),
             (
                 length_field.offset_bytes(),
-                layout_size(owner, length_field.ty(), mappings)?,
+                layout_size(owner, length_field.ty(), mappings),
                 length_type.const_int(length, false).into(),
             ),
         ],
@@ -342,18 +354,18 @@ fn static_positional_aggregate<'context>(
     mappings: &CodegenMappings,
     types: &mut LlvmTypeMappings<'context, '_>,
 ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-    let fields = aggregate_fields(owner, representation, mappings)?;
-    let total = layout_size(owner, representation, mappings)?;
+    let fields = aggregate_fields(owner, representation, mappings);
+    let total = layout_size(owner, representation, mappings);
     let mut values = Vec::with_capacity(children.len());
 
     for (index, child) in children.iter().enumerate() {
         let field = fields
             .get(index)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("static-storage realization requires an established mapping or value");
 
         let child = mappings
             .constant(*child)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("static-storage realization requires an established mapping or value");
 
         let value = static_constant(
             module,
@@ -367,7 +379,7 @@ fn static_positional_aggregate<'context>(
 
         values.push((
             field.offset_bytes(),
-            layout_size(owner, field.ty(), mappings)?,
+            layout_size(owner, field.ty(), mappings),
             value,
         ));
     }
@@ -384,20 +396,20 @@ fn static_array<'context>(
     mappings: &CodegenMappings,
     types: &mut LlvmTypeMappings<'context, '_>,
 ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-    let mapping = type_mapping(owner, representation, mappings)?;
+    let mapping = type_mapping(owner, representation, mappings);
 
     let CodegenTypeKind::Array { length, .. } = mapping.kind() else {
-        return Err(CodegenFailure::GeneratedModuleInvariant);
+        panic!("static-storage realization violated an established compiler contract");
     };
 
-    let total = layout_size(owner, representation, mappings)?;
+    let total = layout_size(owner, representation, mappings);
     let stride = total.checked_div(*length).unwrap_or(0);
     let mut values = Vec::with_capacity(children.len());
 
     for (index, child) in children.iter().enumerate() {
         let child = mappings
             .constant(*child)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("static-storage realization requires an established mapping or value");
 
         let value = static_constant(
             module,
@@ -430,27 +442,27 @@ fn static_union<'context>(
     mappings: &CodegenMappings,
     types: &mut LlvmTypeMappings<'context, '_>,
 ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-    let mapping = type_mapping(owner, representation, mappings)?;
+    let mapping = type_mapping(owner, representation, mappings);
 
     let CodegenTypeKind::Union { tag, .. } = mapping.kind() else {
-        return Err(CodegenFailure::GeneratedModuleInvariant);
+        panic!("static-storage realization violated an established compiler contract");
     };
 
     let variant = mapping
         .kind()
         .union_variant(selected)
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("static-storage realization requires an established mapping or value");
 
     let mut values = Vec::new();
 
     if let (Some(tag), Some(value)) = (*tag, variant.tag()) {
         let BasicTypeEnum::IntType(tag_type) = types.map(tag)? else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("static-storage realization violated an established compiler contract");
         };
 
         values.push((
             0,
-            layout_size(owner, tag, mappings)?,
+            layout_size(owner, tag, mappings),
             crate::translation::integer_constant(tag_type, value).into(),
         ));
     }
@@ -458,11 +470,11 @@ fn static_union<'context>(
     for field in fields {
         let layout = variant
             .payload_field(*field.field())
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("static-storage realization requires an established mapping or value");
 
         let child = mappings
             .constant(*field.value())
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("static-storage realization requires an established mapping or value");
 
         let value = static_constant(
             module,
@@ -476,12 +488,12 @@ fn static_union<'context>(
 
         values.push((
             layout.offset_bytes(),
-            layout_size(owner, layout.ty(), mappings)?,
+            layout_size(owner, layout.ty(), mappings),
             value,
         ));
     }
 
-    physical_aggregate(types, layout_size(owner, representation, mappings)?, values)
+    physical_aggregate(types, layout_size(owner, representation, mappings), values)
 }
 
 fn static_real_constant<'context>(
@@ -517,7 +529,7 @@ fn physical_aggregate<'context>(
 
     for (offset, size, value) in values {
         if offset < current || offset.saturating_add(size) > total {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("static-storage realization violated an established compiler contract");
         }
 
         push_padding(
@@ -567,33 +579,36 @@ fn aggregate_fields<'mappings>(
     owner: &bray_codegen::CodegenInstanceKey,
     ty: bray_symbols::TypeId,
     mappings: &'mappings CodegenMappings,
-) -> Result<&'mappings [bray_codegen::CodegenFieldLayout], CodegenFailure> {
-    let mapping = type_mapping(owner, ty, mappings)?;
+) -> &'mappings [bray_codegen::CodegenFieldLayout] {
+    let mapping = type_mapping(owner, ty, mappings);
 
     let CodegenTypeKind::Aggregate(fields) = mapping.kind() else {
-        return Err(CodegenFailure::GeneratedModuleInvariant);
+        panic!(
+            "static type {ty:?} for {owner:?} must map to an aggregate, got {:?}",
+            mapping.kind()
+        );
     };
 
-    Ok(fields)
+    fields
 }
 
 fn layout_size(
     owner: &bray_codegen::CodegenInstanceKey,
     ty: bray_symbols::TypeId,
     mappings: &CodegenMappings,
-) -> Result<u64, CodegenFailure> {
-    type_mapping(owner, ty, mappings)?
+) -> u64 {
+    type_mapping(owner, ty, mappings)
         .layout()
         .map(|layout| layout.size())
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)
+        .expect("statically realized type must have a layout")
 }
 
 fn type_mapping<'mappings>(
     owner: &bray_codegen::CodegenInstanceKey,
     ty: bray_symbols::TypeId,
     mappings: &'mappings CodegenMappings,
-) -> Result<&'mappings bray_codegen::CodegenTypeMapping, CodegenFailure> {
+) -> &'mappings bray_codegen::CodegenTypeMapping {
     mappings
         .instance_ty(owner, ty)
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)
+        .unwrap_or_else(|| panic!("static storage requires a type mapping for {owner:?} and {ty:?}"))
 }

@@ -33,7 +33,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 self.begin_memory_observation()?;
                 self.begin_performance_interval()?;
 
-                if self.host_role_implementation(*runtime)?
+                if self.host_role_implementation(*runtime)
                     == RuntimeRoleImplementation::CompilerLowering
                     && *execution == RootExecution::Synchronous
                 {
@@ -59,12 +59,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                     let inactive = self
                         .invoke_function(constructor, signature, &[], "root.frame")?
-                        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                        .expect("checked MIR effect translation requires an established mapping or value");
 
-                    let context = super::super::support::extract_value(&self.builder, inactive, 0)
-                        .and_then(|value| {
-                            pointer_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant)
-                        })?;
+                    let context = super::super::support::extract_value(&self.builder, inactive, 0)?;
+
+                    let context = pointer_value(context)
+                        .expect("inactive root frames must contain a pointer context");
 
                     let context = llvm(self.builder.build_ptr_to_int(
                         context,
@@ -76,13 +76,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     ))?;
 
                     let bray_ir::MirUnitKind::ExecutableHost(host) = self.unit.kind() else {
-                        return Err(CodegenFailure::GeneratedModuleInvariant);
+                        panic!("checked MIR effect translation violated an established compiler contract");
                     };
 
                     let adapter_name = host
                         .entry(*entry)
                         .and_then(bray_runtime_interface::ExecutableHostEntry::root_frame_adapter)
-                        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                        .expect("checked MIR effect translation requires an established mapping or value");
 
                     let adapter = self
                         .module
@@ -113,7 +113,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         &[context.into()],
                         "root.frame.adapter",
                     )?
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                    .expect("checked MIR effect translation requires an established mapping or value");
 
                     let frame_storage =
                         self.allocate_temporary(frame.get_type(), "root.frame.transfer.storage")?;
@@ -154,18 +154,19 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                             BasicValueEnum::StructValue(value) => Some(value),
                             _ => None,
                         })
-                        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                        .expect("checked MIR effect translation requires an established mapping or value");
 
                     let status =
-                        super::super::support::extract_value(&self.builder, start.into(), 0)
-                            .and_then(|value| {
-                                int_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant)
-                            })?;
+                        super::super::support::extract_value(&self.builder, start.into(), 0)?;
 
-                    let root = super::super::support::extract_value(&self.builder, start.into(), 1)
-                        .and_then(|value| {
-                            int_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant)
-                        })?;
+                    let status = int_value(status)
+                        .expect("root-start results must contain an integer status");
+
+                    let root =
+                        super::super::support::extract_value(&self.builder, start.into(), 1)?;
+
+                    let root = int_value(root)
+                        .expect("root-start results must contain an integer root handle");
 
                     let started = llvm(self.builder.build_int_compare(
                         IntPredicate::EQ,
@@ -186,7 +187,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     return Ok(None);
                 }
 
-                Err(CodegenFailure::GeneratedModuleInvariant)
+                panic!("checked MIR effect translation violated an established compiler contract")
             }
             MirHostOperation::ObserveRootTerminal { entry, runtime } => {
                 self.translate_root_terminal_observation(*entry, *runtime)
@@ -223,7 +224,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 Ok(None)
             }
             MirHostOperation::ReportCleanupIncidents { runtime } => {
-                if self.host_role_implementation(*runtime)?
+                if self.host_role_implementation(*runtime)
                     == RuntimeRoleImplementation::CompilerLowering
                 {
                     Ok(None)
@@ -237,7 +238,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .take()
                     .unwrap_or_else(|| self.module.get_context().i64_type().const_zero());
 
-                if self.host_role_implementation(*runtime)?
+                if self.host_role_implementation(*runtime)
                     != RuntimeRoleImplementation::CompilerLowering
                 {
                     self.invoke_runtime(*runtime, &[])?;
@@ -256,7 +257,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let descriptor = self
             .module
             .get_global(host.descriptor_symbol().as_str())
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR effect translation requires an established mapping or value");
 
         let context = self.types.context();
         let role = bray_runtime_interface::RuntimeAbiRole::ProductHostControl;
@@ -291,21 +292,21 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             ],
             "product.cleanup",
         )?
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("checked MIR effect translation requires an established mapping or value");
 
         let status = int_value(super::super::support::extract_value(
             &self.builder,
             observation,
             0,
         )?)
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("checked MIR effect translation requires an established mapping or value");
 
         let state = int_value(super::super::support::extract_value(
             &self.builder,
             observation,
             1,
         )?)
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("checked MIR effect translation requires an established mapping or value");
 
         let not_success = llvm(self.builder.build_int_compare(
             IntPredicate::NE,
@@ -418,7 +419,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .into()],
             )?
             .and_then(int_value)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR effect translation requires an established mapping or value");
 
         let selected = llvm(self.builder.build_int_compare(
             IntPredicate::NE,
@@ -462,7 +463,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let block = self
             .builder
             .get_insert_block()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR effect translation requires an established mapping or value");
 
         self.host_selection_statuses.push((status, block));
         llvm(self.builder.build_unconditional_branch(shutdown))?;
@@ -494,7 +495,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let block = self
             .builder
             .get_insert_block()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR effect translation requires an established mapping or value");
 
         let shutdown = self.test_host_shutdown_block();
 
@@ -518,7 +519,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         runtime: bray_ir::MirRuntimeReference,
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
         let bray_ir::MirUnitKind::ExecutableHost(host) = self.unit.kind() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR effect translation violated an established compiler contract");
         };
 
         let synchronous = host
@@ -526,7 +527,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .is_some_and(|entry| entry.root() == RootExecution::Synchronous);
 
         if synchronous
-            || self.host_role_implementation(runtime)?
+            || self.host_role_implementation(runtime)
                 == RuntimeRoleImplementation::CompilerLowering
         {
             return Ok(None);
@@ -536,7 +537,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .host_root
             .as_ref()
             .copied()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR effect translation requires an established mapping or value");
 
         self.host_result = self.invoke_native_runtime(runtime, &[root])?;
 
@@ -549,9 +550,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<(), CodegenFailure> {
         let frame_context = self
             .frame_context
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR effect translation requires an established mapping or value");
 
-        let context = self.frame_context_argument()?;
+        let context = self.frame_context_argument();
 
         let pointer = llvm(
             self.builder.build_int_to_ptr(
@@ -631,14 +632,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     pub(super) fn host_role_implementation(
         &self,
         runtime: bray_ir::MirRuntimeReference,
-    ) -> Result<RuntimeRoleImplementation, CodegenFailure> {
+    ) -> RuntimeRoleImplementation {
         let bray_ir::MirUnitKind::ExecutableHost(host) = self.unit.kind() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR effect translation violated an established compiler contract");
         };
 
         host.role_binding(runtime.role())
             .map(bray_runtime_interface::RuntimeRoleBinding::implementation)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)
+            .expect("executable hosts must bind every referenced runtime role")
     }
 
     pub(super) fn root_entry(
@@ -665,7 +666,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     bray_ir::MirUnitKey::Bound(candidate) if candidate == root
                 )
             })
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR effect translation requires an established mapping or value");
 
         let symbol =
             match execution {
@@ -677,12 +678,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     },
                 ),
             }
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR effect translation requires an established mapping or value");
 
         let function = self
             .module
             .get_function(symbol.name().as_str())
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR effect translation requires an established mapping or value");
 
         Ok((function, symbol.signature()))
     }

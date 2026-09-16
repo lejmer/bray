@@ -48,12 +48,12 @@ pub(super) fn declare_static_finalizer<'context>(
                     let layout = mappings
                         .instance_ty(mapping.owner(), ty)
                         .and_then(bray_codegen::CodegenTypeMapping::layout)
-                        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                        .expect("static-storage realization requires an established mapping or value");
 
                     (layout.size(), layout.alignment().get())
                 }
                 ExecutableEntryResult::I32 => {
-                    return Err(CodegenFailure::GeneratedModuleInvariant);
+                    panic!("static-storage realization violated an established compiler contract");
                 }
             };
 
@@ -109,22 +109,22 @@ fn declare_static_finalizer_start<'context>(
 
     let entry = callback
         .get_first_basic_block()
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("static-storage realization requires an established mapping or value");
 
     builder.position_at_end(entry);
 
     if let Some(finalization) = mapping.finalization() {
         let symbol = mappings
             .instance_symbol(finalization.instance())
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("static-storage realization requires an established mapping or value");
 
         let function = module
             .get_function(symbol.name().as_str())
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("static-storage realization requires an established mapping or value");
 
         let supplied_destination = callback
             .get_first_param()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?
+            .expect("static-storage realization requires an established mapping or value")
             .into_int_value();
 
         let destination = match (finalization.execution(), finalization.result()) {
@@ -138,7 +138,7 @@ fn declare_static_finalizer_start<'context>(
                 context.ptr_type(AddressSpace::default()).const_null()
             }
             (bray_symbols::CallableExecution::Synchronous, ExecutableEntryResult::I32) => {
-                return Err(CodegenFailure::GeneratedModuleInvariant);
+                panic!("static-storage realization violated an established compiler contract");
             }
             (bray_symbols::CallableExecution::Asynchronous, _) => builder
                 .build_int_to_ptr(
@@ -160,7 +160,7 @@ fn declare_static_finalizer_start<'context>(
             function,
             symbol.signature(),
             &arguments,
-            static_outcome(callback)?,
+            static_outcome(callback),
             name,
             types,
         )?;
@@ -180,7 +180,7 @@ fn declare_static_finalizer_start<'context>(
             let result = call
                 .try_as_basic_value()
                 .basic()
-                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                .expect("static-storage realization requires an established mapping or value");
 
             builder
                 .build_store(destination, result)
@@ -203,14 +203,14 @@ fn declare_static_finalizer_start<'context>(
                     &[
                         completion.into(),
                         supplied_destination.into(),
-                        static_outcome(callback)?.into(),
+                        static_outcome(callback).into(),
                     ],
                     "static.finalize.status",
                 )
                 .map_err(CodegenFailure::backend_library)?
                 .try_as_basic_value()
                 .basic()
-                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                .expect("static-storage realization requires an established mapping or value");
 
             builder
                 .build_return(Some(&status))
@@ -261,7 +261,7 @@ fn declare_static_finalizer_resolver<'context>(
 
     let entry = callback
         .get_first_basic_block()
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("static-storage realization requires an established mapping or value");
 
     builder.position_at_end(entry);
 
@@ -288,12 +288,12 @@ fn declare_static_finalizer_resolver<'context>(
 
     let result = callback
         .get_first_param()
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?
+        .expect("static-storage realization requires an established mapping or value")
         .into_int_value();
 
     let incident_destination = callback
         .get_nth_param(1)
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?
+        .expect("static-storage realization requires an established mapping or value")
         .into_int_value();
 
     let result = builder
@@ -306,18 +306,18 @@ fn declare_static_finalizer_resolver<'context>(
 
     let result_mapping = mappings
         .instance_ty(mapping.owner(), ty)
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("static-storage realization requires an established mapping or value");
 
     let CodegenTypeKind::Union { tag, variants } = result_mapping.kind() else {
-        return Err(CodegenFailure::GeneratedModuleInvariant);
+        panic!("static-storage realization violated an established compiler contract");
     };
 
     let Some(tag) = *tag else {
-        return Err(CodegenFailure::GeneratedModuleInvariant);
+        panic!("static-storage realization violated an established compiler contract");
     };
 
     let BasicTypeEnum::IntType(tag_type) = types.map(tag)? else {
-        return Err(CodegenFailure::GeneratedModuleInvariant);
+        panic!("static-storage realization violated an established compiler contract");
     };
 
     let tag = builder
@@ -329,7 +329,7 @@ fn declare_static_finalizer_resolver<'context>(
         .kind()
         .union_variant(success_variant)
         .and_then(bray_codegen::CodegenUnionVariantLayout::tag)
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("static-storage realization requires an established mapping or value");
 
     let success = crate::translation::integer_constant(tag_type, success);
 
@@ -355,14 +355,14 @@ fn declare_static_finalizer_resolver<'context>(
     let error_variant = variants
         .iter()
         .find(|variant| variant.variant() != success_variant)
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("static-storage realization requires an established mapping or value");
 
     let [error_field] = error_variant.fields() else {
-        return Err(CodegenFailure::GeneratedModuleInvariant);
+        panic!("static-storage realization violated an established compiler contract");
     };
 
     if error_field.ty() != error {
-        return Err(CodegenFailure::GeneratedModuleInvariant);
+        panic!("static-storage realization violated an established compiler contract");
     }
 
     let error_address = builder
@@ -379,16 +379,16 @@ fn declare_static_finalizer_resolver<'context>(
     let error_layout = mappings
         .instance_ty(mapping.owner(), error)
         .and_then(bray_codegen::CodegenTypeMapping::layout)
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("static-storage realization requires an established mapping or value");
 
     let pointer = context.ptr_type(AddressSpace::default());
 
     let memory = finalization
         .incident_memory()
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("static-storage realization requires an established mapping or value");
 
     let (allocation, allocation_signature) =
-        mapped_instance_function(module, mappings, memory.allocation())?;
+        mapped_instance_function(module, mappings, memory.allocation());
 
     let allocation_call = invoke_static_boundary(
         &builder,
@@ -400,7 +400,7 @@ fn declare_static_finalizer_resolver<'context>(
                 .const_int(error_layout.alignment().get(), false)
                 .into(),
         ],
-        static_outcome(callback)?,
+        static_outcome(callback),
         "static.finalize.incident.payload",
         types,
     )?;
@@ -413,7 +413,7 @@ fn declare_static_finalizer_resolver<'context>(
         mapping,
         &builder,
         error_address,
-        static_outcome(callback)?,
+        static_outcome(callback),
         types,
     )?;
 
@@ -422,7 +422,7 @@ fn declare_static_finalizer_resolver<'context>(
     let payload = allocation_call
         .try_as_basic_value()
         .basic()
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?
+        .expect("static-storage realization requires an established mapping or value")
         .into_pointer_value();
 
     let error_pointer = builder
@@ -510,11 +510,11 @@ fn declare_static_incident_reporter<'context>(
 
     let entry = callback
         .get_first_basic_block()
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("static-storage realization requires an established mapping or value");
 
     let payload = callback
         .get_first_param()
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("static-storage realization requires an established mapping or value");
 
     builder.position_at_end(entry);
 
@@ -527,7 +527,7 @@ fn declare_static_incident_reporter<'context>(
         .map_err(CodegenFailure::backend_library)?
         .try_as_basic_value()
         .basic()
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("static-storage realization requires an established mapping or value");
 
     builder
         .build_return(Some(&status))
@@ -568,11 +568,11 @@ fn declare_static_incident_destroyer<'context>(
 
     let entry = callback
         .get_first_basic_block()
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("static-storage realization requires an established mapping or value");
 
     let payload = callback
         .get_first_param()
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?
+        .expect("static-storage realization requires an established mapping or value")
         .into_int_value();
 
     builder.position_at_end(entry);
@@ -583,21 +583,21 @@ fn declare_static_incident_destroyer<'context>(
 
     let destruction_outcome = callback
         .get_nth_param(1)
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?
+        .expect("static-storage realization requires an established mapping or value")
         .into_pointer_value();
 
     let cleanup = mapping
         .finalization()
         .and_then(bray_codegen::CodegenStaticFinalization::incident_cleanup)
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("static-storage realization requires an established mapping or value");
 
     let symbol = mappings
         .instance_symbol(cleanup)
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("static-storage realization requires an established mapping or value");
 
     let function = module
         .get_function(symbol.name().as_str())
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("static-storage realization requires an established mapping or value");
 
     invoke_static_boundary(
         &builder,
@@ -612,10 +612,10 @@ fn declare_static_incident_destroyer<'context>(
     let memory = mapping
         .finalization()
         .and_then(bray_codegen::CodegenStaticFinalization::incident_memory)
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("static-storage realization requires an established mapping or value");
 
     let (deallocation, deallocation_signature) =
-        mapped_instance_function(module, mappings, memory.deallocation())?;
+        mapped_instance_function(module, mappings, memory.deallocation());
 
     invoke_static_boundary(
         &builder,
@@ -626,7 +626,7 @@ fn declare_static_incident_destroyer<'context>(
             usize.const_int(payload_size, false).into(),
             usize.const_int(payload_alignment, false).into(),
         ],
-        static_outcome(callback)?,
+        static_outcome(callback),
         "",
         types,
     )?;
@@ -652,7 +652,7 @@ fn static_incident_value<'context>(
 
     let identity = finalization
         .error_type_identity()
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("static-storage realization requires an established mapping or value");
 
     let identity = context.i8_type().const_array(
         &identity

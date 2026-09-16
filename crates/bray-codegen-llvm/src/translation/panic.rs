@@ -37,7 +37,7 @@ pub(crate) fn branch_on_pending_outcome<'context>(
     let function = builder
         .get_insert_block()
         .and_then(BasicBlock::get_parent)
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .expect("LLVM translation requires an established mapping or value");
 
     let propagate = context.append_basic_block(function, "call.panic.propagate");
     let continued = context.append_basic_block(function, "call.panic.continue");

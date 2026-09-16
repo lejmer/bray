@@ -51,11 +51,8 @@ pub(super) const fn native_product_failure_is_internal(
         | Kind::CodegenBackendResourceLimit(_)
         | Kind::CodegenBackendLibraryFailure(_)
         | Kind::CodegenBackendToolFailure(_)
-        | Kind::CodegenBackendGeneratedModuleInvariant
-        | Kind::CodegenBackendGeneratedModuleInvariantDetail(_)
         | Kind::CodegenBackendInvalidRuntimeMetadata(_)
         | Kind::CodegenBackendInvalidOutcome(_)
-        | Kind::CodegenBackendRejectedModule(_)
         | Kind::CodegenBackendArtifactConstruction(_)
         | Kind::CodegenInvalidRequest(_)
         | Kind::CodegenInvalidInstance(_)

@@ -45,7 +45,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let operands = self.text_operands(operation)?;
 
         let [(left, left_type), (right, right_type)] = operands.as_slice() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR text translation violated an established compiler contract");
         };
 
         let (left_data, left_length, _) = self.string_view_parts(*left, *left_type)?;
@@ -72,7 +72,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let operands = self.text_operands(operation)?;
 
         let [(text, text_type), (index, _)] = operands.as_slice() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR text translation violated an established compiler contract");
         };
 
         let (data, length, _) = self.string_view_parts(*text, *text_type)?;
@@ -95,7 +95,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let operands = self.text_operands(operation)?;
 
         let [(text, text_type), (start, _), (end, _)] = operands.as_slice() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR text translation violated an established compiler contract");
         };
 
         let (data, length, _) = self.string_view_parts(*text, *text_type)?;
@@ -131,10 +131,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let reference = MirHelperReference::StandardLibrary(helper);
         let helpers = self.operation_helpers(operation_id)?;
         let mut helpers = helpers.iter();
-        let helper = next_helper(&mut helpers, &reference)?;
+        let helper = next_helper(&mut helpers, &reference);
 
         if helpers.next().is_some() {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR text translation violated an established compiler contract");
         }
 
         let result_type = helper
@@ -145,11 +145,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 CodegenResultMapping::Indirect { pointee, .. } => Some(*pointee),
                 CodegenResultMapping::Void => None,
             })
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR text translation requires an established mapping or value");
 
         let result = self
             .invoke_helper(helper, arguments)?
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR text translation requires an established mapping or value");
 
         Ok((result, result_type))
     }
@@ -166,7 +166,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let result_type = operation
             .result_type()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR text translation requires an established mapping or value");
 
         if value.get_type() == self.types.map(result_type)? {
             return Ok(value);
@@ -196,30 +196,26 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .map(bray_codegen::CodegenTypeMapping::kind)
         {
             Some(CodegenTypeKind::Aggregate(fields)) => fields.clone(),
-            _ => return Err(CodegenFailure::GeneratedModuleInvariant),
+            unexpected => panic!("checked MIR text translation violated an established compiler contract: {unexpected:?}"),
         };
 
-        let data = extract_value(&self.builder, text, self.aggregate_element(&fields, 0)?)
-            .and_then(|value| {
-                pointer_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant)
-            })?;
+        let data = extract_value(&self.builder, text, self.aggregate_element(&fields, 0)?)?;
+        let data = pointer_value(data).expect("text aggregates must contain a data pointer");
 
         let length = extract_value(&self.builder, text, self.aggregate_element(&fields, 1)?)?
             .into_int_value();
 
-        let owner = extract_value(&self.builder, text, self.aggregate_element(&fields, 2)?)
-            .and_then(|value| {
-                pointer_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant)
-            })?;
+        let owner = extract_value(&self.builder, text, self.aggregate_element(&fields, 2)?)?;
+        let owner = pointer_value(owner).expect("text aggregates must contain an owner pointer");
 
         let result = operation
             .result_type()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR text translation requires an established mapping or value");
 
         let string = if self.string_type(result) {
             result
         } else {
-            self.result_string_type(result)?
+            self.result_string_type(result)
         };
 
         self.string_value(string, data, length, owner)

@@ -46,13 +46,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         diverges: bool,
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
         let [inputs] = memory.operands() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
         let output = if diverges {
             None
         } else {
-            Some(self.operation_result_type(operation)?)
+            Some(self.operation_result_type(operation))
         };
 
         self.translate_structural_assembly(
@@ -73,19 +73,19 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let normal = self
             .unit
             .block(assembly.normal())
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR memory translation requires an established mapping or value");
 
         let [parameter] = normal.parameters() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
         let phi = self
             .phis
             .get(parameter)
             .copied()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR memory translation requires an established mapping or value");
 
-        let normal = self.block(assembly.normal())?;
+        let normal = self.block(assembly.normal());
 
         let fallthrough = self
             .types
@@ -96,7 +96,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .alternates()
             .iter()
             .map(|alternate| self.block(*alternate))
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<Vec<_>>();
 
         let output = self
             .translate_structural_assembly(
@@ -124,14 +124,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         site: AssemblySite,
         destinations: Option<(BasicBlock<'context>, &[BasicBlock<'context>])>,
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
-        let input_type = self.operand_type(inputs)?;
+        let input_type = self.operand_type(inputs);
         let input_value = self.operand(inputs)?;
-        let template = self.constant_string(contract.template())?.to_owned();
-        let constraint_text = self.constant_string(contract.constraints())?.to_owned();
-        let clobbers = self.constant_string(contract.clobbers())?.to_owned();
+        let template = self.constant_string(contract.template()).to_owned();
+        let constraint_text = self.constant_string(contract.constraints()).to_owned();
+        let clobbers = self.constant_string(contract.clobbers()).to_owned();
         let control = TargetControlSupport::for_profile(self.request.target().profile());
         let descriptors = contract.operands().collect::<Vec<_>>();
-        let mut constraints = assembly_constraints(control, &constraint_text, &descriptors)?;
+        let mut constraints = assembly_constraints(control, &constraint_text, &descriptors);
 
         for clobber in clobbers
             .split(',')
@@ -141,7 +141,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             if let Some(abi) = clobber.strip_prefix("abi:") {
                 let registers = control
                     .abi_clobbers(abi)
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                    .expect("checked MIR memory translation requires an established mapping or value");
 
                 for register in registers {
                     append_clobber(&mut constraints, register);
@@ -151,8 +151,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             }
         }
 
-        let options = InlineAssemblyOptions::try_new(self.constant_integer(contract.options())?)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        let options = InlineAssemblyOptions::try_new(self.constant_integer(contract.options()))
+            .expect("checked MIR memory translation requires an established mapping or value");
 
         let mut parameter_types = Vec::new();
         let mut arguments = Vec::new();
@@ -163,36 +163,36 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             let argument = if descriptor.kind() == InlineAssemblyOperandKind::Immediate {
                 let constant = descriptor
                     .constant()
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                    .expect("checked MIR memory translation requires an established mapping or value");
 
                 self.constant(constant)?
             } else if descriptor.kind() == InlineAssemblyOperandKind::Symbol {
                 let reference = symbols
                     .get(symbol_index)
                     .copied()
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                    .expect("checked MIR memory translation requires an established mapping or value");
 
                 let mapping = self
                     .request
                     .mappings()
                     .callable(self.instance.key(), site.call_site(symbol_index))
                     .filter(|mapping| mapping.reference() == reference)
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                    .expect("checked MIR memory translation requires an established mapping or value");
 
                 let instance = mapping
                     .instance()
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                    .expect("checked MIR memory translation requires an established mapping or value");
 
                 let symbol = self
                     .request
                     .mappings()
                     .instance_symbol(instance)
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                    .expect("checked MIR memory translation requires an established mapping or value");
 
                 let function = self
                     .module
                     .get_function(symbol.name().as_str())
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                    .expect("checked MIR memory translation requires an established mapping or value");
 
                 symbol_index += 1;
 
@@ -209,11 +209,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             if descriptor.kind() == InlineAssemblyOperandKind::Memory {
                 let target = match self
                     .type_mapping(descriptor.ty())
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?
+                    .expect("checked MIR memory translation requires an established mapping or value")
                     .kind()
                 {
                     CodegenTypeKind::Pointer { target, .. } => *target,
-                    _ => return Err(CodegenFailure::GeneratedModuleInvariant),
+                    unexpected => panic!("checked MIR memory translation violated an established compiler contract: {unexpected:?}"),
                 };
 
                 parameter_attributes.push((
@@ -227,7 +227,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         }
 
         if symbol_index != symbols.len() {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         }
 
         let outputs = output_descriptors(&descriptors);
@@ -290,7 +290,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 CallBrError::ResourceLimit { resource, actual } => {
                     CodegenFailure::resource_limit(resource, actual)
                 }
-                error => CodegenFailure::generated_module_invariant(error),
+                error => panic!("compiler-built callbr input violated its contract: {error:?}"),
             })?,
             None => {
                 let call = llvm(self.builder.build_indirect_call(
@@ -319,7 +319,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             };
         };
 
-        let output_type = output_type.ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        let output_type = output_type.expect("checked MIR memory translation requires an established mapping or value");
 
         let output = self.assembly_output(raw_output, output_type, &outputs)?;
 
@@ -334,10 +334,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let mapping = self
             .type_mapping(aggregate_type)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR memory translation requires an established mapping or value");
 
         let CodegenTypeKind::Aggregate(fields) = mapping.kind() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
         let index = self.aggregate_element(fields, usize::from(index))?;
@@ -355,10 +355,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let mapping = self
             .type_mapping(output_type)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR memory translation requires an established mapping or value");
 
         let CodegenTypeKind::Aggregate(fields) = mapping.kind() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
         let mut result = mapped.const_zero();
@@ -429,34 +429,34 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         Ok(())
     }
 
-    pub(super) fn constant_string(&self, value: ConstantValueId) -> Result<&str, CodegenFailure> {
+    pub(super) fn constant_string(&self, value: ConstantValueId) -> &str {
         let mapping = self
             .request
             .mappings()
             .constant_data(value)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR memory translation requires an established mapping or value");
 
         let ConstantValueKind::String(value) = mapping.kind() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
-        Ok(value.as_ref())
+        value.as_ref()
     }
 
-    fn constant_integer(&self, value: ConstantValueId) -> Result<u64, CodegenFailure> {
+    fn constant_integer(&self, value: ConstantValueId) -> u64 {
         let mapping = self
             .request
             .mappings()
             .constant_data(value)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR memory translation requires an established mapping or value");
 
         let ConstantValueKind::Integer(value) = mapping.kind() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
         value
             .to_u64()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)
+            .expect("inline-assembly options must fit the native contract")
     }
 }
 
@@ -593,7 +593,7 @@ mod tests {
 
         assert_eq!(
             assembly_constraints(control, "+reg,+&reg,=&reg,=reg,reg,i,s,m,label", &operands,),
-            Ok(String::from("=r,=&r,=&r,=r,0,1,r,i,s,*m,!i"))
+            String::from("=r,=&r,=&r,=r,0,1,r,i,s,*m,!i")
         );
 
         let explicit = [
@@ -623,25 +623,30 @@ mod tests {
 
         assert_eq!(
             assembly_constraints(control, "+{rax},{rax}", &explicit),
-            Ok(String::from("={rax},0,{rax}"))
+            String::from("={rax},0,{rax}")
         );
 
         let input = &explicit[1..];
 
-        assert_eq!(
-            assembly_constraints(control, "rax", input),
-            Err(bray_codegen::CodegenFailure::GeneratedModuleInvariant)
-        );
+        for invalid in ["rax", "{reg}", "{bogus}"] {
+            let panic = std::panic::catch_unwind(|| {
+                assembly_constraints(control, invalid, input)
+            })
+            .expect_err("invalid checked assembly constraint must panic");
 
-        assert_eq!(
-            assembly_constraints(control, "{reg}", input),
-            Err(bray_codegen::CodegenFailure::GeneratedModuleInvariant)
-        );
+            let message = panic
+                .downcast_ref::<String>()
+                .map(String::as_str)
+                .or_else(|| panic.downcast_ref::<&str>().copied())
+                .expect("panic payload must be text");
 
-        assert_eq!(
-            assembly_constraints(control, "{bogus}", input),
-            Err(bray_codegen::CodegenFailure::GeneratedModuleInvariant)
-        );
+            let spelling = invalid.trim_matches(|character| character == '{' || character == '}');
+
+            assert!(
+                message.contains(spelling),
+                "panic must retain rejected constraint {invalid:?}: {message}"
+            );
+        }
     }
 
     #[test]

@@ -90,14 +90,6 @@ pub(crate) fn format_value(name: DiagnosticArgName, value: &DiagnosticArgValue) 
         DiagnosticArgValue::CodegenBackendIdentity(identity) => {
             format_english_quoted_text(identity)
         }
-        DiagnosticArgValue::CodegenVerificationStage(stage) => match stage {
-            bray_diagnostics::DiagnosticCodegenVerificationStage::BeforeOptimization => {
-                "before optimization".to_owned()
-            }
-            bray_diagnostics::DiagnosticCodegenVerificationStage::AfterOptimization => {
-                "after optimization".to_owned()
-            }
-        },
         DiagnosticArgValue::CodegenBackendReport(report) => format_english_quoted_text(report),
         DiagnosticArgValue::LinkerDriverIdentity(identity) => {
             format_english_linker_driver_identity(identity)

@@ -16,7 +16,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         address_space: VolatileAddressSpace,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let [pointer] = memory.operands() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
         let pointer = self.checked_volatile_pointer(pointer, address_space)?;
@@ -29,7 +29,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         value
             .as_instruction_value()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?
+            .expect("checked MIR memory translation requires an established mapping or value")
             .set_volatile(true)
             .map_err(CodegenFailure::backend_library)?;
 
@@ -42,7 +42,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         address_space: VolatileAddressSpace,
     ) -> Result<(), CodegenFailure> {
         let [pointer, value] = memory.operands() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
         let pointer = self.checked_volatile_pointer(pointer, address_space)?;
@@ -59,7 +59,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         memory: &MirMemoryOperation,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let [pointer] = memory.operands() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
         let pointer = self.memory_pointer(pointer)?;
@@ -78,17 +78,17 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         memory: &MirMemoryOperation,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let [address] = memory.operands() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
         let address = self
             .operand(address)
-            .and_then(|value| int_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant))?;
+            .map(|value| int_value(value).expect("checked MIR memory translation requires an established mapping or value"))?;
 
-        let result = self.operation_result_type(operation)?;
+        let result = self.operation_result_type(operation);
 
         let inkwell::types::BasicTypeEnum::PointerType(pointer) = self.types.map(result)? else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
         llvm(
@@ -104,7 +104,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         comparison: PointerAddressComparison,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let [left, right] = memory.operands() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         };
 
         let left = self
@@ -133,7 +133,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         compiler_only: bool,
     ) -> Result<(), CodegenFailure> {
         if order == MemoryOrder::Relaxed {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         }
 
         let order = llvm_memory_order(order);
@@ -165,7 +165,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let expected = crate::conversion::target_value(expected, "address_space")?;
 
         if pointer.get_type().get_address_space() != expected {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR memory translation violated an established compiler contract");
         }
 
         Ok(pointer)
@@ -201,7 +201,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &self,
         feature: ConstantValueId,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        let feature = self.constant_string(feature)?;
+        let feature = self.constant_string(feature);
         let control = TargetControlSupport::for_profile(self.request.target().profile());
 
         Ok(self

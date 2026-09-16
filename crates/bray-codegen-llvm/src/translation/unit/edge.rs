@@ -51,7 +51,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         llvm(
             self.builder
-                .build_unconditional_branch(self.block(edge.target())?),
+                .build_unconditional_branch(self.block(edge.target())),
         )?;
 
         Ok(())
@@ -63,7 +63,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let source = self
             .builder
             .get_insert_block()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR translation requires an established mapping or value");
 
         Ok((source, std::mem::take(&mut self.pending_moves)))
     }
@@ -107,17 +107,17 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let target = self
             .unit
             .block(edge.target())
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR translation requires an established mapping or value");
 
         let [parameter] = target.parameters() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR translation violated an established compiler contract");
         };
 
         let phi = self
             .phis
             .get(parameter)
             .copied()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR translation requires an established mapping or value");
 
         phi.add_incoming(&[(&report, route)]);
         self.finish_route(edge.target())?;
@@ -139,7 +139,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     fn finish_route(&mut self, target: bray_ir::MirBlockId) -> Result<(), CodegenFailure> {
         self.clear_moved_places()?;
 
-        llvm(self.builder.build_unconditional_branch(self.block(target)?))?;
+        llvm(self.builder.build_unconditional_branch(self.block(target)))?;
 
         Ok(())
     }
@@ -148,10 +148,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let target = self
             .unit
             .block(edge.target())
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR translation requires an established mapping or value");
 
         if target.parameters().len() != edge.arguments().len() {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            panic!("checked MIR translation violated an established compiler contract");
         }
 
         let mut incoming: Vec<(PhiValue<'context>, BasicValueEnum<'context>)> =
@@ -162,7 +162,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 .phis
                 .get(parameter)
                 .copied()
-                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                .expect("checked MIR translation requires an established mapping or value");
 
             incoming.push((phi, self.operand(argument)?));
         }
@@ -170,7 +170,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let source = self
             .builder
             .get_insert_block()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .expect("checked MIR translation requires an established mapping or value");
 
         for (phi, value) in incoming {
             phi.add_incoming(&[(&value, source)]);
