@@ -396,7 +396,7 @@ mod tests {
             &output_path,
         ));
 
-        builder.set_executable_host(executable_host_contract());
+        builder.set_entry_point(executable_host_contract().native_entry().clone());
 
         builder
             .finish()

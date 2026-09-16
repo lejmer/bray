@@ -459,7 +459,6 @@ const fn codegen_request_failure(cause: bray_codegen::CodegenRequestBuildError) 
         Error::DebugInformationMismatch => "debug_information_mismatch",
         Error::DebugMappingCoverageMismatch => "debug_mapping_coverage_mismatch",
         Error::TargetMismatch => "target_mismatch",
-        Error::RuntimeContractMismatch => "runtime_contract_mismatch",
     }
 }
 

@@ -279,11 +279,7 @@ mod tests {
         }))
         .expect_err("wrong native argument count must panic");
 
-        let message = panic
-            .downcast_ref::<String>()
-            .map(String::as_str)
-            .or_else(|| panic.downcast_ref::<&str>().copied())
-            .expect("panic payload must be text");
+        let message = bray_testing::panic_payload_text(panic.as_ref());
 
         assert!(message.contains("CurrentNativeThreadIdentity"));
         assert!(message.contains("expected 0"));

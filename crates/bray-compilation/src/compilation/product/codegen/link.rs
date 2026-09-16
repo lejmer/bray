@@ -204,6 +204,10 @@ impl Compilation {
             inputs = inputs.with_runtime(runtime);
         }
 
+        if let Some(host) = host {
+            inputs = inputs.with_entry_point(host.native_entry().clone());
+        }
+
         let mut preservation_roots =
             super::plan::product_preservation_roots(mappings, product_host)
                 .cloned()

@@ -1,9 +1,8 @@
 use std::sync::Arc;
 
-use bray_ir::MirUnitKind;
 use bray_runtime_interface::{
-    ExecutableHostContract, ProtectedAsyncFrameId, ProtectedFrameAbiVersions,
-    ProtectedFrameOperation, ProtectedFrameOperations,
+    ProtectedAsyncFrameId, ProtectedFrameAbiVersions, ProtectedFrameOperation,
+    ProtectedFrameOperations,
 };
 
 use crate::{CodegenMappings, CodegenSymbolKey, CodegenUnit};
@@ -50,18 +49,15 @@ impl ProtectedAsyncFrameMetadata {
 #[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
 pub struct CodegenRuntimeMetadata {
     frames: Arc<[ProtectedAsyncFrameMetadata]>,
-    executable_host: Option<ExecutableHostContract>,
 }
 
 impl CodegenRuntimeMetadata {
-    /// Validates generated frame descriptors and executable-host metadata against MIR membership.
+    /// Validates generated frame descriptors against MIR membership.
     pub fn try_new(
         unit: &CodegenUnit,
         frames: impl IntoIterator<Item = ProtectedAsyncFrameMetadata>,
-        executable_host: Option<ExecutableHostContract>,
     ) -> Result<Self, CodegenRuntimeMetadataBuildError> {
         let expected_frames = expected_frames(unit);
-        let expected_host = expected_host(unit)?;
         let mut frames: Vec<_> = frames.into_iter().collect();
 
         frames.sort_unstable_by_key(ProtectedAsyncFrameMetadata::frame);
@@ -92,24 +88,14 @@ impl CodegenRuntimeMetadata {
             }
         }
 
-        if executable_host.as_ref() != expected_host {
-            return Err(CodegenRuntimeMetadataBuildError::ExecutableHostMismatch);
-        }
-
         Ok(Self {
             frames: frames.into(),
-            executable_host,
         })
     }
 
     /// Returns protected frame descriptors in stable frame-identity order.
     pub fn frames(&self) -> &[ProtectedAsyncFrameMetadata] {
         &self.frames
-    }
-
-    /// Returns generated executable-host metadata when this unit owns the host stub.
-    pub const fn executable_host(&self) -> Option<&ExecutableHostContract> {
-        self.executable_host.as_ref()
     }
 
     pub(crate) fn matches_unit(&self, unit: &CodegenUnit, mappings: &CodegenMappings) -> bool {
@@ -119,31 +105,22 @@ impl CodegenRuntimeMetadata {
             .map(ProtectedAsyncFrameMetadata::frame)
             .collect();
 
-        let Ok(host) = expected_host(unit) else {
-            return false;
-        };
-
         frames == expected_frames(unit)
             && self.frames.iter().all(|metadata| {
                 frame_metadata_matches(unit, metadata) && frame_symbols_match(metadata, mappings)
             })
-            && self.executable_host.as_ref() == host
     }
 }
 
 /// A contract violation that prevents publication of codegen runtime metadata.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum CodegenRuntimeMetadataBuildError {
-    /// More than one MIR unit claims the executable-host role.
-    MultipleExecutableHosts,
     /// One protected frame descriptor appears more than once.
     DuplicateFrame(ProtectedAsyncFrameId),
     /// Generated frame descriptors do not exactly cover protected-frame MIR units.
     FrameCoverageMismatch,
     /// Generated operation entry points use another protected-frame ABI contract.
     FrameAbiMismatch(ProtectedAsyncFrameId),
-    /// Generated host metadata does not exactly match the executable-host MIR unit.
-    ExecutableHostMismatch,
 }
 
 fn expected_frames(unit: &CodegenUnit) -> Vec<ProtectedAsyncFrameId> {
@@ -181,26 +158,6 @@ fn frame_symbols_match(metadata: &ProtectedAsyncFrameMetadata, mappings: &Codege
     })
 }
 
-fn expected_host(
-    unit: &CodegenUnit,
-) -> Result<Option<&ExecutableHostContract>, CodegenRuntimeMetadataBuildError> {
-    let mut hosts = unit.mir_units().filter_map(|unit| {
-        let MirUnitKind::ExecutableHost(host) = unit.kind() else {
-            return None;
-        };
-
-        Some(host)
-    });
-
-    let host = hosts.next();
-
-    if hosts.next().is_some() {
-        return Err(CodegenRuntimeMetadataBuildError::MultipleExecutableHosts);
-    }
-
-    Ok(host)
-}
-
 #[cfg(test)]
 mod tests {
     use bray_ir::{
@@ -233,7 +190,7 @@ mod tests {
         };
 
         assert_eq!(
-            CodegenRuntimeMetadata::try_new(&unit, [], None),
+            CodegenRuntimeMetadata::try_new(&unit, []),
             Ok(CodegenRuntimeMetadata::default())
         );
     }
@@ -256,7 +213,7 @@ mod tests {
         };
 
         assert_eq!(
-            CodegenRuntimeMetadata::try_new(&unit, [], None),
+            CodegenRuntimeMetadata::try_new(&unit, []),
             Err(CodegenRuntimeMetadataBuildError::FrameCoverageMismatch)
         );
 
@@ -269,7 +226,7 @@ mod tests {
         );
 
         assert_eq!(
-            CodegenRuntimeMetadata::try_new(&unit, [incompatible], None),
+            CodegenRuntimeMetadata::try_new(&unit, [incompatible]),
             Err(CodegenRuntimeMetadataBuildError::FrameAbiMismatch(frame))
         );
 
@@ -283,7 +240,7 @@ mod tests {
             operations.clone(),
         );
 
-        let Ok(metadata) = CodegenRuntimeMetadata::try_new(&unit, [descriptor], None) else {
+        let Ok(metadata) = CodegenRuntimeMetadata::try_new(&unit, [descriptor]) else {
             panic!("matching frame descriptor metadata must validate");
         };
 
@@ -310,7 +267,7 @@ mod tests {
             ),
         );
 
-        let Ok(conflicting) = CodegenRuntimeMetadata::try_new(&unit, [conflicting], None) else {
+        let Ok(conflicting) = CodegenRuntimeMetadata::try_new(&unit, [conflicting]) else {
             panic!("runtime metadata validation does not own canonical symbol mappings");
         };
 

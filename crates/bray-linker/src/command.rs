@@ -690,7 +690,12 @@ mod tests {
             "application.stage",
         ));
 
-        builder.set_executable_host(crate::test_support::executable_host_contract());
+        builder.set_entry_point(
+            crate::test_support::executable_host_contract()
+                .native_entry()
+                .clone(),
+        );
+
         builder.push_exported_symbol(symbol("bray_export"));
         builder.push_retained_symbol(symbol("bray_keep"));
 
@@ -752,7 +757,7 @@ mod tests {
             "application.stage",
         ));
 
-        builder.set_executable_host(crate::test_support::async_executable_host_contract(runtime));
+        builder.set_runtime_artifact(runtime);
 
         let plan = builder
             .finish()
@@ -1056,10 +1061,10 @@ mod tests {
             builder.push_output(output.clone());
         }
 
-        builder.set_executable_host(
-            plan.executable_host()
+        builder.set_entry_point(
+            plan.entry_point()
                 .cloned()
-                .unwrap_or_else(|| panic!("test executable plan must retain its host")),
+                .unwrap_or_else(|| panic!("test executable plan must retain its entry point")),
         );
 
         builder.push_exported_symbol(symbol("bray_export"));
@@ -1217,10 +1222,14 @@ mod tests {
             output,
         ));
 
-        builder.set_executable_host(bray_testing::test_executable_host_contract_for(
-            product(),
-            target.identity().clone(),
-        ));
+        builder.set_entry_point(
+            bray_testing::test_executable_host_contract_for(
+                product(),
+                target.identity().clone(),
+            )
+            .native_entry()
+            .clone(),
+        );
 
         builder
             .finish()
@@ -1285,10 +1294,14 @@ mod tests {
             &executable_name,
         ));
 
-        builder.set_executable_host(bray_testing::test_executable_host_contract_for(
-            product(),
-            target.identity().clone(),
-        ));
+        builder.set_entry_point(
+            bray_testing::test_executable_host_contract_for(
+                product(),
+                target.identity().clone(),
+            )
+            .native_entry()
+            .clone(),
+        );
 
         builder
             .finish()

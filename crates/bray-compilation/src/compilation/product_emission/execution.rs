@@ -12,7 +12,6 @@ use bray_target::TargetOutputDescription;
 
 use super::publishing::{
     package_implementation_contribution, publisher, test_catalog_contribution,
-    validate_executable_units,
 };
 use super::{ProductEmissionError, ProductEmissionErrorKind};
 use crate::compilation::{
@@ -339,10 +338,6 @@ impl Compilation {
                     )
                 })?,
         };
-
-        validate_executable_units(&plan, &units).map_err(|kind| {
-            ProductEmissionError::new(kind, planning_diagnostics.clone(), &product, &target)
-        })?;
 
         let codegen = self
             .product_emission_contributions(&plan, &units, inputs, cancellation)
@@ -773,18 +768,11 @@ mod tests {
         EmissionRequest, EmissionStatus, LinkStagingError, ReplacementPolicy, RequestedArtifact,
         RequestedArtifactDestination,
     };
-    use bray_ir::{
-        MirBlockKind, MirFrameDescriptor, MirFrameState, MirFrameStateId, MirSourceAnchor,
-        MirTerminatorKind, MirUnit, MirUnitBuilder, MirUnitId, MirUnitKind,
-    };
+    use bray_ir::{MirUnit, MirUnitId};
     use bray_lowering::{ExecutableHostLoweringInput, lower_executable_host};
     use bray_package_interface::{
         InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceProductKind,
         PackageInterfaceIdentity,
-    };
-    use bray_runtime_interface::{
-        ProtectedAsyncFrameId, ProtectedFrameAbiVersions, RootExecution, RuntimeAbiVersion,
-        RuntimeArtifactId,
     };
     use bray_source::{SourceIdentity, SourceInput, SourceVersion};
     use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};
@@ -792,14 +780,10 @@ mod tests {
     use bray_target::{TargetOutputDescription, TargetOutputKind, TargetOutputName};
     use bray_testing::{
         TemporaryFile, assert_goal_state_diagnostic_kind,
-        test_async_executable_host_contract_for_frame, test_bound_unit,
-        test_executable_host_contract_for, test_mir_target, test_mir_type,
+        test_bound_unit, test_executable_host_contract_for, test_mir_target,
     };
 
-    use super::{
-        ProductEmissionError, ProductEmissionErrorKind, ProductEmissionInputs,
-        validate_executable_units,
-    };
+    use super::{ProductEmissionError, ProductEmissionErrorKind, ProductEmissionInputs};
     use crate::test_support::{compilation_with_product, package_version};
     use crate::{
         CancellationToken, Compilation, CompilationOptions, CompilationRequest,
@@ -928,108 +912,6 @@ mod tests {
         assert_eq!(
             compilation.validate_product_request(&request, &outputs),
             Ok(())
-        );
-    }
-
-    #[test]
-    fn async_executable_plans_require_exact_generated_host_and_root_frame_artifacts() {
-        let product = ProductIdentity::try_new(package_identity(), "application")
-            .unwrap_or_else(|| panic!("test product identity must be valid"));
-
-        let runtime = RuntimeArtifactId::try_new("runtime.test")
-            .unwrap_or_else(|| panic!("test runtime identity must be valid"));
-
-        let frame_template = ProtectedAsyncFrameId::new([7; 32]);
-        let frame_mir = protected_frame_mir(frame_template);
-
-        let frame = bray_codegen::CodegenInstance::non_generic(frame_mir.clone())
-            .protected_frame_identity()
-            .unwrap_or_else(|| panic!("test frame must have a concrete identity"));
-
-        let host = test_async_executable_host_contract_for_frame(
-            product.clone(),
-            test_mir_target().identity().clone(),
-            runtime,
-            frame,
-        );
-
-        let RootExecution::Asynchronous { frame: host_frame } = host.entries()[0].root() else {
-            panic!("test executable host must be asynchronous");
-        };
-
-        assert_eq!(host_frame, frame);
-
-        let host_mir = executable_host_mir(host.clone());
-
-        let complete_unit = bray_codegen::CodegenUnit::try_new(
-            CodegenPartitionPolicy::NATIVE_BALANCED,
-            codegen_partition_compatibility(),
-            [host_mir.clone(), frame_mir],
-        )
-        .unwrap_or_else(|error| panic!("complete test unit must be valid: {error:?}"));
-
-        let complete_plan = async_plan(product.clone(), host.clone(), &complete_unit);
-
-        assert_eq!(
-            validate_executable_units(&complete_plan, &[complete_unit]),
-            Ok(()),
-        );
-
-        let host_only = bray_codegen::CodegenUnit::try_new(
-            CodegenPartitionPolicy::NATIVE_BALANCED,
-            codegen_partition_compatibility(),
-            [host_mir.clone()],
-        )
-        .unwrap_or_else(|error| panic!("host-only test unit must be valid: {error:?}"));
-
-        let host_only_plan = async_plan(product.clone(), host.clone(), &host_only);
-
-        assert_eq!(
-            validate_executable_units(&host_only_plan, &[host_only]),
-            Err(ProductEmissionErrorKind::MissingRootFrame(frame)),
-        );
-
-        let other_frame = ProtectedAsyncFrameId::new([8; 32]);
-
-        let wrong_frame = bray_codegen::CodegenUnit::try_new(
-            CodegenPartitionPolicy::NATIVE_BALANCED,
-            codegen_partition_compatibility(),
-            [host_mir.clone(), protected_frame_mir(other_frame)],
-        )
-        .unwrap_or_else(|error| panic!("wrong-frame test unit must be valid: {error:?}"));
-
-        let wrong_frame_plan = async_plan(product.clone(), host.clone(), &wrong_frame);
-
-        assert_eq!(
-            validate_executable_units(&wrong_frame_plan, &[wrong_frame]),
-            Err(ProductEmissionErrorKind::MissingRootFrame(frame)),
-        );
-
-        let mismatched_runtime = RuntimeArtifactId::try_new("runtime.other")
-            .unwrap_or_else(|| panic!("mismatched runtime identity must be valid"));
-
-        let mismatched_host = test_async_executable_host_contract_for_frame(
-            product.clone(),
-            test_mir_target().identity().clone(),
-            mismatched_runtime,
-            frame,
-        );
-
-        let wrong_host = bray_codegen::CodegenUnit::try_new(
-            CodegenPartitionPolicy::NATIVE_BALANCED,
-            codegen_partition_compatibility(),
-            [
-                executable_host_mir(mismatched_host),
-                protected_frame_mir(frame),
-            ],
-        )
-        .unwrap_or_else(|error| panic!("wrong-host test unit must be valid: {error:?}"));
-
-        let wrong_host_plan = async_plan(product, host, &wrong_host);
-
-        assert_eq!(
-            validate_executable_units(&wrong_host_plan, &[wrong_host]),
-            Err(ProductEmissionErrorKind::MissingExecutableHost),
         );
     }
 
@@ -1201,38 +1083,6 @@ mod tests {
             test_mir_target(),
         ))
         .unwrap_or_else(|error| panic!("test executable host must lower: {error:?}"))
-    }
-
-    fn protected_frame_mir(frame: ProtectedAsyncFrameId) -> MirUnit {
-        let bound = test_bound_unit(8);
-        let source = MirSourceAnchor::from(bound.key().source());
-
-        let mut builder = MirUnitBuilder::for_bound(
-            bound.identity(),
-            MirUnitKind::ProtectedAsyncFrame(frame),
-            test_mir_target(),
-        );
-
-        let entry = builder
-            .push_block(source.clone(), MirBlockKind::Ordinary)
-            .unwrap_or_else(|error| panic!("test frame block must be valid: {error:?}"));
-
-        builder.set_terminator(entry, source, MirTerminatorKind::Return(None));
-
-        let state = MirFrameState::new(MirFrameStateId::new(0), entry, [], []);
-
-        let descriptor = MirFrameDescriptor::new(
-            frame,
-            RuntimeAbiVersion::new(1, 0),
-            ProtectedFrameAbiVersions::uniform(RuntimeAbiVersion::new(1, 0)),
-            test_mir_type(),
-            [state],
-        )
-        .unwrap_or_else(|error| panic!("test frame descriptor must be valid: {error:?}"));
-
-        builder.set_frame_descriptor(descriptor);
-
-        builder.finish(entry)
     }
 
     fn async_plan(

@@ -159,8 +159,6 @@ impl EmissionRequest {
         artifacts: impl IntoIterator<Item = RequestedArtifact>,
         replacement: ReplacementPolicy,
     ) -> Result<Self, EmissionRequestBuildError> {
-        validate_executable_host(&product, product_kind, executable_host.as_ref())?;
-
         let mut artifacts: Vec<_> = artifacts.into_iter().collect();
 
         artifacts.sort_unstable_by_key(|artifact| artifact.kind());
@@ -279,12 +277,6 @@ impl EmissionRequest {
 /// A contract violation that prevents creation of an emission request.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EmissionRequestBuildError {
-    /// An executable or test product has no compiler-generated host contract.
-    MissingExecutableHost,
-    /// A library product contains an inapplicable executable-host contract.
-    UnexpectedExecutableHost,
-    /// The executable-host contract belongs to another selected product.
-    ExecutableHostProductMismatch,
     /// No external artifact category was requested.
     Empty,
     /// No requested external artifact is required for product completion.
@@ -293,25 +285,6 @@ pub enum EmissionRequestBuildError {
     DuplicateArtifactKind(ArtifactKind),
     /// More than one artifact was directed to one unkeyed file or stream sink.
     MultipleArtifactsForSingleSink,
-}
-
-fn validate_executable_host(
-    product: &ProductIdentity,
-    product_kind: ProductKind,
-    executable_host: Option<&ExecutableHostContract>,
-) -> Result<(), EmissionRequestBuildError> {
-    match (product_kind, executable_host) {
-        (ProductKind::Executable | ProductKind::Test, None) => {
-            Err(EmissionRequestBuildError::MissingExecutableHost)
-        }
-        (ProductKind::Library, Some(_)) => Err(EmissionRequestBuildError::UnexpectedExecutableHost),
-        (ProductKind::Executable | ProductKind::Test, Some(host)) if host.product() != product => {
-            Err(EmissionRequestBuildError::ExecutableHostProductMismatch)
-        }
-        (ProductKind::Executable | ProductKind::Test, Some(_)) | (ProductKind::Library, None) => {
-            Ok(())
-        }
-    }
 }
 
 #[cfg(test)]
@@ -413,40 +386,6 @@ mod tests {
                     ArtifactRequirement::Required
                 )
             ]
-        );
-    }
-
-    #[test]
-    fn executable_hosts_are_required_only_for_root_products() {
-        let artifact = RequestedArtifact::new(
-            ArtifactKind::RelocatableObject,
-            ArtifactRequirement::Required,
-        );
-
-        assert_eq!(
-            EmissionRequest::try_new(
-                product_identity(),
-                ProductKind::Executable,
-                None,
-                target_identity(),
-                RequestedArtifactDestination::FilesystemDirectory("out".into()),
-                [artifact],
-                ReplacementPolicy::RequireAbsent,
-            ),
-            Err(EmissionRequestBuildError::MissingExecutableHost)
-        );
-
-        assert_eq!(
-            EmissionRequest::try_new(
-                product_identity(),
-                ProductKind::Library,
-                Some(executable_host_contract()),
-                target_identity(),
-                RequestedArtifactDestination::FilesystemDirectory("out".into()),
-                [artifact],
-                ReplacementPolicy::RequireAbsent,
-            ),
-            Err(EmissionRequestBuildError::UnexpectedExecutableHost)
         );
     }
 

@@ -634,12 +634,7 @@ mod tests {
             })
             .expect_err("invalid checked assembly constraint must panic");
 
-            let message = panic
-                .downcast_ref::<String>()
-                .map(String::as_str)
-                .or_else(|| panic.downcast_ref::<&str>().copied())
-                .expect("panic payload must be text");
-
+            let message = bray_testing::panic_payload_text(panic.as_ref());
             let spelling = invalid.trim_matches(|character| character == '{' || character == '}');
 
             assert!(

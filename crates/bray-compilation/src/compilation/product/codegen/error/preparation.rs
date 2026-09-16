@@ -111,7 +111,6 @@ const fn codegen_request_failure(error: bray_codegen::CodegenRequestBuildError) 
         Error::DebugInformationMismatch => "codegen_request_debug_information_mismatch",
         Error::DebugMappingCoverageMismatch => "codegen_request_debug_mapping_coverage_mismatch",
         Error::TargetMismatch => "codegen_request_target_mismatch",
-        Error::RuntimeContractMismatch => "codegen_request_runtime_contract_mismatch",
     }
 }
 

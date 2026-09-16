@@ -47,11 +47,7 @@ mod tests {
 
         let panic = std::panic::catch_unwind(|| lifecycle_operation_block_kind(role)).unwrap_err();
 
-        let message = panic
-            .downcast_ref::<String>()
-            .map(String::as_str)
-            .or_else(|| panic.downcast_ref::<&str>().copied())
-            .unwrap_or_else(|| panic!("synthetic lowering invariant panic must carry a string"));
+        let message = bray_testing::panic_payload_text(panic.as_ref());
 
         assert!(message.contains("UnsupportedLifecycleRole"));
         assert!(message.contains(&format!("{role:?}")));

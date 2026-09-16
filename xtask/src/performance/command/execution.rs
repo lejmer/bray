@@ -114,13 +114,14 @@ fn execute(mut options: Options) -> Result<(), String> {
     )?;
 
     let mut workloads = Vec::with_capacity(selected.len());
+    let mut conformance_failures = Vec::new();
 
     progress::plan(selected.len(), options.warmup, options.samples);
 
     for (index, workload) in selected.iter().enumerate() {
         progress::workload(index.saturating_add(1), selected.len(), workload.id);
 
-        workloads.push(run_workload(
+        let (report, failures) = run_workload(
             &options,
             workload,
             &compiler,
@@ -129,7 +130,10 @@ fn execute(mut options: Options) -> Result<(), String> {
             prepared.observation_runtime(),
             &optimization_catalog,
             timer_resolution_nanoseconds,
-        )?);
+        )?;
+
+        workloads.push(report);
+        conformance_failures.extend(failures);
     }
 
     let optimization_artifacts = optimization_catalog.reports(&workloads);
@@ -174,7 +178,14 @@ fn execute(mut options: Options) -> Result<(), String> {
 
     println!("{}", candidate_path.display());
 
-    Ok(())
+    if conformance_failures.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "performance conformance failed after measurement:\n- {}",
+            conformance_failures.join("\n- ")
+        ))
+    }
 }
 
 fn read_baseline(path: &Path) -> Result<Vec<u8>, String> {
@@ -211,7 +222,7 @@ fn run_workload(
     observation_runtime: &Path,
     optimization_catalog: &super::super::optimization::OptimizationCatalog,
     timer_resolution_nanoseconds: u64,
-) -> Result<WorkloadReport, String> {
+) -> Result<(WorkloadReport, Vec<String>), String> {
     let output = options.output.join("workloads").join(workload.id);
 
     fs::create_dir_all(&output)
@@ -296,7 +307,7 @@ fn run_workload(
 
     let linker_map = retention::inspect_map(&map, Some(optimization_catalog))?;
 
-    audit_retention_contract(workload, &linker_map)?;
+    let mut conformance_failures = audit_retention_contract(workload, &linker_map);
 
     let compiler_profile = compilation
         .profile_report()
@@ -333,7 +344,7 @@ fn run_workload(
         }
     };
 
-    super::super::observation::require_production_symbols_absent(&map)?;
+    conformance_failures.extend(super::super::observation::production_symbol_failures(&map)?);
 
     let output_digest = expected_output_digest(workload.expected_output)?;
 
@@ -447,7 +458,7 @@ fn run_workload(
 
     progress::workload_phase("Complete");
 
-    Ok(report)
+    Ok((report, conformance_failures))
 }
 
 struct ControlledArtifacts {
@@ -688,10 +699,12 @@ fn unavailable_peer_observations() -> super::super::model::WorkloadObservations 
 fn audit_retention_contract(
     workload: &Workload,
     map: &retention::InspectedLinkerMap,
-) -> Result<(), String> {
+) -> Vec<String> {
+    let mut failures = Vec::new();
+
     for symbol in workload.retention.required_symbols {
         if !map.contains_symbol(symbol) {
-            return Err(retention_error(
+            failures.push(retention_error(
                 workload,
                 "did not retain required symbol",
                 symbol,
@@ -701,7 +714,7 @@ fn audit_retention_contract(
 
     for symbol in workload.retention.forbidden_symbols {
         if map.contains_symbol(symbol) {
-            return Err(retention_error(
+            failures.push(retention_error(
                 workload,
                 "retained forbidden symbol",
                 symbol,
@@ -711,7 +724,7 @@ fn audit_retention_contract(
 
     for provenance in workload.retention.required_provenance {
         if !map.contains_logical_provenance(provenance) {
-            return Err(retention_error(
+            failures.push(retention_error(
                 workload,
                 "did not retain required provenance",
                 provenance,
@@ -721,7 +734,7 @@ fn audit_retention_contract(
 
     for provenance in workload.retention.forbidden_provenance {
         if map.contains_logical_provenance(provenance) {
-            return Err(retention_error(
+            failures.push(retention_error(
                 workload,
                 "retained forbidden provenance",
                 provenance,
@@ -729,7 +742,7 @@ fn audit_retention_contract(
         }
     }
 
-    Ok(())
+    failures
 }
 
 fn retention_error(workload: &Workload, behavior: &str, identity: &str) -> String {
@@ -740,8 +753,45 @@ fn retention_error(workload: &Workload, behavior: &str, identity: &str) -> Strin
 mod tests {
     use std::collections::BTreeSet;
 
+    use super::super::super::corpus::WORKLOADS;
+    use super::super::super::retention;
     use super::super::options::Options;
-    use super::execute;
+    use super::{audit_retention_contract, execute};
+
+    #[test]
+    fn retention_audit_collects_every_contract_violation() {
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("linker-map directory must exist: {error}"));
+
+        let map_path = directory.path().join("application.map");
+
+        std::fs::write(
+            &map_path,
+            "bray_runtime_foreign_callback_execution bray_platform_file_read",
+        )
+        .unwrap_or_else(|error| panic!("linker map must write: {error}"));
+
+        let map = retention::inspect_map(&map_path, None)
+            .unwrap_or_else(|error| panic!("linker map must inspect: {error}"));
+
+        let workload = WORKLOADS
+            .iter()
+            .find(|workload| workload.id == "stream_output")
+            .unwrap_or_else(|| panic!("stream output workload must exist"));
+
+        assert_eq!(
+            audit_retention_contract(workload, &map),
+            [
+                "workload stream_output did not retain required symbol bray_platform_standard_output_write",
+                "workload stream_output did not retain required symbol bray_platform_standard_output_flush",
+                "workload stream_output did not retain required symbol bray_platform_standard_output_lock",
+                "workload stream_output did not retain required symbol bray_platform_standard_output_unlock",
+                "workload stream_output retained forbidden symbol bray_runtime_foreign_callback_execution",
+                "workload stream_output retained forbidden symbol bray_platform_file_read",
+                "workload stream_output did not retain required provenance bray_platform_standard_streams",
+            ]
+        );
+    }
 
     #[test]
     #[ignore = "requires the pinned LLVM toolchain and native process execution"]

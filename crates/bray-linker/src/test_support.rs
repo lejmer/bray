@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::sync::{Mutex, MutexGuard};
 
 use bray_base::Cancellation;
-use bray_runtime_interface::{ExecutableHostContract, RuntimeArtifactId};
+use bray_runtime_interface::ExecutableHostContract;
 use bray_symbols::{PackageIdentity, ProductIdentity};
 use bray_target::{CodeModel, ObjectFormat, RelocationModel, TargetArchitecture, TargetIdentity};
 use bray_testing::unique_temporary_directory;
@@ -238,7 +238,7 @@ pub(crate) fn link_plan_with_driver(driver: LinkerDriverIdentity) -> LinkPlan {
         "application.stage",
     ));
 
-    builder.set_executable_host(executable_host_contract());
+    builder.set_entry_point(executable_host_contract().native_entry().clone());
 
     let Ok(plan) = builder.finish() else {
         panic!("complete test link plan must be valid");
@@ -312,14 +312,6 @@ pub(crate) fn linked_artifact(plan: &LinkPlan) -> LinkedArtifact {
 
 pub(crate) fn executable_host_contract() -> ExecutableHostContract {
     bray_testing::test_executable_host_contract_for(product(), link_target().identity().clone())
-}
-
-pub(crate) fn async_executable_host_contract(runtime: RuntimeArtifactId) -> ExecutableHostContract {
-    bray_testing::test_async_executable_host_contract_for(
-        product(),
-        link_target().identity().clone(),
-        runtime,
-    )
 }
 
 pub(crate) fn product() -> ProductIdentity {

@@ -415,11 +415,7 @@ mod tests {
         }))
         .unwrap_err();
 
-        let message = panic
-            .downcast_ref::<String>()
-            .map(String::as_str)
-            .or_else(|| panic.downcast_ref::<&str>().copied())
-            .unwrap_or_else(|| panic!("lowering invariant panic must carry a string message"));
+        let message = bray_testing::panic_payload_text(panic.as_ref());
 
         assert!(message.contains("MissingExpressionType"));
         assert!(message.contains(&format!("{missing:?}")));

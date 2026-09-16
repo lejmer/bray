@@ -30,7 +30,6 @@ pub(super) fn planning_failure_context(
             text_field("expected_product", expected),
             text_field("actual_product", actual),
         ],
-        Failure::MissingRootFrame(identity) => vec![digest_field("root_frame", identity)],
         Failure::UnsupportedBackendTarget(target) => vec![text_field("target", target)],
         Failure::UnsupportedBackendArtifact(artifact)
         | Failure::MissingSerializationArtifact(artifact)
@@ -93,7 +92,6 @@ pub(super) fn planning_failure_context(
         | Failure::LinkedCompanionRequirementMismatch
         | Failure::MissingBackend
         | Failure::MissingCodegenUnits
-        | Failure::MissingExecutableHost
         | Failure::MissingRequiredDebugCompanion
         | Failure::UnexpectedDebugCompanion
         | Failure::MissingLinkableArtifact
@@ -553,7 +551,6 @@ pub(super) fn link_plan_failure_context(
         | Failure::MissingLinkedProduct
         | Failure::MissingLinker
         | Failure::UnexpectedLinker
-        | Failure::RuntimeContractMismatch
         | Failure::InputOrdinalOverflow
         | Failure::OutputOrdinalOverflow
         | Failure::InputEmptyPath
@@ -568,11 +565,6 @@ pub(super) fn link_plan_failure_context(
         | Failure::MissingPrimaryOutput
         | Failure::MultiplePrimaryOutputs
         | Failure::OptionalPrimaryOutput
-        | Failure::MissingExecutableHost
-        | Failure::UnexpectedExecutableHost
-        | Failure::ExecutableHostProductMismatch
-        | Failure::ExecutableHostTargetMismatch
-        | Failure::UnexpectedEntryPoint
         | Failure::MissingStartupMode
         | Failure::UnexpectedStartupMode
         | Failure::MissingStartupInput

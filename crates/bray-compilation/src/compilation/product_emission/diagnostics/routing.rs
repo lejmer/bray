@@ -1,6 +1,6 @@
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm,
-    DiagnosticBag, DiagnosticEmissionFailure, DiagnosticEmissionLinkPlanFailure,
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticEmissionFailure,
+    DiagnosticEmissionLinkPlanFailure,
     DiagnosticEmissionPlanningFailure, DiagnosticId, DiagnosticKind, DiagnosticTestCatalogFailure,
     SeverityKind,
 };
@@ -89,13 +89,6 @@ pub(super) fn product_emission_failure_diagnostics(
         ProductEmissionErrorKind::Planning(error) => {
             planning_failure_diagnostics(error, product, target)
         }
-        ProductEmissionErrorKind::MissingExecutableHost => emission_failure_diagnostics(
-            DiagnosticEmissionFailure::Planning(
-                DiagnosticEmissionPlanningFailure::MissingExecutableHost,
-            ),
-            product,
-            target,
-        ),
         ProductEmissionErrorKind::MissingTestCatalogArtifact => emission_failure_diagnostics(
             DiagnosticEmissionFailure::Planning(
                 DiagnosticEmissionPlanningFailure::MissingTestCatalogArtifact,
@@ -105,16 +98,6 @@ pub(super) fn product_emission_failure_diagnostics(
         ),
         ProductEmissionErrorKind::TestCatalogContent(_) => emission_failure_diagnostics(
             DiagnosticEmissionFailure::TestCatalog(DiagnosticTestCatalogFailure::ResourceLimit),
-            product,
-            target,
-        ),
-        ProductEmissionErrorKind::MissingRootFrame(frame) => emission_failure_diagnostics(
-            DiagnosticEmissionFailure::Planning(
-                DiagnosticEmissionPlanningFailure::MissingRootFrame(DiagnosticArtifactDigest::new(
-                    DiagnosticArtifactDigestAlgorithm::Blake3,
-                    frame.digest(),
-                )),
-            ),
             product,
             target,
         ),

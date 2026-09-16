@@ -1117,7 +1117,7 @@ mod tests {
             &output_path.to_string_lossy(),
         ));
 
-        builder.set_executable_host(host);
+        builder.set_entry_point(host.native_entry().clone());
 
         builder
             .finish()

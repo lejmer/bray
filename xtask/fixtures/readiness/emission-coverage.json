@@ -106,11 +106,6 @@
       "test": "compatibility_failures_are_typed_and_deterministic"
     },
     {
-      "name": "async host artifact matching",
-      "production": "fn validate_executable_units(",
-      "test": "async_executable_plans_require_exact_generated_host_and_root_frame_artifacts"
-    },
-    {
       "name": "root runtime artifact matching",
       "production": "LinkPlanBuildError::RuntimeArtifactMismatch",
       "test": "async_host_plans_reject_another_runtime_artifact"
