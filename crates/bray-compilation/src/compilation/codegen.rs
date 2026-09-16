@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bray_codegen::{
     BackendArtifactRequest, CodegenInstance, CodegenInstanceBuildError, CodegenMappings,
-    CodegenMappingsBuildError, CodegenOptions, CodegenOutcome, CodegenRequest,
+    CodegenOptions, CodegenOutcome, CodegenRequest,
     CodegenRequestBuildError, CodegenTarget, CodegenUnit, CodegenUnitBuildError, CodegenUnitKey,
 };
 #[cfg(test)]
@@ -399,8 +399,21 @@ fn codegen_mappings(
         }
     }
 
-    CodegenMappings::try_new(unit, target, [], [], symbols, [], [], [], [], [], [])
-        .map_err(CodegenPreparationError::InvalidMappings)
+    Ok(CodegenMappings::new(
+        unit,
+        target,
+        [],
+        [],
+        symbols,
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+    ))
 }
 
 #[cfg(test)]
@@ -445,8 +458,6 @@ pub enum CodegenPreparationError {
     UnitMismatch(CodegenUnitKey),
     /// A MIR identity table exceeded its compact representation.
     MirCapacity(MirCapacityError),
-    /// Compilation could not construct complete realization mappings for the planned unit.
-    InvalidMappings(CodegenMappingsBuildError),
     /// A MIR runtime role has no selected executable-host binding.
     MissingRuntimeRole(bray_runtime_interface::RuntimeAbiRole),
     /// A build-bound Bray runtime implementation does not match its closed role ABI.

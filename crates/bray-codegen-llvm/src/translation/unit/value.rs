@@ -1407,7 +1407,7 @@ mod tests {
 
         let debug = CodegenDebugLocation::new(source, file, NonZeroU32::MIN, NonZeroU32::MIN);
 
-        CodegenMappings::try_new(
+        CodegenMappings::new(
             unit,
             target,
             type_mappings,
@@ -1418,8 +1418,9 @@ mod tests {
             [],
             [],
             [],
+            [],
+            [],
             [debug],
         )
-        .unwrap_or_else(|error| panic!("copy test mappings must validate: {error:?}"))
     }
 }

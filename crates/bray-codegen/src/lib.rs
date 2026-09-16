@@ -38,7 +38,7 @@ pub use mapping::{
     CodegenCallSite, CodegenCallableMapping, CodegenCallableSignature, CodegenCallableTarget,
     CodegenConstantMapping, CodegenConstantTermMapping, CodegenDebugLocation, CodegenFieldLayout,
     CodegenHelperMapping, CodegenIndirectParameterKind, CodegenInstanceTypeMapping,
-    CodegenIntegerExtension, CodegenMappings, CodegenMappingsBuildError, CodegenNativeEntryMapping,
+    CodegenIntegerExtension, CodegenMappings, CodegenNativeEntryMapping,
     CodegenNativeStaticMapping, CodegenOperationMapping, CodegenParameterMapping,
     CodegenProductHostMapping, CodegenProductHostStatic, CodegenResultMapping, CodegenSourceFile,
     CodegenStaticFinalization, CodegenStaticIncidentMemory, CodegenStaticInstanceKey,
@@ -47,10 +47,9 @@ pub use mapping::{
     CodegenTypeMapping, CodegenUnionVariantLayout, CodegenValueAttribute, ConstantDemands,
     DemandedCallableInstance, FOREIGN_CALLBACK_RUNTIME_ROLES, IntrinsicCall, child_constants,
     demanded_callable_instance_for_call, demanded_callable_instances,
-    demanded_callable_instances_for_mir, demanded_callable_references,
-    demanded_callable_references_for_mir, demanded_constant_terms, demanded_constants,
+    demanded_callable_instances_for_mir, demanded_constant_terms, demanded_constants,
     demanded_debug_sources, demanded_runtime_references, demanded_runtime_references_for_mir,
-    demanded_types, mapped_runtime_references, static_host_section_name,
+    mapped_runtime_references, static_host_section_name,
 };
 pub use optimization::{
     BackendBitcodeOptimizationOutcome, BackendBitcodeOptimizer, BackendBitcodeTargetContract,

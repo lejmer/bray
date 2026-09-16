@@ -510,7 +510,7 @@ mod tests {
             .chain(types.mappings)
             .chain([invalid]);
 
-        let Ok(mappings) = CodegenMappings::try_new(
+        let mappings = CodegenMappings::new(
             request.unit(),
             request.target(),
             all_types,
@@ -520,11 +520,11 @@ mod tests {
             mappings.constant_terms().iter().cloned(),
             mappings.callables().iter().cloned(),
             mappings.operations().iter().cloned(),
+            mappings.static_storages().iter().cloned(),
+            mappings.native_storages().iter().cloned(),
             mappings.terminators().iter().cloned(),
             mappings.debug_locations().iter().cloned(),
-        ) else {
-            panic!("invalid physical field offsets remain backend validation input");
-        };
+        );
 
         let Ok(machine) = LlvmTargetMachine::create(request.target()) else {
             panic!("test target must construct an LLVM machine");
@@ -697,7 +697,7 @@ mod tests {
             .cloned()
             .chain(types.mappings.iter().cloned());
 
-        CodegenMappings::try_new(
+        CodegenMappings::new(
             request.unit(),
             request.target(),
             all_types,
@@ -707,10 +707,11 @@ mod tests {
             mappings.constant_terms().iter().cloned(),
             mappings.callables().iter().cloned(),
             mappings.operations().iter().cloned(),
+            mappings.static_storages().iter().cloned(),
+            mappings.native_storages().iter().cloned(),
             mappings.terminators().iter().cloned(),
             mappings.debug_locations().iter().cloned(),
         )
-        .unwrap_or_else(|error| panic!("representative type mappings must validate: {error:?}"))
     }
 
     fn layout(size: u64, alignment: NonZeroU64) -> TargetValueLayout {

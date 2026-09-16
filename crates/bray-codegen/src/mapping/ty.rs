@@ -133,15 +133,6 @@ impl CodegenParameterMapping {
         }
     }
 
-    pub(crate) fn demanded_types(&self) -> [Option<TypeId>; 2] {
-        match self {
-            Self::Ignore => [None, None],
-            Self::Direct { ty, .. } => [Some(*ty), None],
-            Self::Indirect {
-                pointer, pointee, ..
-            } => [Some(*pointer), Some(*pointee)],
-        }
-    }
 }
 
 /// Machine passing mode selected for one callable result.
@@ -200,15 +191,6 @@ impl CodegenResultMapping {
         }
     }
 
-    pub(crate) fn demanded_types(&self) -> [Option<TypeId>; 2] {
-        match self {
-            Self::Void => [None, None],
-            Self::Direct { ty, .. } => [Some(*ty), None],
-            Self::Indirect {
-                pointer, pointee, ..
-            } => [Some(*pointer), Some(*pointee)],
-        }
-    }
 }
 
 /// Complete target-classified machine signature selected for one callable address.
