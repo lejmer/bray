@@ -14,7 +14,7 @@ impl Lowerer<'_> {
     pub(in crate::lowering) fn later_evaluation_may_change_block(
         &self,
         expressions: impl IntoIterator<Item = BoundExpressionId>,
-    ) -> Result<bool, LoweringError> {
+    ) -> bool {
         let mut pending = expressions.into_iter().collect::<Vec<_>>();
 
         while let Some(expression) = pending.pop() {
@@ -23,7 +23,7 @@ impl Lowerer<'_> {
                 .unit()
                 .view()
                 .expression(expression)
-                .ok_or_else(|| LoweringError::MissingBoundNode(expression.into()))?;
+                .unwrap_or_else(|| panic!("lowering contract violation: MissingBoundNode {value:?}", value = expression));
 
             let changes_block = match bound {
                 BoundExpression::Binary(binary) => matches!(
@@ -52,7 +52,7 @@ impl Lowerer<'_> {
 
             // MIR values are block-local. Earlier operands must survive every later branch, not only a checked call.
             if changes_block {
-                return Ok(true);
+                return true;
             }
 
             let may_check = match self.input.semantic_selections().expression(expression) {
@@ -88,13 +88,13 @@ impl Lowerer<'_> {
             };
 
             if may_check {
-                return Ok(true);
+                return true;
             }
 
             pending.extend(bound.child_expressions());
         }
 
-        Ok(false)
+        false
     }
 
     pub(super) fn materialize_temporary(
@@ -102,7 +102,7 @@ impl Lowerer<'_> {
         expression: BoundExpressionId,
         lowered: LoweredExpression,
     ) -> Result<LoweredExpression, LoweringError> {
-        let ty = self.expression_type(expression)?;
+        let ty = self.expression_type(expression);
 
         self.materialize_temporary_when(expression, lowered, ty, false)
     }
@@ -112,7 +112,7 @@ impl Lowerer<'_> {
         expression: BoundExpressionId,
         lowered: LoweredExpression,
     ) -> Result<LoweredExpression, LoweringError> {
-        let ty = self.expression_type(expression)?;
+        let ty = self.expression_type(expression);
 
         self.materialize_temporary_when(expression, lowered, ty, true)
     }
@@ -194,7 +194,7 @@ impl Lowerer<'_> {
             .view()
             .expression(expression)
             .map(BoundExpression::origin)
-            .ok_or_else(|| LoweringError::MissingBoundNode(expression.into()))?;
+            .unwrap_or_else(|| panic!("lowering contract violation: MissingBoundNode {value:?}", value = expression));
 
         let place = self.place_for_identity(temporary, ty, origin)?;
 

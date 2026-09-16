@@ -1,9 +1,6 @@
 use bray_lowering::SyntheticLoweringError;
 
-use crate::compilation::{
-    CodegenPreparationError, ProductDataKind, ProductQueryContext, ProductQueryFailure,
-    ProductValueKind,
-};
+use crate::compilation::{CodegenPreparationError, ProductQueryFailure, ProductValueKind};
 use crate::fact::FactQueryError;
 
 impl From<SyntheticLoweringError> for CodegenPreparationError {
@@ -13,38 +10,6 @@ impl From<SyntheticLoweringError> for CodegenPreparationError {
                 FactQueryError::SemanticValueStore(cause).into()
             }
             SyntheticLoweringError::Capacity(cause) => Self::MirCapacity(cause),
-            SyntheticLoweringError::MissingCallableResult(definition) => {
-                ProductQueryFailure::missing(
-                    ProductQueryContext::CallableDefinition(definition),
-                    ProductDataKind::OperationResultType,
-                )
-                .into()
-            }
-            SyntheticLoweringError::MissingTypeResult(ty) => ProductQueryFailure::missing(
-                ProductQueryContext::Type(ty),
-                ProductDataKind::OperationResultType,
-            )
-            .into(),
-            SyntheticLoweringError::MissingHelper(reference) => {
-                Self::MissingHelperInstance(reference)
-            }
-            SyntheticLoweringError::UnsupportedType(ty) => Self::UnsupportedType(ty),
-            SyntheticLoweringError::UnresolvedType(ty) => Self::UnresolvedType(ty),
-            SyntheticLoweringError::UnsupportedLifecycleRole(role) => {
-                ProductQueryFailure::UnsupportedLifecycleRole { role }.into()
-            }
-            SyntheticLoweringError::MissingRepresentation { role, argument } => {
-                ProductQueryFailure::missing(
-                    match argument {
-                        Some(argument) => {
-                            ProductQueryContext::UnaryRepresentation { role, argument }
-                        }
-                        None => ProductQueryContext::CompilerKnownRepresentation(role),
-                    },
-                    ProductDataKind::CompilerKnownRepresentation,
-                )
-                .into()
-            }
             SyntheticLoweringError::LayoutOverflow(ty) => Self::LayoutOverflow(ty),
         }
     }

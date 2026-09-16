@@ -1,13 +1,12 @@
 use std::collections::BTreeSet;
 use std::io::ErrorKind;
 
-use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
 use bray_syntax::SyntaxKind;
 
 use super::{
     DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticArtifactDigest,
-    DiagnosticArtifactDigestAlgorithm, DiagnosticIoErrorKind, DiagnosticLoweringFailure,
-    DiagnosticLoweringFailureKind, DiagnosticNameKind, DiagnosticNativeLinkInputFailure,
+    DiagnosticArtifactDigestAlgorithm, DiagnosticIoErrorKind, DiagnosticNameKind,
+    DiagnosticNativeLinkInputFailure,
     DiagnosticNativeProductFailureDetail, DiagnosticNativeProductFailureKind,
 };
 
@@ -147,11 +146,6 @@ fn diagnostic_io_error_kinds_keep_stable_categories() {
 fn native_product_failure_keys_are_unique_and_domain_named() {
     use DiagnosticNativeProductFailureKind as Kind;
 
-    let source = SourceSpan::new(
-        SourceId::new(0),
-        TextRange::new(TextSize::new(0), TextSize::new(1)),
-    );
-
     let failures = [
         Kind::CodegenBackendNotSelected,
         Kind::MissingProductRoot,
@@ -165,12 +159,6 @@ fn native_product_failure_keys_are_unique_and_domain_named() {
             provenance_identity: Some("test".to_owned()),
         }),
         Kind::EvaluationCycle(crate::DiagnosticEvaluationFailureDetail::new("cycle", [])),
-        Kind::EvaluationLowering(DiagnosticLoweringFailure::new(
-            DiagnosticLoweringFailureKind::MissingStorageIdentity(
-                crate::DiagnosticLoweringIdentity::new(3, 5),
-            ),
-            source,
-        )),
         Kind::CheckingInfrastructureFailure,
         Kind::CodegenTargetUnsupportedProfile,
         Kind::CodegenTargetEmptyTriple,

@@ -20,9 +20,7 @@ pub use cancellation::CancellationToken;
 pub use completion::SymbolCompletionError;
 pub use error::ImportedQueryFailure;
 pub(crate) use error::diagnostic_context;
-pub use error::{
-    FactCycle, FactQueryError, LocatedLoweringFailure, diagnostic_semantic_value_failure,
-};
+pub use error::{FactCycle, FactQueryError, diagnostic_semantic_value_failure};
 pub(crate) use error::{
     callable_signature_reason, diagnostic_binding_failure, diagnostic_checker_failure,
     diagnostic_cycle_failure, diagnostic_fact_runtime_failure,

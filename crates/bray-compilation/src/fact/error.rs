@@ -12,7 +12,7 @@ pub(crate) use diagnostic::{
     diagnostic_binding_failure, diagnostic_checker_failure, diagnostic_cycle_failure,
     diagnostic_symbol_graph_failure,
 };
-pub use model::{FactCycle, FactQueryError, ImportedQueryFailure, LocatedLoweringFailure};
+pub use model::{FactCycle, FactQueryError, ImportedQueryFailure};
 pub(crate) use runtime_diagnostic::diagnostic_fact_runtime_failure;
 pub(crate) use semantic_diagnostic::{
     callable_signature_reason, diagnostic_generic_substitution_failure,

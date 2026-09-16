@@ -39,7 +39,7 @@ impl Lowerer<'_> {
 
                     let (guard, _) =
                         part_guard_for_place(part, boolean, &self.ownership_place(&place))
-                            .ok_or(LoweringError::UnsupportedStorageAccess(access))?;
+                            .unwrap_or_else(|| panic!("lowering contract violation: UnsupportedStorageAccess {value:?}", value = access));
 
                     (block, value) = self.push_guarded_cleanup(
                         block,
@@ -71,13 +71,13 @@ impl Lowerer<'_> {
                         .filter(|part| {
                             part.plan.release().is_some() && part.plan.projections().len() == depth
                         })
-                        .ok_or(LoweringError::UnsupportedStorageAccess(access))?;
+                        .unwrap_or_else(|| panic!("lowering contract violation: UnsupportedStorageAccess {value:?}", value = access));
 
                     let boolean = self.representation_type(RepresentationRole::ScalarBool)?;
 
                     let (guard, _) =
                         part_guard_for_place(release, boolean, &self.ownership_place(&place))
-                            .ok_or(LoweringError::UnsupportedStorageAccess(access))?;
+                            .unwrap_or_else(|| panic!("lowering contract violation: UnsupportedStorageAccess {value:?}", value = access));
 
                     self.guarded_cleanup_region(
                         block,
@@ -110,7 +110,7 @@ impl Lowerer<'_> {
                 StorageCleanupProjectionKind::Component(_)
                 | StorageCleanupProjectionKind::UnionPayloadElement { .. } => {
                     let kind = static_cleanup_projection_kind(projection.projection())
-                        .ok_or(LoweringError::UnsupportedStorageAccess(access))?;
+                        .unwrap_or_else(|| panic!("lowering contract violation: UnsupportedStorageAccess {value:?}", value = access));
 
                     let projected = MirPlace::new(
                         place.storage(),

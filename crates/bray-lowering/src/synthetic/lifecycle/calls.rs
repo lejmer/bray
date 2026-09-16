@@ -67,10 +67,12 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                         callable.result,
                     )
                     .map_err(SyntheticLoweringError::SemanticValue)?
-                    .ok_or_else(|| SyntheticLoweringError::MissingRepresentation {
-                        role: RepresentationRole::Future,
-                        argument: Some(callable.result),
-                    })?;
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "callable result {:?} must have a future representation",
+                            callable.result
+                        )
+                    });
 
                 bray_bound_tree::BoundCallResult::LazyFuture(
                     bray_bound_tree::BoundFutureConstruction::new(callable.result, future),

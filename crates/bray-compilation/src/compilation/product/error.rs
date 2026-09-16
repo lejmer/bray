@@ -551,11 +551,6 @@ pub(crate) enum ProductQueryFailure {
         /// The exact rejected symbol category.
         actual: SymbolKind,
     },
-    /// A generated lifecycle role cannot be emitted as a lifecycle block operation.
-    UnsupportedLifecycleRole {
-        /// The exact unsupported lifecycle role.
-        role: MirGeneratedLifecycleRole,
-    },
     /// A loaded source snapshot does not match the version retained by generated MIR.
     SourceSnapshotMismatch {
         /// The exact source identity.
@@ -698,7 +693,6 @@ impl ProductQueryFailure {
             Self::InvalidCallableDefinitionSymbol { .. } => {
                 ProductQueryErrorKind::ContractViolation
             }
-            Self::UnsupportedLifecycleRole { .. } => ProductQueryErrorKind::ContractViolation,
             Self::SourceSnapshotMismatch { .. } => ProductQueryErrorKind::Identity,
             Self::TestProductMismatch { .. }
             | Self::TestCatalog { .. }

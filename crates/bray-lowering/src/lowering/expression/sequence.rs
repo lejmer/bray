@@ -13,7 +13,6 @@ pub(super) enum SequenceOperationKind {
     Length,
     IsEmpty,
 }
-
 pub(super) const fn sequence_operation_kind(
     hook: ImplementationHook,
 ) -> Option<SequenceOperationKind> {
@@ -36,7 +35,7 @@ impl Lowerer<'_> {
         let receiver = selection
             .receiver()
             .filter(|_| selection.arguments().is_empty())
-            .ok_or(LoweringError::MissingSemanticSelection(id))?;
+            .unwrap_or_else(|| panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = id));
 
         let (lowered, operand_type) = self.lower_call_receiver(receiver, current)?;
 
@@ -45,7 +44,7 @@ impl Lowerer<'_> {
         };
 
         let Some(receiver) = lowered.value else {
-            return Err(LoweringError::MissingOperationResult(receiver.expression()));
+            panic!("lowering contract violation: MissingOperationResult {value:?}", value = receiver.expression());
         };
 
         let usize_type = self.representation_type(RepresentationRole::ScalarUsize)?;
@@ -68,7 +67,7 @@ impl Lowerer<'_> {
         }
 
         let zero = crate::operand::integer_constant(self.input.semantic_values(), usize_type, 0)?;
-        let result_type = self.expression_type(id)?;
+        let result_type = self.expression_type(id);
 
         let empty = self.push_typed_value_operation(
             id,

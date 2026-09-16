@@ -30,7 +30,6 @@ macro_rules! define_runtime_call_roles {
         }
     };
 }
-
 bray_runtime_interface::runtime_role_catalog!(define_runtime_call_roles);
 
 impl Lowerer<'_> {
@@ -66,7 +65,7 @@ impl Lowerer<'_> {
             }
             Some(hook @ (ImplementationHook::TaskYield | ImplementationHook::TaskEventWait)) => {
                 if self.input.unit_kind().protected_frame().is_none() {
-                    return Err(LoweringError::AwaitOutsideProtectedFrame(expression));
+                    panic!("lowering contract violation: AwaitOutsideProtectedFrame {value:?}", value = expression);
                 }
 
                 let mut current = current;
@@ -80,7 +79,7 @@ impl Lowerer<'_> {
                         },
                     ] = selection.arguments()
                     else {
-                        return Err(LoweringError::MissingSemanticSelection(expression));
+                        panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = expression);
                     };
 
                     let lowered = self.lower_expression(*event, current)?;
@@ -93,7 +92,7 @@ impl Lowerer<'_> {
 
                     let event = lowered
                         .value
-                        .ok_or(LoweringError::MissingOperationResult(*event))?;
+                        .unwrap_or_else(|| panic!("lowering contract violation: MissingOperationResult {value:?}", value = *event));
 
                     let (continuation, event) = self.convert_operand(
                         expression,
@@ -122,7 +121,7 @@ impl Lowerer<'_> {
                     .suspension(expression)
                     .filter(|suspension| suspension.kind() == AsyncSuspensionKind::Yield)
                     .cloned()
-                    .ok_or(LoweringError::MissingSuspensionPoint(expression))?;
+                    .unwrap_or_else(|| panic!("lowering contract violation: MissingSuspensionPoint {value:?}", value = expression));
 
                 self.set_terminator(
                     current,
@@ -156,7 +155,7 @@ impl Lowerer<'_> {
                     .with_affinity(self.frame_affinity()),
                 );
 
-                let ty = self.expression_type(expression)?;
+                let ty = self.expression_type(expression);
                 let value = self.unit_operand(ty);
 
                 Ok(Some(LoweredExpression::continuing(

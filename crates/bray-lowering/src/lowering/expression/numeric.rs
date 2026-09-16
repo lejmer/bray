@@ -28,7 +28,7 @@ impl Lowerer<'_> {
             },
         ] = selection.arguments()
         else {
-            return Err(LoweringError::MissingSemanticSelection(id));
+            panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = id);
         };
 
         let lowered = self.lower_expression(*expression, current)?;
@@ -38,7 +38,7 @@ impl Lowerer<'_> {
         };
 
         let Some(operand) = lowered.value else {
-            return Err(LoweringError::MissingOperationResult(*expression));
+            panic!("lowering contract violation: MissingOperationResult {value:?}", value = *expression);
         };
 
         let (current, operand) = self.convert_operand(
@@ -49,7 +49,7 @@ impl Lowerer<'_> {
             conversion,
         )?;
 
-        let result_type = self.expression_type(id)?;
+        let result_type = self.expression_type(id);
 
         let commit = self.push_operation(
             current,
@@ -61,7 +61,7 @@ impl Lowerer<'_> {
         let result = commit
             .result()
             .map(MirOperand::Value)
-            .ok_or(LoweringError::MissingOperationResult(id))?;
+            .unwrap_or_else(|| panic!("lowering contract violation: MissingOperationResult {value:?}", value = id));
 
         Ok(Some(LoweredExpression::continuing(
             current,
@@ -70,7 +70,6 @@ impl Lowerer<'_> {
         )))
     }
 }
-
 fn numeric_conversion_kind(hook: Option<ImplementationHook>) -> Option<MirNumericConversionKind> {
     match hook {
         Some(ImplementationHook::NumericTruncate) => Some(MirNumericConversionKind::Truncate),

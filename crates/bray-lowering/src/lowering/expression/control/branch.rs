@@ -18,7 +18,7 @@ impl Lowerer<'_> {
     ) -> Result<LoweredExpression, LoweringError> {
         match expression.kind() {
             BoundStructuredExpressionKind::Unit => {
-                let ty = self.expression_type(id)?;
+                let ty = self.expression_type(id);
                 let value = self.unit_operand(ty);
 
                 Ok(LoweredExpression::continuing(
@@ -28,7 +28,7 @@ impl Lowerer<'_> {
                 ))
             }
             BoundStructuredExpressionKind::Absence => {
-                let ty = self.expression_type(id)?;
+                let ty = self.expression_type(id);
                 let value = Self::immediate_operand(ty, MirImmediateValue::NullableAbsent);
 
                 Ok(LoweredExpression::continuing(
@@ -45,7 +45,7 @@ impl Lowerer<'_> {
             }
             BoundStructuredExpressionKind::Condition
             | BoundStructuredExpressionKind::PatternBinding => {
-                Err(LoweringError::UnsupportedExpression(id))
+                panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id)
             }
             BoundStructuredExpressionKind::While => self.lower_while(id, expression, current),
             BoundStructuredExpressionKind::Loop => self.lower_loop(id, expression, current),
@@ -102,7 +102,7 @@ impl Lowerer<'_> {
         if conditions.is_empty()
             || (blocks.len() != conditions.len() && blocks.len() != conditions.len() + 1)
         {
-            return Err(LoweringError::UnsupportedExpression(id));
+            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
         }
 
         let mut current = current;
@@ -113,7 +113,7 @@ impl Lowerer<'_> {
 
         for (index, then_block) in blocks.iter().take(conditions.len()).enumerate() {
             let depth = self.active_scopes.len();
-            let scope = self.begin_condition_scope(conditions[index])?;
+            let scope = self.begin_condition_scope(conditions[index]);
 
             let then_entry = self
                 .builder
@@ -198,7 +198,7 @@ impl Lowerer<'_> {
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
         let [left_id, right_id] = operands else {
-            return Err(LoweringError::UnsupportedExpression(id));
+            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
         };
 
         let left = self.lower_expression(*left_id, current)?;
@@ -208,10 +208,10 @@ impl Lowerer<'_> {
         };
 
         let Some(left) = left.value else {
-            return Err(LoweringError::MissingOperationResult(*left_id));
+            panic!("lowering contract violation: MissingOperationResult {value:?}", value = *left_id);
         };
 
-        let source = self.expression_source(id)?;
+        let source = self.expression_source(id);
 
         let right_entry = self
             .builder
@@ -221,7 +221,7 @@ impl Lowerer<'_> {
             .builder
             .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
 
-        let ty = self.expression_type(id)?;
+        let ty = self.expression_type(id);
 
         let result = self
             .builder
@@ -233,12 +233,9 @@ impl Lowerer<'_> {
         let (then_edge, else_edge) = match operator {
             BoundOperator::LogicalOr => (short_edge, right_edge),
             BoundOperator::LogicalAnd => (right_edge, short_edge),
-            _ => {
-                return Err(LoweringError::UnsupportedOperator {
-                    expression: id,
-                    operator,
-                });
-            }
+            _ => panic!(
+                "lowering contract violation: operator {operator:?} is invalid for {id:?}"
+            ),
         };
 
         self.set_terminator(
@@ -255,7 +252,7 @@ impl Lowerer<'_> {
 
         if let Some(right_block) = right.block {
             let Some(right) = right.value else {
-                return Err(LoweringError::MissingOperationResult(*right_id));
+                panic!("lowering contract violation: MissingOperationResult {value:?}", value = *right_id);
             };
 
             self.set_terminator(

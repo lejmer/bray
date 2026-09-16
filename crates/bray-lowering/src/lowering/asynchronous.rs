@@ -22,7 +22,7 @@ impl Lowerer<'_> {
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
         let Some(parent) = self.input.unit_kind().protected_frame() else {
-            return Err(LoweringError::AwaitOutsideProtectedFrame(id));
+            panic!("lowering contract violation: AwaitOutsideProtectedFrame {value:?}", value = id);
         };
 
         let suspension = self
@@ -30,14 +30,14 @@ impl Lowerer<'_> {
             .suspension(id)
             // Lowering mutates its builder while retaining this immutable checked decision.
             .cloned()
-            .ok_or(LoweringError::MissingSuspensionPoint(id))?;
+            .unwrap_or_else(|| panic!("lowering contract violation: MissingSuspensionPoint {value:?}", value = id));
 
         if suspension.kind()
             != (AsyncSuspensionKind::Await {
                 operand: expression.operand(),
             })
         {
-            return Err(LoweringError::MissingSuspensionPoint(id));
+            panic!("lowering contract violation: MissingSuspensionPoint {value:?}", value = id);
         }
 
         let lowered = self.lower_expression(expression.operand(), current)?;
@@ -47,7 +47,7 @@ impl Lowerer<'_> {
         };
 
         let Some(frame) = lowered.value else {
-            return Err(LoweringError::MissingOperationResult(expression.operand()));
+            panic!("lowering contract violation: MissingOperationResult {value:?}", value = expression.operand());
         };
 
         let source = self.source(expression.origin());
@@ -118,7 +118,7 @@ impl Lowerer<'_> {
 
         let operation = match task_operation {
             Some(AsyncTaskOperationKind::Start) => {
-                let frame = call_receiver(&call, expression)?;
+                let frame = call_receiver(&call, expression);
 
                 MirOperationKind::Async(MirAsyncOperation::StartTask {
                     frame: MirFrameReference::Erased,
@@ -128,11 +128,11 @@ impl Lowerer<'_> {
                 })
             }
             Some(kind @ (AsyncTaskOperationKind::Join | AsyncTaskOperationKind::Cancel)) => {
-                let task = call_receiver(&call, expression)?;
-                let variants = self.run_result_representation()?;
+                let task = call_receiver(&call, expression);
+                let variants = self.run_result_representation();
 
                 let BoundCallResult::LazyFuture(result) = call.result() else {
-                    return Err(LoweringError::InvalidTaskOperation(expression));
+                    panic!("lowering contract violation: InvalidTaskOperation {value:?}", value = expression);
                 };
 
                 MirOperationKind::Async(MirAsyncOperation::CreateFrame {
@@ -161,7 +161,7 @@ impl Lowerer<'_> {
             },
         };
 
-        let result_type = self.expression_type(expression)?;
+        let result_type = self.expression_type(expression);
 
         self.push_checked_value_operation(expression, block, source, operation, result_type)
     }
@@ -217,7 +217,7 @@ impl Lowerer<'_> {
                     .input
                     .storage_plan()
                     .root_identity(*access)
-                    .ok_or(LoweringError::MissingStorageIdentity(*access))?,
+                    .unwrap_or_else(|| panic!("lowering contract violation: MissingStorageIdentity {value:?}", value = *access)),
                 BoundDependencySubject::BorrowCapability(_)
                 | BoundDependencySubject::ScopedCapability(_)
                 | BoundDependencySubject::ImplementationWitness(_)
@@ -230,14 +230,14 @@ impl Lowerer<'_> {
                 .input
                 .storage_plan()
                 .identity(identity)
-                .ok_or(LoweringError::MissingStorageIdentityRecord(identity))?;
+                .unwrap_or_else(|| panic!("lowering contract violation: MissingStorageIdentityRecord {value:?}", value = identity));
 
             // Static dependencies retain their product or thread owner, not frame-local storage.
             if matches!(storage, bray_bound_tree::StorageIdentity::Static(_)) {
                 continue;
             }
 
-            let ty = self.storage_identity_type(identity)?;
+            let ty = self.storage_identity_type(identity);
             let origin = bray_bound_tree::BoundNodeOrigin::source(self.input.unit().key().source());
             storages.push(self.place_for_identity(identity, ty, origin)?.storage());
         }
@@ -265,7 +265,6 @@ impl Lowerer<'_> {
         frame_affinity(self.input.frame_dependencies())
     }
 }
-
 fn frame_affinity(
     dependencies: &[BoundDependencySubject],
 ) -> bray_runtime_interface::ProtectedFrameAffinity {
@@ -282,7 +281,7 @@ fn frame_affinity(
 fn call_receiver(
     call: &MirCall,
     expression: BoundExpressionId,
-) -> Result<MirOperand, LoweringError> {
+) -> MirOperand {
     call.arguments()
         .iter()
         .find_map(|argument| match argument {
@@ -292,7 +291,7 @@ fn call_receiver(
             }
             MirCallArgument::Explicit { .. } => None,
         })
-        .ok_or(LoweringError::InvalidTaskOperation(expression))
+        .unwrap_or_else(|| panic!("lowering contract violation: InvalidTaskOperation {value:?}", value = expression))
 }
 
 #[cfg(test)]

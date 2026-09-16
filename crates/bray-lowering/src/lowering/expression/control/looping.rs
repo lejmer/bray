@@ -13,11 +13,11 @@ impl Lowerer<'_> {
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
         let [condition_id] = expression.operands() else {
-            return Err(LoweringError::UnsupportedExpression(id));
+            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
         };
 
         let ([body] | [body, _]) = expression.blocks() else {
-            return Err(LoweringError::UnsupportedExpression(id));
+            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
         };
 
         let source = self.source(expression.origin());
@@ -43,7 +43,7 @@ impl Lowerer<'_> {
         let (join, result, result_type) = self.push_result_join(id, expression.origin())?;
 
         let depth = self.active_scopes.len();
-        let scope = self.begin_condition_scope(*condition_id)?;
+        let scope = self.begin_condition_scope(*condition_id);
 
         if !self.lower_condition(*condition_id, header, body_entry, exhausted)? {
             self.finish_unreachable_blocks(&[body_entry, exhausted], &source)?;
@@ -117,7 +117,7 @@ impl Lowerer<'_> {
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
         let [body] = expression.blocks() else {
-            return Err(LoweringError::UnsupportedExpression(id));
+            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
         };
 
         let source = self.source(expression.origin());
@@ -161,11 +161,11 @@ impl Lowerer<'_> {
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
         let [pattern] = expression.patterns() else {
-            return Err(LoweringError::UnsupportedExpression(id));
+            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
         };
 
         let [initializer_id] = expression.operands() else {
-            return Err(LoweringError::UnsupportedExpression(id));
+            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
         };
 
         let initializer = self.lower_expression(*initializer_id, current)?;
@@ -175,13 +175,13 @@ impl Lowerer<'_> {
         };
 
         let Some(value) = initializer.value else {
-            return Err(LoweringError::MissingOperationResult(*initializer_id));
+            panic!("lowering contract violation: MissingOperationResult {value:?}", value = *initializer_id);
         };
 
         let current = self.lower_pattern_bindings(*pattern, value, current)?;
 
         let [body] = expression.blocks() else {
-            return Err(LoweringError::UnsupportedExpression(id));
+            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
         };
 
         let (join, result, result_type) = self.push_result_join(id, expression.origin())?;

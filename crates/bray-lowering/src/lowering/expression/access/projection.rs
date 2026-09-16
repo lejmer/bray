@@ -12,19 +12,19 @@ impl Lowerer<'_> {
         reached_type: TypeId,
         has_no_explicit_projections: bool,
         projections: &mut Vec<MirProjection>,
-    ) -> Result<TypeId, LoweringError> {
-        let source_type = self.storage_identity_type(identity)?;
+    ) -> TypeId {
+        let source_type = self.storage_identity_type(identity);
 
         if self.input.storage_plan().identity_type(identity).is_none()
             || has_no_explicit_projections && source_type == reached_type
         {
-            return Ok(source_type);
+            return source_type;
         }
 
         let data = self.input.semantic_values().type_data(source_type);
 
         let TypeData::Borrow { target, .. } = data.as_ref() else {
-            return Ok(source_type);
+            return source_type;
         };
 
         projections.push(MirProjection::new(
@@ -33,7 +33,7 @@ impl Lowerer<'_> {
             *target,
         ));
 
-        Ok(*target)
+        *target
     }
 
     pub(super) fn append_reached_dereference(
@@ -69,13 +69,13 @@ impl Lowerer<'_> {
         &self,
         identity: StorageIdentityId,
         projections: &[StorageProjection],
-    ) -> Result<TypeId, LoweringError> {
+    ) -> TypeId {
         let plan = self.input.storage_plan();
 
         plan.access_at(identity, projections)
             .and_then(|access| plan.access(access))
             .map(bray_bound_tree::StorageAccess::reached_type)
-            .ok_or(LoweringError::MissingStorageIdentityRecord(identity))
+            .unwrap_or_else(|| panic!("lowering contract violation: MissingStorageIdentityRecord {value:?}", value = identity))
     }
 
     pub(super) fn lower_projection(
@@ -133,11 +133,11 @@ impl Lowerer<'_> {
         let lowered = self.materialize_for_later_evaluation(selector, lowered)?;
 
         let Some(current) = lowered.block else {
-            return Err(LoweringError::UnsupportedExpression(selector));
+            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = selector);
         };
 
         let Some(value) = lowered.value else {
-            return Err(LoweringError::MissingOperationResult(selector));
+            panic!("lowering contract violation: MissingOperationResult {value:?}", value = selector);
         };
 
         let value = match value {

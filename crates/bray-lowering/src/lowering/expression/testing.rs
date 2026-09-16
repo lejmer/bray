@@ -26,7 +26,7 @@ impl Lowerer<'_> {
             },
         ] = selection.arguments()
         else {
-            return Err(LoweringError::UnsupportedExpression(expression));
+            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = expression);
         };
 
         let lowered = self.lower_expression(*message, current)?;
@@ -36,7 +36,7 @@ impl Lowerer<'_> {
         };
 
         let Some(message) = lowered.value else {
-            return Err(LoweringError::MissingOperationResult(*message));
+            panic!("lowering contract violation: MissingOperationResult {value:?}", value = *message);
         };
 
         let (current, message) = self.convert_operand(

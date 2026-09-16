@@ -19,7 +19,6 @@ enum LoweredOperands {
     },
     Terminated(LoweredExpression),
 }
-
 impl Lowerer<'_> {
     pub(in crate::lowering) fn nullable_contains(
         &self,
@@ -49,10 +48,10 @@ impl Lowerer<'_> {
             Some(result_type),
         )?;
 
-        commit
+        Ok(commit
             .result()
             .map(MirOperand::Value)
-            .ok_or(LoweringError::MissingOperationResult(expression))
+            .unwrap_or_else(|| panic!("lowering contract violation: MissingOperationResult {value:?}", value = expression)))
     }
 
     pub(in crate::lowering) fn adapt_nullable_present(
@@ -98,7 +97,7 @@ impl Lowerer<'_> {
             BoundStructuredExpressionKind::Array => MirAggregateKind::Array,
             BoundStructuredExpressionKind::RepeatedArray => MirAggregateKind::RepeatedArray,
             BoundStructuredExpressionKind::Range => MirAggregateKind::Range,
-            _ => return Err(LoweringError::UnsupportedExpression(id)),
+            _ => panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id),
         };
 
         let source = self.source(expression.origin());
@@ -110,7 +109,7 @@ impl Lowerer<'_> {
 
         if kind == MirAggregateKind::RepeatedArray {
             if operands.len() != 2 {
-                return Err(LoweringError::UnsupportedExpression(id));
+                panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
             }
 
             // Source evaluation is preserved, but the checked array type owns the MIR extent.
@@ -144,9 +143,9 @@ impl Lowerer<'_> {
         id: BoundExpressionId,
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
-        let source = self.expression_source(id)?;
+        let source = self.expression_source(id);
 
-        let selection = self.selected_operation(id)?.clone();
+        let selection = self.selected_operation(id).clone();
 
         let (target, block, inputs) = match selection {
             SelectedOperation::Construction(selection) => {
@@ -168,7 +167,7 @@ impl Lowerer<'_> {
                             };
 
                             let Some(value) = lowered.value else {
-                                return Err(LoweringError::MissingOperationResult(expression));
+                                panic!("lowering contract violation: MissingOperationResult {value:?}", value = expression);
                             };
 
                             block = continuation;
@@ -249,7 +248,7 @@ impl Lowerer<'_> {
             }
             SelectedOperation::Member(member) => {
                 let AnySymbolId::UnionVariant(variant) = member.member() else {
-                    return Err(LoweringError::MissingSemanticSelection(id));
+                    panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = id);
                 };
 
                 (
@@ -258,10 +257,10 @@ impl Lowerer<'_> {
                     Vec::new(),
                 )
             }
-            _ => return Err(LoweringError::MissingSemanticSelection(id)),
+            _ => panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = id),
         };
 
-        let owner_type = self.expression_type(id)?;
+        let owner_type = self.expression_type(id);
         let block = self.admit_outgoing_owner(id, block, &source, owner_type)?;
 
         let value = self.push_value_operation(
@@ -302,13 +301,13 @@ impl Lowerer<'_> {
             };
 
             let Some(value) = lowered.value else {
-                return Err(LoweringError::MissingOperationResult(*expression));
+                panic!("lowering contract violation: MissingOperationResult {value:?}", value = *expression);
             };
 
             current = continuation;
 
             let value = if self
-                .later_evaluation_may_change_block(expressions[index + 1..].iter().copied())?
+                .later_evaluation_may_change_block(expressions[index + 1..].iter().copied())
             {
                 let ty = self.builder.operand_type(&value);
 

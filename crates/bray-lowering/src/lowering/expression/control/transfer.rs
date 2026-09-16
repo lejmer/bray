@@ -25,7 +25,7 @@ impl Lowerer<'_> {
                 };
 
                 let Some(value) = lowered.value else {
-                    return Err(LoweringError::MissingOperationResult(operand));
+                    panic!("lowering contract violation: MissingOperationResult {value:?}", value = operand);
                 };
 
                 return self.finish_control_transfer(id, expression, current, source, Some(value));
@@ -52,7 +52,7 @@ impl Lowerer<'_> {
             BoundControlTransferKind::Return => {
                 let value = match (value, expression.operand()) {
                     (Some(value), Some(operand)) => {
-                        let operand_type = self.expression_type(operand)?;
+                        let operand_type = self.expression_type(operand);
 
                         let value = match self.input.expression_types().callable_result_type() {
                             Some(result_type) => self.adapt_nullable_present(
@@ -69,14 +69,14 @@ impl Lowerer<'_> {
                         Some(value)
                     }
                     (None, None) => None,
-                    _ => return Err(LoweringError::UnsupportedExpression(id)),
+                    _ => panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id),
                 };
 
                 self.finish_return(current, &source, value, id.into())?;
             }
             BoundControlTransferKind::Break => {
                 let (target, result_type, scope_depth) = {
-                    let target = self.loop_target(id, expression)?;
+                    let target = self.loop_target(id, expression);
 
                     (target.break_block, target.result_type, target.scope_depth)
                 };
@@ -100,7 +100,7 @@ impl Lowerer<'_> {
             }
             BoundControlTransferKind::Continue => {
                 let (target, scope_depth) = {
-                    let target = self.loop_target(id, expression)?;
+                    let target = self.loop_target(id, expression);
 
                     (target.continue_block, target.scope_depth)
                 };
@@ -108,7 +108,7 @@ impl Lowerer<'_> {
                 self.finish_exit_to_block(current, &source, scope_depth, target, None, id.into())?;
             }
             BoundControlTransferKind::Yield => {
-                return Err(LoweringError::UnsupportedExpression(id));
+                panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
             }
         }
 
@@ -133,7 +133,7 @@ impl Lowerer<'_> {
         }
         // Lowering mutates the MIR builder after releasing the target-stack borrow.
         .cloned()
-        .ok_or(LoweringError::UnsupportedExpression(id))?;
+        .unwrap_or_else(|| panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id));
 
         match target {
             YieldTarget::Result {
@@ -181,7 +181,7 @@ impl Lowerer<'_> {
                     None,
                 )?;
 
-                let result = self.unit_operand(self.expression_type(id)?);
+                let result = self.unit_operand(self.expression_type(id));
 
                 Ok(LoweredExpression::continuing(current, Some(result), source))
             }
@@ -192,7 +192,7 @@ impl Lowerer<'_> {
         &self,
         id: BoundExpressionId,
         expression: &BoundControlTransferExpression,
-    ) -> Result<&super::super::super::lowerer::LoopTarget, LoweringError> {
+    ) -> &super::super::super::lowerer::LoopTarget {
         match expression.target() {
             Some(syntax) => self
                 .loop_targets
@@ -201,7 +201,7 @@ impl Lowerer<'_> {
                 .find(|target| target.syntax == syntax),
             None => self.loop_targets.last(),
         }
-        .ok_or(LoweringError::UnsupportedExpression(id))
+        .unwrap_or_else(|| panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id))
     }
 
     fn adapt_control_transfer_value(
@@ -216,7 +216,7 @@ impl Lowerer<'_> {
             return Ok(self.unit_operand(destination_type));
         };
 
-        let operand_type = self.expression_type(operand)?;
+        let operand_type = self.expression_type(operand);
 
         self.adapt_nullable_present(
             operand,

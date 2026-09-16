@@ -19,7 +19,6 @@ enum PropagationDestination {
     Block(MirBlockId),
     Return,
 }
-
 #[derive(Clone, Copy)]
 struct PropagationTarget {
     destination: PropagationDestination,
@@ -35,7 +34,7 @@ impl Lowerer<'_> {
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
         let [operand] = expression.operands() else {
-            return Err(LoweringError::UnsupportedExpression(id));
+            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
         };
 
         self.lower_expression(*operand, current)
@@ -48,30 +47,30 @@ impl Lowerer<'_> {
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
         let [operand_id] = expression.operands() else {
-            return Err(LoweringError::UnsupportedExpression(id));
+            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
         };
 
-        let operand_type = self.expression_type(*operand_id)?;
+        let operand_type = self.expression_type(*operand_id);
 
         let data = self.input.semantic_values().type_data(operand_type);
 
         let TypeData::Nullable(value_type) = data.as_ref() else {
-            return Err(LoweringError::UnsupportedExpression(id));
+            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
         };
 
         let value_type = *value_type;
 
-        let (boundary, result_type) = match self.selected_propagation(id)? {
+        let (boundary, result_type) = match self.selected_propagation(id) {
             SelectedPropagation::Nullable {
                 boundary,
                 result_type,
             } => (*boundary, *result_type),
             SelectedPropagation::Result { .. } | SelectedPropagation::CurrentRun => {
-                return Err(LoweringError::MissingSemanticSelection(id));
+                panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = id);
             }
         };
 
-        let target = self.propagation_target(boundary, result_type)?;
+        let target = self.propagation_target(boundary, result_type);
         let operand = self.lower_expression(*operand_id, current)?;
 
         let Some(current) = operand.block else {
@@ -79,7 +78,7 @@ impl Lowerer<'_> {
         };
 
         let Some(operand) = operand.value else {
-            return Err(LoweringError::MissingOperationResult(*operand_id));
+            panic!("lowering contract violation: MissingOperationResult {value:?}", value = *operand_id);
         };
 
         let source = self.source(expression.origin());
@@ -123,10 +122,10 @@ impl Lowerer<'_> {
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
         let [operand_id] = expression.operands() else {
-            return Err(LoweringError::UnsupportedExpression(id));
+            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
         };
 
-        let operand_type = self.expression_type(*operand_id)?;
+        let operand_type = self.expression_type(*operand_id);
 
         match self.type_representation(operand_type) {
             Some(RepresentationRole::Result) => {
@@ -139,7 +138,7 @@ impl Lowerer<'_> {
                 operand_type,
                 current,
             ),
-            _ => Err(LoweringError::UnsupportedExpression(id)),
+            _ => panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id),
         }
     }
 
@@ -151,15 +150,15 @@ impl Lowerer<'_> {
         operand_type: TypeId,
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
-        let arguments = self.named_type_arguments(operand_type)?;
+        let arguments = self.named_type_arguments(operand_type);
 
         let [success_type, error_type] = arguments.as_slice() else {
-            return Err(LoweringError::UnsupportedExpression(id));
+            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
         };
 
-        let representation = self.result_representation()?;
+        let representation = self.result_representation();
 
-        let (boundary, result_type, error_conversion) = match self.selected_propagation(id)? {
+        let (boundary, result_type, error_conversion) = match self.selected_propagation(id) {
             SelectedPropagation::Result {
                 boundary,
                 result_type,
@@ -169,11 +168,11 @@ impl Lowerer<'_> {
                 (*boundary, *result_type, error_conversion.clone())
             }
             SelectedPropagation::Nullable { .. } | SelectedPropagation::CurrentRun => {
-                return Err(LoweringError::MissingSemanticSelection(id));
+                panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = id);
             }
         };
 
-        let target = self.propagation_target(boundary, result_type)?;
+        let target = self.propagation_target(boundary, result_type);
 
         let operand = self.lower_expression(operand_id, current)?;
 
@@ -182,7 +181,7 @@ impl Lowerer<'_> {
         };
 
         let Some(operand) = operand.value else {
-            return Err(LoweringError::MissingOperationResult(operand_id));
+            panic!("lowering contract violation: MissingOperationResult {value:?}", value = operand_id);
         };
 
         let source = self.source(expression.origin());
@@ -250,17 +249,17 @@ impl Lowerer<'_> {
         operand_type: TypeId,
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
-        if self.selected_propagation(id)? != &SelectedPropagation::CurrentRun {
-            return Err(LoweringError::MissingSemanticSelection(id));
+        if self.selected_propagation(id) != &SelectedPropagation::CurrentRun {
+            panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = id);
         }
 
-        let arguments = self.named_type_arguments(operand_type)?;
+        let arguments = self.named_type_arguments(operand_type);
 
         let [value_type] = arguments.as_slice() else {
-            return Err(LoweringError::UnsupportedExpression(id));
+            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
         };
 
-        let representation = self.run_result_representation()?;
+        let representation = self.run_result_representation();
 
         let report_type =
             self.representation_type(bray_compiler_known::RepresentationRole::PanicReport)?;
@@ -272,7 +271,7 @@ impl Lowerer<'_> {
         };
 
         let Some(operand) = operand.value else {
-            return Err(LoweringError::MissingOperationResult(operand_id));
+            panic!("lowering contract violation: MissingOperationResult {value:?}", value = operand_id);
         };
 
         let source = self.source(expression.origin());
@@ -349,7 +348,7 @@ impl Lowerer<'_> {
         &self,
         boundary: SelectedPropagationBoundary,
         result_type: TypeId,
-    ) -> Result<PropagationTarget, LoweringError> {
+    ) -> PropagationTarget {
         match boundary {
             SelectedPropagationBoundary::YieldRegion(syntax) => {
                 for target in self.yield_targets.iter().rev() {
@@ -364,26 +363,32 @@ impl Lowerer<'_> {
                     };
 
                     if *target_syntax == syntax && *target_type == result_type {
-                        return Ok(PropagationTarget {
+                        return PropagationTarget {
                             destination: PropagationDestination::Block(*block),
                             result_type,
                             scope_depth: *scope_depth,
-                        });
+                        };
                     }
                 }
 
-                Err(LoweringError::SemanticValueUnavailable)
+                panic!(
+                    "lowering propagation contract violated: yield region {syntax:?} has no target for result type {result_type:?}"
+                )
             }
             SelectedPropagationBoundary::Callable => {
-                if self.input.expression_types().callable_result_type() != Some(result_type) {
-                    return Err(LoweringError::SemanticValueUnavailable);
+                let callable_result = self.input.expression_types().callable_result_type();
+
+                if callable_result != Some(result_type) {
+                    panic!(
+                        "lowering propagation contract violated: callable result {callable_result:?} does not match propagated result {result_type:?}"
+                    );
                 }
 
-                Ok(PropagationTarget {
+                PropagationTarget {
                     destination: PropagationDestination::Return,
                     result_type,
                     scope_depth: 0,
-                })
+                }
             }
         }
     }
@@ -456,16 +461,16 @@ impl Lowerer<'_> {
             Some(result_type),
         )?;
 
-        commit
+        Ok(commit
             .result()
             .map(MirOperand::Value)
-            .ok_or(LoweringError::MissingOperationResult(id))
+            .unwrap_or_else(|| panic!("lowering contract violation: MissingOperationResult {value:?}", value = id)))
     }
 
     fn selected_propagation(
         &self,
         expression: BoundExpressionId,
-    ) -> Result<&SelectedPropagation, LoweringError> {
+    ) -> &SelectedPropagation {
         self.input
             .semantic_selections()
             .expression(expression)
@@ -473,6 +478,6 @@ impl Lowerer<'_> {
                 SemanticSelection::Propagation(selection) => Some(selection),
                 _ => None,
             })
-            .ok_or(LoweringError::MissingSemanticSelection(expression))
+            .unwrap_or_else(|| panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = expression))
     }
 }

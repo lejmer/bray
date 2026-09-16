@@ -1,23 +1,20 @@
 use bray_ir::MirBlockKind;
 
-use super::super::SyntheticLoweringError;
-
 pub(super) fn lifecycle_operation_block_kind(
     role: bray_ir::MirGeneratedLifecycleRole,
-) -> Result<MirBlockKind, SyntheticLoweringError> {
+) -> MirBlockKind {
     match role {
-        bray_ir::MirGeneratedLifecycleRole::Destroy => Ok(MirBlockKind::Ordinary),
+        bray_ir::MirGeneratedLifecycleRole::Destroy => MirBlockKind::Ordinary,
         bray_ir::MirGeneratedLifecycleRole::Cleanup(bray_ir::MirCleanupPhase::TaskCancellation) => {
-            Ok(MirBlockKind::CleanupBroadcast)
+            MirBlockKind::CleanupBroadcast
         }
         bray_ir::MirGeneratedLifecycleRole::Finalize
         | bray_ir::MirGeneratedLifecycleRole::StaticFinalize
         | bray_ir::MirGeneratedLifecycleRole::Cleanup(
             bray_ir::MirCleanupPhase::LifecycleResolution,
-        ) => Err(SyntheticLoweringError::UnsupportedLifecycleRole(role)),
+        ) => panic!("synthetic lowering contract violation: UnsupportedLifecycleRole {value:?}", value = role),
     }
 }
-
 pub(super) fn lifecycle_phase(
     role: bray_ir::MirGeneratedLifecycleRole,
 ) -> bray_bound_tree::LifecyclePhase {
@@ -35,5 +32,28 @@ pub(super) fn lifecycle_phase(
         MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::LifecycleResolution) => {
             LifecyclePhase::Resolve
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_ir::{MirCleanupPhase, MirGeneratedLifecycleRole};
+
+    use super::lifecycle_operation_block_kind;
+
+    #[test]
+    fn unsupported_lifecycle_roles_panic_with_the_exact_role() {
+        let role = MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::LifecycleResolution);
+
+        let panic = std::panic::catch_unwind(|| lifecycle_operation_block_kind(role)).unwrap_err();
+
+        let message = panic
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| panic.downcast_ref::<&str>().copied())
+            .unwrap_or_else(|| panic!("synthetic lowering invariant panic must carry a string"));
+
+        assert!(message.contains("UnsupportedLifecycleRole"));
+        assert!(message.contains(&format!("{role:?}")));
     }
 }

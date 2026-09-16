@@ -11,14 +11,13 @@ use crate::lowering::inputs::{InputExit, InputTemporary};
 use crate::lowering::lowerer::Lowerer;
 use crate::input::ScopeExitCleanupStatus;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(super) enum CleanupDestination {
     Goto(MirBlockId),
     Return,
     PropagatePanic,
     PropagateCancellation,
 }
-
 enum CleanupEntry {
     Ordinary,
     Panic(MirOperand),
@@ -40,7 +39,7 @@ impl Lowerer<'_> {
         exit: AnyBoundNodeId,
     ) -> Result<MirBlockId, LoweringError> {
         if !matches!(
-            self.scope_cleanup_status(scope, exit)?,
+            self.scope_cleanup_status(scope, exit),
             ScopeExitCleanupStatus::Cleanup
         ) {
             return Ok(current);
@@ -95,7 +94,11 @@ impl Lowerer<'_> {
                 .input
                 .expression_types()
                 .callable_result_type()
-                .ok_or(LoweringError::MissingCallableResultType)?;
+                .unwrap_or_else(|| {
+                    panic!(
+                        "lowering cleanup contract violated: protected-frame exit {exit:?} has no callable result type"
+                    )
+                });
 
             if value.is_none() {
                 value = Some((self.unit_operand(result_type), result_type));
@@ -239,7 +242,7 @@ impl Lowerer<'_> {
         value: Option<(MirOperand, TypeId)>,
         exit: AnyBoundNodeId,
     ) -> Result<(), LoweringError> {
-        let plans = self.cleanup_plans(scope_depth, exit)?;
+        let plans = self.cleanup_plans(scope_depth, exit);
 
         let input_exit = match &entry {
             CleanupEntry::Ordinary => InputExit::Scope(scope_depth),
@@ -291,20 +294,17 @@ impl Lowerer<'_> {
         &self,
         scope_depth: usize,
         exit: AnyBoundNodeId,
-    ) -> Result<Vec<bray_bound_tree::AsyncScopeExitPlan>, LoweringError> {
+    ) -> Vec<bray_bound_tree::AsyncScopeExitPlan> {
         self.input
             .cleanup_plans(&self.active_scopes, scope_depth, exit)
-            .map_err(Into::into)
     }
 
     fn scope_cleanup_status(
         &self,
         scope: BoundBlockId,
         exit: AnyBoundNodeId,
-    ) -> Result<ScopeExitCleanupStatus, LoweringError> {
-        self.input
-            .scope_cleanup_status(scope, exit)
-            .map_err(Into::into)
+    ) -> ScopeExitCleanupStatus {
+        self.input.scope_cleanup_status(scope, exit)
     }
 
     pub(super) fn push_cleanup_operations(
@@ -326,7 +326,7 @@ impl Lowerer<'_> {
                 .active_scopes
                 .iter()
                 .position(|scope| *scope == plan.scope())
-                .ok_or(LoweringError::MissingBoundNode(plan.scope().into()))?
+                .unwrap_or_else(|| panic!("lowering contract violation: MissingBoundNode {value:?}", value = plan.scope()))
                 + 1;
 
             block = self.push_input_cleanup(block, source, phase, &mut temporaries, depth)?;
@@ -621,7 +621,11 @@ impl Lowerer<'_> {
             }
             CleanupDestination::Return => MirTerminatorKind::Return(value),
             CleanupDestination::PropagatePanic => MirTerminatorKind::PropagatePanic {
-                report: value.ok_or(LoweringError::SemanticValueUnavailable)?,
+                report: value.unwrap_or_else(|| {
+                    panic!(
+                        "lowering cleanup contract violated: panic propagation from block {block:?} requires a report operand"
+                    )
+                }),
                 runtime: self.runtime_reference(RuntimeAbiRole::PanicPropagation),
             },
             CleanupDestination::PropagateCancellation => MirTerminatorKind::PropagateCancellation {

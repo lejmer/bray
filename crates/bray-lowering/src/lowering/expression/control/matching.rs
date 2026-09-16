@@ -20,7 +20,7 @@ impl Lowerer<'_> {
         };
 
         let Some(subject) = subject.value else {
-            return Err(LoweringError::MissingOperationResult(expression.subject()));
+            panic!("lowering contract violation: MissingOperationResult {value:?}", value = expression.subject());
         };
 
         let source = self.source(expression.origin());
@@ -31,19 +31,16 @@ impl Lowerer<'_> {
             .input
             .patterns()
             .match_coverage(id)
-            .ok_or(LoweringError::UnsupportedExpression(id))?;
+            .unwrap_or_else(|| panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id));
 
         let mut candidate = current;
 
         for (index, arm) in expression.arms().iter().copied().enumerate() {
             let ordinal = match u32::try_from(index) {
                 Ok(ordinal) => ordinal,
-                Err(_) => {
-                    return Err(LoweringError::MatchArmOrdinalUnrepresentable {
-                        expression: id,
-                        ordinal: index,
-                    });
-                }
+                Err(_) => panic!(
+                    "lowering contract violation: match arm {index} for {id:?} must fit the MIR ordinal"
+                ),
             };
 
             if coverage.unreachable_arms().contains(&ordinal) {
@@ -145,11 +142,11 @@ impl Lowerer<'_> {
         let guard_value = self.lower_expression(guard, current)?;
 
         let Some(current) = guard_value.block else {
-            return Err(LoweringError::UnsupportedExpression(guard));
+            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = guard);
         };
 
         let Some(condition) = guard_value.value else {
-            return Err(LoweringError::MissingOperationResult(guard));
+            panic!("lowering contract violation: MissingOperationResult {value:?}", value = guard);
         };
 
         let body = self

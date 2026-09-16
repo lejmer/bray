@@ -28,7 +28,6 @@ pub(in crate::compilation) fn native_product_preparation_diagnostic(
         DiagnosticNativeProductFailureKind::CodegenMissingCallableImplementation {
             source, ..
         } => *source,
-        DiagnosticNativeProductFailureKind::EvaluationLowering(failure) => Some(failure.source()),
         _ => None,
     };
 

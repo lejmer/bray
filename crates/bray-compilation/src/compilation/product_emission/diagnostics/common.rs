@@ -42,21 +42,10 @@ pub(super) fn emission_failure_diagnostic(
     .with_arg(DiagnosticArg::target_triple(target.as_str()))
     .with_arg(DiagnosticArg::emission_failure(failure.clone()));
 
-    let source = match &failure {
-        DiagnosticEmissionFailure::Evaluation(failure) => {
-            crate::compilation::diagnostics::code_production_failure_source(failure)
-        }
-        _ => None,
-    };
-
-    match source {
-        Some(source) => {
-            crate::compilation::diagnostics::with_compiler_defect_source(diagnostic, source)
-        }
-        None if matches!(&failure, DiagnosticEmissionFailure::Evaluation(_)) => {
-            crate::compilation::diagnostics::with_compiler_defect_note(diagnostic)
-        }
-        None => diagnostic,
+    if matches!(&failure, DiagnosticEmissionFailure::Evaluation(_)) {
+        crate::compilation::diagnostics::with_compiler_defect_note(diagnostic)
+    } else {
+        diagnostic
     }
 }
 

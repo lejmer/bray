@@ -15,7 +15,6 @@ pub(super) const fn nullable_query_kind(hook: ImplementationHook) -> Option<MirN
         _ => None,
     }
 }
-
 impl Lowerer<'_> {
     pub(super) fn lower_nullable_call(
         &mut self,
@@ -28,7 +27,7 @@ impl Lowerer<'_> {
         let receiver = selection
             .receiver()
             .filter(|_| selection.arguments().is_empty())
-            .ok_or(LoweringError::MissingSemanticSelection(id))?;
+            .unwrap_or_else(|| panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = id));
 
         let nullable_type = receiver.target_type();
 
@@ -39,10 +38,10 @@ impl Lowerer<'_> {
         };
 
         let Some(receiver) = lowered.value else {
-            return Err(LoweringError::MissingOperationResult(receiver.expression()));
+            panic!("lowering contract violation: MissingOperationResult {value:?}", value = receiver.expression());
         };
 
-        let result_type = self.expression_type(id)?;
+        let result_type = self.expression_type(id);
 
         let result = self.push_typed_value_operation(
             id,

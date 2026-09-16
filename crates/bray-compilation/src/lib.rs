@@ -29,7 +29,7 @@ pub use compiler_known::{
 };
 pub use fact::{
     CancellationToken, FactCycle, FactQueryError, FactRuntimeError, FactRuntimeErrorKind,
-    ImportedQueryFailure, ImportedSemanticRecordKey, LocatedLoweringFailure, QueryPriority,
+    ImportedQueryFailure, ImportedSemanticRecordKey, QueryPriority,
     SymbolCompletionError, diagnostic_semantic_value_failure,
 };
 pub use profile::{

@@ -12,7 +12,6 @@ pub(super) struct LoweredExpression {
     pub(super) value: Option<MirOperand>,
     pub(super) source: MirSourceAnchor,
 }
-
 impl LoweredExpression {
     pub(super) const fn continuing(
         block: MirBlockId,
@@ -74,10 +73,10 @@ impl Lowerer<'_> {
             .unit()
             .view()
             .block(id)
-            .ok_or_else(|| LoweringError::MissingBoundNode(id.into()))?;
+            .unwrap_or_else(|| panic!("lowering contract violation: MissingBoundNode {value:?}", value = id));
 
         if block.is_recovered() {
-            return Err(LoweringError::RecoveredBoundNode(id.into()));
+            panic!("lowering contract violation: RecoveredBoundNode {value:?}", value = id);
         }
 
         let source = self.source(block.origin());
@@ -128,7 +127,7 @@ impl Lowerer<'_> {
             .view()
             .block(id)
             .map(|block| block.origin().source_anchor().syntax())
-            .ok_or_else(|| LoweringError::MissingBoundNode(id.into()))?;
+            .unwrap_or_else(|| panic!("lowering contract violation: MissingBoundNode {value:?}", value = id));
 
         self.yield_targets.push(YieldTarget::Result {
             syntax,
@@ -150,7 +149,7 @@ impl Lowerer<'_> {
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
         if binding.is_recovered() {
-            return Err(LoweringError::RecoveredBoundNode(binding.pattern().into()));
+            panic!("lowering contract violation: RecoveredBoundNode {value:?}", value = binding.pattern());
         }
 
         let initializer = self.lower_expression(binding.initializer(), current)?;
@@ -160,7 +159,7 @@ impl Lowerer<'_> {
         };
 
         let Some(mut value) = initializer.value else {
-            return Err(LoweringError::MissingOperationResult(binding.initializer()));
+            panic!("lowering contract violation: MissingOperationResult {value:?}", value = binding.initializer());
         };
 
         let source = self.source(binding.origin());
@@ -171,7 +170,7 @@ impl Lowerer<'_> {
             .pattern(binding.pattern())
             .map(|pattern| pattern.input_type())
         {
-            let initializer_type = self.expression_type(binding.initializer())?;
+            let initializer_type = self.expression_type(binding.initializer());
 
             value = self
                 .adapt_nullable_present(

@@ -14,8 +14,8 @@ use bray_diagnostics::{
     DiagnosticInspectionOutputFormat, DiagnosticInterfaceDeclarationIdentity,
     DiagnosticInterfaceLimit, DiagnosticInterfaceSection, DiagnosticInterfaceSymbolIdentity,
     DiagnosticInterfaceSymbolKind, DiagnosticInterfaceSynthesizedIdentity, DiagnosticKind,
-    DiagnosticLayoutOption, DiagnosticLayoutProblem, DiagnosticLoweringFailure,
-    DiagnosticLoweringFailureKind, DiagnosticMemoryOperation, DiagnosticModuleTrust,
+    DiagnosticLayoutOption, DiagnosticLayoutProblem, DiagnosticMemoryOperation,
+    DiagnosticModuleTrust,
     DiagnosticNameKind, DiagnosticNamedType, DiagnosticNativeProductFailureDetail,
     DiagnosticNativeProductFailureKind, DiagnosticNote, DiagnosticNoteKind, DiagnosticOutputSink,
     DiagnosticPatternCoverage, DiagnosticPatternMissingCase, DiagnosticProductQueryFailure,
@@ -55,7 +55,6 @@ const JSON_SOURCE_INVENTORY: &[&str] = &[
     "output/diagnostic/json/emission/context.rs",
     "output/diagnostic/json/emission/failure.rs",
     "output/diagnostic/json/emission/foreign_query.rs",
-    "output/diagnostic/json/emission/lowering.rs",
     "output/diagnostic/json/emission/native_link.rs",
     "output/diagnostic/json/emission/product_query.rs",
     "output/diagnostic/json/foreign.rs",
@@ -477,11 +476,6 @@ fn imported_template_mismatches_preserve_exact_context_in_emission_and_native_js
 
 #[test]
 fn semantic_value_payloads_reach_evaluation_and_native_product_json() {
-    let source = SourceSpan::new(
-        bray_source::SourceId::new(0),
-        TextRange::new(TextSize::new(0), TextSize::new(1)),
-    );
-
     let diagnostic = Diagnostic::new(
         DiagnosticId::new(0),
         DiagnosticKind::EmissionFailed,
@@ -523,31 +517,11 @@ fn semantic_value_payloads_reach_evaluation_and_native_product_json() {
     .with_arg(DiagnosticArg::native_product_failure_kind(
         DiagnosticNativeProductFailureKind::EvaluationChecker(
             DiagnosticCheckerFailure::SemanticValue(
-                DiagnosticSemanticValueFailure::CapacityExhausted { kind: "type" },
-            ),
-        ),
-    ))
-    .with_arg(DiagnosticArg::emission_failure(
-        DiagnosticEmissionFailure::Evaluation(DiagnosticEmissionEvaluationFailure::Lowering(
-            DiagnosticLoweringFailure::new(
-                DiagnosticLoweringFailureKind::SemanticValue(
-                    DiagnosticSemanticValueFailure::CapacityExhausted {
-                        kind: "constant_term",
-                    },
-                ),
-                source,
-            ),
-        )),
-    ))
-    .with_arg(DiagnosticArg::native_product_failure_kind(
-        DiagnosticNativeProductFailureKind::EvaluationLowering(DiagnosticLoweringFailure::new(
-            DiagnosticLoweringFailureKind::SemanticValue(
                 DiagnosticSemanticValueFailure::CapacityExhausted {
-                    kind: "trait_application",
+                    kind: "type",
                 },
             ),
-            source,
-        )),
+        ),
     ));
 
     let mut output = Vec::new();
@@ -564,8 +538,6 @@ fn semantic_value_payloads_reach_evaluation_and_native_product_json() {
     let checker = &output["diagnostics"][0]["args"][3]["value"]["value"];
     let native_binding = &output["diagnostics"][0]["args"][4]["value"]["value"];
     let native_checker = &output["diagnostics"][0]["args"][5]["value"]["value"];
-    let lowering = &output["diagnostics"][0]["args"][6]["value"]["value"];
-    let native_lowering = &output["diagnostics"][0]["args"][7]["value"]["value"];
 
     for (value, kind) in [
         (evaluation, "type"),
@@ -574,8 +546,6 @@ fn semantic_value_payloads_reach_evaluation_and_native_product_json() {
         (checker, "type"),
         (native_binding, "type"),
         (native_checker, "type"),
-        (lowering, "constant_term"),
-        (native_lowering, "trait_application"),
     ] {
         assert_eq!(value["context"][1]["name"], "semantic_value_kind");
         assert_eq!(value["context"][1]["value"]["value"], kind);

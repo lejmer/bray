@@ -1,6 +1,4 @@
 use bray_checker::CheckerInfrastructureError;
-use bray_lowering::LoweringError;
-use bray_source::SourceSpan;
 
 use crate::compilation::{SemanticQueryError, SemanticQueryFailure};
 use crate::fact::{CompilationFactKey, FactRuntimeError, FactRuntimeFailure};
@@ -241,29 +239,6 @@ mod tests {
     }
 }
 
-/// A compiler-owned lowering failure and the Bray source construct being compiled.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct LocatedLoweringFailure<E> {
-    cause: E,
-    source: SourceSpan,
-}
-
-impl<E> LocatedLoweringFailure<E> {
-    pub(crate) const fn new(cause: E, source: SourceSpan) -> Self {
-        Self { cause, source }
-    }
-
-    /// Returns the exact compiler contract failure.
-    pub const fn cause(&self) -> &E {
-        &self.cause
-    }
-
-    /// Returns the closest Bray source construct affected by the failure.
-    pub const fn source(&self) -> SourceSpan {
-        self.source
-    }
-}
-
 /// An outer compiler-query outcome that must not be represented as a source diagnostic.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum FactQueryError {
@@ -307,8 +282,8 @@ pub enum FactQueryError {
     Product(crate::ProductQueryError),
     /// Foreign-boundary compilation violated an exact query contract.
     Foreign(crate::ForeignQueryError),
-    /// MIR lowering violated a checked semantic or MIR construction contract.
-    Lowering(LocatedLoweringFailure<LoweringError>),
+    /// MIR lowering exhausted a compact identity space.
+    MirCapacity(bray_ir::MirCapacityError),
 }
 
 impl FactQueryError {
@@ -464,9 +439,7 @@ impl std::fmt::Display for FactQueryError {
             Self::SemanticQuery(error) => write!(formatter, "{error}"),
             Self::Product(error) => write!(formatter, "product query failed: {error:?}"),
             Self::Foreign(error) => write!(formatter, "foreign query failed: {error:?}"),
-            Self::Lowering(error) => {
-                write!(formatter, "MIR lowering failed: {:?}", error.cause())
-            }
+            Self::MirCapacity(error) => write!(formatter, "MIR capacity exceeded: {error:?}"),
         }
     }
 }

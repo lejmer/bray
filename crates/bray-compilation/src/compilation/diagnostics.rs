@@ -231,15 +231,6 @@ fn bound_node_source(bound: &BoundUnit, node: AnyBoundNodeId) -> Option<SourceSp
     Some(SourceSpan::new(anchor.source_id(), anchor.full_range()))
 }
 
-pub(super) const fn code_production_failure_source(
-    failure: &DiagnosticEmissionEvaluationFailure,
-) -> Option<SourceSpan> {
-    match failure {
-        DiagnosticEmissionEvaluationFailure::Lowering(failure) => Some(failure.source()),
-        _ => None,
-    }
-}
-
 pub(super) const fn diagnostic_product_kind(kind: ProductKind) -> DiagnosticProductKind {
     match kind {
         ProductKind::Executable => DiagnosticProductKind::Executable,

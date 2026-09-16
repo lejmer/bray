@@ -27,10 +27,10 @@ impl Lowerer<'_> {
                 AnySymbolId::StructField(_) | AnySymbolId::UnionPayloadField(_) => {
                     self.lower_storage_operand(id, current)
                 }
-                _ => Err(LoweringError::UnsupportedExpression(id)),
+                _ => panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id),
             },
             None => self.lower_storage_operand(id, current),
-            _ => Err(LoweringError::UnsupportedExpression(id)),
+            _ => panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id),
         }
     }
 
@@ -39,10 +39,10 @@ impl Lowerer<'_> {
         expression: BoundExpressionId,
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
-        let expression_type = self.expression_type(expression)?;
+        let expression_type = self.expression_type(expression);
 
         let decision = self
-            .storage_decision_reaching(expression, expression_type, |purpose| {
+            .find_storage_decision_reaching(expression, expression_type, |purpose| {
                 matches!(
                     purpose,
                     StorageAccessPurpose::Read
@@ -51,22 +51,22 @@ impl Lowerer<'_> {
                         | StorageAccessPurpose::ValueTransfer
                 )
             })
-            .or_else(|error| match error {
-                LoweringError::MissingStorageAccess(_) => {
-                    self.storage_decision_reaching(expression, expression_type, |purpose| {
-                        matches!(
-                            purpose,
-                            StorageAccessPurpose::Member
-                                | StorageAccessPurpose::Index
-                                | StorageAccessPurpose::Slice
-                                | StorageAccessPurpose::Projection
-                        )
-                    })
-                }
-                _ => Err(error),
-            })?;
+            .or_else(|| {
+                self.find_storage_decision_reaching(expression, expression_type, |purpose| {
+                    matches!(
+                        purpose,
+                        StorageAccessPurpose::Member
+                            | StorageAccessPurpose::Index
+                            | StorageAccessPurpose::Slice
+                            | StorageAccessPurpose::Projection
+                    )
+                })
+            })
+            .unwrap_or_else(|| {
+                panic!("lowering contract violation: MissingStorageAccess {expression:?}")
+            });
 
-        let source = self.expression_source(expression)?;
+        let source = self.expression_source(expression);
 
         self.lower_access_place_with(
             expression,
@@ -89,7 +89,7 @@ impl Lowerer<'_> {
                     });
 
                 if entry_borrow && place.projections().is_empty() {
-                    let expression_type = lowerer.expression_type(expression)?;
+                    let expression_type = lowerer.expression_type(expression);
 
                     let place_data = lowerer.input.semantic_values().type_data(place.ty());
 
@@ -168,7 +168,7 @@ impl Lowerer<'_> {
                     | StorageAccessPurpose::Slice
                     | StorageAccessPurpose::Projection => MirOperand::Copy(place),
                     _ => {
-                        return Err(LoweringError::UnsupportedStorageAccess(decision.access()));
+                        panic!("lowering contract violation: UnsupportedStorageAccess {value:?}", value = decision.access());
                     }
                 };
 

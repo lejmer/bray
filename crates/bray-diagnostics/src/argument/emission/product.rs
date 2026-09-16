@@ -162,7 +162,6 @@ pub enum DiagnosticNativeProductFailureKind {
     EvaluationSemanticValueStoreCreate,
     EvaluationSemanticValue(crate::DiagnosticSemanticValueFailure),
     EvaluationBinding(crate::DiagnosticBindingFailure),
-    EvaluationLowering(super::DiagnosticLoweringFailure),
     EvaluationConstantCallableBodyUnavailable,
     EvaluationConstantCallableRootUnavailable,
     EvaluationAtomicRepresentationTypeUnavailable,
@@ -275,7 +274,6 @@ impl DiagnosticNativeProductFailureKind {
             Self::EvaluationSemanticValueStoreCreate => "evaluation_semantic_value_store_create",
             Self::EvaluationSemanticValue(failure) => failure.as_str(),
             Self::EvaluationBinding(failure) => failure.as_str(),
-            Self::EvaluationLowering(failure) => failure.as_str(),
             Self::EvaluationConstantCallableBodyUnavailable => {
                 "evaluation_constant_callable_body_unavailable"
             }
@@ -398,7 +396,7 @@ impl From<crate::DiagnosticEmissionEvaluationFailure> for DiagnosticNativeProduc
             Failure::SemanticValueStoreCreate => Self::EvaluationSemanticValueStoreCreate,
             Failure::SemanticValue(failure) => Self::EvaluationSemanticValue(failure),
             Failure::Binding(failure) => Self::EvaluationBinding(failure),
-            Failure::Lowering(failure) => Self::EvaluationLowering(failure),
+            Failure::MirCapacity => Self::CodegenMirCapacityExceeded,
             Failure::ConstantCallableBodyUnavailable => {
                 Self::EvaluationConstantCallableBodyUnavailable
             }

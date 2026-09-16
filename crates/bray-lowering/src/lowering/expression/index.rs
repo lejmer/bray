@@ -13,9 +13,9 @@ impl Lowerer<'_> {
         id: BoundExpressionId,
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
-        let target = match self.selected_operation(id)? {
+        let target = match self.selected_operation(id) {
             SelectedOperation::Index { target, .. } => *target,
-            _ => return Err(LoweringError::MissingSemanticSelection(id)),
+            _ => panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = id),
         };
 
         match target {
@@ -33,9 +33,9 @@ impl Lowerer<'_> {
         id: BoundExpressionId,
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
-        let target = match self.selected_operation(id)? {
+        let target = match self.selected_operation(id) {
             SelectedOperation::Index { target, .. } => *target,
-            _ => return Err(LoweringError::MissingSemanticSelection(id)),
+            _ => panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = id),
         };
 
         match target {
@@ -71,7 +71,7 @@ impl Lowerer<'_> {
             IndexTarget::ArrayElement
             | IndexTarget::SliceElement
             | IndexTarget::ArraySlice
-            | IndexTarget::Slice => Err(LoweringError::MissingSemanticSelection(id)),
+            | IndexTarget::Slice => panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = id),
         }
     }
 
@@ -98,18 +98,18 @@ impl Lowerer<'_> {
                 BoundExpression::Structured(expression) => Some(expression),
                 _ => None,
             })
-            .ok_or_else(|| LoweringError::MissingBoundNode(id.into()))?;
+            .unwrap_or_else(|| panic!("lowering contract violation: MissingBoundNode {value:?}", value = id));
 
         let kind = expression.kind();
         let operands = expression.operands().to_vec();
         let slice_bounds = expression.slice_bounds();
 
-        let source = self.expression_source(id)?;
+        let source = self.expression_source(id);
         let mut block = current;
         let mut arguments = Vec::with_capacity(3);
 
         let Some(receiver) = operands.first().copied() else {
-            return Err(LoweringError::MissingBoundNode(id.into()));
+            panic!("lowering contract violation: MissingBoundNode {value:?}", value = id);
         };
 
         let lowered = self.lower_implicit_borrow(id, receiver, block, borrow_kind)?;
@@ -119,7 +119,7 @@ impl Lowerer<'_> {
         };
 
         let Some(value) = lowered.value else {
-            return Err(LoweringError::MissingOperationResult(receiver));
+            panic!("lowering contract violation: MissingOperationResult {value:?}", value = receiver);
         };
 
         block = continuation;
@@ -135,7 +135,7 @@ impl Lowerer<'_> {
                     };
 
                     let Some(value) = lowered.value else {
-                        return Err(LoweringError::MissingOperationResult(operand));
+                        panic!("lowering contract violation: MissingOperationResult {value:?}", value = operand);
                     };
 
                     block = continuation;
@@ -144,9 +144,9 @@ impl Lowerer<'_> {
             }
             BoundStructuredExpressionKind::SliceIndex => {
                 let bounds =
-                    slice_bounds.ok_or_else(|| LoweringError::MissingBoundNode(id.into()))?;
+                    slice_bounds.unwrap_or_else(|| panic!("lowering contract violation: MissingBoundNode {value:?}", value = id));
 
-                let bound_type = self.index_bound_type(requirement)?;
+                let bound_type = self.index_bound_type(requirement);
 
                 let nullable_type = self
                     .input
@@ -170,7 +170,7 @@ impl Lowerer<'_> {
                     };
 
                     let Some(value) = lowered.value else {
-                        return Err(LoweringError::MissingOperationResult(bound));
+                        panic!("lowering contract violation: MissingOperationResult {value:?}", value = bound);
                     };
 
                     block = continuation;
@@ -186,7 +186,7 @@ impl Lowerer<'_> {
                     arguments.push(value);
                 }
             }
-            _ => return Err(LoweringError::MissingSemanticSelection(id)),
+            _ => panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = id),
         }
 
         let witnesses = witness.into_iter().map(|witness| {
@@ -195,7 +195,7 @@ impl Lowerer<'_> {
 
         let result_type = self.input.semantic_values().intern_type(TypeData::Borrow {
             kind: borrow_kind,
-            target: self.expression_type(id)?,
+            target: self.expression_type(id),
         })?;
 
         let mut call = MirCall::protocol(
@@ -215,10 +215,7 @@ impl Lowerer<'_> {
         Ok(LoweredExpression::continuing(block, Some(value), source))
     }
 
-    fn index_bound_type(
-        &self,
-        requirement: ImplementationRequirementKey,
-    ) -> Result<TypeId, LoweringError> {
+    fn index_bound_type(&self, requirement: ImplementationRequirementKey) -> TypeId {
         let values = self.input.semantic_values();
 
         let application = values.trait_application_data(requirement.trait_application());
@@ -226,12 +223,17 @@ impl Lowerer<'_> {
         let substitution = values.generic_substitution_data(application.substitution());
 
         let [binding] = substitution.bindings() else {
-            return Err(LoweringError::SemanticValueUnavailable);
+            panic!(
+                "lowering index contract violated: requirement {requirement:?} must bind exactly one type, found {} bindings",
+                substitution.bindings().len()
+            );
         };
 
         match binding.argument() {
-            GenericArgument::Type(bound) => Ok(bound),
-            GenericArgument::Constant(_) => Err(LoweringError::SemanticValueUnavailable),
+            GenericArgument::Type(bound) => bound,
+            GenericArgument::Constant(constant) => panic!(
+                "lowering index contract violated: requirement {requirement:?} bound constant {constant:?} instead of an index type"
+            ),
         }
     }
 }

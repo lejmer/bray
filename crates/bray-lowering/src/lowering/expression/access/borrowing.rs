@@ -16,10 +16,10 @@ impl Lowerer<'_> {
     ) -> Result<LoweredExpression, LoweringError> {
         let kind = expression
             .borrow_kind()
-            .ok_or(LoweringError::UnsupportedExpression(id))?;
+            .unwrap_or_else(|| panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id));
 
         let source = self.source(expression.origin());
-        let result_type = self.expression_type(id)?;
+        let result_type = self.expression_type(id);
 
         let result_data = self.input.semantic_values().type_data(result_type);
 
@@ -28,15 +28,15 @@ impl Lowerer<'_> {
             target,
         } = result_data.as_ref()
         else {
-            return Err(LoweringError::UnsupportedExpression(id));
+            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
         };
 
         if *result_kind != kind {
-            return Err(LoweringError::UnsupportedExpression(id));
+            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
         }
 
         let [operand] = expression.operands() else {
-            return Err(LoweringError::UnsupportedExpression(id));
+            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
         };
 
         if let Some(value) = self.static_string_literal_borrow(*operand, kind, result_type) {
@@ -65,7 +65,7 @@ impl Lowerer<'_> {
 
         let result_type = receiver.input_type(self.input.semantic_values())?;
 
-        let source = self.expression_source(receiver.expression())?;
+        let source = self.expression_source(receiver.expression());
 
         self.lower_storage_borrow(
             receiver.expression(),
@@ -95,7 +95,7 @@ impl Lowerer<'_> {
     ) -> Result<LoweredExpression, LoweringError> {
         let decision = self.storage_decision(access_expression, |purpose| {
             purpose == StorageAccessPurpose::Borrow(kind)
-        })?;
+        });
 
         self.lower_materialized_access_place_with(
             initialization_expression,
@@ -156,7 +156,7 @@ impl Lowerer<'_> {
                 let value = commit
                     .result()
                     .map(MirOperand::Value)
-                    .ok_or(LoweringError::MissingOperationResult(access_expression))?;
+                    .unwrap_or_else(|| panic!("lowering contract violation: MissingOperationResult {value:?}", value = access_expression));
 
                 Ok(LoweredExpression::continuing(current, Some(value), source))
             },
@@ -179,14 +179,14 @@ impl Lowerer<'_> {
         current: MirBlockId,
         kind: BorrowKind,
     ) -> Result<LoweredExpression, LoweringError> {
-        let target = self.expression_type(operand)?;
+        let target = self.expression_type(operand);
 
         let result_type = self
             .input
             .semantic_values()
             .intern_type(TypeData::Borrow { kind, target })?;
 
-        let source = self.expression_source(operand)?;
+        let source = self.expression_source(operand);
 
         if let Some(value) = self.static_string_literal_borrow(operand, kind, result_type) {
             return Ok(LoweredExpression::continuing(current, Some(value), source));

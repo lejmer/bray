@@ -21,7 +21,7 @@ impl Lowerer<'_> {
         let plan = self
             .input
             .replacement(expression)
-            .ok_or(LoweringError::MissingSemanticSelection(expression))?;
+            .unwrap_or_else(|| panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = expression));
 
         let AsyncStorageCleanupRequirement::Cleanup(phases) = plan.cleanup() else {
             let ty = destination.ty();
@@ -142,7 +142,7 @@ impl Lowerer<'_> {
         let outcome = self
             .cleanup_outcome
             .take()
-            .ok_or(LoweringError::MissingSemanticSelection(expression))?;
+            .unwrap_or_else(|| panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = expression));
 
         let panicked = self
             .builder
@@ -240,7 +240,7 @@ impl Lowerer<'_> {
             .unwrap_or_default();
 
         if parts.is_empty() {
-            return Err(LoweringError::UnsupportedStorageAccess(plan.access()));
+            panic!("lowering contract violation: UnsupportedStorageAccess {value:?}", value = plan.access());
         }
 
         self.push_part_cleanup(

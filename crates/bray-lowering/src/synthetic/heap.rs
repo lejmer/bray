@@ -25,7 +25,6 @@ pub enum HeapStorageMethod {
     /// Releases storage after the target has been consumed or destroyed.
     Release,
 }
-
 /// Checked signature and specialization of one compiler-provided Heap method.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HeapStorageLoweringInput {
@@ -81,7 +80,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             target,
         } = input;
 
-        let missing = || SyntheticLoweringError::MissingCallableResult(definition);
+        let missing = || {
+            panic!("synthetic lowering callable {definition:?} must have a result type")
+        };
+
         let source = MirSourceAnchor::CompilerProvidedCallable(definition);
 
         let mut builder =
@@ -105,11 +107,11 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 entry,
                 &source,
                 parameter,
-                result.ok_or_else(missing)?,
+                result.unwrap_or_else(missing),
             )?,
             HeapStorageMethod::Borrow | HeapStorageMethod::BorrowMut => {
                 let pointer = self.heap_stored_pointer(parameter)?;
-                let result = result.ok_or_else(missing)?;
+                let result = result.unwrap_or_else(missing);
 
                 let value = push_heap_memory(
                     &mut builder,
@@ -168,7 +170,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
     ) -> Result<MirBlockId, C::Error> {
         let values = self.context.semantic_values();
         let invalid = |cause| self.capacity_error(cause);
-        let missing = || SyntheticLoweringError::MissingTypeResult(element);
+        let missing = || panic!("synthetic heap operation for {element:?} must produce a value");
         let pointer = self.heap_stored_pointer(parameter)?;
 
         let borrow_type = values
@@ -190,7 +192,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             Some(borrow_type),
         )
         .map_err(invalid)?
-        .ok_or_else(missing)?;
+        .unwrap_or_else(missing);
 
         let slot = builder
             .push_storage(source.clone(), MirStorageKind::Temporary, borrow_type)
@@ -231,7 +233,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         let data = self.context.semantic_values().type_data(parameter.ty());
 
         let TypeData::Borrow { target, .. } = data.as_ref() else {
-            return Err(SyntheticLoweringError::UnsupportedType(parameter.ty()).into());
+            panic!(
+                "synthetic heap storage parameter must be a borrow, got {:?}",
+                parameter.ty()
+            );
         };
 
         Ok(MirOperand::Copy(MirPlace::new(
@@ -266,7 +271,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 Some(usize_type),
             )
             .map_err(|cause| self.capacity_error(cause))?
-            .ok_or_else(|| SyntheticLoweringError::MissingTypeResult(element).into())
+            .map_or_else(
+                || panic!("synthetic heap layout query for {element:?} must produce a value"),
+                Ok,
+            )
         };
 
         Ok([
@@ -303,7 +311,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 byte_type,
             )
             .map_err(SyntheticLoweringError::SemanticValue)?
-            .ok_or(SyntheticLoweringError::UnresolvedType(byte_type))?;
+            .unwrap_or_else(|| panic!("synthetic lowering contract violation: UnresolvedType {value:?}", value = byte_type));
 
         let invalid = |cause| self.capacity_error(cause);
 
@@ -321,7 +329,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             )
             .map_err(invalid)?
             .result()
-            .ok_or(SyntheticLoweringError::UnresolvedType(pointer_type))?;
+            .unwrap_or_else(|| panic!("synthetic lowering contract violation: UnresolvedType {value:?}", value = pointer_type));
 
         let completed = builder
             .push_block(source.clone(), MirBlockKind::Ordinary)
