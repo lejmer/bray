@@ -193,7 +193,6 @@ fn native_product_failure_keys_are_unique_and_domain_named() {
             "partition_missing_compatibility",
         )),
         Kind::PartitionInvalidUnit(native_product_detail("partition_invalid_unit")),
-        Kind::GeneratedHostMirInvalid(native_product_detail("generated_host_mir_invalid")),
         Kind::ExecutableHostDuplicateRole(native_product_detail("executable_host_duplicate_role")),
         Kind::ExecutableHostMissingRuntime,
         Kind::ExecutableHostRuntimeOwnedBinding(native_product_detail(
@@ -250,8 +249,7 @@ fn native_product_failure_keys_are_unique_and_domain_named() {
         Kind::CodegenInvalidInstance(native_product_detail("codegen_invalid_instance")),
         Kind::CodegenInvalidUnit(native_product_detail("codegen_invalid_unit")),
         Kind::CodegenUnitMismatch(native_product_detail("codegen_unit_mismatch")),
-        Kind::CodegenInvalidHostMir(native_product_detail("codegen_invalid_host_mir")),
-        Kind::CodegenInvalidLifecycleMir(native_product_detail("codegen_invalid_lifecycle_mir")),
+        Kind::CodegenMirCapacityExceeded,
         Kind::CodegenInvalidMappings(native_product_detail("codegen_invalid_mappings")),
         Kind::CodegenMissingRuntimeRole(native_product_detail("codegen_missing_runtime_role")),
         Kind::CodegenOpenConstantTerm(native_product_detail("codegen_open_constant_term")),

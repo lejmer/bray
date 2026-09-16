@@ -10,7 +10,7 @@ use crate::{
     MirAggregateKind, MirAsyncOperation, MirBlockKind, MirCallArgument, MirCallTarget,
     MirGeneratorOperation, MirOperand, MirOperation, MirOperationId, MirOperationKind, MirPlace,
     MirProjectionKind, MirStorage, MirStorageId, MirStorageKind, MirTaskTerminalState, MirUnit,
-    MirUnitBuildError, MirValueId,
+    MirValueId,
 };
 
 use super::core::{validate_frame_state, validate_runtime_role};
@@ -22,9 +22,9 @@ pub(super) fn validate_operation(
     block_kind: MirBlockKind,
     id: MirOperationId,
     operation: &MirOperation,
-) -> Result<(), MirUnitBuildError> {
-    validate_operation_result(unit, id, operation)?;
-    validate_operation_block(block_kind, id, operation.kind())?;
+) -> Option<()> {
+    validate_operation_result(unit, operation)?;
+    validate_operation_block(block_kind, operation.kind())?;
 
     match operation.kind() {
         MirOperationKind::AdmitOutgoing { runtime, .. } => {
@@ -39,7 +39,7 @@ pub(super) fn validate_operation(
                 crate::MirAnonymousCallableReference::Bound(key)
                     if key.kind() != BoundUnitKind::AnonymousCallable
             ) {
-                return Err(MirUnitBuildError::InvalidAnonymousCallable(id));
+                return None;
             }
         }
         MirOperationKind::DeclaredCallable(_) => {}
@@ -50,9 +50,7 @@ pub(super) fn validate_operation(
             validate_operand(unit, value, block, Some(id))?;
 
             if unit.operand_type(value)? != destination.ty() {
-                return Err(MirUnitBuildError::StorageTypeMismatch(
-                    destination.storage(),
-                ));
+                return None;
             }
         }
         MirOperationKind::Borrow { place, .. }
@@ -70,7 +68,7 @@ pub(super) fn validate_operation(
             validate_operand(unit, query.operand(), block, Some(id))?;
 
             if unit.operand_type(query.operand())? != query.operand_type() {
-                return Err(MirUnitBuildError::OperationResultTypeMismatch(id));
+                return None;
             }
         }
         MirOperationKind::Binary { left, right, .. } => {
@@ -104,7 +102,7 @@ pub(super) fn validate_operation(
             };
 
             if !valid_arity {
-                return Err(MirUnitBuildError::InvalidAggregateOperation(id));
+                return None;
             }
 
             for operand in aggregate.operands() {
@@ -122,14 +120,14 @@ pub(super) fn validate_operation(
         }
         MirOperationKind::Text(operation) => {
             if operation.operands().len() != operation.operand_types().len() {
-                return Err(MirUnitBuildError::OperationResultTypeMismatch(id));
+                return None;
             }
 
             for (operand, ty) in operation.operands().iter().zip(operation.operand_types()) {
                 validate_operand(unit, operand, block, Some(id))?;
 
                 if unit.operand_type(operand)? != *ty {
-                    return Err(MirUnitBuildError::OperationResultTypeMismatch(id));
+                    return None;
                 }
             }
         }
@@ -137,18 +135,16 @@ pub(super) fn validate_operation(
             validate_async_operation(unit, block, id, operation)?;
         }
         MirOperationKind::Host(operation) => {
-            validate_host_operation(unit, id, operation)?;
+            validate_host_operation(unit, operation)?;
         }
     }
 
-    Ok(())
+    Some(())
 }
-
 fn validate_operation_block(
     block_kind: MirBlockKind,
-    operation: MirOperationId,
     kind: &MirOperationKind,
-) -> Result<(), MirUnitBuildError> {
+) -> Option<()> {
     let valid = match kind {
         MirOperationKind::Async(MirAsyncOperation::ExecuteCleanupBroadcast { .. }) => {
             block_kind == MirBlockKind::CleanupBroadcast
@@ -209,17 +205,15 @@ fn validate_operation_block(
     };
 
     if !valid {
-        return Err(MirUnitBuildError::InvalidOperationBlock(operation));
+        return None;
     }
 
-    Ok(())
+    Some(())
 }
-
 fn validate_operation_result(
     unit: &MirUnit,
-    id: MirOperationId,
     operation: &MirOperation,
-) -> Result<(), MirUnitBuildError> {
+) -> Option<()> {
     let requires_result = matches!(
         operation.kind(),
         MirOperationKind::AnonymousCallable(_)
@@ -280,20 +274,20 @@ fn validate_operation_result(
         || matches!(operation.kind(), MirOperationKind::Text(text) if text.result_type().is_none());
 
     if requires_result && operation.result().is_none() {
-        return Err(MirUnitBuildError::MissingOperationResult(id));
+        return None;
     }
 
     if rejects_result && operation.result().is_some() {
-        return Err(MirUnitBuildError::UnexpectedOperationResult(id));
+        return None;
     }
 
     if let (MirOperationKind::Text(text), Some(result)) = (operation.kind(), operation.result()) {
         let Some(result) = unit.value(result) else {
-            return Err(MirUnitBuildError::MissingValue(result));
+            return None;
         };
 
         if Some(result.ty()) != text.result_type() {
-            return Err(MirUnitBuildError::OperationResultTypeMismatch(id));
+            return None;
         }
     }
 
@@ -301,11 +295,11 @@ fn validate_operation_result(
         (operation.kind(), operation.result())
     {
         let Some(result) = unit.value(result) else {
-            return Err(MirUnitBuildError::MissingValue(result));
+            return None;
         };
 
         if result.ty() != query.result_type() {
-            return Err(MirUnitBuildError::OperationResultTypeMismatch(id));
+            return None;
         }
     }
 
@@ -318,23 +312,23 @@ fn validate_operation_result(
     ) = (operation.kind(), operation.result())
     {
         let Some(result) = unit.value(result) else {
-            return Err(MirUnitBuildError::MissingValue(result));
+            return None;
         };
 
         if unit.operand_type(operand)? != conversion.source_type()
             || result.ty() != conversion.target_type()
         {
-            return Err(MirUnitBuildError::OperationResultTypeMismatch(id));
+            return None;
         }
     }
 
     if let (MirOperationKind::Call(call), Some(result)) = (operation.kind(), operation.result()) {
         let Some(result) = unit.value(result) else {
-            return Err(MirUnitBuildError::MissingValue(result));
+            return None;
         };
 
         if result.ty() != call.result().ty() {
-            return Err(MirUnitBuildError::OperationResultTypeMismatch(id));
+            return None;
         }
     }
 
@@ -342,16 +336,16 @@ fn validate_operation_result(
         let produces_value = memory.kind().produces_value();
 
         if produces_value != operation.result().is_some() {
-            return Err(MirUnitBuildError::InvalidMemoryOperation(id));
+            return None;
         }
 
         if let Some(result) = operation.result() {
             let Some(result) = unit.value(result) else {
-                return Err(MirUnitBuildError::MissingValue(result));
+                return None;
             };
 
             if Some(result.ty()) != memory.result_type() {
-                return Err(MirUnitBuildError::OperationResultTypeMismatch(id));
+                return None;
             }
         }
     }
@@ -362,17 +356,16 @@ fn validate_operation_result(
     ) = (operation.kind(), operation.result())
     {
         let Some(result) = unit.value(result) else {
-            return Err(MirUnitBuildError::MissingValue(result));
+            return None;
         };
 
         if initializer.future_type() != Some(result.ty()) {
-            return Err(MirUnitBuildError::OperationResultTypeMismatch(id));
+            return None;
         }
     }
 
-    Ok(())
+    Some(())
 }
-
 #[cfg(test)]
 #[expect(
     clippy::items_after_test_module,
@@ -637,7 +630,7 @@ fn validate_call(
     block: crate::MirBlockId,
     operation: MirOperationId,
     call: &crate::MirCall,
-) -> Result<(), MirUnitBuildError> {
+) -> Option<()> {
     if call.is_cleanup()
         && (!matches!(call.target(), MirCallTarget::Direct(_))
             || !matches!(
@@ -645,7 +638,7 @@ fn validate_call(
                 bray_bound_tree::BoundCallResult::Immediate(_)
             ))
     {
-        return Err(MirUnitBuildError::InvalidCall(operation));
+        return None;
     }
 
     match call.target() {
@@ -655,7 +648,7 @@ fn validate_call(
                 .and_then(bray_symbols::CallableContractTemplate::source_template)
                 && contract.owner() != reference.instance().definition().callable_symbol()
             {
-                return Err(MirUnitBuildError::InvalidCall(operation));
+                return None;
             }
         }
         MirCallTarget::DefaultValue { owner, provider } => {
@@ -673,7 +666,7 @@ fn validate_call(
                     bray_bound_tree::BoundCallResult::Immediate(_)
                 )
             {
-                return Err(MirUnitBuildError::InvalidCall(operation));
+                return None;
             }
         }
         MirCallTarget::Runtime(reference) => {
@@ -688,12 +681,12 @@ fn validate_call(
         (bray_bound_tree::BoundCallResult::Immediate(_), Some(behaviors))
             if behaviors.deferred_execution().is_some() =>
         {
-            return Err(MirUnitBuildError::InvalidCall(operation));
+            return None;
         }
         (bray_bound_tree::BoundCallResult::LazyFuture(_), Some(behaviors))
             if behaviors.deferred_execution().is_none() =>
         {
-            return Err(MirUnitBuildError::InvalidCall(operation));
+            return None;
         }
         (
             bray_bound_tree::BoundCallResult::Immediate(_)
@@ -710,14 +703,14 @@ fn validate_call(
         match argument {
             MirCallArgument::Receiver { parameter, value } => {
                 if saw_receiver || !parameters.is_empty() {
-                    return Err(MirUnitBuildError::InvalidCall(operation));
+                    return None;
                 }
 
                 saw_receiver = true;
                 validate_operand(unit, value, block, Some(operation))?;
 
                 if !parameters.insert(AnySymbolId::from(*parameter)) {
-                    return Err(MirUnitBuildError::InvalidCall(operation));
+                    return None;
                 }
             }
             MirCallArgument::Explicit {
@@ -726,7 +719,7 @@ fn validate_call(
                 value,
             } => {
                 if !ordinals.insert(*ordinal) {
-                    return Err(MirUnitBuildError::InvalidCall(operation));
+                    return None;
                 }
 
                 validate_operand(unit, value, block, Some(operation))?;
@@ -734,13 +727,13 @@ fn validate_call(
                 if let Some(parameter) = parameter
                     && !parameters.insert(AnySymbolId::from(*parameter))
                 {
-                    return Err(MirUnitBuildError::InvalidCall(operation));
+                    return None;
                 }
             }
         }
     }
 
-    Ok(())
+    Some(())
 }
 
 fn validate_generator_operation(
@@ -748,7 +741,7 @@ fn validate_generator_operation(
     block: crate::MirBlockId,
     operation: MirOperationId,
     generator: &MirGeneratorOperation,
-) -> Result<(), MirUnitBuildError> {
+) -> Option<()> {
     let destination = match generator {
         MirGeneratorOperation::Begin { destination, .. }
         | MirGeneratorOperation::Finish { destination } => destination,
@@ -785,7 +778,7 @@ fn validate_construction(
     block: crate::MirBlockId,
     operation: MirOperationId,
     construction: &crate::MirConstruction,
-) -> Result<(), MirUnitBuildError> {
+) -> Option<()> {
     let mut inputs = BTreeSet::new();
     let mut ordinals = BTreeSet::new();
 
@@ -796,7 +789,7 @@ fn validate_construction(
             || !inputs.insert(input)
             || !ordinals.insert(supplied.ordinal())
         {
-            return Err(MirUnitBuildError::InvalidConstructionInput(operation));
+            return None;
         }
 
         validate_operand(unit, supplied.value(), block, Some(operation))?;
@@ -807,10 +800,10 @@ fn validate_construction(
         .enumerate()
         .any(|(expected, actual)| u32::try_from(expected) != Ok(*actual))
     {
-        return Err(MirUnitBuildError::InvalidConstructionInput(operation));
+        return None;
     }
 
-    Ok(())
+    Some(())
 }
 
 fn validate_async_operation(
@@ -818,7 +811,7 @@ fn validate_async_operation(
     block: crate::MirBlockId,
     operation_id: MirOperationId,
     operation: &MirAsyncOperation,
-) -> Result<(), MirUnitBuildError> {
+) -> Option<()> {
     match operation {
         MirAsyncOperation::CreateFrame { initializer, .. } => {
             validate_frame_initializer(unit, block, operation_id, initializer)?;
@@ -896,7 +889,7 @@ fn validate_async_operation(
         }
     }
 
-    Ok(())
+    Some(())
 }
 
 fn validate_frame_initializer(
@@ -904,7 +897,7 @@ fn validate_frame_initializer(
     block: crate::MirBlockId,
     operation: MirOperationId,
     initializer: &crate::MirFrameInitializer,
-) -> Result<(), MirUnitBuildError> {
+) -> Option<()> {
     match initializer {
         crate::MirFrameInitializer::Callable(call) => validate_call(unit, block, operation, call),
         crate::MirFrameInitializer::TaskObservation { task, runtime, .. } => {
@@ -920,12 +913,12 @@ fn validate_terminal_state(
     block: crate::MirBlockId,
     operation: MirOperationId,
     state: &MirTaskTerminalState,
-) -> Result<(), MirUnitBuildError> {
+) -> Option<()> {
     match state {
         MirTaskTerminalState::Completed(value) | MirTaskTerminalState::Panicked(value) => {
             validate_operand(unit, value, block, Some(operation))
         }
-        MirTaskTerminalState::Cancelled => Ok(()),
+        MirTaskTerminalState::Cancelled => Some(()),
     }
 }
 
@@ -934,10 +927,10 @@ pub(super) fn validate_operand(
     operand: &MirOperand,
     block: crate::MirBlockId,
     before: Option<MirOperationId>,
-) -> Result<(), MirUnitBuildError> {
+) -> Option<()> {
     match operand {
         MirOperand::Value(value) => validate_value_at(unit, *value, block, before),
-        MirOperand::Constant { .. } | MirOperand::Immediate { .. } => Ok(()),
+        MirOperand::Constant { .. } | MirOperand::Immediate { .. } => Some(()),
         MirOperand::Copy(place) | MirOperand::Move(place) => {
             validate_place(unit, place, block, before)
         }
@@ -949,18 +942,18 @@ pub(super) fn validate_place(
     place: &MirPlace,
     block: crate::MirBlockId,
     before: Option<MirOperationId>,
-) -> Result<(), MirUnitBuildError> {
+) -> Option<()> {
     validate_storage(unit, place.storage())?;
 
     let Some(storage) = unit.storage(place.storage()) else {
-        return Err(MirUnitBuildError::MissingStorage(place.storage()));
+        return None;
     };
 
     let mut expected_type = storage.ty();
 
     for projection in place.projections() {
         if projection.source_type() != expected_type {
-            return Err(MirUnitBuildError::StorageTypeMismatch(place.storage()));
+            return None;
         }
 
         match projection.kind() {
@@ -990,63 +983,59 @@ pub(super) fn validate_place(
     }
 
     if expected_type != place.ty() {
-        return Err(MirUnitBuildError::StorageTypeMismatch(place.storage()));
+        return None;
     }
 
-    Ok(())
+    Some(())
 }
 
 fn validate_current_frame(
     unit: &MirUnit,
     frame: bray_runtime_interface::ProtectedAsyncFrameId,
-) -> Result<(), MirUnitBuildError> {
+) -> Option<()> {
     if unit.kind().protected_frame() != Some(frame) {
-        return Err(MirUnitBuildError::ProtectedFrameMismatch);
+        return None;
     }
 
-    Ok(())
+    Some(())
 }
 
-fn validate_storage(unit: &MirUnit, storage: MirStorageId) -> Result<(), MirUnitBuildError> {
+fn validate_storage(unit: &MirUnit, storage: MirStorageId) -> Option<()> {
     if unit.storage(storage).is_none() {
-        return Err(if storage.unit() == unit.unit() {
-            MirUnitBuildError::MissingStorage(storage)
-        } else {
-            MirUnitBuildError::ForeignStorage(storage)
-        });
+        return None;
     }
 
-    Ok(())
+    Some(())
 }
 
 fn validate_storage_kind(
     unit: &MirUnit,
     storage: MirStorageId,
     expected: MirStorageKind,
-) -> Result<(), MirUnitBuildError> {
+) -> Option<()> {
     validate_storage(unit, storage)?;
 
     if unit.storage(storage).map(MirStorage::kind) != Some(&expected) {
-        return Err(MirUnitBuildError::StorageKindMismatch(storage));
+        return None;
     }
 
-    Ok(())
+    Some(())
 }
 
 fn validate_place_storage_kind(
     unit: &MirUnit,
     place: &MirPlace,
     expected: MirStorageKind,
-) -> Result<(), MirUnitBuildError> {
+) -> Option<()> {
     validate_storage_kind(unit, place.storage(), expected)
 }
 
-pub(super) fn validate_value(unit: &MirUnit, value: MirValueId) -> Result<(), MirUnitBuildError> {
+pub(super) fn validate_value(unit: &MirUnit, value: MirValueId) -> Option<()> {
     if unit.value(value).is_none() {
-        return Err(missing_or_foreign_value(unit, value));
+        return None;
     }
 
-    Ok(())
+    Some(())
 }
 
 fn validate_value_at(
@@ -1054,11 +1043,11 @@ fn validate_value_at(
     value: MirValueId,
     block: crate::MirBlockId,
     before: Option<MirOperationId>,
-) -> Result<(), MirUnitBuildError> {
+) -> Option<()> {
     validate_value(unit, value)?;
 
     let Some(value_data) = unit.value(value) else {
-        return Err(MirUnitBuildError::MissingValue(value));
+        return None;
     };
 
     let valid = match value_data.origin() {
@@ -1075,16 +1064,8 @@ fn validate_value_at(
     };
 
     if !valid {
-        return Err(MirUnitBuildError::ValueDoesNotDominateUse(value));
+        return None;
     }
 
-    Ok(())
-}
-
-fn missing_or_foreign_value(unit: &MirUnit, value: MirValueId) -> MirUnitBuildError {
-    if value.unit() == unit.unit() {
-        MirUnitBuildError::MissingValue(value)
-    } else {
-        MirUnitBuildError::ForeignValue(value)
-    }
+    Some(())
 }

@@ -1177,13 +1177,9 @@ mod tests {
 
         push_buffer_and_byte_operations(&mut builder, entry, &source, types, address, null, size);
 
-        builder
-            .set_terminator(entry, source.clone(), MirTerminatorKind::Return(None))
-            .unwrap_or_else(|error| panic!("memory test return must be valid: {error:?}"));
+        builder.set_terminator(entry, source.clone(), MirTerminatorKind::Return(None));
 
-        let mir = builder
-            .finish(entry)
-            .unwrap_or_else(|error| panic!("memory test MIR must be valid: {error:?}"));
+        let mir = builder.finish(entry);
 
         let allocation = helper_instance_key(172, 1, mir.target());
         let deallocation = helper_instance_key(173, 2, mir.target());

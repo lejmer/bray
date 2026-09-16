@@ -1,6 +1,6 @@
 use bray_bound_tree::CheckedMemoryOperationKind;
 
-use crate::{MirMemoryOperation, MirOperationId, MirUnit, MirUnitBuildError};
+use crate::{MirMemoryOperation, MirOperationId, MirUnit};
 
 use super::operation::validate_operand;
 
@@ -9,27 +9,27 @@ pub(super) fn validate_memory_operation(
     block: crate::MirBlockId,
     operation: MirOperationId,
     memory: &MirMemoryOperation,
-) -> Result<(), MirUnitBuildError> {
+) -> Option<()> {
     if !memory.kind().has_valid_atomic_ordering() {
-        return Err(MirUnitBuildError::InvalidMemoryOperation(operation));
+        return None;
     }
 
     let expected = memory.kind().operand_count();
 
     if memory.operands().len() != expected || memory.operand_types().len() != expected {
-        return Err(MirUnitBuildError::InvalidMemoryOperation(operation));
+        return None;
     }
 
     for (operand, expected_type) in memory.operands().iter().zip(memory.operand_types()) {
         validate_operand(unit, operand, block, Some(operation))?;
 
         if unit.operand_type(operand)? != *expected_type {
-            return Err(MirUnitBuildError::InvalidMemoryOperation(operation));
+            return None;
         }
     }
 
     if memory.kind().produces_value() != memory.result_type().is_some() {
-        return Err(MirUnitBuildError::InvalidMemoryOperation(operation));
+        return None;
     }
 
     if !matches!(
@@ -37,7 +37,7 @@ pub(super) fn validate_memory_operation(
         CheckedMemoryOperationKind::InlineAssembly { .. }
     ) && !memory.inline_assembly_symbols().is_empty()
     {
-        return Err(MirUnitBuildError::InvalidMemoryOperation(operation));
+        return None;
     }
 
     let types = memory.operand_types();
@@ -126,8 +126,8 @@ pub(super) fn validate_memory_operation(
     };
 
     if !valid {
-        return Err(MirUnitBuildError::InvalidMemoryOperation(operation));
+        return None;
     }
 
-    Ok(())
+    Some(())
 }

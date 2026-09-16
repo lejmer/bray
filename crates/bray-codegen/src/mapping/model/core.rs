@@ -827,13 +827,9 @@ mod tests {
             .push_block(source.clone(), MirBlockKind::Ordinary)
             .unwrap_or_else(|error| panic!("test block must validate: {error:?}"));
 
-        builder
-            .set_terminator(entry, source, MirTerminatorKind::Return(None))
-            .unwrap_or_else(|error| panic!("test terminator must validate: {error:?}"));
+        builder.set_terminator(entry, source, MirTerminatorKind::Return(None));
 
-        let mir = builder
-            .finish(entry)
-            .unwrap_or_else(|error| panic!("test MIR must validate: {error:?}"));
+        let mir = builder.finish(entry);
 
         let first_key = CodegenInstanceKey::new(
             mir.key().clone(),
@@ -1102,13 +1098,9 @@ mod tests {
             )
             .unwrap_or_else(|error| panic!("constant test store must build: {error:?}"));
 
-        builder
-            .set_terminator(entry, source, MirTerminatorKind::Return(None))
-            .unwrap_or_else(|error| panic!("constant test return must build: {error:?}"));
+        builder.set_terminator(entry, source, MirTerminatorKind::Return(None));
 
-        let mir = builder
-            .finish(entry)
-            .unwrap_or_else(|error| panic!("constant test MIR must validate: {error:?}"));
+        let mir = builder.finish(entry);
 
         let unit = CodegenUnit::try_new(
             CodegenPartitionPolicy::NATIVE_BALANCED,
@@ -1464,13 +1456,9 @@ mod tests {
             panic!("test runtime operation must be valid: {error:?}");
         }
 
-        let Ok(()) = builder.set_terminator(entry, source, MirTerminatorKind::Return(None)) else {
-            panic!("test runtime terminator must be valid");
-        };
+        builder.set_terminator(entry, source, MirTerminatorKind::Return(None));
 
-        let Ok(mir) = builder.finish(entry) else {
-            panic!("test runtime MIR must be valid");
-        };
+        let mir = builder.finish(entry);
 
         let Ok(unit) = CodegenUnit::try_new(
             CodegenPartitionPolicy::NATIVE_BALANCED,

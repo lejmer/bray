@@ -36,10 +36,6 @@ pub(super) fn identity_failure_detail(
     )
 }
 
-pub(super) fn count_failure_field(name: &'static str, value: u32) -> DiagnosticFailureField {
-    DiagnosticFailureField::new(name, DiagnosticFailureValue::Count(u64::from(value)))
-}
-
 pub(super) const fn protected_frame_abi_operation(
     operation: bray_runtime_interface::ProtectedFrameAbiOperation,
 ) -> &'static str {

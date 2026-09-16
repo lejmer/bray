@@ -183,7 +183,7 @@ impl Lowerer<'_> {
         };
 
         if let Some(owner) = released_owner {
-            let kind = self.builder.block_kind(block)?;
+            let kind = self.builder.block_kind(block);
 
             for (target, parameter) in [(&mut panicked, Some(report_type)), (&mut cancelled, None)]
             {

@@ -9,8 +9,7 @@ use crate::{
     MirUnit, MirUnitId, MirUnitKey, MirUnitKind, MirValue, MirValueId, MirValueOrigin,
 };
 
-use super::MirUnitBuildError;
-use super::validation::validate_unit;
+use super::MirCapacityError;
 
 #[derive(Debug)]
 pub(super) struct MirBlockBuilder {
@@ -21,7 +20,7 @@ pub(super) struct MirBlockBuilder {
     terminator: Option<MirTerminator>,
 }
 
-/// Builder for one validated immutable MIR unit.
+/// Builder for one immutable MIR unit.
 #[derive(Debug)]
 pub struct MirUnitBuilder {
     key: MirUnitKey,
@@ -153,29 +152,21 @@ impl MirUnitBuilder {
     }
 
     /// Attaches the hidden descriptor for this unit's protected async frame.
-    pub fn set_frame_descriptor(
-        &mut self,
-        descriptor: MirFrameDescriptor,
-    ) -> Result<(), MirUnitBuildError> {
-        if self.frame_descriptor.is_some() {
-            return Err(MirUnitBuildError::DuplicateFrameDescriptor);
-        }
+    pub fn set_frame_descriptor(&mut self, descriptor: MirFrameDescriptor) {
+        assert!(
+            self.frame_descriptor.is_none(),
+            "MIR unit already has a frame descriptor"
+        );
 
         match &self.kind {
             MirUnitKind::ProtectedAsyncFrame(frame) if *frame == descriptor.frame() => {}
-            MirUnitKind::ProtectedAsyncFrame(_) => {
-                return Err(MirUnitBuildError::ProtectedFrameMismatch);
-            }
+            MirUnitKind::ProtectedAsyncFrame(_) => panic!("MIR frame descriptor has the wrong frame"),
             MirUnitKind::Synchronous
             | MirUnitKind::ExecutableHost(_)
-            | MirUnitKind::GeneratedLifecycle(_) => {
-                return Err(MirUnitBuildError::UnexpectedFrameDescriptor);
-            }
+            | MirUnitKind::GeneratedLifecycle(_) => panic!("MIR unit cannot carry a frame descriptor"),
         }
 
         self.frame_descriptor = Some(descriptor);
-
-        Ok(())
     }
 
     /// Adds one block in deterministic construction order.
@@ -183,8 +174,8 @@ impl MirUnitBuilder {
         &mut self,
         source: MirSourceAnchor,
         kind: MirBlockKind,
-    ) -> Result<MirBlockId, MirUnitBuildError> {
-        self.validate_source(&source)?;
+    ) -> Result<MirBlockId, MirCapacityError> {
+        self.assert_source(&source);
 
         let id = MirBlockId::from_slot(self.unit, compact_slot(self.blocks.len())?);
 
@@ -200,13 +191,14 @@ impl MirUnitBuilder {
     }
 
     /// Returns the category of a block already allocated by this builder.
-    pub fn block_kind(&self, block: MirBlockId) -> Result<MirBlockKind, MirUnitBuildError> {
-        Ok(self.blocks[self.block_index(block)?].kind)
+    pub fn block_kind(&self, block: MirBlockId) -> MirBlockKind {
+        self.blocks[self.block_index(block)].kind
     }
 
     /// Resolves the type of an operand while its unit is still being built.
-    pub fn operand_type(&self, operand: &crate::MirOperand) -> Result<TypeId, MirUnitBuildError> {
+    pub fn operand_type(&self, operand: &crate::MirOperand) -> TypeId {
         super::model::resolve_operand_type(self.unit, &self.values, operand)
+            .expect("MIR operand must reference a value owned by this unit")
     }
 
     /// Adds one incoming block value in parameter order.
@@ -215,10 +207,10 @@ impl MirUnitBuilder {
         block: MirBlockId,
         source: MirSourceAnchor,
         ty: TypeId,
-    ) -> Result<MirValueId, MirUnitBuildError> {
-        self.validate_source(&source)?;
+    ) -> Result<MirValueId, MirCapacityError> {
+        self.assert_source(&source);
 
-        let block_index = self.block_index(block)?;
+        let block_index = self.block_index(block);
         let value = MirValueId::from_slot(self.unit, compact_slot(self.values.len())?);
 
         self.values.push(MirValue::new(
@@ -238,8 +230,8 @@ impl MirUnitBuilder {
         source: MirSourceAnchor,
         kind: MirStorageKind,
         ty: TypeId,
-    ) -> Result<MirStorageId, MirUnitBuildError> {
-        self.validate_source(&source)?;
+    ) -> Result<MirStorageId, MirCapacityError> {
+        self.assert_source(&source);
 
         let id = MirStorageId::from_slot(self.unit, compact_slot(self.storages.len())?);
 
@@ -255,10 +247,10 @@ impl MirUnitBuilder {
         source: MirSourceAnchor,
         kind: MirOperationKind,
         result_type: Option<TypeId>,
-    ) -> Result<MirOperationCommit, MirUnitBuildError> {
-        self.validate_source(&source)?;
+    ) -> Result<MirOperationCommit, MirCapacityError> {
+        self.assert_source(&source);
 
-        let block_index = self.block_index(block)?;
+        let block_index = self.block_index(block);
         let operation = MirOperationId::from_slot(self.unit, compact_slot(self.operations.len())?);
 
         let result = match result_type {
@@ -291,18 +283,17 @@ impl MirUnitBuilder {
         block: MirBlockId,
         source: MirSourceAnchor,
         kind: MirTerminatorKind,
-    ) -> Result<(), MirUnitBuildError> {
-        self.validate_source(&source)?;
+    ) {
+        self.assert_source(&source);
 
-        let block_index = self.block_index(block)?;
+        let block_index = self.block_index(block);
 
-        if self.blocks[block_index].terminator.is_some() {
-            return Err(MirUnitBuildError::DuplicateTerminator(block));
-        }
+        assert!(
+            self.blocks[block_index].terminator.is_none(),
+            "MIR block already has a terminator"
+        );
 
         self.blocks[block_index].terminator = Some(MirTerminator::new(source, kind));
-
-        Ok(())
     }
 
     /// Visits already terminated blocks while the unit is still being built.
@@ -319,10 +310,10 @@ impl MirUnitBuilder {
     }
 
     /// Returns whether any completed block transfers control to the target block.
-    pub fn has_incoming_edge(&self, target: MirBlockId) -> Result<bool, MirUnitBuildError> {
-        self.block_index(target)?;
+    pub fn has_incoming_edge(&self, target: MirBlockId) -> bool {
+        self.block_index(target);
 
-        Ok(self.blocks.iter().any(|block| {
+        self.blocks.iter().any(|block| {
             block.terminator.as_ref().is_some_and(|terminator| {
                 let mut reaches_target = false;
 
@@ -332,7 +323,7 @@ impl MirUnitBuilder {
 
                 reaches_target
             })
-        }))
+        })
     }
 
     /// Returns whether completed control flow can reach the target from the entry block.
@@ -340,9 +331,9 @@ impl MirUnitBuilder {
         &self,
         entry: MirBlockId,
         target: MirBlockId,
-    ) -> Result<bool, MirUnitBuildError> {
-        let entry_index = self.block_index(entry)?;
-        let target_index = self.block_index(target)?;
+    ) -> bool {
+        let entry_index = self.block_index(entry);
+        let target_index = self.block_index(target);
         let mut visited = vec![false; self.blocks.len()];
         let mut pending = vec![entry_index];
 
@@ -352,7 +343,7 @@ impl MirUnitBuilder {
             }
 
             if index == target_index {
-                return Ok(true);
+                return true;
             }
 
             visited[index] = true;
@@ -361,52 +352,48 @@ impl MirUnitBuilder {
                 continue;
             };
 
-            let mut invalid_successor = None;
-
             terminator
                 .kind()
-                .for_each_successor(|successor| match self.block_index(successor) {
-                    Ok(index) => pending.push(index),
-                    Err(error) => invalid_successor = Some(error),
-                });
-
-            if let Some(error) = invalid_successor {
-                return Err(error);
-            }
+                .for_each_successor(|successor| pending.push(self.block_index(successor)));
         }
 
-        Ok(false)
+        false
     }
 
-    /// Completes the MIR unit after validating all identities and control-flow contracts.
-    pub fn finish(self, entry: MirBlockId) -> Result<MirUnit, MirUnitBuildError> {
-        if entry.unit() != self.unit {
-            return Err(MirUnitBuildError::ForeignBlock {
-                expected: self.unit,
-                actual: entry.unit(),
-            });
-        }
+    /// Completes the MIR unit after its producers have established their contracts.
+    pub fn finish(self, entry: MirBlockId) -> MirUnit {
+        assert_eq!(
+            entry.unit(),
+            self.unit,
+            "MIR entry block belongs to another unit"
+        );
+
+        assert_eq!(
+            self.block_kind(entry),
+            MirBlockKind::Ordinary,
+            "MIR entry block must be ordinary"
+        );
 
         let blocks = self
             .blocks
             .into_iter()
             .enumerate()
             .map(|(index, block)| {
-                let id = MirBlockId::from_slot(self.unit, compact_slot(index)?);
+                compact_slot(index).expect("MIR block identity capacity was checked at insertion");
 
-                let Some(terminator) = block.terminator else {
-                    return Err(MirUnitBuildError::MissingTerminator(id));
-                };
+                let terminator = block
+                    .terminator
+                    .expect("MIR blocks must be terminated before finishing");
 
-                Ok(MirBlock::new(
+                MirBlock::new(
                     block.source,
                     block.kind,
                     block.parameters,
                     block.operations,
                     terminator,
-                ))
+                )
             })
-            .collect::<Result<Vec<_>, _>>()?;
+            .collect::<Vec<_>>();
 
         let unit = MirUnit {
             key: self.key,
@@ -422,41 +409,32 @@ impl MirUnitBuilder {
             values: self.values.into(),
         };
 
-        validate_unit(&unit)?;
-
-        Ok(unit)
+        unit
     }
 
-    fn validate_source(&self, source: &MirSourceAnchor) -> Result<(), MirUnitBuildError> {
-        if !source.belongs_to(&self.source) {
-            return Err(MirUnitBuildError::SourceOriginMismatch);
-        }
-
-        Ok(())
+    fn assert_source(&self, source: &MirSourceAnchor) {
+        assert!(
+            source.belongs_to(&self.source),
+            "MIR source anchor belongs to another unit"
+        );
     }
 
-    fn block_index(&self, block: MirBlockId) -> Result<usize, MirUnitBuildError> {
-        if block.unit() != self.unit {
-            return Err(MirUnitBuildError::ForeignBlock {
-                expected: self.unit,
-                actual: block.unit(),
-            });
-        }
+    fn block_index(&self, block: MirBlockId) -> usize {
+        assert_eq!(
+            block.unit(),
+            self.unit,
+            "MIR block belongs to another unit"
+        );
 
-        let Some(index) = block.to_index() else {
-            return Err(MirUnitBuildError::MissingBlock(block));
-        };
+        let index = block.to_index().expect("MIR block has no valid slot");
+        assert!(index < self.blocks.len(), "MIR block was not allocated");
 
-        if index >= self.blocks.len() {
-            return Err(MirUnitBuildError::MissingBlock(block));
-        }
-
-        Ok(index)
+        index
     }
 }
 
-fn compact_slot(index: usize) -> Result<u32, MirUnitBuildError> {
-    crate::id::compact_slot(index).ok_or(MirUnitBuildError::IdentityCapacityExceeded)
+fn compact_slot(index: usize) -> Result<u32, MirCapacityError> {
+    crate::id::compact_slot(index).ok_or(MirCapacityError::IdentityCapacityExceeded)
 }
 
 #[cfg(test)]
@@ -475,7 +453,7 @@ mod tests {
         MirCleanupPhase, MirEdge, MirFrameDescriptor, MirFrameState, MirFrameStateId,
         MirImmediateValue, MirMemoryOperation, MirOperand, MirOperationKind, MirPlace,
         MirProjection, MirProjectionKind, MirRuntimeReference, MirSourceAnchor, MirStorageKind,
-        MirTerminatorKind, MirUnitBuildError, MirUnitKind,
+        MirTerminatorKind, MirUnitKind,
     };
 
     #[test]
@@ -505,21 +483,19 @@ mod tests {
             MirSourceAnchor::CompilerProvidedCallable(definition(4)),
             MirSourceAnchor::from(bound.key().source()),
         ] {
-            assert_eq!(
-                builder.push_block(foreign, MirBlockKind::Ordinary),
-                Err(MirUnitBuildError::SourceOriginMismatch)
-            );
+            assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                builder.push_block(foreign, MirBlockKind::Ordinary)
+            }))
+            .is_err());
         }
 
         let entry = builder
             .push_block(source.clone(), MirBlockKind::Ordinary)
             .unwrap();
 
-        builder
-            .set_terminator(entry, source, MirTerminatorKind::Return(None))
-            .unwrap();
+        builder.set_terminator(entry, source, MirTerminatorKind::Return(None));
 
-        let unit = builder.finish(entry).unwrap();
+        let unit = builder.finish(entry);
 
         assert_eq!(
             unit.key(),
@@ -603,20 +579,20 @@ mod tests {
             .unwrap();
 
         let value = builder.push_block_parameter(entry, source, ty).unwrap();
-        assert_eq!(builder.block_kind(entry), Ok(MirBlockKind::Ordinary));
-        assert_eq!(builder.operand_type(&MirOperand::Value(value)), Ok(ty));
+        assert_eq!(builder.block_kind(entry), MirBlockKind::Ordinary);
+        assert_eq!(builder.operand_type(&MirOperand::Value(value)), ty);
         let foreign = crate::MirValueId::from_slot(crate::MirUnitId::new(97), 0);
         let missing = crate::MirValueId::from_slot(entry.unit(), 10);
 
-        assert_eq!(
-            builder.operand_type(&MirOperand::Value(foreign)),
-            Err(MirUnitBuildError::ForeignValue(foreign))
-        );
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            builder.operand_type(&MirOperand::Value(foreign))
+        }))
+        .is_err());
 
-        assert_eq!(
-            builder.operand_type(&MirOperand::Value(missing)),
-            Err(MirUnitBuildError::MissingValue(missing))
-        );
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            builder.operand_type(&MirOperand::Value(missing))
+        }))
+        .is_err());
 
         for operand in [
             MirOperand::Immediate {
@@ -629,7 +605,7 @@ mod tests {
                 ty,
             )),
         ] {
-            assert_eq!(builder.operand_type(&operand), Ok(ty));
+            assert_eq!(builder.operand_type(&operand), ty);
         }
     }
 
@@ -643,7 +619,7 @@ mod tests {
         let entry = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
         let join = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
 
-        assert_eq!(builder.has_incoming_edge(join), Ok(false));
+        assert!(!builder.has_incoming_edge(join));
 
         set_terminator(
             &mut builder,
@@ -652,7 +628,7 @@ mod tests {
             MirTerminatorKind::Goto(MirEdge::new(join, [])),
         );
 
-        assert_eq!(builder.has_incoming_edge(join), Ok(true));
+        assert!(builder.has_incoming_edge(join));
     }
 
     #[test]
@@ -680,9 +656,9 @@ mod tests {
             MirTerminatorKind::Goto(MirEdge::new(join, [])),
         );
 
-        assert_eq!(builder.has_incoming_edge(join), Ok(true));
-        assert_eq!(builder.is_reachable(entry, join), Ok(false));
-        assert_eq!(builder.is_reachable(disconnected, join), Ok(true));
+        assert!(builder.has_incoming_edge(join));
+        assert!(!builder.is_reachable(entry, join));
+        assert!(builder.is_reachable(disconnected, join));
     }
 
     #[test]
@@ -773,10 +749,7 @@ mod tests {
             MirTerminatorKind::Return(None),
         );
 
-        assert_eq!(
-            builder.finish(entry),
-            Err(MirUnitBuildError::CleanupPhaseOrderViolation(entry))
-        );
+        assert!(!builder.finish(entry).is_valid());
     }
 
     #[test]
@@ -808,10 +781,7 @@ mod tests {
             MirTerminatorKind::Return(None),
         );
 
-        assert_eq!(
-            builder.finish(entry),
-            Err(MirUnitBuildError::CleanupPhaseOrderViolation(lifecycle))
-        );
+        assert!(!builder.finish(entry).is_valid());
     }
 
     #[test]
@@ -835,10 +805,7 @@ mod tests {
 
         set_terminator(&mut builder, other, source, MirTerminatorKind::Return(None));
 
-        assert_eq!(
-            builder.finish(entry),
-            Err(MirUnitBuildError::ValueDoesNotDominateUse(foreign))
-        );
+        assert!(!builder.finish(entry).is_valid());
     }
 
     #[test]
@@ -853,7 +820,7 @@ mod tests {
         let storage = push_storage(&mut builder, source.clone(), ty);
         let place = MirPlace::new(storage, [], ty);
 
-        let operation = match builder.push_operation(
+        let _operation = match builder.push_operation(
             entry,
             source.clone(),
             MirOperationKind::Borrow {
@@ -868,10 +835,7 @@ mod tests {
 
         set_terminator(&mut builder, entry, source, MirTerminatorKind::Return(None));
 
-        assert_eq!(
-            builder.finish(entry),
-            Err(MirUnitBuildError::MissingOperationResult(operation))
-        );
+        assert!(!builder.finish(entry).is_valid());
     }
 
     #[test]
@@ -889,7 +853,7 @@ mod tests {
             let mut builder = unit_builder(&bound, MirUnitKind::Synchronous);
             let entry = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
 
-            let operation = match builder.push_operation(
+            let _operation = match builder.push_operation(
                 entry,
                 source.clone(),
                 MirOperationKind::Aggregate(MirAggregate::new(
@@ -910,12 +874,9 @@ mod tests {
             );
 
             if count == 1 {
-                assert!(builder.finish(entry).is_ok());
+                assert!(builder.finish(entry).is_valid());
             } else {
-                assert_eq!(
-                    builder.finish(entry),
-                    Err(MirUnitBuildError::InvalidAggregateOperation(operation))
-                );
+                assert!(!builder.finish(entry).is_valid());
             }
         }
     }
@@ -934,7 +895,7 @@ mod tests {
         let mut builder = unit_builder(&bound, MirUnitKind::Synchronous);
         let entry = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
 
-        let operation = match builder.push_operation(
+        let _operation = match builder.push_operation(
             entry,
             source.clone(),
             MirOperationKind::Memory(MirMemoryOperation::new(
@@ -951,10 +912,7 @@ mod tests {
 
         set_terminator(&mut builder, entry, source, MirTerminatorKind::Return(None));
 
-        assert_eq!(
-            builder.finish(entry),
-            Err(MirUnitBuildError::InvalidMemoryOperation(operation))
-        );
+        assert!(!builder.finish(entry).is_valid());
     }
 
     #[test]
@@ -972,7 +930,7 @@ mod tests {
         let mut builder = unit_builder(&bound, MirUnitKind::Synchronous);
         let entry = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
 
-        let operation = match builder.push_operation(
+        let _operation = match builder.push_operation(
             entry,
             source.clone(),
             MirOperationKind::Memory(MirMemoryOperation::new(
@@ -989,10 +947,7 @@ mod tests {
 
         set_terminator(&mut builder, entry, source, MirTerminatorKind::Return(None));
 
-        assert_eq!(
-            builder.finish(entry),
-            Err(MirUnitBuildError::InvalidMemoryOperation(operation))
-        );
+        assert!(!builder.finish(entry).is_valid());
     }
 
     #[test]
@@ -1009,7 +964,7 @@ mod tests {
         let mut builder = unit_builder(&bound, MirUnitKind::Synchronous);
         let entry = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
 
-        let operation = match builder.push_operation(
+        let _operation = match builder.push_operation(
             entry,
             source.clone(),
             MirOperationKind::Memory(MirMemoryOperation::new(
@@ -1029,10 +984,7 @@ mod tests {
 
         set_terminator(&mut builder, entry, source, MirTerminatorKind::Return(None));
 
-        assert_eq!(
-            builder.finish(entry),
-            Err(MirUnitBuildError::InvalidMemoryOperation(operation))
-        );
+        assert!(!builder.finish(entry).is_valid());
     }
 
     #[test]
@@ -1069,10 +1021,7 @@ mod tests {
 
         set_terminator(&mut builder, entry, source, MirTerminatorKind::Return(None));
 
-        assert_eq!(
-            builder.finish(entry),
-            Err(MirUnitBuildError::StorageTypeMismatch(storage))
-        );
+        assert!(!builder.finish(entry).is_valid());
     }
 
     #[test]
@@ -1134,14 +1083,10 @@ mod tests {
             let unit = builder.finish(entry);
 
             if !fallible {
-                assert_eq!(unit, Err(MirUnitBuildError::InvalidCallPanicCheck(entry)));
+                assert!(!unit.is_valid());
             } else if cancellation_kind != MirBlockKind::Ordinary {
-                assert_eq!(
-                    unit,
-                    Err(MirUnitBuildError::CleanupPhaseOrderViolation(cancelled))
-                );
+                assert!(!unit.is_valid());
             } else {
-                let unit = unit.unwrap();
                 let mut successors = Vec::new();
 
                 unit.block(entry)
@@ -1168,10 +1113,10 @@ mod tests {
             MirBlockKind::Ordinary,
         );
 
-        assert_eq!(
-            builder.finish(entry),
-            Err(MirUnitBuildError::MissingTerminator(entry))
-        );
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            builder.finish(entry)
+        }))
+        .is_err());
 
         let mut builder = unit_builder(&bound, MirUnitKind::Synchronous);
 
@@ -1180,13 +1125,13 @@ mod tests {
             SourceVersion::new(source.source_version().raw() + 1),
         );
 
-        assert_eq!(
+        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             builder.push_block(
                 MirSourceAnchor::source(BoundNodeOrigin::source(foreign)),
                 MirBlockKind::Ordinary,
-            ),
-            Err(MirUnitBuildError::SourceOriginMismatch)
-        );
+            )
+        }))
+        .is_err());
     }
 
     #[test]
@@ -1226,17 +1171,9 @@ mod tests {
 
         let descriptor = frame_descriptor(frame, entry, ty);
 
-        if let Err(error) = builder.set_frame_descriptor(descriptor) {
-            panic!("test frame descriptor must commit: {error:?}");
-        }
+        builder.set_frame_descriptor(descriptor);
 
-        assert_eq!(
-            builder.finish(entry),
-            Err(MirUnitBuildError::RuntimeRoleMismatch {
-                expected: RuntimeAbiRole::TaskCancellationRequest,
-                actual: RuntimeAbiRole::TaskStart,
-            })
-        );
+        assert!(!builder.finish(entry).is_valid());
     }
 
     #[test]
@@ -1294,16 +1231,11 @@ mod tests {
         source: MirSourceAnchor,
         terminator: MirTerminatorKind,
     ) {
-        if let Err(error) = builder.set_terminator(block, source, terminator) {
-            panic!("test MIR terminator must be valid: {error:?}");
-        }
+        builder.set_terminator(block, source, terminator);
     }
 
     fn finish(builder: MirUnitBuilder, entry: crate::MirBlockId) -> crate::MirUnit {
-        match builder.finish(entry) {
-            Ok(unit) => unit,
-            Err(error) => panic!("test MIR unit must be valid: {error:?}"),
-        }
+        builder.finish(entry)
     }
 
     fn frame_descriptor(
@@ -1315,7 +1247,7 @@ mod tests {
 
         let abi = RuntimeAbiVersion::new(1, 0);
 
-        match MirFrameDescriptor::try_new(
+        match MirFrameDescriptor::new(
             frame,
             abi,
             ProtectedFrameAbiVersions::uniform(abi),

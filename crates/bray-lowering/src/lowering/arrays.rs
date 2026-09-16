@@ -2,7 +2,7 @@ use bray_bound_tree::{CheckedMemoryOperationKind, StorageAccessId, StorageCleanu
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{
     MirBlockId, MirCleanupPhase, MirMemoryOperation, MirOperand, MirOperationKind, MirPlace,
-    MirProjection, MirProjectionKind, MirSourceAnchor, MirUnitBuildError, MirValueId,
+    MirProjection, MirProjectionKind, MirSourceAnchor, MirValueId,
 };
 use bray_symbols::{BorrowKind, TypeData, TypeId};
 
@@ -262,8 +262,10 @@ impl Lowerer<'_> {
     ) -> Result<MirOperand, LoweringError> {
         let commit = self.push_operation(block, Self::retained_source(source), kind, Some(ty))?;
 
-        Ok(MirOperand::Value(commit.result().ok_or(
-            MirUnitBuildError::MissingOperationResult(commit.operation()),
-        )?))
+        Ok(MirOperand::Value(
+            commit
+                .result()
+                .expect("value-producing MIR operation must publish a result"),
+        ))
     }
 }

@@ -1,5 +1,7 @@
 // rust-style: allow(module-too-large, reason = "the executable MIR wire decoder keeps one exhaustive operation and terminator mapping")
 
+use std::collections::BTreeSet;
+
 use bray_bound_tree::{
     BoundCallResult, BoundFutureConstruction, CheckedMemoryOperationKind, ConstructionInputId,
     ConstructionTarget, ConversionTarget, DefaultValueProvider, InlineAssemblyContract,
@@ -15,7 +17,7 @@ use bray_ir::{
     MirOperand, MirOperationKind, MirPanicCause, MirPatternPredicate, MirPlace, MirProjection,
     MirProjectionKind, MirRuntimeReference, MirSourceAnchor, MirStorageId, MirStorageKind,
     MirStoreKind, MirSwitchCase, MirTargetContract, MirTerminatorKind, MirTextOperation,
-    MirTextOperationKind, MirUnaryOperator, MirUnit, MirUnitBuildError, MirUnitBuilder, MirUnitId,
+    MirTextOperationKind, MirUnaryOperator, MirUnit, MirUnitBuilder, MirUnitId,
     MirUnitKind, MirValueId,
 };
 use bray_runtime_interface::{
@@ -50,8 +52,6 @@ pub enum ExecutableTemplateDecodeError {
     TargetMismatch,
     /// The encoded template violated package-interface validation policy.
     Validation(InterfaceValidationError),
-    /// The reconstructed MIR failed ordinary unit validation.
-    InvalidMir(MirUnitBuildError),
 }
 
 /// Reconstructs one source-independent executable template for a consumer target.
@@ -89,7 +89,8 @@ pub fn decode_executable_template(
         .with_platform_service(template.platform_service());
 
     let source = MirSourceAnchor::imported_executable(key);
-    let mut builder = MirUnitBuilder::for_imported_executable(unit, key, kind, target);
+    let target_abi = target.runtime_abi();
+    let mut builder = MirUnitBuilder::for_imported_executable(unit, key, kind.clone(), target);
 
     let block_count = decoder.count()?;
     let mut block_records = decoder.items(block_count)?;
@@ -104,7 +105,7 @@ pub fn decode_executable_template(
 
         let block = builder
             .push_block(source.clone(), kind)
-            .map_err(ExecutableTemplateDecodeError::InvalidMir)?;
+            .map_err(|_| ExecutableTemplateDecodeError::Malformed)?;
 
         blocks.push(block);
 
@@ -125,7 +126,7 @@ pub fn decode_executable_template(
 
         let storage = builder
             .push_storage(source.clone(), kind, ty)
-            .map_err(ExecutableTemplateDecodeError::InvalidMir)?;
+            .map_err(|_| ExecutableTemplateDecodeError::Malformed)?;
 
         storages.push(storage);
     }
@@ -190,7 +191,7 @@ pub fn decode_executable_template(
 
                 let id = builder
                     .push_block_parameter(block, source.clone(), value.ty)
-                    .map_err(ExecutableTemplateDecodeError::InvalidMir)?;
+                    .map_err(|_| ExecutableTemplateDecodeError::Malformed)?;
 
                 require_slot(id.slot(), value_slot)?;
             }
@@ -264,22 +265,28 @@ pub fn decode_executable_template(
     {
         validate_block_record(record)?;
 
-        builder
-            .set_terminator(block, source.clone(), terminator)
-            .map_err(ExecutableTemplateDecodeError::InvalidMir)?;
+        builder.set_terminator(block, source.clone(), terminator);
     }
 
     if let Some(frame) = frame {
-        builder
-            .set_frame_descriptor(frame)
-            .map_err(ExecutableTemplateDecodeError::InvalidMir)?;
+        if !matches!(&kind, MirUnitKind::ProtectedAsyncFrame(expected) if *expected == frame.frame())
+            || frame.abi_version() != target_abi
+        {
+            return Err(ExecutableTemplateDecodeError::Malformed);
+        }
+
+        builder.set_frame_descriptor(frame);
     }
 
     let entry = item(&blocks, entry_slot)?;
 
-    builder
-        .finish(entry)
-        .map_err(ExecutableTemplateDecodeError::InvalidMir)
+    let unit = builder.finish(entry);
+
+    if !unit.is_valid() {
+        return Err(ExecutableTemplateDecodeError::Malformed);
+    }
+
+    Ok(unit)
 }
 
 struct BlockRecord {
@@ -446,7 +453,7 @@ fn push_operation(
 
     let commit = builder
         .push_operation(owner, source, record.kind.clone(), result_type)
-        .map_err(ExecutableTemplateDecodeError::InvalidMir)?;
+        .map_err(|_| ExecutableTemplateDecodeError::Malformed)?;
 
     require_slot(commit.operation().slot(), operation)?;
 
@@ -2076,7 +2083,20 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                     );
                 }
 
-                MirFrameDescriptor::try_new(frame, abi_version, frame_abi, result_type, states)
+                let mut entries = BTreeSet::new();
+
+                if states.is_empty()
+                    || states.iter().enumerate().any(|(ordinal, state)| {
+                        u32::try_from(ordinal).ok() != Some(state.state().raw())
+                    })
+                    || states
+                        .iter()
+                        .any(|state| !entries.insert(state.entry()))
+                {
+                    return Err(ExecutableTemplateDecodeError::Malformed);
+                }
+
+                MirFrameDescriptor::new(frame, abi_version, frame_abi, result_type, states)
                     .map(Some)
                     .map_err(|_| ExecutableTemplateDecodeError::Malformed)
             }

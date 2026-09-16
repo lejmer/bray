@@ -217,7 +217,6 @@ fn format_english_native_product_failure_detail(
             "a compiled program item lacks native-code grouping compatibility"
         }
         Kind::PartitionInvalidUnit(_) => "native-code grouping produced an invalid work item",
-        Kind::GeneratedHostMirInvalid(_) => "the generated executable host is invalid",
         Kind::ExecutableHostDuplicateRole(_) => {
             "the executable host binds one runtime role more than once"
         }
@@ -313,10 +312,8 @@ fn format_english_native_product_failure_detail(
         Kind::CodegenInvalidInstance(_) => "a compiled program item is invalid",
         Kind::CodegenInvalidUnit(_) => "a native-code work item is invalid",
         Kind::CodegenUnitMismatch(_) => "a native-code work item differs from its original request",
-        Kind::CodegenInvalidHostMir(_) => "generated executable startup code is invalid",
-        Kind::CodegenInvalidLifecycleMir(_) => "generated lifecycle code is invalid",
-        Kind::CodegenInvalidCompilerProvidedMir(_) => {
-            "the compiler could not compile a compiler-provided callable in this product"
+        Kind::CodegenMirCapacityExceeded => {
+            "generated executable code exceeded the MIR identity capacity"
         }
         Kind::CodegenInvalidMappings(_) => {
             "required native-code metadata is incomplete or inconsistent"
@@ -542,12 +539,7 @@ mod tests {
         let failures = [
             bray_diagnostics::DiagnosticNativeProductFailureKind::EvaluationProduct(nested),
             bray_diagnostics::DiagnosticNativeProductFailureKind::CheckingInfrastructureFailure,
-            bray_diagnostics::DiagnosticNativeProductFailureKind::GeneratedHostMirInvalid(
-                bray_diagnostics::DiagnosticNativeProductFailureDetail::new(
-                    "generated_host_mir_invalid",
-                    [],
-                ),
-            ),
+            bray_diagnostics::DiagnosticNativeProductFailureKind::CodegenMirCapacityExceeded,
             bray_diagnostics::DiagnosticNativeProductFailureKind::InstanceTemplateMismatch,
             bray_diagnostics::DiagnosticNativeProductFailureKind::CodegenBackendGeneratedModuleInvariant,
         ];

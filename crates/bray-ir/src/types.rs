@@ -555,21 +555,13 @@ mod tests {
             else_edge: MirEdge::new(else_block, []),
         };
 
-        if let Err(error) = builder.set_terminator(entry, source.clone(), branch) {
-            panic!("test branch must be valid: {error:?}");
-        }
+        builder.set_terminator(entry, source.clone(), branch);
 
         for block in [then_block, else_block] {
-            if let Err(error) =
-                builder.set_terminator(block, source.clone(), MirTerminatorKind::Return(None))
-            {
-                panic!("test return must be valid: {error:?}");
-            }
+            builder.set_terminator(block, source.clone(), MirTerminatorKind::Return(None));
         }
 
-        let Ok(unit) = builder.finish(entry) else {
-            panic!("test MIR unit must be valid");
-        };
+        let unit = builder.finish(entry);
 
         assert_eq!(unit.referenced_types(), [ty].into_iter().collect());
     }

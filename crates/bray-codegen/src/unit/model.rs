@@ -543,12 +543,8 @@ mod tests {
                 .unwrap_or_else(|error| panic!("test storage must validate: {error:?}"));
         }
 
-        builder
-            .set_terminator(entry, source, MirTerminatorKind::Return(None))
-            .unwrap_or_else(|error| panic!("test terminator must validate: {error:?}"));
+        builder.set_terminator(entry, source, MirTerminatorKind::Return(None));
 
-        builder
-            .finish(entry)
-            .unwrap_or_else(|error| panic!("test MIR unit must validate: {error:?}"))
+        builder.finish(entry)
     }
 }

@@ -333,21 +333,13 @@ mod tests {
             panic!("test protected-frame block must validate");
         };
 
-        let Ok(()) = builder.set_terminator(entry, source, MirTerminatorKind::Return(None)) else {
-            panic!("test protected-frame terminator must validate");
-        };
+        builder.set_terminator(entry, source, MirTerminatorKind::Return(None));
 
         let descriptor = frame_descriptor(frame, entry);
 
-        if let Err(error) = builder.set_frame_descriptor(descriptor) {
-            panic!("test frame descriptor must commit: {error:?}");
-        }
+        builder.set_frame_descriptor(descriptor);
 
-        let Ok(unit) = builder.finish(entry) else {
-            panic!("test protected-frame MIR must validate");
-        };
-
-        unit
+        builder.finish(entry)
     }
 
     fn frame_descriptor(
@@ -356,7 +348,7 @@ mod tests {
     ) -> MirFrameDescriptor {
         let state = MirFrameState::new(MirFrameStateId::new(0), entry, [], []);
 
-        match MirFrameDescriptor::try_new(
+        match MirFrameDescriptor::new(
             frame,
             bray_runtime_interface::RuntimeAbiVersion::new(1, 0),
             ProtectedFrameAbiVersions::uniform(bray_runtime_interface::RuntimeAbiVersion::new(

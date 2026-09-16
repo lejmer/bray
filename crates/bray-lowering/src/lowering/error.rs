@@ -3,7 +3,7 @@ use bray_bound_tree::{
     StorageAccessId, StorageIdentityId,
 };
 use bray_compiler_known::RepresentationRole;
-use bray_ir::{MirFrameDescriptorBuildError, MirUnitBuildError};
+use bray_ir::MirCapacityError;
 use bray_symbols::{GenericSubstitutionShapeError, SemanticValueStoreError};
 
 /// A violated checked-HIR or MIR construction contract encountered during lowering.
@@ -78,8 +78,6 @@ pub enum LoweringError {
     GenericSubstitution(GenericSubstitutionShapeError),
     /// The semantic value store rejected a required read or intern operation.
     SemanticValue(SemanticValueStoreError),
-    /// Checked async analysis could not form one coherent frame descriptor.
-    InvalidFrameDescriptor(MirFrameDescriptorBuildError),
     /// A selected memory argument ordinal cannot index the host collection.
     MemoryArgumentOrdinalUnrepresentable {
         /// Memory operation whose argument ordinal was rejected.
@@ -94,13 +92,13 @@ pub enum LoweringError {
         /// Exact zero-based arm ordinal.
         ordinal: usize,
     },
-    /// The MIR builder or validator rejected the lowered unit.
-    Mir(MirUnitBuildError),
+    /// A MIR identity table exceeded its compact representation.
+    MirCapacity(MirCapacityError),
 }
 
-impl From<MirUnitBuildError> for LoweringError {
-    fn from(error: MirUnitBuildError) -> Self {
-        Self::Mir(error)
+impl From<MirCapacityError> for LoweringError {
+    fn from(error: MirCapacityError) -> Self {
+        Self::MirCapacity(error)
     }
 }
 

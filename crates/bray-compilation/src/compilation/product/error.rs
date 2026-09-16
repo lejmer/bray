@@ -131,13 +131,6 @@ pub(crate) enum ProductQueryContext {
         /// The exact MIR operation.
         operation: MirOperationId,
     },
-    /// Product construction for one operation identified by generated MIR provenance.
-    MirOperation {
-        /// The exact generated MIR provenance.
-        source: bray_ir::MirSourceAnchor,
-        /// The exact MIR operation.
-        operation: MirOperationId,
-    },
     /// Product construction for one callable definition.
     CallableDefinition(CallableDefinitionId),
     /// Product construction for one exact source location.

@@ -142,28 +142,26 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
         let present = builder
             .push_block(source.clone(), kind)
-            .map_err(|cause| self.mir_error(source, cause))?;
+            .map_err(|cause| self.capacity_error(cause))?;
 
         let absent = builder
             .push_block(source.clone(), kind)
-            .map_err(|cause| self.mir_error(source, cause))?;
+            .map_err(|cause| self.capacity_error(cause))?;
 
         let merge = builder
             .push_block(source.clone(), kind)
-            .map_err(|cause| self.mir_error(source, cause))?;
+            .map_err(|cause| self.capacity_error(cause))?;
 
-        builder
-            .set_terminator(
-                block,
-                source.clone(),
-                MirTerminatorKind::PatternBranch {
-                    subject: MirOperand::Copy(place.clone()),
-                    predicate: bray_ir::MirPatternPredicate::NullablePresent,
-                    matched: MirEdge::new(present, []),
-                    unmatched: MirEdge::new(absent, []),
-                },
-            )
-            .map_err(|cause| self.mir_error(source, cause))?;
+        builder.set_terminator(
+            block,
+            source.clone(),
+            MirTerminatorKind::PatternBranch {
+                subject: MirOperand::Copy(place.clone()),
+                predicate: bray_ir::MirPatternPredicate::NullablePresent,
+                matched: MirEdge::new(present, []),
+                unmatched: MirEdge::new(absent, []),
+            },
+        );
 
         let child = place.project(MirProjectionKind::NullableValue, target);
 
@@ -171,13 +169,11 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             self.push_child_lifecycle_operations(builder, present, source, role, [Ok(child)])?;
 
         for branch in [present, absent] {
-            builder
-                .set_terminator(
-                    branch,
-                    source.clone(),
-                    MirTerminatorKind::Goto(MirEdge::new(merge, [])),
-                )
-                .map_err(|cause| self.mir_error(source, cause))?;
+            builder.set_terminator(
+                branch,
+                source.clone(),
+                MirTerminatorKind::Goto(MirEdge::new(merge, [])),
+            );
         }
 
         Ok(merge)
@@ -200,31 +196,29 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
         let merge = builder
             .push_block(source.clone(), kind)
-            .map_err(|cause| self.mir_error(source, cause))?;
+            .map_err(|cause| self.capacity_error(cause))?;
 
         let mut current = block;
 
         for (variant, members) in variants {
             let matched = builder
                 .push_block(source.clone(), kind)
-                .map_err(|cause| self.mir_error(source, cause))?;
+            .map_err(|cause| self.capacity_error(cause))?;
 
             let unmatched = builder
                 .push_block(source.clone(), kind)
-                .map_err(|cause| self.mir_error(source, cause))?;
+            .map_err(|cause| self.capacity_error(cause))?;
 
-            builder
-                .set_terminator(
-                    current,
-                    source.clone(),
-                    MirTerminatorKind::PatternBranch {
-                        subject: MirOperand::Copy(place.clone()),
-                        predicate: bray_ir::MirPatternPredicate::ActiveUnionVariant(*variant),
-                        matched: MirEdge::new(matched, []),
-                        unmatched: MirEdge::new(unmatched, []),
-                    },
-                )
-                .map_err(|cause| self.mir_error(source, cause))?;
+            builder.set_terminator(
+                current,
+                source.clone(),
+                MirTerminatorKind::PatternBranch {
+                    subject: MirOperand::Copy(place.clone()),
+                    predicate: bray_ir::MirPatternPredicate::ActiveUnionVariant(*variant),
+                    matched: MirEdge::new(matched, []),
+                    unmatched: MirEdge::new(unmatched, []),
+                },
+            );
 
             let children = members.iter().enumerate().map(|(index, member)| {
                 let ty = *member;
@@ -243,13 +237,11 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             let matched =
                 self.push_child_lifecycle_operations(builder, matched, source, role, children)?;
 
-            builder
-                .set_terminator(
-                    matched,
-                    source.clone(),
-                    MirTerminatorKind::Goto(MirEdge::new(merge, [])),
-                )
-                .map_err(|cause| self.mir_error(source, cause))?;
+            builder.set_terminator(
+                matched,
+                source.clone(),
+                MirTerminatorKind::Goto(MirEdge::new(merge, [])),
+            );
 
             current = unmatched;
         }
@@ -260,9 +252,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             MirTerminatorKind::Unreachable
         };
 
-        builder
-            .set_terminator(current, source.clone(), unmatched)
-            .map_err(|cause| self.mir_error(source, cause))?;
+        builder.set_terminator(current, source.clone(), unmatched);
 
         Ok(merge)
     }

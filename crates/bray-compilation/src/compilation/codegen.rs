@@ -13,7 +13,7 @@ use bray_codegen::{
 use bray_diagnostics::DiagnosticBag;
 #[cfg(test)]
 use bray_ir::MirUnitKind;
-use bray_ir::{MirHelperReference, MirUnit, MirUnitBuildError, MirUnitId, MirUnitKey};
+use bray_ir::{MirCapacityError, MirHelperReference, MirUnit, MirUnitId, MirUnitKey};
 use bray_runtime_interface::ExecutableHostContract;
 #[cfg(test)]
 use bray_runtime_interface::{BinarySymbolName, ProtectedFrameOperation};
@@ -179,7 +179,7 @@ impl Compilation {
                         instance.target().clone(),
                     ),
                 )
-                .map_err(CodegenPreparationError::InvalidHostMir)
+                .map_err(CodegenPreparationError::MirCapacity)
             }
             MirUnitKey::GeneratedLifecycle(_) | MirUnitKey::CompilerProvidedCallable(_) => Err(
                 CodegenPreparationError::MirUnavailable(instance.template().clone()),
@@ -443,17 +443,8 @@ pub enum CodegenPreparationError {
     InvalidUnit(CodegenUnitBuildError),
     /// Reconstructed MIR or dependencies differ from the immutable plan identity.
     UnitMismatch(CodegenUnitKey),
-    /// A generated executable host did not satisfy the MIR contract.
-    InvalidHostMir(MirUnitBuildError),
-    /// A generated lifecycle definition did not satisfy the MIR contract.
-    InvalidGeneratedLifecycleMir(MirUnitBuildError),
-    /// A compiler-provided callable body did not satisfy the MIR contract.
-    InvalidCompilerProvidedMir {
-        /// Exact declaration whose generated body was invalid.
-        definition: CallableDefinitionId,
-        /// Specific violated MIR invariant.
-        cause: MirUnitBuildError,
-    },
+    /// A MIR identity table exceeded its compact representation.
+    MirCapacity(MirCapacityError),
     /// Compilation could not construct complete realization mappings for the planned unit.
     InvalidMappings(CodegenMappingsBuildError),
     /// A MIR runtime role has no selected executable-host binding.

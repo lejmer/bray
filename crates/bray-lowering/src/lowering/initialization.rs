@@ -7,7 +7,7 @@ use bray_ir::{
     MirAggregate, MirAggregateKind, MirAsyncOperation, MirBlockId, MirCleanupPhase, MirEdge,
     MirGeneratorOperation, MirImmediateValue, MirOperand, MirOperationCommit, MirOperationKind,
     MirPlace, MirProjection, MirProjectionKind, MirSourceAnchor, MirStorageId, MirStorageKind,
-    MirStoreKind, MirTerminatorKind, MirUnitBuildError, MirUnitBuilder,
+    MirCapacityError, MirStoreKind, MirTerminatorKind, MirUnitBuilder,
 };
 use bray_symbols::{TypeData, TypeId};
 
@@ -120,7 +120,7 @@ impl Lowerer<'_> {
         boolean: TypeId,
         array_types: &[TypeId],
         initialized: bool,
-    ) -> Result<MirPlace, MirUnitBuildError> {
+    ) -> Result<MirPlace, MirCapacityError> {
         let ty = array_types.first().copied().unwrap_or(boolean);
 
         let flag =
@@ -158,7 +158,7 @@ impl Lowerer<'_> {
         source: MirSourceAnchor,
         kind: MirOperationKind,
         result_type: Option<TypeId>,
-    ) -> Result<MirOperationCommit, MirUnitBuildError> {
+    ) -> Result<MirOperationCommit, MirCapacityError> {
         if self.initialization_guards.is_empty() {
             return self
                 .builder
@@ -229,7 +229,7 @@ impl Lowerer<'_> {
         source: &MirSourceAnchor,
         place: &MirPlace,
         initialized: bool,
-    ) -> Result<(), MirUnitBuildError> {
+    ) -> Result<(), MirCapacityError> {
         let owned_place = self.ownership_place(place);
         let place = &owned_place;
 
@@ -275,7 +275,7 @@ impl Lowerer<'_> {
         block: MirBlockId,
         source: MirSourceAnchor,
         mut kind: MirTerminatorKind,
-    ) -> Result<(), MirUnitBuildError> {
+    ) -> Result<(), MirCapacityError> {
         if !self.initialization_guards.is_empty() {
             let mut moved = Vec::new();
 
@@ -294,14 +294,16 @@ impl Lowerer<'_> {
             kind.try_for_each_edge_mut(|edge| self.guard_edge_moves(&source, edge))?;
         }
 
-        self.builder.set_terminator(block, source, kind)
+        self.builder.set_terminator(block, source, kind);
+
+        Ok(())
     }
 
     fn guard_edge_moves(
         &mut self,
         source: &MirSourceAnchor,
         edge: &mut MirEdge,
-    ) -> Result<(), MirUnitBuildError> {
+    ) -> Result<(), MirCapacityError> {
         let mut moved = Vec::new();
 
         for argument in edge.arguments() {
@@ -323,13 +325,13 @@ impl Lowerer<'_> {
 
         let bridge = self.builder.push_block(
             Self::retained_source(source),
-            self.builder.block_kind(edge.target())?,
+            self.builder.block_kind(edge.target()),
         )?;
 
         let mut arguments = Vec::with_capacity(edge.arguments().len());
 
         for argument in edge.arguments() {
-            let ty = self.builder.operand_type(argument)?;
+            let ty = self.builder.operand_type(argument);
 
             let parameter =
                 self.builder
@@ -396,7 +398,7 @@ impl Lowerer<'_> {
             bridge,
             Self::retained_source(source),
             MirTerminatorKind::Goto(MirEdge::new(edge.target(), arguments)),
-        )?;
+        );
 
         *edge = MirEdge::new(bridge, incoming);
 
@@ -409,8 +411,8 @@ impl Lowerer<'_> {
         source: &MirSourceAnchor,
         selector: &MirOperand,
         incoming: &mut Vec<MirOperand>,
-    ) -> Result<MirOperand, MirUnitBuildError> {
-        let ty = self.builder.operand_type(selector)?;
+    ) -> Result<MirOperand, MirCapacityError> {
+        let ty = self.builder.operand_type(selector);
 
         let parameter =
             self.builder
@@ -427,7 +429,7 @@ impl Lowerer<'_> {
         source: &MirSourceAnchor,
         storage: MirStorageId,
         initialized: bool,
-    ) -> Result<(), MirUnitBuildError> {
+    ) -> Result<(), MirCapacityError> {
         let Some(state) = self.initialization_guards.get(&storage) else {
             return Ok(());
         };
@@ -468,7 +470,7 @@ fn initialization_value(
     boolean: TypeId,
     array_types: &[TypeId],
     initialized: bool,
-) -> Result<MirOperand, MirUnitBuildError> {
+) -> Result<MirOperand, MirCapacityError> {
     let mut value = MirOperand::Immediate {
         value: MirImmediateValue::Boolean(initialized),
         ty: boolean,
@@ -485,9 +487,11 @@ fn initialization_value(
             Some(*ty),
         )?;
 
-        value = MirOperand::Value(commit.result().ok_or(
-            MirUnitBuildError::MissingOperationResult(commit.operation()),
-        )?);
+        value = MirOperand::Value(
+            commit
+                .result()
+                .expect("value-producing MIR operation must publish a result"),
+        );
     }
 
     Ok(value)

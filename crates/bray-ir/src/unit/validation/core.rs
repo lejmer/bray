@@ -1,18 +1,15 @@
-use crate::{
-    MirBlock, MirBlockId, MirBlockKind, MirOperationId, MirUnit, MirUnitBuildError, MirValueId,
-    MirValueOrigin,
-};
+use crate::{MirBlock, MirBlockId, MirBlockKind, MirUnit, MirValueId, MirValueOrigin};
 
 use super::control::validate_terminator;
 use super::operation::validate_operation;
 
-pub(in crate::unit) fn validate_unit(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
+pub(in crate::unit) fn validate_unit(unit: &MirUnit) -> Option<()> {
     let Some(entry) = unit.block(unit.entry()) else {
-        return Err(MirUnitBuildError::MissingBlock(unit.entry()));
+        return None;
     };
 
     if entry.kind() != MirBlockKind::Ordinary {
-        return Err(MirUnitBuildError::CleanupPhaseOrderViolation(unit.entry()));
+        return None;
     }
 
     validate_frame_descriptor(unit)?;
@@ -20,12 +17,11 @@ pub(in crate::unit) fn validate_unit(unit: &MirUnit) -> Result<(), MirUnitBuildE
     validate_blocks(unit)?;
     validate_host_sequence(unit)?;
 
-    Ok(())
+    Some(())
 }
-
-fn validate_host_sequence(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
+fn validate_host_sequence(unit: &MirUnit) -> Option<()> {
     let crate::MirUnitKind::ExecutableHost(host) = unit.kind() else {
-        return Ok(());
+        return Some(());
     };
 
     let operations = unit
@@ -35,7 +31,7 @@ fn validate_host_sequence(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
         .collect::<Vec<_>>();
 
     let Some((shutdown, preceding)) = operations.split_last() else {
-        return Err(MirUnitBuildError::InvalidHostSequence);
+        return None;
     };
 
     let selects_entries = host
@@ -46,7 +42,7 @@ fn validate_host_sequence(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
         shutdown,
         crate::MirOperationKind::Host(crate::MirHostOperation::StructuredShutdown { .. })
     ) {
-        return Err(MirUnitBuildError::InvalidHostSequence);
+        return None;
     }
 
     let materialized = preceding.partition_point(|operation| {
@@ -59,12 +55,10 @@ fn validate_host_sequence(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
     let entries = &preceding[materialized..];
     let operations_per_entry = if selects_entries { 4_usize } else { 3_usize };
 
-    let entry_operation_count = operations_per_entry
-        .checked_mul(host.entries().len())
-        .ok_or(MirUnitBuildError::InvalidHostSequence)?;
+    let entry_operation_count = operations_per_entry.checked_mul(host.entries().len())?;
 
     if entries.len() < entry_operation_count + 2 {
-        return Err(MirUnitBuildError::InvalidHostSequence);
+        return None;
     }
 
     let (entries, cleanup) = entries.split_at(entry_operation_count);
@@ -76,11 +70,11 @@ fn validate_host_sequence(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
                 ..
             })) = operations.first()
             else {
-                return Err(MirUnitBuildError::InvalidHostSequence);
+                return None;
             };
 
             if usize::try_from(entry.slot()) != Ok(expected) {
-                return Err(MirUnitBuildError::InvalidHostSequence);
+                return None;
             }
 
             &operations[1..]
@@ -103,14 +97,14 @@ fn validate_host_sequence(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
             }),
         ] = operations
         else {
-            return Err(MirUnitBuildError::InvalidHostSequence);
+            return None;
         };
 
         if [executed, observed, resolved]
             .into_iter()
             .any(|entry| usize::try_from(entry.slot()) != Ok(expected))
         {
-            return Err(MirUnitBuildError::InvalidHostSequence);
+            return None;
         }
     }
 
@@ -121,27 +115,27 @@ fn validate_host_sequence(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
             crate::MirOperationKind::Host(crate::MirHostOperation::ReportCleanupIncidents { .. }),
         ]
     ) {
-        return Err(MirUnitBuildError::InvalidHostSequence);
+        return None;
     }
 
-    Ok(())
+    Some(())
 }
 
-fn validate_frame_descriptor(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
+fn validate_frame_descriptor(unit: &MirUnit) -> Option<()> {
     let descriptor = match (unit.kind(), unit.frame_descriptor()) {
         (crate::MirUnitKind::ProtectedAsyncFrame(frame), Some(descriptor)) => {
             if descriptor.frame() != *frame {
-                return Err(MirUnitBuildError::ProtectedFrameMismatch);
+                return None;
             }
 
             if descriptor.abi_version() != unit.target().runtime_abi() {
-                return Err(MirUnitBuildError::RuntimeAbiVersionMismatch);
+                return None;
             }
 
             descriptor
         }
         (crate::MirUnitKind::ProtectedAsyncFrame(_), None) => {
-            return Err(MirUnitBuildError::MissingFrameDescriptor);
+            return None;
         }
         (
             crate::MirUnitKind::Synchronous
@@ -149,65 +143,65 @@ fn validate_frame_descriptor(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
             | crate::MirUnitKind::GeneratedLifecycle(_),
             Some(_),
         ) => {
-            return Err(MirUnitBuildError::UnexpectedFrameDescriptor);
+            return None;
         }
         (crate::MirUnitKind::ExecutableHost(host), None) => {
             if host.abi_version() != unit.target().runtime_abi() {
-                return Err(MirUnitBuildError::RuntimeAbiVersionMismatch);
+                return None;
             }
 
-            return Ok(());
+            return Some(());
         }
         (crate::MirUnitKind::Synchronous | crate::MirUnitKind::GeneratedLifecycle(_), None) => {
-            return Ok(());
+            return Some(());
         }
     };
 
     for state in descriptor.states() {
         if state.entry().unit() != unit.unit() || unit.block(state.entry()).is_none() {
-            return Err(MirUnitBuildError::InvalidFrameStateEntry(state.entry()));
+            return None;
         }
 
         for storage in state.initialized_storages() {
             if storage.unit() != unit.unit() || unit.storage(*storage).is_none() {
-                return Err(MirUnitBuildError::MissingStorage(*storage));
+                return None;
             }
         }
     }
 
-    Ok(())
+    Some(())
 }
 
-fn validate_value_definitions(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
+fn validate_value_definitions(unit: &MirUnit) -> Option<()> {
     for (index, value) in unit.values().iter().enumerate() {
         let id = MirValueId::from_slot(unit.unit(), compact_slot(index)?);
 
         match value.origin() {
             MirValueOrigin::BlockParameter(block) => {
                 let Some(block) = unit.block(block) else {
-                    return Err(missing_or_foreign_block(unit, block));
+                    return None;
                 };
 
                 if !block.parameters().contains(&id) {
-                    return Err(MirUnitBuildError::MissingValue(id));
+                    return None;
                 }
             }
             MirValueOrigin::Operation(operation) => {
                 let Some(operation) = unit.operation(operation) else {
-                    return Err(MirUnitBuildError::MissingOperation(operation));
+                    return None;
                 };
 
                 if operation.result() != Some(id) {
-                    return Err(MirUnitBuildError::MissingValue(id));
+                    return None;
                 }
             }
         }
     }
 
-    Ok(())
+    Some(())
 }
 
-fn validate_blocks(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
+fn validate_blocks(unit: &MirUnit) -> Option<()> {
     let mut seen_operations = vec![false; unit.operations().len()];
 
     for (index, block) in unit.blocks().iter().enumerate() {
@@ -220,21 +214,21 @@ fn validate_blocks(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
 
             let Some(operation_index) = local_index(unit, operation.unit(), operation.to_index())
             else {
-                return Err(missing_or_foreign_operation(unit, operation_id));
+                return None;
             };
 
             let Some(seen) = seen_operations.get_mut(operation_index) else {
-                return Err(MirUnitBuildError::MissingOperation(operation_id));
+                return None;
             };
 
             if *seen {
-                return Err(MirUnitBuildError::MissingOperation(operation_id));
+                return None;
             }
 
             *seen = true;
 
             let Some(operation) = unit.operations().get(operation_index) else {
-                return Err(MirUnitBuildError::MissingOperation(operation_id));
+                return None;
             };
 
             validate_operation(unit, id, block.kind(), operation_id, operation)?;
@@ -243,58 +237,37 @@ fn validate_blocks(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
         validate_terminator(unit, id, block)?;
     }
 
-    for (index, seen) in seen_operations.into_iter().enumerate() {
+    for seen in seen_operations {
         if !seen {
-            return Err(MirUnitBuildError::MissingOperation(
-                MirOperationId::from_slot(unit.unit(), compact_slot(index)?),
-            ));
+            return None;
         }
     }
 
-    Ok(())
+    Some(())
 }
 
-fn validate_block_parameters(unit: &MirUnit, block: &MirBlock) -> Result<(), MirUnitBuildError> {
+fn validate_block_parameters(unit: &MirUnit, block: &MirBlock) -> Option<()> {
     for parameter in block.parameters() {
         super::operation::validate_value(unit, *parameter)?;
     }
 
-    Ok(())
-}
-
-pub(super) fn missing_or_foreign_block(unit: &MirUnit, block: MirBlockId) -> MirUnitBuildError {
-    if block.unit() == unit.unit() {
-        MirUnitBuildError::MissingBlock(block)
-    } else {
-        MirUnitBuildError::ForeignBlock {
-            expected: unit.unit(),
-            actual: block.unit(),
-        }
-    }
-}
-
-fn missing_or_foreign_operation(unit: &MirUnit, operation: MirOperationId) -> MirUnitBuildError {
-    if operation.unit() == unit.unit() {
-        MirUnitBuildError::MissingOperation(operation)
-    } else {
-        MirUnitBuildError::ForeignOperation(operation)
-    }
+    Some(())
 }
 
 fn local_index(unit: &MirUnit, owner: crate::MirUnitId, index: Option<usize>) -> Option<usize> {
     (owner == unit.unit()).then_some(index).flatten()
 }
 
-fn compact_slot(index: usize) -> Result<u32, MirUnitBuildError> {
-    crate::id::compact_slot(index).ok_or(MirUnitBuildError::IdentityCapacityExceeded)
+fn compact_slot(index: usize) -> Option<u32> {
+    crate::id::compact_slot(index)
 }
 
 pub(super) fn validate_frame_state(
     unit: &MirUnit,
     state: crate::MirFrameStateId,
-) -> Result<(), MirUnitBuildError> {
+) -> Option<()> {
     let Some(descriptor) = unit.frame_descriptor() else {
-        return Err(MirUnitBuildError::MissingFrameState);
+        return None;
     };
 
     if !descriptor
@@ -302,27 +275,24 @@ pub(super) fn validate_frame_state(
         .iter()
         .any(|candidate| candidate.state() == state)
     {
-        return Err(MirUnitBuildError::MissingFrameState);
+        return None;
     }
 
-    Ok(())
+    Some(())
 }
 
 pub(super) fn validate_runtime_role(
     unit: &MirUnit,
     runtime: crate::MirRuntimeReference,
     expected: bray_runtime_interface::RuntimeAbiRole,
-) -> Result<(), MirUnitBuildError> {
+) -> Option<()> {
     if runtime.abi_version() != unit.target().runtime_abi() {
-        return Err(MirUnitBuildError::RuntimeAbiVersionMismatch);
+        return None;
     }
 
     if runtime.role() != expected {
-        return Err(MirUnitBuildError::RuntimeRoleMismatch {
-            expected,
-            actual: runtime.role(),
-        });
+        return None;
     }
 
-    Ok(())
+    Some(())
 }

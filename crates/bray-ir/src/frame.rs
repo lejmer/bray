@@ -92,34 +92,40 @@ pub struct MirFrameDescriptor {
 impl MirFrameDescriptor {
     /// Creates a descriptor from a nonempty state table with unique entries and
     /// contiguous descriptor-local state identities in order.
-    pub fn try_new(
+    pub fn new(
         frame: ProtectedAsyncFrameId,
         abi_version: RuntimeAbiVersion,
         frame_abi: ProtectedFrameAbiVersions,
         result_type: TypeId,
         states: impl IntoIterator<Item = MirFrameState>,
-    ) -> Result<Self, MirFrameDescriptorBuildError> {
+    ) -> Result<Self, crate::MirCapacityError> {
         let states: Vec<_> = states.into_iter().collect();
 
-        if states.is_empty() {
-            return Err(MirFrameDescriptorBuildError::MissingState);
-        }
+        assert!(!states.is_empty(), "protected frame descriptors need a state");
 
         let mut state_ids = BTreeSet::new();
         let mut entry_blocks = BTreeSet::new();
 
         for (ordinal, state) in states.iter().enumerate() {
-            if !state_ids.insert(state.state()) || !entry_blocks.insert(state.entry()) {
-                return Err(MirFrameDescriptorBuildError::DuplicateStateOrEntry);
-            }
+            assert!(
+                state_ids.insert(state.state()),
+                "protected frame descriptor repeats a state identity"
+            );
+
+            assert!(
+                entry_blocks.insert(state.entry()),
+                "protected frame descriptor repeats a state entry"
+            );
 
             let Some(ordinal) = crate::id::compact_slot(ordinal) else {
-                return Err(MirFrameDescriptorBuildError::IdentityCapacityExceeded);
+                return Err(crate::MirCapacityError::IdentityCapacityExceeded);
             };
 
-            if state.state().raw() != ordinal {
-                return Err(MirFrameDescriptorBuildError::NonContiguousState);
-            }
+            assert_eq!(
+                state.state().raw(),
+                ordinal,
+                "protected frame descriptor state identities must be contiguous"
+            );
         }
 
         Ok(Self {
@@ -157,19 +163,6 @@ impl MirFrameDescriptor {
     }
 }
 
-/// A contract violation that prevents protected-frame descriptor construction.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum MirFrameDescriptorBuildError {
-    /// The descriptor has no resumable state.
-    MissingState,
-    /// The descriptor's ordered states do not use contiguous descriptor-local ordinals.
-    NonContiguousState,
-    /// Two states use the same state identity or entry block.
-    DuplicateStateOrEntry,
-    /// The state table exceeded its compact identity representation.
-    IdentityCapacityExceeded,
-}
-
 #[cfg(test)]
 mod tests {
     use bray_runtime_interface::{
@@ -177,7 +170,7 @@ mod tests {
     };
     use bray_testing::test_bound_unit;
 
-    use super::{MirFrameDescriptor, MirFrameDescriptorBuildError, MirFrameState, MirFrameStateId};
+    use super::{MirFrameDescriptor, MirFrameState, MirFrameStateId};
     use crate::{MirBlockKind, MirSourceAnchor, MirTerminatorKind, MirUnitBuilder, MirUnitKind};
 
     #[test]
@@ -196,31 +189,35 @@ mod tests {
             panic!("test MIR block must be valid");
         };
 
-        let Ok(()) = builder.set_terminator(entry, source, MirTerminatorKind::Return(None)) else {
-            panic!("test MIR terminator must be valid");
-        };
+        builder.set_terminator(entry, source, MirTerminatorKind::Return(None));
 
         let result_type = crate::test_support::test_type();
         let abi = RuntimeAbiVersion::new(1, 0);
         let frame_abi = ProtectedFrameAbiVersions::uniform(abi);
 
-        assert_eq!(
-            MirFrameDescriptor::try_new(frame, abi, frame_abi, result_type, []),
-            Err(MirFrameDescriptorBuildError::MissingState)
-        );
+        assert!(std::panic::catch_unwind(|| {
+            MirFrameDescriptor::new(frame, abi, frame_abi, result_type, [])
+        })
+        .is_err());
 
         let state = MirFrameState::new(MirFrameStateId::new(0), entry, [], []);
 
-        assert_eq!(
-            MirFrameDescriptor::try_new(frame, abi, frame_abi, result_type, [state.clone(), state]),
-            Err(MirFrameDescriptorBuildError::DuplicateStateOrEntry)
-        );
+        assert!(std::panic::catch_unwind(|| {
+            MirFrameDescriptor::new(
+                frame,
+                abi,
+                frame_abi,
+                result_type,
+                [state.clone(), state],
+            )
+        })
+        .is_err());
 
         let non_contiguous = MirFrameState::new(MirFrameStateId::new(1), entry, [], []);
 
-        assert_eq!(
-            MirFrameDescriptor::try_new(frame, abi, frame_abi, result_type, [non_contiguous]),
-            Err(MirFrameDescriptorBuildError::NonContiguousState)
-        );
+        assert!(std::panic::catch_unwind(|| {
+            MirFrameDescriptor::new(frame, abi, frame_abi, result_type, [non_contiguous])
+        })
+        .is_err());
     }
 }

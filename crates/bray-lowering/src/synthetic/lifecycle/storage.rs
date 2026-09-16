@@ -34,7 +34,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
         let temporary = builder
             .push_storage(source.clone(), MirStorageKind::Temporary, borrow.result)
-            .map_err(|cause| self.mir_error(source, cause))?;
+            .map_err(|cause| self.capacity_error(cause))?;
 
         let pointer = MirPlace::new(temporary, [], borrow.result);
 
@@ -88,16 +88,11 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                         },
                         Some(borrowed),
                     )
-                    .map_err(|cause| self.mir_error(source, cause))?;
+            .map_err(|cause| self.capacity_error(cause))?;
 
-                let operation = buffer.operation();
-
-                let buffer = buffer.result().ok_or_else(|| {
-                    SyntheticLoweringError::MissingOperationResult {
-                        source: source.clone(),
-                        operation,
-                    }
-                })?;
+                let buffer = buffer
+                    .result()
+                    .expect("value-producing MIR operation must publish a result");
 
                 self.push_lifecycle_operation(
                     builder,
@@ -146,7 +141,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                         MirOperationKind::Call(call),
                         Some(status),
                     )
-                    .map_err(|cause| self.mir_error(source, cause))?;
+            .map_err(|cause| self.capacity_error(cause))?;
             }
             bray_bound_tree::LifecycleAction::Task => match role {
                 bray_ir::MirGeneratedLifecycleRole::Finalize
@@ -258,7 +253,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
         let mut block = outcome
             .check(builder, block, source)
-            .map_err(|cause| self.mir_error(source, cause))?;
+            .map_err(|cause| self.capacity_error(cause))?;
 
         for callable in teardown {
             self.push_selected_call(
@@ -272,7 +267,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
             block = outcome
                 .check(builder, block, source)
-                .map_err(|cause| self.mir_error(source, cause))?;
+            .map_err(|cause| self.capacity_error(cause))?;
         }
 
         self.finish_cleanup_outcome(builder, block, source, &outcome)

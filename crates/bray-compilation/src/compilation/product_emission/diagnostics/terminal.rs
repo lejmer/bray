@@ -788,15 +788,11 @@ mod tests {
 
         assert_eq!(
             diagnostic_evaluation_failure(&FactQueryError::Lowering(LocatedLoweringFailure::new(
-                LoweringError::InvalidFrameDescriptor(
-                    bray_ir::MirFrameDescriptorBuildError::MissingState,
-                ),
+                LoweringError::MirCapacity(bray_ir::MirCapacityError::IdentityCapacityExceeded),
                 source
             ),)),
             DiagnosticEmissionEvaluationFailure::Lowering(DiagnosticLoweringFailure::new(
-                DiagnosticLoweringFailureKind::InvalidFrameDescriptor(
-                    bray_diagnostics::DiagnosticFrameDescriptorFailure::MissingState,
-                ),
+                DiagnosticLoweringFailureKind::MirCapacity,
                 source,
             ),)
         );
@@ -813,9 +809,7 @@ mod tests {
 
         let lowering_failure = || {
             FactQueryError::Lowering(LocatedLoweringFailure::new(
-                LoweringError::InvalidFrameDescriptor(
-                    bray_ir::MirFrameDescriptorBuildError::MissingState,
-                ),
+                LoweringError::MirCapacity(bray_ir::MirCapacityError::IdentityCapacityExceeded),
                 source,
             ))
         };
@@ -837,9 +831,7 @@ mod tests {
 
         let expected_cause =
             DiagnosticEmissionEvaluationFailure::Lowering(DiagnosticLoweringFailure::new(
-                DiagnosticLoweringFailureKind::InvalidFrameDescriptor(
-                    bray_diagnostics::DiagnosticFrameDescriptorFailure::MissingState,
-                ),
+                DiagnosticLoweringFailureKind::MirCapacity,
                 source,
             ));
 

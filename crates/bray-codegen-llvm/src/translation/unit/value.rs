@@ -1014,13 +1014,9 @@ mod tests {
                 .unwrap_or_else(|error| panic!("literal store must build: {error:?}"));
         }
 
-        builder
-            .set_terminator(entry, source.clone(), MirTerminatorKind::Return(None))
-            .unwrap_or_else(|error| panic!("literal test return must build: {error:?}"));
+        builder.set_terminator(entry, source.clone(), MirTerminatorKind::Return(None));
 
-        let mir = builder
-            .finish(entry)
-            .unwrap_or_else(|error| panic!("literal test MIR must validate: {error:?}"));
+        let mir = builder.finish(entry);
 
         let unit = CodegenUnit::try_new(
             bray_codegen::CodegenPartitionPolicy::NATIVE_BALANCED,
@@ -1121,30 +1117,24 @@ mod tests {
                     )
                 };
 
-                builder
-                    .set_terminator(
-                        current,
-                        source.clone(),
-                        MirTerminatorKind::PatternBranch {
-                            subject: MirOperand::Copy(MirPlace::new(source_storage, [], ty)),
-                            predicate,
-                            matched: bray_ir::MirEdge::new(next, []),
-                            unmatched: bray_ir::MirEdge::new(next, []),
-                        },
-                    )
-                    .unwrap();
+                builder.set_terminator(
+                    current,
+                    source.clone(),
+                    MirTerminatorKind::PatternBranch {
+                        subject: MirOperand::Copy(MirPlace::new(source_storage, [], ty)),
+                        predicate,
+                        matched: bray_ir::MirEdge::new(next, []),
+                        unmatched: bray_ir::MirEdge::new(next, []),
+                    },
+                );
 
                 current = next;
             }
         }
 
-        builder
-            .set_terminator(current, source.clone(), MirTerminatorKind::Return(None))
-            .unwrap_or_else(|error| panic!("copy test return must build: {error:?}"));
+        builder.set_terminator(current, source.clone(), MirTerminatorKind::Return(None));
 
-        let mir = builder
-            .finish(entry)
-            .unwrap_or_else(|error| panic!("copy test MIR must validate: {error:?}"));
+        let mir = builder.finish(entry);
 
         let unit = CodegenUnit::try_new(
             bray_codegen::CodegenPartitionPolicy::NATIVE_BALANCED,
@@ -1227,13 +1217,9 @@ mod tests {
             )
             .unwrap_or_else(|error| panic!("nullable query must build: {error:?}"));
 
-        builder
-            .set_terminator(entry, source.clone(), MirTerminatorKind::Return(None))
-            .unwrap_or_else(|error| panic!("nullable query return must build: {error:?}"));
+        builder.set_terminator(entry, source.clone(), MirTerminatorKind::Return(None));
 
-        let mir = builder
-            .finish(entry)
-            .unwrap_or_else(|error| panic!("nullable query MIR must validate: {error:?}"));
+        let mir = builder.finish(entry);
 
         let unit = CodegenUnit::try_new(
             bray_codegen::CodegenPartitionPolicy::NATIVE_BALANCED,

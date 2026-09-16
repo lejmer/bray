@@ -1108,14 +1108,12 @@ mod tests {
             panic!("test protected-frame block must validate");
         };
 
-        let Ok(()) = builder.set_terminator(entry, source, MirTerminatorKind::Return(None)) else {
-            panic!("test protected-frame terminator must validate");
-        };
+        builder.set_terminator(entry, source, MirTerminatorKind::Return(None));
 
         let state = MirFrameState::new(MirFrameStateId::new(0), entry, [], []);
         let version = RuntimeAbiVersion::new(1, 0);
 
-        let Ok(descriptor) = MirFrameDescriptor::try_new(
+        let Ok(descriptor) = MirFrameDescriptor::new(
             frame,
             version,
             ProtectedFrameAbiVersions::uniform(version),
@@ -1125,13 +1123,9 @@ mod tests {
             panic!("test protected-frame descriptor must validate");
         };
 
-        if let Err(error) = builder.set_frame_descriptor(descriptor) {
-            panic!("test protected-frame descriptor must commit: {error:?}");
-        }
+        builder.set_frame_descriptor(descriptor);
 
-        let Ok(unit) = builder.finish(entry) else {
-            panic!("test protected-frame MIR must validate");
-        };
+        let unit = builder.finish(entry);
 
         CodegenInstance::non_generic(unit)
     }
