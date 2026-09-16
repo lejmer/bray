@@ -299,7 +299,6 @@ pub enum FactQueryError {
     AtomicInitializerResultUnavailable,
     /// The uninitialized-storage initializer result cannot be retained as a compile-time value.
     UninitInitializerResultUnavailable,
-    /// Semantic-context construction found an inconsistent bound unit.
     /// Semantic checking could not complete because a typed dependency was unavailable.
     CheckerInfrastructure(CheckerInfrastructureError),
     /// Binding or semantic compilation violated an exact query contract.
