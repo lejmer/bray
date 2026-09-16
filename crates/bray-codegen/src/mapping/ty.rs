@@ -132,7 +132,6 @@ impl CodegenParameterMapping {
             attributes: sorted_unique_shared_slice(attributes),
         }
     }
-
 }
 
 /// Machine passing mode selected for one callable result.
@@ -190,7 +189,6 @@ impl CodegenResultMapping {
             attributes: sorted_unique_shared_slice(attributes),
         }
     }
-
 }
 
 /// Complete target-classified machine signature selected for one callable address.

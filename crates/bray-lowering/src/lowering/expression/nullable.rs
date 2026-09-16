@@ -27,7 +27,12 @@ impl Lowerer<'_> {
         let receiver = selection
             .receiver()
             .filter(|_| selection.arguments().is_empty())
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = id));
+            .unwrap_or_else(|| {
+                panic!(
+                    "lowering contract violation: MissingSemanticSelection {value:?}",
+                    value = id
+                )
+            });
 
         let nullable_type = receiver.target_type();
 
@@ -38,7 +43,10 @@ impl Lowerer<'_> {
         };
 
         let Some(receiver) = lowered.value else {
-            panic!("lowering contract violation: MissingOperationResult {value:?}", value = receiver.expression());
+            panic!(
+                "lowering contract violation: MissingOperationResult {value:?}",
+                value = receiver.expression()
+            );
         };
 
         let result_type = self.expression_type(id);

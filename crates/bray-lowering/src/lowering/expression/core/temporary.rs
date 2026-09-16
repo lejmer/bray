@@ -23,7 +23,12 @@ impl Lowerer<'_> {
                 .unit()
                 .view()
                 .expression(expression)
-                .unwrap_or_else(|| panic!("lowering contract violation: MissingBoundNode {value:?}", value = expression));
+                .unwrap_or_else(|| {
+                    panic!(
+                        "lowering contract violation: MissingBoundNode {value:?}",
+                        value = expression
+                    )
+                });
 
             let changes_block = match bound {
                 BoundExpression::Binary(binary) => matches!(
@@ -176,9 +181,7 @@ impl Lowerer<'_> {
             ));
         };
 
-        let requires_lifecycle_storage = self
-            .input
-            .requires_lifecycle_storage(temporary);
+        let requires_lifecycle_storage = self.input.requires_lifecycle_storage(temporary);
 
         if !required && !requires_lifecycle_storage {
             return Ok(LoweredExpression::continuing(
@@ -194,7 +197,12 @@ impl Lowerer<'_> {
             .view()
             .expression(expression)
             .map(BoundExpression::origin)
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingBoundNode {value:?}", value = expression));
+            .unwrap_or_else(|| {
+                panic!(
+                    "lowering contract violation: MissingBoundNode {value:?}",
+                    value = expression
+                )
+            });
 
         let place = self.place_for_identity(temporary, ty, origin)?;
 

@@ -262,10 +262,7 @@ fn compact_slot(index: usize) -> Option<u32> {
     crate::id::compact_slot(index)
 }
 
-pub(super) fn validate_frame_state(
-    unit: &MirUnit,
-    state: crate::MirFrameStateId,
-) -> Option<()> {
+pub(super) fn validate_frame_state(unit: &MirUnit, state: crate::MirFrameStateId) -> Option<()> {
     let Some(descriptor) = unit.frame_descriptor() else {
         return None;
     };

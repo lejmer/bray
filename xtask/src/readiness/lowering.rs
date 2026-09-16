@@ -3,8 +3,7 @@ use std::collections::BTreeSet;
 use serde::Deserialize;
 
 use super::workspace::{
-    RustWorkspace, require_executable_source_contracts, require_unique_names,
-    require_ordered_names,
+    RustWorkspace, require_executable_source_contracts, require_ordered_names, require_unique_names,
 };
 
 const REQUIRED_CONTRACTS: &[&str] = &[

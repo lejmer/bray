@@ -1,7 +1,7 @@
 use bray_bound_tree::BoundCallResult;
 use bray_ir::{
-    MirAsyncOperation, MirCall, MirCallTarget, MirCallableReference, MirFrameInitializer,
-    MirCapacityError, MirFrameReference, MirOperand, MirOperationCommit, MirOperationKind,
+    MirAsyncOperation, MirCall, MirCallTarget, MirCallableReference, MirCapacityError,
+    MirFrameInitializer, MirFrameReference, MirOperand, MirOperationCommit, MirOperationKind,
     MirPlace, MirValueId,
 };
 use bray_symbols::{BorrowKind, TypeId};
@@ -19,22 +19,21 @@ pub(crate) fn lower_lifecycle_call(
         Option<TypeId>,
     ) -> Result<MirOperationCommit, MirCapacityError>,
 ) -> Result<MirValueId, MirCapacityError> {
-    let receiver =
-        match borrow {
-            Some(kind) => {
-                let commit = emit(
-                    MirOperationKind::Borrow { kind, place },
-                    Some(receiver_type),
-                )?;
+    let receiver = match borrow {
+        Some(kind) => {
+            let commit = emit(
+                MirOperationKind::Borrow { kind, place },
+                Some(receiver_type),
+            )?;
 
-                MirOperand::Value(
-                    commit
-                        .result()
-                        .expect("value-producing MIR operation must publish a result"),
-                )
-            }
-            None => MirOperand::Move(place),
-        };
+            MirOperand::Value(
+                commit
+                    .result()
+                    .expect("value-producing MIR operation must publish a result"),
+            )
+        }
+        None => MirOperand::Move(place),
+    };
 
     let call = MirCall::protocol(MirCallTarget::Direct(callable), result, [receiver], []);
 

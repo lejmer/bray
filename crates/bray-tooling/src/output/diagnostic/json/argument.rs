@@ -3,8 +3,7 @@ use serde::Serialize;
 
 use super::emission::{
     DiagnosticEmissionFieldJson, checker_failure_context, diagnostic_failure_context,
-    fact_runtime_failure_context, foreign_query_failure_context,
-    native_link_input_failure_context,
+    fact_runtime_failure_context, foreign_query_failure_context, native_link_input_failure_context,
     product_query_failure_context, push_source_span, semantic_value_failure_context, text_field,
 };
 use super::{

@@ -54,9 +54,7 @@ pub(super) fn parameter_type(
     }
 }
 
-pub(super) fn result_type(
-    signature: &CodegenCallableSignature,
-) -> bray_symbols::TypeId {
+pub(super) fn result_type(signature: &CodegenCallableSignature) -> bray_symbols::TypeId {
     match signature.result() {
         CodegenResultMapping::Direct { ty, .. } => *ty,
         CodegenResultMapping::Indirect { pointee, .. } => *pointee,
@@ -81,7 +79,9 @@ pub(super) fn insert_value<'context>(
         BasicValueEnum::StructValue(aggregate) => {
             llvm(builder.build_insert_value(aggregate, value, index, "aggregate.field"))?
         }
-        unexpected => panic!("checked MIR translation violated an established compiler contract: {unexpected:?}"),
+        unexpected => panic!(
+            "checked MIR translation violated an established compiler contract: {unexpected:?}"
+        ),
     };
 
     match value {
@@ -102,7 +102,9 @@ pub(super) fn extract_value<'context>(
         BasicValueEnum::StructValue(aggregate) => {
             llvm(builder.build_extract_value(aggregate, index, "projection.value"))
         }
-        unexpected => panic!("checked MIR translation violated an established compiler contract: {unexpected:?}"),
+        unexpected => panic!(
+            "checked MIR translation violated an established compiler contract: {unexpected:?}"
+        ),
     }
 }
 
@@ -110,11 +112,13 @@ pub(crate) fn native_run_outcome<'context>(
     builder: &Builder<'context>,
     outcome: BasicValueEnum<'context>,
 ) -> Result<(IntValue<'context>, IntValue<'context>), CodegenFailure> {
-    let state = extract_value(builder, outcome, 0)
-        .map(|value| int_value(value).expect("checked MIR translation requires an established mapping or value"))?;
+    let state = extract_value(builder, outcome, 0).map(|value| {
+        int_value(value).expect("checked MIR translation requires an established mapping or value")
+    })?;
 
-    let payload = extract_value(builder, outcome, 1)
-        .map(|value| int_value(value).expect("checked MIR translation requires an established mapping or value"))?;
+    let payload = extract_value(builder, outcome, 1).map(|value| {
+        int_value(value).expect("checked MIR translation requires an established mapping or value")
+    })?;
 
     Ok((state, payload))
 }
@@ -168,7 +172,9 @@ pub(super) fn aggregate_value_length(value: BasicValueEnum<'_>) -> u32 {
     match value {
         BasicValueEnum::ArrayValue(value) => value.get_type().len(),
         BasicValueEnum::StructValue(value) => value.get_type().count_fields(),
-        unexpected => panic!("checked MIR translation violated an established compiler contract: {unexpected:?}"),
+        unexpected => panic!(
+            "checked MIR translation violated an established compiler contract: {unexpected:?}"
+        ),
     }
 }
 
@@ -377,10 +383,9 @@ mod tests {
 
         assert_eq!(physical_aggregate_element(&padded, 1, |_| Ok(4)), Ok(2));
 
-        let panic = std::panic::catch_unwind(|| {
-            physical_aggregate_element(&adjacent, 2, |_| Ok(4))
-        })
-        .expect_err("out-of-range aggregate field must panic");
+        let panic =
+            std::panic::catch_unwind(|| physical_aggregate_element(&adjacent, 2, |_| Ok(4)))
+                .expect_err("out-of-range aggregate field must panic");
 
         let message = bray_testing::panic_payload_text(panic.as_ref());
 

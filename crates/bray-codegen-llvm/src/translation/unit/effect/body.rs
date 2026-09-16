@@ -35,9 +35,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let pointer = self.place(place)?;
                 let result = self.operation_result_type(operation);
 
-                let source = self
-                    .type_mapping(place.ty())
-                    .expect("checked MIR effect translation requires an established mapping or value");
+                let source = self.type_mapping(place.ty()).expect(
+                    "checked MIR effect translation requires an established mapping or value",
+                );
 
                 if matches!(
                     source.kind(),
@@ -78,7 +78,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     self.translate_conversion_plan(operand, conversion, &mut helpers)?;
 
                 if helpers.next().is_some() {
-                    panic!("checked MIR effect translation violated an established compiler contract");
+                    panic!(
+                        "checked MIR effect translation violated an established compiler contract"
+                    );
                 }
 
                 Some(converted)
@@ -98,30 +100,35 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         .map(bray_codegen::CodegenTypeMapping::kind),
                     Some(CodegenTypeKind::Boolean)
                 ) {
-                    panic!("checked MIR effect translation violated an established compiler contract");
+                    panic!(
+                        "checked MIR effect translation violated an established compiler contract"
+                    );
                 }
 
                 let present = if query.operand_type() == query.nullable_type() {
                     self.nullable_present(operand, query.nullable_type())?
                 } else {
-                    let mapping = self
-                        .type_mapping(query.operand_type())
-                        .expect("checked MIR effect translation requires an established mapping or value");
+                    let mapping = self.type_mapping(query.operand_type()).expect(
+                        "checked MIR effect translation requires an established mapping or value",
+                    );
 
-                    let nullable = self
-                        .type_mapping(query.nullable_type())
-                        .expect("checked MIR effect translation requires an established mapping or value");
+                    let nullable = self.type_mapping(query.nullable_type()).expect(
+                        "checked MIR effect translation requires an established mapping or value",
+                    );
 
                     if !matches!(
                         mapping.kind(),
                         CodegenTypeKind::Pointer { target, .. }
                             if *target == nullable.ty()
                     ) {
-                        panic!("checked MIR effect translation violated an established compiler contract");
+                        panic!(
+                            "checked MIR effect translation violated an established compiler contract"
+                        );
                     }
 
-                    let pointer =
-                        pointer_value(operand).expect("checked MIR effect translation requires an established mapping or value");
+                    let pointer = pointer_value(operand).expect(
+                        "checked MIR effect translation requires an established mapping or value",
+                    );
 
                     self.nullable_present_at(pointer, query.nullable_type())?
                 };
@@ -213,7 +220,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         self.clear_moved_places()?;
 
         if let Some(id) = operation.result() {
-            let value = result.expect("checked MIR effect translation requires an established mapping or value");
+            let value = result
+                .expect("checked MIR effect translation requires an established mapping or value");
 
             self.values.insert(id, value);
         } else if result.is_some() {
@@ -432,11 +440,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let helpers = self.operation_helpers(operation_id)?;
 
                 let [helper] = helpers.as_slice() else {
-                    panic!("checked MIR effect translation violated an established compiler contract");
+                    panic!(
+                        "checked MIR effect translation violated an established compiler contract"
+                    );
                 };
 
                 if helper.reference() != &MirHelperReference::MoveInactiveFrame(*frame) {
-                    panic!("checked MIR effect translation violated an established compiler contract");
+                    panic!(
+                        "checked MIR effect translation violated an established compiler contract"
+                    );
                 }
 
                 let arguments = [self.place(source)?.into(), self.place(destination)?.into()];
@@ -473,7 +485,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let address = self
                     .invoke_native_runtime(runtime, &[])?
                     .and_then(int_value)
-                    .expect("checked MIR effect translation requires an established mapping or value");
+                    .expect(
+                        "checked MIR effect translation requires an established mapping or value",
+                    );
 
                 let result_type = self.types.map(self.operation_result_type(operation))?;
 
@@ -509,9 +523,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             MirAsyncOperation::RequestTaskCancellation { task, runtime } => {
                 let task = self.operand(task)?;
 
-                let status = self
-                    .invoke_runtime(*runtime, &[task])?
-                    .expect("checked MIR effect translation requires an established mapping or value");
+                let status = self.invoke_runtime(*runtime, &[task])?.expect(
+                    "checked MIR effect translation requires an established mapping or value",
+                );
 
                 self.require_runtime_success(status, "task.cancellation")?;
 
@@ -522,8 +536,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 variants,
                 runtime,
             } => {
-                let task = int_value(self.operand(task)?)
-                    .expect("checked MIR effect translation requires an established mapping or value");
+                let task = int_value(self.operand(task)?).expect(
+                    "checked MIR effect translation requires an established mapping or value",
+                );
 
                 let result = self.operation_result_type(operation);
 
@@ -534,7 +549,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let value = self
                     .invoke_native_runtime(*runtime, &[])?
                     .and_then(int_value)
-                    .expect("checked MIR effect translation requires an established mapping or value");
+                    .expect(
+                        "checked MIR effect translation requires an established mapping or value",
+                    );
 
                 nonzero_integer(&self.builder, value, "run.cancelled")
                     .map(|value| Some(value.into()))
@@ -568,7 +585,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         MirHelperReference::DestroyTerminalTask,
                         &[task],
                     )?
-                    .expect("checked MIR effect translation requires an established mapping or value");
+                    .expect(
+                        "checked MIR effect translation requires an established mapping or value",
+                    );
 
                 self.require_runtime_success(status, "task.destruction")?;
 
@@ -630,7 +649,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let result = self.invoke_helper(helper, &arguments)?;
 
                 if helpers.next().is_some() {
-                    panic!("checked MIR effect translation violated an established compiler contract");
+                    panic!(
+                        "checked MIR effect translation violated an established compiler contract"
+                    );
                 }
 
                 Ok(result)
@@ -673,7 +694,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 )?;
 
                 if helpers.next().is_some() {
-                    panic!("checked MIR effect translation violated an established compiler contract");
+                    panic!(
+                        "checked MIR effect translation violated an established compiler contract"
+                    );
                 }
 
                 Ok(Some(result))

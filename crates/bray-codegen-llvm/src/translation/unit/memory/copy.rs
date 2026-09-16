@@ -37,9 +37,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let destination = self.memory_pointer(destination)?;
         let source = self.memory_pointer(source)?;
 
-        let count = self
-            .operand(count)
-            .map(|value| int_value(value).expect("checked MIR memory translation requires an established mapping or value"))?;
+        let count = self.operand(count).map(|value| {
+            int_value(value)
+                .expect("checked MIR memory translation requires an established mapping or value")
+        })?;
 
         let layout = self.memory_layout(pointee);
 
@@ -139,9 +140,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let destination = self.memory_pointer(destination)?;
 
-        let value = self
-            .operand(value)
-            .map(|value| int_value(value).expect("checked MIR memory translation requires an established mapping or value"))?;
+        let value = self.operand(value).map(|value| {
+            int_value(value)
+                .expect("checked MIR memory translation requires an established mapping or value")
+        })?;
 
         let count = self.pointer_sized_memory_operand(count)?;
 

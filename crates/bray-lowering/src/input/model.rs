@@ -88,7 +88,12 @@ impl<'unit> LoweringInput<'unit> {
         unit_kind: MirUnitKind,
         target: MirTargetContract,
     ) -> Self {
-        assert_input_owner(unit, "control-flow", control_flow.unit(), control_flow.kind());
+        assert_input_owner(
+            unit,
+            "control-flow",
+            control_flow.unit(),
+            control_flow.kind(),
+        );
 
         assert_input_owner(
             unit,
@@ -109,7 +114,13 @@ impl<'unit> LoweringInput<'unit> {
         assert_input_owner(unit, "refinements", refinements.unit(), refinements.kind());
         assert_input_owner(unit, "storage plan", storage.unit(), storage.kind());
         assert_input_owner(unit, "liveness", liveness.unit(), liveness.kind());
-        assert_input_owner(unit, "storage flow", storage_flow.unit(), storage_flow.kind());
+
+        assert_input_owner(
+            unit,
+            "storage flow",
+            storage_flow.unit(),
+            storage_flow.kind(),
+        );
 
         assert_input_owner(
             unit,
@@ -125,8 +136,19 @@ impl<'unit> LoweringInput<'unit> {
             selections.kind(),
         );
 
-        assert_input_owner(unit, "async analysis", async_analysis.unit(), async_analysis.kind());
-        assert_input_owner(unit, "body behavior", body_behavior.unit(), body_behavior.kind());
+        assert_input_owner(
+            unit,
+            "async analysis",
+            async_analysis.unit(),
+            async_analysis.kind(),
+        );
+
+        assert_input_owner(
+            unit,
+            "body behavior",
+            body_behavior.unit(),
+            body_behavior.kind(),
+        );
 
         assert!(
             requires_mir(unit.key()),
@@ -149,9 +171,7 @@ impl<'unit> LoweringInput<'unit> {
 
         for (index, suspension) in async_analysis.suspensions().iter().enumerate() {
             assert!(
-                suspensions
-                    .insert(suspension.expression(), index)
-                    .is_none(),
+                suspensions.insert(suspension.expression(), index).is_none(),
                 "checked async analysis contains duplicate suspension for {:?}",
                 suspension.expression()
             );
@@ -380,7 +400,12 @@ impl<'unit> LoweringInput<'unit> {
         let Some(index) = self.scope_exits.get(&(scope, exit)) else {
             let point = StorageExitPoint::new(scope, exit);
 
-            if self.storage_flow.reachable_exits().binary_search(&point).is_ok() {
+            if self
+                .storage_flow
+                .reachable_exits()
+                .binary_search(&point)
+                .is_ok()
+            {
                 panic!(
                     "lowering cleanup contract violated: missing scope-exit plan for reachable scope {scope:?} and exit {exit:?}"
                 );
@@ -407,27 +432,32 @@ impl<'unit> LoweringInput<'unit> {
     }
 
     /// Returns storage occurrences whose cleanup depends on runtime initialization state.
-    pub(crate) fn initialization_guards(
-        &self,
-    ) -> impl Iterator<Item = StorageAccessId> + '_ {
+    pub(crate) fn initialization_guards(&self) -> impl Iterator<Item = StorageAccessId> + '_ {
         self.async_analysis
             .scope_exits()
             .iter()
             .flat_map(|exit| {
-                exit.storage().iter().filter_map(|decision| match decision.disposition() {
-                    AsyncStorageExitDisposition::Cleanup { access, .. } => Some(access),
-                    _ => None,
-                })
+                exit.storage()
+                    .iter()
+                    .filter_map(|decision| match decision.disposition() {
+                        AsyncStorageExitDisposition::Cleanup { access, .. } => Some(access),
+                        _ => None,
+                    })
             })
-            .chain(self.storage_flow.replacements().iter().filter_map(|decision| {
-                if decision.state() != StorageReplacementState::Conditional {
-                    return None;
-                }
+            .chain(
+                self.storage_flow
+                    .replacements()
+                    .iter()
+                    .filter_map(|decision| {
+                        if decision.state() != StorageReplacementState::Conditional {
+                            return None;
+                        }
 
-                self.storage
-                    .root_identity(decision.access())
-                    .and_then(|identity| self.storage.root_access(identity))
-            }))
+                        self.storage
+                            .root_identity(decision.access())
+                            .and_then(|identity| self.storage.root_access(identity))
+                    }),
+            )
     }
 
     /// Returns the checked represented-part partition borrowed from async analysis.
@@ -569,11 +599,12 @@ mod tests {
     use bray_bound_tree::{
         AsyncScopeExitPlan, AsyncSuspensionKind, AsyncSuspensionPoint, BoundBlock,
         BoundBlockExpression, BoundBlockItem, BoundDependencyContract, BoundExpression,
-        BoundExpressionId, BoundNodeOrigin, BoundStructuredExpression, BoundStructuredExpressionKind,
-        BoundTreeBuilder, BoundUnit, BoundUnitRoot, CheckedAsync, CheckedBodyBehavior,
-        CheckedControlFlow, CheckedDependencyContracts, CheckedExpressionTypes, CheckedLiteralValues,
-        CheckedPatterns, CheckedRefinements, CheckedSemanticSelections, ControlCompletion, Liveness,
-        StorageExitDecision, StorageExitPoint, StorageFlow, StoragePlanBuilder,
+        BoundExpressionId, BoundNodeOrigin, BoundStructuredExpression,
+        BoundStructuredExpressionKind, BoundTreeBuilder, BoundUnit, BoundUnitRoot, CheckedAsync,
+        CheckedBodyBehavior, CheckedControlFlow, CheckedDependencyContracts,
+        CheckedExpressionTypes, CheckedLiteralValues, CheckedPatterns, CheckedRefinements,
+        CheckedSemanticSelections, ControlCompletion, Liveness, StorageExitDecision,
+        StorageExitPoint, StorageFlow, StoragePlanBuilder,
     };
     use bray_symbols::testing::available_compiler_known_symbols;
     use bray_symbols::{CurrentRunCancellation, SemanticValueStore};
@@ -595,13 +626,23 @@ mod tests {
         assert!(std::ptr::eq(input.control_flow(), &control_flow));
         assert!(std::ptr::eq(input.expression_types(), &analysis.types));
         assert!(std::ptr::eq(input.patterns(), &analysis.patterns));
-        assert!(std::ptr::eq(input.semantic_selections(), &analysis.selections));
+
+        assert!(std::ptr::eq(
+            input.semantic_selections(),
+            &analysis.selections
+        ));
+
         assert!(std::ptr::eq(input.literal_values(), &analysis.literals));
         assert!(std::ptr::eq(input.storage_plan(), &analysis.storage));
         assert!(std::ptr::eq(input.liveness(), &analysis.liveness));
         assert!(std::ptr::eq(input.refinements(), &analysis.refinements));
         assert!(std::ptr::eq(input.storage_flow(), &analysis.storage_flow));
-        assert!(std::ptr::eq(input.dependency_contracts(), &analysis.dependencies));
+
+        assert!(std::ptr::eq(
+            input.dependency_contracts(),
+            &analysis.dependencies
+        ));
+
         assert!(input.frame_dependencies().is_empty());
         assert!(std::ptr::eq(input.body_behavior(), &analysis.behavior));
         assert!(std::ptr::eq(input.semantic_values(), &analysis.values));
@@ -632,10 +673,7 @@ mod tests {
 
             let block_expression = tree
                 .push_expression(BoundExpression::Block(BoundBlockExpression::new(
-                    origin,
-                    block,
-                    None,
-                    false,
+                    origin, block, None, false,
                 )))
                 .unwrap_or_else(|error| panic!("test block expression must fit: {error:?}"));
 
@@ -693,8 +731,7 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("matching async exit must build: {error:?}"));
 
-        let control_flow =
-            CheckedControlFlow::new(unit.unit(), kind, ControlCompletion::default());
+        let control_flow = CheckedControlFlow::new(unit.unit(), kind, ControlCompletion::default());
 
         let input = lowering_input(&unit, &control_flow, (&analysis).into());
 
@@ -722,14 +759,8 @@ mod tests {
             panic!("test expression unit must retain its root");
         };
 
-        let point = AsyncSuspensionPoint::new(
-            expression,
-            AsyncSuspensionKind::Yield,
-            None,
-            [],
-            [],
-            false,
-        );
+        let point =
+            AsyncSuspensionPoint::new(expression, AsyncSuspensionKind::Yield, None, [], [], false);
 
         let mut analysis = empty_expression_inputs(&unit);
 
@@ -763,17 +794,15 @@ mod tests {
         tree: &mut BoundTreeBuilder,
         origin: BoundNodeOrigin,
     ) -> BoundExpressionId {
-        tree.push_expression(BoundExpression::Structured(
-            BoundStructuredExpression::new(
-                origin,
-                BoundStructuredExpressionKind::Unit,
-                [],
-                [],
-                [],
-                None,
-                false,
-            ),
-        ))
+        tree.push_expression(BoundExpression::Structured(BoundStructuredExpression::new(
+            origin,
+            BoundStructuredExpressionKind::Unit,
+            [],
+            [],
+            [],
+            None,
+            false,
+        )))
         .unwrap_or_else(|error| panic!("test unit expression must fit: {error:?}"))
     }
 

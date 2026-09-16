@@ -101,7 +101,10 @@ impl MirFrameDescriptor {
     ) -> Result<Self, crate::MirCapacityError> {
         let states: Vec<_> = states.into_iter().collect();
 
-        assert!(!states.is_empty(), "protected frame descriptors need a state");
+        assert!(
+            !states.is_empty(),
+            "protected frame descriptors need a state"
+        );
 
         let mut state_ids = BTreeSet::new();
         let mut entry_blocks = BTreeSet::new();
@@ -195,29 +198,29 @@ mod tests {
         let abi = RuntimeAbiVersion::new(1, 0);
         let frame_abi = ProtectedFrameAbiVersions::uniform(abi);
 
-        assert!(std::panic::catch_unwind(|| {
-            MirFrameDescriptor::new(frame, abi, frame_abi, result_type, [])
-        })
-        .is_err());
+        assert!(
+            std::panic::catch_unwind(|| {
+                MirFrameDescriptor::new(frame, abi, frame_abi, result_type, [])
+            })
+            .is_err()
+        );
 
         let state = MirFrameState::new(MirFrameStateId::new(0), entry, [], []);
 
-        assert!(std::panic::catch_unwind(|| {
-            MirFrameDescriptor::new(
-                frame,
-                abi,
-                frame_abi,
-                result_type,
-                [state.clone(), state],
-            )
-        })
-        .is_err());
+        assert!(
+            std::panic::catch_unwind(|| {
+                MirFrameDescriptor::new(frame, abi, frame_abi, result_type, [state.clone(), state])
+            })
+            .is_err()
+        );
 
         let non_contiguous = MirFrameState::new(MirFrameStateId::new(1), entry, [], []);
 
-        assert!(std::panic::catch_unwind(|| {
-            MirFrameDescriptor::new(frame, abi, frame_abi, result_type, [non_contiguous])
-        })
-        .is_err());
+        assert!(
+            std::panic::catch_unwind(|| {
+                MirFrameDescriptor::new(frame, abi, frame_abi, result_type, [non_contiguous])
+            })
+            .is_err()
+        );
     }
 }

@@ -80,7 +80,8 @@ pub(super) fn translate<'context, 'request>(
             "callback.result.destination",
         )?;
 
-        let result_type = result_type.expect("checked MIR translation requires an established mapping or value");
+        let result_type =
+            result_type.expect("checked MIR translation requires an established mapping or value");
 
         llvm(builder.build_store(destination, result_type.const_zero()))?;
     }
@@ -136,7 +137,9 @@ pub(super) fn translate<'context, 'request>(
             let source =
                 field_pointer(&builder, state_type, state, field, "callback.result.source")?;
 
-            let result_type = result_type.expect("checked MIR translation requires an established mapping or value");
+            let result_type = result_type
+                .expect("checked MIR translation requires an established mapping or value");
+
             let result = llvm(builder.build_load(result_type, source, "callback.result"))?;
 
             llvm(builder.build_return(Some(&result)))?;

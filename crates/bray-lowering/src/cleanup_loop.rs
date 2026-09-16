@@ -1,7 +1,7 @@
 use bray_ir::{
-    MirBinaryOperator, MirBlockId, MirEdge, MirOperand, MirOperationKind, MirPlace,
-    MirCapacityError, MirSourceAnchor, MirStorageKind, MirStoreKind, MirTerminatorKind,
-    MirUnitBuilder, MirValueId,
+    MirBinaryOperator, MirBlockId, MirCapacityError, MirEdge, MirOperand, MirOperationKind,
+    MirPlace, MirSourceAnchor, MirStorageKind, MirStoreKind, MirTerminatorKind, MirUnitBuilder,
+    MirValueId,
 };
 use bray_symbols::TypeId;
 
@@ -150,11 +150,9 @@ fn push_value(
 ) -> Result<MirOperand, MirCapacityError> {
     let operation = builder.push_operation(block, source.clone(), kind, Some(ty))?;
 
-    Ok(MirOperand::Value(
-        operation
-            .result()
-            .expect("value-producing MIR operation must publish a result"),
-    ))
+    Ok(MirOperand::Value(operation.result().expect(
+        "value-producing MIR operation must publish a result",
+    )))
 }
 
 #[cfg(test)]
@@ -210,15 +208,11 @@ mod tests {
                     )
                     .unwrap();
 
-                builder
-                    .set_terminator(
-                        cleanup.continuation,
-                        source,
-                        MirTerminatorKind::Return(
-                            cleanup.continuation_value.map(MirOperand::Value),
-                        ),
-                    )
-                    ;
+                builder.set_terminator(
+                    cleanup.continuation,
+                    source,
+                    MirTerminatorKind::Return(cleanup.continuation_value.map(MirOperand::Value)),
+                );
 
                 let unit = builder.finish(entry);
 

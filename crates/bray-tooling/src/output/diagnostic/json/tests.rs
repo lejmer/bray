@@ -15,14 +15,14 @@ use bray_diagnostics::{
     DiagnosticInterfaceLimit, DiagnosticInterfaceSection, DiagnosticInterfaceSymbolIdentity,
     DiagnosticInterfaceSymbolKind, DiagnosticInterfaceSynthesizedIdentity, DiagnosticKind,
     DiagnosticLayoutOption, DiagnosticLayoutProblem, DiagnosticMemoryOperation,
-    DiagnosticModuleTrust,
-    DiagnosticNameKind, DiagnosticNamedType, DiagnosticNativeProductFailureDetail,
-    DiagnosticNativeProductFailureKind, DiagnosticNote, DiagnosticNoteKind, DiagnosticOutputSink,
-    DiagnosticPatternCoverage, DiagnosticPatternMissingCase, DiagnosticProductQueryFailure,
-    DiagnosticProjectCommandFailure, DiagnosticProjectManifestField, DiagnosticPropagationProblem,
-    DiagnosticRefinementCapacity, DiagnosticRefinementCapacitySurface,
-    DiagnosticRejectedSelectionCandidate, DiagnosticRelatedLocation, DiagnosticRelatedLocationKind,
-    DiagnosticRuntimeAbiVersion, DiagnosticRuntimeArtifactProblem, DiagnosticSelectionCandidate,
+    DiagnosticModuleTrust, DiagnosticNameKind, DiagnosticNamedType,
+    DiagnosticNativeProductFailureDetail, DiagnosticNativeProductFailureKind, DiagnosticNote,
+    DiagnosticNoteKind, DiagnosticOutputSink, DiagnosticPatternCoverage,
+    DiagnosticPatternMissingCase, DiagnosticProductQueryFailure, DiagnosticProjectCommandFailure,
+    DiagnosticProjectManifestField, DiagnosticPropagationProblem, DiagnosticRefinementCapacity,
+    DiagnosticRefinementCapacitySurface, DiagnosticRejectedSelectionCandidate,
+    DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, DiagnosticRuntimeAbiVersion,
+    DiagnosticRuntimeArtifactProblem, DiagnosticSelectionCandidate,
     DiagnosticSelectionCandidateIdentity, DiagnosticSelectionCandidateSignature,
     DiagnosticSelectionCandidates, DiagnosticSelectionKind, DiagnosticSelectionRejectionReason,
     DiagnosticSelectionRejections, DiagnosticSemanticQueryFailure, DiagnosticSemanticValueFailure,
@@ -517,9 +517,7 @@ fn semantic_value_payloads_reach_evaluation_and_native_product_json() {
     .with_arg(DiagnosticArg::native_product_failure_kind(
         DiagnosticNativeProductFailureKind::EvaluationChecker(
             DiagnosticCheckerFailure::SemanticValue(
-                DiagnosticSemanticValueFailure::CapacityExhausted {
-                    kind: "type",
-                },
+                DiagnosticSemanticValueFailure::CapacityExhausted { kind: "type" },
             ),
         ),
     ));

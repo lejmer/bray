@@ -26,9 +26,12 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         unit: MirUnitId,
         target: &MirTargetContract,
     ) -> Result<MirUnit, C::Error> {
-        let ty = reference
-            .lifecycle_type()
-            .unwrap_or_else(|| panic!("synthetic lowering contract violation: MissingHelper {value:?}", value = reference.clone()));
+        let ty = reference.lifecycle_type().unwrap_or_else(|| {
+            panic!(
+                "synthetic lowering contract violation: MissingHelper {value:?}",
+                value = reference.clone()
+            )
+        });
 
         let values = self.context.semantic_values();
 
@@ -151,7 +154,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
         if let MirHelperReference::Destroy(ty) = reference {
             super::outgoing::discharge_owner(&mut builder, *ty)
-            .map_err(|cause| self.capacity_error(cause))?;
+                .map_err(|cause| self.capacity_error(cause))?;
         }
 
         Ok(builder.finish(entry))

@@ -1,8 +1,7 @@
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticEmissionFailure,
-    DiagnosticEmissionLinkPlanFailure,
-    DiagnosticEmissionPlanningFailure, DiagnosticId, DiagnosticKind, DiagnosticTestCatalogFailure,
-    SeverityKind,
+    DiagnosticEmissionLinkPlanFailure, DiagnosticEmissionPlanningFailure, DiagnosticId,
+    DiagnosticKind, DiagnosticTestCatalogFailure, SeverityKind,
 };
 use bray_package_interface::{
     InterfaceValidationError, PackageImplementationArtifactBuildError,

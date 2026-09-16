@@ -2,13 +2,13 @@ use super::super::{
     DiagnosticInterfaceSymbolIdentityJson, DiagnosticOutputSinkJson,
     interface_symbol_graph_problem_json,
 };
+use super::checker_failure_context;
 use super::failure::{
     DiagnosticEmissionFieldJson, DiagnosticEmissionFieldValueJson, artifact_field, count_field,
     digest_field, field, text_field,
 };
 use super::foreign_query::foreign_query_failure_context;
 use super::product_query::product_query_failure_context;
-use super::checker_failure_context;
 
 pub(super) fn planning_failure_context(
     failure: &bray_diagnostics::DiagnosticEmissionPlanningFailure,

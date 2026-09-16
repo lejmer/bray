@@ -324,10 +324,7 @@ impl MirUnit {
             .and_then(|index| self.values.get(index))
     }
 
-    pub(crate) fn operand_type(
-        &self,
-        operand: &crate::MirOperand,
-    ) -> Option<bray_symbols::TypeId> {
+    pub(crate) fn operand_type(&self, operand: &crate::MirOperand) -> Option<bray_symbols::TypeId> {
         resolve_operand_type(self.unit, &self.values, operand)
     }
 
@@ -342,14 +339,14 @@ pub(super) fn resolve_operand_type(
     operand: &crate::MirOperand,
 ) -> Option<bray_symbols::TypeId> {
     match operand {
-        crate::MirOperand::Value(value) => {
-            (value.unit() == unit)
-                .then_some(*value)
-                .and_then(|value| value.to_index())
-                .and_then(|index| values.get(index))
-                .map(MirValue::ty)
-        }
+        crate::MirOperand::Value(value) => (value.unit() == unit)
+            .then_some(*value)
+            .and_then(|value| value.to_index())
+            .and_then(|index| values.get(index))
+            .map(MirValue::ty),
         crate::MirOperand::Copy(place) | crate::MirOperand::Move(place) => Some(place.ty()),
-        crate::MirOperand::Constant { ty, .. } | crate::MirOperand::Immediate { ty, .. } => Some(*ty),
+        crate::MirOperand::Constant { ty, .. } | crate::MirOperand::Immediate { ty, .. } => {
+            Some(*ty)
+        }
     }
 }

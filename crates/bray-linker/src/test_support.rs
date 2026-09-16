@@ -13,8 +13,8 @@ use crate::{
     ExternalToolInvocation, ExternalToolOutput, LinkInput, LinkInputId, LinkInputKind,
     LinkInputMode, LinkInputProvenance, LinkInputSource, LinkModel, LinkPlan, LinkPlanBuilder,
     LinkPolicy, LinkTarget, LinkedArtifactKind, LinkedArtifactRequirement, LinkedProductKind,
-    LinkerDriverIdentity, LinkerDriverKind, PlannedLinkedArtifact,
-    SectionGarbageCollectionPolicy, StagingDestination, StagingDestinationId, StagingPathKey,
+    LinkerDriverIdentity, LinkerDriverKind, PlannedLinkedArtifact, SectionGarbageCollectionPolicy,
+    StagingDestination, StagingDestinationId, StagingPathKey,
 };
 
 #[derive(Default)]

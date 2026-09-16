@@ -6,8 +6,8 @@ use bray_syntax::SyntaxKind;
 use super::{
     DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticArtifactDigest,
     DiagnosticArtifactDigestAlgorithm, DiagnosticIoErrorKind, DiagnosticNameKind,
-    DiagnosticNativeLinkInputFailure,
-    DiagnosticNativeProductFailureDetail, DiagnosticNativeProductFailureKind,
+    DiagnosticNativeLinkInputFailure, DiagnosticNativeProductFailureDetail,
+    DiagnosticNativeProductFailureKind,
 };
 
 #[test]

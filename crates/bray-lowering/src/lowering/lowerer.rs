@@ -147,12 +147,20 @@ impl<'unit> Lowerer<'unit> {
                     .unit()
                     .view()
                     .callable_body(body_id)
-                    .unwrap_or_else(|| panic!("lowering contract violation: MissingBoundNode {value:?}", value = body_id));
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "lowering contract violation: MissingBoundNode {value:?}",
+                            value = body_id
+                        )
+                    });
 
                 let block = match body.kind() {
                     BoundCallableBodyKind::Block(block) => block,
                     BoundCallableBodyKind::Error(_) => {
-                        panic!("lowering contract violation: RecoveredBoundNode {value:?}", value = body_id);
+                        panic!(
+                            "lowering contract violation: RecoveredBoundNode {value:?}",
+                            value = body_id
+                        );
                     }
                 };
 
@@ -404,11 +412,8 @@ mod tests {
         let mut fixture = lowering_fixture(101, BoundOperator::Add);
         let missing = fixture.types.entries()[0].expression();
 
-        fixture.types = CheckedExpressionTypes::new(
-            fixture.unit.unit(),
-            fixture.unit.key().kind(),
-            [],
-        );
+        fixture.types =
+            CheckedExpressionTypes::new(fixture.unit.unit(), fixture.unit.key().kind(), []);
 
         let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _ = lower_unit(fixture.input());

@@ -18,10 +18,12 @@ impl Lowerer<'_> {
         destination: MirPlace,
         value: MirOperand,
     ) -> Result<MirBlockId, LoweringError> {
-        let plan = self
-            .input
-            .replacement(expression)
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = expression));
+        let plan = self.input.replacement(expression).unwrap_or_else(|| {
+            panic!(
+                "lowering contract violation: MissingSemanticSelection {value:?}",
+                value = expression
+            )
+        });
 
         let AsyncStorageCleanupRequirement::Cleanup(phases) = plan.cleanup() else {
             let ty = destination.ty();
@@ -139,10 +141,12 @@ impl Lowerer<'_> {
             MirTerminatorKind::Goto(MirEdge::new(installed, [])),
         )?;
 
-        let outcome = self
-            .cleanup_outcome
-            .take()
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = expression));
+        let outcome = self.cleanup_outcome.take().unwrap_or_else(|| {
+            panic!(
+                "lowering contract violation: MissingSemanticSelection {value:?}",
+                value = expression
+            )
+        });
 
         let panicked = self
             .builder
@@ -240,7 +244,10 @@ impl Lowerer<'_> {
             .unwrap_or_default();
 
         if parts.is_empty() {
-            panic!("lowering contract violation: UnsupportedStorageAccess {value:?}", value = plan.access());
+            panic!(
+                "lowering contract violation: UnsupportedStorageAccess {value:?}",
+                value = plan.access()
+            );
         }
 
         self.push_part_cleanup(

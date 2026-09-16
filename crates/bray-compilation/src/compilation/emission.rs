@@ -281,14 +281,14 @@ fn finish_backend_contributions(
 
     let contributions =
         match BackendContributionSet::try_from_backend(plan, completed, cancellation) {
-        Ok(contributions) => contributions,
-        Err(error) => {
-            return Err(EmissionCodegenError::new(
-                EmissionCodegenErrorKind::InvalidContributions(error),
-                diagnostics,
-            ));
-        }
-    };
+            Ok(contributions) => contributions,
+            Err(error) => {
+                return Err(EmissionCodegenError::new(
+                    EmissionCodegenErrorKind::InvalidContributions(error),
+                    diagnostics,
+                ));
+            }
+        };
 
     Ok(DiagnosticResult::new(contributions, diagnostics))
 }
@@ -555,11 +555,7 @@ mod tests {
                 .unwrap_or_else(|error| panic!("test content must be valid: {error:?}"));
 
             let contributions = request.artifacts().entries().iter().map(|entry| {
-                BackendArtifactContribution::new(
-                    entry.id().clone(),
-                    content.clone(),
-                    None,
-                )
+                BackendArtifactContribution::new(entry.id().clone(), content.clone(), None)
             });
 
             let diagnostic = Diagnostic::new(

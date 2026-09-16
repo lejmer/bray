@@ -76,7 +76,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     ))?;
 
                     let bray_ir::MirUnitKind::ExecutableHost(host) = self.unit.kind() else {
-                        panic!("checked MIR effect translation violated an established compiler contract");
+                        panic!(
+                            "checked MIR effect translation violated an established compiler contract"
+                        );
                     };
 
                     let adapter_name = host
@@ -113,7 +115,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         &[context.into()],
                         "root.frame.adapter",
                     )?
-                    .expect("checked MIR effect translation requires an established mapping or value");
+                    .expect(
+                        "checked MIR effect translation requires an established mapping or value",
+                    );
 
                     let frame_storage =
                         self.allocate_temporary(frame.get_type(), "root.frame.transfer.storage")?;
@@ -527,8 +531,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .is_some_and(|entry| entry.root() == RootExecution::Synchronous);
 
         if synchronous
-            || self.host_role_implementation(runtime)
-                == RuntimeRoleImplementation::CompilerLowering
+            || self.host_role_implementation(runtime) == RuntimeRoleImplementation::CompilerLowering
         {
             return Ok(None);
         }

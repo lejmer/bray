@@ -222,7 +222,10 @@ impl LlvmCodeGenerator {
             return Ok(CodegenOutcome::cancelled(DiagnosticBag::new()));
         }
 
-        Ok(CodegenOutcome::complete(contributions, DiagnosticBag::new()))
+        Ok(CodegenOutcome::complete(
+            contributions,
+            DiagnosticBag::new(),
+        ))
     }
 
     fn serialize_artifact(
@@ -370,11 +373,7 @@ fn capabilities(supports_thin_lto: bool) -> Result<BackendCapabilities, CodegenF
     ))
 }
 
-fn verify_generated_module(
-    module: &Module<'_>,
-    target: &CodegenTarget,
-    stage: &'static str,
-) {
+fn verify_generated_module(module: &Module<'_>, target: &CodegenTarget, stage: &'static str) {
     module.verify().unwrap_or_else(|error| {
         let report = error.to_string();
 
@@ -445,9 +444,7 @@ mod tests {
     use inkwell::OptimizationLevel;
     use inkwell::targets::{CodeModel, RelocMode, Target, TargetTriple};
 
-    use super::{
-        LLVM_REVISION, LlvmCodeGenerator, representative_triple, verify_generated_module,
-    };
+    use super::{LLVM_REVISION, LlvmCodeGenerator, representative_triple, verify_generated_module};
     use crate::initialization;
     use crate::serialization::serialize_artifact;
 

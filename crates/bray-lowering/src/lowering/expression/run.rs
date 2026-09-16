@@ -65,7 +65,10 @@ impl Lowerer<'_> {
             }
             Some(hook @ (ImplementationHook::TaskYield | ImplementationHook::TaskEventWait)) => {
                 if self.input.unit_kind().protected_frame().is_none() {
-                    panic!("lowering contract violation: AwaitOutsideProtectedFrame {value:?}", value = expression);
+                    panic!(
+                        "lowering contract violation: AwaitOutsideProtectedFrame {value:?}",
+                        value = expression
+                    );
                 }
 
                 let mut current = current;
@@ -79,7 +82,10 @@ impl Lowerer<'_> {
                         },
                     ] = selection.arguments()
                     else {
-                        panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = expression);
+                        panic!(
+                            "lowering contract violation: MissingSemanticSelection {value:?}",
+                            value = expression
+                        );
                     };
 
                     let lowered = self.lower_expression(*event, current)?;
@@ -90,9 +96,12 @@ impl Lowerer<'_> {
 
                     current = continuation;
 
-                    let event = lowered
-                        .value
-                        .unwrap_or_else(|| panic!("lowering contract violation: MissingOperationResult {value:?}", value = *event));
+                    let event = lowered.value.unwrap_or_else(|| {
+                        panic!(
+                            "lowering contract violation: MissingOperationResult {value:?}",
+                            value = *event
+                        )
+                    });
 
                     let (continuation, event) = self.convert_operand(
                         expression,
@@ -121,7 +130,12 @@ impl Lowerer<'_> {
                     .suspension(expression)
                     .filter(|suspension| suspension.kind() == AsyncSuspensionKind::Yield)
                     .cloned()
-                    .unwrap_or_else(|| panic!("lowering contract violation: MissingSuspensionPoint {value:?}", value = expression));
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "lowering contract violation: MissingSuspensionPoint {value:?}",
+                            value = expression
+                        )
+                    });
 
                 self.set_terminator(
                     current,

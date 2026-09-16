@@ -81,7 +81,12 @@ impl Lowerer<'_> {
             .input
             .available_compiler_known_symbols()
             .representation_symbol::<StructSymbolId>(role)
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingRepresentation {value:?}", value = role));
+            .unwrap_or_else(|| {
+                panic!(
+                    "lowering contract violation: MissingRepresentation {value:?}",
+                    value = role
+                )
+            });
 
         self.input
             .semantic_values()

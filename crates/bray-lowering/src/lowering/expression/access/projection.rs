@@ -75,7 +75,12 @@ impl Lowerer<'_> {
         plan.access_at(identity, projections)
             .and_then(|access| plan.access(access))
             .map(bray_bound_tree::StorageAccess::reached_type)
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingStorageIdentityRecord {value:?}", value = identity))
+            .unwrap_or_else(|| {
+                panic!(
+                    "lowering contract violation: MissingStorageIdentityRecord {value:?}",
+                    value = identity
+                )
+            })
     }
 
     pub(super) fn lower_projection(
@@ -133,11 +138,17 @@ impl Lowerer<'_> {
         let lowered = self.materialize_for_later_evaluation(selector, lowered)?;
 
         let Some(current) = lowered.block else {
-            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = selector);
+            panic!(
+                "lowering contract violation: UnsupportedExpression {value:?}",
+                value = selector
+            );
         };
 
         let Some(value) = lowered.value else {
-            panic!("lowering contract violation: MissingOperationResult {value:?}", value = selector);
+            panic!(
+                "lowering contract violation: MissingOperationResult {value:?}",
+                value = selector
+            );
         };
 
         let value = match value {

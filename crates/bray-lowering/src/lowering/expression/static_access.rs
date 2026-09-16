@@ -18,7 +18,12 @@ pub(super) fn static_reference(
     let source = input
         .storage_plan()
         .access(access)
-        .unwrap_or_else(|| panic!("lowering contract violation: MissingStorageAccessRecord {value:?}", value = access))
+        .unwrap_or_else(|| {
+            panic!(
+                "lowering contract violation: MissingStorageAccessRecord {value:?}",
+                value = access
+            )
+        })
         .source();
 
     let mut receivers = vec![expression];
@@ -68,7 +73,12 @@ pub(super) fn static_reference(
             }
             _ => None,
         })
-        .unwrap_or_else(|| panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = expression))
+        .unwrap_or_else(|| {
+            panic!(
+                "lowering contract violation: MissingSemanticSelection {value:?}",
+                value = expression
+            )
+        })
 }
 impl Lowerer<'_> {
     pub(super) fn initialize_access_storage(

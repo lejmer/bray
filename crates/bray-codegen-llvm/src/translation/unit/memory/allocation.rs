@@ -202,7 +202,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         index: usize,
     ) -> Result<IntValue<'context>, CodegenFailure> {
         extract_value(&self.builder, value, self.aggregate_element(fields, index)?)
-            .map(|value| int_value(value).expect("checked MIR memory translation requires an established mapping or value"))
+            .map(|value| {
+                int_value(value).expect(
+                    "checked MIR memory translation requires an established mapping or value",
+                )
+            })
             .and_then(|value| self.pointer_sized_integer(value.into()))
     }
 
@@ -212,8 +216,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         fields: &[CodegenFieldLayout],
         index: usize,
     ) -> Result<PointerValue<'context>, CodegenFailure> {
-        extract_value(&self.builder, value, self.aggregate_element(fields, index)?)
-            .map(|value| pointer_value(value).expect("checked MIR memory translation requires an established mapping or value"))
+        extract_value(&self.builder, value, self.aggregate_element(fields, index)?).map(|value| {
+            pointer_value(value)
+                .expect("checked MIR memory translation requires an established mapping or value")
+        })
     }
 
     pub(super) fn load_owned_memory(
@@ -313,8 +319,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &mut self,
         operand: &bray_ir::MirOperand,
     ) -> Result<PointerValue<'context>, CodegenFailure> {
-        self.operand(operand)
-            .map(|value| pointer_value(value).expect("checked MIR memory translation requires an established mapping or value"))
+        self.operand(operand).map(|value| {
+            pointer_value(value)
+                .expect("checked MIR memory translation requires an established mapping or value")
+        })
     }
 
     pub(super) fn pointer_sized_memory_operand(

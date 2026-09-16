@@ -17,8 +17,8 @@ use bray_ir::{
     MirOperand, MirOperationKind, MirPanicCause, MirPatternPredicate, MirPlace, MirProjection,
     MirProjectionKind, MirRuntimeReference, MirSourceAnchor, MirStorageId, MirStorageKind,
     MirStoreKind, MirSwitchCase, MirTargetContract, MirTerminatorKind, MirTextOperation,
-    MirTextOperationKind, MirUnaryOperator, MirUnit, MirUnitBuilder, MirUnitId,
-    MirUnitKind, MirValueId,
+    MirTextOperationKind, MirUnaryOperator, MirUnit, MirUnitBuilder, MirUnitId, MirUnitKind,
+    MirValueId,
 };
 use bray_runtime_interface::{
     ExecutionLaneRequirement, ProtectedAsyncFrameId, ProtectedFrameAbiOperation,
@@ -2089,9 +2089,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                     || states.iter().enumerate().any(|(ordinal, state)| {
                         u32::try_from(ordinal).ok() != Some(state.state().raw())
                     })
-                    || states
-                        .iter()
-                        .any(|state| !entries.insert(state.entry()))
+                    || states.iter().any(|state| !entries.insert(state.entry()))
                 {
                     return Err(ExecutableTemplateDecodeError::Malformed);
                 }

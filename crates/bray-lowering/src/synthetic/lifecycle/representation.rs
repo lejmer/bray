@@ -19,8 +19,13 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         place: MirPlace,
         runtime_abi: bray_runtime_interface::RuntimeAbiVersion,
     ) -> Result<bray_ir::MirBlockId, C::Error> {
-        let role = bray_ir::MirGeneratedLifecycleRole::from_reference(reference)
-            .unwrap_or_else(|| panic!("synthetic lowering contract violation: MissingHelper {value:?}", value = reference.clone()));
+        let role =
+            bray_ir::MirGeneratedLifecycleRole::from_reference(reference).unwrap_or_else(|| {
+                panic!(
+                    "synthetic lowering contract violation: MissingHelper {value:?}",
+                    value = reference.clone()
+                )
+            });
 
         let action = self
             .context
@@ -203,11 +208,11 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         for (variant, members) in variants {
             let matched = builder
                 .push_block(source.clone(), kind)
-            .map_err(|cause| self.capacity_error(cause))?;
+                .map_err(|cause| self.capacity_error(cause))?;
 
             let unmatched = builder
                 .push_block(source.clone(), kind)
-            .map_err(|cause| self.capacity_error(cause))?;
+                .map_err(|cause| self.capacity_error(cause))?;
 
             builder.set_terminator(
                 current,

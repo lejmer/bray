@@ -14,9 +14,12 @@ impl Lowerer<'_> {
         expression: &bray_bound_tree::BoundStructuredExpression,
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
-        let kind = expression
-            .borrow_kind()
-            .unwrap_or_else(|| panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id));
+        let kind = expression.borrow_kind().unwrap_or_else(|| {
+            panic!(
+                "lowering contract violation: UnsupportedExpression {value:?}",
+                value = id
+            )
+        });
 
         let source = self.source(expression.origin());
         let result_type = self.expression_type(id);
@@ -28,15 +31,24 @@ impl Lowerer<'_> {
             target,
         } = result_data.as_ref()
         else {
-            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
+            panic!(
+                "lowering contract violation: UnsupportedExpression {value:?}",
+                value = id
+            );
         };
 
         if *result_kind != kind {
-            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
+            panic!(
+                "lowering contract violation: UnsupportedExpression {value:?}",
+                value = id
+            );
         }
 
         let [operand] = expression.operands() else {
-            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
+            panic!(
+                "lowering contract violation: UnsupportedExpression {value:?}",
+                value = id
+            );
         };
 
         if let Some(value) = self.static_string_literal_borrow(*operand, kind, result_type) {
@@ -153,10 +165,12 @@ impl Lowerer<'_> {
                     Some(result_type),
                 )?;
 
-                let value = commit
-                    .result()
-                    .map(MirOperand::Value)
-                    .unwrap_or_else(|| panic!("lowering contract violation: MissingOperationResult {value:?}", value = access_expression));
+                let value = commit.result().map(MirOperand::Value).unwrap_or_else(|| {
+                    panic!(
+                        "lowering contract violation: MissingOperationResult {value:?}",
+                        value = access_expression
+                    )
+                });
 
                 Ok(LoweredExpression::continuing(current, Some(value), source))
             },

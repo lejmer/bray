@@ -22,7 +22,10 @@ impl Lowerer<'_> {
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
         let Some(parent) = self.input.unit_kind().protected_frame() else {
-            panic!("lowering contract violation: AwaitOutsideProtectedFrame {value:?}", value = id);
+            panic!(
+                "lowering contract violation: AwaitOutsideProtectedFrame {value:?}",
+                value = id
+            );
         };
 
         let suspension = self
@@ -30,14 +33,22 @@ impl Lowerer<'_> {
             .suspension(id)
             // Lowering mutates its builder while retaining this immutable checked decision.
             .cloned()
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingSuspensionPoint {value:?}", value = id));
+            .unwrap_or_else(|| {
+                panic!(
+                    "lowering contract violation: MissingSuspensionPoint {value:?}",
+                    value = id
+                )
+            });
 
         if suspension.kind()
             != (AsyncSuspensionKind::Await {
                 operand: expression.operand(),
             })
         {
-            panic!("lowering contract violation: MissingSuspensionPoint {value:?}", value = id);
+            panic!(
+                "lowering contract violation: MissingSuspensionPoint {value:?}",
+                value = id
+            );
         }
 
         let lowered = self.lower_expression(expression.operand(), current)?;
@@ -47,7 +58,10 @@ impl Lowerer<'_> {
         };
 
         let Some(frame) = lowered.value else {
-            panic!("lowering contract violation: MissingOperationResult {value:?}", value = expression.operand());
+            panic!(
+                "lowering contract violation: MissingOperationResult {value:?}",
+                value = expression.operand()
+            );
         };
 
         let source = self.source(expression.origin());
@@ -132,7 +146,10 @@ impl Lowerer<'_> {
                 let variants = self.run_result_representation();
 
                 let BoundCallResult::LazyFuture(result) = call.result() else {
-                    panic!("lowering contract violation: InvalidTaskOperation {value:?}", value = expression);
+                    panic!(
+                        "lowering contract violation: InvalidTaskOperation {value:?}",
+                        value = expression
+                    );
                 };
 
                 MirOperationKind::Async(MirAsyncOperation::CreateFrame {
@@ -217,7 +234,12 @@ impl Lowerer<'_> {
                     .input
                     .storage_plan()
                     .root_identity(*access)
-                    .unwrap_or_else(|| panic!("lowering contract violation: MissingStorageIdentity {value:?}", value = *access)),
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "lowering contract violation: MissingStorageIdentity {value:?}",
+                            value = *access
+                        )
+                    }),
                 BoundDependencySubject::BorrowCapability(_)
                 | BoundDependencySubject::ScopedCapability(_)
                 | BoundDependencySubject::ImplementationWitness(_)
@@ -230,7 +252,12 @@ impl Lowerer<'_> {
                 .input
                 .storage_plan()
                 .identity(identity)
-                .unwrap_or_else(|| panic!("lowering contract violation: MissingStorageIdentityRecord {value:?}", value = identity));
+                .unwrap_or_else(|| {
+                    panic!(
+                        "lowering contract violation: MissingStorageIdentityRecord {value:?}",
+                        value = identity
+                    )
+                });
 
             // Static dependencies retain their product or thread owner, not frame-local storage.
             if matches!(storage, bray_bound_tree::StorageIdentity::Static(_)) {
@@ -278,10 +305,7 @@ fn frame_affinity(
     }
 }
 
-fn call_receiver(
-    call: &MirCall,
-    expression: BoundExpressionId,
-) -> MirOperand {
+fn call_receiver(call: &MirCall, expression: BoundExpressionId) -> MirOperand {
     call.arguments()
         .iter()
         .find_map(|argument| match argument {
@@ -291,7 +315,12 @@ fn call_receiver(
             }
             MirCallArgument::Explicit { .. } => None,
         })
-        .unwrap_or_else(|| panic!("lowering contract violation: InvalidTaskOperation {value:?}", value = expression))
+        .unwrap_or_else(|| {
+            panic!(
+                "lowering contract violation: InvalidTaskOperation {value:?}",
+                value = expression
+            )
+        })
 }
 
 #[cfg(test)]

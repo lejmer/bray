@@ -48,10 +48,12 @@ impl Lowerer<'_> {
             Some(result_type),
         )?;
 
-        Ok(commit
-            .result()
-            .map(MirOperand::Value)
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingOperationResult {value:?}", value = expression)))
+        Ok(commit.result().map(MirOperand::Value).unwrap_or_else(|| {
+            panic!(
+                "lowering contract violation: MissingOperationResult {value:?}",
+                value = expression
+            )
+        }))
     }
 
     pub(in crate::lowering) fn adapt_nullable_present(
@@ -97,7 +99,10 @@ impl Lowerer<'_> {
             BoundStructuredExpressionKind::Array => MirAggregateKind::Array,
             BoundStructuredExpressionKind::RepeatedArray => MirAggregateKind::RepeatedArray,
             BoundStructuredExpressionKind::Range => MirAggregateKind::Range,
-            _ => panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id),
+            _ => panic!(
+                "lowering contract violation: UnsupportedExpression {value:?}",
+                value = id
+            ),
         };
 
         let source = self.source(expression.origin());
@@ -109,7 +114,10 @@ impl Lowerer<'_> {
 
         if kind == MirAggregateKind::RepeatedArray {
             if operands.len() != 2 {
-                panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
+                panic!(
+                    "lowering contract violation: UnsupportedExpression {value:?}",
+                    value = id
+                );
             }
 
             // Source evaluation is preserved, but the checked array type owns the MIR extent.
@@ -167,7 +175,10 @@ impl Lowerer<'_> {
                             };
 
                             let Some(value) = lowered.value else {
-                                panic!("lowering contract violation: MissingOperationResult {value:?}", value = expression);
+                                panic!(
+                                    "lowering contract violation: MissingOperationResult {value:?}",
+                                    value = expression
+                                );
                             };
 
                             block = continuation;
@@ -248,7 +259,10 @@ impl Lowerer<'_> {
             }
             SelectedOperation::Member(member) => {
                 let AnySymbolId::UnionVariant(variant) = member.member() else {
-                    panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = id);
+                    panic!(
+                        "lowering contract violation: MissingSemanticSelection {value:?}",
+                        value = id
+                    );
                 };
 
                 (
@@ -257,7 +271,10 @@ impl Lowerer<'_> {
                     Vec::new(),
                 )
             }
-            _ => panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = id),
+            _ => panic!(
+                "lowering contract violation: MissingSemanticSelection {value:?}",
+                value = id
+            ),
         };
 
         let owner_type = self.expression_type(id);
@@ -301,7 +318,10 @@ impl Lowerer<'_> {
             };
 
             let Some(value) = lowered.value else {
-                panic!("lowering contract violation: MissingOperationResult {value:?}", value = *expression);
+                panic!(
+                    "lowering contract violation: MissingOperationResult {value:?}",
+                    value = *expression
+                );
             };
 
             current = continuation;

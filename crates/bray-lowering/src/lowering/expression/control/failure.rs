@@ -19,7 +19,10 @@ impl Lowerer<'_> {
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
         let Some(condition_id) = expression.operands().first().copied() else {
-            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
+            panic!(
+                "lowering contract violation: UnsupportedExpression {value:?}",
+                value = id
+            );
         };
 
         let condition = self.lower_expression(condition_id, current)?;
@@ -29,7 +32,10 @@ impl Lowerer<'_> {
         };
 
         let Some(condition) = condition.value else {
-            panic!("lowering contract violation: MissingOperationResult {value:?}", value = condition_id);
+            panic!(
+                "lowering contract violation: MissingOperationResult {value:?}",
+                value = condition_id
+            );
         };
 
         let source = self.source(expression.origin());
@@ -84,7 +90,10 @@ impl Lowerer<'_> {
                 };
 
                 let Some(message) = lowered.value else {
-                    panic!("lowering contract violation: MissingOperationResult {value:?}", value = message);
+                    panic!(
+                        "lowering contract violation: MissingOperationResult {value:?}",
+                        value = message
+                    );
                 };
 
                 (failure, Some(message))
@@ -113,7 +122,10 @@ impl Lowerer<'_> {
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
         let [message_id] = expression.operands() else {
-            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
+            panic!(
+                "lowering contract violation: UnsupportedExpression {value:?}",
+                value = id
+            );
         };
 
         let message = self.lower_expression(*message_id, current)?;
@@ -123,7 +135,10 @@ impl Lowerer<'_> {
         };
 
         let Some(message) = message.value else {
-            panic!("lowering contract violation: MissingOperationResult {value:?}", value = *message_id);
+            panic!(
+                "lowering contract violation: MissingOperationResult {value:?}",
+                value = *message_id
+            );
         };
 
         let source = self.source(expression.origin());
@@ -154,7 +169,10 @@ impl Lowerer<'_> {
         let arguments = self.named_type_arguments(result_type);
 
         let [success_type, report_type] = arguments.as_slice() else {
-            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
+            panic!(
+                "lowering contract violation: UnsupportedExpression {value:?}",
+                value = id
+            );
         };
 
         let source = self.source(expression.origin());
@@ -265,7 +283,10 @@ impl Lowerer<'_> {
                 success_type,
                 self.active_scopes.len(),
             ),
-            _ => panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id),
+            _ => panic!(
+                "lowering contract violation: UnsupportedExpression {value:?}",
+                value = id
+            ),
         }
     }
 
@@ -284,10 +305,12 @@ impl Lowerer<'_> {
             Some(report_type),
         )?;
 
-        Ok(commit
-            .result()
-            .map(MirOperand::Value)
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingOperationResult {value:?}", value = id)))
+        Ok(commit.result().map(MirOperand::Value).unwrap_or_else(|| {
+            panic!(
+                "lowering contract violation: MissingOperationResult {value:?}",
+                value = id
+            )
+        }))
     }
 
     pub(in crate::lowering) fn finish_panic_to_active_catch(
@@ -421,9 +444,11 @@ impl Lowerer<'_> {
             Some(result_type),
         )?;
 
-        Ok(commit
-            .result()
-            .map(MirOperand::Value)
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingOperationResult {value:?}", value = id)))
+        Ok(commit.result().map(MirOperand::Value).unwrap_or_else(|| {
+            panic!(
+                "lowering contract violation: MissingOperationResult {value:?}",
+                value = id
+            )
+        }))
     }
 }

@@ -20,18 +20,22 @@ impl Lowerer<'_> {
         };
 
         let Some(subject) = subject.value else {
-            panic!("lowering contract violation: MissingOperationResult {value:?}", value = expression.subject());
+            panic!(
+                "lowering contract violation: MissingOperationResult {value:?}",
+                value = expression.subject()
+            );
         };
 
         let source = self.source(expression.origin());
 
         let (join, result, result_type) = self.push_result_join(id, expression.origin())?;
 
-        let coverage = self
-            .input
-            .patterns()
-            .match_coverage(id)
-            .unwrap_or_else(|| panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id));
+        let coverage = self.input.patterns().match_coverage(id).unwrap_or_else(|| {
+            panic!(
+                "lowering contract violation: UnsupportedExpression {value:?}",
+                value = id
+            )
+        });
 
         let mut candidate = current;
 
@@ -142,11 +146,17 @@ impl Lowerer<'_> {
         let guard_value = self.lower_expression(guard, current)?;
 
         let Some(current) = guard_value.block else {
-            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = guard);
+            panic!(
+                "lowering contract violation: UnsupportedExpression {value:?}",
+                value = guard
+            );
         };
 
         let Some(condition) = guard_value.value else {
-            panic!("lowering contract violation: MissingOperationResult {value:?}", value = guard);
+            panic!(
+                "lowering contract violation: MissingOperationResult {value:?}",
+                value = guard
+            );
         };
 
         let body = self

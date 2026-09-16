@@ -53,7 +53,10 @@ fn assert_symbol_contract(target: &CodegenTarget, symbol: &CodegenSymbolMapping)
         matches!(symbol.key(), CodegenSymbolKey::Instance(_))
             && symbol.name() != entry.name()
             && symbol.linkage() != CodegenLinkage::Import
-            && matches!(entry.linkage(), CodegenLinkage::Export | CodegenLinkage::Weak)
+            && matches!(
+                entry.linkage(),
+                CodegenLinkage::Export | CodegenLinkage::Weak
+            )
             && symbol.signature().abi() != CallableAbi::Bray,
         "native entry {:?} with {:?} linkage contradicts codegen symbol {:?} with name {:?}, {:?} linkage, and {:?} ABI",
         entry.name(),

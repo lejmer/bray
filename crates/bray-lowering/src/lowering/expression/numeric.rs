@@ -28,7 +28,10 @@ impl Lowerer<'_> {
             },
         ] = selection.arguments()
         else {
-            panic!("lowering contract violation: MissingSemanticSelection {value:?}", value = id);
+            panic!(
+                "lowering contract violation: MissingSemanticSelection {value:?}",
+                value = id
+            );
         };
 
         let lowered = self.lower_expression(*expression, current)?;
@@ -38,7 +41,10 @@ impl Lowerer<'_> {
         };
 
         let Some(operand) = lowered.value else {
-            panic!("lowering contract violation: MissingOperationResult {value:?}", value = *expression);
+            panic!(
+                "lowering contract violation: MissingOperationResult {value:?}",
+                value = *expression
+            );
         };
 
         let (current, operand) = self.convert_operand(
@@ -58,10 +64,12 @@ impl Lowerer<'_> {
             Some(result_type),
         )?;
 
-        let result = commit
-            .result()
-            .map(MirOperand::Value)
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingOperationResult {value:?}", value = id));
+        let result = commit.result().map(MirOperand::Value).unwrap_or_else(|| {
+            panic!(
+                "lowering contract violation: MissingOperationResult {value:?}",
+                value = id
+            )
+        });
 
         Ok(Some(LoweredExpression::continuing(
             current,

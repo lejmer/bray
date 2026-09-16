@@ -373,7 +373,6 @@ impl CodegenMappings {
             .ok()
             .map(|index| &self.debug_locations[index])
     }
-
 }
 
 #[cfg(test)]
@@ -381,7 +380,8 @@ mod tests {
     use std::num::{NonZeroU16, NonZeroU64};
 
     use bray_ir::{
-        MirBlockKind, MirSourceAnchor, MirStorageKind, MirTerminatorKind, MirUnitBuilder, MirUnitKind,
+        MirBlockKind, MirSourceAnchor, MirStorageKind, MirTerminatorKind, MirUnitBuilder,
+        MirUnitKind,
     };
     use bray_runtime_interface::BinarySymbolName;
     use bray_symbols::{SemanticValueStore, TypeData};

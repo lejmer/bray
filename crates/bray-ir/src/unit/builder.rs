@@ -160,10 +160,14 @@ impl MirUnitBuilder {
 
         match &self.kind {
             MirUnitKind::ProtectedAsyncFrame(frame) if *frame == descriptor.frame() => {}
-            MirUnitKind::ProtectedAsyncFrame(_) => panic!("MIR frame descriptor has the wrong frame"),
+            MirUnitKind::ProtectedAsyncFrame(_) => {
+                panic!("MIR frame descriptor has the wrong frame")
+            }
             MirUnitKind::Synchronous
             | MirUnitKind::ExecutableHost(_)
-            | MirUnitKind::GeneratedLifecycle(_) => panic!("MIR unit cannot carry a frame descriptor"),
+            | MirUnitKind::GeneratedLifecycle(_) => {
+                panic!("MIR unit cannot carry a frame descriptor")
+            }
         }
 
         self.frame_descriptor = Some(descriptor);
@@ -327,11 +331,7 @@ impl MirUnitBuilder {
     }
 
     /// Returns whether completed control flow can reach the target from the entry block.
-    pub fn is_reachable(
-        &self,
-        entry: MirBlockId,
-        target: MirBlockId,
-    ) -> bool {
+    pub fn is_reachable(&self, entry: MirBlockId, target: MirBlockId) -> bool {
         let entry_index = self.block_index(entry);
         let target_index = self.block_index(target);
         let mut visited = vec![false; self.blocks.len()];
@@ -420,11 +420,7 @@ impl MirUnitBuilder {
     }
 
     fn block_index(&self, block: MirBlockId) -> usize {
-        assert_eq!(
-            block.unit(),
-            self.unit,
-            "MIR block belongs to another unit"
-        );
+        assert_eq!(block.unit(), self.unit, "MIR block belongs to another unit");
 
         let index = block.to_index().expect("MIR block has no valid slot");
         assert!(index < self.blocks.len(), "MIR block was not allocated");
@@ -483,10 +479,12 @@ mod tests {
             MirSourceAnchor::CompilerProvidedCallable(definition(4)),
             MirSourceAnchor::from(bound.key().source()),
         ] {
-            assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                builder.push_block(foreign, MirBlockKind::Ordinary)
-            }))
-            .is_err());
+            assert!(
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    builder.push_block(foreign, MirBlockKind::Ordinary)
+                }))
+                .is_err()
+            );
         }
 
         let entry = builder
@@ -584,15 +582,19 @@ mod tests {
         let foreign = crate::MirValueId::from_slot(crate::MirUnitId::new(97), 0);
         let missing = crate::MirValueId::from_slot(entry.unit(), 10);
 
-        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            builder.operand_type(&MirOperand::Value(foreign))
-        }))
-        .is_err());
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                builder.operand_type(&MirOperand::Value(foreign))
+            }))
+            .is_err()
+        );
 
-        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            builder.operand_type(&MirOperand::Value(missing))
-        }))
-        .is_err());
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                builder.operand_type(&MirOperand::Value(missing))
+            }))
+            .is_err()
+        );
 
         for operand in [
             MirOperand::Immediate {
@@ -1113,10 +1115,10 @@ mod tests {
             MirBlockKind::Ordinary,
         );
 
-        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            builder.finish(entry)
-        }))
-        .is_err());
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| { builder.finish(entry) }))
+                .is_err()
+        );
 
         let mut builder = unit_builder(&bound, MirUnitKind::Synchronous);
 
@@ -1125,13 +1127,15 @@ mod tests {
             SourceVersion::new(source.source_version().raw() + 1),
         );
 
-        assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            builder.push_block(
-                MirSourceAnchor::source(BoundNodeOrigin::source(foreign)),
-                MirBlockKind::Ordinary,
-            )
-        }))
-        .is_err());
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                builder.push_block(
+                    MirSourceAnchor::source(BoundNodeOrigin::source(foreign)),
+                    MirBlockKind::Ordinary,
+                )
+            }))
+            .is_err()
+        );
     }
 
     #[test]

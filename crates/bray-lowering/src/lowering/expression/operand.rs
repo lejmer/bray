@@ -27,10 +27,16 @@ impl Lowerer<'_> {
                 AnySymbolId::StructField(_) | AnySymbolId::UnionPayloadField(_) => {
                     self.lower_storage_operand(id, current)
                 }
-                _ => panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id),
+                _ => panic!(
+                    "lowering contract violation: UnsupportedExpression {value:?}",
+                    value = id
+                ),
             },
             None => self.lower_storage_operand(id, current),
-            _ => panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id),
+            _ => panic!(
+                "lowering contract violation: UnsupportedExpression {value:?}",
+                value = id
+            ),
         }
     }
 
@@ -168,7 +174,10 @@ impl Lowerer<'_> {
                     | StorageAccessPurpose::Slice
                     | StorageAccessPurpose::Projection => MirOperand::Copy(place),
                     _ => {
-                        panic!("lowering contract violation: UnsupportedStorageAccess {value:?}", value = decision.access());
+                        panic!(
+                            "lowering contract violation: UnsupportedStorageAccess {value:?}",
+                            value = decision.access()
+                        );
                     }
                 };
 

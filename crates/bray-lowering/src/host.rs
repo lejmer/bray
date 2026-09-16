@@ -1,7 +1,7 @@
 use bray_bound_tree::BoundUnitKey;
 use bray_ir::{
-    MirBlockKind, MirHostOperation, MirOperationKind, MirRuntimeReference, MirSourceAnchor,
-    MirCapacityError, MirTargetContract, MirTerminatorKind, MirUnit, MirUnitBuilder, MirUnitId,
+    MirBlockKind, MirCapacityError, MirHostOperation, MirOperationKind, MirRuntimeReference,
+    MirSourceAnchor, MirTargetContract, MirTerminatorKind, MirUnit, MirUnitBuilder, MirUnitId,
 };
 use bray_runtime_interface::{ExecutableHostContract, ExecutableHostEntryId, RuntimeAbiRole};
 

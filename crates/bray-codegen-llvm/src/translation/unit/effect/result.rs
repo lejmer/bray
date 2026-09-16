@@ -51,15 +51,17 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let status = match entry_result {
             ExecutableEntryResult::Unit => {
                 if result.is_some() {
-                    panic!("checked MIR effect translation violated an established compiler contract");
+                    panic!(
+                        "checked MIR effect translation violated an established compiler contract"
+                    );
                 }
 
                 integer.const_zero()
             }
             ExecutableEntryResult::I32 => {
-                let result = result
-                    .and_then(int_value)
-                    .expect("checked MIR effect translation requires an established mapping or value");
+                let result = result.and_then(int_value).expect(
+                    "checked MIR effect translation requires an established mapping or value",
+                );
 
                 llvm(
                     self.builder
@@ -71,7 +73,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 error: error_type,
                 success_variant,
             } => {
-                let result = result.expect("checked MIR effect translation requires an established mapping or value");
+                let result = result.expect(
+                    "checked MIR effect translation requires an established mapping or value",
+                );
 
                 let tag = self.union_tag(result, ty)?;
                 let success = self.union_variant_tag(ty, success_variant, tag.get_type())?;
@@ -83,31 +87,41 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     "host.succeeded",
                 ))?;
 
-                let mapping = self
-                    .type_mapping(ty)
-                    .expect("checked MIR effect translation requires an established mapping or value");
+                let mapping = self.type_mapping(ty).expect(
+                    "checked MIR effect translation requires an established mapping or value",
+                );
 
                 let bray_codegen::CodegenTypeKind::Union { variants, .. } = mapping.kind() else {
-                    panic!("checked MIR effect translation violated an established compiler contract");
+                    panic!(
+                        "checked MIR effect translation violated an established compiler contract"
+                    );
                 };
 
                 let error_variant = variants
                     .iter()
                     .find(|variant| variant.variant() != success_variant)
-                    .expect("checked MIR effect translation requires an established mapping or value");
+                    .expect(
+                        "checked MIR effect translation requires an established mapping or value",
+                    );
 
                 let [error_field] = error_variant.fields() else {
-                    panic!("checked MIR effect translation violated an established compiler contract");
+                    panic!(
+                        "checked MIR effect translation violated an established compiler contract"
+                    );
                 };
 
                 if error_field.ty() != error_type {
-                    panic!("checked MIR effect translation violated an established compiler contract");
+                    panic!(
+                        "checked MIR effect translation violated an established compiler contract"
+                    );
                 }
 
                 let Some(bray_ir::MirFieldReference::UnionPayload(error_field)) =
                     error_field.reference()
                 else {
-                    panic!("checked MIR effect translation violated an established compiler contract");
+                    panic!(
+                        "checked MIR effect translation violated an established compiler contract"
+                    );
                 };
 
                 let ty = self.types.map(ty)?;
@@ -162,7 +176,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             integer.const_int(1, false),
             "root.exit",
         ))
-        .map(|value| int_value(value).expect("checked MIR effect translation requires an established mapping or value"))?;
+        .map(|value| {
+            int_value(value)
+                .expect("checked MIR effect translation requires an established mapping or value")
+        })?;
 
         if asynchronous {
             let root = self
@@ -301,7 +318,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             self.builder
                 .build_select(completed, payload, fallback, "root.completion.handle"),
         )
-        .map(|value| int_value(value).expect("checked MIR effect translation requires an established mapping or value"))
+        .map(|value| {
+            int_value(value)
+                .expect("checked MIR effect translation requires an established mapping or value")
+        })
     }
 
     fn resolve_entry_failure(

@@ -1223,12 +1223,9 @@ mod tests {
         ));
 
         builder.set_entry_point(
-            bray_testing::test_executable_host_contract_for(
-                product(),
-                target.identity().clone(),
-            )
-            .native_entry()
-            .clone(),
+            bray_testing::test_executable_host_contract_for(product(), target.identity().clone())
+                .native_entry()
+                .clone(),
         );
 
         builder
@@ -1295,12 +1292,9 @@ mod tests {
         ));
 
         builder.set_entry_point(
-            bray_testing::test_executable_host_contract_for(
-                product(),
-                target.identity().clone(),
-            )
-            .native_entry()
-            .clone(),
+            bray_testing::test_executable_host_contract_for(product(), target.identity().clone())
+                .native_entry()
+                .clone(),
         );
 
         builder

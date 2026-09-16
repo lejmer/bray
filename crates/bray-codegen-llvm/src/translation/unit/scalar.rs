@@ -26,11 +26,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let tag =
                     extract_value(&self.builder, subject, self.aggregate_element(fields, 0)?)?;
 
-                let tag = int_value(tag).expect("checked MIR translation requires an established mapping or value");
+                let tag = int_value(tag)
+                    .expect("checked MIR translation requires an established mapping or value");
 
                 nonzero_integer(&self.builder, tag, "nullable.present")
             }
-            unexpected => panic!("checked MIR translation violated an established compiler contract: {unexpected:?}"),
+            unexpected => panic!(
+                "checked MIR translation violated an established compiler contract: {unexpected:?}"
+            ),
         }
     }
 
@@ -51,8 +54,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     "nullable.state",
                 ))?;
 
-                let pointer =
-                    pointer_value(value).expect("checked MIR translation requires an established mapping or value");
+                let pointer = pointer_value(value)
+                    .expect("checked MIR translation requires an established mapping or value");
 
                 llvm(self.builder.build_is_not_null(pointer, "nullable.present"))
             }
@@ -74,11 +77,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     "nullable.state",
                 ))?;
 
-                let state = int_value(state).expect("checked MIR translation requires an established mapping or value");
+                let state = int_value(state)
+                    .expect("checked MIR translation requires an established mapping or value");
 
                 nonzero_integer(&self.builder, state, "nullable.present")
             }
-            unexpected => panic!("checked MIR translation violated an established compiler contract: {unexpected:?}"),
+            unexpected => panic!(
+                "checked MIR translation violated an established compiler contract: {unexpected:?}"
+            ),
         }
     }
 
@@ -121,7 +127,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 self.translate_conversion_plan(*operand, conversion, &mut helpers)
             }
-            unexpected => panic!("checked MIR translation violated an established compiler contract: {unexpected:?}"),
+            unexpected => panic!(
+                "checked MIR translation violated an established compiler contract: {unexpected:?}"
+            ),
         }
     }
 
@@ -170,7 +178,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     "compare.greater",
                 ))?,
             ),
-            unexpected => panic!("checked MIR translation violated an established compiler contract: {unexpected:?}"),
+            unexpected => panic!(
+                "checked MIR translation violated an established compiler contract: {unexpected:?}"
+            ),
         };
 
         let mapping = self
@@ -199,7 +209,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .build_select(greater, greater_tag, equal_tag, "compare.not_less"),
             )?;
 
-        let not_less = int_value(not_less).expect("checked MIR translation requires an established mapping or value");
+        let not_less = int_value(not_less)
+            .expect("checked MIR translation requires an established mapping or value");
 
         let selected_tag =
             llvm(
@@ -233,7 +244,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         };
 
         let target = *target;
-        let pointer = pointer_value(value).expect("checked MIR translation requires an established mapping or value");
+
+        let pointer = pointer_value(value)
+            .expect("checked MIR translation requires an established mapping or value");
 
         let value = llvm(self.builder.build_load(
             self.types.map(target)?,
@@ -273,7 +286,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 MirUnaryOperator::Not | MirUnaryOperator::BitwiseNot,
                 BasicValueEnum::IntValue(value),
             ) => llvm(self.builder.build_not(value, "not")).map(Into::into),
-            unexpected => panic!("checked MIR translation violated an established compiler contract: {unexpected:?}"),
+            unexpected => panic!(
+                "checked MIR translation violated an established compiler contract: {unexpected:?}"
+            ),
         }
     }
 
@@ -309,7 +324,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             (BasicValueEnum::FloatValue(left), BasicValueEnum::FloatValue(right)) => {
                 self.float_binary(operator, left, right)
             }
-            unexpected => panic!("checked MIR translation violated an established compiler contract: {unexpected:?}"),
+            unexpected => panic!(
+                "checked MIR translation violated an established compiler contract: {unexpected:?}"
+            ),
         }
     }
 
@@ -410,7 +427,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             | Operator::BitwiseOr
             | Operator::BitwiseXor
             | Operator::ShiftLeft
-            | Operator::ShiftRight => panic!("checked MIR translation violated an established compiler contract"),
+            | Operator::ShiftRight => {
+                panic!("checked MIR translation violated an established compiler contract")
+            }
         };
 
         Ok(value)

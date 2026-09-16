@@ -119,13 +119,17 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 )?;
 
                 if result.get_type() != result_type {
-                    panic!("checked MIR effect translation violated an established compiler contract");
+                    panic!(
+                        "checked MIR effect translation violated an established compiler contract"
+                    );
                 }
 
                 llvm(self.builder.build_store(destination, result))?;
             }
             (None, None) => {}
-            unexpected => panic!("checked MIR effect translation violated an established compiler contract: {unexpected:?}"),
+            unexpected => panic!(
+                "checked MIR effect translation violated an established compiler contract: {unexpected:?}"
+            ),
         }
 
         let value = llvm(

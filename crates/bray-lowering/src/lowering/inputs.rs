@@ -51,7 +51,10 @@ impl Lowerer<'_> {
             .into_iter()
             .map(|(_, input)| {
                 let MirOperand::Move(place) = input else {
-                    panic!("lowering contract violation: MissingOperationResult {value:?}", value = expression);
+                    panic!(
+                        "lowering contract violation: MissingOperationResult {value:?}",
+                        value = expression
+                    );
                 };
 
                 let kind = bray_symbols::BorrowKind::Shared;
@@ -90,20 +93,31 @@ impl Lowerer<'_> {
             self.materialize_synthetic_temporary(block, Self::retained_source(source), value, ty)?;
 
         let Some(MirOperand::Move(place)) = lowered.value else {
-            panic!("lowering contract violation: MissingOperationResult {value:?}", value = expression);
+            panic!(
+                "lowering contract violation: MissingOperationResult {value:?}",
+                value = expression
+            );
         };
 
         let cleanup = self
             .input
             .cleanup_type(ty)
             .map(|shape| shape.cleanup())
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingInputCleanup {value:?}", value = expression));
+            .unwrap_or_else(|| {
+                panic!(
+                    "lowering contract violation: MissingInputCleanup {value:?}",
+                    value = expression
+                )
+            });
 
         let phases = match cleanup {
             AsyncStorageCleanupRequirement::None => None,
             AsyncStorageCleanupRequirement::Cleanup(phases) => Some(phases),
             AsyncStorageCleanupRequirement::Recovered(_) => {
-                panic!("lowering contract violation: RecoveredBoundNode {value:?}", value = expression);
+                panic!(
+                    "lowering contract violation: RecoveredBoundNode {value:?}",
+                    value = expression
+                );
             }
         };
 

@@ -19,18 +19,21 @@ impl Lowerer<'_> {
         matched: MirBlockId,
         unmatched: MirBlockId,
     ) -> Result<bool, LoweringError> {
-        let expression = self
-            .input
-            .unit()
-            .view()
-            .expression(id)
-            .unwrap_or_else(|| panic!("lowering contract violation: MissingBoundNode {value:?}", value = id));
+        let expression = self.input.unit().view().expression(id).unwrap_or_else(|| {
+            panic!(
+                "lowering contract violation: MissingBoundNode {value:?}",
+                value = id
+            )
+        });
 
         if let BoundExpression::Structured(condition) = expression
             && condition.kind() == BoundStructuredExpressionKind::Condition
         {
             let [operand] = condition.operands() else {
-                panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
+                panic!(
+                    "lowering contract violation: UnsupportedExpression {value:?}",
+                    value = id
+                );
             };
 
             return self.lower_condition(*operand, current, matched, unmatched);
@@ -40,7 +43,10 @@ impl Lowerer<'_> {
             && binary.operator() == BoundOperator::LogicalAnd
         {
             let [left, right] = binary.operands() else {
-                panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
+                panic!(
+                    "lowering contract violation: UnsupportedExpression {value:?}",
+                    value = id
+                );
             };
 
             let (left, right) = (*left, *right);
@@ -76,7 +82,10 @@ impl Lowerer<'_> {
         };
 
         let Some(value) = condition.value else {
-            panic!("lowering contract violation: MissingOperationResult {value:?}", value = id);
+            panic!(
+                "lowering contract violation: MissingOperationResult {value:?}",
+                value = id
+            );
         };
 
         let terminator = match self.constant_boolean(&value) {
@@ -105,7 +114,10 @@ impl Lowerer<'_> {
         }
 
         let [scope] = test.blocks() else {
-            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
+            panic!(
+                "lowering contract violation: UnsupportedExpression {value:?}",
+                value = id
+            );
         };
 
         let scope = *scope;
@@ -124,7 +136,10 @@ impl Lowerer<'_> {
         unmatched: MirBlockId,
     ) -> Result<bool, LoweringError> {
         let ([subject_id], [pattern]) = (test.operands(), test.patterns()) else {
-            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
+            panic!(
+                "lowering contract violation: UnsupportedExpression {value:?}",
+                value = id
+            );
         };
 
         let subject = self.lower_expression(*subject_id, current)?;
@@ -135,7 +150,10 @@ impl Lowerer<'_> {
         };
 
         let Some(value) = subject.value else {
-            panic!("lowering contract violation: MissingOperationResult {value:?}", value = *subject_id);
+            panic!(
+                "lowering contract violation: MissingOperationResult {value:?}",
+                value = *subject_id
+            );
         };
 
         self.lower_pattern_branch(*pattern, value, current, matched, unmatched)?;
@@ -168,7 +186,10 @@ impl Lowerer<'_> {
         let source = self.source(expression.origin());
 
         let [scope] = expression.blocks() else {
-            panic!("lowering contract violation: UnsupportedExpression {value:?}", value = id);
+            panic!(
+                "lowering contract violation: UnsupportedExpression {value:?}",
+                value = id
+            );
         };
 
         self.active_scopes.push(*scope);
