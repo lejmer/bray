@@ -12,15 +12,13 @@ impl RuntimeEventGeneration {
     }
 }
 
-/// Failure to observe or mutate one runtime event.
+/// Failure to mutate one runtime event.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RuntimeEventError {
     /// Event generations cannot advance without losing ordering.
     GenerationExhausted,
     /// Wait-registration identities cannot be represented.
     RegistrationIdentityExhausted,
-    /// Event state was poisoned by an unexpected runtime panic.
-    SynchronizationPoisoned,
 }
 
 /// Infallible notification used when a runtime event changes or closes.
@@ -59,10 +57,10 @@ impl RuntimeEvent {
     }
 
     /// Returns the current generation and whether the event is closed.
-    pub fn observation(&self) -> Result<(RuntimeEventGeneration, bool), RuntimeEventError> {
-        let data = self.lock_data()?;
+    pub fn observation(&self) -> (RuntimeEventGeneration, bool) {
+        let data = self.lock_data();
 
-        Ok((RuntimeEventGeneration(data.generation), data.closed))
+        (RuntimeEventGeneration(data.generation), data.closed)
     }
 
     /// Registers a wake for the next change after an observed generation.
@@ -75,7 +73,7 @@ impl RuntimeEvent {
         wake: Arc<dyn RuntimeEventWake>,
     ) -> Result<RuntimeEventRegistration, RuntimeEventError> {
         let (identity, wake_now) = {
-            let mut data = self.lock_data()?;
+            let mut data = self.lock_data();
 
             if data.closed || data.generation != observed.0 {
                 (None, Some(wake))
@@ -104,37 +102,45 @@ impl RuntimeEvent {
     }
 
     /// Advances the event generation and wakes every current waiter once.
+    /// Exhaustion closes the event and drains its waiters before returning the error.
     pub fn signal(&self) -> Result<RuntimeEventGeneration, RuntimeEventError> {
         let (generation, waiters) = {
-            let mut data = self.lock_data()?;
+            let mut data = self.lock_data();
 
             if data.closed {
                 return Ok(RuntimeEventGeneration(data.generation));
             }
 
-            let Some(generation) = data.generation.checked_add(1) else {
-                return Err(RuntimeEventError::GenerationExhausted);
-            };
+            let generation = match data.generation.checked_add(1) {
+                Some(generation) => {
+                    data.generation = generation;
 
-            data.generation = generation;
+                    Ok(RuntimeEventGeneration(generation))
+                }
+                None => {
+                    data.closed = true;
+
+                    Err(RuntimeEventError::GenerationExhausted)
+                }
+            };
 
             (generation, std::mem::take(&mut data.waiters))
         };
 
         wake_all(waiters);
 
-        Ok(RuntimeEventGeneration(generation))
+        generation
     }
 
     /// Closes the event and wakes every current waiter once.
     ///
     /// Returns whether this call performed the open-to-closed transition.
-    pub fn close(&self) -> Result<bool, RuntimeEventError> {
+    pub fn close(&self) -> bool {
         let waiters = {
-            let mut data = self.lock_data()?;
+            let mut data = self.lock_data();
 
             if data.closed {
-                return Ok(false);
+                return false;
             }
 
             data.closed = true;
@@ -144,13 +150,13 @@ impl RuntimeEvent {
 
         wake_all(waiters);
 
-        Ok(true)
+        true
     }
 
-    fn lock_data(&self) -> Result<std::sync::MutexGuard<'_, RuntimeEventData>, RuntimeEventError> {
+    fn lock_data(&self) -> std::sync::MutexGuard<'_, RuntimeEventData> {
         self.data
             .lock()
-            .map_err(|_| RuntimeEventError::SynchronizationPoisoned)
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 }
 
@@ -196,10 +202,7 @@ mod tests {
         let event = RuntimeEvent::new();
         let wakes = Arc::new(AtomicUsize::new(0));
 
-        let observed = event
-            .observation()
-            .unwrap_or_else(|error| panic!("event must be observable: {error:?}"))
-            .0;
+        let observed = event.observation().0;
 
         let retained_wakes = Arc::clone(&wakes);
 
@@ -254,10 +257,7 @@ mod tests {
         let event = RuntimeEvent::new();
         let wakes = Arc::new(AtomicUsize::new(0));
 
-        let observed = event
-            .observation()
-            .unwrap_or_else(|error| panic!("event must be observable: {error:?}"))
-            .0;
+        let observed = event.observation().0;
 
         let retained_wakes = Arc::clone(&wakes);
 
@@ -284,10 +284,7 @@ mod tests {
         let event = RuntimeEvent::new();
         let wakes = Arc::new(AtomicUsize::new(0));
 
-        let observed = event
-            .observation()
-            .unwrap_or_else(|error| panic!("event must be observable: {error:?}"))
-            .0;
+        let observed = event.observation().0;
 
         let retained_wakes = Arc::clone(&wakes);
 
@@ -300,8 +297,83 @@ mod tests {
             )
             .unwrap_or_else(|error| panic!("event wait must register: {error:?}"));
 
-        assert_eq!(event.close(), Ok(true));
-        assert_eq!(event.close(), Ok(false));
+        assert!(event.close());
+        assert!(!event.close());
         assert_eq!(wakes.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn exhaustion_closes_and_resolves_waiters_without_reusing_a_generation() {
+        let event = RuntimeEvent::new();
+        event.data.lock().unwrap().generation = u64::MAX;
+        let wakes = Arc::new(AtomicUsize::new(0));
+
+        let registrations: [_; 2] = std::array::from_fn(|_| {
+            let wakes = Arc::clone(&wakes);
+
+            event
+                .register(
+                    event.observation().0,
+                    Arc::new(move || {
+                        wakes.fetch_add(1, Ordering::Relaxed);
+                    }),
+                )
+                .unwrap()
+        });
+
+        assert_eq!(
+            event.signal(),
+            Err(super::RuntimeEventError::GenerationExhausted)
+        );
+
+        assert_eq!(
+            event.observation(),
+            (RuntimeEventGeneration(u64::MAX), true)
+        );
+
+        assert_eq!(wakes.load(Ordering::Relaxed), 2);
+        assert!(!event.close());
+        assert_eq!(event.signal(), Ok(RuntimeEventGeneration(u64::MAX)));
+
+        let wakes_again = Arc::clone(&wakes);
+
+        let late = event
+            .register(
+                event.observation().0,
+                Arc::new(move || {
+                    wakes_again.fetch_add(1, Ordering::Relaxed);
+                }),
+            )
+            .unwrap();
+
+        assert_eq!(wakes.load(Ordering::Relaxed), 3);
+        drop((registrations, late));
+    }
+
+    #[test]
+    fn poisoned_intact_event_preserves_waiters_and_generation() {
+        let event = RuntimeEvent::new();
+        let wakes = Arc::new(AtomicUsize::new(0));
+        let retained = Arc::clone(&wakes);
+
+        let registration = event
+            .register(
+                event.observation().0,
+                Arc::new(move || {
+                    retained.fetch_add(1, Ordering::Relaxed);
+                }),
+            )
+            .unwrap();
+
+        let _ = std::panic::catch_unwind(|| {
+            let _guard = event.data.lock().unwrap();
+            panic!("poison intact event state");
+        });
+
+        assert_eq!(event.observation(), (RuntimeEventGeneration(0), false));
+        assert_eq!(event.signal(), Ok(RuntimeEventGeneration(1)));
+        assert_eq!(wakes.load(Ordering::Relaxed), 1);
+        assert!(event.close());
+        drop(registration);
     }
 }

@@ -404,12 +404,9 @@ native_export! {
 }
 
 native_export! {
-    pub extern "C" fn bray_runtime_wake(
-        task: NativeTaskHandle,
-        state: u32,
-    ) -> NativeRuntimeStatus {
+    pub extern "C" fn bray_runtime_wake(task: NativeTaskHandle) -> NativeRuntimeStatus {
         contain_status(|| {
-            with_runtime(|runtime| runtime.wake(task, state))
+            with_runtime(|runtime| runtime.wake(task))
                 .unwrap_or_else(|status| status)
         })
     }
@@ -599,7 +596,9 @@ mod tests {
         bray_runtime_main_thread_lane_startup, bray_runtime_root_completion_resolution,
         bray_runtime_root_execution, bray_runtime_root_terminal_observation,
         bray_runtime_structured_shutdown, bray_runtime_suspension_registration,
-        bray_runtime_task_allocation, bray_runtime_task_start,
+        bray_runtime_task_allocation, bray_runtime_task_destruction,
+        bray_runtime_task_event_creation, bray_runtime_task_event_destruction,
+        bray_runtime_task_event_signal, bray_runtime_task_start, bray_runtime_wake,
     };
 
     static DESTROYED: AtomicUsize = AtomicUsize::new(0);
@@ -616,6 +615,8 @@ mod tests {
     static FAILURE_RESOLUTIONS: AtomicUsize = AtomicUsize::new(0);
     static FAILURE_DESTRUCTIONS: AtomicUsize = AtomicUsize::new(0);
     static AWAITED_BLOCKING_COMPLETIONS: AtomicUsize = AtomicUsize::new(0);
+    static EVENT_CHILD_RESUMES: AtomicUsize = AtomicUsize::new(0);
+    static EVENT_PARENT_RESUMES: AtomicUsize = AtomicUsize::new(0);
     const AWAITED_BLOCKING_CHILD_COUNT: usize = 8;
 
     #[test]
@@ -759,6 +760,104 @@ mod tests {
 
         assert_eq!(
             bray_runtime_root_completion_resolution(root),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        assert_eq!(
+            bray_runtime_structured_shutdown(),
+            NativeRuntimeStatus::SUCCESS
+        );
+    }
+
+    #[test]
+    fn stale_wakes_recheck_event_and_awaited_readiness() {
+        EVENT_CHILD_RESUMES.store(0, Ordering::Relaxed);
+        EVENT_PARENT_RESUMES.store(0, Ordering::Relaxed);
+
+        assert_eq!(
+            bray_runtime_main_thread_lane_startup(NativeRuntimeConfiguration::new(2, 1)),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        let event = bray_runtime_task_event_creation();
+        let allocation = bray_runtime_task_allocation();
+
+        let Some(task) = allocation.task() else {
+            panic!("event-awaiting task must allocate");
+        };
+
+        assert_eq!(
+            start_test_task(
+                task,
+                protected_frame_with_context(
+                    event,
+                    8,
+                    frame_state,
+                    await_event_child,
+                    ignore_completion_move,
+                    ignore_action,
+                ),
+            ),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        assert_eq!(
+            bray_runtime_main_thread_lane_drive(),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        assert_eq!(
+            bray_runtime_main_thread_lane_drive(),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        assert_eq!(EVENT_PARENT_RESUMES.load(Ordering::Relaxed), 1);
+        assert_eq!(EVENT_CHILD_RESUMES.load(Ordering::Relaxed), 1);
+
+        assert_eq!(bray_runtime_wake(task), NativeRuntimeStatus::SUCCESS);
+
+        assert_eq!(
+            bray_runtime_main_thread_lane_drive(),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        assert_eq!(EVENT_PARENT_RESUMES.load(Ordering::Relaxed), 1);
+
+        let pending = super::with_runtime(|runtime| runtime.observe(task))
+            .unwrap_or_else(|status| panic!("runtime must remain available: {status:?}"));
+
+        assert_eq!(pending.state(), NativeRunState::PENDING);
+
+        assert_eq!(
+            bray_runtime_task_event_signal(event),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        assert_eq!(
+            bray_runtime_main_thread_lane_drive(),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        assert_eq!(
+            bray_runtime_main_thread_lane_drive(),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        assert_eq!(EVENT_CHILD_RESUMES.load(Ordering::Relaxed), 2);
+        assert_eq!(EVENT_PARENT_RESUMES.load(Ordering::Relaxed), 2);
+
+        let completed = super::with_runtime(|runtime| runtime.observe(task))
+            .unwrap_or_else(|status| panic!("runtime must remain available: {status:?}"));
+
+        assert_eq!(completed.state(), NativeRunState::COMPLETED);
+
+        assert_eq!(
+            bray_runtime_task_destruction(task),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        assert_eq!(
+            bray_runtime_task_event_destruction(event),
             NativeRuntimeStatus::SUCCESS
         );
 
@@ -1462,8 +1561,19 @@ mod tests {
         move_completion: extern "C-unwind" fn(usize, usize),
         destroy: extern "C-unwind" fn(usize),
     ) -> NativeProtectedFrame {
+        protected_frame_with_context(0, alignment, state, resume, move_completion, destroy)
+    }
+
+    fn protected_frame_with_context(
+        context: usize,
+        alignment: usize,
+        state: extern "C" fn(usize, u32) -> NativeFrameState,
+        resume: extern "C-unwind" fn(&mut NativeFrameProgress, usize),
+        move_completion: extern "C-unwind" fn(usize, usize),
+        destroy: extern "C-unwind" fn(usize),
+    ) -> NativeProtectedFrame {
         NativeProtectedFrame::new(
-            0,
+            context,
             [7; 32],
             2,
             8,
@@ -1523,6 +1633,44 @@ mod tests {
 
             bray_runtime_suspension_registration(1)
         })();
+    }
+
+    extern "C-unwind" fn await_event_child(destination: &mut NativeFrameProgress, event: usize) {
+        let resumes = EVENT_PARENT_RESUMES.fetch_add(1, Ordering::Relaxed);
+
+        *destination = if resumes == 0 {
+            bray_runtime_awaited_frame_composition(NativeInactiveFrame::new(
+                event,
+                move_event_child,
+            ));
+
+            bray_runtime_suspension_registration(1)
+        } else {
+            let _ = bray_runtime_frame_completion_move();
+
+            NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 19)
+        };
+    }
+
+    extern "C" fn move_event_child(event: usize) -> NativeProtectedFrame {
+        protected_frame_with_context(
+            event,
+            8,
+            frame_state,
+            wait_for_event,
+            ignore_completion_move,
+            ignore_action,
+        )
+    }
+
+    extern "C-unwind" fn wait_for_event(destination: &mut NativeFrameProgress, event: usize) {
+        let resumes = EVENT_CHILD_RESUMES.fetch_add(1, Ordering::Relaxed);
+
+        *destination = if resumes == 0 {
+            NativeFrameProgress::new(NativeFrameProgressKind::TASK_EVENT, 1, event)
+        } else {
+            NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 17)
+        };
     }
 
     extern "C" fn move_blocking_child(_: usize) -> NativeProtectedFrame {
@@ -1585,10 +1733,7 @@ mod tests {
             let task = NativeTaskHandle::new(raw)
                 .unwrap_or_else(|| panic!("test root task must be nonzero"));
 
-            assert_eq!(
-                super::bray_runtime_wake(task, 1),
-                NativeRuntimeStatus::SUCCESS
-            );
+            assert_eq!(super::bray_runtime_wake(task), NativeRuntimeStatus::SUCCESS);
 
             *destination = NativeFrameProgress::new(NativeFrameProgressKind::SUSPENDED, 1, 0);
             return;
@@ -1609,10 +1754,7 @@ mod tests {
             let task = NativeTaskHandle::new(raw)
                 .unwrap_or_else(|| panic!("test root task must be nonzero"));
 
-            assert_eq!(
-                super::bray_runtime_wake(task, 1),
-                NativeRuntimeStatus::SUCCESS
-            );
+            assert_eq!(super::bray_runtime_wake(task), NativeRuntimeStatus::SUCCESS);
 
             *destination = NativeFrameProgress::new(NativeFrameProgressKind::SUSPENDED, 1, 0);
             return;
