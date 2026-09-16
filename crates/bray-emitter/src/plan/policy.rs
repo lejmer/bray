@@ -72,27 +72,23 @@ pub struct EmissionBackend {
 }
 
 impl EmissionBackend {
-    /// Creates a backend selection with unique codegen units in canonical order.
-    pub fn try_new(
+    /// Creates a backend selection with codegen units in canonical order.
+    pub fn new(
         identity: BackendIdentity,
         capabilities: BackendCapabilities,
         units: impl IntoIterator<Item = CodegenUnitKey>,
         policy: BackendEmissionPolicy,
-    ) -> Result<Self, EmissionBackendBuildError> {
+    ) -> Self {
         let mut units: Vec<_> = units.into_iter().collect();
 
         units.sort_unstable();
 
-        if units.windows(2).any(|pair| pair[0] == pair[1]) {
-            return Err(EmissionBackendBuildError::DuplicateCodegenUnit);
-        }
-
-        Ok(Self {
+        Self {
             identity,
             capabilities,
             units: units.into(),
             policy,
-        })
+        }
     }
 
     /// Returns the selected backend and toolchain identity.
@@ -116,13 +112,6 @@ impl EmissionBackend {
     }
 }
 
-/// A contract violation in a selected emission backend.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum EmissionBackendBuildError {
-    /// One structural codegen unit was supplied more than once.
-    DuplicateCodegenUnit,
-}
-
 #[cfg(test)]
 mod tests {
     use bray_codegen::{
@@ -130,37 +119,25 @@ mod tests {
         DebugInformationOutputMode, LinkableArtifactKind,
     };
 
-    use super::{BackendEmissionPolicy, EmissionBackend, EmissionBackendBuildError};
+    use super::{BackendEmissionPolicy, EmissionBackend};
     use crate::test_support::{backend_identity, codegen_unit_key};
 
     #[test]
-    fn emission_backends_canonicalize_and_validate_unit_membership() {
+    fn emission_backends_canonicalize_unit_membership() {
         let first = codegen_unit_key(1);
         let second = codegen_unit_key(2);
 
-        let Ok(backend) = EmissionBackend::try_new(
+        let backend = EmissionBackend::new(
             backend_identity(),
             BackendCapabilities::default(),
             [second.clone(), first.clone()],
             BackendEmissionPolicy::default(),
-        ) else {
-            panic!("test emission backend must be valid");
-        };
+        );
 
         let mut expected = [first.clone(), second];
         expected.sort();
 
         assert_eq!(backend.units(), &expected);
-
-        assert_eq!(
-            EmissionBackend::try_new(
-                backend_identity(),
-                BackendCapabilities::default(),
-                [first.clone(), first],
-                BackendEmissionPolicy::default(),
-            ),
-            Err(EmissionBackendBuildError::DuplicateCodegenUnit)
-        );
     }
 
     #[test]

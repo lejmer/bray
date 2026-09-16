@@ -6,7 +6,6 @@ use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticId, DiagnosticKind, DiagnosticNativeProductFailureKind,
     DiagnosticNote, DiagnosticNoteKind, SeverityKind,
 };
-use bray_emitter::EmissionBackendBuildError;
 use bray_linker::LinkTargetBuildError;
 use bray_runtime_interface::ExecutableHostContractBuildError;
 use bray_symbols::ProductIdentity;
@@ -142,9 +141,6 @@ pub(super) fn native_product_failure_kind(
         NativeProductPlanningError::InvalidRuntimeSelection(error) => {
             runtime_selection_failure_kind(error)
         }
-        NativeProductPlanningError::InvalidEmissionBackend(
-            EmissionBackendBuildError::DuplicateCodegenUnit,
-        ) => Kind::EmissionBackendDuplicateUnit,
         NativeProductPlanningError::InvalidLinkTarget(LinkTargetBuildError::EmptyTriple) => {
             Kind::LinkTargetEmptyTriple
         }

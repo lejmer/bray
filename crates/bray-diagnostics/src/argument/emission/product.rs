@@ -211,7 +211,6 @@ pub enum DiagnosticNativeProductFailureKind {
     RuntimeSelectionArchiveDigestMismatch(DiagnosticNativeProductFailureDetail),
     /// The configured standard library could not supply a required native artifact.
     StandardLibraryUnavailable,
-    EmissionBackendDuplicateUnit,
     LinkTargetEmptyTriple,
     CodegenBackendUnsupportedTarget,
     CodegenBackendUnsupportedTargetDetail(DiagnosticNativeProductFailureDetail),
@@ -222,11 +221,8 @@ pub enum DiagnosticNativeProductFailureKind {
     CodegenBackendResourceLimit(DiagnosticNativeProductFailureDetail),
     CodegenBackendLibraryFailure(DiagnosticNativeProductFailureDetail),
     CodegenBackendToolFailure(DiagnosticNativeProductFailureDetail),
-    CodegenBackendInvalidRuntimeMetadata(DiagnosticNativeProductFailureDetail),
-    CodegenBackendInvalidOutcome(DiagnosticNativeProductFailureDetail),
     CodegenBackendArtifactConstruction(DiagnosticNativeProductFailureDetail),
     CodegenBackendUnavailable,
-    CodegenInvalidRequest(DiagnosticNativeProductFailureDetail),
     CodegenMirUnavailable(DiagnosticNativeProductFailureDetail),
     /// A demanded callable has no executable implementation or valid native import.
     CodegenMissingCallableImplementation {
@@ -334,7 +330,6 @@ impl DiagnosticNativeProductFailureKind {
             | Self::RuntimeSelectionInvalidArchive(detail)
             | Self::RuntimeSelectionArchiveDigestMismatch(detail) => detail.reason(),
             Self::StandardLibraryUnavailable => "standard_library_unavailable",
-            Self::EmissionBackendDuplicateUnit => "emission_backend_duplicate_unit",
             Self::LinkTargetEmptyTriple => "link_target_empty_triple",
             Self::CodegenBackendUnsupportedTarget => "codegen_backend_unsupported_target",
             Self::CodegenBackendUnsupportedTargetDetail(detail)
@@ -342,8 +337,6 @@ impl DiagnosticNativeProductFailureKind {
             | Self::CodegenBackendInvalidConfigurationDetail(detail)
             | Self::CodegenBackendLibraryFailure(detail)
             | Self::CodegenBackendToolFailure(detail)
-            | Self::CodegenBackendInvalidRuntimeMetadata(detail)
-            | Self::CodegenBackendInvalidOutcome(detail)
             | Self::CodegenBackendArtifactConstruction(detail) => detail.reason(),
             Self::CodegenBackendInvalidConfiguration => "codegen_backend_invalid_configuration",
             Self::CodegenBackendResourceExhausted => "codegen_backend_resource_exhausted",
@@ -352,8 +345,7 @@ impl DiagnosticNativeProductFailureKind {
             Self::CodegenMissingCallableImplementation { .. } => {
                 "codegen_missing_callable_implementation"
             }
-            Self::CodegenInvalidRequest(detail)
-            | Self::CodegenMirUnavailable(detail)
+            Self::CodegenMirUnavailable(detail)
             | Self::CodegenInvalidInstance(detail)
             | Self::CodegenInvalidUnit(detail)
             | Self::CodegenUnitMismatch(detail)

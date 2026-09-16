@@ -105,27 +105,6 @@ impl ArtifactKind {
         }
     }
 
-    pub(crate) const fn supports_role(self, role: ArtifactRole) -> bool {
-        match self {
-            Self::Assembly | Self::BackendIr => matches!(role, ArtifactRole::Inspection),
-            Self::BackendBitcode | Self::RelocatableObject => {
-                matches!(role, ArtifactRole::Inspection | ArtifactRole::LinkInput)
-            }
-            Self::ExecutableModule
-            | Self::PackageInterface
-            | Self::Executable
-            | Self::StaticLibrary
-            | Self::SharedLibrary => matches!(role, ArtifactRole::Product),
-            Self::DebugCompanion
-            | Self::PackageImplementation
-            | Self::DependencyMetadata
-            | Self::TestCatalog
-            | Self::LinkedCompanion => {
-                matches!(role, ArtifactRole::Companion)
-            }
-        }
-    }
-
     pub(crate) fn accepts_linked_kind(self, linked: LinkedArtifactKind) -> bool {
         match self {
             Self::Executable => linked == LinkedArtifactKind::Executable,

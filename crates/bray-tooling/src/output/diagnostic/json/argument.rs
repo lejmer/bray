@@ -534,11 +534,8 @@ impl DiagnosticNativeProductFailureJson {
             | Kind::CodegenBackendInvalidConfigurationDetail(detail)
             | Kind::CodegenBackendLibraryFailure(detail)
             | Kind::CodegenBackendToolFailure(detail)
-            | Kind::CodegenBackendInvalidRuntimeMetadata(detail)
-            | Kind::CodegenBackendInvalidOutcome(detail)
             | Kind::CodegenBackendArtifactConstruction(detail)
             | Kind::CodegenBackendResourceLimit(detail)
-            | Kind::CodegenInvalidRequest(detail)
             | Kind::CodegenMirUnavailable(detail)
             | Kind::CodegenInvalidInstance(detail)
             | Kind::CodegenInvalidUnit(detail)
@@ -593,7 +590,6 @@ impl DiagnosticNativeProductFailureJson {
             | Kind::ExecutableHostMissingMainThreadLane
             | Kind::ExecutableHostMissingProtectedFrameAbi
             | Kind::StandardLibraryUnavailable
-            | Kind::EmissionBackendDuplicateUnit
             | Kind::LinkTargetEmptyTriple
             | Kind::CodegenBackendUnsupportedTarget
             | Kind::CodegenBackendInvalidConfiguration

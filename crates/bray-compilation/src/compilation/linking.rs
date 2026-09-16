@@ -13,8 +13,6 @@ use crate::fact::{CancellationToken, FactQueryError};
 pub enum LinkedProductEmissionError {
     /// Lazy compiler work could not be completed.
     Query(FactQueryError),
-    /// Emitter outcome diagnostics contradict the claimed terminal status.
-    Outcome(bray_emitter::EmissionOutcomeBuildError),
 }
 
 impl Compilation {
@@ -81,14 +79,19 @@ impl Compilation {
             None => publisher,
         };
 
-        let outcome = crate::profile::profile_operation(
+        crate::profile::profile_operation(
             self.state.fact_runtime.profile(),
             crate::profile::ProfileOperation::ArtifactPublication,
-            || publisher.publish_linked(emission, contributions, link, &link_outcome),
+            || {
+                Ok::<_, LinkedProductEmissionError>(publisher.publish_linked(
+                    emission,
+                    contributions,
+                    link,
+                    &link_outcome,
+                ))
+            },
             crate::profile::result_outcome,
-        );
-
-        outcome.map_err(LinkedProductEmissionError::Outcome)
+        )
     }
 
     /// Links one validated native product plan into staging without publishing final outputs.
@@ -868,9 +871,7 @@ mod tests {
             BackendSerializationOptions::new(AssemblySyntaxKind::TargetDefault),
         );
 
-        let backend =
-            EmissionBackend::try_new(backend, capabilities, [codegen_unit_key(1)], policy)
-                .unwrap_or_else(|error| panic!("test emission backend must be valid: {error:?}"));
+        let backend = EmissionBackend::new(backend, capabilities, [codegen_unit_key(1)], policy);
 
         let output_names = [
             TargetOutputName::try_new(TargetOutputKind::RelocatableObject, "", ".o")
@@ -1297,7 +1298,6 @@ mod tests {
             .iter()
             .map(|output| LinkedArtifact::new(output.kind(), output.destination().id(), byte_len));
 
-        LinkOutcome::try_complete(plan, artifacts, DiagnosticBag::new())
-            .unwrap_or_else(|error| panic!("test link must complete: {error:?}"))
+        LinkOutcome::complete(artifacts, DiagnosticBag::new())
     }
 }

@@ -10,7 +10,7 @@ use bray_diagnostics::{
 };
 use bray_platform::{PlatformErrorKind, PlatformOperation};
 
-use super::artifact::{LinkedArtifactSet, LinkedArtifactSetBuildError};
+use super::artifact::LinkedArtifactSet;
 use super::diagnostics::{diagnostic_driver_identity, optimization_report_diagnostic};
 
 pub(crate) fn failed_outcome(plan: &LinkPlan, failure: LinkFailure) -> LinkOutcome {
@@ -583,24 +583,18 @@ impl LinkOutcome {
         }
     }
 
-    /// Validates staging records against the authoritative plan before publishing success.
-    pub fn try_complete(
-        plan: &LinkPlan,
+    /// Creates a complete outcome from linker-produced staging records.
+    pub fn complete(
         artifacts: impl IntoIterator<Item = LinkedArtifact>,
         diagnostics: DiagnosticBag,
-    ) -> Result<Self, LinkOutcomeBuildError> {
-        if diagnostics.has_errors() {
-            return Err(LinkOutcomeBuildError::ErrorDiagnostics(diagnostics));
-        }
+    ) -> Self {
+        let artifacts = LinkedArtifactSet::new(artifacts);
 
-        let artifacts = LinkedArtifactSet::try_new(plan, artifacts)
-            .map_err(LinkOutcomeBuildError::InvalidArtifacts)?;
-
-        Ok(Self {
+        Self {
             status: LinkStatus::Complete(artifacts),
             diagnostics,
             optimization: None,
-        })
+        }
     }
 
     /// Creates a failed result with a canonical plan-aware terminal diagnostic.
@@ -667,97 +661,37 @@ impl LinkOutcome {
     }
 }
 
-/// A contract violation that prevents creation of a successful link outcome.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum LinkOutcomeBuildError {
-    /// Error diagnostics contradict a successful status.
-    ErrorDiagnostics(DiagnosticBag),
-    /// Completed staging records do not satisfy the authoritative link plan.
-    InvalidArtifacts(LinkedArtifactSetBuildError),
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
-    use std::num::NonZeroU64;
-
     use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind};
 
     use super::{
-        LinkFailure, LinkOutcome, LinkOutcomeBuildError, LinkStatus, LinkedArtifactSetBuildError,
-        failed_outcome, link_failure_diagnostics,
+        LinkFailure, LinkOutcome, LinkStatus, failed_outcome, link_failure_diagnostics,
     };
     use crate::test_support::{link_plan, linked_artifact};
     use crate::{
         DeadStripPolicy, DebugLinkPolicy, LinkInputKind, LinkInputMode, LinkModel, LinkRuntimeMode,
         LinkSearchPathKind, LinkStartupMode, LinkSubsystem, LinkSymbolRequirement,
-        LinkTimeOptimizationKind, LinkedArtifact, LinkedArtifactKind, LinkedProductKind,
+        LinkTimeOptimizationKind, LinkedArtifactKind, LinkedProductKind,
         SectionGarbageCollectionPolicy, StagingDestinationId, UnsupportedLinkRequirement,
     };
     use bray_platform::{PlatformError, PlatformErrorKind, PlatformOperation};
     use bray_testing::{assert_goal_state_diagnostic_kind, assert_goal_state_diagnostics};
 
     #[test]
-    fn complete_outcomes_publish_only_plan_validated_artifacts() {
+    fn complete_outcomes_retain_linker_produced_artifacts() {
         let plan = link_plan();
         let artifact = linked_artifact(&plan);
 
-        let Ok(outcome) = LinkOutcome::try_complete(&plan, [artifact], DiagnosticBag::new()) else {
-            panic!("matching test artifact must complete linking");
-        };
+        let outcome = LinkOutcome::complete([artifact], DiagnosticBag::new());
 
         let Some(artifacts) = outcome.artifacts() else {
             panic!("complete outcome must retain staged artifacts");
         };
 
-        assert_eq!(artifacts.product(), plan.product());
-        assert_eq!(artifacts.target(), plan.target().identity());
-        assert_eq!(artifacts.driver(), plan.driver());
-        assert_eq!(artifacts.driver().capability_revision(), "1");
         assert_eq!(artifacts.artifacts().len(), 1);
-    }
-
-    #[test]
-    fn complete_outcomes_reject_missing_and_mismatched_outputs() {
-        let plan = link_plan();
-
-        assert_eq!(
-            LinkOutcome::try_complete(&plan, [], DiagnosticBag::new()),
-            Err(LinkOutcomeBuildError::InvalidArtifacts(
-                LinkedArtifactSetBuildError::MissingRequired(StagingDestinationId::new(0))
-            ))
-        );
-
-        let mismatched = LinkedArtifact::new(
-            LinkedArtifactKind::SharedLibrary,
-            StagingDestinationId::new(0),
-            NonZeroU64::MIN,
-        );
-
-        assert_eq!(
-            LinkOutcome::try_complete(&plan, [mismatched], DiagnosticBag::new()),
-            Err(LinkOutcomeBuildError::InvalidArtifacts(
-                LinkedArtifactSetBuildError::KindMismatch(StagingDestinationId::new(0))
-            ))
-        );
-    }
-
-    #[test]
-    fn complete_outcomes_reject_error_diagnostics() {
-        let plan = link_plan();
-        let artifact = linked_artifact(&plan);
-
-        let diagnostics = DiagnosticBag::single(Diagnostic::new(
-            DiagnosticId::new(1),
-            DiagnosticKind::RequestMissingSourceInput,
-            SeverityKind::Error,
-        ));
-
-        assert_eq!(
-            LinkOutcome::try_complete(&plan, [artifact], diagnostics.clone()),
-            Err(LinkOutcomeBuildError::ErrorDiagnostics(diagnostics))
-        );
     }
 
     #[test]

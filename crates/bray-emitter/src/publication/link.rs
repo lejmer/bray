@@ -2,7 +2,9 @@ use std::path::Path;
 
 use bray_base::Cancellation;
 use bray_codegen::ArtifactDigest;
-use bray_linker::{LinkInputProvenance, LinkInputSource, LinkPlan, LinkedArtifactSet};
+use bray_linker::{
+    LinkInputProvenance, LinkInputSource, LinkPlan, LinkedArtifactRequirement, LinkedArtifactSet,
+};
 
 use crate::artifact::content::{ContentValidationError, validate_staged_content};
 use crate::{ArtifactId, ArtifactProducer, EmissionPlan, PlannedArtifact};
@@ -34,8 +36,6 @@ impl<'plan, 'link> PreparedLinkedArtifact<'plan, 'link> {
 
 pub(super) enum LinkedPreparationError {
     Cancelled,
-    MissingLinkedPlan,
-    InvalidRelationship(ArtifactId),
     InvalidContent {
         artifact: ArtifactId,
         error: ContentValidationError,
@@ -53,30 +53,17 @@ pub(super) fn prepare_linked_artifacts<'plan, 'link>(
         .filter(|artifact| matches!(artifact.producer(), ArtifactProducer::Linker(_)))
         .collect();
 
-    let Some(primary) = planned.first() else {
-        return Err(LinkedPreparationError::MissingLinkedPlan);
-    };
-
-    if emission.request().product() != link_plan.product()
-        || emission.request().target() != link_plan.target().identity()
-        || linked.product() != link_plan.product()
-        || linked.target() != link_plan.target().identity()
-        || linked.driver() != link_plan.driver()
-        || planned.len() != link_plan.outputs().len()
-    {
-        return Err(invalid_relationship(primary));
-    }
-
     let mut prepared = Vec::with_capacity(linked.artifacts().len());
 
     for (planned, output) in planned.into_iter().zip(link_plan.outputs()) {
-        if !planned.id().kind().accepts_linked_kind(output.kind())
-            || planned.requirement().linked() != output.requirement()
-        {
-            return Err(invalid_relationship(planned));
-        }
-
         let Some(artifact) = linked.artifact(output.destination().id()) else {
+            assert_eq!(
+                output.requirement(),
+                LinkedArtifactRequirement::Optional,
+                "complete linking omitted required output {:?}",
+                output.destination().id()
+            );
+
             continue;
         };
 
@@ -95,11 +82,6 @@ pub(super) fn prepare_linked_artifacts<'plan, 'link>(
     }
 
     Ok(prepared)
-}
-
-fn invalid_relationship(planned: &PlannedArtifact) -> LinkedPreparationError {
-    // The error retains the Arc-backed artifact identity after validation returns.
-    LinkedPreparationError::InvalidRelationship(planned.id().clone())
 }
 
 fn content_error(

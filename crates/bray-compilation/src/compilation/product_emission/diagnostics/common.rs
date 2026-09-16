@@ -1,24 +1,9 @@
-use bray_codegen::BackendArtifactKind;
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm,
-    DiagnosticArtifactKind, DiagnosticBag, DiagnosticEmissionFailure, DiagnosticId, DiagnosticKind,
-    SeverityKind,
+    DiagnosticBag, DiagnosticEmissionFailure, DiagnosticId, DiagnosticKind, SeverityKind,
 };
 use bray_symbols::ProductIdentity;
 use bray_target::TargetIdentity;
-
-pub(super) const fn diagnostic_backend_artifact_kind(
-    kind: BackendArtifactKind,
-) -> DiagnosticArtifactKind {
-    match kind {
-        BackendArtifactKind::RelocatableObject => DiagnosticArtifactKind::RelocatableObject,
-        BackendArtifactKind::Assembly => DiagnosticArtifactKind::Assembly,
-        BackendArtifactKind::BackendIr => DiagnosticArtifactKind::BackendIr,
-        BackendArtifactKind::BackendBitcode => DiagnosticArtifactKind::BackendBitcode,
-        BackendArtifactKind::ExecutableModule => DiagnosticArtifactKind::ExecutableModule,
-        BackendArtifactKind::DebugCompanion => DiagnosticArtifactKind::DebugCompanion,
-    }
-}
 
 pub(super) fn emission_failure_diagnostics(
     failure: DiagnosticEmissionFailure,
@@ -62,7 +47,7 @@ pub(super) const fn diagnostic_backend_artifact(
     artifact: &bray_codegen::BackendArtifactId,
 ) -> bray_diagnostics::DiagnosticEmissionArtifact {
     bray_diagnostics::DiagnosticEmissionArtifact::new(
-        diagnostic_backend_artifact_kind(artifact.kind()),
+        artifact.kind().diagnostic_kind(),
         artifact.ordinal(),
     )
 }

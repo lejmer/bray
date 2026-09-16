@@ -986,13 +986,12 @@ mod tests {
             BackendSerializationOptions::new(AssemblySyntaxKind::TargetDefault),
         );
 
-        let backend = EmissionBackend::try_new(
+        let backend = EmissionBackend::new(
             backend_identity(),
             backend_capabilities(),
             [codegen_unit_key(2), codegen_unit_key(1)],
             policy,
-        )
-        .unwrap_or_else(|error| panic!("test emission backend must be valid: {error:?}"));
+        );
 
         EmissionPlanner::new(target_output_description(), Some(backend), interface)
     }

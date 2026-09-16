@@ -2,14 +2,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticArtifactKind, DiagnosticBag,
-    DiagnosticId, DiagnosticKind, DiagnosticNote, DiagnosticNoteKind, SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticNote,
+    DiagnosticNoteKind, SeverityKind,
 };
 
 use crate::{
     ArtifactContentBuildError, BackendArtifactContribution, BackendArtifactKind,
-    BackendArtifactSet, BackendArtifactSetBuildError, CodegenRequest, CodegenRuntimeMetadata,
-    CodegenRuntimeMetadataBuildError,
+    BackendArtifactSet, CodegenRequest,
 };
 
 /// Structured reason one backend operation could not produce a complete artifact set.
@@ -44,10 +43,6 @@ pub enum CodegenFailure {
         program: PathBuf,
         exit: bray_diagnostics::DiagnosticExternalToolExit,
     },
-    /// Generated runtime metadata violated its publication contract.
-    InvalidRuntimeMetadata(CodegenRuntimeMetadataBuildError),
-    /// A successful backend outcome violated its publication contract.
-    InvalidOutcome(CodegenOutcomeBuildError),
     /// Serialization failed for one requested artifact kind.
     ArtifactConstruction(BackendArtifactKind),
     /// Backend serialization failed for one requested artifact kind.
@@ -81,24 +76,17 @@ pub struct CodegenOutcome {
 }
 
 impl CodegenOutcome {
-    /// Returns a complete outcome after validating contributions against the request.
-    pub fn try_complete(
-        request: CodegenRequest<'_>,
+    /// Returns a complete outcome from backend-produced contributions.
+    pub fn complete(
         contributions: impl IntoIterator<Item = BackendArtifactContribution>,
-        runtime_metadata: CodegenRuntimeMetadata,
         diagnostics: DiagnosticBag,
-    ) -> Result<Self, CodegenOutcomeBuildError> {
-        if diagnostics.has_errors() {
-            return Err(CodegenOutcomeBuildError::ErrorDiagnostics(diagnostics));
-        }
+    ) -> Self {
+        let artifacts = BackendArtifactSet::new(contributions);
 
-        let artifacts = BackendArtifactSet::try_new(request, contributions, runtime_metadata)
-            .map_err(CodegenOutcomeBuildError::InvalidArtifacts)?;
-
-        Ok(Self {
+        Self {
             status: CodegenStatus::Complete(Box::new(artifacts)),
             diagnostics,
-        })
+        }
     }
 
     /// Creates a failed outcome with exact backend-request context and no partial artifacts.
@@ -200,15 +188,6 @@ impl CodegenFailure {
     }
 }
 
-/// A contract violation that prevents construction of a successful code generation outcome.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub enum CodegenOutcomeBuildError {
-    /// One or more produced backend artifacts violate the authoritative request.
-    InvalidArtifacts(BackendArtifactSetBuildError),
-    /// Error diagnostics contradict a successful code generation status.
-    ErrorDiagnostics(DiagnosticBag),
-}
-
 /// Returns a structured terminal diagnostic for one exact backend request failure.
 pub fn codegen_failure_diagnostics(
     request: CodegenRequest<'_>,
@@ -250,9 +229,6 @@ pub fn codegen_failure_diagnostic(
         CodegenFailure::BackendToolExited { .. } => {
             (DiagnosticKind::CodegenBackendToolExited, None)
         }
-        CodegenFailure::InvalidRuntimeMetadata(_) | CodegenFailure::InvalidOutcome(_) => {
-            (DiagnosticKind::CodegenGeneratedModuleInvalid, None)
-        }
         CodegenFailure::ArtifactConstruction(artifact)
         | CodegenFailure::ArtifactSerialization { artifact, .. }
         | CodegenFailure::InvalidArtifactContent { artifact, .. } => (
@@ -266,9 +242,7 @@ pub fn codegen_failure_diagnostic(
         .with_arg(DiagnosticArg::target_triple(target));
 
     if let Some(artifact) = artifact {
-        diagnostic = diagnostic.with_arg(DiagnosticArg::artifact_kind(diagnostic_artifact_kind(
-            artifact,
-        )));
+        diagnostic = diagnostic.with_arg(DiagnosticArg::artifact_kind(artifact.diagnostic_kind()));
     }
 
     match failure {
@@ -292,14 +266,6 @@ pub fn codegen_failure_diagnostic(
                 "{resource}={actual}"
             )));
         }
-        CodegenFailure::InvalidRuntimeMetadata(cause) => {
-            diagnostic =
-                diagnostic.with_arg(DiagnosticArg::codegen_backend_report(format!("{cause:?}")));
-        }
-        CodegenFailure::InvalidOutcome(cause) => {
-            diagnostic =
-                diagnostic.with_arg(DiagnosticArg::codegen_backend_report(format!("{cause:?}")));
-        }
         CodegenFailure::InvalidArtifactContent { cause, .. } => {
             diagnostic =
                 diagnostic.with_arg(DiagnosticArg::codegen_backend_report(format!("{cause:?}")));
@@ -320,8 +286,6 @@ pub fn codegen_failure_diagnostic(
             | CodegenFailure::ResourceLimit { .. }
             | CodegenFailure::BackendLibrary { .. }
             | CodegenFailure::BackendToolExited { .. }
-            | CodegenFailure::InvalidRuntimeMetadata(_)
-            | CodegenFailure::InvalidOutcome(_)
             | CodegenFailure::ArtifactConstruction(_)
             | CodegenFailure::ArtifactSerialization { .. }
             | CodegenFailure::InvalidArtifactContent { .. }
@@ -334,47 +298,26 @@ pub fn codegen_failure_diagnostic(
     diagnostic
 }
 
-const fn diagnostic_artifact_kind(kind: BackendArtifactKind) -> DiagnosticArtifactKind {
-    match kind {
-        BackendArtifactKind::RelocatableObject => DiagnosticArtifactKind::RelocatableObject,
-        BackendArtifactKind::Assembly => DiagnosticArtifactKind::Assembly,
-        BackendArtifactKind::BackendIr => DiagnosticArtifactKind::BackendIr,
-        BackendArtifactKind::BackendBitcode => DiagnosticArtifactKind::BackendBitcode,
-        BackendArtifactKind::ExecutableModule => DiagnosticArtifactKind::ExecutableModule,
-        BackendArtifactKind::DebugCompanion => DiagnosticArtifactKind::DebugCompanion,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::{DiagnosticBag, DiagnosticKind};
     use bray_testing::assert_goal_state_diagnostic_kind;
 
     use super::{CodegenFailure, CodegenOutcome, CodegenStatus};
-    use crate::CodegenRuntimeMetadata;
     use crate::test_support::{codegen_request, contribution};
 
     #[test]
-    fn completed_outcomes_publish_only_authoritatively_validated_artifacts() {
+    fn completed_outcomes_retain_backend_produced_artifacts() {
         let fixture = codegen_request();
-        let artifact = contribution(&fixture, fixture.required_artifact().clone());
+        let artifact = contribution(fixture.required_artifact().clone());
 
-        let Ok(outcome) = CodegenOutcome::try_complete(
-            fixture.request(),
-            [artifact],
-            CodegenRuntimeMetadata::default(),
-            DiagnosticBag::new(),
-        ) else {
-            panic!("requested test contribution must complete generation");
-        };
+        let outcome = CodegenOutcome::complete([artifact], DiagnosticBag::new());
 
         let Some(artifacts) = outcome.artifacts() else {
-            panic!("complete outcome must retain validated artifacts");
+            panic!("complete outcome must retain backend artifacts");
         };
 
-        assert_eq!(artifacts.unit(), fixture.request().unit().key());
-        assert_eq!(artifacts.backend(), fixture.request().backend());
-        assert_eq!(artifacts.target(), fixture.request().target().identity());
+        assert_eq!(artifacts.contributions().len(), 1);
     }
 
     #[test]
@@ -484,28 +427,6 @@ mod tests {
             artifact_construction.diagnostics(),
             DiagnosticKind::CodegenArtifactConstructionFailed,
         );
-    }
-
-    #[test]
-    fn successful_outcomes_reject_error_diagnostics() {
-        let fixture = codegen_request();
-        let artifact = contribution(&fixture, fixture.required_artifact().clone());
-
-        let diagnostics = DiagnosticBag::single(bray_diagnostics::Diagnostic::new(
-            bray_diagnostics::DiagnosticId::new(0),
-            bray_diagnostics::DiagnosticKind::CodegenGeneratedModuleInvalid,
-            bray_diagnostics::SeverityKind::Error,
-        ));
-
-        assert!(matches!(
-            CodegenOutcome::try_complete(
-                fixture.request(),
-                [artifact],
-                CodegenRuntimeMetadata::default(),
-                diagnostics.clone(),
-            ),
-            Err(super::CodegenOutcomeBuildError::ErrorDiagnostics(actual)) if actual == diagnostics
-        ));
     }
 
     #[test]

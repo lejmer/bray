@@ -81,7 +81,6 @@ pub(super) enum DiagnosticEmissionFieldValueJson {
     Artifact(DiagnosticEmissionArtifactJson),
     ArtifactDigest(DiagnosticArtifactDigestJson),
     ArtifactKind(&'static str),
-    ArtifactRequirement(&'static str),
     AssemblySyntax(&'static str),
     Boolean(bool),
     Count(u64),

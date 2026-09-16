@@ -17,9 +17,6 @@ pub(in crate::compilation) fn codegen_preparation_failure_kind(
 
     Some(match error {
         CodegenPreparationError::CodegenUnavailable => Kind::CodegenBackendUnavailable,
-        CodegenPreparationError::InvalidRequest(cause) => {
-            Kind::CodegenInvalidRequest(failure_detail(codegen_request_failure(*cause), []))
-        }
         CodegenPreparationError::MirUnavailable(unit) => {
             Kind::CodegenMirUnavailable(failure_detail(
                 "codegen_mir_unavailable",
@@ -101,19 +98,6 @@ pub(in crate::compilation) fn codegen_preparation_failure_kind(
         CodegenPreparationError::Query(error) => fact_query_failure_kind(error)?,
     })
 }
-const fn codegen_request_failure(error: bray_codegen::CodegenRequestBuildError) -> &'static str {
-    use bray_codegen::CodegenRequestBuildError as Error;
-
-    match error {
-        Error::ArtifactUnitMismatch => "codegen_request_artifact_unit_mismatch",
-        Error::MappingUnitMismatch => "codegen_request_mapping_unit_mismatch",
-        Error::MappingTargetMismatch => "codegen_request_mapping_target_mismatch",
-        Error::DebugInformationMismatch => "codegen_request_debug_information_mismatch",
-        Error::DebugMappingCoverageMismatch => "codegen_request_debug_mapping_coverage_mismatch",
-        Error::TargetMismatch => "codegen_request_target_mismatch",
-    }
-}
-
 const fn codegen_instance_failure(error: CodegenInstanceBuildError) -> &'static str {
     match error {
         CodegenInstanceBuildError::TemplateMismatch => "codegen_instance_template_mismatch",

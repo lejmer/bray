@@ -254,13 +254,12 @@ impl Compilation {
         let backend = self.profile_native_product_operation(
             crate::profile::ProfileOperation::NativePlanFinalization,
             || {
-                EmissionBackend::try_new(
+                Ok(EmissionBackend::new(
                     codegen.selected().clone(),
                     codegen.selected_capabilities().clone(),
                     units.iter().map(|unit| unit.key().clone()),
                     policy,
-                )
-                .map_err(NativeProductPlanningError::InvalidEmissionBackend)
+                ))
             },
         )?;
 
@@ -3189,11 +3188,11 @@ public func invoke<T>(pos value: T)
                         continue;
                     };
 
-                    if matches!(operation.kind(), bray_ir::MirOperationKind::Call(call) if call.may_propagate_panic())
+                    if matches!(operation.kind(), MirOperationKind::Call(call) if call.may_propagate_panic())
                     {
                         assert!(matches!(
                             block.terminator().kind(),
-                            bray_ir::MirTerminatorKind::CheckCallOutcome { .. }
+                            MirTerminatorKind::CheckCallOutcome { .. }
                         ));
                     }
                 }
@@ -3955,7 +3954,7 @@ public func invoke<T>(pos value: T)
             .flat_map(bray_codegen::CodegenMappings::static_storages)
             .map(bray_codegen::CodegenStaticStorageMapping::outgoing_capacity)
             .filter(|capacity| *capacity != 0)
-            .collect::<std::collections::BTreeSet<_>>();
+            .collect::<BTreeSet<_>>();
 
         let capacities = capacities.into_iter().collect::<Vec<_>>();
         assert_eq!(capacities.len(), 2);
@@ -4944,7 +4943,7 @@ public func invoke<T>(pos value: T)
             .map(|(unit, mappings)| {
                 let artifact = BackendArtifactId::new(unit.key().clone(), kind, 0);
 
-                let artifacts = BackendArtifactRequest::try_new(
+                let artifacts = BackendArtifactRequest::new(
                     unit.key().clone(),
                     [BackendArtifactRequestEntry::new(
                         artifact,
@@ -4960,12 +4959,11 @@ public func invoke<T>(pos value: T)
                     BackendSerializationOptions::new(
                         bray_codegen::AssemblySyntaxKind::TargetDefault,
                     ),
-                )
-                .unwrap_or_else(|error| panic!("test artifact request must validate: {error:?}"));
+                );
 
                 let cancellation = CancellationToken::new();
 
-                let request = CodegenRequest::try_new(
+                let request = CodegenRequest::new(
                     unit,
                     backend.identity(),
                     backend.capabilities().revision(),
@@ -4975,8 +4973,7 @@ public func invoke<T>(pos value: T)
                     plan.options(),
                     &artifacts,
                     &cancellation,
-                )
-                .unwrap_or_else(|error| panic!("test codegen request must validate: {error:?}"));
+                );
 
                 let outcome = backend.generate(request);
 

@@ -211,7 +211,6 @@ fn native_product_failure_keys_are_unique_and_domain_named() {
             "runtime_selection_archive_digest_mismatch",
         )),
         Kind::StandardLibraryUnavailable,
-        Kind::EmissionBackendDuplicateUnit,
         Kind::LinkTargetEmptyTriple,
         Kind::CodegenBackendUnsupportedTarget,
         Kind::CodegenBackendUnsupportedArtifact(native_product_detail(
@@ -227,7 +226,6 @@ fn native_product_failure_keys_are_unique_and_domain_named() {
             "codegen_backend_artifact_construction",
         )),
         Kind::CodegenBackendUnavailable,
-        Kind::CodegenInvalidRequest(native_product_detail("codegen_invalid_request")),
         Kind::CodegenMirUnavailable(native_product_detail("codegen_mir_unavailable")),
         Kind::CodegenMissingEntrypoint,
         Kind::CodegenInvalidInstance(native_product_detail("codegen_invalid_instance")),

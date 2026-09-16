@@ -99,6 +99,4 @@ pub enum ProductEmissionErrorKind {
     LinkPlan(LinkPlanConstructionError),
     /// Lazy input or bounded operation scheduling failed.
     Query(FactQueryError),
-    /// Emitter outcome diagnostics contradicted the claimed terminal status.
-    Outcome(bray_emitter::EmissionOutcomeBuildError),
 }

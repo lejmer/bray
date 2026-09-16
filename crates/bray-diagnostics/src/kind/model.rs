@@ -589,7 +589,6 @@ define_diagnostic_kinds! {
     RetainedArtifactDigestMismatch,
 
     /// A completed link result cannot be related to a linked emission plan.
-    EmissionLinkedPlanMissing,
     /// Product emission reached an unsuccessful terminal phase.
     EmissionFailed,
     /// Emission request and compilation select different targets.
@@ -963,7 +962,6 @@ impl DiagnosticKind {
             Self::RetainedGenerationInvalid => 9026,
             Self::RetainedArtifactLengthMismatch => 9027,
             Self::RetainedArtifactDigestMismatch => 9028,
-            Self::EmissionLinkedPlanMissing => 9013,
             Self::EmissionFailed => 9014,
             Self::EmissionTargetMismatch => 9016,
             Self::EmissionProductMismatch => 9017,
@@ -1435,7 +1433,6 @@ impl DiagnosticKind {
             Self::RetainedGenerationInvalid => "retained_generation_invalid",
             Self::RetainedArtifactLengthMismatch => "retained_artifact_length_mismatch",
             Self::RetainedArtifactDigestMismatch => "retained_artifact_digest_mismatch",
-            Self::EmissionLinkedPlanMissing => "emission_linked_plan_missing",
             Self::EmissionFailed => "emission_failed",
             Self::EmissionTargetMismatch => "emission_target_mismatch",
             Self::EmissionProductMismatch => "emission_product_mismatch",

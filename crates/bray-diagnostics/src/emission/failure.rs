@@ -2,11 +2,11 @@ use std::path::PathBuf;
 
 use super::checker::DiagnosticCheckerFailure;
 use crate::{
-    DiagnosticArtifactDigest, DiagnosticArtifactKind, DiagnosticArtifactRequirement,
-    DiagnosticAssemblySyntaxKind, DiagnosticDebugInformationMode, DiagnosticDebugOutputMode,
-    DiagnosticFactRuntimeFailure, DiagnosticIoErrorKind, DiagnosticLinkInputKind,
-    DiagnosticLinkedArtifactKind, DiagnosticLinkedProductKind, DiagnosticOutputSink,
-    DiagnosticProductKind, DiagnosticProductQueryFailure,
+    DiagnosticArtifactDigest, DiagnosticArtifactKind, DiagnosticAssemblySyntaxKind,
+    DiagnosticDebugInformationMode, DiagnosticDebugOutputMode, DiagnosticFactRuntimeFailure,
+    DiagnosticIoErrorKind, DiagnosticLinkInputKind, DiagnosticLinkedArtifactKind,
+    DiagnosticLinkedProductKind, DiagnosticOutputSink, DiagnosticProductKind,
+    DiagnosticProductQueryFailure,
 };
 
 /// Locale-neutral identity of one artifact in an emission operation.
@@ -118,19 +118,6 @@ pub enum DiagnosticEmissionPlanningFailure {
     ManagedProductDestinationRequired,
     ArtifactOrdinalOverflow(DiagnosticArtifactKind),
     OutputCollision(DiagnosticOutputSink),
-    BackendRequestEmpty,
-    BackendRequestForeignUnit(DiagnosticEmissionArtifact),
-    BackendRequestDuplicateIdentity(DiagnosticEmissionArtifact),
-    BackendRequestMissingLinkableArtifact {
-        kind: DiagnosticArtifactKind,
-        requirement: DiagnosticArtifactRequirement,
-    },
-    BackendRequestMissingRequiredDebugCompanion,
-    BackendRequestUnexpectedDebugCompanion,
-    BackendRequestUnexpectedAssemblySyntax,
-    /// Specialized bitcode semantics were selected without a bitcode contribution.
-    BackendRequestUnexpectedBitcodeSemantics,
-    InconsistentPlan,
 }
 
 /// Exact package-interface or implementation contract that rejected publication.
@@ -219,15 +206,6 @@ pub enum DiagnosticEmissionCodegenFailure {
     MissingMappings(DiagnosticArtifactDigest),
     Request(DiagnosticArtifactDigest),
     Generation(DiagnosticArtifactDigest),
-    MergeDuplicateUnit(DiagnosticArtifactDigest),
-    MergeMissingUnit(DiagnosticArtifactDigest),
-    MergeUnrequestedUnit(DiagnosticArtifactDigest),
-    MergeBackendMismatch(DiagnosticArtifactDigest),
-    MergeCapabilityMismatch(DiagnosticArtifactDigest),
-    MergeTargetMismatch(DiagnosticArtifactDigest),
-    MergeMissingArtifact(DiagnosticEmissionArtifact),
-    MergeUnrequestedArtifact(DiagnosticEmissionArtifact),
-    MergeArtifactKindMismatch(DiagnosticEmissionArtifact),
     MergeReadFailed {
         artifact: DiagnosticEmissionArtifact,
         error: DiagnosticIoErrorKind,
@@ -530,25 +508,6 @@ impl DiagnosticEmissionPlanningFailure {
             Self::ManagedProductDestinationRequired => "managed_product_destination_required",
             Self::ArtifactOrdinalOverflow(_) => "artifact_ordinal_overflow",
             Self::OutputCollision(_) => "output_collision",
-            Self::BackendRequestEmpty => "backend_request_empty",
-            Self::BackendRequestForeignUnit(_) => "backend_request_foreign_unit",
-            Self::BackendRequestDuplicateIdentity(_) => "backend_request_duplicate_identity",
-            Self::BackendRequestMissingLinkableArtifact { .. } => {
-                "backend_request_missing_linkable_artifact"
-            }
-            Self::BackendRequestMissingRequiredDebugCompanion => {
-                "backend_request_missing_required_debug_companion"
-            }
-            Self::BackendRequestUnexpectedDebugCompanion => {
-                "backend_request_unexpected_debug_companion"
-            }
-            Self::BackendRequestUnexpectedAssemblySyntax => {
-                "backend_request_unexpected_assembly_syntax"
-            }
-            Self::BackendRequestUnexpectedBitcodeSemantics => {
-                "backend_request_unexpected_bitcode_semantics"
-            }
-            Self::InconsistentPlan => "inconsistent_plan",
         }
     }
 }
@@ -623,15 +582,6 @@ impl DiagnosticEmissionCodegenFailure {
             Self::MissingMappings(_) => "missing_mappings",
             Self::Request(_) => "request",
             Self::Generation(_) => "generation",
-            Self::MergeDuplicateUnit(_) => "merge_duplicate_unit",
-            Self::MergeMissingUnit(_) => "merge_missing_unit",
-            Self::MergeUnrequestedUnit(_) => "merge_unrequested_unit",
-            Self::MergeBackendMismatch(_) => "merge_backend_mismatch",
-            Self::MergeCapabilityMismatch(_) => "merge_capability_mismatch",
-            Self::MergeTargetMismatch(_) => "merge_target_mismatch",
-            Self::MergeMissingArtifact(_) => "merge_missing_artifact",
-            Self::MergeUnrequestedArtifact(_) => "merge_unrequested_artifact",
-            Self::MergeArtifactKindMismatch(_) => "merge_artifact_kind_mismatch",
             Self::MergeReadFailed { .. } => "merge_read_failed",
             Self::MergeLengthMismatch { .. } => "merge_length_mismatch",
             Self::MergeDigestMismatch { .. } => "merge_digest_mismatch",

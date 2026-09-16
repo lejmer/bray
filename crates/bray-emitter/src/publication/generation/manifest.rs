@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use bray_base::lowercase_hex;
-use bray_codegen::{ArtifactDigest, ArtifactDigestAlgorithm, BackendArtifactKind};
+use bray_codegen::{ArtifactDigest, ArtifactDigestAlgorithm};
 use serde::{Deserialize, Serialize};
 
 use crate::publication::operation::PreparedArtifact;
@@ -149,7 +149,7 @@ impl ManifestProducer {
                 revision: backend.revision().to_owned(),
                 toolchain_revision: backend.toolchain_revision().to_owned(),
                 unit: lowercase_hex(&artifact.unit().content_identity()),
-                artifact_kind: backend_artifact_kind_key(artifact.kind()).to_owned(),
+                artifact_kind: artifact.kind().as_str().to_owned(),
                 ordinal: artifact.ordinal(),
             },
             ArtifactProducer::PackageInterface => Self::PackageInterface,
@@ -203,17 +203,6 @@ const fn digest_algorithm_key(algorithm: ArtifactDigestAlgorithm) -> &'static st
     match algorithm {
         ArtifactDigestAlgorithm::Blake3 => "blake3",
         ArtifactDigestAlgorithm::Sha256 => "sha256",
-    }
-}
-
-const fn backend_artifact_kind_key(kind: BackendArtifactKind) -> &'static str {
-    match kind {
-        BackendArtifactKind::RelocatableObject => "relocatable_object",
-        BackendArtifactKind::Assembly => "assembly",
-        BackendArtifactKind::BackendIr => "backend_ir",
-        BackendArtifactKind::BackendBitcode => "backend_bitcode",
-        BackendArtifactKind::ExecutableModule => "executable_module",
-        BackendArtifactKind::DebugCompanion => "debug_companion",
     }
 }
 

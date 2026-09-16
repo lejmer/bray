@@ -102,7 +102,7 @@ fn push_backend_artifact_request(
             "backend_artifact_kinds",
             entries
                 .iter()
-                .map(|entry| backend_artifact_kind(entry.id().kind())),
+                .map(|entry| entry.id().kind().as_str()),
         ),
         text_list_field(
             "backend_artifact_ordinals",
@@ -136,7 +136,7 @@ fn push_backend_artifact_request(
         fields.extend([
             text_field(
                 "backend_linkable_artifact_kind",
-                backend_artifact_kind(linkable.artifact_kind()),
+                linkable.artifact_kind().as_str(),
             ),
             text_field(
                 "backend_linkable_artifact_requirement",
@@ -197,19 +197,6 @@ fn push_runtime_observation(
     };
 
     fields.push(text_field("codegen_runtime_observation", kind));
-}
-
-const fn backend_artifact_kind(value: bray_codegen::BackendArtifactKind) -> &'static str {
-    use bray_codegen::BackendArtifactKind as Kind;
-
-    match value {
-        Kind::RelocatableObject => "relocatable_object",
-        Kind::Assembly => "assembly",
-        Kind::BackendIr => "backend_ir",
-        Kind::BackendBitcode => "backend_bitcode",
-        Kind::ExecutableModule => "executable_module",
-        Kind::DebugCompanion => "debug_companion",
-    }
 }
 
 const fn backend_artifact_requirement(

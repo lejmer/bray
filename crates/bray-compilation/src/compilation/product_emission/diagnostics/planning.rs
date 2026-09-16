@@ -1,20 +1,14 @@
-use bray_codegen::{
-    AssemblySyntaxKind, BackendArtifactRequestBuildError, BackendArtifactRequirement,
-    DebugInformationMode, DebugInformationOutputMode,
-};
+use bray_codegen::{AssemblySyntaxKind, DebugInformationMode, DebugInformationOutputMode};
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticArtifactRequirement, DiagnosticAssemblySyntaxKind,
-    DiagnosticBag, DiagnosticDebugInformationMode, DiagnosticDebugOutputMode,
-    DiagnosticEmissionFailure, DiagnosticEmissionPlanningFailure, DiagnosticId, DiagnosticKind,
-    SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticAssemblySyntaxKind, DiagnosticBag,
+    DiagnosticDebugInformationMode, DiagnosticDebugOutputMode, DiagnosticEmissionFailure,
+    DiagnosticEmissionPlanningFailure, DiagnosticId, DiagnosticKind, SeverityKind,
 };
 use bray_emitter::EmissionPlanningError;
 use bray_symbols::ProductIdentity;
 use bray_target::TargetIdentity;
 
-use super::common::{
-    diagnostic_backend_artifact, diagnostic_backend_artifact_kind, emission_failure_diagnostic,
-};
+use super::common::emission_failure_diagnostic;
 use crate::compilation::diagnostics::diagnostic_product_kind;
 
 fn planning_failure(failure: DiagnosticEmissionPlanningFailure) -> DiagnosticEmissionFailure {
@@ -116,7 +110,7 @@ pub(super) fn planning_failure_diagnostics(
         EmissionPlanningError::UnsupportedBackendArtifact(artifact) => emission_failure_diagnostic(
             planning_failure(
                 DiagnosticEmissionPlanningFailure::UnsupportedBackendArtifact(
-                    diagnostic_backend_artifact_kind(*artifact),
+                    artifact.diagnostic_kind(),
                 ),
             ),
             product,
@@ -177,7 +171,7 @@ pub(super) fn planning_failure_diagnostics(
             emission_failure_diagnostic(
                 planning_failure(
                     DiagnosticEmissionPlanningFailure::MissingSerializationArtifact(
-                        diagnostic_backend_artifact_kind(*artifact),
+                        artifact.diagnostic_kind(),
                     ),
                 ),
                 product,
@@ -248,59 +242,9 @@ pub(super) fn planning_failure_diagnostics(
             product,
             target,
         ),
-        EmissionPlanningError::InvalidBackendRequest(error) => {
-            backend_request_failure_diagnostic(error, product, target)
-        }
-        EmissionPlanningError::InconsistentPlan => emission_failure_diagnostic(
-            planning_failure(DiagnosticEmissionPlanningFailure::InconsistentPlan),
-            product,
-            target,
-        ),
     };
 
     DiagnosticBag::single(diagnostic)
-}
-
-fn backend_request_failure_diagnostic(
-    error: &BackendArtifactRequestBuildError,
-    product: &ProductIdentity,
-    target: &TargetIdentity,
-) -> Diagnostic {
-    let failure = match error {
-        BackendArtifactRequestBuildError::Empty => {
-            DiagnosticEmissionPlanningFailure::BackendRequestEmpty
-        }
-        BackendArtifactRequestBuildError::ForeignUnit(artifact) => {
-            DiagnosticEmissionPlanningFailure::BackendRequestForeignUnit(
-                diagnostic_backend_artifact(artifact),
-            )
-        }
-        BackendArtifactRequestBuildError::DuplicateIdentity(artifact) => {
-            DiagnosticEmissionPlanningFailure::BackendRequestDuplicateIdentity(
-                diagnostic_backend_artifact(artifact),
-            )
-        }
-        BackendArtifactRequestBuildError::MissingLinkableArtifact { kind, requirement } => {
-            DiagnosticEmissionPlanningFailure::BackendRequestMissingLinkableArtifact {
-                kind: diagnostic_backend_artifact_kind(*kind),
-                requirement: diagnostic_artifact_requirement(*requirement),
-            }
-        }
-        BackendArtifactRequestBuildError::MissingRequiredDebugCompanion => {
-            DiagnosticEmissionPlanningFailure::BackendRequestMissingRequiredDebugCompanion
-        }
-        BackendArtifactRequestBuildError::UnexpectedDebugCompanion => {
-            DiagnosticEmissionPlanningFailure::BackendRequestUnexpectedDebugCompanion
-        }
-        BackendArtifactRequestBuildError::UnexpectedAssemblySyntax => {
-            DiagnosticEmissionPlanningFailure::BackendRequestUnexpectedAssemblySyntax
-        }
-        BackendArtifactRequestBuildError::UnexpectedBitcodeSemantics => {
-            DiagnosticEmissionPlanningFailure::BackendRequestUnexpectedBitcodeSemantics
-        }
-    };
-
-    emission_failure_diagnostic(planning_failure(failure), product, target)
 }
 
 const fn diagnostic_debug_information_mode(
@@ -328,14 +272,5 @@ const fn diagnostic_assembly_syntax(kind: AssemblySyntaxKind) -> DiagnosticAssem
         AssemblySyntaxKind::TargetDefault => DiagnosticAssemblySyntaxKind::TargetDefault,
         AssemblySyntaxKind::Intel => DiagnosticAssemblySyntaxKind::Intel,
         AssemblySyntaxKind::Att => DiagnosticAssemblySyntaxKind::Att,
-    }
-}
-
-const fn diagnostic_artifact_requirement(
-    kind: BackendArtifactRequirement,
-) -> DiagnosticArtifactRequirement {
-    match kind {
-        BackendArtifactRequirement::Required => DiagnosticArtifactRequirement::Required,
-        BackendArtifactRequirement::Optional => DiagnosticArtifactRequirement::Optional,
     }
 }

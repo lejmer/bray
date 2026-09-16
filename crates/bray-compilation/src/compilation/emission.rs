@@ -302,7 +302,7 @@ mod tests {
     use bray_codegen::{
         ArtifactContent, BackendArtifactContribution, BackendArtifactKind, BackendCapabilities,
         BackendIdentity, CodeGenerator, CodeGeneratorRegistry, CodegenConfiguration,
-        CodegenFailure, CodegenOutcome, CodegenRequest, CodegenRuntimeMetadata,
+        CodegenFailure, CodegenOutcome, CodegenRequest,
     };
     use bray_diagnostics::{
         Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind,
@@ -436,7 +436,7 @@ mod tests {
         let target = request.target();
         let capabilities = capabilities(request);
 
-        let backend = EmissionBackend::try_new(
+        let backend = EmissionBackend::new(
             request.backend().clone(),
             capabilities,
             [
@@ -444,8 +444,7 @@ mod tests {
                 request.unit().key().clone(),
             ],
             BackendEmissionPolicy::default(),
-        )
-        .unwrap_or_else(|error| panic!("test emission backend must be valid: {error:?}"));
+        );
 
         let name = TargetOutputName::try_new(TargetOutputKind::RelocatableObject, "", ".o")
             .unwrap_or_else(|error| panic!("test output name must be valid: {error:?}"));
@@ -558,9 +557,6 @@ mod tests {
                 BackendArtifactContribution::new(
                     entry.id().clone(),
                     content.clone(),
-                    request.backend().clone(),
-                    request.capability_revision(),
-                    request.target().identity().clone(),
                     None,
                 )
             });
@@ -572,13 +568,7 @@ mod tests {
             )
             .with_arg(DiagnosticArg::artifact_ordinal(ordinal));
 
-            CodegenOutcome::try_complete(
-                request,
-                contributions,
-                CodegenRuntimeMetadata::default(),
-                DiagnosticBag::single(diagnostic),
-            )
-            .unwrap_or_else(|error| panic!("test code generation must complete: {error:?}"))
+            CodegenOutcome::complete(contributions, DiagnosticBag::single(diagnostic))
         }
     }
 
