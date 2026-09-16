@@ -102,11 +102,11 @@ boundary.
 Update the fixture whenever one of those closed enums or its lowering owner changes. The lowering readiness audit
 rejects missing, duplicate, placeholder, stale production, and non-executable test anchors.
 
-Changes to the pre-lowering plan boundary need focused tests in `bray-lowering` for missing, duplicate, recovered,
-foreign, contradictory, and out-of-order entries. Add cross-crate tests in `bray-compilation` when the behavior depends
-on real checker output, such as nested exits, propagation, cancellation, task operations, or retained suspension
-dependencies. These tests establish that lowering receives a complete plan and does not recreate semantic decisions
-locally.
+Changes to the checker-publication boundary need focused tests in `bray-lowering` for input identity, target and unit
+kind contracts, duplicate lookup indexes, direct sharing, unreachable exits, and no-cleanup exits. Add cross-crate tests
+in `bray-compilation` when the behavior depends on real checker output, such as nested exits, propagation, cancellation,
+task operations, or retained suspension dependencies. These tests establish that lowering consumes one complete
+published input and does not recreate semantic decisions locally.
 
 Generated-helper tests belong at the completed MIR boundary because helper identity depends on final MIR operation
 shape. Test exhaustive operation-to-helper derivation in `bray-ir` and exact helper and runtime-symbol mapping coverage

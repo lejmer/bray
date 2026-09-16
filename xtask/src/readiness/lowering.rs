@@ -2,13 +2,27 @@ use std::collections::BTreeSet;
 
 use serde::Deserialize;
 
-use super::workspace::{RustWorkspace, require_executable_source_contracts, require_ordered_names};
+use super::workspace::{
+    RustWorkspace, require_executable_source_contracts, require_unique_names,
+    require_ordered_names,
+};
 
 const REQUIRED_CONTRACTS: &[&str] = &[
     "mir-validation",
     "lazy-publication",
     "worker-determinism",
     "recovery",
+];
+
+const REQUIRED_SEMANTIC_INPUTS: &[&str] = &[
+    "CheckerPublication",
+    "BodyBehavior",
+    "ConstantReferences",
+    "ControlFlow",
+    "ExpressionTypes",
+    "LiteralValues",
+    "Patterns",
+    "Refinements",
 ];
 
 #[derive(Deserialize)]
@@ -41,7 +55,7 @@ pub(super) fn audit(workspace: &RustWorkspace) -> Result<(), String> {
 
     require_enum_coverage(&fixture.patterns, workspace, "BoundPatternKind")?;
     require_enum_coverage(&fixture.unit_roots, workspace, "BoundUnitRoot")?;
-    require_enum_coverage(&fixture.semantics, workspace, "LoweringInputKind")?;
+    require_semantic_input_coverage(&fixture.semantics, workspace)?;
     require_contract_names(&fixture.contracts)?;
     require_executable_rows(&fixture.contracts, workspace)?;
 
@@ -54,6 +68,19 @@ fn require_contract_names(rows: &[CoverageRow]) -> Result<(), String> {
         REQUIRED_CONTRACTS,
         "lowering readiness contracts",
     )
+}
+
+fn require_semantic_input_coverage(
+    rows: &[CoverageRow],
+    workspace: &RustWorkspace,
+) -> Result<(), String> {
+    require_unique_names(
+        rows.iter().map(|row| row.name.as_str()),
+        REQUIRED_SEMANTIC_INPUTS,
+        "lowering semantic inputs",
+    )?;
+
+    require_executable_rows(rows, workspace)
 }
 
 fn require_enum_coverage(
