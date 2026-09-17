@@ -9,8 +9,8 @@ mod test_support;
 
 pub use bray_tooling::{InspectionTarget, OutputFormat};
 pub use command::{
-    DriverBackend, DriverCliError, DriverCommand, DriverCommandKind, DriverInspectionArtifact,
-    DriverInvocation, DriverOptions, DriverProductConfiguration, DriverRuntimeProfile,
-    DriverRuntimeSelection,
+    DriverBackend, DriverCliError, DriverCommand, DriverCommandKind,
+    DriverCompilationConfiguration, DriverInspectionArtifact, DriverInvocation, DriverOptions,
+    DriverProductConfiguration, DriverRuntimeProfile, DriverRuntimeSelection,
 };
-pub use run::{DriverRunResult, run, run_result};
+pub use run::{DriverRunResult, run, run_build_request, run_result};

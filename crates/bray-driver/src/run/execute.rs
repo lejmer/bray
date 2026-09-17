@@ -18,7 +18,7 @@ use bray_tooling::{
 
 use crate::command::{DriverCommand, DriverCommandKind, DriverInvocation, DriverOptions};
 use crate::run::diagnostic::artifact_write_failure;
-use crate::run::{run_build_command, write_driver_output, write_driver_output_error};
+use crate::run::{run_build_request, write_driver_output, write_driver_output_error};
 
 /// Structured result from running the Bray compiler driver.
 #[derive(Debug)]
@@ -117,7 +117,8 @@ impl DriverRunResult {
         &self.diagnostics
     }
 
-    pub(crate) fn sources(&self) -> Option<&bray_source::SourceStore> {
+    /// Returns the compilation source store when this result reached source loading.
+    pub fn sources(&self) -> Option<&bray_source::SourceStore> {
         self.compilation.as_ref().map(Compilation::sources)
     }
 
@@ -219,7 +220,7 @@ pub fn run_result(arguments: impl IntoIterator<Item = OsString>) -> DriverRunRes
             configuration,
             files,
         } => {
-            return run_build_command(&options, configuration, files, output_format)
+            return run_build_request(&options, configuration, files)
                 .with_profile_output(profile_output);
         }
         command => command,
@@ -513,6 +514,7 @@ pub(super) fn compilation_request(
 
     request = request.with_dependency_interfaces(dependencies);
     request = request.with_platform_services(configuration.platform_services().iter().cloned());
+    request = request.with_runtime_roles(configuration.runtime_roles().iter().cloned());
 
     if let Some(profile) = options.profile() {
         // The request retains immutable package-product identity beyond driver configuration.
@@ -626,9 +628,14 @@ mod tests {
     use std::ffi::OsString;
     use std::process::ExitCode;
 
+    use bray_compilation::{PackageSourceAuthority, WorkerBudget};
     use bray_diagnostics::DiagnosticKind;
+    use bray_runtime_interface::{RuntimeAbiRole, RuntimeRoleSourceBinding};
+    use bray_symbols::{PackageIdentity, PackageVersion, ProductIdentity, ProductKind};
+    use bray_target::NativeTarget;
 
-    use super::{run_result, run_with_writers};
+    use super::{compilation_request, run_result, run_with_writers};
+    use crate::{DriverCompilationConfiguration, DriverOptions, OutputFormat};
     use crate::test_support::{TemporaryFile, unique_temporary_directory};
 
     #[test]
@@ -657,6 +664,53 @@ mod tests {
             result.diagnostics(),
             DiagnosticKind::ProjectCommandSelectionInvalid,
         );
+    }
+
+    #[test]
+    fn typed_driver_configuration_is_the_only_runtime_role_authority() {
+        let file = TemporaryFile::write(
+            "main.bray",
+            b"trusted internal module bray.runtime.bootstrap;\n",
+        );
+
+        let package = PackageIdentity::try_new("bray_runtime_bootstrap")
+            .unwrap_or_else(|| panic!("test package identity must be valid"));
+
+        let product = ProductIdentity::try_new(package.clone(), "runtime")
+            .unwrap_or_else(|| panic!("test product identity must be valid"));
+
+        let binding = RuntimeRoleSourceBinding::try_new(
+            RuntimeAbiRole::RuntimeInitialization,
+            "bray.runtime.bootstrap.runtime_initialization",
+        )
+        .unwrap_or_else(|| panic!("test runtime binding must be valid"));
+
+        let configuration = DriverCompilationConfiguration::new(
+            product,
+            package,
+            PackageVersion::try_new("1.0.0")
+                .unwrap_or_else(|| panic!("test package version must be valid")),
+            ProductKind::Library,
+            NativeTarget::X86_64WindowsMsvc,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        )
+        .with_runtime_roles(vec![binding.clone()]);
+
+        let options = DriverOptions::new(
+            WorkerBudget::serial(),
+            OutputFormat::Text,
+            configuration,
+            None,
+            None,
+            PackageSourceAuthority::Ordinary,
+        );
+
+        let request = compilation_request(&options, vec![file.path().to_path_buf()], false)
+            .unwrap_or_else(|diagnostics| panic!("request must load: {diagnostics:?}"));
+
+        assert_eq!(request.runtime_roles(), [binding]);
     }
 
     #[test]

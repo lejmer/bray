@@ -24,12 +24,16 @@ use crate::command::{
     DriverBackend, DriverOptions, DriverProductConfiguration, DriverRuntimeSelection,
 };
 
-pub(crate) fn run_build_command(
+/// Runs one typed build request through the compiler driver's normal planning and emission path.
+///
+/// This entry point is for toolchain-owned orchestrators that already hold validated driver
+/// configuration and source paths. Ordinary command-line builds continue through [`crate::run`].
+pub fn run_build_request(
     options: &DriverOptions,
     configuration: DriverProductConfiguration,
     files: Vec<PathBuf>,
-    output_format: OutputFormat,
 ) -> DriverRunResult {
+    let output_format = options.output_format();
     let compilation_configuration = options.compilation();
     let native_target = compilation_configuration.target();
     let selected_target = bray_compilation::SelectedTarget::for_native(native_target);

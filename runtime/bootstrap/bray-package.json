@@ -19,7 +19,7 @@
         "x86-64-windows"
       ],
       "dependencies": [],
-      "outputs": ["static_library"]
+      "outputs": ["package_interface", "package_implementation", "static_library"]
     }
   ]
 }

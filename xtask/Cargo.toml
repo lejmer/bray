@@ -15,6 +15,7 @@ bray-codegen = { path = "../crates/bray-codegen" }
 bray-compilation = { path = "../crates/bray-compilation" }
 bray-compiler-known = { path = "../crates/bray-compiler-known", features = ["generation"] }
 bray-diagnostics = { path = "../crates/bray-diagnostics" }
+bray-driver = { path = "../crates/bray-driver" }
 bray-emitter = { path = "../crates/bray-emitter" }
 bray-formatter = { path = "../crates/bray-formatter" }
 bray-linker = { path = "../crates/bray-linker" }

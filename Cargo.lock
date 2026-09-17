@@ -1858,6 +1858,7 @@ dependencies = [
  "bray-compilation",
  "bray-compiler-known",
  "bray-diagnostics",
+ "bray-driver",
  "bray-emitter",
  "bray-formatter",
  "bray-linker",
