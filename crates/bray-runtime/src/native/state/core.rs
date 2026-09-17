@@ -78,8 +78,6 @@ pub(crate) struct NativeRuntimeCore {
     pub(in crate::native) workers: super::super::workers::WorkerPool,
     pub(in crate::native) owners: AtomicUsize,
     pub(in crate::native) tasks: Mutex<BTreeMap<NativeTaskHandle, NativeTaskSlot>>,
-    pub(in crate::native) awaited: Mutex<BTreeMap<NativeTaskHandle, NativeTaskHandle>>,
-    pub(in crate::native) resolved_awaits: Mutex<BTreeMap<NativeTaskHandle, Vec<NativeTaskHandle>>>,
     pub(in crate::native) task_capacity: NonZeroUsize,
     pub(in crate::native) next_task: AtomicU64,
     pub(in crate::native) cleanup_reports: CleanupReportSink,
@@ -127,16 +125,6 @@ impl NativeRuntimeCore {
     }
 
     fn clear_tasks(&self) {
-        self.awaited
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clear();
-
-        self.resolved_awaits
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clear();
-
         let tasks = std::mem::take(
             &mut *self
                 .tasks
@@ -217,6 +205,7 @@ pub(in crate::native) enum NativeTaskSlot {
 
 pub(in crate::native) struct StartedTask {
     pub(in crate::native) task: Arc<NativeTask>,
+    pub(in crate::native) run: Arc<super::super::run::NativeRun>,
     pub(in crate::native) registration: TaskRegistration,
     pub(in crate::native) waits: Mutex<Vec<JoinWaitRegistration<usize>>>,
     pub(in crate::native) suspended_wait: Mutex<Option<SuspendedWait>>,
@@ -225,7 +214,6 @@ pub(in crate::native) struct StartedTask {
 }
 
 pub(in crate::native) enum SuspendedWait {
-    Awaited(JoinWaitRegistration<usize>),
     Event {
         event: RuntimeEvent,
         observed: RuntimeEventGeneration,
@@ -236,7 +224,6 @@ pub(in crate::native) enum SuspendedWait {
 impl SuspendedWait {
     pub(in crate::native) fn is_ready(&self) -> bool {
         match self {
-            Self::Awaited(registration) => !registration.is_pending(),
             Self::Event {
                 event, observed, ..
             } => {
@@ -306,8 +293,6 @@ fn initialize_with_capabilities(
         workers: super::super::workers::WorkerPool::new(),
         owners: AtomicUsize::new(1),
         tasks: Mutex::new(BTreeMap::new()),
-        awaited: Mutex::new(BTreeMap::new()),
-        resolved_awaits: Mutex::new(BTreeMap::new()),
         task_capacity,
         next_task: AtomicU64::new(1),
         cleanup_reports: CleanupReportSink::new(),

@@ -113,8 +113,13 @@ impl NativeFrame {
     }
 
     fn record_cleanup_report(&self, report: RuntimePanic) {
+        self.terminal.record_cleanup_report(report);
+    }
+}
+
+impl NativeTerminalState {
+    pub(super) fn record_cleanup_report(&self, report: RuntimePanic) {
         let mut incidents = self
-            .terminal
             .cleanup_incidents
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -125,9 +130,7 @@ impl NativeFrame {
 
         *destination = Some(report);
     }
-}
 
-impl NativeTerminalState {
     pub(super) fn take_cleanup_incidents(&self) -> [Option<RuntimePanic>; 4] {
         std::mem::replace(
             &mut *self

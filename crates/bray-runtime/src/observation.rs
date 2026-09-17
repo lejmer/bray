@@ -2,8 +2,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bray_runtime_model::{
-    ExecutionLaneRequirement, ProtectedFrameAffinity, ProtectedFrameDependencyId,
-    ProtectedFrameDescriptor, ProtectedFrameStateId, ProtectedFrameStorageId,
+    ProtectedFrameDependencyId, ProtectedFrameDescriptor, ProtectedFrameStateId,
+    ProtectedFrameStorageId,
 };
 
 use crate::{ExecutionLane, RunOutcomeKind, TaskId, TaskState};
@@ -64,7 +64,7 @@ pub struct TaskSnapshot {
     start_site: Option<TaskStartSite>,
     descriptor: ProtectedFrameDescriptor,
     state: TaskState,
-    frame_state: ProtectedFrameStateId,
+    execution: crate::FrameExecutionState,
     cancellation: CancellationObservation,
     join_waiters: usize,
     unobserved_outcome: Option<RunOutcomeKind>,
@@ -80,7 +80,7 @@ impl TaskSnapshot {
         start_site: Option<TaskStartSite>,
         descriptor: ProtectedFrameDescriptor,
         state: TaskState,
-        frame_state: ProtectedFrameStateId,
+        execution: crate::FrameExecutionState,
         cancellation: CancellationObservation,
         join_waiters: usize,
         unobserved_outcome: Option<RunOutcomeKind>,
@@ -90,7 +90,7 @@ impl TaskSnapshot {
             start_site,
             descriptor,
             state,
-            frame_state,
+            execution,
             cancellation,
             join_waiters,
             unobserved_outcome,
@@ -117,9 +117,9 @@ impl TaskSnapshot {
         self.state
     }
 
-    /// Returns the most recently active protected-frame state.
-    pub const fn frame_state(&self) -> ProtectedFrameStateId {
-        self.frame_state
+    /// Returns the active frame identity and its checked local execution state.
+    pub const fn execution(&self) -> &crate::FrameExecutionState {
+        &self.execution
     }
 
     /// Returns pending and currently observable cancellation state.
@@ -139,18 +139,12 @@ impl TaskSnapshot {
 
     /// Returns storage retained by the current protected-frame state.
     pub fn retained_storage(&self) -> &[ProtectedFrameStorageId] {
-        self.frame_descriptor()
-            .map_or(&[], |state| state.initialized_storage())
+        self.execution.descriptor().initialized_storage()
     }
 
     /// Returns task dependencies that can block cleanup in the current state.
     pub fn cleanup_blockers(&self) -> &[ProtectedFrameDependencyId] {
-        self.frame_descriptor()
-            .map_or(&[], |state| state.dependencies())
-    }
-
-    fn frame_descriptor(&self) -> Option<&bray_runtime_model::ProtectedFrameStateDescriptor> {
-        self.descriptor.state(self.frame_state)
+        self.execution.descriptor().dependencies()
     }
 }
 
@@ -180,11 +174,9 @@ pub enum TaskWakeCause {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ScheduledTaskSnapshot {
     task: TaskId,
-    state: ProtectedFrameStateId,
+    execution: crate::FrameExecutionState,
     dispatch: ScheduledTaskState,
     lane: ExecutionLane,
-    affinity: ProtectedFrameAffinity,
-    lane_requirements: Arc<[ExecutionLaneRequirement]>,
     wake_count: u64,
     wake_cause: Option<TaskWakeCause>,
     queue_age: Option<Duration>,
@@ -198,11 +190,9 @@ impl ScheduledTaskSnapshot {
     )]
     pub(crate) fn new(
         task: TaskId,
-        state: ProtectedFrameStateId,
+        execution: crate::FrameExecutionState,
         dispatch: ScheduledTaskState,
         lane: ExecutionLane,
-        affinity: ProtectedFrameAffinity,
-        lane_requirements: Arc<[ExecutionLaneRequirement]>,
         wake_count: u64,
         wake_cause: Option<TaskWakeCause>,
         queue_age: Option<Duration>,
@@ -210,11 +200,9 @@ impl ScheduledTaskSnapshot {
     ) -> Self {
         Self {
             task,
-            state,
+            execution,
             dispatch,
             lane,
-            affinity,
-            lane_requirements,
             wake_count,
             wake_cause,
             queue_age,
@@ -229,7 +217,12 @@ impl ScheduledTaskSnapshot {
 
     /// Returns the protected-frame state owned by the scheduler.
     pub const fn state(&self) -> ProtectedFrameStateId {
-        self.state
+        self.execution.state()
+    }
+
+    /// Returns the active frame identity and checked execution metadata.
+    pub const fn execution(&self) -> &crate::FrameExecutionState {
+        &self.execution
     }
 
     /// Returns how the scheduler currently owns the task.
@@ -243,13 +236,13 @@ impl ScheduledTaskSnapshot {
     }
 
     /// Returns the frame affinity that caused lane placement.
-    pub const fn affinity(&self) -> ProtectedFrameAffinity {
-        self.affinity
+    pub const fn affinity(&self) -> bray_runtime_model::ProtectedFrameAffinity {
+        self.execution.descriptor().affinity()
     }
 
     /// Returns the checked workload and placement requirements.
-    pub fn lane_requirements(&self) -> &[ExecutionLaneRequirement] {
-        &self.lane_requirements
+    pub fn lane_requirements(&self) -> &[bray_runtime_model::ExecutionLaneRequirement] {
+        self.execution.descriptor().lane_requirements()
     }
 
     /// Returns the number of accepted wake requests for this registration.

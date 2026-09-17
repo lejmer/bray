@@ -10,9 +10,8 @@ use bray_runtime_model::ProtectedFrameStateId;
 
 use crate::context::with_task_execution_context;
 use crate::{
-    CleanupIncidentOrigin, ExecutionLanePlacement, FrameSuspensionKind, JoinWaitRegistration,
-    RootCancellationHandle, TaskControlBlock, TaskExecutionContext, TaskObservationError,
-    TaskResumeStatus,
+    ExecutionLanePlacement, FrameSuspensionKind, JoinWaitRegistration, RootCancellationHandle,
+    TaskControlBlock, TaskExecutionContext, TaskObservationError, TaskResumeStatus,
 };
 
 use super::super::frame::NativeFrame;
@@ -88,6 +87,26 @@ impl NativeRuntime {
         NativeTaskAllocation::success(handle)
     }
 
+    pub(in crate::native) fn compose_awaited(
+        &self,
+        frame: bray_runtime_abi::NativeInactiveFrame,
+    ) -> NativeRuntimeStatus {
+        let Some(parent) = current_native_task() else {
+            return NativeRuntimeStatus::INVALID_ARGUMENT;
+        };
+
+        self.with_started(parent, |task| task.run.compose(frame))
+            .unwrap_or_else(|status| status)
+    }
+
+    pub(in crate::native) fn resolve_awaited_completion(
+        &self,
+    ) -> Result<usize, NativeRuntimeStatus> {
+        let parent = current_native_task().ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?;
+
+        self.with_started(parent, |task| task.run.resolve_completion())?
+    }
+
     pub(in crate::native) fn start(
         &self,
         handle: NativeTaskHandle,
@@ -112,9 +131,12 @@ impl NativeRuntime {
 
         frame.outgoing = admission.outgoing.take_one();
         frame.outgoing.append(&mut admission.outgoing.take_one());
-        let terminal = frame.terminal_state();
 
-        let task = TaskControlBlock::start(admission, frame);
+        let run =
+            super::super::run::NativeRun::new(frame, crate::outgoing::OutgoingRecords::default());
+
+        let terminal = run.terminal_state();
+        let task = TaskControlBlock::start(admission, Arc::clone(&run));
         let state = ProtectedFrameStateId::new(0);
 
         let Ok(registration) = self.scheduler.register_task(
@@ -139,6 +161,7 @@ impl NativeRuntime {
 
         let task = Arc::new(StartedTask {
             task,
+            run,
             registration,
             waits: Mutex::new(Vec::new()),
             suspended_wait: Mutex::new(None),
@@ -210,10 +233,10 @@ impl NativeRuntime {
         let wake = started.registration.wake_handle();
 
         if !task.cancellation_observable() && !suspended_wait_ready(&started) {
-            let state = ready.state();
+            let execution = ready.execution_state().clone();
 
             return ready
-                .suspend(crate::FrameSuspension::new(state))
+                .suspend(execution)
                 .map_or(NativeRuntimeStatus::RUNTIME_FAILURE, |_| {
                     NativeRuntimeStatus::SUCCESS
                 });
@@ -246,22 +269,15 @@ impl NativeRuntime {
         };
 
         match status {
-            TaskResumeStatus::Suspended(suspension) => {
+            TaskResumeStatus::Suspended(suspension, execution) => {
                 let kind = suspension.kind();
 
                 if kind == FrameSuspensionKind::TaskEvent {
-                    return self.suspend_on_task_event(ready, &started, suspension, wake);
+                    return self
+                        .suspend_on_task_event(ready, &started, suspension, execution, wake);
                 }
 
-                if kind == FrameSuspensionKind::Awaited {
-                    let status = self.register_awaited_wake(handle);
-
-                    if !status.is_success() {
-                        return status;
-                    }
-                }
-
-                if ready.suspend(suspension).is_err() {
+                if ready.suspend(execution).is_err() {
                     started
                         .suspended_wait
                         .lock()
@@ -292,6 +308,7 @@ impl NativeRuntime {
         ready: crate::ReadyTask,
         started: &StartedTask,
         suspension: crate::FrameSuspension,
+        execution: crate::FrameExecutionState,
         wake: crate::TaskWakeHandle,
     ) -> NativeRuntimeStatus {
         let Some(identity) = suspension.payload() else {
@@ -330,7 +347,7 @@ impl NativeRuntime {
             "task event wait registration must be consumed before resumption"
         );
 
-        if ready.suspend(suspension).is_err() {
+        if ready.suspend(execution).is_err() {
             started
                 .suspended_wait
                 .lock()
@@ -573,8 +590,6 @@ impl NativeRuntime {
                         },
                     );
 
-                self.release_resolved_awaits(handle);
-
                 outcome
             }
             Err(TaskObservationError::Pending) => NativeRunOutcome::new(NativeRunState::PENDING, 0),
@@ -615,8 +630,13 @@ impl NativeRuntime {
         state: u32,
     ) -> NativeExecutionLaneResult {
         self.with_started(handle, |task| {
-            task.registration
-                .lane(ProtectedFrameStateId::new(state))
+            task.run
+                .execution_at(ProtectedFrameStateId::new(state))
+                .and_then(|execution| {
+                    task.registration
+                        .execution_lane(&execution)
+                        .map_err(|_| NativeRuntimeStatus::RUNTIME_FAILURE)
+                })
                 .map(lane_result)
                 .unwrap_or_else(|_| {
                     NativeExecutionLaneResult::failure(NativeRuntimeStatus::RUNTIME_FAILURE)
@@ -625,7 +645,7 @@ impl NativeRuntime {
         .unwrap_or_else(NativeExecutionLaneResult::failure)
     }
 
-    pub(in crate::native::state) fn with_started<T>(
+    pub(in crate::native) fn with_started<T>(
         &self,
         handle: NativeTaskHandle,
         callback: impl FnOnce(&StartedTask) -> T,
@@ -669,10 +689,7 @@ impl NativeRuntime {
     }
 
     fn transfer_cleanup_incidents(&self, task: &StartedTask) {
-        let origin = CleanupIncidentOrigin::new(
-            task.task.descriptor().frame(),
-            task.task.state_id_for_reporting(),
-        );
+        let origin = task.task.execution_origin();
 
         for incident in task.terminal.take_cleanup_incidents().into_iter().flatten() {
             task.task

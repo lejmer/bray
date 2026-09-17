@@ -137,7 +137,7 @@ impl Drop for RuntimeBindingScope {
 }
 
 pub(in crate::native) fn current_native_task() -> Option<NativeTaskHandle> {
-    CURRENT_NATIVE_TASK.get()
+    CURRENT_NATIVE_TASK.try_with(Cell::get).ok().flatten()
 }
 
 pub(in crate::native) fn write_cleanup_incident_report(

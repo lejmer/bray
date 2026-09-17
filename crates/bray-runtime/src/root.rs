@@ -7,10 +7,10 @@ use bray_runtime_model::ProtectedFrameStateId;
 
 use crate::context::{with_run_cancellation_context, with_task_execution_context};
 use crate::{
-    CancellationContext, CleanupIncidentOrigin, CleanupReportSink, ExecutionLane,
-    ExecutionLanePlacement, ExecutionWorkload, ProtectedFrame, ReadyTask, RunOutcome, Scheduler,
-    SchedulerError, TaskControlBlock, TaskExecutionContext, TaskId, TaskObservationError,
-    TaskResumeError, TaskResumeStatus,
+    CancellationContext, CleanupReportSink, ExecutionLane, ExecutionLanePlacement,
+    ExecutionWorkload, ProtectedFrame, ReadyTask, RunOutcome, Scheduler, SchedulerError,
+    TaskControlBlock, TaskExecutionContext, TaskId, TaskObservationError, TaskResumeError,
+    TaskResumeStatus,
 };
 
 /// Product-host authority to request cancellation of the executable root run.
@@ -213,7 +213,7 @@ where
             let status = with_task_execution_context(context, || root.resume())?;
 
             match status {
-                TaskResumeStatus::Suspended(suspension) => ready.suspend(suspension)?,
+                TaskResumeStatus::Suspended(_, execution) => ready.suspend(execution)?,
                 TaskResumeStatus::Terminal(_) => {
                     drop(ready);
                     drop(registration);
@@ -225,15 +225,11 @@ where
     })();
 
     if result.is_err() {
-        let state = root.state_id_for_reporting();
+        let origin = root.execution_origin();
         let panic = root.resolve_runtime_failure();
 
         if let Some(panic) = panic {
-            root.transfer_cleanup_incident(
-                cleanup_reports,
-                CleanupIncidentOrigin::new(root.descriptor().frame(), state),
-                panic,
-            );
+            root.transfer_cleanup_incident(cleanup_reports, origin, panic);
         }
     }
 
@@ -494,7 +490,7 @@ mod tests {
                 let status = with_task_execution_context(context, || child.resume())?;
 
                 match status {
-                    TaskResumeStatus::Suspended(suspension) => ready.suspend(suspension)?,
+                    TaskResumeStatus::Suspended(_, execution) => ready.suspend(execution)?,
                     TaskResumeStatus::Terminal(_) => drop(ready),
                 }
 

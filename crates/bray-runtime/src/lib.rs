@@ -35,9 +35,9 @@ pub use event::{
     RuntimeEventWake,
 };
 pub use frame::{
-    ErasedProtectedFrame, ErasedSendableProtectedFrame, FrameContext, FrameExit, FrameProgress,
-    FrameSuspension, FrameSuspensionKind, ProtectedFrame, RuntimePanic, SendableProtectedFrame,
-    erase_protected_frame, erase_sendable_protected_frame, resume_direct,
+    ErasedProtectedFrame, ErasedSendableProtectedFrame, FrameContext, FrameExecutionState,
+    FrameExit, FrameProgress, FrameSuspension, FrameSuspensionKind, ProtectedFrame, RuntimePanic,
+    SendableProtectedFrame, erase_protected_frame, erase_sendable_protected_frame, resume_direct,
 };
 pub use lane::{
     ExecutionLane, ExecutionLanePlacement, ExecutionLaneSelectionError, ExecutionWorkload,

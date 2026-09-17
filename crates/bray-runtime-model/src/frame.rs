@@ -289,6 +289,18 @@ impl ProtectedFrameStateDescriptor {
     pub const fn affinity(&self) -> ProtectedFrameAffinity {
         self.affinity
     }
+
+    /// Replaces placement requirements while preserving local storage and dependencies.
+    pub fn with_execution_requirements(
+        mut self,
+        lane_requirements: impl IntoIterator<Item = ExecutionLaneRequirement>,
+        affinity: ProtectedFrameAffinity,
+    ) -> Self {
+        self.lane_requirements = sorted_unique_slice(lane_requirements);
+        self.affinity = affinity;
+
+        self
+    }
 }
 
 /// Complete runtime contract for one compiler-generated protected frame.
