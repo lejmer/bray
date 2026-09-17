@@ -124,11 +124,23 @@ fn build(target: NativeTarget, output: &Path, profile: &str) -> Result<Package, 
     let sources = crate::input_identity::WorkspaceSources::load(&root)
         .map_err(CommandError::InputIdentity)?;
 
+    let standard_library_source = root.join("standard-library");
+
+    let standard_library_input = crate::input_identity::input_digest(
+        &root,
+        None,
+        crate::input_identity::Component::StandardLibrary,
+        &[],
+        &[&standard_library_source],
+        &sources,
+    )
+    .map_err(CommandError::InputIdentity)?;
+
     let input = crate::input_identity::input_digest(
         &root,
         Some(target),
         crate::input_identity::Component::Runtime,
-        &[profile],
+        &[profile, &standard_library_input],
         &[],
         &sources,
     )
