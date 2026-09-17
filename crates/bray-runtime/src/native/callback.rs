@@ -168,7 +168,7 @@ fn execute_callback_boundary(
 
 #[cfg(test)]
 mod tests {
-    use bray_runtime_abi::{NativeRunOutcome, NativeRunState};
+    use bray_runtime_abi::{NativeRunOutcome, NativeRunState, NativeTaskHandle};
 
     use super::bray_runtime_native_thread_execution;
 
@@ -183,6 +183,55 @@ mod tests {
     extern "C-unwind" fn observe_cancellation(_: usize, outcome: &mut NativeRunOutcome) {
         assert!(crate::current_run_cancellation_requested());
         *outcome = NativeRunOutcome::new(NativeRunState::COMPLETED, 0);
+    }
+
+    extern "C-unwind" fn assert_independent_native_task(
+        _: usize,
+        outcome: &mut NativeRunOutcome,
+    ) {
+        assert_eq!(super::super::state::current_native_task(), None);
+        assert!(!crate::current_run_cancellation_requested());
+
+        #[cfg(feature = "test-output")]
+        assert!(crate::context::current_task_output().is_none());
+
+        *outcome = NativeRunOutcome::new(NativeRunState::COMPLETED, 0);
+    }
+
+    #[test]
+    fn reentrant_foreign_callback_isolates_and_restores_outer_context() {
+        let task = NativeTaskHandle::new(7).expect("fixed task handle is nonzero");
+        let cancellation = crate::CancellationContext::root();
+
+        assert!(cancellation.request());
+
+        #[cfg(feature = "test-output")]
+        let output = Some(bray_platform::RunOutputContext::discarded());
+
+        #[cfg(not(feature = "test-output"))]
+        let output = ();
+
+        crate::context::with_native_thread_cancellation(cancellation_requested, 0, || {
+            crate::context::with_run_cancellation_context(cancellation, || {
+                crate::context::with_task_output(output, || {
+                    super::super::state::with_current_task(task, || {
+                        let outcome = super::bray_runtime_foreign_callback_execution(
+                            assert_independent_native_task,
+                            0,
+                        );
+
+                        assert_eq!(outcome.state(), NativeRunState::COMPLETED);
+                        assert_eq!(super::super::state::current_native_task(), Some(task));
+                        assert!(crate::current_run_cancellation_requested());
+
+                        #[cfg(feature = "test-output")]
+                        assert!(crate::context::current_task_output().is_some());
+                    });
+                });
+            });
+        });
+
+        assert_eq!(super::super::state::current_native_task(), None);
     }
 
     extern "C-unwind" fn propagate_cancellation(_: usize, outcome: &mut NativeRunOutcome) {
