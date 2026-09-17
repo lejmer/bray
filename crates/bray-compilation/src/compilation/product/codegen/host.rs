@@ -7,8 +7,8 @@ use bray_codegen::{
 use bray_compiler_known::RepresentationRole;
 use bray_runtime_interface::{
     BinarySymbolName, ExecutableEntryResult, ExecutableHostContract, ExecutableHostContractBuilder,
-    ExecutableHostEntry, RootExecution, RuntimeAbiRole, RuntimeArtifact, RuntimeCapability,
-    RuntimeRequirements, RuntimeRoleBinding, RuntimeRoleImplementation,
+    ExecutableHostEntry, ResidentRuntimeService, RootExecution, RuntimeAbiRole, RuntimeArtifact,
+    RuntimeCapability, RuntimeRequirements, RuntimeRoleBinding, RuntimeRoleImplementation,
 };
 use bray_symbols::{GenericArgument, ProductIdentity, ProductKind};
 
@@ -278,7 +278,6 @@ impl Compilation {
             runtime_roles.extend([
                 RuntimeAbiRole::SynchronousRootExecution,
                 RuntimeAbiRole::CleanupIncidentReporting,
-                RuntimeAbiRole::RootCompletionResolution,
                 RuntimeAbiRole::PanicReporting,
                 RuntimeAbiRole::EntryFailureReporting,
                 RuntimeAbiRole::StructuredShutdown,
@@ -287,8 +286,13 @@ impl Compilation {
 
         let mut capabilities: BTreeSet<_> = required_capabilities.into_iter().collect();
 
-        if has_async_entries {
+        if runtime_roles.iter().any(|role| {
+            role.resident_service() == Some(ResidentRuntimeService::Execution)
+        }) {
             capabilities.insert(RuntimeCapability::CooperativeExecution);
+        }
+
+        if has_async_entries {
             capabilities.insert(RuntimeCapability::MainThreadLane);
         }
 

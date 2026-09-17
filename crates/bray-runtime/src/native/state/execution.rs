@@ -19,7 +19,9 @@ use super::binding::{
     CleanupWorkloadScope, current_native_task, current_thread_lanes, lane_result, runtime_failure,
     task_outcome, write_cleanup_incident_report,
 };
-use super::core::{CURRENT_NATIVE_TASK, NativeRuntime, NativeTaskSlot, StartedTask, SuspendedWait};
+use super::core::{
+    NativeRuntime, NativeTaskSlot, StartedTask, SuspendedWait, with_current_task,
+};
 
 struct TaskObservationClaim<'a>(&'a AtomicBool);
 
@@ -258,11 +260,9 @@ impl NativeRuntime {
             wake.clone(),
         );
 
-        CURRENT_NATIVE_TASK.set(Some(handle));
-
-        let status = with_task_execution_context(context, || task.resume());
-
-        CURRENT_NATIVE_TASK.set(None);
+        let status = with_current_task(handle, || {
+            with_task_execution_context(context, || task.resume())
+        });
 
         let Ok(status) = status else {
             return NativeRuntimeStatus::RUNTIME_FAILURE;

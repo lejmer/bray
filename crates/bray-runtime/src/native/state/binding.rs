@@ -14,7 +14,8 @@ use crate::{
 };
 
 use super::core::{
-    CURRENT_NATIVE_TASK, NATIVE_RUNTIME, NativeRuntime, RetainedRuntime, retain_runtime,
+    NativeRuntime, RetainedRuntime, current_runtime, current_task, retain_runtime,
+    with_bound_runtime,
 };
 
 pub(in crate::native) fn current_thread_lanes(
@@ -73,12 +74,14 @@ fn with_retained_runtime<T>(
     retained: &RetainedRuntime,
     callback: impl FnOnce() -> T,
 ) -> Result<T, NativeRuntimeStatus> {
-    let current = NATIVE_RUNTIME.with_borrow(Clone::clone);
+    let current = current_runtime();
 
     if let Some(runtime) = current.as_ref()
         && Arc::ptr_eq(&runtime.core, &retained.core)
     {
-        return Ok(runtime.with_cleanup_driving(callback));
+        return Ok(with_bound_runtime(Rc::clone(runtime), || {
+            runtime.with_cleanup_driving(callback)
+        }));
     }
 
     let thread =
@@ -96,10 +99,7 @@ fn with_retained_runtime<T>(
         _test_isolation: None,
     });
 
-    let previous = NATIVE_RUNTIME.replace(Some(Rc::clone(&runtime)));
-    let _binding = RuntimeBindingScope { previous };
-
-    Ok(callback())
+    Ok(with_bound_runtime(runtime, callback))
 }
 
 pub(in crate::native) struct CleanupWorkloadScope<'a> {
@@ -113,10 +113,6 @@ impl Drop for CleanupWorkloadScope<'_> {
     }
 }
 
-struct RuntimeBindingScope {
-    previous: Option<Rc<NativeRuntime>>,
-}
-
 struct OwnedRuntimeScope<'a>(&'a RetainedRuntime);
 
 impl Drop for OwnedRuntimeScope<'_> {
@@ -125,14 +121,8 @@ impl Drop for OwnedRuntimeScope<'_> {
     }
 }
 
-impl Drop for RuntimeBindingScope {
-    fn drop(&mut self) {
-        NATIVE_RUNTIME.set(self.previous.take());
-    }
-}
-
 pub(in crate::native) fn current_native_task() -> Option<NativeTaskHandle> {
-    CURRENT_NATIVE_TASK.try_with(Cell::get).ok().flatten()
+    current_task()
 }
 
 pub(in crate::native) fn write_cleanup_incident_report(

@@ -177,7 +177,13 @@ fn native_type(ty: &syn::Type) -> Result<RuntimeAbiType, String> {
         Some("NativeFrameProgress") => RuntimeAbiType::FrameProgress,
         Some("NativeExecutionLaneResult") => RuntimeAbiType::LaneResult,
         Some("NativeProductHostObservation") => RuntimeAbiType::ProductObservation,
-        Some("NativeWakeCallback" | "NativeRuntimeEventCallback") => RuntimeAbiType::Pointer,
+        Some(
+            "NativeWakeCallback"
+            | "NativeRuntimeEventCallback"
+            | "NativeSynchronousRootCallback"
+            | "NativeThreadOperationCallback"
+            | "NativeThreadCancellationCallback",
+        ) => RuntimeAbiType::Pointer,
         Some("Option") if is_optional_cleanup_callback(ty) => RuntimeAbiType::Pointer,
         _ => {
             return Err(format!(

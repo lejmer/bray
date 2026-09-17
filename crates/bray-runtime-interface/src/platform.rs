@@ -205,7 +205,7 @@ mod tests {
     }
 
     #[test]
-    fn thread_storage_roles_have_closed_bootstrap_shapes() {
+    fn thread_storage_roles_have_closed_native_shapes() {
         let create = PlatformServiceRole::ThreadStorageCreate;
         let load = PlatformServiceRole::ThreadStorageLoad;
         let store = PlatformServiceRole::ThreadStorageStore;
@@ -241,6 +241,7 @@ mod tests {
 
         for role in [create, load, store, destroy] {
             assert_eq!(role.signature().result(), PlatformAbiType::Status);
+            assert_eq!(role.bootstrap_declaration(), None);
             assert_eq!(PlatformServiceRole::from_id(role.id()), Some(role));
             assert_eq!(PlatformServiceRole::from_name(role.as_str()), Some(role));
         }

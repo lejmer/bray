@@ -1134,13 +1134,6 @@ mod tests {
                     .any(|dependency| dependency.as_str().ends_with("product.callback"))
             );
 
-            assert!(
-                bootstrap
-                    .dependencies()
-                    .iter()
-                    .any(|dependency| dependency.as_str().ends_with("product.cancellation"))
-            );
-
             let has_synchronization = common
                 .native_links()
                 .iter()

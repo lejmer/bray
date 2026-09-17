@@ -20,10 +20,79 @@ use crate::{
 
 use super::super::frame::NativeTerminalState;
 thread_local! {
-    pub(in crate::native) static NATIVE_RUNTIME: RefCell<Option<Rc<NativeRuntime>>> =
-        const { RefCell::new(None) };
-    pub(in crate::native) static CURRENT_NATIVE_TASK: Cell<Option<NativeTaskHandle>> =
-        const { Cell::new(None) };
+    static NATIVE_CONTEXT: RefCell<NativeExecutionContext> =
+        const { RefCell::new(NativeExecutionContext::empty()) };
+}
+
+struct NativeExecutionContext {
+    runtime: Option<Rc<NativeRuntime>>,
+    task: Option<NativeTaskHandle>,
+}
+
+impl NativeExecutionContext {
+    const fn empty() -> Self {
+        Self {
+            runtime: None,
+            task: None,
+        }
+    }
+}
+
+pub(in crate::native) fn current_runtime() -> Option<Rc<NativeRuntime>> {
+    NATIVE_CONTEXT.with_borrow(|context| context.runtime.clone())
+}
+
+pub(in crate::native) fn current_task() -> Option<NativeTaskHandle> {
+    NATIVE_CONTEXT.try_with(|context| context.borrow().task).ok().flatten()
+}
+
+fn replace_runtime(runtime: Option<Rc<NativeRuntime>>) -> Option<Rc<NativeRuntime>> {
+    NATIVE_CONTEXT.with_borrow_mut(|context| std::mem::replace(&mut context.runtime, runtime))
+}
+
+pub(in crate::native) fn with_bound_runtime<T>(
+    runtime: Rc<NativeRuntime>,
+    callback: impl FnOnce() -> T,
+) -> T {
+    let previous = NATIVE_CONTEXT.replace(NativeExecutionContext {
+        runtime: Some(runtime),
+        task: None,
+    });
+
+    let _scope = NativeExecutionContextScope(Some(previous));
+
+    callback()
+}
+
+pub(in crate::native) fn with_current_task<T>(
+    task: NativeTaskHandle,
+    callback: impl FnOnce() -> T,
+) -> T {
+    let previous = NATIVE_CONTEXT.with_borrow_mut(|context| context.task.replace(task));
+    let _scope = NativeTaskScope(previous);
+
+    callback()
+}
+
+struct NativeExecutionContextScope(Option<NativeExecutionContext>);
+
+impl Drop for NativeExecutionContextScope {
+    fn drop(&mut self) {
+        let previous = self
+            .0
+            .take()
+            .expect("native execution context scope must restore exactly once");
+
+        NATIVE_CONTEXT.set(previous);
+    }
+}
+
+struct NativeTaskScope(Option<NativeTaskHandle>);
+
+impl Drop for NativeTaskScope {
+    fn drop(&mut self) {
+        NATIVE_CONTEXT.with_borrow_mut(|context| context.task = self.0);
+    }
 }
 
 type NativeTask = TaskControlBlock<usize>;
@@ -60,7 +129,7 @@ impl Drop for TestRuntimeIsolation {
 
 #[cfg(test)]
 pub(in crate::native) fn test_runtime_isolation() -> Option<TestRuntimeIsolation> {
-    if HOLDS_TEST_RUNTIME_ISOLATION.get() || NATIVE_RUNTIME.with_borrow(Option::is_some) {
+    if HOLDS_TEST_RUNTIME_ISOLATION.get() || current_runtime().is_some() {
         None
     } else {
         let guard = NATIVE_RUNTIME_TEST_ISOLATION
@@ -85,6 +154,10 @@ pub(crate) struct NativeRuntimeCore {
 
 #[cfg(test)]
 mod tests {
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+
+    use bray_runtime_abi::NativeTaskHandle;
+
     #[test]
     fn callback_isolation_allows_nested_runtime_creation() {
         let isolation = super::test_runtime_isolation();
@@ -101,6 +174,39 @@ mod tests {
         drop(isolation);
 
         assert!(super::test_runtime_isolation().is_some());
+    }
+
+    #[test]
+    fn independent_entry_restores_complete_context_after_unwind() {
+        let _isolation = super::test_runtime_isolation();
+
+        let retained = super::retain_runtime()
+            .unwrap_or_else(|status| panic!("runtime must initialize: {status:?}"));
+
+        let ((), status) = super::super::binding::with_cleanup_runtime(Some(&retained), || {
+            let task = NativeTaskHandle::new(7).expect("fixed task handle is nonzero");
+
+            super::with_current_task(task, || {
+                let result = catch_unwind(AssertUnwindSafe(|| {
+                    super::super::binding::with_cleanup_runtime(Some(&retained), || {
+                        assert!(super::current_runtime().is_some());
+                        assert_eq!(super::current_task(), None);
+                        panic!("exercise unwinding restoration");
+                    })
+                    .expect("nested cleanup entry must bind");
+                }));
+
+                assert!(result.is_err());
+                assert_eq!(super::current_task(), Some(task));
+            });
+        })
+        .unwrap_or_else(|status| panic!("cleanup entry must bind: {status:?}"));
+
+        assert!(status.is_success());
+        assert!(super::current_runtime().is_none());
+        assert_eq!(super::current_task(), None);
+
+        retained.release();
     }
 }
 
@@ -148,12 +254,9 @@ impl NativeRuntimeCore {
             return;
         }
 
-        let current = NATIVE_RUNTIME.with_borrow(|runtime| {
-            runtime
-                .as_ref()
-                .filter(|runtime| std::ptr::eq(Arc::as_ptr(&runtime.core), self))
-                .and_then(|runtime| runtime.worker.clone())
-        });
+        let current = current_runtime()
+            .filter(|runtime| std::ptr::eq(Arc::as_ptr(&runtime.core), self))
+            .and_then(|runtime| runtime.worker.clone());
 
         self.workers.stop(&self.scheduler, current.as_ref());
         self.clear_tasks();
@@ -164,20 +267,15 @@ impl NativeRuntimeCore {
 
 impl RetainedRuntime {
     pub(crate) fn owns_current_worker(&self) -> bool {
-        NATIVE_RUNTIME.with_borrow(|runtime| {
-            runtime.as_ref().is_some_and(|runtime| {
-                runtime.worker.is_some() && Arc::ptr_eq(&runtime.core, &self.core)
-            })
+        current_runtime().is_some_and(|runtime| {
+            runtime.worker.is_some() && Arc::ptr_eq(&runtime.core, &self.core)
         })
     }
 
     pub(crate) fn detach_product_workers(&self, product: usize) {
-        let current = NATIVE_RUNTIME.with_borrow(|runtime| {
-            runtime
-                .as_ref()
-                .filter(|runtime| Arc::ptr_eq(&runtime.core, &self.core))
-                .and_then(|runtime| runtime.worker.clone())
-        });
+        let current = current_runtime()
+            .filter(|runtime| Arc::ptr_eq(&runtime.core, &self.core))
+            .and_then(|runtime| runtime.worker.clone());
 
         self.core
             .workers
@@ -267,7 +365,7 @@ fn initialize_with_capabilities(
         return NativeRuntimeStatus::INVALID_ARGUMENT;
     };
 
-    if NATIVE_RUNTIME.with_borrow(Option::is_some) {
+    if current_runtime().is_some() {
         return NativeRuntimeStatus::ALREADY_INITIALIZED;
     }
 
@@ -302,7 +400,7 @@ fn initialize_with_capabilities(
         return NativeRuntimeStatus::RUNTIME_FAILURE;
     }
 
-    NATIVE_RUNTIME.set(Some(Rc::new(NativeRuntime {
+    let previous = replace_runtime(Some(Rc::new(NativeRuntime {
         thread,
         main_thread_lane,
         cleanup_workloads: Cell::new(cleanup_workloads),
@@ -312,20 +410,22 @@ fn initialize_with_capabilities(
         _test_isolation: test_isolation,
     })));
 
+    debug_assert!(previous.is_none(), "runtime initialization checked current context");
+
     NativeRuntimeStatus::SUCCESS
 }
 
 pub(in crate::native) fn with_runtime<T>(
     callback: impl FnOnce(&NativeRuntime) -> T,
 ) -> Result<T, NativeRuntimeStatus> {
-    let runtime = NATIVE_RUNTIME.with_borrow(Clone::clone);
+    let runtime = current_runtime();
     let runtime = runtime.ok_or(NativeRuntimeStatus::NOT_INITIALIZED)?;
 
     Ok(callback(&runtime))
 }
 
 pub(in crate::native) fn shutdown() -> NativeRuntimeStatus {
-    let runtime = NATIVE_RUNTIME.take();
+    let runtime = replace_runtime(None);
 
     let Some(runtime) = runtime else {
         return NativeRuntimeStatus::NOT_INITIALIZED;
@@ -337,7 +437,7 @@ pub(in crate::native) fn shutdown() -> NativeRuntimeStatus {
 }
 
 pub(crate) fn retain_runtime() -> Result<RetainedRuntime, NativeRuntimeStatus> {
-    if let Some(runtime) = NATIVE_RUNTIME.with_borrow(Clone::clone) {
+    if let Some(runtime) = current_runtime() {
         if !runtime.core.retain_owner() {
             return Err(NativeRuntimeStatus::RUNTIME_FAILURE);
         }
@@ -368,7 +468,7 @@ pub(crate) fn retain_runtime() -> Result<RetainedRuntime, NativeRuntimeStatus> {
         return Err(status);
     }
 
-    let runtime = NATIVE_RUNTIME.take();
+    let runtime = replace_runtime(None);
 
     let Some(runtime) = runtime else {
         return Err(NativeRuntimeStatus::RUNTIME_FAILURE);
@@ -401,7 +501,8 @@ pub(in crate::native) fn run_worker(
         _test_isolation: None,
     });
 
-    NATIVE_RUNTIME.set(Some(Rc::clone(&runtime)));
+    let previous = replace_runtime(Some(Rc::clone(&runtime)));
+    debug_assert!(previous.is_none(), "worker starts without a runtime context");
 
     let lane = ExecutionLane::new(ExecutionLanePlacement::Migratable, workload);
     let mut accounted_as_idle = workload == ExecutionWorkload::Blocking;
@@ -440,5 +541,5 @@ pub(in crate::native) fn run_worker(
         .workers
         .retire(workload, &control, accounted_as_idle);
 
-    NATIVE_RUNTIME.take();
+    replace_runtime(None);
 }

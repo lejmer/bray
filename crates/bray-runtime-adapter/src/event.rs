@@ -6,6 +6,6 @@ native_adapter! {
         callback: NativeRuntimeEventCallback,
         context: usize,
     ) -> NativeRuntimeStatus {
-        implementation::bray_runtime_event(callback, context)
+        (implementation::resident_execution_services().runtime_event)(callback, context)
     }
 }

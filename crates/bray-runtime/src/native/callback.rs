@@ -8,25 +8,6 @@ use crate::{RunOutcome, execute_synchronous_root};
 
 use super::state::runtime_failure;
 
-#[cfg(test)]
-fn bray_runtime_native_thread_execution(
-    callback: NativeThreadOperationCallback,
-    context: usize,
-    cancellation: NativeThreadCancellationCallback,
-    cancellation_context: usize,
-    panic_report: &mut bray_runtime_abi::NativePanicReport,
-    cleanup: *const (),
-) -> u32 {
-    bray_runtime_substrate_native_thread_execution(
-        callback,
-        context,
-        cancellation,
-        cancellation_context,
-        panic_report,
-        cleanup,
-    )
-}
-
 native_export! {
     pub extern "C" fn bray_runtime_substrate_panic_report_initialization(report: &mut bray_runtime_abi::NativePanicReport) -> NativeRuntimeStatus {
         let (primary, head, tail, count, reserved) = report.take_parts();
@@ -39,13 +20,12 @@ native_export! {
 }
 
 native_export! {
-    pub extern "C" fn bray_runtime_substrate_native_thread_execution(
+    pub extern "C" fn bray_runtime_native_thread_execution(
         callback: NativeThreadOperationCallback,
         context: usize,
         cancellation: NativeThreadCancellationCallback,
         cancellation_context: usize,
         panic_report: &mut bray_runtime_abi::NativePanicReport,
-        cleanup: *const (),
     ) -> u32 {
         let mut outcome = crate::context::with_native_thread_cancellation(
             cancellation,
@@ -55,7 +35,6 @@ native_export! {
                     |outcome| callback(context, outcome),
                     |_| {},
                     false,
-                    cleanup,
                 )
             },
         );
@@ -82,17 +61,15 @@ native_export! {
 }
 
 native_export! {
-    pub extern "C" fn bray_runtime_substrate_synchronous_root_execution(
+    pub extern "C" fn bray_runtime_synchronous_root_execution(
         callback: NativeSynchronousRootCallback,
         destination: usize,
-        cleanup: *const (),
     ) -> NativeRunOutcome {
         let outcome = execute_synchronous_callback(
             callback,
             destination,
             super::host::register_timeout,
             true,
-            cleanup,
         );
 
         super::host::record_outcome(&outcome);
@@ -102,12 +79,11 @@ native_export! {
 }
 
 native_export! {
-    pub extern "C" fn bray_runtime_substrate_foreign_callback_execution(
+    pub extern "C" fn bray_runtime_foreign_callback_execution(
         callback: NativeSynchronousRootCallback,
         destination: usize,
-        cleanup: *const (),
     ) -> NativeRunOutcome {
-        execute_synchronous_callback(callback, destination, |_| {}, false, cleanup)
+        execute_synchronous_callback(callback, destination, |_| {}, false)
     }
 }
 
@@ -116,13 +92,11 @@ fn execute_synchronous_callback(
     destination: usize,
     on_started: impl FnOnce(crate::RootCancellationHandle),
     main_thread: bool,
-    cleanup: *const (),
 ) -> NativeRunOutcome {
     execute_callback_boundary(
         |outcome| callback(destination, outcome),
         on_started,
         main_thread,
-        cleanup,
     )
 }
 
@@ -130,14 +104,11 @@ fn execute_callback_boundary(
     callback: impl FnOnce(&mut NativeRunOutcome),
     on_started: impl FnOnce(crate::RootCancellationHandle),
     main_thread: bool,
-    cleanup: *const (),
 ) -> NativeRunOutcome {
     #[cfg(test)]
     let _test_isolation = super::state::test_runtime_isolation();
 
     let Ok(mut admitted) = crate::outgoing::OutgoingRecords::admit(2) else {
-        run_substrate_cleanup(cleanup);
-
         return super::outgoing::allocation_failure();
     };
 
@@ -176,8 +147,6 @@ fn execute_callback_boundary(
         }
     };
 
-    run_substrate_cleanup(cleanup);
-
     let cleanup_incidents = thread.map_or(0, bray_platform::RuntimeThreadEntry::finish);
 
     if cleanup_incidents != 0 {
@@ -189,19 +158,6 @@ fn execute_callback_boundary(
     }
 
     outcome
-}
-
-#[expect(
-    unsafe_code,
-    reason = "the trusted Bray bootstrap passes its exact typed cleanup callback as an opaque code pointer"
-)]
-fn run_substrate_cleanup(cleanup: *const ()) {
-    let cleanup: extern "C" fn() = unsafe {
-        // The private substrate ABI receives the exact SubstrateCleanup pointer formed by Bray.
-        std::mem::transmute(cleanup)
-    };
-
-    cleanup();
 }
 
 #[cfg(test)]
@@ -216,10 +172,6 @@ mod tests {
 
     extern "C" fn cancellation_not_requested(_: usize) -> u32 {
         0
-    }
-
-    extern "C" fn cleanup() {
-        assert!(bray_platform::current_runtime_thread().is_some());
     }
 
     extern "C-unwind" fn observe_cancellation(_: usize, outcome: &mut NativeRunOutcome) {
@@ -244,11 +196,7 @@ mod tests {
 
     #[test]
     fn callback_cancellation_preserves_an_already_published_panic() {
-        let mut outcome = super::bray_runtime_substrate_synchronous_root_execution(
-            write_then_cancel,
-            0,
-            cleanup as *const (),
-        );
+        let mut outcome = super::bray_runtime_synchronous_root_execution(write_then_cancel, 0);
 
         assert_eq!(outcome.state(), NativeRunState::PANICKED);
         assert!(outcome.take_report().consume(false).is_success());
@@ -289,15 +237,11 @@ mod tests {
     }
 
     #[test]
-    fn callback_admission_failure_preserves_the_allocation_cause_and_inputs() {
-        thread_local! { static CLEANUPS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
-
-        extern "C" fn rejected_cleanup() {
-            CLEANUPS.set(CLEANUPS.get() + 1);
-        }
-
+    fn callback_admission_failure_acquires_no_thread_state_and_preserves_inputs() {
         let _isolation = super::super::state::test_runtime_isolation();
         let _failure = crate::outgoing::tests::reject_admission();
+
+        assert!(bray_platform::current_runtime_thread().is_none());
 
         let mut called = false;
 
@@ -305,11 +249,10 @@ mod tests {
             |_| called = true,
             |_| {},
             false,
-            rejected_cleanup as *const (),
         );
 
         assert!(!called);
-        assert_eq!(CLEANUPS.get(), 1);
+        assert!(bray_platform::current_runtime_thread().is_none());
         assert_eq!(outcome.state(), NativeRunState::PANICKED);
 
         assert_eq!(
@@ -328,7 +271,6 @@ mod tests {
             cancellation_not_requested,
             0,
             &mut report,
-            cleanup as *const (),
         );
 
         assert_eq!(state, NativeRunState::PANICKED.code());
@@ -355,7 +297,6 @@ mod tests {
             cancellation_not_requested,
             0,
             &mut report,
-            cleanup as *const (),
         );
 
         assert_eq!(state, NativeRunState::COMPLETED.code());
@@ -372,7 +313,6 @@ mod tests {
             cancellation_requested,
             0,
             &mut payload,
-            cleanup as *const (),
         );
 
         assert_eq!(state, NativeRunState::COMPLETED.code());
@@ -389,7 +329,6 @@ mod tests {
             cancellation_not_requested,
             0,
             &mut payload,
-            cleanup as *const (),
         );
 
         assert_eq!(state, NativeRunState::PANICKED.code());
@@ -406,7 +345,6 @@ mod tests {
             cancellation_requested,
             0,
             &mut payload,
-            cleanup as *const (),
         );
 
         assert_eq!(state, NativeRunState::CANCELLED.code());
