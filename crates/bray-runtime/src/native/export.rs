@@ -65,7 +65,7 @@ native_export! {
         configuration: NativeRuntimeConfiguration,
     ) -> NativeRootStart {
         catch_unwind(AssertUnwindSafe(|| {
-            crate::context::with_independent_execution_context(|| {
+            super::state::with_independent_execution_context(|| {
                 let Some(frame) = take_transferred_frame(frame) else {
                     return NativeRootStart::failure(NativeRuntimeStatus::INVALID_ARGUMENT);
                 };

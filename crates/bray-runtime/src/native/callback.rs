@@ -27,7 +27,7 @@ native_export! {
         cancellation_context: usize,
         panic_report: &mut bray_runtime_abi::NativePanicReport,
     ) -> u32 {
-        let mut outcome = crate::context::with_independent_execution_context(|| {
+        let mut outcome = super::state::with_independent_execution_context(|| {
             crate::context::with_native_thread_cancellation(
                 cancellation,
                 cancellation_context,
@@ -67,7 +67,7 @@ native_export! {
         callback: NativeSynchronousRootCallback,
         destination: usize,
     ) -> NativeRunOutcome {
-        let outcome = crate::context::with_independent_execution_context(|| {
+        let outcome = super::state::with_independent_execution_context(|| {
             execute_synchronous_callback(
                 callback,
                 destination,
@@ -87,7 +87,7 @@ native_export! {
         callback: NativeSynchronousRootCallback,
         destination: usize,
     ) -> NativeRunOutcome {
-        crate::context::with_independent_execution_context(|| {
+        super::state::with_independent_execution_context(|| {
             execute_synchronous_callback(callback, destination, |_| {}, false)
         })
     }

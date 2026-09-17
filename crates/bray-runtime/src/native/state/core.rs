@@ -61,6 +61,15 @@ pub(in crate::native) fn with_bound_runtime<T>(
 
     let _scope = NativeExecutionContextScope(Some(previous));
 
+    with_independent_execution_context(callback)
+}
+
+pub(in crate::native) fn with_independent_execution_context<T>(
+    callback: impl FnOnce() -> T,
+) -> T {
+    let task = NATIVE_CONTEXT.with_borrow_mut(|context| context.task.take());
+    let _scope = NativeTaskScope(task);
+
     crate::context::with_independent_execution_context(callback)
 }
 
@@ -186,6 +195,25 @@ mod tests {
         drop(isolation);
 
         assert!(super::test_runtime_isolation().is_some());
+    }
+
+    #[test]
+    fn independent_native_entry_restores_the_outer_native_task_after_unwind() {
+        let task = NativeTaskHandle::new(7).expect("fixed task handle is nonzero");
+
+        super::with_current_task(task, || {
+            let result = catch_unwind(AssertUnwindSafe(|| {
+                super::with_independent_execution_context(|| {
+                    assert_eq!(super::current_task(), None);
+                    panic!("exercise native-task restoration");
+                });
+            }));
+
+            assert!(result.is_err());
+            assert_eq!(super::current_task(), Some(task));
+        });
+
+        assert_eq!(super::current_task(), None);
     }
 
     #[test]
