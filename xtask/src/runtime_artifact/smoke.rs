@@ -295,20 +295,16 @@ fn audit_bootstrap_link_map(map: &Path) -> Result<(), CommandError> {
 
     let required = [
         bray_runtime_abi::symbols::RUNTIME_INITIALIZATION_SYMBOL,
+        bray_runtime_abi::symbols::PANIC_REPORT_CONSTRUCTION_SYMBOL,
+        bray_runtime_abi::symbols::PANIC_REPORTING_SYMBOL,
+        bray_runtime_abi::symbols::STRUCTURED_SHUTDOWN_SYMBOL,
+    ];
+
+    let forbidden = [
         bray_runtime_abi::symbols::SYNCHRONOUS_ROOT_EXECUTION_SYMBOL,
         bray_runtime_abi::symbols::FOREIGN_CALLBACK_EXECUTION_SYMBOL,
         bray_runtime_abi::symbols::THREAD_ATTACHMENT_IDENTITY_SYMBOL,
         bray_runtime_abi::symbols::THREAD_STATIC_CLEANUP_REGISTRATION_SYMBOL,
-        bray_runtime_abi::symbols::PANIC_REPORT_CONSTRUCTION_SYMBOL,
-        bray_runtime_abi::symbols::PANIC_REPORTING_SYMBOL,
-        bray_runtime_abi::symbols::STRUCTURED_SHUTDOWN_SYMBOL,
-        bray_runtime_interface::PlatformServiceRole::ThreadStorageCreate.native_symbol(),
-        bray_runtime_interface::PlatformServiceRole::ThreadStorageLoad.native_symbol(),
-        bray_runtime_interface::PlatformServiceRole::ThreadStorageStore.native_symbol(),
-        bray_runtime_interface::PlatformServiceRole::ThreadStorageDestroy.native_symbol(),
-    ];
-
-    let forbidden = [
         bray_runtime_abi::symbols::ROOT_EXECUTION_SYMBOL,
         bray_runtime_abi::symbols::TASK_ALLOCATION_SYMBOL,
         bray_runtime_abi::symbols::TASK_START_SYMBOL,
@@ -318,6 +314,10 @@ fn audit_bootstrap_link_map(map: &Path) -> Result<(), CommandError> {
         bray_runtime_abi::symbols::MAIN_NATIVE_THREAD_IDENTITY_SYMBOL,
         bray_runtime_abi::symbols::AWAITED_FRAME_COMPOSITION_SYMBOL,
         bray_runtime_abi::symbols::FRAME_COMPLETION_MOVE_SYMBOL,
+        bray_runtime_interface::PlatformServiceRole::ThreadStorageCreate.native_symbol(),
+        bray_runtime_interface::PlatformServiceRole::ThreadStorageLoad.native_symbol(),
+        bray_runtime_interface::PlatformServiceRole::ThreadStorageStore.native_symbol(),
+        bray_runtime_interface::PlatformServiceRole::ThreadStorageDestroy.native_symbol(),
         "__rust_alloc",
         "__rust_dealloc",
         "rust_eh_personality",

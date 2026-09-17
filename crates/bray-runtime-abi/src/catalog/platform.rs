@@ -236,22 +236,22 @@ macro_rules! platform_role_catalog {
             ThreadStorageCreate {
                 "Creates one destructor-bearing native thread-storage key.", 0x0331, "platform.thread_storage.create",
                 PLATFORM_THREAD_STORAGE_CREATE_SYMBOL = "bray_platform_thread_storage_create",
-                Thread, [PointerU8, PointerU64] -> Status, bootstrap: ("platform_thread_storage_create")
+                Thread, [PointerU8, PointerU64] -> Status, bootstrap: ()
             }
             ThreadStorageLoad {
                 "Loads the calling native thread's value for one storage key.", 0x0332, "platform.thread_storage.load",
                 PLATFORM_THREAD_STORAGE_LOAD_SYMBOL = "bray_platform_thread_storage_load",
-                Thread, [U64, RawAddressPointer] -> Status, bootstrap: ("platform_thread_storage_load")
+                Thread, [U64, RawAddressPointer] -> Status, bootstrap: ()
             }
             ThreadStorageStore {
                 "Stores or clears the calling native thread's value for one storage key.", 0x0333, "platform.thread_storage.store",
                 PLATFORM_THREAD_STORAGE_STORE_SYMBOL = "bray_platform_thread_storage_store",
-                Thread, [U64, PointerU8] -> Status, bootstrap: ("platform_thread_storage_store")
+                Thread, [U64, PointerU8] -> Status, bootstrap: ()
             }
             ThreadStorageDestroy {
                 "Destroys one storage key after its attached threads have quiesced.", 0x0334, "platform.thread_storage.destroy",
                 PLATFORM_THREAD_STORAGE_DESTROY_SYMBOL = "bray_platform_thread_storage_destroy",
-                Thread, [U64] -> Status, bootstrap: ("platform_thread_storage_destroy")
+                Thread, [U64] -> Status, bootstrap: ()
             }
             ClockMonotonicNow {
                 "Observes the process-local monotonic clock.", 0x0401, "platform.clock.monotonic_now",

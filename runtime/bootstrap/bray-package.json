@@ -19,25 +19,7 @@
         "x86-64-windows"
       ],
       "dependencies": [],
-      "outputs": ["static_library"],
-      "platform_services": [
-        {
-          "role": "platform.thread_storage.create",
-          "declaration": "bray.runtime.bootstrap.platform_thread_storage_create"
-        },
-        {
-          "role": "platform.thread_storage.load",
-          "declaration": "bray.runtime.bootstrap.platform_thread_storage_load"
-        },
-        {
-          "role": "platform.thread_storage.store",
-          "declaration": "bray.runtime.bootstrap.platform_thread_storage_store"
-        },
-        {
-          "role": "platform.thread_storage.destroy",
-          "declaration": "bray.runtime.bootstrap.platform_thread_storage_destroy"
-        }
-      ]
+      "outputs": ["static_library"]
     }
   ]
 }

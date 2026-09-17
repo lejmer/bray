@@ -9,6 +9,7 @@ macro_rules! define_runtime_roles {
     ($( $role:ident {
         $documentation:literal, $name:literal,
         native: ($($symbol:ident = $native:literal, [$($native_parameter:ident),*] -> $native_result:ident)?),
+        $(resident: ($resident_service:ident $resident_field:ident: $resident_callback:ty),)?
         call_hook: ($($hook:ident)?),
         compiler: $abi:ident [$($parameter:ident),*] -> $result:ident,
         owner: $owner:ident, availability: $availability:ident,
@@ -121,6 +122,43 @@ macro_rules! define_runtime_roles {
 }
 
 bray_runtime_abi::runtime_role_catalog!(define_runtime_roles);
+
+/// Resident service table required by one runtime operation.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum ResidentRuntimeService {
+    /// Runtime-local behavior that does not require a scheduler.
+    Host,
+    /// Independent execution behavior backed by a scheduler.
+    Execution,
+}
+
+macro_rules! define_resident_service_demand {
+    ($( $role:ident {
+        $documentation:literal, $name:literal,
+        native: ($($native:tt)*),
+        $(resident: ($resident_service:ident $resident_field:ident: $resident_callback:ty),)?
+        call_hook: ($($hook:ident)?),
+        compiler: $abi:ident [$($parameter:ident),*] -> $result:ident,
+        owner: $owner:ident, availability: $availability:ident,
+        bootstrap: ($($bootstrap:literal)?), host_control: $host_control:literal,
+        capabilities: [$($capability:ident),*],
+        effects: [$($effect:ident),*]
+    })+) => {
+        impl RuntimeAbiRole {
+            /// Returns the resident service table dispatching this operation.
+            pub const fn resident_service(self) -> Option<ResidentRuntimeService> {
+                match self {
+                    $(Self::$role => define_resident_service_demand!(@service $($resident_service)?),)+
+                }
+            }
+        }
+    };
+    (@service Host) => { Some(ResidentRuntimeService::Host) };
+    (@service Execution) => { Some(ResidentRuntimeService::Execution) };
+    (@service) => { None };
+}
+
+bray_runtime_abi::runtime_role_catalog!(define_resident_service_demand);
 
 /// One build-authorized association between a Bray declaration and a private runtime role.
 ///
@@ -334,7 +372,7 @@ pub(crate) fn canonical_role_bindings(
 
 #[cfg(test)]
 mod tests {
-    use super::{RuntimeAbiRole, RuntimeRoleContractEffect};
+    use super::{ResidentRuntimeService, RuntimeAbiRole, RuntimeRoleContractEffect};
 
     #[test]
     fn complete_execution_catalog_has_unique_and_exhaustive_projections() {
@@ -373,7 +411,17 @@ mod tests {
 
         assert_eq!(
             RuntimeAbiRole::ThreadStaticCleanupRegistration.bootstrap_declaration(),
-            Some("register_thread_cleanup"),
+            None,
+        );
+
+        assert_eq!(
+            RuntimeAbiRole::SynchronousRootExecution.resident_service(),
+            Some(ResidentRuntimeService::Host),
+        );
+
+        assert_eq!(
+            RuntimeAbiRole::RootExecution.resident_service(),
+            Some(ResidentRuntimeService::Execution),
         );
 
         assert!(!RuntimeAbiRole::TestEntrySelection.available_to_product());
@@ -382,6 +430,25 @@ mod tests {
             RuntimeAbiRole::GeneratorBegin.implementation(),
             super::RuntimeRoleImplementation::CompilerLowering
         );
+    }
+
+    #[test]
+    fn resident_service_inventory_is_exhaustive_and_natively_typed() {
+        let mut host = 0;
+        let mut execution = 0;
+
+        for role in RuntimeAbiRole::ALL {
+            match role.resident_service() {
+                Some(ResidentRuntimeService::Host) => host += 1,
+                Some(ResidentRuntimeService::Execution) => execution += 1,
+                None => continue,
+            }
+
+            assert!(role.native_signature().is_some(), "{role:?}");
+        }
+
+        assert_eq!(host, 22);
+        assert_eq!(execution, 22);
     }
 
     #[test]

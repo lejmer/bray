@@ -2,10 +2,9 @@
 
 pub use super::callback::{
     bray_runtime_current_native_thread_identity, bray_runtime_main_native_thread_identity,
-    bray_runtime_substrate_foreign_callback_execution,
-    bray_runtime_substrate_native_thread_execution,
+    bray_runtime_foreign_callback_execution, bray_runtime_native_thread_execution,
     bray_runtime_substrate_panic_report_initialization,
-    bray_runtime_substrate_synchronous_root_execution,
+    bray_runtime_synchronous_root_execution,
 };
 pub use super::export::{
     bray_runtime_awaited_frame_composition, bray_runtime_cleanup_incident_reporting,
@@ -19,9 +18,7 @@ pub use super::export::{
     bray_runtime_root_cancellation_request, bray_runtime_root_completion_resolution,
     bray_runtime_root_execution, bray_runtime_root_terminal_observation,
     bray_runtime_substrate_initialization, bray_runtime_substrate_shutdown,
-    bray_runtime_substrate_static_outcome_reporting,
-    bray_runtime_substrate_thread_attachment_identity,
-    bray_runtime_substrate_thread_static_cleanup_registration,
+    resident_thread_attachment_identity, resident_thread_static_cleanup_registration,
     bray_runtime_suspension_registration, bray_runtime_task_allocation,
     bray_runtime_task_cancellation_request, bray_runtime_task_destruction,
     bray_runtime_task_event_creation, bray_runtime_task_event_destruction,
@@ -36,3 +33,13 @@ pub use super::outgoing::{
     bray_runtime_outgoing_discharge, bray_runtime_outgoing_retirement,
     bray_runtime_panic_report_suppression,
 };
+
+/// Borrows the resident host callback table.
+pub const fn resident_host_services() -> &'static bray_runtime_abi::NativeHostServices {
+    super::services::host()
+}
+
+/// Borrows the resident execution callback table.
+pub const fn resident_execution_services() -> &'static bray_runtime_abi::NativeExecutionServices {
+    super::services::execution()
+}

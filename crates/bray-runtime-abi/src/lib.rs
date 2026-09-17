@@ -12,6 +12,7 @@ mod process;
 mod product;
 mod run_result;
 mod runtime;
+mod services;
 mod signature;
 pub mod symbols;
 mod temporal;
@@ -38,6 +39,7 @@ pub use product::{
     PRODUCT_HOST_ABI_VERSION,
 };
 pub use run_result::NativeRunResultLayout;
+pub use services::{NativeExecutionServices, NativeHostServices};
 pub use runtime::{
     MAX_PERFORMANCE_OBSERVATION_RECORDS, MEMORY_ALLOCATION_OBSERVATION_SYMBOL,
     MEMORY_COPY_OBSERVATION_SYMBOL, MEMORY_OBSERVATION_BEGIN_SYMBOL, NativeExecutionLane,
