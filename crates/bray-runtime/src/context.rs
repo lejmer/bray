@@ -106,6 +106,25 @@ pub(crate) fn current_task_start_site() -> Option<TaskStartSite> {
     })
 }
 
+pub(crate) fn current_task_execution_lane() -> Option<ExecutionLane> {
+    CURRENT_CONTEXT.with_borrow(|context| context.as_ref().map(TaskExecutionContext::lane))
+}
+
+pub(crate) fn with_task_frame_execution<T>(
+    execution: &crate::FrameExecutionState,
+    lane: ExecutionLane,
+    callback: impl FnOnce() -> T,
+) -> Option<T> {
+    let mut context = CURRENT_CONTEXT.with_borrow(Clone::clone)?;
+    context.state = execution.state();
+    context.lane = lane;
+
+    let previous = CURRENT_CONTEXT.replace(Some(context));
+    let _guard = TaskContextGuard(previous);
+
+    Some(callback())
+}
+
 /// Returns whether cancellation is currently observable in the current run.
 pub fn current_run_cancellation_observable() -> bool {
     CURRENT_RUN_CANCELLATION.with_borrow(|context| {
@@ -214,6 +233,8 @@ struct ContextGuard {
     cancellation: Option<CancellationContext>,
 }
 
+struct TaskContextGuard(Option<TaskExecutionContext>);
+
 impl Drop for ContextGuard {
     fn drop(&mut self) {
         let previous_task = self.task.take();
@@ -222,6 +243,12 @@ impl Drop for ContextGuard {
         CURRENT_CONTEXT.set(previous_task);
 
         CURRENT_RUN_CANCELLATION.set(previous_cancellation);
+    }
+}
+
+impl Drop for TaskContextGuard {
+    fn drop(&mut self) {
+        CURRENT_CONTEXT.set(self.0.take());
     }
 }
 

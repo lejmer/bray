@@ -617,6 +617,23 @@ mod tests {
     static AWAITED_BLOCKING_COMPLETIONS: AtomicUsize = AtomicUsize::new(0);
     static EVENT_CHILD_RESUMES: AtomicUsize = AtomicUsize::new(0);
     static EVENT_PARENT_RESUMES: AtomicUsize = AtomicUsize::new(0);
+    static PENDING_CHILD_RESUMES: AtomicUsize = AtomicUsize::new(0);
+    static PENDING_CHILD_BROADCASTS: AtomicUsize = AtomicUsize::new(0);
+    static PENDING_CHILD_DESTRUCTIONS: AtomicUsize = AtomicUsize::new(0);
+    static PENDING_CHILD_CLEANUP_THREAD: AtomicUsize = AtomicUsize::new(0);
+    static CONFLICTING_CHILD_DESTRUCTIONS: AtomicUsize = AtomicUsize::new(0);
+    static REJECTED_CHILD_MOVES: AtomicUsize = AtomicUsize::new(0);
+    static REJECTED_CHILD_DESTRUCTIONS: AtomicUsize = AtomicUsize::new(0);
+    static EXACT_BLOCKING_PARENT_RESUMES: AtomicUsize = AtomicUsize::new(0);
+    static ORIGIN_PARENT_RESUMES: AtomicUsize = AtomicUsize::new(0);
+    static ORIGIN_CHILD_RESUMES: AtomicUsize = AtomicUsize::new(0);
+    const DEEP_AWAIT_DEPTH: usize = 256;
+    static DEEP_AWAIT_STATES: [AtomicUsize; DEEP_AWAIT_DEPTH] =
+        [const { AtomicUsize::new(0) }; DEEP_AWAIT_DEPTH];
+    static DEEP_AWAIT_CALLBACK_DEPTH: AtomicUsize = AtomicUsize::new(0);
+    static DEEP_AWAIT_MAX_CALLBACK_DEPTH: AtomicUsize = AtomicUsize::new(0);
+    static DEEP_AWAIT_COMPLETIONS: AtomicUsize = AtomicUsize::new(0);
+    static DEEP_AWAIT_COMPETITOR_AT: AtomicUsize = AtomicUsize::new(usize::MAX);
     const AWAITED_BLOCKING_CHILD_COUNT: usize = 8;
 
     #[test]
@@ -723,7 +740,7 @@ mod tests {
                 ignore_completion_move,
                 ignore_action,
             ),
-            NativeRuntimeConfiguration::new(AWAITED_BLOCKING_CHILD_COUNT + 1, 1),
+            NativeRuntimeConfiguration::new(1, 1),
         );
 
         let Some(root) = start.root() else {
@@ -759,7 +776,79 @@ mod tests {
         );
 
         assert_eq!(
+            super::with_runtime(|runtime| runtime.scheduler.task_count())
+                .unwrap_or_else(|status| panic!("runtime must remain available: {status:?}"))
+                .unwrap_or_else(|error| panic!("scheduler observation must succeed: {error:?}")),
+            1
+        );
+
+        assert_eq!(
             bray_runtime_root_completion_resolution(root),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        assert_eq!(
+            bray_runtime_structured_shutdown(),
+            NativeRuntimeStatus::SUCCESS
+        );
+    }
+
+    #[test]
+    fn main_thread_parent_drives_a_blocking_child_on_its_exact_lane() {
+        EXACT_BLOCKING_PARENT_RESUMES.store(0, Ordering::Relaxed);
+
+        assert_eq!(
+            bray_runtime_main_thread_lane_startup(NativeRuntimeConfiguration::new(1, 1)),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        let allocation = bray_runtime_task_allocation();
+
+        let task = allocation
+            .task()
+            .unwrap_or_else(|| panic!("exact-lane parent must allocate"));
+
+        assert_eq!(
+            start_test_task(
+                task,
+                protected_frame(
+                    8,
+                    await_exact_blocking_child,
+                    ignore_completion_move,
+                    ignore_action
+                )
+            ),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        let mut outcome = NativeRunOutcome::new(NativeRunState::PENDING, 0);
+
+        for _ in 0..8 {
+            assert_ne!(
+                bray_runtime_main_thread_lane_drive(),
+                NativeRuntimeStatus::RUNTIME_FAILURE
+            );
+
+            outcome = super::with_runtime(|runtime| runtime.observe(task))
+                .unwrap_or_else(|status| panic!("runtime must remain available: {status:?}"));
+
+            if outcome.state() != NativeRunState::PENDING {
+                break;
+            }
+        }
+
+        assert_eq!(outcome.state(), NativeRunState::COMPLETED);
+        assert_eq!(EXACT_BLOCKING_PARENT_RESUMES.load(Ordering::Relaxed), 2);
+
+        assert_eq!(
+            super::with_runtime(|runtime| runtime.scheduler.task_count())
+                .unwrap_or_else(|status| panic!("runtime must remain available: {status:?}"))
+                .unwrap_or_else(|error| panic!("scheduler observation must succeed: {error:?}")),
+            1
+        );
+
+        assert_eq!(
+            bray_runtime_task_destruction(task),
             NativeRuntimeStatus::SUCCESS
         );
 
@@ -808,7 +897,7 @@ mod tests {
 
         assert_eq!(
             bray_runtime_main_thread_lane_drive(),
-            NativeRuntimeStatus::SUCCESS
+            NativeRuntimeStatus::PENDING
         );
 
         assert_eq!(EVENT_PARENT_RESUMES.load(Ordering::Relaxed), 1);
@@ -840,7 +929,7 @@ mod tests {
 
         assert_eq!(
             bray_runtime_main_thread_lane_drive(),
-            NativeRuntimeStatus::SUCCESS
+            NativeRuntimeStatus::PENDING
         );
 
         assert_eq!(EVENT_CHILD_RESUMES.load(Ordering::Relaxed), 2);
@@ -850,6 +939,95 @@ mod tests {
             .unwrap_or_else(|status| panic!("runtime must remain available: {status:?}"));
 
         assert_eq!(completed.state(), NativeRunState::COMPLETED);
+
+        assert_eq!(
+            bray_runtime_task_destruction(task),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        assert_eq!(
+            bray_runtime_task_event_destruction(event),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        assert_eq!(
+            bray_runtime_structured_shutdown(),
+            NativeRuntimeStatus::SUCCESS
+        );
+    }
+
+    #[test]
+    fn parent_cleanup_incident_uses_the_restored_parent_execution_origin() {
+        ORIGIN_PARENT_RESUMES.store(0, Ordering::Relaxed);
+        ORIGIN_CHILD_RESUMES.store(0, Ordering::Relaxed);
+
+        assert_eq!(
+            bray_runtime_main_thread_lane_startup(NativeRuntimeConfiguration::new(2, 1)),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        let event = bray_runtime_task_event_creation();
+        let allocation = bray_runtime_task_allocation();
+
+        let task = allocation
+            .task()
+            .unwrap_or_else(|| panic!("origin parent must allocate"));
+
+        assert_eq!(
+            start_test_task(
+                task,
+                protected_frame_with_context(
+                    event,
+                    8,
+                    frame_state,
+                    await_origin_child,
+                    ignore_completion_move,
+                    panic_action,
+                )
+            ),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        assert_eq!(
+            bray_runtime_main_thread_lane_drive(),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        assert_eq!(
+            bray_runtime_task_event_signal(event),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        assert_eq!(
+            bray_runtime_main_thread_lane_drive(),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        let completed = super::with_runtime(|runtime| runtime.observe(task))
+            .unwrap_or_else(|status| panic!("runtime must remain available: {status:?}"));
+
+        assert_eq!(completed.state(), NativeRunState::COMPLETED);
+
+        let mut origin = None;
+
+        super::with_runtime(|runtime| {
+            runtime.cleanup_reports.drain(|incident| {
+                assert!(origin.replace(incident.origin()).is_none());
+            });
+        })
+        .unwrap_or_else(|status| panic!("runtime must remain available: {status:?}"));
+
+        let origin = origin.unwrap_or_else(|| panic!("parent cleanup must publish one incident"));
+
+        assert_eq!(
+            origin.frame(),
+            bray_runtime_model::ProtectedAsyncFrameId::new([7; 32])
+        );
+
+        assert_eq!(
+            origin.state(),
+            bray_runtime_model::ProtectedFrameStateId::new(1)
+        );
 
         assert_eq!(
             bray_runtime_task_destruction(task),
@@ -1528,6 +1706,248 @@ mod tests {
     }
 
     #[test]
+    fn parent_failure_cleans_a_suspended_child_and_preserves_its_incident() {
+        PENDING_CHILD_RESUMES.store(0, Ordering::Relaxed);
+        PENDING_CHILD_BROADCASTS.store(0, Ordering::Relaxed);
+        PENDING_CHILD_DESTRUCTIONS.store(0, Ordering::Relaxed);
+        PENDING_CHILD_CLEANUP_THREAD.store(0, Ordering::Relaxed);
+
+        let start = execute_test_root(
+            protected_frame_with_state(
+                8,
+                movable_frame_state,
+                compose_child_then_panic,
+                ignore_completion_move,
+                ignore_action,
+            ),
+            NativeRuntimeConfiguration::new(1, 1),
+        );
+
+        let root = start
+            .root()
+            .unwrap_or_else(|| panic!("parent frame must transfer"));
+
+        let mut outcome = bray_runtime_root_terminal_observation(root);
+
+        assert_eq!(outcome.state(), NativeRunState::PANICKED);
+        assert_eq!(PENDING_CHILD_RESUMES.load(Ordering::Relaxed), 0);
+        assert_eq!(PENDING_CHILD_BROADCASTS.load(Ordering::Relaxed), 1);
+        assert_eq!(PENDING_CHILD_DESTRUCTIONS.load(Ordering::Relaxed), 1);
+
+        assert_eq!(
+            PENDING_CHILD_CLEANUP_THREAD.load(Ordering::Relaxed),
+            bray_platform::main_runtime_thread()
+                .unwrap_or_else(|| panic!("test runtime must retain its main thread"))
+                .id()
+                .raw() as usize
+        );
+
+        assert_eq!(
+            super::with_runtime(|runtime| runtime.pending_cleanup_incidents()),
+            Ok(1)
+        );
+
+        assert_eq!(
+            super::with_runtime(|runtime| runtime.discard_cleanup_incidents()),
+            Ok(1)
+        );
+
+        assert_eq!(
+            bray_runtime_root_completion_resolution(root),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        let mut report = outcome.take_report();
+        assert_eq!(report.consume(false), NativeRuntimeStatus::SUCCESS);
+
+        assert_eq!(
+            bray_runtime_structured_shutdown(),
+            NativeRuntimeStatus::SUCCESS
+        );
+    }
+
+    #[test]
+    fn conflicting_composed_child_cleans_up_on_its_own_workload_lane() {
+        CONFLICTING_CHILD_DESTRUCTIONS.store(0, Ordering::Relaxed);
+
+        let start = execute_test_root(
+            protected_frame_with_state(
+                8,
+                movable_blocking_frame_state,
+                reject_conflicting_child,
+                ignore_completion_move,
+                ignore_action,
+            ),
+            NativeRuntimeConfiguration::new(2, 1),
+        );
+
+        let root = start
+            .root()
+            .unwrap_or_else(|| panic!("conflicting parent frame must transfer"));
+
+        let mut outcome = bray_runtime_root_terminal_observation(root);
+
+        assert_eq!(outcome.state(), NativeRunState::PANICKED);
+        assert_eq!(CONFLICTING_CHILD_DESTRUCTIONS.load(Ordering::Relaxed), 1);
+
+        assert_eq!(
+            bray_runtime_root_completion_resolution(root),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        assert_eq!(
+            outcome.take_report().consume(false),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        assert_eq!(
+            bray_runtime_structured_shutdown(),
+            NativeRuntimeStatus::SUCCESS
+        );
+    }
+
+    #[test]
+    fn rejected_child_admission_leaves_the_inactive_frame_with_its_caller() {
+        REJECTED_CHILD_MOVES.store(0, Ordering::Relaxed);
+        REJECTED_CHILD_DESTRUCTIONS.store(0, Ordering::Relaxed);
+
+        let start = execute_test_root(
+            protected_frame(
+                8,
+                reject_then_compose_child,
+                ignore_completion_move,
+                ignore_action,
+            ),
+            NativeRuntimeConfiguration::new(1, 1),
+        );
+
+        let root = start
+            .root()
+            .unwrap_or_else(|| panic!("parent frame must transfer"));
+
+        assert_eq!(
+            bray_runtime_root_terminal_observation(root).state(),
+            NativeRunState::RUNTIME_FAILURE
+        );
+
+        assert_eq!(REJECTED_CHILD_MOVES.load(Ordering::Relaxed), 1);
+        assert_eq!(REJECTED_CHILD_DESTRUCTIONS.load(Ordering::Relaxed), 1);
+
+        assert_eq!(
+            bray_runtime_root_completion_resolution(root),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        assert_eq!(
+            bray_runtime_structured_shutdown(),
+            NativeRuntimeStatus::SUCCESS
+        );
+    }
+
+    #[test]
+    fn deep_direct_awaits_are_iterative_and_yield_to_ready_work() {
+        for state in &DEEP_AWAIT_STATES {
+            state.store(0, Ordering::Relaxed);
+        }
+
+        DEEP_AWAIT_CALLBACK_DEPTH.store(0, Ordering::Relaxed);
+        DEEP_AWAIT_MAX_CALLBACK_DEPTH.store(0, Ordering::Relaxed);
+        DEEP_AWAIT_COMPLETIONS.store(0, Ordering::Relaxed);
+        DEEP_AWAIT_COMPETITOR_AT.store(usize::MAX, Ordering::Relaxed);
+
+        assert_eq!(
+            bray_runtime_main_thread_lane_startup(NativeRuntimeConfiguration::new(2, 1)),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        let root_allocation = bray_runtime_task_allocation();
+        let competitor_allocation = bray_runtime_task_allocation();
+
+        let root = root_allocation
+            .task()
+            .unwrap_or_else(|| panic!("deep-await root must allocate"));
+
+        let competitor = competitor_allocation
+            .task()
+            .unwrap_or_else(|| panic!("competitor must allocate"));
+
+        assert_eq!(
+            start_test_task(
+                root,
+                deep_await_frame(1, resume_deep_await, record_deep_completion)
+            ),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        assert_eq!(
+            start_test_task(
+                competitor,
+                protected_frame(
+                    8,
+                    run_deep_await_competitor,
+                    ignore_completion_move,
+                    ignore_action
+                )
+            ),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        loop {
+            let outcome = super::with_runtime(|runtime| runtime.observe(root))
+                .unwrap_or_else(|status| panic!("runtime must remain available: {status:?}"));
+
+            if outcome.state() != NativeRunState::PENDING {
+                assert_eq!(outcome.state(), NativeRunState::COMPLETED);
+                break;
+            }
+
+            let status = bray_runtime_main_thread_lane_drive();
+
+            assert!(matches!(
+                status,
+                NativeRuntimeStatus::SUCCESS | NativeRuntimeStatus::PENDING
+            ));
+        }
+
+        assert_eq!(
+            DEEP_AWAIT_COMPLETIONS.load(Ordering::Relaxed),
+            DEEP_AWAIT_DEPTH
+        );
+
+        assert_eq!(DEEP_AWAIT_MAX_CALLBACK_DEPTH.load(Ordering::Relaxed), 1);
+        assert!(DEEP_AWAIT_COMPETITOR_AT.load(Ordering::Relaxed) < DEEP_AWAIT_DEPTH);
+
+        assert_eq!(
+            super::with_runtime(|runtime| runtime.scheduler.task_count())
+                .unwrap_or_else(|status| panic!("runtime must remain available: {status:?}"))
+                .unwrap_or_else(|error| panic!("scheduler observation must succeed: {error:?}")),
+            2
+        );
+
+        assert_eq!(
+            super::with_runtime(|runtime| runtime.observe(competitor))
+                .unwrap_or_else(|status| panic!("runtime must remain available: {status:?}"))
+                .state(),
+            NativeRunState::COMPLETED
+        );
+
+        assert_eq!(
+            bray_runtime_task_destruction(root),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        assert_eq!(
+            bray_runtime_task_destruction(competitor),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        assert_eq!(
+            bray_runtime_structured_shutdown(),
+            NativeRuntimeStatus::SUCCESS
+        );
+    }
+
+    #[test]
     fn entry_failure_reporting_borrows_the_complete_payload() {
         let payload = 42_i32;
 
@@ -1608,6 +2028,266 @@ mod tests {
         )
     }
 
+    extern "C" fn movable_compute_frame_state(_: usize, _: u32) -> NativeFrameState {
+        NativeFrameState::new(
+            NativeFrameAffinity::MOVABLE,
+            NativeLaneRequirements::COMPUTE,
+        )
+    }
+
+    extern "C-unwind" fn compose_child_then_panic(_: &mut NativeFrameProgress, _: usize) {
+        bray_runtime_awaited_frame_composition(NativeInactiveFrame::new(0, move_pending_child));
+        panic!("parent failed before publishing its awaited suspension");
+    }
+
+    extern "C-unwind" fn reject_conflicting_child(destination: &mut NativeFrameProgress, _: usize) {
+        bray_runtime_awaited_frame_composition(NativeInactiveFrame::new(0, move_conflicting_child));
+
+        *destination = NativeFrameProgress::new(NativeFrameProgressKind::RUNTIME_FAILURE, 0, 0);
+    }
+
+    extern "C-unwind" fn await_exact_blocking_child(
+        destination: &mut NativeFrameProgress,
+        _: usize,
+    ) {
+        let resumes = EXACT_BLOCKING_PARENT_RESUMES.fetch_add(1, Ordering::Relaxed);
+
+        *destination = if resumes == 0 {
+            bray_runtime_awaited_frame_composition(NativeInactiveFrame::new(
+                0,
+                move_blocking_child,
+            ));
+
+            bray_runtime_suspension_registration(1)
+        } else {
+            let _ = bray_runtime_frame_completion_move();
+
+            NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 17)
+        };
+    }
+
+    extern "C-unwind" fn await_origin_child(destination: &mut NativeFrameProgress, event: usize) {
+        let resumes = ORIGIN_PARENT_RESUMES.fetch_add(1, Ordering::Relaxed);
+
+        *destination = if resumes == 0 {
+            bray_runtime_awaited_frame_composition(NativeInactiveFrame::new(
+                event,
+                move_origin_child,
+            ));
+
+            bray_runtime_suspension_registration(1)
+        } else {
+            let _ = bray_runtime_frame_completion_move();
+
+            NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 23)
+        };
+    }
+
+    extern "C-unwind" fn reject_then_compose_child(
+        destination: &mut NativeFrameProgress,
+        _: usize,
+    ) {
+        let rejection = crate::outgoing::tests::reject_admission();
+
+        let rejected = super::with_runtime(|runtime| {
+            runtime.compose_awaited(NativeInactiveFrame::new(0, move_rejected_child))
+        })
+        .unwrap_or_else(|status| status);
+
+        assert_eq!(rejected, NativeRuntimeStatus::RUNTIME_FAILURE);
+        assert_eq!(REJECTED_CHILD_MOVES.load(Ordering::Relaxed), 0);
+        drop(rejection);
+
+        let accepted = super::with_runtime(|runtime| {
+            runtime.compose_awaited(NativeInactiveFrame::new(0, move_rejected_child))
+        })
+        .unwrap_or_else(|status| status);
+
+        assert_eq!(accepted, NativeRuntimeStatus::SUCCESS);
+        *destination = NativeFrameProgress::new(NativeFrameProgressKind::RUNTIME_FAILURE, 0, 0);
+    }
+
+    struct DeepAwaitCallback;
+
+    impl DeepAwaitCallback {
+        fn enter() -> Self {
+            let depth = DEEP_AWAIT_CALLBACK_DEPTH.fetch_add(1, Ordering::Relaxed) + 1;
+            DEEP_AWAIT_MAX_CALLBACK_DEPTH.fetch_max(depth, Ordering::Relaxed);
+
+            Self
+        }
+    }
+
+    impl Drop for DeepAwaitCallback {
+        fn drop(&mut self) {
+            DEEP_AWAIT_CALLBACK_DEPTH.fetch_sub(1, Ordering::Relaxed);
+        }
+    }
+
+    fn deep_await_frame(
+        depth: usize,
+        resume: extern "C-unwind" fn(&mut NativeFrameProgress, usize),
+        move_completion: extern "C-unwind" fn(usize, usize),
+    ) -> NativeProtectedFrame {
+        NativeProtectedFrame::new(
+            depth,
+            [33; 32],
+            2,
+            8,
+            8,
+            8,
+            8,
+            frame_state,
+            resume,
+            resume,
+            ignore_action,
+            ignore_resolution,
+            move_completion,
+            ignore_action,
+        )
+    }
+
+    extern "C-unwind" fn resume_deep_await(destination: &mut NativeFrameProgress, depth: usize) {
+        let _callback = DeepAwaitCallback::enter();
+        let state = &DEEP_AWAIT_STATES[depth - 1];
+
+        *destination = if state.load(Ordering::Relaxed) == 0 && depth < DEEP_AWAIT_DEPTH {
+            state.store(1, Ordering::Relaxed);
+
+            bray_runtime_awaited_frame_composition(NativeInactiveFrame::new(
+                depth + 1,
+                move_deep_await_child,
+            ));
+
+            NativeFrameProgress::new(NativeFrameProgressKind::SUSPENDED, 1, 0)
+        } else {
+            if depth < DEEP_AWAIT_DEPTH {
+                let _ = bray_runtime_frame_completion_move();
+            }
+
+            NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0)
+        };
+    }
+
+    extern "C" fn move_deep_await_child(depth: usize) -> NativeProtectedFrame {
+        deep_await_frame(depth, resume_deep_await, record_deep_completion)
+    }
+
+    extern "C-unwind" fn record_deep_completion(_: usize, _: usize) {
+        DEEP_AWAIT_COMPLETIONS.fetch_add(1, Ordering::Relaxed);
+    }
+
+    extern "C-unwind" fn run_deep_await_competitor(
+        destination: &mut NativeFrameProgress,
+        _: usize,
+    ) {
+        DEEP_AWAIT_COMPETITOR_AT.store(
+            DEEP_AWAIT_COMPLETIONS.load(Ordering::Relaxed),
+            Ordering::Relaxed,
+        );
+
+        *destination = NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0);
+    }
+
+    extern "C" fn move_rejected_child(_: usize) -> NativeProtectedFrame {
+        REJECTED_CHILD_MOVES.fetch_add(1, Ordering::Relaxed);
+
+        NativeProtectedFrame::new(
+            0,
+            [32; 32],
+            1,
+            8,
+            8,
+            8,
+            8,
+            movable_frame_state,
+            resume_pending_child,
+            resume_pending_child,
+            ignore_action,
+            ignore_resolution,
+            ignore_completion_move,
+            destroy_rejected_child,
+        )
+    }
+
+    extern "C-unwind" fn destroy_rejected_child(_: usize) {
+        REJECTED_CHILD_DESTRUCTIONS.fetch_add(1, Ordering::Relaxed);
+    }
+
+    extern "C" fn move_pending_child(_: usize) -> NativeProtectedFrame {
+        NativeProtectedFrame::new(
+            0,
+            [31; 32],
+            1,
+            8,
+            8,
+            8,
+            8,
+            frame_state,
+            resume_pending_child,
+            resume_pending_child,
+            panic_while_broadcasting_child,
+            ignore_resolution,
+            ignore_completion_move,
+            destroy_pending_child,
+        )
+    }
+
+    extern "C-unwind" fn resume_pending_child(destination: &mut NativeFrameProgress, _: usize) {
+        PENDING_CHILD_RESUMES.fetch_add(1, Ordering::Relaxed);
+        *destination = NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0);
+    }
+
+    extern "C-unwind" fn panic_while_broadcasting_child(_: usize) {
+        PENDING_CHILD_BROADCASTS.fetch_add(1, Ordering::Relaxed);
+
+        PENDING_CHILD_CLEANUP_THREAD.store(
+            bray_platform::current_runtime_thread()
+                .unwrap_or_else(|| panic!("cleanup callback must run on a runtime thread"))
+                .id()
+                .raw() as usize,
+            Ordering::Relaxed,
+        );
+
+        panic!("suspended child broadcast failed");
+    }
+
+    extern "C" fn move_origin_child(event: usize) -> NativeProtectedFrame {
+        NativeProtectedFrame::new(
+            event,
+            [31; 32],
+            2,
+            8,
+            8,
+            8,
+            8,
+            frame_state,
+            wait_for_origin_event,
+            cancel_frame,
+            ignore_action,
+            ignore_resolution,
+            ignore_completion_move,
+            ignore_action,
+        )
+    }
+
+    extern "C-unwind" fn wait_for_origin_event(
+        destination: &mut NativeFrameProgress,
+        event: usize,
+    ) {
+        let resumes = ORIGIN_CHILD_RESUMES.fetch_add(1, Ordering::Relaxed);
+
+        *destination = if resumes == 0 {
+            NativeFrameProgress::new(NativeFrameProgressKind::TASK_EVENT, 1, event)
+        } else {
+            NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 17)
+        };
+    }
+
+    extern "C-unwind" fn destroy_pending_child(_: usize) {
+        PENDING_CHILD_DESTRUCTIONS.fetch_add(1, Ordering::Relaxed);
+    }
+
     extern "C-unwind" fn resume_frame(destination: &mut NativeFrameProgress, _: usize) {
         *destination = NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 17);
     }
@@ -1681,6 +2361,25 @@ mod tests {
             ignore_completion_move,
             ignore_action,
         )
+    }
+
+    extern "C" fn move_conflicting_child(_: usize) -> NativeProtectedFrame {
+        protected_frame_with_state(
+            8,
+            movable_compute_frame_state,
+            resume_frame,
+            ignore_completion_move,
+            destroy_conflicting_child,
+        )
+    }
+
+    extern "C-unwind" fn destroy_conflicting_child(_: usize) {
+        assert_eq!(
+            crate::context::current_task_execution_lane().map(crate::ExecutionLane::workload),
+            Some(crate::ExecutionWorkload::Compute)
+        );
+
+        CONFLICTING_CHILD_DESTRUCTIONS.fetch_add(1, Ordering::Relaxed);
     }
 
     extern "C-unwind" fn resume_runtime_failure(destination: &mut NativeFrameProgress, _: usize) {

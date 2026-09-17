@@ -9,6 +9,11 @@ pub enum ExecutionLaneRequirement {
     MainThread,
 }
 
+impl ExecutionLaneRequirement {
+    /// Every execution-lane requirement in stable order.
+    pub const ALL: [Self; 3] = [Self::Blocking, Self::Compute, Self::MainThread];
+}
+
 /// Runtime facility required by reachable product code.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum RuntimeCapability {

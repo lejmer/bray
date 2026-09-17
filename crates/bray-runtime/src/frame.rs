@@ -7,6 +7,53 @@ use bray_runtime_model::{
     ProtectedFrameDescriptor, ProtectedFrameStateDescriptor, ProtectedFrameStateId,
 };
 
+/// Identity and checked execution metadata for one active frame-local state.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct FrameExecutionState {
+    frame: bray_runtime_model::ProtectedAsyncFrameId,
+    origin: Option<bray_platform::RuntimeThreadId>,
+    descriptor: ProtectedFrameStateDescriptor,
+}
+
+impl FrameExecutionState {
+    /// Associates a checked local state with its owning activation's frame.
+    pub const fn new(
+        frame: bray_runtime_model::ProtectedAsyncFrameId,
+        descriptor: ProtectedFrameStateDescriptor,
+    ) -> Self {
+        Self {
+            frame,
+            origin: None,
+            descriptor,
+        }
+    }
+
+    pub(crate) const fn with_origin(mut self, origin: bray_platform::RuntimeThreadId) -> Self {
+        self.origin = Some(origin);
+
+        self
+    }
+
+    pub(crate) const fn origin(&self) -> Option<bray_platform::RuntimeThreadId> {
+        self.origin
+    }
+
+    /// Returns the active activation's frame identity.
+    pub const fn frame(&self) -> bray_runtime_model::ProtectedAsyncFrameId {
+        self.frame
+    }
+
+    /// Returns the state identity local to the active frame.
+    pub const fn state(&self) -> ProtectedFrameStateId {
+        self.descriptor.state()
+    }
+
+    /// Returns the checked metadata for the active state.
+    pub const fn descriptor(&self) -> &ProtectedFrameStateDescriptor {
+        &self.descriptor
+    }
+}
+
 /// Runtime state supplied to one protected-frame resume operation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FrameContext {
@@ -418,6 +465,16 @@ pub trait ProtectedFrame: 'static {
     /// Returns the immutable compiler-generated descriptor.
     fn descriptor(&self) -> &ProtectedFrameDescriptor;
 
+    /// Resolves a local state against the currently active activation.
+    fn execution_state(&self, state: ProtectedFrameStateId) -> Option<FrameExecutionState> {
+        let descriptor = self.descriptor();
+
+        descriptor
+            .state(state)
+            .cloned()
+            .map(|state| FrameExecutionState::new(descriptor.frame(), state))
+    }
+
     /// Enters or resumes the pinned frame.
     fn resume(self: Pin<&mut Self>, context: FrameContext) -> FrameProgress<Self::Output>;
 
@@ -472,19 +529,7 @@ pub(crate) fn terminalize_frame<T, F>(
 where
     F: ?Sized + ProtectedFrame<Output = T>,
 {
-    let (mut outcome, mut exit) = match progress {
-        FrameProgress::Suspended(_) => unreachable!("suspended frames are not terminalized"),
-        FrameProgress::Completed(value) => (
-            Some(crate::RunOutcome::Completed(value)),
-            FrameExit::Completed,
-        ),
-        FrameProgress::Cancelled => (Some(crate::RunOutcome::Cancelled), FrameExit::Cancelled),
-        FrameProgress::Panicked(panic) => (
-            Some(crate::RunOutcome::Panicked(panic)),
-            FrameExit::Panicked,
-        ),
-        FrameProgress::RuntimeFailure => (None, FrameExit::RuntimeFailure),
-    };
+    let (mut outcome, mut exit) = terminal_outcome(progress);
 
     if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
         frame.as_mut().broadcast_tasks();
@@ -496,6 +541,47 @@ where
         }
     }
 
+    resolve_terminal_frame(frame, outcome, exit, outgoing)
+}
+
+pub(crate) fn terminalize_frame_after_broadcast<T, F>(
+    frame: Pin<Box<F>>,
+    progress: FrameProgress<T>,
+    outgoing: &mut crate::outgoing::OutgoingRecords,
+) -> Option<crate::RunOutcome<T>>
+where
+    F: ?Sized + ProtectedFrame<Output = T>,
+{
+    let (outcome, exit) = terminal_outcome(progress);
+
+    resolve_terminal_frame(frame, outcome, exit, outgoing)
+}
+
+fn terminal_outcome<T>(progress: FrameProgress<T>) -> (Option<crate::RunOutcome<T>>, FrameExit) {
+    match progress {
+        FrameProgress::Suspended(_) => unreachable!("suspended frames are not terminalized"),
+        FrameProgress::Completed(value) => (
+            Some(crate::RunOutcome::Completed(value)),
+            FrameExit::Completed,
+        ),
+        FrameProgress::Cancelled => (Some(crate::RunOutcome::Cancelled), FrameExit::Cancelled),
+        FrameProgress::Panicked(panic) => (
+            Some(crate::RunOutcome::Panicked(panic)),
+            FrameExit::Panicked,
+        ),
+        FrameProgress::RuntimeFailure => (None, FrameExit::RuntimeFailure),
+    }
+}
+
+fn resolve_terminal_frame<T, F>(
+    mut frame: Pin<Box<F>>,
+    mut outcome: Option<crate::RunOutcome<T>>,
+    exit: FrameExit,
+    outgoing: &mut crate::outgoing::OutgoingRecords,
+) -> Option<crate::RunOutcome<T>>
+where
+    F: ?Sized + ProtectedFrame<Output = T>,
+{
     if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
         frame.as_mut().resolve_lifecycle(exit);
     })) {
@@ -533,13 +619,6 @@ fn record_terminal_panic<T>(
     };
 
     *outcome = Some(crate::RunOutcome::Panicked(panic));
-}
-
-pub(crate) fn suspension_state(
-    descriptor: &ProtectedFrameDescriptor,
-    suspension: FrameSuspension,
-) -> Option<&ProtectedFrameStateDescriptor> {
-    descriptor.state(suspension.state())
 }
 
 #[cfg(test)]

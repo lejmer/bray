@@ -37,22 +37,17 @@ pub(in crate::native) fn current_thread_lanes(
         placements.push(ExecutionLanePlacement::Migratable);
     }
 
-    let workloads = if cleanup_workloads {
-        &[
-            ExecutionWorkload::Cooperative,
-            ExecutionWorkload::Blocking,
-            ExecutionWorkload::Compute,
-        ][..]
-    } else {
-        &[ExecutionWorkload::Cooperative][..]
-    };
+    let workloads = [
+        ExecutionWorkload::Cooperative,
+        ExecutionWorkload::Blocking,
+        ExecutionWorkload::Compute,
+    ];
 
     placements
         .into_iter()
         .flat_map(|placement| {
             workloads
-                .iter()
-                .copied()
+                .into_iter()
                 .map(move |workload| ExecutionLane::new(placement, workload))
         })
         .collect()
@@ -137,7 +132,7 @@ impl Drop for RuntimeBindingScope {
 }
 
 pub(in crate::native) fn current_native_task() -> Option<NativeTaskHandle> {
-    CURRENT_NATIVE_TASK.get()
+    CURRENT_NATIVE_TASK.try_with(Cell::get).ok().flatten()
 }
 
 pub(in crate::native) fn write_cleanup_incident_report(

@@ -9,13 +9,13 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use bray_runtime_model::{ProtectedFrameDescriptor, ProtectedFrameStateId};
 
 use crate::context::{TaskOutput, current_task_output, current_task_start_site};
-use crate::frame::{suspension_state, terminalize_frame};
+use crate::frame::terminalize_frame;
 use crate::root::is_propagated_cancellation;
 use crate::{
     CancellationContext, ErasedProtectedFrame, ErasedSendableProtectedFrame, FrameContext,
-    FrameProgress, FrameSuspension, ProtectedFrame, RunOutcome, RunOutcomeKind, RuntimePanic,
-    SendableProtectedFrame, TaskSnapshot, TaskStartSite, erase_protected_frame,
-    erase_sendable_protected_frame,
+    FrameExecutionState, FrameProgress, FrameSuspension, ProtectedFrame, RunOutcome,
+    RunOutcomeKind, RuntimePanic, SendableProtectedFrame, TaskSnapshot, TaskStartSite,
+    erase_protected_frame, erase_sendable_protected_frame,
 };
 
 /// Observable task-control-block execution state.
@@ -58,10 +58,10 @@ pub enum TaskFailureKind {
 }
 
 /// Result of one successful task resume.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum TaskResumeStatus {
     /// The frame suspended in one checked state.
-    Suspended(FrameSuspension),
+    Suspended(FrameSuspension, FrameExecutionState),
     /// The task published one terminal outcome.
     Terminal(RunOutcomeKind),
 }
@@ -118,7 +118,7 @@ where
     frame: Option<Pin<Box<F>>>,
     outgoing: crate::outgoing::OutgoingRecords,
     state: TaskState,
-    frame_state: ProtectedFrameStateId,
+    execution: FrameExecutionState,
     outcome: Option<RunOutcome<T>>,
     join_waiters: BTreeMap<u64, Arc<dyn JoinWake>>,
     next_join_waiter: u64,
@@ -234,6 +234,14 @@ where
 
         let descriptor = frame.descriptor().clone();
 
+        let execution = FrameExecutionState::new(
+            descriptor.frame(),
+            descriptor
+                .state(ProtectedFrameStateId::new(0))
+                .unwrap_or_else(|| panic!("checked frame descriptor must contain state zero"))
+                .clone(),
+        );
+
         Arc::new(Self {
             id: admission.id,
             start_site,
@@ -242,7 +250,7 @@ where
                 frame: Some(frame),
                 outgoing: admission.outgoing,
                 state: TaskState::Ready,
-                frame_state: ProtectedFrameStateId::new(0),
+                execution,
                 outcome: None,
                 join_waiters: BTreeMap::new(),
                 next_join_waiter: 0,
@@ -286,7 +294,7 @@ where
             self.start_site,
             self.descriptor.clone(),
             data.state,
-            data.frame_state,
+            data.execution.clone(),
             self.cancellation.observation(),
             data.join_waiters.len(),
             unobserved_outcome,
@@ -320,7 +328,7 @@ where
             return Err(TaskResumeError::AlreadyRunning);
         };
 
-        let (mut frame, mut outgoing) = {
+        let (mut frame, mut outgoing, active_state) = {
             let mut data = self.lock_data()?;
 
             if !matches!(data.state, TaskState::Ready | TaskState::Suspended(_)) {
@@ -334,28 +342,57 @@ where
 
             data.state = TaskState::Running;
 
-            (frame, std::mem::take(&mut data.outgoing))
+            (
+                frame,
+                std::mem::take(&mut data.outgoing),
+                data.execution.state(),
+            )
         };
 
         let context = FrameContext::new(self.cancellation_observable());
 
-        let progress = match catch_unwind(AssertUnwindSafe(|| frame.as_mut().resume(context))) {
-            Ok(progress) => progress,
+        let (progress, execution) = match catch_unwind(AssertUnwindSafe(|| {
+            let progress = frame.as_mut().resume(context);
+
+            let state = match &progress {
+                FrameProgress::Suspended(suspension) => suspension.state(),
+                _ => active_state,
+            };
+
+            let execution = frame.execution_state(state);
+
+            (progress, execution)
+        })) {
+            Ok(result) => result,
             Err(payload) if is_propagated_cancellation(payload.as_ref()) => {
-                FrameProgress::Cancelled
+                (FrameProgress::Cancelled, None)
             }
-            Err(payload) => FrameProgress::Panicked(RuntimePanic::from_payload(payload)),
+            Err(payload) => (
+                FrameProgress::Panicked(RuntimePanic::from_payload(payload)),
+                None,
+            ),
         };
 
         let failure = match &progress {
             FrameProgress::Suspended(suspension)
-                if suspension_state(&self.descriptor, *suspension).is_none() =>
+                if execution
+                    .as_ref()
+                    .is_none_or(|execution| execution.state() != suspension.state()) =>
             {
                 Some(TaskFailureKind::UnknownSuspensionState(suspension.state()))
             }
             FrameProgress::RuntimeFailure => Some(TaskFailureKind::FrameContract),
             _ => None,
         };
+
+        if !matches!(&progress, FrameProgress::Suspended(_))
+            && let Some(execution) = execution.as_ref()
+        {
+            self.data
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .execution = execution.clone();
+        }
 
         if let Some(failure) = failure {
             let outcome = terminalize_frame(frame, FrameProgress::RuntimeFailure, &mut outgoing);
@@ -371,6 +408,9 @@ where
         }
 
         if let FrameProgress::Suspended(suspension) = progress {
+            let execution =
+                execution.unwrap_or_else(|| panic!("suspended execution metadata was validated"));
+
             let mut data = self
                 .data
                 .lock()
@@ -384,9 +424,9 @@ where
             data.frame = Some(frame);
             data.outgoing.append(&mut outgoing);
             data.state = TaskState::Suspended(suspension.state());
-            data.frame_state = suspension.state();
+            data.execution = execution.clone();
 
-            return Ok(TaskResumeStatus::Suspended(suspension));
+            return Ok(TaskResumeStatus::Suspended(suspension, execution));
         }
 
         let outcome = terminalize_frame(frame, progress, &mut outgoing)
@@ -577,21 +617,13 @@ where
         wake_all(waiters);
     }
 
-    pub(crate) fn state_id_for_reporting(&self) -> ProtectedFrameStateId {
+    pub(crate) fn execution_origin(&self) -> crate::CleanupIncidentOrigin {
         let data = self
             .data
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-        match data.state {
-            TaskState::Suspended(state) => state,
-            TaskState::Ready
-            | TaskState::Running
-            | TaskState::Completed
-            | TaskState::Cancelled
-            | TaskState::Panicked
-            | TaskState::Failed(_) => ProtectedFrameStateId::new(0),
-        }
+        crate::CleanupIncidentOrigin::new(data.execution.frame(), data.execution.state())
     }
 
     fn lock_data(&self) -> Result<MutexGuard<'_, TaskData<T, F>>, TaskResumeError> {
@@ -758,7 +790,7 @@ mod tests {
 
         assert_eq!(start_site.parent(), parent.id());
         assert_eq!(start_site.state(), ProtectedFrameStateId::new(0));
-        assert_eq!(snapshot.frame_state(), ProtectedFrameStateId::new(1));
+        assert_eq!(snapshot.execution().state(), ProtectedFrameStateId::new(1));
 
         assert_eq!(
             snapshot.state(),
@@ -788,12 +820,12 @@ mod tests {
 
         assert_eq!(task.state(), Ok(TaskState::Ready));
 
-        assert_eq!(
+        assert!(matches!(
             task.resume(),
-            Ok(TaskResumeStatus::Suspended(crate::FrameSuspension::new(
-                ProtectedFrameStateId::new(1)
-            )))
-        );
+            Ok(TaskResumeStatus::Suspended(suspension, execution))
+                if suspension.state() == ProtectedFrameStateId::new(1)
+                    && execution.state() == suspension.state()
+        ));
 
         assert_eq!(
             task.state(),
@@ -833,7 +865,10 @@ mod tests {
             },
         );
 
-        assert!(matches!(task.resume(), Ok(TaskResumeStatus::Suspended(_))));
+        assert!(matches!(
+            task.resume(),
+            Ok(TaskResumeStatus::Suspended(_, _))
+        ));
 
         drop(task);
 
