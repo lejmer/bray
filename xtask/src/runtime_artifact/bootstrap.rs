@@ -8,11 +8,69 @@ use bray_driver::{
     OutputFormat, run_build_request,
 };
 use bray_emitter::ArtifactKind;
+use bray_package_interface::{
+    InterfaceLanguageRevision, InterfaceValidationPolicy, PackageImplementationArtifact,
+    ValidatedPackageInterface,
+};
 use bray_project::{PackageRole, ProjectGraph, ProjectPackage, ProjectProduct, load_project_graph};
 use bray_runtime_interface::{RuntimeAbiRole, RuntimeRoleSourceBinding};
 use bray_standard_library::{PackageSourceAuthority, StandardLibraryRoot};
 use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
-use bray_target::{NativeTarget, TargetOutputKind};
+use bray_target::{NativeTarget, TargetOutputKind, TargetOutputName};
+
+pub(super) fn current(root: &Path, target: NativeTarget, output: &Path) -> Result<bool, String> {
+    let workspace = root.join("runtime");
+
+    let graph = load_project_graph(&workspace)
+        .map_err(|error| format!("could not load bootstrap project: {error:?}"))?;
+
+    let (package, product) = selected_product(&graph, target)?;
+
+    let artifact_path = |kind| {
+        let name = TargetOutputName::for_native(target.object_format(), kind)
+            .file_name(product.identity().name())
+            .unwrap_or_else(|| unreachable!("package artifacts always have file names"));
+
+        output.join(name)
+    };
+
+    let Ok(interface_bytes) = fs::read(artifact_path(TargetOutputKind::PackageInterface)) else {
+        return Ok(false);
+    };
+
+    let Ok(implementation_bytes) = fs::read(artifact_path(TargetOutputKind::PackageImplementation))
+    else {
+        return Ok(false);
+    };
+
+    let policy = InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0));
+
+    let Ok(interface) = ValidatedPackageInterface::try_new(interface_bytes, policy) else {
+        return Ok(false);
+    };
+
+    let Ok(surface) = interface.decode_identity_surface() else {
+        return Ok(false);
+    };
+
+    if interface.decode_semantics(&surface).is_err()
+        || surface.identity().package() != product.identity().package()
+        || surface.identity().version() != package.version()
+        || surface.identity().product().as_str() != product.identity().name()
+    {
+        return Ok(false);
+    }
+
+    let Ok(implementation) =
+        PackageImplementationArtifact::try_from_bytes(implementation_bytes, policy.limits())
+    else {
+        return Ok(false);
+    };
+
+    Ok(implementation
+        .validate_interface(&interface, &surface)
+        .is_ok())
+}
 
 pub(super) fn build(root: &Path, target: NativeTarget, destination: &Path) -> Result<(), String> {
     let support = tempfile::Builder::new()

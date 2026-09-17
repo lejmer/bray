@@ -149,6 +149,7 @@ fn build(target: NativeTarget, output: &Path, profile: &str) -> Result<Package, 
         &input,
     )
     .map_err(CommandError::InputIdentity)?
+        && super::bootstrap::current(&root, target, output).map_err(CommandError::Bootstrap)?
     {
         crate::progress::message("Reusing native runtime artifacts");
 
