@@ -228,6 +228,30 @@ pub(crate) fn with_run_cancellation_context<T>(
     callback()
 }
 
+pub(crate) fn with_independent_execution_context<T>(callback: impl FnOnce() -> T) -> T {
+    let task = CURRENT_CONTEXT.replace(None);
+    let cancellation = CURRENT_RUN_CANCELLATION.replace(None);
+    let native_cancellation = NATIVE_THREAD_CANCELLATION.replace(None);
+
+    let _guard = IndependentExecutionContextGuard {
+        task,
+        cancellation,
+        native_cancellation,
+    };
+
+    with_cleared_run_output(callback)
+}
+
+#[cfg(feature = "test-output")]
+fn with_cleared_run_output<T>(callback: impl FnOnce() -> T) -> T {
+    with_optional_run_output_context(None, callback)
+}
+
+#[cfg(not(feature = "test-output"))]
+fn with_cleared_run_output<T>(callback: impl FnOnce() -> T) -> T {
+    callback()
+}
+
 struct ContextGuard {
     task: Option<TaskExecutionContext>,
     cancellation: Option<CancellationContext>,
@@ -255,6 +279,20 @@ impl Drop for TaskContextGuard {
 struct RunCancellationGuard(Option<CancellationContext>);
 
 struct NativeThreadCancellationGuard(Option<NativeThreadCancellation>);
+
+struct IndependentExecutionContextGuard {
+    task: Option<TaskExecutionContext>,
+    cancellation: Option<CancellationContext>,
+    native_cancellation: Option<NativeThreadCancellation>,
+}
+
+impl Drop for IndependentExecutionContextGuard {
+    fn drop(&mut self) {
+        CURRENT_CONTEXT.set(self.task.take());
+        CURRENT_RUN_CANCELLATION.set(self.cancellation.take());
+        NATIVE_THREAD_CANCELLATION.set(self.native_cancellation.take());
+    }
+}
 
 impl Drop for NativeThreadCancellationGuard {
     fn drop(&mut self) {

@@ -27,17 +27,19 @@ native_export! {
         cancellation_context: usize,
         panic_report: &mut bray_runtime_abi::NativePanicReport,
     ) -> u32 {
-        let mut outcome = crate::context::with_native_thread_cancellation(
-            cancellation,
-            cancellation_context,
-            || {
-                execute_callback_boundary(
-                    |outcome| callback(context, outcome),
-                    |_| {},
-                    false,
-                )
-            },
-        );
+        let mut outcome = crate::context::with_independent_execution_context(|| {
+            crate::context::with_native_thread_cancellation(
+                cancellation,
+                cancellation_context,
+                || {
+                    execute_callback_boundary(
+                        |outcome| callback(context, outcome),
+                        |_| {},
+                        false,
+                    )
+                },
+            )
+        });
 
         if outcome.state() == NativeRunState::PANICKED {
             *panic_report = outcome.take_report();
@@ -65,12 +67,14 @@ native_export! {
         callback: NativeSynchronousRootCallback,
         destination: usize,
     ) -> NativeRunOutcome {
-        let outcome = execute_synchronous_callback(
-            callback,
-            destination,
-            super::host::register_timeout,
-            true,
-        );
+        let outcome = crate::context::with_independent_execution_context(|| {
+            execute_synchronous_callback(
+                callback,
+                destination,
+                super::host::register_timeout,
+                true,
+            )
+        });
 
         super::host::record_outcome(&outcome);
 
@@ -83,7 +87,9 @@ native_export! {
         callback: NativeSynchronousRootCallback,
         destination: usize,
     ) -> NativeRunOutcome {
-        execute_synchronous_callback(callback, destination, |_| {}, false)
+        crate::context::with_independent_execution_context(|| {
+            execute_synchronous_callback(callback, destination, |_| {}, false)
+        })
     }
 }
 

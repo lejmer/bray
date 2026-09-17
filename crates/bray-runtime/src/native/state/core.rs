@@ -61,7 +61,7 @@ pub(in crate::native) fn with_bound_runtime<T>(
 
     let _scope = NativeExecutionContextScope(Some(previous));
 
-    callback()
+    crate::context::with_independent_execution_context(callback)
 }
 
 pub(in crate::native) fn with_current_task<T>(
@@ -154,9 +154,21 @@ pub(crate) struct NativeRuntimeCore {
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroUsize;
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     use bray_runtime_abi::NativeTaskHandle;
+    use bray_runtime_model::{ProtectedFrameStateId, RuntimeCapability};
+
+    use crate::test_support::TestFrame;
+    use crate::{
+        CancellationContext, ExecutionLane, ExecutionLanePlacement, ExecutionWorkload, Scheduler,
+        SchedulerLimits, TaskControlBlock, TaskExecutionContext,
+    };
+
+    extern "C" fn cancellation_requested(_: usize) -> u32 {
+        1
+    }
 
     #[test]
     fn callback_isolation_allows_nested_runtime_creation() {
@@ -184,20 +196,94 @@ mod tests {
             .unwrap_or_else(|status| panic!("runtime must initialize: {status:?}"));
 
         let ((), status) = super::super::binding::with_cleanup_runtime(Some(&retained), || {
-            let task = NativeTaskHandle::new(7).expect("fixed task handle is nonzero");
+            let runtime = super::current_runtime().expect("cleanup runtime must be bound");
 
-            super::with_current_task(task, || {
-                let result = catch_unwind(AssertUnwindSafe(|| {
-                    super::super::binding::with_cleanup_runtime(Some(&retained), || {
-                        assert!(super::current_runtime().is_some());
-                        assert_eq!(super::current_task(), None);
-                        panic!("exercise unwinding restoration");
-                    })
-                    .expect("nested cleanup entry must bind");
-                }));
+            let task = TaskControlBlock::start(
+                crate::test_support::admit_task(),
+                TestFrame::completing(1),
+            );
 
-                assert!(result.is_err());
-                assert_eq!(super::current_task(), Some(task));
+            let cancellation = CancellationContext::root();
+
+            assert!(cancellation.request());
+
+            let lane = ExecutionLane::new(
+                ExecutionLanePlacement::PinnedWorker(runtime.thread.runtime().id()),
+                ExecutionWorkload::Cooperative,
+            );
+
+            let scheduler = Scheduler::new(
+                [RuntimeCapability::CooperativeExecution],
+                runtime.thread.runtime().id(),
+                SchedulerLimits::new(
+                    NonZeroUsize::new(1).expect("fixed worker limit is nonzero"),
+                    NonZeroUsize::new(1).expect("fixed timer limit is nonzero"),
+                ),
+            );
+
+            let state = ProtectedFrameStateId::new(0);
+
+            let registration = scheduler
+                .register_task(
+                    task.id(),
+                    task.descriptor().clone(),
+                    runtime.thread.runtime().id(),
+                    state,
+                    &cancellation,
+                )
+                .expect("test task must register");
+
+            #[cfg(feature = "test-output")]
+            let output = Some(bray_platform::RunOutputContext::discarded());
+
+            #[cfg(not(feature = "test-output"))]
+            let output = ();
+
+            let execution = TaskExecutionContext::new(
+                task.id(),
+                state,
+                cancellation,
+                output,
+                lane,
+                registration.wake_handle(),
+            );
+
+            let native_task = NativeTaskHandle::new(7).expect("fixed task handle is nonzero");
+
+            crate::context::with_native_thread_cancellation(cancellation_requested, 0, || {
+                crate::context::with_task_execution_context(execution, || {
+                    super::with_current_task(native_task, || {
+                        assert_eq!(crate::context::current_task_execution_lane(), Some(lane));
+                        assert!(crate::current_run_cancellation_requested());
+
+                        #[cfg(feature = "test-output")]
+                        assert!(crate::context::current_task_output().is_some());
+
+                        let result = catch_unwind(AssertUnwindSafe(|| {
+                            super::super::binding::with_cleanup_runtime(Some(&retained), || {
+                                assert!(super::current_runtime().is_some());
+                                assert_eq!(super::current_task(), None);
+                                assert!(crate::context::current_task_execution_context().is_none());
+                                assert_eq!(crate::context::current_task_execution_lane(), None);
+                                assert!(!crate::current_run_cancellation_requested());
+
+                                #[cfg(feature = "test-output")]
+                                assert!(crate::context::current_task_output().is_none());
+
+                                panic!("exercise unwinding restoration");
+                            })
+                            .expect("nested cleanup entry must bind");
+                        }));
+
+                        assert!(result.is_err());
+                        assert_eq!(super::current_task(), Some(native_task));
+                        assert_eq!(crate::context::current_task_execution_lane(), Some(lane));
+                        assert!(crate::current_run_cancellation_requested());
+
+                        #[cfg(feature = "test-output")]
+                        assert!(crate::context::current_task_output().is_some());
+                    });
+                });
             });
         })
         .unwrap_or_else(|status| panic!("cleanup entry must bind: {status:?}"));

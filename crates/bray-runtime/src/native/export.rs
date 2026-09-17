@@ -65,20 +65,22 @@ native_export! {
         configuration: NativeRuntimeConfiguration,
     ) -> NativeRootStart {
         catch_unwind(AssertUnwindSafe(|| {
-            let Some(frame) = take_transferred_frame(frame) else {
-                return NativeRootStart::failure(NativeRuntimeStatus::INVALID_ARGUMENT);
-            };
+            crate::context::with_independent_execution_context(|| {
+                let Some(frame) = take_transferred_frame(frame) else {
+                    return NativeRootStart::failure(NativeRuntimeStatus::INVALID_ARGUMENT);
+                };
 
-            let start = super::host::with_output(|| execute_root(frame, configuration));
+                let start = super::host::with_output(|| execute_root(frame, configuration));
 
-            if let Some(root) = start.root()
-                && let Ok(Ok(cancellation)) =
-                    with_runtime(|runtime| runtime.root_cancellation(root))
-            {
-                super::host::register_timeout(cancellation);
-            }
+                if let Some(root) = start.root()
+                    && let Ok(Ok(cancellation)) =
+                        with_runtime(|runtime| runtime.root_cancellation(root))
+                {
+                    super::host::register_timeout(cancellation);
+                }
 
-            start
+                start
+            })
         }))
             .unwrap_or_else(|_| {
                 NativeRootStart::failure(NativeRuntimeStatus::PANICKED)
