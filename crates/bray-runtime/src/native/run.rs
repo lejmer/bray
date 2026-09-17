@@ -41,6 +41,8 @@ struct NativeActivation {
     outcome: Option<NativeRunOutcome>,
     outgoing: crate::outgoing::OutgoingRecords,
     broadcasted: bool,
+    cleanup: bool,
+    terminal_progress: Option<FrameProgress<usize>>,
     retained_lanes: [bool; ExecutionLaneRequirement::ALL.len()],
     retained_affinity: ProtectedFrameAffinity,
     origin: Option<bray_platform::RuntimeThreadId>,
@@ -64,6 +66,8 @@ impl NativeActivation {
             outcome: None,
             outgoing,
             broadcasted: false,
+            cleanup: false,
+            terminal_progress: None,
             retained_lanes: [false; ExecutionLaneRequirement::ALL.len()],
             retained_affinity: ProtectedFrameAffinity::Movable,
             origin: bray_platform::current_runtime_thread().map(|thread| thread.id()),
@@ -191,10 +195,12 @@ impl NativeRun {
         {
             let current = self.lock_current();
 
-            if current
-                .as_ref()
-                .is_none_or(|current| current.frame.is_some() || current.child.is_some())
-            {
+            if current.as_ref().is_none_or(|current| {
+                current.frame.is_some()
+                    || current.child.is_some()
+                    || current.cleanup
+                    || current.terminal_progress.is_some()
+            }) {
                 return NativeRuntimeStatus::RUNTIME_FAILURE;
             }
         }
@@ -239,7 +245,11 @@ impl NativeRun {
             .as_mut()
             .unwrap_or_else(|| panic!("dispatch retains the active parent"));
 
-        if parent.frame.is_some() || parent.child.is_some() {
+        if parent.frame.is_some()
+            || parent.child.is_some()
+            || parent.cleanup
+            || parent.terminal_progress.is_some()
+        {
             drop(current);
             Self::release_chain(Some(child), &self.terminal);
 
@@ -315,6 +325,24 @@ impl NativeRun {
     }
 
     fn step(&self) -> Option<FrameProgress<usize>> {
+        let (cleanup, terminal_progress) = {
+            let mut current = self.lock_current();
+
+            let active = current
+                .as_mut()
+                .unwrap_or_else(|| panic!("dispatch retains the active activation"));
+
+            (active.cleanup, active.terminal_progress.take())
+        };
+
+        if cleanup {
+            return self.cleanup_activation();
+        }
+
+        if let Some(progress) = terminal_progress {
+            return self.finish_activation(progress);
+        }
+
         let mut frame = {
             let mut current = self.lock_current();
 
@@ -380,6 +408,38 @@ impl NativeRun {
     }
 
     fn finish_activation(&self, progress: FrameProgress<usize>) -> Option<FrameProgress<usize>> {
+        let mut progress = Some(progress);
+
+        {
+            let mut current = self.lock_current();
+
+            let active = current
+                .as_mut()
+                .unwrap_or_else(|| panic!("dispatch retains the terminal activation"));
+
+            if active
+                .child
+                .as_ref()
+                .is_some_and(|child| child.frame.is_some())
+            {
+                active.terminal_progress = progress.take();
+
+                let mut child = active
+                    .child
+                    .take()
+                    .unwrap_or_else(|| panic!("terminal activation retains its pending child"));
+
+                child.cleanup = true;
+                child.parent = current.take();
+                *current = Some(child);
+
+                return None;
+            }
+        }
+
+        let progress =
+            progress.unwrap_or_else(|| panic!("terminal progress was not deferred to a child"));
+
         let (frame, child, mut outgoing, terminal, is_root) = {
             let mut current = self.lock_current();
 
@@ -441,6 +501,61 @@ impl NativeRun {
         child.outcome = Some(native);
         child.outgoing = outgoing;
         parent.child = Some(child);
+        *current = Some(parent);
+
+        None
+    }
+
+    fn cleanup_activation(&self) -> Option<FrameProgress<usize>> {
+        let (frame, mut outgoing, terminal, parent_terminal) = {
+            let mut current = self.lock_current();
+
+            let active = current
+                .as_mut()
+                .unwrap_or_else(|| panic!("dispatch retains the cleanup activation"));
+
+            assert!(
+                active.cleanup,
+                "only cleanup activations use cleanup dispatch"
+            );
+
+            let parent_terminal = active
+                .parent
+                .as_ref()
+                .map(|parent| Arc::clone(&parent.terminal))
+                .unwrap_or_else(|| Arc::clone(&self.terminal));
+
+            (
+                active
+                    .frame
+                    .take()
+                    .unwrap_or_else(|| panic!("cleanup activation retains its frame")),
+                std::mem::take(&mut active.outgoing),
+                Arc::clone(&active.terminal),
+                parent_terminal,
+            )
+        };
+
+        let _ = terminalize_frame(frame, FrameProgress::RuntimeFailure, &mut outgoing);
+
+        let mut current = self.lock_current();
+
+        let mut child = current
+            .take()
+            .unwrap_or_else(|| panic!("dispatch retains the cleanup child activation"));
+
+        child.outgoing = outgoing;
+
+        if !Self::transfer_incidents(&mut child) {
+            Self::forward_incidents(&terminal, &parent_terminal);
+        }
+
+        let parent = child
+            .parent
+            .take()
+            .unwrap_or_else(|| panic!("cleanup child retains its parent activation"));
+
+        drop(child);
         *current = Some(parent);
 
         None

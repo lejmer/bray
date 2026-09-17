@@ -328,7 +328,7 @@ where
             return Err(TaskResumeError::AlreadyRunning);
         };
 
-        let (mut frame, mut outgoing) = {
+        let (mut frame, mut outgoing, active_state) = {
             let mut data = self.lock_data()?;
 
             if !matches!(data.state, TaskState::Ready | TaskState::Suspended(_)) {
@@ -342,7 +342,11 @@ where
 
             data.state = TaskState::Running;
 
-            (frame, std::mem::take(&mut data.outgoing))
+            (
+                frame,
+                std::mem::take(&mut data.outgoing),
+                data.execution.state(),
+            )
         };
 
         let context = FrameContext::new(self.cancellation_observable());
@@ -350,10 +354,12 @@ where
         let (progress, execution) = match catch_unwind(AssertUnwindSafe(|| {
             let progress = frame.as_mut().resume(context);
 
-            let execution = match &progress {
-                FrameProgress::Suspended(suspension) => frame.execution_state(suspension.state()),
-                _ => None,
+            let state = match &progress {
+                FrameProgress::Suspended(suspension) => suspension.state(),
+                _ => active_state,
             };
+
+            let execution = frame.execution_state(state);
 
             (progress, execution)
         })) {
@@ -378,6 +384,15 @@ where
             FrameProgress::RuntimeFailure => Some(TaskFailureKind::FrameContract),
             _ => None,
         };
+
+        if !matches!(&progress, FrameProgress::Suspended(_))
+            && let Some(execution) = execution.as_ref()
+        {
+            self.data
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .execution = execution.clone();
+        }
 
         if let Some(failure) = failure {
             let outcome = terminalize_frame(frame, FrameProgress::RuntimeFailure, &mut outgoing);
