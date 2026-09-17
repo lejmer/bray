@@ -967,7 +967,7 @@ mod tests {
         ]);
 
         assert_eq!(result.exit_code(), ExitCode::FAILURE);
-        assert_eq!(result.output_format(), crate::OutputFormat::Json);
+        assert_eq!(result.output_format(), OutputFormat::Json);
 
         assert_eq!(
             result
