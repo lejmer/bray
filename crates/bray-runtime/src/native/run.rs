@@ -42,7 +42,7 @@ struct NativeActivation {
     outgoing: crate::outgoing::OutgoingRecords,
     broadcasted: bool,
     cleanup: bool,
-    terminal_progress: Option<FrameProgress<usize>>,
+    deferred_progress: Option<FrameProgress<usize>>,
     retained_lanes: [bool; ExecutionLaneRequirement::ALL.len()],
     retained_affinity: ProtectedFrameAffinity,
     origin: Option<bray_platform::RuntimeThreadId>,
@@ -67,7 +67,7 @@ impl NativeActivation {
             outgoing,
             broadcasted: false,
             cleanup: false,
-            terminal_progress: None,
+            deferred_progress: None,
             retained_lanes: [false; ExecutionLaneRequirement::ALL.len()],
             retained_affinity: ProtectedFrameAffinity::Movable,
             origin: bray_platform::current_runtime_thread().map(|thread| thread.id()),
@@ -89,6 +89,12 @@ impl NativeActivation {
 
         self.retained_affinity = execution.descriptor().affinity();
         self.retained_origin = execution.origin();
+    }
+
+    fn discard_parent_execution(&mut self) {
+        self.retained_lanes = [false; ExecutionLaneRequirement::ALL.len()];
+        self.retained_affinity = ProtectedFrameAffinity::Movable;
+        self.retained_origin = None;
     }
 
     fn execution_state(&self) -> Result<FrameExecutionState, NativeRuntimeStatus> {
@@ -154,6 +160,12 @@ impl NativeActivation {
 }
 
 impl NativeRun {
+    fn active(current: &mut Option<Box<NativeActivation>>) -> &mut NativeActivation {
+        current
+            .as_deref_mut()
+            .unwrap_or_else(|| panic!("dispatch retains the active activation"))
+    }
+
     pub(super) fn new(frame: NativeFrame, outgoing: crate::outgoing::OutgoingRecords) -> Arc<Self> {
         let activation = Box::new(NativeActivation::new(frame, outgoing));
 
@@ -199,7 +211,7 @@ impl NativeRun {
                 current.frame.is_some()
                     || current.child.is_some()
                     || current.cleanup
-                    || current.terminal_progress.is_some()
+                    || current.deferred_progress.is_some()
             }) {
                 return NativeRuntimeStatus::RUNTIME_FAILURE;
             }
@@ -222,33 +234,42 @@ impl NativeRun {
         frame.outgoing.append(&mut outgoing.take_one());
 
         let mut child = Box::new(NativeActivation::new(frame, outgoing));
-        child.retain_parent_execution(&parent_execution);
 
-        let child_execution = match child.execution_state() {
-            Ok(execution) => execution,
-            Err(status) => {
-                Self::release_chain(Some(child), &self.terminal);
+        let local_status = child
+            .execution_state()
+            .and_then(|execution| {
+                execution_lane(&execution).map_err(|_| NativeRuntimeStatus::RUNTIME_FAILURE)
+            })
+            .err();
 
-                return status;
-            }
-        };
-
-        if execution_lane(&child_execution).is_err() {
+        if let Some(status) = local_status {
             Self::release_chain(Some(child), &self.terminal);
 
-            return NativeRuntimeStatus::RUNTIME_FAILURE;
+            return status;
+        }
+
+        child.retain_parent_execution(&parent_execution);
+
+        let composed_status = child
+            .execution_state()
+            .and_then(|execution| {
+                execution_lane(&execution).map_err(|_| NativeRuntimeStatus::RUNTIME_FAILURE)
+            })
+            .err();
+
+        if composed_status.is_some() {
+            child.discard_parent_execution();
+            child.cleanup = true;
         }
 
         let mut current = self.lock_current();
 
-        let parent = current
-            .as_mut()
-            .unwrap_or_else(|| panic!("dispatch retains the active parent"));
+        let parent = Self::active(&mut current);
 
         if parent.frame.is_some()
             || parent.child.is_some()
             || parent.cleanup
-            || parent.terminal_progress.is_some()
+            || parent.deferred_progress.is_some()
         {
             drop(current);
             Self::release_chain(Some(child), &self.terminal);
@@ -258,7 +279,7 @@ impl NativeRun {
 
         parent.child = Some(child);
 
-        NativeRuntimeStatus::SUCCESS
+        composed_status.unwrap_or(NativeRuntimeStatus::SUCCESS)
     }
 
     pub(super) fn resolve_completion(&self) -> Result<usize, NativeRuntimeStatus> {
@@ -300,6 +321,23 @@ impl NativeRun {
             };
 
             let Ok(required_lane) = execution_lane(&execution) else {
+                let mut current = self.lock_current();
+
+                let active = Self::active(&mut current);
+
+                if active.parent.is_some() && !active.cleanup {
+                    active.discard_parent_execution();
+                    active.cleanup = true;
+
+                    active
+                        .parent
+                        .as_mut()
+                        .unwrap_or_else(|| panic!("composed activation retains its parent"))
+                        .deferred_progress = Some(FrameProgress::RuntimeFailure);
+
+                    continue;
+                }
+
                 return FrameProgress::RuntimeFailure;
             };
 
@@ -325,30 +363,26 @@ impl NativeRun {
     }
 
     fn step(&self) -> Option<FrameProgress<usize>> {
-        let (cleanup, terminal_progress) = {
+        let (cleanup, deferred_progress) = {
             let mut current = self.lock_current();
 
-            let active = current
-                .as_mut()
-                .unwrap_or_else(|| panic!("dispatch retains the active activation"));
+            let active = Self::active(&mut current);
 
-            (active.cleanup, active.terminal_progress.take())
+            (active.cleanup, active.deferred_progress.take())
         };
 
         if cleanup {
             return self.cleanup_activation();
         }
 
-        if let Some(progress) = terminal_progress {
-            return self.finish_activation(progress);
+        if let Some(progress) = deferred_progress {
+            return self.process_progress(progress);
         }
 
         let mut frame = {
             let mut current = self.lock_current();
 
-            current
-                .as_mut()
-                .unwrap_or_else(|| panic!("dispatch retains the active activation"))
+            Self::active(&mut current)
                 .frame
                 .take()
                 .unwrap_or_else(|| panic!("dispatch retains the active frame"))
@@ -366,6 +400,12 @@ impl NativeRun {
             .unwrap_or_else(|| panic!("dispatch retains the active frame"))
             .frame = Some(frame);
 
+        let progress = self.begin_pending_cleanup(progress)?;
+
+        self.process_progress(progress)
+    }
+
+    fn process_progress(&self, progress: FrameProgress<usize>) -> Option<FrameProgress<usize>> {
         match progress {
             FrameProgress::Suspended(suspension) => self.suspend_activation(suspension),
             FrameProgress::RuntimeFailure => Some(FrameProgress::RuntimeFailure),
@@ -373,12 +413,35 @@ impl NativeRun {
         }
     }
 
+    fn begin_pending_cleanup(
+        &self,
+        progress: FrameProgress<usize>,
+    ) -> Option<FrameProgress<usize>> {
+        let mut current = self.lock_current();
+
+        let active = Self::active(&mut current);
+
+        if !active.child.as_ref().is_some_and(|child| child.cleanup) {
+            return Some(progress);
+        }
+
+        active.deferred_progress = Some(progress);
+
+        let mut child = active
+            .child
+            .take()
+            .unwrap_or_else(|| panic!("active activation retains its cleanup child"));
+
+        child.parent = current.take();
+        *current = Some(child);
+
+        None
+    }
+
     fn suspend_activation(&self, suspension: FrameSuspension) -> Option<FrameProgress<usize>> {
         let mut current = self.lock_current();
 
-        let active = current
-            .as_mut()
-            .unwrap_or_else(|| panic!("dispatch retains the suspended activation"));
+        let active = Self::active(&mut current);
 
         active.state = suspension.state();
 
@@ -413,16 +476,14 @@ impl NativeRun {
         {
             let mut current = self.lock_current();
 
-            let active = current
-                .as_mut()
-                .unwrap_or_else(|| panic!("dispatch retains the terminal activation"));
+            let active = Self::active(&mut current);
 
             if active
                 .child
                 .as_ref()
                 .is_some_and(|child| child.frame.is_some())
             {
-                active.terminal_progress = progress.take();
+                active.deferred_progress = progress.take();
 
                 let mut child = active
                     .child
@@ -443,9 +504,7 @@ impl NativeRun {
         let (frame, child, mut outgoing, terminal, is_root) = {
             let mut current = self.lock_current();
 
-            let active = current
-                .as_mut()
-                .unwrap_or_else(|| panic!("dispatch retains the terminal activation"));
+            let active = Self::active(&mut current);
 
             (
                 active.frame.take(),
@@ -510,9 +569,7 @@ impl NativeRun {
         let (frame, mut outgoing, terminal, parent_terminal) = {
             let mut current = self.lock_current();
 
-            let active = current
-                .as_mut()
-                .unwrap_or_else(|| panic!("dispatch retains the cleanup activation"));
+            let active = Self::active(&mut current);
 
             assert!(
                 active.cleanup,

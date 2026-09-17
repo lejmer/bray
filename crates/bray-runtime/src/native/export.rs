@@ -621,6 +621,7 @@ mod tests {
     static PENDING_CHILD_BROADCASTS: AtomicUsize = AtomicUsize::new(0);
     static PENDING_CHILD_DESTRUCTIONS: AtomicUsize = AtomicUsize::new(0);
     static PENDING_CHILD_CLEANUP_THREAD: AtomicUsize = AtomicUsize::new(0);
+    static CONFLICTING_CHILD_DESTRUCTIONS: AtomicUsize = AtomicUsize::new(0);
     static REJECTED_CHILD_MOVES: AtomicUsize = AtomicUsize::new(0);
     static REJECTED_CHILD_DESTRUCTIONS: AtomicUsize = AtomicUsize::new(0);
     static EXACT_BLOCKING_PARENT_RESUMES: AtomicUsize = AtomicUsize::new(0);
@@ -1766,6 +1767,46 @@ mod tests {
     }
 
     #[test]
+    fn conflicting_composed_child_cleans_up_on_its_own_workload_lane() {
+        CONFLICTING_CHILD_DESTRUCTIONS.store(0, Ordering::Relaxed);
+
+        let start = execute_test_root(
+            protected_frame_with_state(
+                8,
+                movable_blocking_frame_state,
+                reject_conflicting_child,
+                ignore_completion_move,
+                ignore_action,
+            ),
+            NativeRuntimeConfiguration::new(2, 1),
+        );
+
+        let root = start
+            .root()
+            .unwrap_or_else(|| panic!("conflicting parent frame must transfer"));
+
+        let mut outcome = bray_runtime_root_terminal_observation(root);
+
+        assert_eq!(outcome.state(), NativeRunState::PANICKED);
+        assert_eq!(CONFLICTING_CHILD_DESTRUCTIONS.load(Ordering::Relaxed), 1);
+
+        assert_eq!(
+            bray_runtime_root_completion_resolution(root),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        assert_eq!(
+            outcome.take_report().consume(false),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        assert_eq!(
+            bray_runtime_structured_shutdown(),
+            NativeRuntimeStatus::SUCCESS
+        );
+    }
+
+    #[test]
     fn rejected_child_admission_leaves_the_inactive_frame_with_its_caller() {
         REJECTED_CHILD_MOVES.store(0, Ordering::Relaxed);
         REJECTED_CHILD_DESTRUCTIONS.store(0, Ordering::Relaxed);
@@ -1987,9 +2028,22 @@ mod tests {
         )
     }
 
+    extern "C" fn movable_compute_frame_state(_: usize, _: u32) -> NativeFrameState {
+        NativeFrameState::new(
+            NativeFrameAffinity::MOVABLE,
+            NativeLaneRequirements::COMPUTE,
+        )
+    }
+
     extern "C-unwind" fn compose_child_then_panic(_: &mut NativeFrameProgress, _: usize) {
         bray_runtime_awaited_frame_composition(NativeInactiveFrame::new(0, move_pending_child));
         panic!("parent failed before publishing its awaited suspension");
+    }
+
+    extern "C-unwind" fn reject_conflicting_child(destination: &mut NativeFrameProgress, _: usize) {
+        bray_runtime_awaited_frame_composition(NativeInactiveFrame::new(0, move_conflicting_child));
+
+        *destination = NativeFrameProgress::new(NativeFrameProgressKind::RUNTIME_FAILURE, 0, 0);
     }
 
     extern "C-unwind" fn await_exact_blocking_child(
@@ -2307,6 +2361,25 @@ mod tests {
             ignore_completion_move,
             ignore_action,
         )
+    }
+
+    extern "C" fn move_conflicting_child(_: usize) -> NativeProtectedFrame {
+        protected_frame_with_state(
+            8,
+            movable_compute_frame_state,
+            resume_frame,
+            ignore_completion_move,
+            destroy_conflicting_child,
+        )
+    }
+
+    extern "C-unwind" fn destroy_conflicting_child(_: usize) {
+        assert_eq!(
+            crate::context::current_task_execution_lane().map(crate::ExecutionLane::workload),
+            Some(crate::ExecutionWorkload::Compute)
+        );
+
+        CONFLICTING_CHILD_DESTRUCTIONS.fetch_add(1, Ordering::Relaxed);
     }
 
     extern "C-unwind" fn resume_runtime_failure(destination: &mut NativeFrameProgress, _: usize) {
