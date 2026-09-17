@@ -124,11 +124,23 @@ fn build(target: NativeTarget, output: &Path, profile: &str) -> Result<Package, 
     let sources = crate::input_identity::WorkspaceSources::load(&root)
         .map_err(CommandError::InputIdentity)?;
 
+    let standard_library_source = root.join("standard-library");
+
+    let standard_library_input = crate::input_identity::input_digest(
+        &root,
+        None,
+        crate::input_identity::Component::StandardLibrary,
+        &[],
+        &[&standard_library_source],
+        &sources,
+    )
+    .map_err(CommandError::InputIdentity)?;
+
     let input = crate::input_identity::input_digest(
         &root,
         Some(target),
         crate::input_identity::Component::Runtime,
-        &[profile],
+        &[profile, &standard_library_input],
         &[],
         &sources,
     )
@@ -142,13 +154,17 @@ fn build(target: NativeTarget, output: &Path, profile: &str) -> Result<Package, 
         .map(|component| component.archive.clone())
         .collect::<Vec<_>>();
 
-    if super::reuse::current(
-        output,
-        &existing_package.metadata,
-        &expected_archives,
-        &input,
-    )
-    .map_err(CommandError::InputIdentity)?
+    let existing_identity = super::bootstrap::cache_identity(&root, target, output, &input)
+        .map_err(CommandError::Bootstrap)?;
+
+    if let Some(identity) = existing_identity
+        && super::reuse::current(
+            output,
+            &existing_package.metadata,
+            &expected_archives,
+            &identity,
+        )
+        .map_err(CommandError::InputIdentity)?
     {
         crate::progress::message("Reusing native runtime artifacts");
 
@@ -160,7 +176,16 @@ fn build(target: NativeTarget, output: &Path, profile: &str) -> Result<Package, 
 
     build_contents(target, publication.contents(), profile)?;
 
-    crate::input_identity::write_digest(publication.contents(), &input)
+    let identity = super::bootstrap::cache_identity(
+        &root,
+        target,
+        publication.contents(),
+        &input,
+    )
+    .map_err(CommandError::Bootstrap)?
+    .ok_or_else(|| CommandError::Bootstrap("bootstrap artifacts are missing".to_owned()))?;
+
+    crate::input_identity::write_digest(publication.contents(), &identity)
         .map_err(CommandError::InputIdentity)?;
 
     let output = publication.publish().map_err(CommandError::Publication)?;

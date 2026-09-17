@@ -9,7 +9,9 @@ use bray_messages::command_help as help;
 use bray_package_interface::{
     InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceValidationPolicy,
 };
-use bray_runtime_interface::{PlatformServiceBinding, PlatformServiceRole};
+use bray_runtime_interface::{
+    PlatformServiceBinding, PlatformServiceRole, RuntimeRoleSourceBinding,
+};
 use bray_symbols::{
     NativeLinkKind, NativeLinkRequirement, PackageIdentity, PackageVersion, ProductIdentity,
     ProductKind,
@@ -132,6 +134,7 @@ pub struct DriverCompilationConfiguration {
     target: NativeTarget,
     dependencies: Vec<DriverDependencyInterface>,
     platform_services: Vec<PlatformServiceBinding>,
+    runtime_roles: Vec<RuntimeRoleSourceBinding>,
     native_link_inputs: Vec<NativeLinkRequirement>,
 }
 
@@ -165,8 +168,20 @@ impl DriverCompilationConfiguration {
             target,
             dependencies,
             platform_services,
+            runtime_roles: Vec::new(),
             native_link_inputs,
         }
+    }
+
+    /// Supplies trusted runtime-artifact source role bindings for this build.
+    ///
+    /// Project manifests cannot provide this authority. Toolchain-owned callers must pass it as
+    /// an explicit build input.
+    pub fn with_runtime_roles(mut self, mut runtime_roles: Vec<RuntimeRoleSourceBinding>) -> Self {
+        runtime_roles.sort_unstable();
+        self.runtime_roles = runtime_roles;
+
+        self
     }
 
     /// Returns the exact package-product identity.
@@ -202,6 +217,11 @@ impl DriverCompilationConfiguration {
     /// Returns private platform-service declaration bindings in role order.
     pub fn platform_services(&self) -> &[PlatformServiceBinding] {
         &self.platform_services
+    }
+
+    /// Returns trusted runtime-artifact source role bindings in role order.
+    pub fn runtime_roles(&self) -> &[RuntimeRoleSourceBinding] {
+        &self.runtime_roles
     }
 
     /// Returns native libraries made available by the build host.

@@ -83,6 +83,18 @@ macro_rules! define_runtime_roles {
                 match self { $(Self::$role => define_runtime_roles!(@bootstrap $($bootstrap)?),)+ }
             }
 
+            /// Returns the toolchain-owned trusted bootstrap source binding for this role.
+            pub fn bootstrap_source_binding(self) -> Option<crate::SourceRoleBinding<Self>> {
+                let declaration = self.bootstrap_declaration()?;
+                let path = format!("bray.runtime.bootstrap.{declaration}");
+
+                Some(
+                    crate::SourceRoleBinding::try_new(self, &path).unwrap_or_else(|| {
+                        panic!("runtime catalog bootstrap path is invalid: {path}")
+                    }),
+                )
+            }
+
             /// Returns the control operations required by every executable host.
             pub fn host_controls() -> impl Iterator<Item = Self> {
                 Self::ALL.into_iter().filter(|role| match role { $(Self::$role => $host_control,)+ })
@@ -413,6 +425,13 @@ mod tests {
             RuntimeAbiRole::ThreadStaticCleanupRegistration.bootstrap_declaration(),
             None,
         );
+
+        let binding = RuntimeAbiRole::RuntimeInitialization
+            .bootstrap_source_binding()
+            .unwrap_or_else(|| panic!("runtime initialization must have a bootstrap binding"));
+
+        assert_eq!(binding.role(), RuntimeAbiRole::RuntimeInitialization);
+        assert_eq!(binding.dotted_path(), "bray.runtime.bootstrap.runtime_initialization");
 
         assert_eq!(
             RuntimeAbiRole::SynchronousRootExecution.resident_service(),

@@ -28,6 +28,8 @@ impl Compilation {
     ) -> Result<Vec<ConcreteCodegenInstance>, NativeProductPlanningError> {
         let binding_context = self.binding_context(cancellation)?;
 
+        crate::compilation::foreign::validate_source_roles(self)?;
+
         let mut symbols = match semantic.kind() {
             ProductKind::Executable | ProductKind::Test => {
                 product_entry_symbols(semantic, test_discovery)?
