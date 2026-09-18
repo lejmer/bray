@@ -67,7 +67,8 @@ macro_rules! define_runtime_roles {
             pub const fn implementation(self) -> RuntimeRoleImplementation {
                 match self.artifact_owner() {
                     RuntimeRoleArtifact::Compiler => RuntimeRoleImplementation::CompilerLowering,
-                    RuntimeRoleArtifact::Host | RuntimeRoleArtifact::Callback
+                    RuntimeRoleArtifact::Bootstrap | RuntimeRoleArtifact::Observation
+                    | RuntimeRoleArtifact::Host | RuntimeRoleArtifact::Callback
                     | RuntimeRoleArtifact::Scheduler | RuntimeRoleArtifact::Cancellation
                     | RuntimeRoleArtifact::Event | RuntimeRoleArtifact::TestHost => RuntimeRoleImplementation::BrayRuntime,
                 }
@@ -78,19 +79,38 @@ macro_rules! define_runtime_roles {
                 match self { $(Self::$role => define_runtime_roles!(@available $availability),)+ }
             }
 
-            /// Returns the trusted bootstrap declaration implementing this role.
-            pub const fn bootstrap_declaration(self) -> Option<&'static str> {
+            /// Returns the trusted Bray declaration implementing this role.
+            pub const fn source_declaration(self) -> Option<&'static str> {
                 match self { $(Self::$role => define_runtime_roles!(@bootstrap $($bootstrap)?),)+ }
             }
 
-            /// Returns the toolchain-owned trusted bootstrap source binding for this role.
-            pub fn bootstrap_source_binding(self) -> Option<crate::SourceRoleBinding<Self>> {
-                let declaration = self.bootstrap_declaration()?;
-                let path = format!("bray.runtime.bootstrap.{declaration}");
+            /// Returns the separately built trusted Bray component implementing this role.
+            pub const fn source_artifact(self) -> Option<RuntimeRoleArtifact> {
+                if self.source_declaration().is_none() {
+                    return None;
+                }
+
+                Some(match self.artifact_owner() {
+                    RuntimeRoleArtifact::Observation => RuntimeRoleArtifact::Observation,
+                    _ => RuntimeRoleArtifact::Bootstrap,
+                })
+            }
+
+            /// Returns the toolchain-owned trusted Bray source binding for this role.
+            pub fn source_binding(self) -> Option<crate::SourceRoleBinding<Self>> {
+                let declaration = self.source_declaration()?;
+
+                let module = match self.source_artifact()? {
+                    RuntimeRoleArtifact::Bootstrap => "bray.runtime.bootstrap",
+                    RuntimeRoleArtifact::Observation => "bray.runtime.observation",
+                    _ => unreachable!("source roles belong to trusted Bray components"),
+                };
+
+                let path = format!("{module}.{declaration}");
 
                 Some(
                     crate::SourceRoleBinding::try_new(self, &path).unwrap_or_else(|| {
-                        panic!("runtime catalog bootstrap path is invalid: {path}")
+                        panic!("runtime catalog source path is invalid: {path}")
                     }),
                 )
             }
@@ -108,11 +128,13 @@ macro_rules! define_runtime_roles {
                         == RuntimeAbiRole::$role.native_signature().is_none(),
                     "runtime catalog ownership and native signature disagree"
                 );
+
                 assert!(
-                    RuntimeAbiRole::$role.bootstrap_declaration().is_none()
+                    RuntimeAbiRole::$role.source_declaration().is_none()
                         || RuntimeAbiRole::$role.native_signature().is_some(),
                     "bootstrap role has no native callable signature"
                 );
+
                 assert!(
                     RuntimeAbiRole::$role.available_to_product()
                         != matches!(RuntimeAbiRole::$role.artifact_owner(), RuntimeRoleArtifact::TestHost),
@@ -422,13 +444,13 @@ mod tests {
         );
 
         assert_eq!(
-            RuntimeAbiRole::ThreadStaticCleanupRegistration.bootstrap_declaration(),
+            RuntimeAbiRole::ThreadStaticCleanupRegistration.source_declaration(),
             None,
         );
 
         let binding = RuntimeAbiRole::RuntimeInitialization
-            .bootstrap_source_binding()
-            .unwrap_or_else(|| panic!("runtime initialization must have a bootstrap binding"));
+            .source_binding()
+            .unwrap_or_else(|| panic!("runtime initialization must have a source binding"));
 
         assert_eq!(binding.role(), RuntimeAbiRole::RuntimeInitialization);
 

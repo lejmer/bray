@@ -16,7 +16,7 @@ pub(super) fn validate(root: &Path) -> Result<(), String> {
 
     let known_symbols = RuntimeAbiRole::ALL
         .into_iter()
-        .filter(|role| role.bootstrap_declaration().is_none())
+        .filter(|role| role.source_declaration().is_none())
         .filter_map(RuntimeAbiRole::native_symbol)
         .chain(
             super::command::RuntimeArchiveKind::ALL
@@ -68,7 +68,7 @@ pub(super) fn validate(root: &Path) -> Result<(), String> {
             continue;
         };
 
-        if role.bootstrap_declaration().is_some() {
+        if role.source_declaration().is_some() {
             continue;
         }
 

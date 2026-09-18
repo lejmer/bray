@@ -21,8 +21,7 @@ const COMMON_SOURCE_INPUTS: &[&str] = &[
     "xtask/src/workspace.rs",
 ];
 const RUNTIME_SOURCE_INPUTS: &[&str] = &[
-    "runtime/bray-workspace.json",
-    "runtime/bootstrap",
+    "runtime",
     "xtask/src/dependency_audit.rs",
     "xtask/src/link_map.rs",
     "xtask/src/native_product.rs",
@@ -34,7 +33,6 @@ const RUNTIME_PACKAGES: &[&str] = &[
     "bray-driver",
     "bray-llvm-toolchain",
     "bray-runtime-adapter",
-    "bray-runtime-observation",
 ];
 const STANDARD_LIBRARY_PACKAGES: &[&str] = &[
     "bray-codegen",

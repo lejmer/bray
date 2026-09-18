@@ -158,6 +158,30 @@ func missing_files_report_the_portable_error_kind()
     assert(error.kind == std.io.IoErrorKind.NotFound);
 }
 
+@test(serial)
+func create_or_truncate_replaces_existing_contents() -> Result<unit, std.io.IoError>
+{
+    let path: std.path.Path = test_path("bray-create-or-truncate-conformance");
+
+    discard_existing_file(&path);
+    try write_file(&path, value = 65);
+
+    let options: std.fs.OpenOptions = std.fs.OpenOptions(
+        access = std.fs.FileAccess.Write,
+        creation = std.fs.FileCreation.CreateOrTruncate,
+    );
+
+    let mut file: std.fs.File = try std.fs.File.open(&path, options = options);
+    let metadata: std.fs.FileMetadata = try file.metadata();
+
+    assert(metadata.bytes == 0);
+
+    try file.close();
+    try std.fs.remove_file(&path);
+
+    return Ok(unit);
+}
+
 func test_path(pos value: string) -> std.path.Path
 {
     return std.testing.assert_ok<std.path.Path, std.path.PathError>(std.path.Path.from_string(&value));

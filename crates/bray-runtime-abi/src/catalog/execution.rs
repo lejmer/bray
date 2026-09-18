@@ -81,8 +81,53 @@ macro_rules! runtime_role_catalog {
                 call_hook: (),
                 compiler: C [Usize, Usize] -> U32,
                 owner: Host, availability: All, bootstrap: ("runtime_initialization"), host_control: false,
-                capabilities: [],
+                capabilities: [PerformanceObservation],
                 effects: [InitializeRuntime]
+            }
+            MemoryObservationBegin {
+                "Start one generated memory-observation session.", "memory_observation_begin",
+                native: (MEMORY_OBSERVATION_BEGIN_SYMBOL = "bray_runtime_memory_observation_begin", [] -> Void),
+                call_hook: (),
+                compiler: C [] -> Void,
+                owner: Observation, availability: All, bootstrap: ("memory_observation_begin"), host_control: false,
+                capabilities: [PerformanceObservation],
+                effects: []
+            }
+            MemoryAllocationObservation {
+                "Observe one successful generated memory allocation.", "memory_allocation_observation",
+                native: (MEMORY_ALLOCATION_OBSERVATION_SYMBOL = "bray_runtime_memory_allocation_observation", [Usize] -> Void),
+                call_hook: (),
+                compiler: C [Usize] -> Void,
+                owner: Observation, availability: All, bootstrap: ("memory_allocation_observation"), host_control: false,
+                capabilities: [PerformanceObservation],
+                effects: []
+            }
+            MemoryCopyObservation {
+                "Observe one completed generated memory transfer.", "memory_copy_observation",
+                native: (MEMORY_COPY_OBSERVATION_SYMBOL = "bray_runtime_memory_copy_observation", [Usize] -> Void),
+                call_hook: (),
+                compiler: C [Usize] -> Void,
+                owner: Observation, availability: All, bootstrap: ("memory_copy_observation"), host_control: false,
+                capabilities: [PerformanceObservation],
+                effects: []
+            }
+            PerformanceIntervalBegin {
+                "Start the measured Bray-controlled execution interval.", "performance_interval_begin",
+                native: (PERFORMANCE_INTERVAL_BEGIN_SYMBOL = "bray_runtime_performance_interval_begin", [] -> Void),
+                call_hook: (),
+                compiler: C [] -> Void,
+                owner: Observation, availability: All, bootstrap: ("performance_interval_begin"), host_control: false,
+                capabilities: [PerformanceObservation],
+                effects: []
+            }
+            PerformanceIntervalEnd {
+                "End and record the Bray-controlled execution interval.", "performance_interval_end",
+                native: (PERFORMANCE_INTERVAL_END_SYMBOL = "bray_runtime_performance_interval_end", [] -> Void),
+                call_hook: (),
+                compiler: C [] -> Void,
+                owner: Observation, availability: All, bootstrap: ("performance_interval_end"), host_control: false,
+                capabilities: [],
+                effects: []
             }
             RootExecution {
                 "Begin and own the executable root run.", "root_execution",

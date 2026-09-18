@@ -95,9 +95,6 @@ Compiler libraries and installed Bray tools.
       components. Each selected adapter publishes only the stable symbols for its semantic component and delegates its
       implementation to `bray-runtime`.
 
-- `bray-runtime-observation`
-    - Link-isolated native performance-observation hooks retained only by instrumented products.
-
 - `bray-runtime-model`
     - Dependency-light protected-frame, execution-lane, capability, identity, and ABI-version semantics shared by
       compiler contracts and runtime mechanisms.

@@ -2,11 +2,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use bray_runtime_interface::RuntimeArtifactPurpose;
+use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
 use bray_target::NativeTarget;
 
 use super::command::{CommandError, Package, RuntimeArchiveKind};
 
 const PANIC_REPORT_SOURCE: &str = include_str!("../../fixtures/runtime-panic-report.rs");
+const OBSERVATION_SMOKE_SOURCE: &str = include_str!("../../fixtures/runtime-observation-smoke.c");
 const SMOKE_SOURCE: &str = include_str!("../../fixtures/runtime-smoke.rs");
 const SYNC_SMOKE_SOURCE: &str = include_str!("../../fixtures/runtime-sync-smoke.rs");
 const BOOTSTRAP_SMOKE_SOURCE: &str = include_str!("../../fixtures/runtime-bootstrap-smoke.c");
@@ -98,6 +101,190 @@ pub(super) fn smoke_test(
 
     audit_synchronous_link_map(&map)?;
     smoke_test_bootstrap(package, target, directory)?;
+    smoke_test_observation(package, target, directory)?;
+
+    Ok(())
+}
+
+fn smoke_test_observation(
+    package: &Package,
+    target: NativeTarget,
+    directory: &Path,
+) -> Result<(), CommandError> {
+    let archives = component_archives(
+        package,
+        &[
+            RuntimeArchiveKind::Observation,
+            RuntimeArchiveKind::Bootstrap,
+            RuntimeArchiveKind::Host,
+            RuntimeArchiveKind::Callback,
+            RuntimeArchiveKind::Cancellation,
+            RuntimeArchiveKind::Common,
+        ],
+    )?;
+
+    let metadata = crate::native_toolchain::runtime_artifact_metadata(&package.metadata)
+        .map_err(CommandError::ObservationSmoke)?;
+
+    let native_links = metadata
+        .components()
+        .iter()
+        .find(|component| {
+            component.purpose() == RuntimeArtifactPurpose::Product
+                && component.identity().as_str().ends_with(".common")
+        })
+        .ok_or_else(|| {
+            CommandError::ObservationSmoke(
+                "runtime metadata has no product common component".to_owned(),
+            )
+        })?
+        .native_links();
+
+    let map = directory.join("runtime-observation-smoke.map");
+
+    let executable = compile_c_smoke(
+        OBSERVATION_SMOKE_SOURCE,
+        "runtime-observation-smoke",
+        &archives,
+        target,
+        directory,
+        &map,
+        native_links,
+    )?;
+
+    let empty = directory.join("runtime-observation-empty.bin");
+
+    fs::write(&empty, b"stale observation")
+        .map_err(|error| CommandError::write(&empty, error))?;
+
+    require_observation_success(&executable, "empty", &empty)?;
+
+    let empty_bytes = fs::read(&empty).map_err(|error| CommandError::read(&empty, error))?;
+
+    if empty_bytes != bray_runtime_abi::PERFORMANCE_OBSERVATION_HEADER {
+        return Err(CommandError::ObservationSmoke(
+            "zero-event session did not truncate to the observation header".to_owned(),
+        ));
+    }
+
+    let records = directory.join("runtime-observation-records.bin");
+    require_observation_success(&executable, "records", &records)?;
+    validate_observation_records(&records)?;
+
+    let missing = Command::new(&executable)
+        .arg("empty")
+        .env_remove(bray_runtime_abi::PERFORMANCE_OBSERVATION_PATH_ENVIRONMENT)
+        .output()
+        .map_err(|error| CommandError::SmokeExecution {
+            name: "observation missing path",
+            error,
+        })?;
+
+    require_observation_failure(
+        &missing,
+        "performance observation output path is missing",
+    )?;
+
+    let invalid = directory.join("runtime-observation-invalid.bin");
+
+    let invalid_interval = Command::new(&executable)
+        .arg("invalid-interval")
+        .env(
+            bray_runtime_abi::PERFORMANCE_OBSERVATION_PATH_ENVIRONMENT,
+            &invalid,
+        )
+        .output()
+        .map_err(|error| CommandError::SmokeExecution {
+            name: "observation invalid interval",
+            error,
+        })?;
+
+    require_observation_failure(
+        &invalid_interval,
+        "performance observation interval is not active",
+    )?;
+
+    audit_observation_link_map(&map)
+}
+
+fn require_observation_success(
+    executable: &Path,
+    mode: &str,
+    output: &Path,
+) -> Result<(), CommandError> {
+    let execution = Command::new(executable)
+        .arg(mode)
+        .env(
+            bray_runtime_abi::PERFORMANCE_OBSERVATION_PATH_ENVIRONMENT,
+            output,
+        )
+        .output()
+        .map_err(|error| CommandError::SmokeExecution {
+            name: "observation",
+            error,
+        })?;
+
+    if !execution.status.success() {
+        return Err(CommandError::ObservationSmoke(format!(
+            "{mode} session failed: {}",
+            String::from_utf8_lossy(&execution.stderr).trim()
+        )));
+    }
+
+    if !execution.stdout.is_empty() || !execution.stderr.is_empty() {
+        return Err(CommandError::ObservationSmoke(format!(
+            "{mode} session changed program output"
+        )));
+    }
+
+    Ok(())
+}
+
+fn require_observation_failure(
+    execution: &std::process::Output,
+    expected: &str,
+) -> Result<(), CommandError> {
+    let stderr = String::from_utf8_lossy(&execution.stderr);
+
+    if execution.status.success() || !stderr.contains(expected) {
+        return Err(CommandError::ObservationSmoke(format!(
+            "expected fatal diagnostic {expected:?}, got status {} and stderr {:?}",
+            execution.status,
+            stderr.trim(),
+        )));
+    }
+
+    Ok(())
+}
+
+fn validate_observation_records(path: &Path) -> Result<(), CommandError> {
+    let bytes = fs::read(path).map_err(|error| CommandError::read(path, error))?;
+    let header = bray_runtime_abi::PERFORMANCE_OBSERVATION_HEADER;
+
+    let Some(records) = bytes.strip_prefix(&header) else {
+        return Err(CommandError::ObservationSmoke(
+            "recorded session omitted its header".to_owned(),
+        ));
+    };
+
+    if records.len() != 27 {
+        return Err(CommandError::ObservationSmoke(format!(
+            "recorded session produced {} record bytes instead of 27",
+            records.len(),
+        )));
+    }
+
+    let values = [
+        (records[0], u64::from_le_bytes(records[1..9].try_into().unwrap_or_else(|_| unreachable!()))),
+        (records[9], u64::from_le_bytes(records[10..18].try_into().unwrap_or_else(|_| unreachable!()))),
+        (records[18], u64::from_le_bytes(records[19..27].try_into().unwrap_or_else(|_| unreachable!()))),
+    ];
+
+    if values[0] != (1, 3) || values[1] != (2, 5) || values[2].0 != 3 {
+        return Err(CommandError::ObservationSmoke(format!(
+            "recorded session has unexpected records {values:?}"
+        )));
+    }
 
     Ok(())
 }
@@ -113,7 +300,16 @@ fn smoke_test_bootstrap(
         .ok_or(CommandError::MetadataContract)?;
 
     let map = directory.join("runtime-bootstrap-smoke.map");
-    let executable = compile_bootstrap_smoke(archive, target, directory, &map)?;
+
+    let executable = compile_c_smoke(
+        BOOTSTRAP_SMOKE_SOURCE,
+        "runtime-bootstrap-smoke",
+        &[archive],
+        target,
+        directory,
+        &map,
+        &[],
+    )?;
 
     let status = Command::new(&executable)
         .status()
@@ -126,22 +322,24 @@ fn smoke_test_bootstrap(
     audit_bootstrap_link_map(&map)
 }
 
-fn compile_bootstrap_smoke(
-    archive: &Path,
+fn compile_c_smoke(
+    source_text: &str,
+    name: &str,
+    archives: &[&Path],
     target: NativeTarget,
     directory: &Path,
     map: &Path,
+    native_links: &[NativeLinkRequirement],
 ) -> Result<PathBuf, CommandError> {
-    let source = directory.join("runtime-bootstrap-smoke.c");
+    let source = directory.join(format!("{name}.c"));
 
     let executable = directory.join(if cfg!(windows) {
-        "runtime-bootstrap-smoke.exe"
+        format!("{name}.exe")
     } else {
-        "runtime-bootstrap-smoke"
+        name.to_owned()
     });
 
-    fs::write(&source, BOOTSTRAP_SMOKE_SOURCE)
-        .map_err(|error| CommandError::write(&source, error))?;
+    fs::write(&source, source_text).map_err(|error| CommandError::write(&source, error))?;
 
     let compiler =
         bray_tooling::llvm_tool_path(bray_diagnostics::DiagnosticLlvmToolRole::CompilerDriver)
@@ -153,7 +351,25 @@ fn compile_bootstrap_smoke(
         .arg(format!("--target={}", target.as_str()))
         .args(["-std=c11", "-O2", "-fuse-ld=lld"])
         .arg(&source)
-        .arg(archive);
+        .args(archives);
+
+    for link in native_links {
+        if target.object_format() == bray_target::ObjectFormat::Coff
+            && link.kind() == NativeLinkKind::System
+            && link.name().eq_ignore_ascii_case("ucrt")
+        {
+            continue;
+        }
+
+        match link.kind() {
+            NativeLinkKind::Framework => {
+                command.arg("-framework").arg(link.name());
+            }
+            NativeLinkKind::Dynamic | NativeLinkKind::Static | NativeLinkKind::System => {
+                command.arg(format!("-l{}", link.name()));
+            }
+        }
+    }
 
     match target.object_format() {
         bray_target::ObjectFormat::Coff => {
@@ -178,7 +394,7 @@ fn compile_bootstrap_smoke(
         .map_err(CommandError::NativeCompiler)?;
 
     if !status.success() {
-        return Err(CommandError::BootstrapSmokeLinkFailed);
+        return Err(CommandError::NativeSmokeLinkFailed(name.to_owned()));
     }
 
     Ok(executable)
@@ -342,6 +558,28 @@ fn audit_bootstrap_link_map(map: &Path) -> Result<(), CommandError> {
                 "retained {archive}"
             )));
         }
+    }
+
+    Ok(())
+}
+
+fn audit_observation_link_map(map: &Path) -> Result<(), CommandError> {
+    let contents = fs::read_to_string(map).map_err(|error| CommandError::read(map, error))?;
+
+    let required = [
+        bray_runtime_abi::MEMORY_OBSERVATION_BEGIN_SYMBOL,
+        bray_runtime_abi::MEMORY_ALLOCATION_OBSERVATION_SYMBOL,
+        bray_runtime_abi::MEMORY_COPY_OBSERVATION_SYMBOL,
+        bray_runtime_abi::PERFORMANCE_INTERVAL_BEGIN_SYMBOL,
+        bray_runtime_abi::PERFORMANCE_INTERVAL_END_SYMBOL,
+    ];
+
+    audit_link_symbols(&contents, &required, &[]).map_err(CommandError::ObservationSmoke)?;
+
+    if !contents.contains("bray_runtime_observation") {
+        return Err(CommandError::ObservationSmoke(
+            "link map does not attribute the hooks to the Observation archive".to_owned(),
+        ));
     }
 
     Ok(())

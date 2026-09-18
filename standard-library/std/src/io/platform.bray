@@ -6,33 +6,14 @@ internal static ERROR_LOCK: core.atomic.Atomic<u32> = core.atomic.initialize<u32
 
 trusted internal func acquire_stream_lock(pos lock: &core.atomic.Atomic<u32>) -> std.platform.PlatformStatus
 {
-    let (_, acquired) = core.atomic.compare_exchange<u32, 1, 0>(lock, expected = 0, desired = 1);
-
-    if acquired
-    {
-        return internal std.platform.success_status();
-    }
-
-    let mut observed: u32 = core.atomic.exchange<u32, 1>(lock, value = 2);
-
-    while observed != 0
-    {
-        trusted internal std.atomic.platform_wait_word(lock, expected = 2);
-
-        observed = core.atomic.exchange<u32, 1>(lock, value = 2);
-    }
+    trusted std.sync.acquire_blocking_word_lock(lock);
 
     return internal std.platform.success_status();
 }
 
 trusted internal func release_stream_lock(pos lock: &core.atomic.Atomic<u32>) -> std.platform.PlatformStatus
 {
-    let previous: u32 = core.atomic.exchange<u32, 2>(lock, value = 0);
-
-    if previous == 2
-    {
-        trusted internal std.atomic.platform_wake_word(lock);
-    }
+    trusted std.sync.release_blocking_word_lock(lock);
 
     return internal std.platform.success_status();
 }
@@ -343,8 +324,8 @@ trusted internal func write_standard_output_unlocked(pos source: &[u8]) -> Resul
     return checked_transfer(status, transferred = transferred, maximum = requested, require_progress = true);
 }
 
-trusted internal func write_standard_error_unlocked(pos source: &[u8]) -> Result<usize, IoError>
-    requires(blocking_execution())
+/// Writes one transfer to standard error without acquiring its stream lock.
+trusted func write_standard_error_unlocked(pos source: &[u8]) -> Result<usize, IoError>
 {
     let requested: usize = source.length();
     let mut transferred: u64 = 0;
@@ -372,7 +353,7 @@ internal func write_standard_error(pos source: &[u8]) -> Result<usize, IoError>
 {
     let lock: StandardErrorLock = try trusted acquire_standard_error();
 
-    return trusted write_standard_error_unlocked(source);
+    return trusted std.io.write_standard_error_unlocked(source);
 }
 
 trusted internal func flush_standard_output_unlocked() -> Result<unit, IoError>

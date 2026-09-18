@@ -9,6 +9,8 @@ rust-version.workspace = true
 crate-type = ["rlib", "staticlib"]
 
 [features]
+default = ["bundled-bootstrap"]
+bundled-bootstrap = ["dep:bray-target", "dep:xtask"]
 test-output = ["bray-platform/test-output"]
 
 [dependencies]
@@ -24,8 +26,8 @@ bray-runtime-model = { path = "../bray-runtime-model" }
 bray-testing = { path = "../bray-testing" }
 
 [build-dependencies]
-bray-target = { path = "../bray-target" }
-xtask = { path = "../../xtask" }
+bray-target = { path = "../bray-target", optional = true }
+xtask = { path = "../../xtask", optional = true }
 
 [lints]
 workspace = true

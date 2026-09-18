@@ -131,7 +131,7 @@ mod tests {
     use crate::test_support::compilation;
 
     #[test]
-    fn bootstrap_initialization_requires_native_abi_and_pointer_width_parameters() {
+    fn source_initialization_requires_native_abi_and_pointer_width_parameters() {
         let compilation = compilation("module app;\n");
 
         let usize = compilation

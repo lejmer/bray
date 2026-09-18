@@ -1,18 +1,3 @@
-/// Stable symbol observing one successful generated memory allocation.
-pub const MEMORY_ALLOCATION_OBSERVATION_SYMBOL: &str = "bray_runtime_memory_allocation_observation";
-
-/// Stable symbol observing one completed generated memory transfer.
-pub const MEMORY_COPY_OBSERVATION_SYMBOL: &str = "bray_runtime_memory_copy_observation";
-
-/// Stable symbol starting one generated memory-observation session.
-pub const MEMORY_OBSERVATION_BEGIN_SYMBOL: &str = "bray_runtime_memory_observation_begin";
-
-/// Stable symbol starting the measured Bray-controlled execution interval.
-pub const PERFORMANCE_INTERVAL_BEGIN_SYMBOL: &str = "bray_runtime_performance_interval_begin";
-
-/// Stable symbol ending and recording the Bray-controlled execution interval.
-pub const PERFORMANCE_INTERVAL_END_SYMBOL: &str = "bray_runtime_performance_interval_end";
-
 /// Per-process file selected for opt-in performance observations.
 pub const PERFORMANCE_OBSERVATION_PATH_ENVIRONMENT: &str = "BRAY_PERFORMANCE_OBSERVATION_PATH";
 

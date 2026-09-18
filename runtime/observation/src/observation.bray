@@ -1,0 +1,248 @@
+trusted internal module bray.runtime.observation;
+
+using std.fs;
+using std.bytes;
+using std.io;
+using std.path;
+using std.process;
+using std.sync;
+using std.time;
+
+const ALLOCATION_RECORD: u8 = 1;
+
+const COPY_RECORD: u8 = 2;
+
+const CONTROLLED_DURATION_RECORD: u8 = 3;
+
+const MAX_RECORDS: u64 = 1000000;
+
+internal static STATE_LOCK: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+
+internal static OUTPUT_HANDLE: core.atomic.Atomic<u64> = core.atomic.initialize<u64>(0);
+
+internal static RECORD_COUNT: core.atomic.Atomic<u64> = core.atomic.initialize<u64>(0);
+
+internal static INITIALIZED: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+
+internal static INTERVAL_ACTIVE: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+
+internal static INTERVAL_STARTED: core.atomic.Atomic<u64> = core.atomic.initialize<u64>(0);
+
+trusted internal func fatal(pos message: string) -> never
+    uses(intrinsic)
+{
+    let bytes: &[u8] = message.as_bytes();
+    let mut written: usize = 0;
+
+    while written < bytes.length()
+    {
+        match consume trusted std.io.write_standard_error_unlocked(&bytes[written..bytes.length()])
+        {
+            case Ok(count) { written += count; }
+            case Error(_) { break; }
+        }
+    }
+
+    trusted core.target.abort();
+}
+
+trusted internal func acquire_state()
+{
+    trusted std.sync.acquire_blocking_word_lock(&STATE_LOCK);
+}
+
+trusted internal func release_state()
+{
+    trusted std.sync.release_blocking_word_lock(&STATE_LOCK);
+}
+
+trusted internal func observation_path() -> std.path.Path
+{
+    let key_text: string = "BRAY_PERFORMANCE_OBSERVATION_PATH";
+    let key_result: Result<std.path.NativeText, std.path.PathError> = std.path.NativeText.from_string(&key_text);
+
+    let key: std.path.NativeText = match consume key_result
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { return trusted internal fatal("performance observation environment key is invalid\n"); }
+    };
+
+    let value: std.path.NativeText = match consume std.process.current_environment_value(&key)
+    {
+        case ?value { yield value; }
+        case none { return trusted internal fatal("performance observation output path is missing\n"); }
+    };
+
+    match consume std.path.Path.from_native(value)
+    {
+        case Ok(path) { return path; }
+        case Error(_) { return trusted internal fatal("performance observation output path is invalid\n"); }
+    }
+}
+
+trusted internal func write_bytes(pos bytes: &[u8])
+{
+    let handle: u64 = core.atomic.load<u64, 0>(&OUTPUT_HANDLE);
+
+    match consume trusted std.fs.write_all_file_handle(handle, bytes)
+    {
+        case Ok(_) { return; }
+        case Error(_) { trusted internal fatal("performance observation output write failed\n"); }
+    }
+}
+
+trusted internal func record(pos kind: u8, pos value: u64)
+{
+    let count: u64 = core.atomic.load<u64, 0>(&RECORD_COUNT);
+
+    if count >= MAX_RECORDS
+    {
+        trusted internal fatal("performance observation record limit exceeded\n");
+    }
+
+    let mut bytes: [u8; 9] = [0; 9];
+    let value_bytes: [u8; 8] = std.bytes.u64_little_endian(value);
+    let mut index: usize = 0;
+
+    bytes[0] = kind;
+
+    while index < 8
+    {
+        bytes[index + 1] = value_bytes[index];
+        index += 1;
+    }
+
+    trusted internal write_bytes(&bytes[..]);
+    core.atomic.store<u64, 0>(&RECORD_COUNT, value = count + 1);
+}
+
+trusted internal func observed_size(pos bytes: usize) -> u64
+{
+    let value: u64 = bytes as u64;
+
+    if value as usize != bytes
+    {
+        trusted internal fatal("performance observation value exceeds the record format\n");
+    }
+
+    return value;
+}
+
+trusted internal func monotonic_ticks() -> u64
+{
+    match consume trusted std.time.monotonic_nanoseconds()
+    {
+        case Ok(ticks) { return ticks; }
+        case Error(_) { return trusted internal fatal("performance observation clock failed\n"); }
+    }
+}
+
+@abi(c)
+trusted internal func memory_observation_begin()
+{
+    trusted internal acquire_state();
+
+    if core.atomic.load<u32, 0>(&INITIALIZED) != 0
+    {
+        trusted internal release_state();
+
+        return;
+    }
+
+    let path: std.path.Path = trusted internal observation_path();
+
+    let options: std.fs.OpenOptions = std.fs.OpenOptions(
+        access = std.fs.FileAccess.Write,
+        creation = std.fs.FileCreation.CreateOrTruncate,
+    );
+
+    let handle: u64 = match consume trusted std.fs.open_file_handle(&path, options = options)
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { return trusted internal fatal("performance observation output could not be opened\n"); }
+    };
+
+    core.atomic.store<u64, 0>(&OUTPUT_HANDLE, value = handle);
+
+    let header: [u8; 8] = [66, 82, 65, 89, 80, 79, 48, 49];
+
+    trusted internal write_bytes(&header[..]);
+    core.atomic.store<u32, 2>(&INITIALIZED, value = 1);
+    trusted internal release_state();
+}
+
+@abi(c)
+trusted internal func memory_allocation_observation(pos bytes: usize)
+{
+    trusted internal acquire_state();
+
+    if core.atomic.load<u32, 0>(&INITIALIZED) == 0
+    {
+        trusted internal fatal("performance observation is not initialized\n");
+    }
+
+    trusted internal record(ALLOCATION_RECORD, value = trusted internal observed_size(bytes));
+    trusted internal release_state();
+}
+
+@abi(c)
+trusted internal func memory_copy_observation(pos bytes: usize)
+{
+    trusted internal acquire_state();
+
+    if core.atomic.load<u32, 0>(&INITIALIZED) == 0
+    {
+        trusted internal fatal("performance observation is not initialized\n");
+    }
+
+    trusted internal record(COPY_RECORD, value = trusted internal observed_size(bytes));
+    trusted internal release_state();
+}
+
+@abi(c)
+trusted internal func performance_interval_begin()
+{
+    trusted internal acquire_state();
+
+    if core.atomic.load<u32, 0>(&INITIALIZED) == 0
+    {
+        trusted internal fatal("performance observation is not initialized\n");
+    }
+
+    if core.atomic.load<u32, 0>(&INTERVAL_ACTIVE) != 0
+    {
+        trusted internal fatal("performance observation interval is already active\n");
+    }
+
+    core.atomic.store<u64, 0>(&INTERVAL_STARTED, value = trusted internal monotonic_ticks());
+    core.atomic.store<u32, 2>(&INTERVAL_ACTIVE, value = 1);
+    trusted internal release_state();
+}
+
+@abi(c)
+trusted internal func performance_interval_end()
+{
+    trusted internal acquire_state();
+
+    if core.atomic.load<u32, 0>(&INITIALIZED) == 0
+    {
+        trusted internal fatal("performance observation is not initialized\n");
+    }
+
+    if core.atomic.load<u32, 0>(&INTERVAL_ACTIVE) == 0
+    {
+        trusted internal fatal("performance observation interval is not active\n");
+    }
+
+    let started: u64 = core.atomic.load<u64, 0>(&INTERVAL_STARTED);
+    let ended: u64 = trusted internal monotonic_ticks();
+
+    if ended < started
+    {
+        trusted internal fatal("performance observation clock moved backwards\n");
+    }
+
+    core.atomic.store<u32, 2>(&INTERVAL_ACTIVE, value = 0);
+    trusted internal record(CONTROLLED_DURATION_RECORD, value = ended - started);
+    trusted internal release_state();
+}

@@ -12,20 +12,36 @@ pub(super) fn validate(
     target: NativeTarget,
 ) -> Result<(), CommandError> {
     for component in &package.components {
-        let symbols = crate::native_symbols::defined_exports(
+        let symbols = crate::native_symbols::defined_external_symbols(
             root,
             &component.archive,
             target.object_format(),
         )
         .map_err(CommandError::NativeSymbolInspection)?;
 
-        validate_exports(component.kind, &symbols)?;
+        let strong = symbols
+            .iter()
+            .filter(|symbol| !is_fallback(component.kind, symbol))
+            .map(|symbol| symbol.name().to_owned())
+            .collect::<Vec<_>>();
+
+        let weak = symbols
+            .iter()
+            .filter(|symbol| is_fallback(component.kind, symbol))
+            .map(|symbol| symbol.name().to_owned())
+            .collect::<Vec<_>>();
+
+        validate_exports(component.kind, &strong, &weak)?;
     }
 
     Ok(())
 }
 
-fn validate_exports(kind: RuntimeArchiveKind, symbols: &[String]) -> Result<(), CommandError> {
+fn validate_exports(
+    kind: RuntimeArchiveKind,
+    strong: &[String],
+    weak: &[String],
+) -> Result<(), CommandError> {
     let required = kind
         .runtime_roles()
         .filter_map(RuntimeAbiRole::native_symbol)
@@ -35,11 +51,12 @@ fn validate_exports(kind: RuntimeArchiveKind, symbols: &[String]) -> Result<(), 
         )
         .chain(support_exports(kind));
 
-    crate::native_symbols::validate_role_exports(symbols, required)
+    crate::native_symbols::validate_role_exports(strong, required)
         .map_err(|error| CommandError::RuntimeRoleExports { kind, error })?;
 
-    let forbidden = symbols
+    let forbidden = strong
         .iter()
+        .chain(weak)
         .filter(|symbol| {
             kind == RuntimeArchiveKind::Bootstrap
                 && ["__rust_", "rust_"]
@@ -64,18 +81,7 @@ fn validate_exports(kind: RuntimeArchiveKind, symbols: &[String]) -> Result<(), 
 }
 
 pub(super) fn support_exports(kind: RuntimeArchiveKind) -> impl Iterator<Item = &'static str> {
-    let observation = (kind == RuntimeArchiveKind::Observation)
-        .then_some([
-            bray_runtime_abi::MEMORY_OBSERVATION_BEGIN_SYMBOL,
-            bray_runtime_abi::MEMORY_ALLOCATION_OBSERVATION_SYMBOL,
-            bray_runtime_abi::MEMORY_COPY_OBSERVATION_SYMBOL,
-            bray_runtime_abi::PERFORMANCE_INTERVAL_BEGIN_SYMBOL,
-            bray_runtime_abi::PERFORMANCE_INTERVAL_END_SYMBOL,
-        ])
-        .into_iter()
-        .flatten();
-
-    let host = matches!(
+    matches!(
         kind,
         RuntimeArchiveKind::Host | RuntimeArchiveKind::TestHost
     )
@@ -85,9 +91,7 @@ pub(super) fn support_exports(kind: RuntimeArchiveKind) -> impl Iterator<Item = 
         "bray_runtime_substrate_report_primary",
     ])
     .into_iter()
-    .flatten();
-
-    observation.chain(host)
+    .flatten()
 }
 
 #[cfg(test)]
@@ -108,10 +112,14 @@ mod tests {
             .collect()
     }
 
+    fn validate(kind: RuntimeArchiveKind, strong: &[String]) -> Result<(), CommandError> {
+        validate_exports(kind, strong, &[])
+    }
+
     #[test]
     fn every_archive_accepts_its_complete_catalog_contract() {
         for kind in RuntimeArchiveKind::ALL {
-            assert!(validate_exports(kind, &exports(kind)).is_ok(), "{kind:?}");
+            assert!(validate(kind, &exports(kind)).is_ok(), "{kind:?}");
         }
     }
 
@@ -163,22 +171,28 @@ mod tests {
 
     #[test]
     fn rejects_unprojected_exports_and_misplaced_support() {
-        let misplaced = support_exports(RuntimeArchiveKind::Observation)
-            .next()
-            .unwrap();
-
         for symbol in [
             "bray_runtime_unprojected_operation",
             "bray_platform_unprojected_operation",
-            misplaced,
         ] {
             let mut host = exports(RuntimeArchiveKind::Host);
             host.push(symbol.to_owned());
 
-            assert!(matches!(validate_exports(RuntimeArchiveKind::Host, &host),
+            assert!(matches!(validate(RuntimeArchiveKind::Host, &host),
                 Err(CommandError::RuntimeRoleExports { error, .. })
                 if error.unexpected == [symbol]));
         }
+
+        let misplaced = support_exports(RuntimeArchiveKind::Host)
+            .next()
+            .unwrap();
+
+        let mut callback = exports(RuntimeArchiveKind::Callback);
+        callback.push(misplaced.to_owned());
+
+        assert!(matches!(validate(RuntimeArchiveKind::Callback, &callback),
+            Err(CommandError::RuntimeRoleExports { error, .. })
+            if error.unexpected == [misplaced]));
     }
 
     #[test]
@@ -195,14 +209,14 @@ mod tests {
                 let mut missing = exports(kind);
                 missing.retain(|candidate| candidate != symbol);
 
-                assert!(matches!(validate_exports(kind, &missing),
+                assert!(matches!(validate(kind, &missing),
                 Err(CommandError::RuntimeRoleExports { error, .. })
                 if error.missing == [symbol]));
 
                 let mut duplicate = exports(kind);
                 duplicate.push(symbol.to_owned());
 
-                assert!(matches!(validate_exports(kind, &duplicate),
+                assert!(matches!(validate(kind, &duplicate),
                 Err(CommandError::RuntimeRoleExports { error, .. })
                 if error.duplicates == [symbol]));
             }
@@ -223,14 +237,14 @@ mod tests {
         host.retain(|candidate| candidate != symbol);
 
         assert!(
-            validate_exports(
+            validate(
                 RuntimeArchiveKind::TestHost,
                 &exports(RuntimeArchiveKind::TestHost)
             )
             .is_ok()
         );
 
-        assert!(matches!(validate_exports(RuntimeArchiveKind::Host, &host),
+        assert!(matches!(validate(RuntimeArchiveKind::Host, &host),
             Err(CommandError::RuntimeRoleExports { error, .. }) if error.missing == [symbol]));
     }
 
@@ -255,8 +269,38 @@ mod tests {
         host.push(misplaced.to_owned());
         host.push(duplicate.to_owned());
 
-        assert!(matches!(validate_exports(RuntimeArchiveKind::Host, &host),
+        assert!(matches!(validate(RuntimeArchiveKind::Host, &host),
             Err(CommandError::RuntimeRoleExports { error, .. })
             if error.unexpected == [misplaced] && error.duplicates == [duplicate]));
     }
+
+    #[test]
+    fn weak_platform_fallbacks_are_not_owned_exports() {
+        let kind = RuntimeArchiveKind::Observation;
+        let fallback = PlatformServiceRole::FileOpen.native_symbol().to_owned();
+
+        assert!(validate_exports(kind, &exports(kind), std::slice::from_ref(&fallback)).is_ok());
+
+        let mut strong = exports(kind);
+        strong.push(fallback.clone());
+
+        assert!(matches!(validate_exports(kind, &strong, &[]),
+            Err(CommandError::RuntimeRoleExports { error, .. })
+            if error.unexpected == [fallback]));
+    }
+}
+
+fn is_fallback(
+    kind: RuntimeArchiveKind,
+    symbol: &crate::native_symbols::DefinedExternalSymbol,
+) -> bool {
+    symbol.is_weak()
+        || symbol.is_coff_comdat()
+            && matches!(
+                kind,
+                RuntimeArchiveKind::Bootstrap | RuntimeArchiveKind::Observation
+            )
+            && !kind
+                .platform_services()
+                .any(|role| role.native_symbol() == symbol.name())
 }

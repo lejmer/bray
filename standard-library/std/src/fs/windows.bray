@@ -153,6 +153,15 @@ trusted internal func platform_file_open(
 
             yield std.os.windows.TRUNCATE_EXISTING;
         }
+        case 4
+        {
+            if options.access == 0
+            {
+                return internal std.platform.invalid_input_status();
+            }
+
+            yield std.os.windows.CREATE_ALWAYS;
+        }
         case _ { return internal std.platform.invalid_input_status(); }
     };
 

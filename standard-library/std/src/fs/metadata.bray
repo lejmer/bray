@@ -14,6 +14,7 @@ union FileCreation
     CreateIfMissing;
     CreateNew;
     Truncate;
+    CreateOrTruncate;
 }
 
 struct OpenOptions

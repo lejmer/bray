@@ -7,6 +7,7 @@ use bray_codegen::{
     CodegenTypeKind, CodegenTypeMapping, TargetAddressSpaceKind,
 };
 use bray_diagnostics::DiagnosticBag;
+use bray_ir::{MirPatternPredicate, MirTerminatorKind, MirUnit};
 use bray_symbols::{GenericSubstitutionId, NamedTypeSymbolId, SelfTypeContext, TypeData, TypeId};
 use bray_target::{TargetLayoutContract, TargetValueLayout};
 
@@ -25,6 +26,45 @@ use super::support::{
 use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
+    pub(super) fn active_union_referent_types(
+        &self,
+        unit: &MirUnit,
+        instance: &ConcreteCodegenInstance,
+        cancellation: &CancellationToken,
+    ) -> Result<BTreeSet<TypeId>, CodegenPreparationError> {
+        let values = self.semantic_value_store()?;
+        let mut demanded = BTreeSet::new();
+
+        for block in unit.blocks() {
+            let MirTerminatorKind::PatternBranch {
+                subject,
+                predicate: MirPatternPredicate::ActiveUnionVariant(_),
+                ..
+            } = block.terminator().kind()
+            else {
+                continue;
+            };
+
+            let subject = unit
+                .operand_type(subject)
+                .expect("validated MIR pattern subject must have a type");
+
+            let mut ty = self.concrete_codegen_type(
+                subject,
+                instance.substitution(),
+                Some(instance),
+                cancellation,
+            )?;
+
+            while let TypeData::Borrow { target, .. } = values.type_data(ty).as_ref() {
+                demanded.insert(*target);
+                ty = *target;
+            }
+        }
+
+        Ok(demanded)
+    }
+
     #[cfg(test)]
     pub(super) fn codegen_types(
         &self,

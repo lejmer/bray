@@ -188,7 +188,7 @@ pub enum MirUnitKey {
     /// A body reconstructed from a dependency's checked executable template.
     ImportedExecutable(MirImportedExecutableKey),
     /// A bodyless runtime-default provider referenced from another package.
-    ExternalRuntimeDefault(bray_symbols::AnySymbolId),
+    ExternalRuntimeDefault(AnySymbolId),
 }
 
 /// One immutable backend-independent MIR unit.
@@ -324,7 +324,8 @@ impl MirUnit {
             .and_then(|index| self.values.get(index))
     }
 
-    pub(crate) fn operand_type(&self, operand: &crate::MirOperand) -> Option<bray_symbols::TypeId> {
+    /// Resolves the semantic type carried by an operand owned by this unit.
+    pub fn operand_type(&self, operand: &crate::MirOperand) -> Option<bray_symbols::TypeId> {
         resolve_operand_type(self.unit, &self.values, operand)
     }
 
