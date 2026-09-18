@@ -122,10 +122,10 @@ pub(crate) fn is_propagated_cancellation(payload: &(dyn std::any::Any + Send)) -
     payload.is::<PropagatedCancellation>()
 }
 
-/// Executes a synchronous entrypoint directly as the executable root run.
-pub fn execute_synchronous_root<T>(
+pub(crate) fn execute_synchronous_root<T>(
     root: impl FnOnce() -> T,
     on_started: impl FnOnce(RootCancellationHandle),
+    outgoing: &mut crate::outgoing::OutgoingRecords,
 ) -> RunOutcome<T> {
     let cancellation = CancellationContext::root();
     on_started(RootCancellationHandle::new(cancellation.clone()));
@@ -134,7 +134,9 @@ pub fn execute_synchronous_root<T>(
         match catch_unwind(AssertUnwindSafe(root)) {
             Ok(value) => RunOutcome::Completed(value),
             Err(payload) if is_propagated_cancellation(payload.as_ref()) => RunOutcome::Cancelled,
-            Err(payload) => RunOutcome::Panicked(crate::RuntimePanic::from_payload(payload)),
+            Err(payload) => {
+                RunOutcome::Panicked(crate::RuntimePanic::from_payload(payload, outgoing))
+            }
         }
     })
 }
@@ -256,28 +258,42 @@ mod tests {
 
     #[test]
     fn synchronous_roots_execute_directly_and_capture_panics() {
+        let mut admitted = crate::outgoing::OutgoingRecords::admit(1).unwrap();
+
         assert!(matches!(
-            execute_synchronous_root(|| 17, |_| {}),
+            execute_synchronous_root(|| 17, |_| {}, &mut admitted),
             RunOutcome::Completed(17)
         ));
 
-        let panicked = execute_synchronous_root(|| -> i32 { panic!("root panic") }, |_| {});
+        let panicked = execute_synchronous_root(
+            || -> i32 { panic!("root panic") },
+            |_| {},
+            &mut admitted,
+        );
 
         assert!(matches!(panicked, RunOutcome::Panicked(_)));
     }
 
     #[test]
     fn synchronous_roots_expose_host_cancellation_to_run_operations() {
+        let mut admitted = crate::outgoing::OutgoingRecords::admit(1).unwrap();
+
         let outcome = execute_synchronous_root(current_run_cancellation_observable, |root| {
             assert!(root.request());
-        });
+        }, &mut admitted);
 
         assert!(matches!(outcome, RunOutcome::Completed(true)));
     }
 
     #[test]
     fn synchronous_cancellation_entry_reaches_the_root_outcome() {
-        let outcome = execute_synchronous_root(propagate_current_run_cancellation, |_| {});
+        let mut admitted = crate::outgoing::OutgoingRecords::admit(1).unwrap();
+
+        let outcome = execute_synchronous_root(
+            propagate_current_run_cancellation,
+            |_| {},
+            &mut admitted,
+        );
 
         assert!(matches!(outcome, RunOutcome::Cancelled));
     }
@@ -285,6 +301,7 @@ mod tests {
     #[test]
     fn first_root_cancellation_source_is_stable() {
         let mut cancellation = None;
+        let mut admitted = crate::outgoing::OutgoingRecords::admit(1).unwrap();
 
         let outcome = execute_synchronous_root(
             || (),
@@ -294,6 +311,7 @@ mod tests {
 
                 cancellation = Some(root);
             },
+            &mut admitted,
         );
 
         assert!(matches!(outcome, RunOutcome::Completed(())));

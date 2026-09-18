@@ -129,6 +129,7 @@ fn execute_callback_boundary(
                     super::host::with_output(|| callback(&mut published));
                 },
                 on_started,
+                &mut admitted,
             )
         }
         Ok(_) | Err(_) => RunOutcome::Completed(()),
@@ -149,7 +150,7 @@ fn execute_callback_boundary(
                 panic
             };
 
-            NativeRunOutcome::panicked(report.into_native(&mut admitted))
+            NativeRunOutcome::panicked(report.into_native())
         }
     };
 
@@ -271,7 +272,11 @@ mod tests {
         }
     }
 
-    extern "C" fn release_written_incident(_: usize, _: usize) {
+    extern "C" fn release_written_incident(
+        _: usize,
+        _: usize,
+        _: &mut NativeRunOutcome,
+    ) {
         assert!(crate::outgoing::OutgoingRecords::admit(1).is_err());
 
         RELEASES.with_borrow_mut(|events| events.push(1));

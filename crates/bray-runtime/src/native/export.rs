@@ -1210,7 +1210,11 @@ mod tests {
         }
     }
 
-    extern "C" fn release_frame_bridge_primary(_: usize, _: usize) {
+    extern "C" fn release_frame_bridge_primary(
+        _: usize,
+        _: usize,
+        _: &mut NativeRunOutcome,
+    ) {
         assert_eq!(FRAME_BRIDGE_RELEASES.fetch_add(1, Ordering::Relaxed), 0);
     }
 

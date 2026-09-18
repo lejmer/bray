@@ -107,8 +107,8 @@ impl NativeSourceAnchor {
 pub type NativePanicMessageCopy =
     extern "C" fn(usize, usize, *mut u8, usize) -> NativeRuntimeStatus;
 
-/// Releases message backing through the provider that allocated it.
-pub type NativePanicMessageRelease = extern "C" fn(usize, usize);
+/// Releases message backing and publishes any contained disposal failure.
+pub type NativePanicMessageRelease = extern "C" fn(usize, usize, &mut crate::NativeRunOutcome);
 
 /// Consumes a report and its detached records, optionally reporting each primary.
 pub type NativePanicReportConsumer =
@@ -180,12 +180,23 @@ impl NativePanicMessage {
                 )
             })
     }
+
+    /// Releases owned backing and returns any failure contained by its provider.
+    pub fn release(&mut self) -> crate::NativeRunOutcome {
+        let mut outcome = crate::NativeRunOutcome::new(crate::NativeRunState::COMPLETED, 0);
+
+        if let Some(release) = self.release.take() {
+            release(self.address, self.length, &mut outcome);
+        }
+
+        outcome
+    }
 }
 
 impl Drop for NativePanicMessage {
     fn drop(&mut self) {
-        if let Some(release) = self.release.take() {
-            release(self.address, self.length);
+        if self.release.is_some() {
+            drop(self.release());
         }
     }
 }
@@ -232,26 +243,25 @@ impl NativePanicPrimary {
         self.source
     }
 
-    /// Returns opaque message backing only to its matching release provider.
-    pub fn provider_handle(&self, provider: NativePanicMessageRelease) -> Option<usize> {
-        self.message
-            .release
-            .filter(|release| std::ptr::fn_addr_eq(*release, provider))
-            .map(|_| self.message.address)
-    }
-
     /// Transfers opaque message backing back to its matching provider.
     pub fn take_provider_handle(&mut self, provider: NativePanicMessageRelease) -> Option<usize> {
-        let handle = self.provider_handle(provider)?;
+        self.message
+            .release
+            .filter(|release| std::ptr::fn_addr_eq(*release, provider))?;
 
         self.message.release = None;
 
-        Some(handle)
+        Some(self.message.address)
     }
 
     /// Borrows the retained immutable message.
     pub const fn message(&self) -> &NativePanicMessage {
         &self.message
+    }
+
+    /// Releases message backing and returns any failure contained by its provider.
+    pub fn release_message(&mut self) -> crate::NativeRunOutcome {
+        self.message.release()
     }
 }
 

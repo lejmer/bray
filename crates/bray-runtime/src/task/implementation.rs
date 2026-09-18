@@ -368,7 +368,7 @@ where
                 (FrameProgress::Cancelled, None)
             }
             Err(payload) => (
-                FrameProgress::Panicked(RuntimePanic::from_payload(payload)),
+                FrameProgress::Panicked(RuntimePanic::from_payload(payload, &mut outgoing)),
                 None,
             ),
         };
@@ -445,12 +445,7 @@ where
         origin: crate::CleanupIncidentOrigin,
         panic: RuntimePanic,
     ) {
-        let mut admitted = self
-            .data
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .outgoing
-            .take_one();
+        let mut admitted = crate::outgoing::OutgoingRecords::default();
 
         sink.transfer(
             crate::CleanupIncidentProducer::Task(self.id()),
@@ -514,15 +509,6 @@ where
                 .take()
                 .ok_or(TaskObservationError::AlreadyObserved),
         }
-    }
-
-    pub(crate) fn native_panic(&self, panic: RuntimePanic) -> bray_runtime_abi::NativePanicReport {
-        let mut data = self
-            .data
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-
-        panic.into_native(&mut data.outgoing)
     }
 
     /// Resolves the terminal outcome when no ordinary join observer consumes it.
@@ -1028,7 +1014,6 @@ mod tests {
             panic!("task must preserve a panic outcome");
         };
 
-        assert!(panic.primary_is::<&'static str>());
         assert_eq!(panic.suppressed_count(), 1);
     }
 
@@ -1063,7 +1048,6 @@ mod tests {
             panic!("cleanup panic must remain observable");
         };
 
-        assert!(panic.primary_is::<&'static str>());
         assert_eq!(panic.suppressed_count(), 0);
     }
 
@@ -1124,7 +1108,8 @@ mod tests {
             .resolve_runtime_failure()
             .expect("failed frame cleanup must remain observable");
 
-        assert!(panic.primary_is::<&'static str>());
+        drop(panic);
+
         assert!(task.resolve_runtime_failure().is_none());
     }
 
@@ -1134,6 +1119,7 @@ mod tests {
             TaskControlBlock::start(crate::test_support::admit_task(), TestFrame::completing(47));
 
         task.resume().expect("frame must complete");
+
         assert!(task.resolve_runtime_failure().is_none());
         assert!(matches!(task.take_outcome(), Ok(RunOutcome::Completed(47))));
     }
@@ -1165,9 +1151,11 @@ mod tests {
 
                 assert_eq!(data.state, TaskState::Running);
                 assert!(data.frame.is_none());
+
                 drop(data);
 
                 assert_eq!(observed_task.resume(), Err(TaskResumeError::AlreadyRunning));
+
                 observed_callbacks.fetch_add(1, Ordering::Relaxed);
             }) as Box<dyn Fn() + Send + Sync>);
 

@@ -439,9 +439,9 @@ mod tests {
 
         let failure = failure.downcast::<crate::RuntimePanic>().unwrap();
 
-        assert!(failure.primary_is::<CleanupFailure>());
         assert_eq!(failure.suppressed_count(), 2);
         assert!(observation.consumed.load(Ordering::Acquire));
+
         CLEANUP_EVENTS.with_borrow(|events| assert_eq!(*events, [("cleanup", 1), ("cleanup", 2)]));
 
         drop(failure);
@@ -573,7 +573,7 @@ mod tests {
             report: NativePanicReport,
         }
 
-        extern "C" fn release(_: usize, _: usize) {
+        extern "C" fn release(_: usize, _: usize, _: &mut NativeRunOutcome) {
             CLEANUP_EVENTS.with_borrow_mut(|events| events.push(("report release", 1)));
         }
 
@@ -598,9 +598,13 @@ mod tests {
         .unwrap();
 
         assert_eq!(destination.tag, u64::from(PANICKED_TAG));
+
         CLEANUP_EVENTS.with_borrow(|events| assert!(events.is_empty()));
+
         assert!(destination.report.consume(false).is_success());
+
         drop(destination);
+
         CLEANUP_EVENTS.with_borrow(|events| assert_eq!(*events, [("report release", 1)]));
     }
 

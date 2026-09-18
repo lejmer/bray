@@ -131,8 +131,7 @@ impl NativeRuntime {
             unreachable!("allocated task was checked under the same lock");
         };
 
-        frame.outgoing = admission.outgoing.take_one();
-        frame.outgoing.append(&mut admission.outgoing.take_one());
+        frame.outgoing = admission.outgoing.take(4);
 
         let run =
             super::super::run::NativeRun::new(frame, crate::outgoing::OutgoingRecords::default());
@@ -576,7 +575,7 @@ impl NativeRuntime {
                     .clear();
 
                 self.transfer_cleanup_incidents(&task);
-                let outcome = task_outcome(outcome, &task.task);
+                let outcome = task_outcome(outcome);
 
                 self.tasks
                     .lock()

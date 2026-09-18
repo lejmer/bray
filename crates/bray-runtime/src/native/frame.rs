@@ -108,11 +108,14 @@ impl NativeFrame {
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(payload);
     }
 
-    fn record_cleanup_incident(&self, payload: Box<dyn std::any::Any + Send>) {
-        self.record_cleanup_report(RuntimePanic::from_payload(payload));
+    fn record_cleanup_incident(&mut self, payload: Box<dyn std::any::Any + Send>) {
+        let report = RuntimePanic::from_payload(payload, &mut self.outgoing);
+
+        self.record_cleanup_report(report);
     }
 
-    fn record_cleanup_report(&self, report: RuntimePanic) {
+    fn record_cleanup_report(&mut self, mut report: RuntimePanic) {
+        report.reserve_from(&mut self.outgoing);
         self.terminal.record_cleanup_report(report);
     }
 }
@@ -163,7 +166,7 @@ impl ProtectedFrame for NativeFrame {
         if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
             callback(&mut progress, frame.abi.context())
         })) {
-            let panic = RuntimePanic::from_payload(payload);
+            let panic = RuntimePanic::from_payload(payload, &mut frame.outgoing);
 
             return FrameProgress::Panicked(
                 if progress.kind() == NativeFrameProgressKind::PANICKED {
@@ -235,7 +238,7 @@ impl ProtectedFrame for NativeFrame {
         FrameProgress::RuntimeFailure
     }
 
-    fn broadcast_tasks(self: Pin<&mut Self>) {
+    fn broadcast_tasks(mut self: Pin<&mut Self>) {
         if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
             self.abi.broadcast_tasks()(self.abi.context());
         })) {
