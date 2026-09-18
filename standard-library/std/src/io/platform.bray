@@ -326,6 +326,7 @@ trusted internal func write_standard_output_unlocked(pos source: &[u8]) -> Resul
 
 /// Writes one transfer to standard error without acquiring its stream lock.
 trusted func write_standard_error_unlocked(pos source: &[u8]) -> Result<usize, IoError>
+    requires(blocking_execution())
 {
     let requested: usize = source.length();
     let mut transferred: u64 = 0;

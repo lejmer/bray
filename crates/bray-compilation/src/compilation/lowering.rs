@@ -449,7 +449,7 @@ mod tests {
     use bray_diagnostics::DiagnosticResult;
     use bray_ir::{
         MirAggregateKind, MirBinaryOperator, MirCallIntrinsic, MirCallTarget, MirImmediateValue,
-        MirOperand, MirOperationKind, MirPanicCause, MirProjectionKind, MirStoreKind,
+        MirOperand, MirOperationKind, MirPanicCause, MirProjectionKind, MirStorageKind, MirStoreKind,
         MirTerminatorKind, MirTextOperationKind, MirUnit, MirValueOrigin,
     };
     use bray_lowering::LoweredUnit;
@@ -3589,6 +3589,41 @@ func main() -> i32?
         let ty = values.type_data(place.ty());
 
         assert!(matches!(ty.as_ref(), TypeData::Nullable(_)));
+    }
+
+    #[test]
+    fn nested_generic_static_indexes_retain_both_selected_instances() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "internal static VALUES<const N: usize>: [usize; 2] = [N, N];\n",
+            "public func read() -> usize\n",
+            "{\n",
+            "    return VALUES<1>[VALUES<2>[0] - 2];\n",
+            "}\n",
+        ));
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let lowered = compilation
+            .lowered_unit(source_function_body_key(&compilation, "read"))
+            .unwrap_or_else(|error| panic!("nested static indexes must lower: {error:?}"));
+
+        let mir = lowered_mir(&lowered);
+
+        let selections = mir
+            .storages()
+            .iter()
+            .filter_map(|storage| match storage.kind() {
+                MirStorageKind::Static(selection) => Some(selection),
+                _ => None,
+            })
+            .collect::<BTreeSet<_>>();
+
+        assert_eq!(selections.len(), 2, "{mir:#?}");
     }
 
     fn lowering_compilation() -> Compilation {

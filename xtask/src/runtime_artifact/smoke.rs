@@ -204,7 +204,42 @@ fn smoke_test_observation(
         "performance observation interval is not active",
     )?;
 
+    require_observation_mode_failure(
+        &executable,
+        "repeated-begin",
+        &invalid,
+        "performance observation interval is already active",
+    )?;
+
+    require_observation_mode_failure(
+        &executable,
+        "record-cap",
+        &invalid,
+        "performance observation record limit exceeded",
+    )?;
+
     audit_observation_link_map(&map)
+}
+
+fn require_observation_mode_failure(
+    executable: &Path,
+    mode: &str,
+    output: &Path,
+    expected: &str,
+) -> Result<(), CommandError> {
+    let execution = Command::new(executable)
+        .arg(mode)
+        .env(
+            bray_runtime_abi::PERFORMANCE_OBSERVATION_PATH_ENVIRONMENT,
+            output,
+        )
+        .output()
+        .map_err(|error| CommandError::SmokeExecution {
+            name: "observation invalid mode",
+            error,
+        })?;
+
+    require_observation_failure(&execution, expected)
 }
 
 fn require_observation_success(

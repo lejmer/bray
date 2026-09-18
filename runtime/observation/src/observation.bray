@@ -29,6 +29,7 @@ internal static INTERVAL_ACTIVE: core.atomic.Atomic<u32> = core.atomic.initializ
 internal static INTERVAL_STARTED: core.atomic.Atomic<u64> = core.atomic.initialize<u64>(0);
 
 trusted internal func fatal(pos message: string) -> never
+    requires(blocking_execution())
     uses(intrinsic)
 {
     let bytes: &[u8] = message.as_bytes();
@@ -47,6 +48,7 @@ trusted internal func fatal(pos message: string) -> never
 }
 
 trusted internal func acquire_state()
+    requires(blocking_execution())
 {
     trusted std.sync.acquire_blocking_word_lock(&STATE_LOCK);
 }
@@ -57,6 +59,7 @@ trusted internal func release_state()
 }
 
 trusted internal func observation_path() -> std.path.Path
+    requires(blocking_execution())
 {
     let key_text: string = "BRAY_PERFORMANCE_OBSERVATION_PATH";
     let key_result: Result<std.path.NativeText, std.path.PathError> = std.path.NativeText.from_string(&key_text);
@@ -81,6 +84,7 @@ trusted internal func observation_path() -> std.path.Path
 }
 
 trusted internal func write_bytes(pos bytes: &[u8])
+    requires(blocking_execution())
 {
     let handle: u64 = core.atomic.load<u64, 0>(&OUTPUT_HANDLE);
 
@@ -92,6 +96,7 @@ trusted internal func write_bytes(pos bytes: &[u8])
 }
 
 trusted internal func record(pos kind: u8, pos value: u64)
+    requires(blocking_execution())
 {
     let count: u64 = core.atomic.load<u64, 0>(&RECORD_COUNT);
 
@@ -117,6 +122,7 @@ trusted internal func record(pos kind: u8, pos value: u64)
 }
 
 trusted internal func observed_size(pos bytes: usize) -> u64
+    requires(blocking_execution())
 {
     let value: u64 = bytes as u64;
 
@@ -129,6 +135,7 @@ trusted internal func observed_size(pos bytes: usize) -> u64
 }
 
 trusted internal func monotonic_ticks() -> u64
+    requires(blocking_execution())
 {
     match consume trusted std.time.monotonic_nanoseconds()
     {
@@ -139,6 +146,7 @@ trusted internal func monotonic_ticks() -> u64
 
 @abi(c)
 trusted internal func memory_observation_begin()
+    requires(blocking_execution())
 {
     trusted internal acquire_state();
 
@@ -173,6 +181,7 @@ trusted internal func memory_observation_begin()
 
 @abi(c)
 trusted internal func memory_allocation_observation(pos bytes: usize)
+    requires(blocking_execution())
 {
     trusted internal acquire_state();
 
@@ -187,6 +196,7 @@ trusted internal func memory_allocation_observation(pos bytes: usize)
 
 @abi(c)
 trusted internal func memory_copy_observation(pos bytes: usize)
+    requires(blocking_execution())
 {
     trusted internal acquire_state();
 
@@ -201,6 +211,7 @@ trusted internal func memory_copy_observation(pos bytes: usize)
 
 @abi(c)
 trusted internal func performance_interval_begin()
+    requires(blocking_execution())
 {
     trusted internal acquire_state();
 
@@ -221,7 +232,10 @@ trusted internal func performance_interval_begin()
 
 @abi(c)
 trusted internal func performance_interval_end()
+    requires(blocking_execution())
 {
+    let ended: u64 = trusted internal monotonic_ticks();
+
     trusted internal acquire_state();
 
     if core.atomic.load<u32, 0>(&INITIALIZED) == 0
@@ -235,7 +249,6 @@ trusted internal func performance_interval_end()
     }
 
     let started: u64 = core.atomic.load<u64, 0>(&INTERVAL_STARTED);
-    let ended: u64 = trusted internal monotonic_ticks();
 
     if ended < started
     {

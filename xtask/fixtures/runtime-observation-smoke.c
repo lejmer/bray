@@ -1,4 +1,5 @@
 #include <stddef.h>
+#include <stdint.h>
 #include <string.h>
 
 extern void bray_runtime_memory_observation_begin(void);
@@ -33,6 +34,30 @@ int main(int argc, char **argv)
     {
         bray_runtime_memory_observation_begin();
         bray_runtime_performance_interval_end();
+
+        return 0;
+    }
+
+    if (strcmp(argv[1], "repeated-begin") == 0)
+    {
+        bray_runtime_memory_observation_begin();
+        bray_runtime_performance_interval_begin();
+        bray_runtime_performance_interval_begin();
+
+        return 0;
+    }
+
+    if (strcmp(argv[1], "record-cap") == 0)
+    {
+        uint64_t record = 0;
+
+        bray_runtime_memory_observation_begin();
+
+        while (record <= UINT64_C(1000000))
+        {
+            bray_runtime_memory_allocation_observation(1);
+            ++record;
+        }
 
         return 0;
     }

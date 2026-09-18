@@ -42,7 +42,10 @@ pub(super) fn static_reference(
                 panic!("lowering contract violation: MissingExpression {candidate:?}")
             });
 
+        let child_start = pending.len();
+
         pending.extend(node.child_expressions());
+        pending[child_start..].reverse();
     }
 
     panic!("lowering contract violation: MissingSemanticSelection {expression:?}")

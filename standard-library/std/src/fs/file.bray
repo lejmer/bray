@@ -114,6 +114,7 @@ trusted internal func open_file(pos path: &std.path.Path, options: OpenOptions) 
 
 /// Opens one file as a scalar handle owned until `close_file_handle` or process termination.
 trusted func open_file_handle(pos path: &std.path.Path, options: OpenOptions) -> Result<u64, std.io.IoError>
+    requires(blocking_execution())
 {
     let platform_path_value: PlatformPath = platform_path(path);
 
@@ -168,6 +169,7 @@ trusted internal func close_file(pos file: &mut File) -> Result<unit, std.io.IoE
 
 /// Closes one owned scalar file handle.
 trusted func close_file_handle(pos handle: u64) -> Result<unit, std.io.IoError>
+    requires(blocking_execution())
 {
     return checked_platform_status(trusted platform_file_close(handle = handle));
 }
@@ -235,6 +237,7 @@ trusted internal func write_file(pos file: &mut File, pos source: &[u8]) -> Resu
 }
 
 trusted internal func write_file_handle(pos handle: u64, pos source: &[u8]) -> Result<usize, std.io.IoError>
+    requires(blocking_execution())
 {
     let maximum: usize = source.length();
     let source_pointer: RawPointer<u8> = internal std.memory.byte_slice_pointer(source);
@@ -258,6 +261,7 @@ trusted internal func write_file_handle(pos handle: u64, pos source: &[u8]) -> R
 
 /// Writes an entire byte slice to a scalar file handle owned by a trusted runtime component.
 trusted func write_all_file_handle(pos handle: u64, pos source: &[u8]) -> Result<unit, std.io.IoError>
+    requires(blocking_execution())
 {
     let mut written: usize = 0;
 

@@ -81,7 +81,7 @@ macro_rules! runtime_role_catalog {
                 call_hook: (),
                 compiler: C [Usize, Usize] -> U32,
                 owner: Host, availability: All, bootstrap: ("runtime_initialization"), host_control: false,
-                capabilities: [PerformanceObservation],
+                capabilities: [],
                 effects: [InitializeRuntime]
             }
             MemoryObservationBegin {
@@ -126,7 +126,7 @@ macro_rules! runtime_role_catalog {
                 call_hook: (),
                 compiler: C [] -> Void,
                 owner: Observation, availability: All, bootstrap: ("performance_interval_end"), host_control: false,
-                capabilities: [],
+                capabilities: [PerformanceObservation],
                 effects: []
             }
             RootExecution {
