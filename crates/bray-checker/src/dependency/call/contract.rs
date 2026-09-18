@@ -454,6 +454,7 @@ mod tests {
             argument,
             BoundCallResult::Immediate(error_type()),
             error_type(),
+            None,
         );
 
         let contracts = selected_contracts(&unit, &storage, call_expression, &call);
@@ -582,9 +583,10 @@ mod tests {
             })
             .unwrap_or_else(|error| panic!("borrowed test type must intern: {error:?}"));
 
-        for (target_type, expected_access) in [
-            (error_type(), future_access),
-            (borrowed_type, argument_access),
+        for (target_type, reborrow, expected_access) in [
+            (error_type(), None, future_access),
+            (borrowed_type, Some(BorrowKind::Shared), argument_access),
+            (borrowed_type, None, future_access),
         ] {
             let callable_type =
                 indirect_callable_type(CallableDependencyContracts::asynchronous(empty, deferred));
@@ -597,6 +599,7 @@ mod tests {
                     error_type(),
                 )),
                 target_type,
+                reborrow,
             );
 
             let contracts = selected_contracts(&unit, &storage, call_expression, &call);
@@ -672,6 +675,7 @@ mod tests {
             argument,
             BoundCallResult::Immediate(error_type()),
             error_type(),
+            None,
         )
         .with_implementation_hook(Some(implementation));
 
@@ -847,6 +851,7 @@ mod tests {
         argument: bray_bound_tree::BoundExpressionId,
         result: BoundCallResult,
         target_type: TypeId,
+        reborrow: Option<BorrowKind>,
     ) -> SelectedCall {
         SelectedCall::new(
             BoundResolvedCall::new(BoundCallableTarget::Indirect(callable_type), [], result),
@@ -857,6 +862,7 @@ mod tests {
                 expression: argument,
                 parameter: None,
                 ordinal: 0,
+                reborrow,
                 conversion: bray_bound_tree::SelectedConversion::new(
                     error_type(),
                     target_type,

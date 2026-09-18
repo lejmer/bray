@@ -1002,6 +1002,86 @@ fn runtime_defaults_reborrow_array_targets() {
 }
 
 #[test]
+fn implicit_call_reborrows_preserve_source_and_imported_parameter_modes() {
+    let declaration = r#"
+public func touch<T>(pos value: &mut T)
+{
+}
+
+public func take<T>(pos value: T)
+{
+}
+
+public func same(pos value: &mut bool) -> &mut bool
+{
+    return value;
+}
+"#;
+
+    let provider = compilation(&format!("module api;\n{declaration}"));
+    assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+
+    let moved = bray_diagnostics::DiagnosticKind::CheckingUseOfMovedStorage;
+    let conflict = bray_diagnostics::DiagnosticKind::CheckingConflictingBorrow;
+
+    for (body, expected) in [
+        (r#"let local: &mut bool = caller;
+
+    touch(local);
+    touch(local);"#, None),
+        (r#"let local: &mut bool = same(caller);
+
+    touch(local);
+    touch(local);"#, None),
+        (r#"let local: &mut bool = caller;
+
+    take(local);
+    touch(local);"#, Some(moved)),
+        (r#"let local: &mut bool = caller;
+    let escaped: &mut bool = same(local);
+
+    touch(local);
+    touch(escaped);"#, Some(conflict)),
+    ] {
+        let body = format!(r#"
+func check(pos caller: &mut bool)
+{{
+    {body}
+}}
+"#);
+
+        let source = compilation(&format!("module app;\n{declaration}\n{body}"));
+
+        let imported_body = body
+            .replace("touch(", "example.package.api.touch(")
+            .replace("take(", "example.package.api.take(")
+            .replace("same(", "example.package.api.same(");
+
+        let imported = execution_consumer(
+            &provider,
+            &format!("module app;\nusing example.package.api;\n{imported_body}"),
+        );
+
+        for consumer in [&source, &imported] {
+            let diagnostics = consumer.check_diagnostics();
+
+            if let Some(expected) = expected {
+                bray_testing::assert_goal_state_diagnostic_kind(&diagnostics, expected);
+            } else {
+                assert!(!diagnostics.has_errors(), "{body}: {diagnostics:?}");
+                let key = source_function_body_key(consumer, "check");
+
+                let lowered = consumer
+                    .lowered_unit(key)
+                    .expect("source or imported call reborrow lowering");
+
+                assert!(!lowered.diagnostics().has_errors(), "{body}: {:?}", lowered.diagnostics());
+            }
+        }
+    }
+}
+
+#[test]
 fn returned_values_preserve_default_wrapper_dependencies_in_interfaces() {
     let provider = compilation(
         r#"

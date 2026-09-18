@@ -2,12 +2,34 @@ use crate::lowering::LoweringError;
 use crate::lowering::block::LoweredExpression;
 use crate::lowering::lowerer::Lowerer;
 use bray_bound_tree::{BoundExpressionId, SelectedReceiver, StorageAccessPurpose};
-use bray_ir::{
-    MirBlockId, MirOperand, MirOperationKind, MirPlace, MirProjection, MirProjectionKind,
-};
+use bray_ir::{MirBlockId, MirOperand, MirOperationKind, MirPlace};
 use bray_symbols::{BorrowKind, ConstantValueKind, ReceiverMode, TypeData, TypeId};
 
 impl Lowerer<'_> {
+    pub(in crate::lowering::expression) fn lower_call_argument(
+        &mut self,
+        expression: BoundExpressionId,
+        reborrow: Option<BorrowKind>,
+        current: MirBlockId,
+    ) -> Result<LoweredExpression, LoweringError> {
+        let Some(kind) = reborrow else {
+            return self.lower_expression(expression, current);
+        };
+
+        let result_type = self.expression_type(expression);
+        let data = self.input.semantic_values().type_data(result_type);
+
+        let TypeData::Borrow { target, .. } = data.as_ref() else {
+            panic!("selected call reborrow must have a borrow argument type");
+        };
+
+        let source = self.expression_source(expression);
+
+        self.lower_storage_borrow(
+            expression, expression, current, kind, *target, result_type, source,
+        )
+    }
+
     pub(in crate::lowering::expression) fn lower_borrow(
         &mut self,
         id: BoundExpressionId,
@@ -109,52 +131,26 @@ impl Lowerer<'_> {
             purpose == StorageAccessPurpose::Borrow(kind)
         });
 
+        let storage = self.input.storage_plan();
+
+        let access = storage.access(decision.access())
+            .and_then(|access| match access.root() {
+                bray_bound_tree::StorageAccessRoot::Borrow(capability) => Some(capability),
+                _ => None,
+            })
+            .and_then(|id| storage.borrow_capability(id))
+            .filter(|borrow| borrow.expression() == Some(access_expression))
+            .map_or(decision.access(), |borrow| borrow.access());
+
         self.lower_materialized_access_place_with(
             initialization_expression,
-            decision.access(),
+            access,
             current,
             |lowerer, current, place| {
                 let mut projections = place.projections().to_vec();
-                let mut place_type = place.ty();
 
-                let parameter_type = lowerer
-                    .input
-                    .storage_plan()
-                    .root_identity(decision.access())
-                    .and_then(|identity| lowerer.input.storage_plan().storage_type(identity));
-
-                let parameter_borrow = if let Some(ty) = parameter_type {
-                    let data = lowerer.input.semantic_values().type_data(ty);
-
-                    match data.as_ref() {
-                        TypeData::Borrow { target, .. } => Some((ty, *target)),
-                        _ => None,
-                    }
-                } else {
-                    None
-                };
-
-                let already_dereferenced = projections
-                    .first()
-                    .is_some_and(|projection| projection.kind() == &MirProjectionKind::Dereference);
-
-                if let Some((parameter_type, reached_type)) = parameter_borrow
-                    && !already_dereferenced
-                {
-                    projections.insert(
-                        0,
-                        MirProjection::new(
-                            MirProjectionKind::Dereference,
-                            parameter_type,
-                            reached_type,
-                        ),
-                    );
-
-                    place_type = reached_type;
-                }
-
-                place_type =
-                    lowerer.append_reached_dereference(place_type, target, &mut projections);
+                let place_type =
+                    lowerer.append_reached_dereference(place.ty(), target, &mut projections);
 
                 let place = MirPlace::new(place.storage(), projections, place_type);
 

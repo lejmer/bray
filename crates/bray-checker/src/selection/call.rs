@@ -8,7 +8,7 @@ use bray_bound_tree::{
     SelectedImplementationWitness, SelectedReceiver,
 };
 use bray_symbols::{
-    CallableAbi, CallableParameterDefaultProviderSymbolId, CallableParameterSignature,
+    CallableAbi, CallableParameterDefaultProviderSymbolId,
     CallableParameterSymbolId, CallablePosition, CallableSignature, CallableTypeData,
     ImplementationSelection, ReceiverMode, TypeData,
 };
@@ -412,10 +412,7 @@ where
         input.mode,
         input.arguments,
         callable_type,
-        candidate
-            .declaration_signature()
-            .map(CallableSignature::parameters),
-        candidate.defaults(),
+        candidate,
         on_argument,
     )? {
         ArgumentMapping::Mapped { recovered } => recovered,
@@ -696,14 +693,13 @@ fn map_arguments(
     mode: CallableSelectionMode,
     arguments: &[BoundArgument],
     callable: &CallableTypeData,
-    signatures: Option<&[CallableParameterSignature]>,
-    defaults: &[(
-        CallableParameterSymbolId,
-        CallableParameterDefaultProviderSymbolId,
-    )],
+    candidate: &CallableCandidate,
     on_argument: &mut impl FnMut(SelectedArgument),
 ) -> Result<ArgumentMapping, CheckerInfrastructureError> {
     let parameters = callable.parameters();
+    let signatures = candidate.declaration_signature().map(CallableSignature::parameters);
+    let defaults = candidate.defaults();
+    let parameter_borrows = candidate.parameter_borrows();
 
     let parameter_indices = match map_argument_parameter_indices_for_diagnostic(
         arguments,
@@ -734,6 +730,7 @@ fn map_arguments(
                 parameter: None,
                 ordinal,
                 conversion,
+                reborrow: None,
             });
 
             continue;
@@ -769,6 +766,13 @@ fn map_arguments(
             conversion: conversion.unwrap_or_else(|| {
                 SelectedConversion::new(actual.ty(), expected, ConversionTarget::Identity)
             }),
+            reborrow: parameter_borrows.map_or_else(
+                || match request.semantic_values().type_data(expected).as_ref() {
+                    TypeData::Borrow { kind, .. } => Some(*kind),
+                    _ => None,
+                },
+                |borrows| borrows[parameter_index],
+            ),
         });
     }
 
@@ -1150,6 +1154,7 @@ mod tests {
                     expression: fixture.argument,
                     parameter: Some(parameter(2)),
                     ordinal: 1,
+                    reborrow: None,
                     conversion: SelectedConversion::new(
                         fixture.value_type,
                         fixture.value_type,

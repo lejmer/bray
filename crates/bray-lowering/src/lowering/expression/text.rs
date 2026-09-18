@@ -115,6 +115,7 @@ impl Lowerer<'_> {
             let SelectedArgument::Explicit {
                 expression,
                 conversion,
+                reborrow,
                 ..
             } = argument
             else {
@@ -124,7 +125,9 @@ impl Lowerer<'_> {
                 );
             };
 
-            let lowered = self.lower_text_operand(id, *expression, current, &source, conversion)?;
+            let lowered = self.lower_text_operand(
+                id, *expression, current, &source, conversion, *reborrow,
+            )?;
 
             let Some(continuation) = lowered.block else {
                 return Ok(lowered);
@@ -174,8 +177,9 @@ impl Lowerer<'_> {
         current: MirBlockId,
         source: &MirSourceAnchor,
         conversion: &bray_bound_tree::SelectedConversion,
+        reborrow: Option<bray_symbols::BorrowKind>,
     ) -> Result<LoweredExpression, LoweringError> {
-        let lowered = self.lower_expression(expression, current)?;
+        let lowered = self.lower_call_argument(expression, reborrow, current)?;
 
         let Some(current) = lowered.block else {
             return Ok(lowered);

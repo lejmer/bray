@@ -283,6 +283,24 @@ impl StoragePlan {
         relationship.unwrap_or(StorageRelationship::Error)
     }
 
+    /// Compares stored values without following the source dependencies of retained borrows.
+    pub fn value_relationship(
+        &self,
+        left: StorageAccessId,
+        right: StorageAccessId,
+    ) -> StorageRelationship {
+        let (Some(left), Some(right)) = (self.resolved_access(left), self.resolved_access(right))
+        else {
+            return StorageRelationship::Error;
+        };
+
+        if left.logical_root != right.logical_root {
+            return StorageRelationship::Disjoint;
+        }
+
+        projection_relationship(&left.logical_projections, &right.logical_projections)
+    }
+
     /// Returns the persistent storage root reached by one access.
     pub fn root_identity(&self, access: StorageAccessId) -> Option<StorageIdentityId> {
         self.resolved_access(access)
@@ -729,6 +747,10 @@ mod tests {
             plan.relationship(owner_access, first),
             StorageRelationship::Disjoint
         );
+
+        assert_eq!(plan.value_relationship(owner_access, first), StorageRelationship::Disjoint);
+        assert_eq!(plan.value_relationship(first, child_access), StorageRelationship::Identical);
+        assert_eq!(plan.value_relationship(first, second), StorageRelationship::Disjoint);
 
         assert_ne!(
             plan.relationship(owner_access, second),

@@ -1232,6 +1232,7 @@ mod tests {
                         ty,
                         bray_bound_tree::ConversionTarget::Identity,
                     ),
+                    reborrow: None,
                 }
             })
             .collect::<Vec<_>>();

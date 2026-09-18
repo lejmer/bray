@@ -47,11 +47,9 @@ where
 
         let access = self.operation_access(plan, purpose);
 
-        if let Some(kind) = self.projected_storage_borrow_kind(access) {
-            if requested != BorrowKind::Mutable || kind != BorrowKind::Shared {
-                return Ok(None);
-            }
-
+        if requested == BorrowKind::Mutable
+            && self.projected_storage_borrow_kind(access) == Some(BorrowKind::Shared)
+        {
             let origin = self
                 .storage
                 .access(access)

@@ -37,6 +37,7 @@ impl Lowerer<'_> {
                 expression,
                 ordinal,
                 conversion,
+                reborrow,
                 ..
             } = argument
             else {
@@ -46,15 +47,15 @@ impl Lowerer<'_> {
                 );
             };
 
-            selected_arguments.push((*ordinal, *expression, conversion));
+            selected_arguments.push((*ordinal, *expression, conversion, *reborrow));
         }
 
-        selected_arguments.sort_unstable_by_key(|(ordinal, _, _)| *ordinal);
+        selected_arguments.sort_unstable_by_key(|(ordinal, _, _, _)| *ordinal);
 
         if selected_arguments.len() != operation.arguments().len()
             || selected_arguments
                 .iter()
-                .map(|(_, expression, _)| expression)
+                .map(|(_, expression, _, _)| expression)
                 .ne(operation.arguments())
         {
             panic!(
@@ -66,7 +67,9 @@ impl Lowerer<'_> {
         let mut arguments = Vec::with_capacity(operation.arguments().len());
         let mut inline_assembly_labels = None;
 
-        for (index, (ordinal, expression, conversion)) in selected_arguments.iter().enumerate() {
+        for (index, (ordinal, expression, conversion, reborrow)) in
+            selected_arguments.iter().enumerate()
+        {
             let ordinal = memory_argument_index(id, *ordinal);
 
             if matches!(
@@ -103,7 +106,7 @@ impl Lowerer<'_> {
 
                 self.lower_inline_assembly_inputs(*expression, current, contract)?
             } else {
-                self.lower_expression(*expression, current)?
+                self.lower_call_argument(*expression, *reborrow, current)?
             };
 
             let Some(continuation) = lowered.block else {
@@ -146,7 +149,7 @@ impl Lowerer<'_> {
             let later_expressions =
                 selected_arguments[index + 1..]
                     .iter()
-                    .filter_map(|(ordinal, expression, _)| {
+                    .filter_map(|(ordinal, expression, _, _)| {
                         usize::try_from(*ordinal)
                             .is_ok_and(|ordinal| is_runtime_expression(kind, ordinal))
                             .then_some(*expression)

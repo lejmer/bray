@@ -1057,8 +1057,9 @@ impl Lowerer<'_> {
                     parameter,
                     ordinal,
                     conversion,
+                    reborrow,
                 } => {
-                    let lowered = self.lower_expression(*expression, current)?;
+                    let lowered = self.lower_call_argument(*expression, *reborrow, current)?;
 
                     let Some(continuation) = lowered.block else {
                         return Ok(lowered);

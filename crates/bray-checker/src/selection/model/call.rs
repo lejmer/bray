@@ -103,6 +103,7 @@ pub struct CallableCandidate {
     resolution: BoundResolvedCall,
     callable_type: TypeId,
     declaration_signature: Option<CallableSignature>,
+    parameter_borrows: Option<Arc<[Option<bray_symbols::BorrowKind>]>>,
     contract: Option<Arc<CallableContractTemplate>>,
     result: TypeId,
     defaults: Arc<
@@ -148,6 +149,7 @@ impl CallableCandidate {
             callable_type: signature.callable_type(),
             result: signature.result(),
             declaration_signature: Some(signature),
+            parameter_borrows: None,
             contract: None,
             defaults: defaults.into(),
             generic_constraints: Arc::new([]),
@@ -170,6 +172,7 @@ impl CallableCandidate {
             resolution,
             callable_type,
             declaration_signature: None,
+            parameter_borrows: None,
             contract: None,
             result,
             defaults: Arc::new([]),
@@ -220,6 +223,7 @@ impl CallableCandidate {
             resolution,
             callable_type,
             declaration_signature: None,
+            parameter_borrows: None,
             contract: None,
             result,
             defaults: Arc::new([]),
@@ -228,6 +232,20 @@ impl CallableCandidate {
             implementation_selections: Arc::new([]),
             state,
         }
+    }
+
+    /// Preserves declared parameter borrowing before generic substitution.
+    pub(crate) fn with_parameter_borrows(
+        mut self,
+        borrows: impl IntoIterator<Item = Option<bray_symbols::BorrowKind>>,
+    ) -> Self {
+        self.parameter_borrows = Some(shared_slice(borrows));
+
+        self
+    }
+
+    pub(crate) fn parameter_borrows(&self) -> Option<&[Option<bray_symbols::BorrowKind>]> {
+        self.parameter_borrows.as_deref()
     }
 
     /// Supplies declaration constraints retained with this candidate's substitution.

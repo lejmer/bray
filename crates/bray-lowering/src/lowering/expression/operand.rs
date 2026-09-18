@@ -2,7 +2,7 @@ use bray_bound_tree::{
     BoundExpressionId, SelectedOperation, StorageAccessPurpose, StorageIdentity,
 };
 use bray_ir::{
-    MirBlockId, MirOperand, MirOperationKind, MirPlace, MirProjection, MirProjectionKind,
+    MirBlockId, MirOperand, MirPlace, MirProjection, MirProjectionKind,
 };
 use bray_symbols::{AnySymbolId, TypeData};
 
@@ -98,32 +98,6 @@ impl Lowerer<'_> {
                     let expression_type = lowerer.expression_type(expression);
 
                     let place_data = lowerer.input.semantic_values().type_data(place.ty());
-
-                    if let TypeData::Borrow { kind, target } = place_data.as_ref()
-                        && expression_type == place.ty()
-                    {
-                        let target = MirPlace::new(
-                            place.storage(),
-                            [MirProjection::new(
-                                MirProjectionKind::Dereference,
-                                place.ty(),
-                                *target,
-                            )],
-                            *target,
-                        );
-
-                        let value = lowerer.push_value_operation(
-                            expression,
-                            block,
-                            Self::retained_source(&source),
-                            MirOperationKind::Borrow {
-                                kind: *kind,
-                                place: target,
-                            },
-                        )?;
-
-                        return Ok(LoweredExpression::continuing(block, Some(value), source));
-                    }
 
                     if let TypeData::Borrow { target, .. } = place_data.as_ref()
                         && expression_type == *target

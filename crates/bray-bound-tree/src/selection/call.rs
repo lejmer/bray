@@ -124,6 +124,8 @@ pub enum SelectedArgument {
         ordinal: u32,
         /// The checked conversion into the parameter type.
         conversion: SelectedConversion,
+        /// The declared borrow parameter reborrowed for this call, before type substitution.
+        reborrow: Option<bray_symbols::BorrowKind>,
     },
     /// An omitted parameter supplied by its declaration-owned default provider.
     Default {

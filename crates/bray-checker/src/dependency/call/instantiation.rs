@@ -5,7 +5,7 @@ use bray_bound_tree::{
 };
 use bray_symbols::{
     DependencyGuard, DependencyProjection, DependencyRequirementKind, DependencySubject,
-    DependencySubjectRoot, ReceiverMode, SymbolOrdinal, TypeData,
+    DependencySubjectRoot, ReceiverMode, SymbolOrdinal,
 };
 
 use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
@@ -147,13 +147,7 @@ where
                 });
 
                 match argument {
-                    Some(SelectedArgument::Explicit { conversion, .. }) => !matches!(
-                        self.request
-                            .semantic_values()
-                            .type_data(conversion.target_type())
-                            .as_ref(),
-                        TypeData::Borrow { .. }
-                    ),
+                    Some(SelectedArgument::Explicit { reborrow, .. }) => reborrow.is_none(),
                     Some(SelectedArgument::Default { .. }) => true,
                     None => false,
                 }
