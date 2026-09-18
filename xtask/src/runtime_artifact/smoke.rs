@@ -218,6 +218,20 @@ fn smoke_test_observation(
         "performance observation record limit exceeded",
     )?;
 
+    let record_cap_length = fs::metadata(&invalid)
+        .map_err(|error| CommandError::read(&invalid, error))?
+        .len();
+
+    let expected_record_cap_length =
+        bray_runtime_abi::PERFORMANCE_OBSERVATION_HEADER.len() as u64
+            + bray_runtime_abi::MAX_PERFORMANCE_OBSERVATION_RECORDS * 9;
+
+    if record_cap_length != expected_record_cap_length {
+        return Err(CommandError::ObservationSmoke(format!(
+            "record-cap session produced {record_cap_length} bytes instead of {expected_record_cap_length}"
+        )));
+    }
+
     audit_observation_link_map(&map)
 }
 
