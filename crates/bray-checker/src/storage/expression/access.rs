@@ -713,7 +713,10 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
             return Ok(purpose);
         }
 
-        let ty = self.request.semantic_values().type_data(record.reached_type());
+        let ty = self
+            .request
+            .semantic_values()
+            .type_data(record.reached_type());
 
         Ok(if matches!(ty.as_ref(), TypeData::Borrow { .. }) {
             StorageAccessPurpose::Read

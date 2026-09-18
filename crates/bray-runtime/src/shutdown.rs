@@ -35,10 +35,10 @@ impl CleanupIncidentMetadata {
     pub(crate) fn from_native(segment: bray_runtime_abi::NativeReportSegment) -> Self {
         Self {
             ordinal: segment.ordinal,
-            producer: std::num::NonZeroU64::new(segment.task).map_or(
-                CleanupIncidentProducer::SynchronousRoot,
-                |task| CleanupIncidentProducer::Task(TaskId::from_native(task)),
-            ),
+            producer: std::num::NonZeroU64::new(segment.task)
+                .map_or(CleanupIncidentProducer::SynchronousRoot, |task| {
+                    CleanupIncidentProducer::Task(TaskId::from_native(task))
+                }),
             origin: CleanupIncidentOrigin::new(
                 ProtectedAsyncFrameId::new(segment.frame),
                 ProtectedFrameStateId::new(segment.state),
@@ -76,7 +76,6 @@ impl CleanupIncident {
     pub const fn origin(&self) -> CleanupIncidentOrigin {
         self.metadata.origin
     }
-
 }
 
 impl Drop for CleanupIncident {

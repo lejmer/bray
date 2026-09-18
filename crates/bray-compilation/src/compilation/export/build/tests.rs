@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use bray_bound_tree::CheckedTemplateKind;
+use bray_checker::ConstantEvaluationLimits;
 use bray_compiler_known::{CompilerKnownDeclarationKey, RecognizedStandardLibraryDeclarationKey};
 use bray_ir::{MirOperationKind, MirProjectionKind};
 use bray_package_interface::{
@@ -13,10 +14,11 @@ use bray_package_interface::{
 use bray_runtime_interface::{PlatformServiceBinding, PlatformServiceRole};
 use bray_source::{SourceIdentity, SourceInput, SourceVersion};
 use bray_symbols::{
-    AnySymbolId, CallableParameterDefaultValue, ExternalSymbolKey, InherentImplementationSymbolId,
-    IntegerConstant, MemberLookupResult, ModulePathKey, PackageIdentity, ProductKind,
-    RuntimeDefaultTemplateReference, StaticStorageDuration, SymbolKey, SymbolKind, SymbolName,
-    TypeCallableMemberSymbolId, TypeExpressionTemplate,
+    AnySymbolId, CallableParameterDefaultValue, ConstantValueId, ConstantValueKind,
+    ExternalSymbolKey, InherentImplementationSymbolId, IntegerConstant, MemberLookupResult,
+    ModulePathKey, PackageIdentity, ProductKind, RuntimeDefaultTemplateReference,
+    StaticStorageDuration, SymbolKey, SymbolKind, SymbolName, TypeCallableMemberSymbolId,
+    TypeExpressionTemplate,
 };
 use bray_syntax::{SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_tree};
 use bray_testing::test_source_inputs;
@@ -1019,36 +1021,55 @@ public func same(pos value: &mut bool) -> &mut bool
 "#;
 
     let provider = compilation(&format!("module api;\n{declaration}"));
-    assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
 
     let moved = bray_diagnostics::DiagnosticKind::CheckingUseOfMovedStorage;
     let conflict = bray_diagnostics::DiagnosticKind::CheckingConflictingBorrow;
 
     for (body, expected) in [
-        (r#"let local: &mut bool = caller;
+        (
+            r#"let local: &mut bool = caller;
 
     touch(local);
-    touch(local);"#, None),
-        (r#"let local: &mut bool = same(caller);
+    touch(local);"#,
+            None,
+        ),
+        (
+            r#"let local: &mut bool = same(caller);
 
     touch(local);
-    touch(local);"#, None),
-        (r#"let local: &mut bool = caller;
+    touch(local);"#,
+            None,
+        ),
+        (
+            r#"let local: &mut bool = caller;
 
     take(local);
-    touch(local);"#, Some(moved)),
-        (r#"let local: &mut bool = caller;
+    touch(local);"#,
+            Some(moved),
+        ),
+        (
+            r#"let local: &mut bool = caller;
     let escaped: &mut bool = same(local);
 
     touch(local);
-    touch(escaped);"#, Some(conflict)),
+    touch(escaped);"#,
+            Some(conflict),
+        ),
     ] {
-        let body = format!(r#"
+        let body = format!(
+            r#"
 func check(pos caller: &mut bool)
 {{
     {body}
 }}
-"#);
+"#
+        );
 
         let source = compilation(&format!("module app;\n{declaration}\n{body}"));
 
@@ -1075,7 +1096,11 @@ func check(pos caller: &mut bool)
                     .lowered_unit(key)
                     .expect("source or imported call reborrow lowering");
 
-                assert!(!lowered.diagnostics().has_errors(), "{body}: {:?}", lowered.diagnostics());
+                assert!(
+                    !lowered.diagnostics().has_errors(),
+                    "{body}: {:?}",
+                    lowered.diagnostics()
+                );
             }
         }
     }
@@ -5030,6 +5055,211 @@ fn custom_indexing_is_rejected_during_constant_evaluation() {
         bray_diagnostics::DiagnosticKind::CheckingInvalidConstantExpression,
     );
 }
+
+#[test]
+fn aggregate_static_initializers_export_for_source_independent_consumers() {
+    let provider = compilation(
+        r#"
+        module api;
+
+        public struct Pair
+        {
+            public first: i32;
+            public second: i32;
+        }
+
+        public struct State
+        {
+            public nested: Pair;
+            public marker: i32;
+        }
+
+        public struct AtomicState
+        {
+            public value: core.atomic.Atomic<u32>;
+        }
+
+        public static Stored: State = State
+        {
+            marker = 39,
+            nested = Pair
+            {
+                second = 38,
+                first = 37
+            }
+        };
+
+        public static Generic<const N: i32>: State
+            with(true) = State
+        {
+            marker = N + 2,
+            nested = Pair
+            {
+                second = N + 1,
+                first = N
+            }
+        };
+
+        public static Atomic: AtomicState = AtomicState
+        {
+            value = core.atomic.initialize<u32>(0)
+        };
+    "#,
+    );
+
+    assert!(
+        provider.check_diagnostics().is_empty(),
+        "{:#?}",
+        provider.check_diagnostics()
+    );
+
+    let bundle = export(&provider);
+
+    assert!(
+        bundle
+            .semantics()
+            .checked_templates()
+            .iter()
+            .flat_map(|template| template.nodes())
+            .any(|node| matches!(
+                node.operation(),
+                InterfaceCheckedTemplateOperation::Product(_)
+            ))
+    );
+
+    let consumer = execution_consumer(
+        &provider,
+        r#"
+        module app;
+
+        using example.package.api;
+
+        func stored_value() -> i32
+        {
+            return example.package.api.Stored.nested.first;
+        }
+
+        func generic_value() -> i32
+        {
+            return example.package.api.Generic<41>.nested.second;
+        }
+
+        func atomic_value() -> &example.package.api.AtomicState
+        {
+            return &example.package.api.Atomic;
+        }
+    "#,
+    );
+
+    assert!(
+        consumer.check_diagnostics().is_empty(),
+        "{:#?}",
+        consumer.check_diagnostics()
+    );
+
+    let values = [
+        ("stored_value", vec![39, 38, 37]),
+        ("generic_value", vec![43, 42, 41]),
+        ("atomic_value", vec![0]),
+    ];
+
+    for (function, expected) in values {
+        let key = source_function_body_key(&consumer, function);
+
+        let lowered = consumer
+            .lowered_unit(key)
+            .unwrap_or_else(|error| panic!("imported aggregate static must lower: {error:?}"));
+
+        assert!(lowered.value().is_some(), "{:#?}", lowered.diagnostics());
+        assert!(lowered.diagnostics().is_empty(), "{:#?}", lowered.diagnostics());
+
+        let value = imported_static_initializer_value(&consumer, function);
+        let mut actual = Vec::new();
+        collect_integer_constants(&consumer, value, &mut actual);
+
+        assert_eq!(actual, expected, "{function}");
+    }
+}
+
+fn imported_static_initializer_value(consumer: &Compilation, function: &str) -> ConstantValueId {
+    let semantics = consumer
+        .expression_semantics_with_cancellation(
+            source_function_body_key(consumer, function),
+            &consumer.state.cancellation,
+        )
+        .unwrap_or_else(|error| panic!("imported static semantics must publish: {error:?}"));
+
+    let (expression, reference) = semantics
+        .result()
+        .value()
+        .selections()
+        .entries()
+        .iter()
+        .find_map(|entry| match entry.selection() {
+            bray_bound_tree::SemanticSelection::StaticReference(reference) => {
+                Some((entry.expression(), reference))
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("{function} must select an imported static"));
+
+    let instance = reference
+        .closed_instance()
+        .unwrap_or_else(|| panic!("{function} must select a closed static instance"));
+
+    let result_type = semantics
+        .result()
+        .value()
+        .types()
+        .expression(expression)
+        .unwrap_or_else(|| panic!("{function} static reference must have a checked type"))
+        .ty();
+
+    let template = consumer
+        .static_instance_template(instance.template().declaration())
+        .unwrap_or_else(|error| panic!("imported static template must resolve: {error:?}"));
+
+    let evaluated = consumer
+        .evaluate_static_initializer(
+            instance,
+            template.value().duration(),
+            result_type,
+            ConstantEvaluationLimits::default(),
+            &consumer.state.cancellation,
+        )
+        .unwrap_or_else(|error| panic!("imported static initializer must evaluate: {error:?}"));
+
+    assert!(evaluated.diagnostics().is_empty(), "{:#?}", evaluated.diagnostics());
+
+    evaluated.value().value()
+}
+
+fn collect_integer_constants(
+    compilation: &Compilation,
+    value: ConstantValueId,
+    integers: &mut Vec<u64>,
+) {
+    let values = compilation
+        .semantic_value_store()
+        .unwrap_or_else(|error| panic!("semantic values must load: {error:?}"));
+
+    let value = values.constant_value_data(value);
+
+    match value.kind() {
+        ConstantValueKind::Integer(value) => integers.push(
+            value
+                .to_u64()
+                .unwrap_or_else(|| panic!("fixture integer must fit in u64")),
+        ),
+        ConstantValueKind::Product(fields) => {
+            for field in fields.iter() {
+                collect_integer_constants(compilation, *field.value(), integers);
+            }
+        }
+        kind => panic!("aggregate fixture must contain products and integers, found {kind:?}"),
+    }
+}
+
 #[test]
 fn mutable_default_results_allow_field_writes() {
     let declarations = r#"

@@ -6,7 +6,7 @@ use bray_bound_tree::{
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
     AnySymbolId, CallableDefinitionId, CallableInstanceData, ConstantBinaryOperation,
-    ConstantInstanceKey, ConstantTermId, ConstantUnaryOperation, ConstantValueData,
+    ConstantField, ConstantInstanceKey, ConstantTermId, ConstantUnaryOperation, ConstantValueData,
     ConstantValueId, ConstantValueKind, GenericArgument, GenericParameterSymbolId,
     GenericSubstitutionId, ImplementationInstanceData, ImplementationSymbolId, TypeId,
 };
@@ -195,6 +195,28 @@ where
                     .map_err(TemplateEvaluationFailure::Diagnostic)?;
 
                 self.intern_value(ty, ConstantValueKind::Array(values.into()))
+            }
+            CheckedTemplateOperation::Product(fields) => {
+                let mut values = Vec::with_capacity(fields.len());
+
+                for field in fields.iter() {
+                    let Some(AnySymbolId::StructField(field_id)) =
+                        self.resolver.symbol(field.field())
+                    else {
+                        return Err(TemplateEvaluationFailure::invalid_input());
+                    };
+
+                    values.push(ConstantField::new(
+                        field_id,
+                        self.evaluate_node(*field.value())?,
+                    ));
+                }
+
+                self.budget
+                    .try_charge_elements(values.len())
+                    .map_err(TemplateEvaluationFailure::Diagnostic)?;
+
+                self.intern_value(ty, ConstantValueKind::product(values))
             }
             CheckedTemplateOperation::Project { subject, member } => {
                 let subject = self.evaluate_node(*subject)?;

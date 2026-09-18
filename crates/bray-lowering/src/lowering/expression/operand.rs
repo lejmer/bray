@@ -1,9 +1,7 @@
 use bray_bound_tree::{
     BoundExpressionId, SelectedOperation, StorageAccessPurpose, StorageIdentity,
 };
-use bray_ir::{
-    MirBlockId, MirOperand, MirPlace, MirProjection, MirProjectionKind,
-};
+use bray_ir::{MirBlockId, MirOperand, MirPlace, MirProjection, MirProjectionKind};
 use bray_symbols::{AnySymbolId, TypeData};
 
 use super::super::LoweringError;

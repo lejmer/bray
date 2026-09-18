@@ -286,9 +286,10 @@ impl Compilation {
 
         let mut capabilities: BTreeSet<_> = required_capabilities.into_iter().collect();
 
-        if runtime_roles.iter().any(|role| {
-            role.resident_service() == Some(ResidentRuntimeService::Execution)
-        }) {
+        if runtime_roles
+            .iter()
+            .any(|role| role.resident_service() == Some(ResidentRuntimeService::Execution))
+        {
             capabilities.insert(RuntimeCapability::CooperativeExecution);
         }
 

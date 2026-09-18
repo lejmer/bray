@@ -176,14 +176,9 @@ fn build(target: NativeTarget, output: &Path, profile: &str) -> Result<Package, 
 
     build_contents(target, publication.contents(), profile)?;
 
-    let identity = super::bootstrap::cache_identity(
-        &root,
-        target,
-        publication.contents(),
-        &input,
-    )
-    .map_err(CommandError::Bootstrap)?
-    .ok_or_else(|| CommandError::Bootstrap("bootstrap artifacts are missing".to_owned()))?;
+    let identity = super::bootstrap::cache_identity(&root, target, publication.contents(), &input)
+        .map_err(CommandError::Bootstrap)?
+        .ok_or_else(|| CommandError::Bootstrap("bootstrap artifacts are missing".to_owned()))?;
 
     crate::input_identity::write_digest(publication.contents(), &identity)
         .map_err(CommandError::InputIdentity)?;
@@ -283,9 +278,17 @@ fn build_contents(target: NativeTarget, output: &Path, profile: &str) -> Result<
             kind == RuntimeArchiveKind::TestHost,
         )?;
 
-        native_links.extend(built.native_links().iter().filter(|link| {
-            !RuntimeArchiveKind::ALL.into_iter().any(|owner| owner.archive_stem() == link.name())
-        }).cloned());
+        native_links.extend(
+            built
+                .native_links()
+                .iter()
+                .filter(|link| {
+                    !RuntimeArchiveKind::ALL
+                        .into_iter()
+                        .any(|owner| owner.archive_stem() == link.name())
+                })
+                .cloned(),
+        );
     }
 
     crate::progress::run("Partitioning runtime archives", || {

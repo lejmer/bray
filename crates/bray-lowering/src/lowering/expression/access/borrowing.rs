@@ -26,7 +26,13 @@ impl Lowerer<'_> {
         let source = self.expression_source(expression);
 
         self.lower_storage_borrow(
-            expression, expression, current, kind, *target, result_type, source,
+            expression,
+            expression,
+            current,
+            kind,
+            *target,
+            result_type,
+            source,
         )
     }
 
@@ -133,7 +139,8 @@ impl Lowerer<'_> {
 
         let storage = self.input.storage_plan();
 
-        let access = storage.access(decision.access())
+        let access = storage
+            .access(decision.access())
             .and_then(|access| match access.root() {
                 bray_bound_tree::StorageAccessRoot::Borrow(capability) => Some(capability),
                 _ => None,

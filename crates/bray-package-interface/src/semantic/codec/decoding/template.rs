@@ -342,6 +342,19 @@ fn decode_operation(
             lower: read_optional_u32(reader)?.map(CheckedTemplateNodeId::new),
             upper: read_optional_u32(reader)?.map(CheckedTemplateNodeId::new),
         }),
+        17 => {
+            let count = read_count(reader, limits, InterfaceLimit::TemplateGraphSize)?;
+            let mut fields = context.allocate_items(reader, count)?;
+
+            for _ in 0..count {
+                fields.push(bray_symbols::ConstantField::new(
+                    decode_template_reference(reader, context)?,
+                    CheckedTemplateNodeId::new(read_u32(reader)?),
+                ));
+            }
+
+            Ok(InterfaceCheckedTemplateOperation::product(fields))
+        }
         _ => Err(crate::semantic::codec::invalid_discriminant(
             crate::InterfaceValidationField::Template,
             raw,
@@ -465,8 +478,8 @@ mod tests {
         CheckedTemplateOperation, CheckedTemplateShortCircuitKind, CheckedTemplateTemporaryId,
     };
     use bray_symbols::{
-        CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId, ConstantSymbolId,
-        ExternalSymbolKey, FunctionSymbolId, GenericConstParameterSymbolId,
+        CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId, ConstantField,
+        ConstantSymbolId, ExternalSymbolKey, FunctionSymbolId, GenericConstParameterSymbolId,
         GenericTypeParameterSymbolId, InterfaceSupportEntityId, LifecycleObligationKind,
         ModuleSymbolId, PackageIdentity, PackageSymbolId, PredicateSymbolId, SemanticValueStore,
         StructSymbolId, SymbolId, SymbolKind, SymbolOrdinal, SynthesizedSymbolRole,
@@ -667,6 +680,44 @@ mod tests {
                 operand,
             } if *operand == CheckedTemplateNodeId::new(0)
         ));
+    }
+
+    #[test]
+    fn product_template_operation_payload_round_trips_field_identity_and_order() {
+        let (_, semantics) = operation_fixture();
+
+        let original = &semantics.checked_templates()[0];
+
+        let template = InterfaceCheckedTemplate::new(
+            original.kind(),
+            original.inputs().iter().cloned(),
+            [
+                original.nodes()[0].clone(),
+                InterfaceCheckedTemplateNode::new(
+                    InterfaceCheckedTemplateOperation::product([
+                        ConstantField::new(
+                            InterfaceTemplateReference::Support(InterfaceSupportEntityId::new(0)),
+                            CheckedTemplateNodeId::new(0),
+                        ),
+                        ConstantField::new(
+                            InterfaceTemplateReference::Support(InterfaceSupportEntityId::new(1)),
+                            CheckedTemplateNodeId::new(0),
+                        ),
+                    ]),
+                    InterfaceTypeId::new(0),
+                ),
+            ],
+            original.temporaries().iter().copied(),
+            CheckedTemplateNodeId::new(1),
+            original.behavior().clone(),
+        );
+
+        let bytes = crate::semantic::codec::encoding::encode_template_payload(&template);
+
+        assert_eq!(
+            super::decode_template_payload(&bytes, InterfaceValidationLimits::default()),
+            Ok(template)
+        );
     }
 
     #[test]

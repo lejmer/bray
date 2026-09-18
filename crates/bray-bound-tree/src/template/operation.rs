@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bray_base::shared_slice;
 use bray_symbols::{
-    BorrowKind, ConstantBinaryOperation, ConstantTermId, ConstantUnaryOperation,
+    BorrowKind, ConstantBinaryOperation, ConstantField, ConstantTermId, ConstantUnaryOperation,
     GenericSubstitutionId, SymbolKey, TypeId,
 };
 
@@ -162,6 +162,8 @@ pub enum CheckedTemplateOperation<
     Tuple(Arc<[CheckedTemplateNodeId]>),
     /// Constructs an array from values in element order.
     Array(Arc<[CheckedTemplateNodeId]>),
+    /// Constructs a product while evaluating fields in source order.
+    Product(Arc<[ConstantField<Declaration, CheckedTemplateNodeId>]>),
     /// Projects a selected declaration-owned member from a value.
     Project {
         /// The projected subject.
@@ -241,6 +243,13 @@ impl<Term, Type, Declaration, Substitution, Implementation>
         Self::Array(shared_slice(elements))
     }
 
+    /// Creates a field-identified product construction in evaluation order.
+    pub fn product(
+        fields: impl IntoIterator<Item = ConstantField<Declaration, CheckedTemplateNodeId>>,
+    ) -> Self {
+        Self::Product(shared_slice(fields))
+    }
+
     /// Maps semantic references while preserving node identities and sharing operand storage.
     pub fn try_map_references<T, Y, D, S, I, E>(
         &self,
@@ -302,6 +311,17 @@ impl<Term, Type, Declaration, Substitution, Implementation>
             },
             Self::Tuple(elements) => CheckedTemplateOperation::Tuple(Arc::clone(elements)),
             Self::Array(elements) => CheckedTemplateOperation::Array(Arc::clone(elements)),
+            Self::Product(fields) => CheckedTemplateOperation::product(
+                fields
+                    .iter()
+                    .map(|field| {
+                        Ok(ConstantField::new(
+                            declaration(field.field())?,
+                            *field.value(),
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, E>>()?,
+            ),
             Self::Project { subject, member } => CheckedTemplateOperation::Project {
                 subject: *subject,
                 member: declaration(member)?,
@@ -375,6 +395,11 @@ impl<Term, Type, Declaration, Substitution, Implementation>
             Self::Call { arguments, .. } | Self::Tuple(arguments) | Self::Array(arguments) => {
                 for argument in arguments.iter() {
                     visit(*argument)?;
+                }
+            }
+            Self::Product(fields) => {
+                for field in fields.iter() {
+                    visit(*field.value())?;
                 }
             }
             Self::Convert { value, .. } => visit(*value)?,

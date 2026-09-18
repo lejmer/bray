@@ -635,8 +635,8 @@ mod tests {
     use bray_target::NativeTarget;
 
     use super::{compilation_request, run_result, run_with_writers};
-    use crate::{DriverCompilationConfiguration, DriverOptions, OutputFormat};
     use crate::test_support::{TemporaryFile, unique_temporary_directory};
+    use crate::{DriverCompilationConfiguration, DriverOptions, OutputFormat};
 
     #[test]
     fn compiler_request_runs_the_same_source_identity_check() {

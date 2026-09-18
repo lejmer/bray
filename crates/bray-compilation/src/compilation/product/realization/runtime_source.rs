@@ -99,7 +99,10 @@ pub(super) fn runtime_source_signature_matches(
     }
 
     let Some(expected_result) = &result else {
-        return Ok(Some(matches!(signature.result(), CodegenResultMapping::Void)));
+        return Ok(Some(matches!(
+            signature.result(),
+            CodegenResultMapping::Void
+        )));
     };
 
     let CodegenResultMapping::Direct {
@@ -170,25 +173,50 @@ mod tests {
     #[test]
     fn record_roles_accept_typed_raw_pointers_and_require_void_results() {
         let compilation = compilation("module app;\n");
-        let usize = compilation.codegen_representation_type(RepresentationRole::ScalarUsize).unwrap();
 
-        let pointer = compilation.available_compiler_known_symbols().unary_representation_type(
-            compilation.semantic_value_store().unwrap(), RepresentationRole::RawPointer, usize,
-        ).unwrap().unwrap();
+        let usize = compilation
+            .codegen_representation_type(RepresentationRole::ScalarUsize)
+            .unwrap();
+
+        let pointer = compilation
+            .available_compiler_known_symbols()
+            .unary_representation_type(
+                compilation.semantic_value_store().unwrap(),
+                RepresentationRole::RawPointer,
+                usize,
+            )
+            .unwrap()
+            .unwrap();
 
         for (parameter, result, expected) in [
             (pointer, CodegenResultMapping::Void, true),
             (usize, CodegenResultMapping::Void, false),
-            (pointer, CodegenResultMapping::direct(usize, None, []), false),
+            (
+                pointer,
+                CodegenResultMapping::direct(usize, None, []),
+                false,
+            ),
         ] {
             let signature = CodegenCallableSignature::new(
-                [CodegenParameterMapping::direct(parameter, None, []), CodegenParameterMapping::direct(pointer, None, [])],
-                result, CallableAbi::C, false,
+                [
+                    CodegenParameterMapping::direct(parameter, None, []),
+                    CodegenParameterMapping::direct(pointer, None, []),
+                ],
+                result,
+                CallableAbi::C,
+                false,
             );
 
-            assert_eq!(runtime_source_signature_matches(
-                &compilation, RuntimeAbiRole::ReportRecordPop, &signature, &CancellationToken::new(),
-            ).unwrap(), Some(expected));
+            assert_eq!(
+                runtime_source_signature_matches(
+                    &compilation,
+                    RuntimeAbiRole::ReportRecordPop,
+                    &signature,
+                    &CancellationToken::new(),
+                )
+                .unwrap(),
+                Some(expected)
+            );
         }
     }
 }

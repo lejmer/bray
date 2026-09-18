@@ -4,8 +4,9 @@ use bray_bound_tree::{
     BoundCallableTarget, BoundExpression, BoundExpressionId, BoundOperator, BoundReferenceTarget,
     BoundStructuredExpressionKind, BoundUnit, BoundUnitKey, CheckedExpressionTypes,
     CheckedLiteralValues, CheckedSemanticSelections, CheckedTemplateInputId, CheckedTemplateKind,
-    CheckedTemplateNodeId, CheckedTemplateShortCircuitKind, ConstructionTarget, SelectedArgument,
-    SelectedConstruction, SelectedOperation, SemanticSelection,
+    CheckedTemplateNodeId, CheckedTemplateShortCircuitKind, ConstructionInputId,
+    ConstructionTarget, SelectedArgument, SelectedConstruction, SelectedConstructionInput,
+    SelectedOperation, SemanticSelection,
 };
 use bray_declarations::SyntaxAnchor;
 use bray_package_interface::{
@@ -13,7 +14,7 @@ use bray_package_interface::{
     InterfaceCheckedTemplateInputKind, InterfaceCheckedTemplateNode,
     InterfaceCheckedTemplateOperation, InterfaceTemplateReference,
 };
-use bray_symbols::{ConstantBinaryOperation, ConstantUnaryOperation, TypeId};
+use bray_symbols::{ConstantBinaryOperation, ConstantField, ConstantUnaryOperation, TypeId};
 
 use super::super::PackageInterfaceExportError;
 use super::super::semantic::SemanticExporter;
@@ -313,6 +314,7 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
             BoundExpression::LeadingDotVariant(_) | BoundExpression::UnqualifiedVariant(_) => {
                 self.payloadless_variant(expression_id)
             }
+            BoundExpression::StructConstruction(_) => self.product(expression_id),
             BoundExpression::PatternReference(_) => {
                 let Some(SemanticSelection::Reference(target)) =
                     self.selections.expression(expression_id)
@@ -438,6 +440,43 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
         };
 
         self.payloadless_variant_construction(construction)
+    }
+
+    fn product(
+        &mut self,
+        expression: BoundExpressionId,
+    ) -> Result<InterfaceCheckedTemplateOperation, PackageInterfaceExportError> {
+        let Some(SemanticSelection::Operation(SelectedOperation::Construction(construction))) =
+            self.selections.expression(expression)
+        else {
+            return Err(incomplete("invalid_product_construction_selection"));
+        };
+
+        if !matches!(construction.target(), ConstructionTarget::Struct(_)) {
+            return Err(incomplete("invalid_product_construction_target"));
+        }
+
+        let mut fields = Vec::with_capacity(construction.inputs().len());
+
+        for input in construction.inputs() {
+            let SelectedConstructionInput::Explicit {
+                expression, input, ..
+            } = input
+            else {
+                return Err(incomplete("default_product_construction_input"));
+            };
+
+            let ConstructionInputId::StructField(field) = input else {
+                return Err(incomplete("invalid_product_construction_input"));
+            };
+
+            fields.push(ConstantField::new(
+                InterfaceTemplateReference::Symbol(self.export.symbol_reference((*field).into())?),
+                self.expression(*expression)?,
+            ));
+        }
+
+        Ok(InterfaceCheckedTemplateOperation::product(fields))
     }
 
     fn payloadless_variant_construction(

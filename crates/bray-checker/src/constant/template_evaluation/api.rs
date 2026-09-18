@@ -273,9 +273,11 @@ mod tests {
     };
     use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
     use bray_symbols::{
-        CallableInstanceData, ConstantTermData, ConstantValueData, ConstantValueKind,
-        CurrentRunCancellation, DependencyContractTemplateData, FunctionSymbolId, GenericOwnerId,
-        GenericSubstitutionData, SymbolId, SymbolOrdinal, TypeData,
+        CallableInstanceData, ConstantField, ConstantTermData, ConstantValueData,
+        ConstantValueKind, CurrentRunCancellation, DependencyContractTemplateData,
+        FunctionSymbolId, GenericOwnerId, GenericSubstitutionData, ModulePathKey, PackageIdentity,
+        StructFieldSymbolId, SymbolId, SymbolKey, SymbolKind, SymbolOrdinal, SymbolRootKey,
+        TypeData,
     };
     use bray_testing::assert_goal_state_diagnostic_kind;
 
@@ -284,7 +286,10 @@ mod tests {
         ConstantTemplateResolver, EvaluatedConstantCall,
     };
     use super::super::super::limits::{ConstantEvaluationLimits, ConstantEvaluationUsage};
-    use super::{evaluate_constant_callable_template, evaluate_generic_constraint_template};
+    use super::{
+        evaluate_constant_callable_template, evaluate_generic_constraint_template,
+        evaluate_static_initializer_template,
+    };
     use crate::test_support::{TestCheckerContext, semantic_values};
     use crate::{CheckerQueryResult, ConstantReferenceResolution};
 
@@ -703,11 +708,156 @@ mod tests {
         assert_eq!(*outcome.value(), Some(value));
     }
 
+    #[test]
+    fn static_initializer_templates_materialize_field_identified_products() {
+        let values = semantic_values();
+
+        let ty = values
+            .intern_type(TypeData::tuple([]))
+            .unwrap_or_else(|error| panic!("test type must intern: {error:?}"));
+
+        let value = values
+            .intern_constant_value(ConstantValueData::new(ty, ConstantValueKind::Unit))
+            .unwrap_or_else(|error| panic!("field value must intern: {error:?}"));
+
+        let term = values
+            .intern_constant_term(ConstantTermData::Value(value))
+            .unwrap_or_else(|error| panic!("field term must intern: {error:?}"));
+
+        let dependency_contract = values
+            .intern_dependency_contract_template(DependencyContractTemplateData::new([]))
+            .unwrap_or_else(|error| panic!("empty dependency contract must intern: {error:?}"));
+
+        let behavior = CheckedTemplateBehavior::new(
+            [],
+            [],
+            [],
+            CheckedTemplateExecution::new([], CurrentRunCancellation::NotEntered),
+            [],
+            dependency_contract,
+            dependency_contract,
+            [],
+        );
+
+        let mut builder =
+            CheckedTemplateBuilder::new(CheckedTemplateKind::ProductStaticInitializer, behavior);
+
+        let first_value = builder
+            .push_node(CheckedTemplateNode::new(
+                CheckedTemplateOperation::Constant {
+                    term,
+                    usage: Default::default(),
+                },
+                ty,
+            ))
+            .unwrap_or_else(|error| panic!("first field node must validate: {error:?}"));
+
+        let second_value = builder
+            .push_node(CheckedTemplateNode::new(
+                CheckedTemplateOperation::Constant {
+                    term,
+                    usage: Default::default(),
+                },
+                ty,
+            ))
+            .unwrap_or_else(|error| panic!("second field node must validate: {error:?}"));
+
+        let package = PackageIdentity::try_new("example.package")
+            .unwrap_or_else(|| panic!("test package identity must be valid"));
+
+        let path = ModulePathKey::try_new(["api"])
+            .unwrap_or_else(|| panic!("test module path must be valid"));
+
+        let owner = SymbolKey::module(SymbolRootKey::Package(package), path);
+
+        let first = SymbolKey::source_declaration(
+            owner.clone(),
+            SymbolKind::StructField,
+            bray_declarations::DeclarationId::new(0),
+        )
+        .unwrap_or_else(|| panic!("first field key must be valid"));
+
+        let second = SymbolKey::source_declaration(
+            owner,
+            SymbolKind::StructField,
+            bray_declarations::DeclarationId::new(1),
+        )
+        .unwrap_or_else(|| panic!("second field key must be valid"));
+
+        let result = builder
+            .push_node(CheckedTemplateNode::new(
+                CheckedTemplateOperation::product([
+                    ConstantField::new(second.clone(), second_value),
+                    ConstantField::new(first.clone(), first_value),
+                ]),
+                ty,
+            ))
+            .unwrap_or_else(|error| panic!("product node must validate: {error:?}"));
+
+        let template = builder
+            .finish(result, CheckedTemplateCompletion::Complete)
+            .unwrap_or_else(|error| panic!("product template must validate: {error:?}"));
+
+        let generic_owner =
+            GenericOwnerId::try_new(FunctionSymbolId::from_symbol_id(SymbolId::new(999)).into())
+                .unwrap_or_else(|| panic!("function must be a generic owner"));
+
+        let substitution = values
+            .intern_generic_substitution(
+                GenericSubstitutionData::try_new(generic_owner, [], [])
+                    .unwrap_or_else(|error| panic!("empty substitution must validate: {error:?}")),
+            )
+            .unwrap_or_else(|error| panic!("empty substitution must intern: {error:?}"));
+
+        let resolver = ProductResolver { first, second };
+
+        let outcome = evaluate_static_initializer_template(
+            &TestCheckerContext::new(false),
+            &template,
+            CheckedTemplateKind::ProductStaticInitializer,
+            substitution,
+            ty,
+            &resolver,
+            None,
+            ConstantEvaluationLimits::default(),
+        )
+        .into_result()
+        .unwrap_or_else(|| panic!("product template must evaluate"));
+
+        let result = outcome
+            .value()
+            .unwrap_or_else(|| panic!("product evaluation must produce a value"));
+
+        let data = values.constant_value_data(result.value());
+
+        let ConstantValueKind::Product(fields) = data.kind() else {
+            panic!("product template must materialize a product value");
+        };
+
+        assert_eq!(fields[0].field(), &resolver.second_id());
+        assert_eq!(fields[1].field(), &resolver.first_id());
+    }
+
     struct UnusedTemplateResolver;
 
     struct TypedCallResolver {
         result: bray_symbols::ConstantValueId,
         expected_result_type: bray_symbols::TypeId,
+    }
+
+    struct ProductResolver {
+        first: SymbolKey,
+        second: SymbolKey,
+    }
+
+    impl ProductResolver {
+        fn first_id(&self) -> StructFieldSymbolId {
+            StructFieldSymbolId::from_symbol_id(SymbolId::new(1000))
+        }
+
+        fn second_id(&self) -> StructFieldSymbolId {
+            StructFieldSymbolId::from_symbol_id(SymbolId::new(1001))
+        }
     }
 
     impl ConstantCallResolver for TypedCallResolver {
@@ -756,6 +906,55 @@ mod tests {
             bray_diagnostics::DiagnosticResult<bray_symbols::StaticReferenceSelection>,
         > {
             unreachable!("typed call template must not resolve statics")
+        }
+    }
+
+    impl ConstantCallResolver for ProductResolver {
+        type UpstreamError = std::convert::Infallible;
+
+        fn is_constant_callable(
+            &self,
+            _callable: CallableInstanceData,
+        ) -> CheckerQueryResult<bool> {
+            unreachable!("product template must not resolve calls")
+        }
+
+        fn resolve(
+            &self,
+            _request: &ConstantCallRequest,
+        ) -> CheckerQueryResult<ConstantCallResolution> {
+            unreachable!("product template must not resolve calls")
+        }
+    }
+
+    impl ConstantTemplateResolver for ProductResolver {
+        fn symbol(&self, key: &SymbolKey) -> Option<bray_symbols::AnySymbolId> {
+            if key == &self.first {
+                Some(self.first_id().into())
+            } else if key == &self.second {
+                Some(self.second_id().into())
+            } else {
+                None
+            }
+        }
+
+        fn resolve_constant(
+            &self,
+            _instance: bray_symbols::ConstantInstanceKey,
+            _limits: crate::ConstantEvaluationLimits,
+        ) -> CheckerQueryResult<bray_diagnostics::DiagnosticResult<ConstantReferenceResolution>>
+        {
+            unreachable!("product template must not resolve constants")
+        }
+
+        fn resolve_static(
+            &self,
+            _declaration: bray_symbols::StaticSymbolId,
+            _substitution: bray_symbols::GenericSubstitutionId,
+        ) -> CheckerQueryResult<
+            bray_diagnostics::DiagnosticResult<bray_symbols::StaticReferenceSelection>,
+        > {
+            unreachable!("product template must not resolve statics")
         }
     }
 

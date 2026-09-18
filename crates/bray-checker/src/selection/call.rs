@@ -8,9 +8,9 @@ use bray_bound_tree::{
     SelectedImplementationWitness, SelectedReceiver,
 };
 use bray_symbols::{
-    CallableAbi, CallableParameterDefaultProviderSymbolId,
-    CallableParameterSymbolId, CallablePosition, CallableSignature, CallableTypeData,
-    ImplementationSelection, ReceiverMode, TypeData,
+    CallableAbi, CallableParameterDefaultProviderSymbolId, CallableParameterSymbolId,
+    CallablePosition, CallableSignature, CallableTypeData, ImplementationSelection, ReceiverMode,
+    TypeData,
 };
 
 use crate::unit::assert_unit_inputs;
@@ -697,7 +697,11 @@ fn map_arguments(
     on_argument: &mut impl FnMut(SelectedArgument),
 ) -> Result<ArgumentMapping, CheckerInfrastructureError> {
     let parameters = callable.parameters();
-    let signatures = candidate.declaration_signature().map(CallableSignature::parameters);
+
+    let signatures = candidate
+        .declaration_signature()
+        .map(CallableSignature::parameters);
+
     let defaults = candidate.defaults();
     let parameter_borrows = candidate.parameter_borrows();
 

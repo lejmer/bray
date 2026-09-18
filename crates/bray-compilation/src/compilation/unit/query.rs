@@ -7683,10 +7683,26 @@ func run(pos counter: &mut Counter)
 
             let compilation = compilation(&source);
             let key = source_function_body_key(&compilation, "run");
-            let flow = compilation.storage_flow(key.clone()).expect("call reborrow flow");
-            assert!(!flow.diagnostics().has_errors(), "{body}: {:?}", flow.diagnostics());
-            let lowered = compilation.lowered_unit(key).expect("call reborrow lowering");
-            assert!(!lowered.diagnostics().has_errors(), "{body}: {:?}", lowered.diagnostics());
+
+            let flow = compilation
+                .storage_flow(key.clone())
+                .expect("call reborrow flow");
+
+            assert!(
+                !flow.diagnostics().has_errors(),
+                "{body}: {:?}",
+                flow.diagnostics()
+            );
+
+            let lowered = compilation
+                .lowered_unit(key)
+                .expect("call reborrow lowering");
+
+            assert!(
+                !lowered.diagnostics().has_errors(),
+                "{body}: {:?}",
+                lowered.diagnostics()
+            );
 
             let mir = lowered.value().as_ref().unwrap().mir().unwrap();
             let values = compilation.semantic_value_store().unwrap();
@@ -7713,23 +7729,36 @@ func run(pos counter: &mut Counter)
         let conflict = DiagnosticKind::CheckingConflictingBorrow;
 
         for (body, expected) in [
-            (r#"let local: &mut Counter = counter;
+            (
+                r#"let local: &mut Counter = counter;
     let moved: &mut Counter = local;
 
-    increment(local);"#, moved),
-            (r#"let local: &mut Counter = counter;
+    increment(local);"#,
+                moved,
+            ),
+            (
+                r#"let local: &mut Counter = counter;
 
     take(local);
-    increment(local);"#, moved),
-            (r#"take(counter);
-    increment(counter);"#, moved),
-            (r#"let local: &mut Counter = counter;
+    increment(local);"#,
+                moved,
+            ),
+            (
+                r#"take(counter);
+    increment(counter);"#,
+                moved,
+            ),
+            (
+                r#"let local: &mut Counter = counter;
     let escaped: &mut Counter = same(local);
 
     increment(local);
-    increment(escaped);"#, conflict),
+    increment(escaped);"#,
+                conflict,
+            ),
         ] {
-            let source = format!(r#"module app;
+            let source = format!(
+                r#"module app;
 
 struct Counter
 {{
@@ -7754,12 +7783,14 @@ func run(pos counter: &mut Counter)
 {{
     {body}
 }}
-"#);
+"#
+            );
 
             let compilation = compilation(&source);
             let key = source_function_body_key(&compilation, "run");
 
-            let flow = compilation.storage_flow(key)
+            let flow = compilation
+                .storage_flow(key)
                 .unwrap_or_else(|error| panic!("{body}: {error:?}"));
 
             assert_goal_state_diagnostic_kind(flow.diagnostics(), expected);
@@ -7809,7 +7840,10 @@ func run(pos counter: &mut Counter)
 
             let compilation = compilation(&source);
             let key = source_function_body_key(&compilation, "run");
-            let flow = compilation.storage_flow(key).expect("overlapping argument flow");
+
+            let flow = compilation
+                .storage_flow(key)
+                .expect("overlapping argument flow");
 
             assert_goal_state_diagnostic_kind(
                 flow.diagnostics(),
@@ -7844,7 +7878,8 @@ func run(pos counter: &mut Counter)
                 Some(DiagnosticKind::CheckingMissingMutationAuthority),
             ),
         ] {
-            let source = format!(r#"module app;
+            let source = format!(
+                r#"module app;
 
 struct Counter
 {{
@@ -7865,19 +7900,35 @@ func pair(pos first: &mut Counter, pos second: &mut Counter)
 }}
 
 {body}
-"#);
+"#
+            );
 
             let compilation = compilation(&source);
             let key = source_function_body_key(&compilation, "run");
-            let flow = compilation.storage_flow(key.clone()).expect("field reborrow flow");
+
+            let flow = compilation
+                .storage_flow(key.clone())
+                .expect("field reborrow flow");
 
             if let Some(expected) = expected {
                 assert!(flow.diagnostics().has_errors(), "{body}");
                 assert_goal_state_diagnostic_kind(flow.diagnostics(), expected);
             } else {
-                assert!(!flow.diagnostics().has_errors(), "{body}: {:?}", flow.diagnostics());
-                let lowered = compilation.lowered_unit(key).expect("disjoint field reborrows lower");
-                assert!(!lowered.diagnostics().has_errors(), "{body}: {:?}", lowered.diagnostics());
+                assert!(
+                    !flow.diagnostics().has_errors(),
+                    "{body}: {:?}",
+                    flow.diagnostics()
+                );
+
+                let lowered = compilation
+                    .lowered_unit(key)
+                    .expect("disjoint field reborrows lower");
+
+                assert!(
+                    !lowered.diagnostics().has_errors(),
+                    "{body}: {:?}",
+                    lowered.diagnostics()
+                );
             }
         }
     }

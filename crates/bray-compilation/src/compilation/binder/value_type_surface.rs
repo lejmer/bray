@@ -563,8 +563,7 @@ impl DeclaredValueTypeBinding<'_> {
     ) -> BindingQueryResult<TypeExpressionTemplate> {
         let record = self
             .context
-            .symbols()
-            .static_symbol(declaration)
+            .static_symbol(declaration)?
             .ok_or_else(|| {
                 binding_contract(
                     SemanticQueryContext::Symbol(declaration.into()),

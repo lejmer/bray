@@ -175,10 +175,7 @@ mod tests {
         *outcome = NativeRunOutcome::new(NativeRunState::COMPLETED, 0);
     }
 
-    extern "C-unwind" fn assert_independent_native_task(
-        _: usize,
-        outcome: &mut NativeRunOutcome,
-    ) {
+    extern "C-unwind" fn assert_independent_native_task(_: usize, outcome: &mut NativeRunOutcome) {
         assert_eq!(super::super::state::current_native_task(), None);
         assert!(!crate::current_run_cancellation_requested());
 
@@ -261,11 +258,7 @@ mod tests {
         }
     }
 
-    extern "C" fn release_written_incident(
-        _: usize,
-        _: usize,
-        _: &mut NativeRunOutcome,
-    ) {
+    extern "C" fn release_written_incident(_: usize, _: usize, _: &mut NativeRunOutcome) {
         assert!(crate::outgoing::OutgoingRecords::admit(1).is_err());
 
         RELEASES.with_borrow_mut(|events| events.push(1));
@@ -294,11 +287,7 @@ mod tests {
 
         let mut called = false;
 
-        let mut outcome = super::execute_callback_boundary(
-            |_| called = true,
-            |_| {},
-            false,
-        );
+        let mut outcome = super::execute_callback_boundary(|_| called = true, |_| {}, false);
 
         assert!(!called);
         assert!(bray_platform::current_runtime_thread().is_none());

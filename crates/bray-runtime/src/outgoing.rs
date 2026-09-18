@@ -1,6 +1,8 @@
 use crate::TaskStartError;
 
-use bray_runtime_abi::{NativePanicPrimary, NativeReportRecords, NativeReportSegment, NativeRunOutcome, NativeRunState};
+use bray_runtime_abi::{
+    NativePanicPrimary, NativeReportRecords, NativeReportSegment, NativeRunOutcome, NativeRunState,
+};
 
 use crate::report_provider as provider;
 
@@ -21,7 +23,8 @@ impl OutgoingRecords {
             return Err(TaskStartError::OutgoingStorageUnavailable);
         }
 
-        crate::frame::reserve_rust_panic_backings(&mut admitted).map_err(|_| TaskStartError::OutgoingStorageUnavailable)?;
+        crate::frame::reserve_rust_panic_backings(&mut admitted)
+            .map_err(|_| TaskStartError::OutgoingStorageUnavailable)?;
 
         Ok(admitted)
     }
@@ -68,11 +71,19 @@ impl OutgoingRecords {
     }
 
     pub(crate) fn exchange(&mut self, primary: &mut NativePanicPrimary) {
-        assert_eq!(self.len(), 1, "one owned record is required for primary exchange");
+        assert_eq!(
+            self.len(),
+            1,
+            "one owned record is required for primary exchange"
+        );
+
         provider::bray_runtime_report_record_exchange(self.0.head, primary);
     }
 
-    pub(crate) fn take_rust_primary(&mut self, payload: Box<dyn std::any::Any + Send>) -> (NativePanicPrimary, Self) {
+    pub(crate) fn take_rust_primary(
+        &mut self,
+        payload: Box<dyn std::any::Any + Send>,
+    ) -> (NativePanicPrimary, Self) {
         let mut reserved = self.take(1);
         let mut primary = NativePanicPrimary::empty();
         reserved.exchange(&mut primary);
@@ -96,7 +107,12 @@ impl OutgoingRecords {
         Some(primary)
     }
 
-    pub(crate) fn push_incident(&mut self, panic: crate::RuntimePanic, metadata: crate::shutdown::CleanupIncidentMetadata, admitted: &mut Self) {
+    pub(crate) fn push_incident(
+        &mut self,
+        panic: crate::RuntimePanic,
+        metadata: crate::shutdown::CleanupIncidentMetadata,
+        admitted: &mut Self,
+    ) {
         let mut incident = panic.into_records(admitted);
         provider::bray_runtime_report_segment_mark(&mut incident.0, &metadata.into_native());
         self.append(&mut incident);
