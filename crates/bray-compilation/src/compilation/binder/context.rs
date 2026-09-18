@@ -12,9 +12,10 @@ use bray_symbols::{
     CallableParameterDefaultProviderSymbolId, CallableParameterSymbol, CallableParameterSymbolId,
     FunctionSymbol, FunctionSymbolId, ImportedSemanticAddress, ImportedSymbolSkeleton,
     MemberLookupResult, ModuleSurfaceQuery, ModuleSymbolId, NamedTypeSymbolId,
-    ReceiverParameterSymbol, ReceiverParameterSymbolId, SemanticValueStore, StructFieldSymbol,
-    StructFieldSymbolId, StructSymbol, StructSymbolId, SymbolGraph, SymbolQueryRequest,
-    TypeAssociatedSurface, TypeExpressionTemplate, UnionPayloadFieldSymbol,
+    ReceiverParameterSymbol, ReceiverParameterSymbolId, SemanticValueStore, StaticSymbol,
+    StaticSymbolId, StructFieldSymbol, StructFieldSymbolId, StructSymbol, StructSymbolId,
+    SymbolGraph, SymbolQueryRequest, TypeAssociatedSurface, TypeExpressionTemplate,
+    UnionPayloadFieldSymbol,
     UnionPayloadFieldSymbolId, UnionSymbol, UnionSymbolId, UnionVariantSymbol,
     UnionVariantSymbolId,
 };
@@ -227,6 +228,19 @@ impl<'compilation> CompilationBindingContext<'compilation> {
         Ok(self
             .imported_symbols()?
             .and_then(|symbols| symbols.function(id)))
+    }
+
+    pub(in crate::compilation) fn static_symbol(
+        &self,
+        id: StaticSymbolId,
+    ) -> BindingQueryResult<Option<&StaticSymbol>> {
+        if let Some(record) = self.symbols.static_symbol(id) {
+            return Ok(Some(record));
+        }
+
+        Ok(self
+            .imported_symbols()?
+            .and_then(|symbols| symbols.static_symbol(id)))
     }
 
     pub(in crate::compilation) fn callable_parameter(

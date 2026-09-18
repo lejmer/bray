@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use bray_bound_tree::CheckedTemplateKind;
+use bray_checker::ConstantEvaluationLimits;
 use bray_compiler_known::{CompilerKnownDeclarationKey, RecognizedStandardLibraryDeclarationKey};
 use bray_ir::{MirOperationKind, MirProjectionKind};
 use bray_package_interface::{
@@ -13,10 +14,11 @@ use bray_package_interface::{
 use bray_runtime_interface::{PlatformServiceBinding, PlatformServiceRole};
 use bray_source::{SourceIdentity, SourceInput, SourceVersion};
 use bray_symbols::{
-    AnySymbolId, CallableParameterDefaultValue, ExternalSymbolKey, InherentImplementationSymbolId,
-    IntegerConstant, MemberLookupResult, ModulePathKey, PackageIdentity, ProductKind,
-    RuntimeDefaultTemplateReference, StaticStorageDuration, SymbolKey, SymbolKind, SymbolName,
-    TypeCallableMemberSymbolId, TypeExpressionTemplate,
+    AnySymbolId, CallableParameterDefaultValue, ConstantValueId, ConstantValueKind,
+    ExternalSymbolKey, InherentImplementationSymbolId, IntegerConstant, MemberLookupResult,
+    ModulePathKey, PackageIdentity, ProductKind, RuntimeDefaultTemplateReference,
+    StaticStorageDuration, SymbolKey, SymbolKind, SymbolName, TypeCallableMemberSymbolId,
+    TypeExpressionTemplate,
 };
 use bray_syntax::{SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_tree};
 use bray_testing::test_source_inputs;
@@ -5132,8 +5134,19 @@ fn aggregate_static_initializers_export_for_source_independent_consumers() {
 
         using example.package.api;
 
-        func ready()
+        func stored_value() -> i32
         {
+            return example.package.api.Stored.nested.first;
+        }
+
+        func generic_value() -> i32
+        {
+            return example.package.api.Generic<41>.nested.second;
+        }
+
+        func atomic_value() -> &example.package.api.AtomicState
+        {
+            return &example.package.api.Atomic;
         }
     "#,
     );
@@ -5143,6 +5156,108 @@ fn aggregate_static_initializers_export_for_source_independent_consumers() {
         "{:#?}",
         consumer.check_diagnostics()
     );
+
+    let values = [
+        ("stored_value", vec![39, 38, 37]),
+        ("generic_value", vec![43, 42, 41]),
+        ("atomic_value", vec![0]),
+    ];
+
+    for (function, expected) in values {
+        let key = source_function_body_key(&consumer, function);
+
+        let lowered = consumer
+            .lowered_unit(key)
+            .unwrap_or_else(|error| panic!("imported aggregate static must lower: {error:?}"));
+
+        assert!(lowered.value().is_some(), "{:#?}", lowered.diagnostics());
+        assert!(lowered.diagnostics().is_empty(), "{:#?}", lowered.diagnostics());
+
+        let value = imported_static_initializer_value(&consumer, function);
+        let mut actual = Vec::new();
+        collect_integer_constants(&consumer, value, &mut actual);
+
+        assert_eq!(actual, expected, "{function}");
+    }
+}
+
+fn imported_static_initializer_value(consumer: &Compilation, function: &str) -> ConstantValueId {
+    let semantics = consumer
+        .expression_semantics_with_cancellation(
+            source_function_body_key(consumer, function),
+            &consumer.state.cancellation,
+        )
+        .unwrap_or_else(|error| panic!("imported static semantics must publish: {error:?}"));
+
+    let (expression, reference) = semantics
+        .result()
+        .value()
+        .selections()
+        .entries()
+        .iter()
+        .find_map(|entry| match entry.selection() {
+            bray_bound_tree::SemanticSelection::StaticReference(reference) => {
+                Some((entry.expression(), reference))
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("{function} must select an imported static"));
+
+    let instance = reference
+        .closed_instance()
+        .unwrap_or_else(|| panic!("{function} must select a closed static instance"));
+
+    let result_type = semantics
+        .result()
+        .value()
+        .types()
+        .expression(expression)
+        .unwrap_or_else(|| panic!("{function} static reference must have a checked type"))
+        .ty();
+
+    let template = consumer
+        .static_instance_template(instance.template().declaration())
+        .unwrap_or_else(|error| panic!("imported static template must resolve: {error:?}"));
+
+    let evaluated = consumer
+        .evaluate_static_initializer(
+            instance,
+            template.value().duration(),
+            result_type,
+            ConstantEvaluationLimits::default(),
+            &consumer.state.cancellation,
+        )
+        .unwrap_or_else(|error| panic!("imported static initializer must evaluate: {error:?}"));
+
+    assert!(evaluated.diagnostics().is_empty(), "{:#?}", evaluated.diagnostics());
+
+    evaluated.value().value()
+}
+
+fn collect_integer_constants(
+    compilation: &Compilation,
+    value: ConstantValueId,
+    integers: &mut Vec<u64>,
+) {
+    let values = compilation
+        .semantic_value_store()
+        .unwrap_or_else(|error| panic!("semantic values must load: {error:?}"));
+
+    let value = values.constant_value_data(value);
+
+    match value.kind() {
+        ConstantValueKind::Integer(value) => integers.push(
+            value
+                .to_u64()
+                .unwrap_or_else(|| panic!("fixture integer must fit in u64")),
+        ),
+        ConstantValueKind::Product(fields) => {
+            for field in fields.iter() {
+                collect_integer_constants(compilation, *field.value(), integers);
+            }
+        }
+        kind => panic!("aggregate fixture must contain products and integers, found {kind:?}"),
+    }
 }
 
 #[test]
