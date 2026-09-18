@@ -73,9 +73,6 @@ where
             .map_err(CheckerInfrastructureError::StoragePlan)?;
 
         if pattern.kind() == BoundPatternKind::Discard {
-            let transfers_borrow = checked.operation() == PatternOperation::Consume
-                && self.type_is_borrow(checked.input_type());
-
             if checked.operation() == PatternOperation::Consume {
                 self.bind_owned_pattern_storage(
                     StorageBindingTarget::PatternDiscard(id),
@@ -88,7 +85,7 @@ where
             self.record_pattern_purpose(
                 id,
                 subject_expression,
-                pattern_operation_purpose(pattern.mode(), checked.operation(), transfers_borrow),
+                pattern_operation_purpose(pattern.mode(), checked.operation()),
                 access,
             )?;
         }
@@ -166,9 +163,6 @@ where
 
         let target = StorageBindingTarget::Local(binding);
 
-        let transfers_borrow =
-            checked.operation() == PatternOperation::Consume && self.type_is_borrow(checked.ty());
-
         if let Some(alternatives) = self.alternative_pattern_bindings.get_mut(&binding) {
             for accesses in alternatives {
                 accesses.push(access);
@@ -231,7 +225,7 @@ where
             .map(BoundPattern::mode)
             .unwrap_or_else(|| missing_node(pattern));
 
-        let purpose = pattern_operation_purpose(mode, checked.operation(), transfers_borrow);
+        let purpose = pattern_operation_purpose(mode, checked.operation());
 
         self.record_pattern_purpose(pattern, subject_expression, purpose, access)
     }
@@ -453,6 +447,8 @@ where
         purpose: StorageAccessPurpose,
         access: StorageAccessId,
     ) -> Result<(), PlanError<C::UpstreamError>> {
+        let purpose = self.materialization_purpose(expression, purpose, access)?;
+
         self.builder_mut()?
             .plan_access(pattern.into(), expression, purpose, access)
             .map_err(|error| CheckerInfrastructureError::StoragePlan(error).into())
@@ -506,10 +502,8 @@ where
 const fn pattern_operation_purpose(
     mode: BoundPatternMode,
     operation: PatternOperation,
-    transfers_borrow: bool,
 ) -> StorageAccessPurpose {
     match operation {
-        PatternOperation::Consume if transfers_borrow => StorageAccessPurpose::Read,
         PatternOperation::Consume if matches!(mode, BoundPatternMode::MatchConsume) => {
             StorageAccessPurpose::Move
         }

@@ -36,29 +36,52 @@ pub(super) fn immutable_field_accesses<C: CheckerRequestContext + ?Sized>(
 
         let mut allowed = true;
 
-        for projection in record.projections() {
+        let Some(root) = storage.root_identity(access) else {
+            continue;
+        };
+
+        let projections = storage.resolved_projections(access)
+            .expect("resolved mutation access must retain its projections");
+
+        for (index, projection) in projections.iter().enumerate() {
             let field = match projection {
                 bray_bound_tree::StorageProjection::ProductField(field) => {
-                    bray_symbols::AnySymbolId::StructField(*field)
+                    Some(bray_symbols::AnySymbolId::StructField(*field))
                 }
                 bray_bound_tree::StorageProjection::ActiveUnionPayloadField { field, .. } => {
-                    bray_symbols::AnySymbolId::UnionPayloadField(*field)
+                    Some(bray_symbols::AnySymbolId::UnionPayloadField(*field))
                 }
-                _ => continue,
+                _ => None,
             };
 
-            let mutable = match fields.entry(field) {
-                std::collections::btree_map::Entry::Occupied(entry) => *entry.get(),
-                std::collections::btree_map::Entry::Vacant(entry) => {
-                    let mutable = request.member_allows_mutation(field)?;
+            if let Some(field) = field {
+                let mutable = match fields.entry(field) {
+                    std::collections::btree_map::Entry::Occupied(entry) => *entry.get(),
+                    std::collections::btree_map::Entry::Vacant(entry) => {
+                        let mutable = request.member_allows_mutation(field)?;
 
-                    *entry.insert(mutable)
-                }
-            };
+                        *entry.insert(mutable)
+                    }
+                };
 
-            if !mutable {
-                allowed = false;
-                break;
+                allowed &= mutable;
+            }
+
+            if allowed {
+                continue;
+            }
+
+            let stored_type = storage
+                .access_at(root, &projections[..=index])
+                .and_then(|prefix| storage.access(prefix))
+                .map(|prefix| request.semantic_values().type_data(prefix.reached_type()));
+
+            if let Some(stored_type) = stored_type
+                && let TypeData::Borrow { target, .. } = stored_type.as_ref()
+                && (index + 1 < projections.len() || *target == record.reached_type())
+            {
+                // Crossing a borrow uses its target authority, not permission to replace its slot.
+                allowed = true;
             }
         }
 

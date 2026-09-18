@@ -292,8 +292,20 @@ where
             )?;
         }
 
+        let mut reborrows = selection
+            .into_iter()
+            .flat_map(|call| call.arguments())
+            .filter_map(|argument| match argument {
+                bray_bound_tree::SelectedArgument::Explicit { reborrow, .. } => Some(*reborrow),
+                bray_bound_tree::SelectedArgument::Default { .. } => None,
+            });
+
         for argument in arguments {
-            self.plan_expression(argument, Some(StorageAccessPurpose::ValueTransfer))?;
+            if let Some(kind) = reborrows.next().flatten() {
+                self.plan_call_reborrow(argument, kind)?;
+            } else {
+                self.plan_expression(argument, Some(StorageAccessPurpose::ValueTransfer))?;
+            }
         }
 
         if let Some(call) = selection

@@ -24,6 +24,7 @@ impl Lowerer<'_> {
             SelectedArgument::Explicit {
                 expression,
                 conversion,
+                reborrow,
                 ..
             },
         ] = selection.arguments()
@@ -34,7 +35,7 @@ impl Lowerer<'_> {
             );
         };
 
-        let lowered = self.lower_expression(*expression, current)?;
+        let lowered = self.lower_call_argument(*expression, *reborrow, current)?;
 
         let Some(current) = lowered.block else {
             return Ok(Some(lowered));

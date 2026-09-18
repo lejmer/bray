@@ -752,7 +752,16 @@ where
             .moved
             .iter()
             .filter(|(moved, _)| {
-                self.storage.relationship(**moved, access) != StorageRelationship::Disjoint
+                let moves_borrow_value = self.storage.access(**moved)
+                    .is_some_and(|record| self.type_is_borrow(record.reached_type()));
+
+                let relationship = if moves_borrow_value {
+                    self.storage.value_relationship(**moved, access)
+                } else {
+                    self.storage.relationship(**moved, access)
+                };
+
+                relationship != StorageRelationship::Disjoint
             })
             .map(|(_, origin)| *origin)
             .collect::<Vec<_>>();

@@ -1,0 +1,72 @@
+module call_reborrows;
+
+struct Counter
+{
+    mut value: usize;
+}
+
+struct Slot
+{
+    value: &mut Counter;
+}
+
+func increment(pos counter: &mut Counter)
+{
+    counter.value += 1;
+}
+
+func same(pos counter: &mut Counter) -> &mut Counter
+{
+    counter.value += 10;
+
+    return counter;
+}
+
+func nested(pos counter: &mut &mut Counter)
+{
+    counter.value += 1;
+}
+
+func main() -> i32
+{
+    let mut counter: Counter = Counter
+    {
+        value = 0
+    };
+
+    let mut local: &mut Counter = &mut counter;
+
+    increment(local);
+    increment(local);
+
+    let mut remaining: usize = 3;
+
+    while remaining != 0
+    {
+        increment(local);
+        remaining -= 1;
+    }
+
+    increment(same(local));
+    increment(same(local));
+
+    let outer: &mut &mut Counter = &mut local;
+
+    nested(outer);
+    nested(outer);
+
+    let slot: Slot = Slot
+    {
+        value = local
+    };
+
+    increment(slot.value);
+    increment(slot.value);
+
+    if counter.value != 31
+    {
+        return 1;
+    }
+
+    return 0;
+}

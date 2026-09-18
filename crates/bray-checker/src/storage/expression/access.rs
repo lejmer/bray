@@ -676,31 +676,49 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
             return Ok(());
         };
 
-        let record = self
-            .builder()?
-            .access(access)
-            .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
-
-        let purpose = if purpose == StorageAccessPurpose::ValueTransfer
-            && (record.root().borrow_capability().is_some()
-                || matches!(
-                    self.request.view().expression(expression),
-                    Some(bray_bound_tree::BoundExpression::Call(_))
-                ))
-            && matches!(
-                self.request
-                    .semantic_values()
-                    .type_data(self.expression_type(expression)?.ty())
-                    .as_ref(),
-                TypeData::Borrow { .. }
-            ) {
-            StorageAccessPurpose::Read
-        } else {
-            purpose
-        };
+        let purpose = self.materialization_purpose(expression, purpose, access)?;
 
         self.builder_mut()?
             .plan_access(expression.into(), expression, purpose, access)
             .map_err(|error| CheckerInfrastructureError::StoragePlan(error).into())
+    }
+
+    pub(in crate::storage) fn materialization_purpose(
+        &self,
+        expression: BoundExpressionId,
+        purpose: StorageAccessPurpose,
+        access: StorageAccessId,
+    ) -> Result<StorageAccessPurpose, PlanError<C::UpstreamError>> {
+        if purpose != StorageAccessPurpose::ValueTransfer {
+            return Ok(purpose);
+        }
+
+        let builder = self.builder()?;
+
+        let record = builder
+            .access(access)
+            .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+
+        let fresh = record
+            .root()
+            .borrow_capability()
+            .and_then(|id| builder.borrow_capability(id))
+            .is_some_and(|borrow| borrow.expression() == Some(expression))
+            || matches!(
+                self.request.view().expression(expression),
+                Some(bray_bound_tree::BoundExpression::Call(_))
+            );
+
+        if !fresh {
+            return Ok(purpose);
+        }
+
+        let ty = self.request.semantic_values().type_data(record.reached_type());
+
+        Ok(if matches!(ty.as_ref(), TypeData::Borrow { .. }) {
+            StorageAccessPurpose::Read
+        } else {
+            purpose
+        })
     }
 }

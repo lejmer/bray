@@ -1,4 +1,6 @@
 pub(super) const STARTUP_FIXTURE: &str = "xtask/fixtures/native-execution/control-flow.bray";
+pub(super) const CALL_REBORROWS_FIXTURE: &str =
+    "xtask/fixtures/native-execution/call-reborrows.bray";
 pub(super) const GUARDED_ROOT_CLEANUP_FIXTURE: &str =
     "xtask/fixtures/native-execution/guarded-root-cleanup.bray";
 pub(super) const GUARDED_PART_CLEANUP_FIXTURE: &str =
