@@ -7,7 +7,7 @@ struct PanicReport {
     message: usize,
     message_length: usize,
     copy_message: Option<extern "C" fn(usize, usize, *mut u8, usize) -> u32>,
-    release_message: Option<extern "C" fn(usize, usize)>,
+    release_message: Option<extern "C" fn(usize, usize, &mut RunOutcome)>,
     head: usize,
     tail: usize,
     count: usize,
