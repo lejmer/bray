@@ -7631,6 +7631,13 @@ trusted func bray_abi_context(pos context: RawPointer<i32>) -> i32 uses(raw_memo
 
     generic(local);
     generic(local);"#,
+            r#"let mut fresh: Counter = Counter
+    {
+        value = 0
+    };
+
+    take(&mut fresh);
+    increment(&mut fresh);"#,
         ] {
             let source = format!(
                 r#"module app;
@@ -7660,6 +7667,10 @@ func nested(pos counter: &mut &mut Counter)
 }}
 
 func generic<T>(pos value: &mut T)
+{{
+}}
+
+func take<T>(pos value: T)
 {{
 }}
 

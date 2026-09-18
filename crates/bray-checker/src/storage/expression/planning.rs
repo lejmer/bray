@@ -304,16 +304,7 @@ where
             if let Some(kind) = reborrows.next().flatten() {
                 self.plan_call_reborrow(argument, kind)?;
             } else {
-                let access = self.plan_expression(argument, None)?;
-
-                self.builder_mut()?
-                    .plan_access(
-                        argument.into(),
-                        argument,
-                        StorageAccessPurpose::ValueTransfer,
-                        access,
-                    )
-                    .map_err(CheckerInfrastructureError::StoragePlan)?;
+                self.plan_expression(argument, Some(StorageAccessPurpose::ValueTransfer))?;
             }
         }
 
