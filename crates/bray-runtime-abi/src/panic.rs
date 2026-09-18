@@ -324,6 +324,16 @@ impl NativePanicReport {
         self.reserved = reserved;
     }
 
+    /// Returns the number of incident records following the primary.
+    pub const fn outgoing_count(&self) -> usize {
+        self.count
+    }
+
+    /// Returns whether the report owns a record for a subsequent ownership transfer.
+    pub const fn has_reservation(&self) -> bool {
+        self.reserved != 0
+    }
+
     /// Transfers the primary and detached record identities to their owning consumer.
     pub fn take_parts(&mut self) -> (NativePanicPrimary, usize, usize, usize, usize) {
         self.consume = None;

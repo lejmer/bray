@@ -3,10 +3,10 @@
 pub use super::callback::{
     bray_runtime_current_native_thread_identity, bray_runtime_main_native_thread_identity,
     bray_runtime_foreign_callback_execution, bray_runtime_native_thread_execution,
-    bray_runtime_substrate_panic_report_initialization,
     bray_runtime_synchronous_root_execution,
 };
 pub use super::export::{
+    bray_runtime_substrate_report_primary,
     bray_runtime_awaited_frame_composition, bray_runtime_cleanup_incident_reporting,
     bray_runtime_cleanup_shield_enter, bray_runtime_cleanup_shield_leave,
     bray_runtime_compatible_lane_selection, bray_runtime_current_run_cancellation_observation,
@@ -27,12 +27,6 @@ pub use super::export::{
 };
 #[cfg(feature = "test-output")]
 pub use super::host::{NativeHostCallbacks, register_host_callbacks};
-
-pub use super::outgoing::{
-    bray_runtime_outgoing_activation, bray_runtime_outgoing_admission,
-    bray_runtime_outgoing_discharge, bray_runtime_outgoing_retirement,
-    bray_runtime_panic_report_suppression,
-};
 
 /// Borrows the resident host callback table.
 pub const fn resident_host_services() -> &'static bray_runtime_abi::NativeHostServices {

@@ -1,0 +1,252 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap;
+
+using std.memory;
+
+@copy
+@layout(c)
+internal struct ReportPrimary
+{
+    mut source_present: u32;
+    mut source_identity: u32;
+    mut source_start: u32;
+    mut source_end: u32;
+    mut source_version: u64;
+    mut cause: u32;
+    mut message: usize;
+    mut message_length: usize;
+    mut copy_message: RawPointer<u8>;
+    mut release_message: RawPointer<u8>;
+}
+
+@copy
+@layout(c)
+internal struct ReportRecords
+{
+    mut head: usize;
+    mut tail: usize;
+    mut count: usize;
+}
+
+@copy
+@layout(c)
+internal struct ReportSegment
+{
+    mut ordinal: u64;
+    mut task: u64;
+    mut frame: [u8; 32];
+    mut state: u32;
+}
+
+@layout(c)
+internal struct ReportRecord
+{
+    mut primary: ReportPrimary;
+    mut next: usize;
+    mut segment: ReportSegment;
+    mut segment_tail: usize;
+    mut segment_count: usize;
+}
+
+@abi(c)
+internal func empty_primary() -> ReportPrimary
+{
+    return report_primary_value(empty_panic_report());
+}
+
+@abi(c)
+internal func empty_records() -> ReportRecords
+{
+    return
+    {
+        head = 0,
+        tail = 0,
+        count = 0
+    };
+}
+
+trusted internal func record(pos owner: &mut usize) -> &mut ReportRecord
+    uses(intrinsic, raw_memory, unchecked_alias)
+{
+    let pointer: RawPointer<ReportRecord> = trusted core.target.from_exposed_address<ReportRecord>(
+        address = trusted std.memory.read<usize>(std.memory.address_of_mut<usize>(owner))
+    );
+
+    return trusted std.memory.borrow_mut_from<ReportRecord, usize>(owner, pointer);
+}
+
+trusted internal func records(pos owner: &mut RawPointer<ReportRecords>) -> &mut ReportRecords
+    uses(raw_memory, unchecked_alias)
+{
+    let pointer: RawPointer<ReportRecords> = trusted std.memory.read<RawPointer<ReportRecords>>(
+        std.memory.address_of_mut<RawPointer<ReportRecords>>(owner)
+    );
+
+    return trusted std.memory.borrow_mut_from<ReportRecords, RawPointer<ReportRecords>>(owner, pointer);
+}
+
+trusted internal func append_record(pos chain: &mut ReportRecords, pos handle: usize)
+{
+    if chain.count == 0
+    {
+        chain.head = handle;
+    }
+    else
+    {
+        let last: &mut ReportRecord = trusted record(&mut chain.tail);
+
+        last.next = handle;
+    }
+
+    chain.tail = handle;
+    chain.count += 1;
+}
+
+trusted internal func detach_record(pos chain: &mut ReportRecords) -> usize
+    uses(intrinsic)
+{
+    if chain.count == 0
+    {
+        trusted core.target.abort();
+    }
+
+    let mut handle: usize = chain.head;
+    let first: &mut ReportRecord = trusted record(&mut handle);
+
+    chain.head = first.next;
+    first.next = 0;
+    chain.count -= 1;
+
+    if chain.count == 0
+    {
+        chain.tail = 0;
+    }
+
+    return handle;
+}
+
+@abi(c)
+trusted internal func report_records_take(
+    pos mut source: RawPointer<ReportRecords>,
+    pos count: usize,
+    pos mut destination: RawPointer<ReportRecords>,
+)
+{
+    let mut source_records: &mut ReportRecords = trusted records(&mut source);
+    let mut destination_records: &mut ReportRecords = trusted records(&mut destination);
+    let mut remaining: usize = count;
+
+    while remaining != 0
+    {
+        let handle: usize = trusted detach_record(&mut source_records);
+
+        trusted append_record(&mut destination_records, handle);
+        remaining -= 1;
+    }
+}
+
+@abi(c)
+trusted internal func report_records_append(
+    pos mut destination: RawPointer<ReportRecords>,
+    pos mut source: RawPointer<ReportRecords>,
+)
+    uses(raw_memory, unchecked_init)
+{
+    let left: &mut ReportRecords = trusted records(&mut destination);
+    let right: &mut ReportRecords = trusted records(&mut source);
+
+    if right.count == 0
+    {
+        return;
+    }
+
+    if left.count == 0
+    {
+        left.head = right.head;
+    }
+    else
+    {
+        let last: &mut ReportRecord = trusted record(&mut left.tail);
+
+        last.next = right.head;
+    }
+
+    left.tail = right.tail;
+    left.count += right.count;
+    trusted std.memory.write<ReportRecords>(std.memory.address_of_mut<ReportRecords>(right), empty_records());
+}
+
+@abi(c)
+trusted internal func report_record_exchange(pos mut handle: usize, pos mut primary: RawPointer<ReportPrimary>)
+    uses(raw_memory, unchecked_init, unchecked_alias)
+{
+    let entry: &mut ReportRecord = trusted record(&mut handle);
+    let primary_pointer: RawPointer<ReportPrimary> = primary;
+
+    let mut value: &mut ReportPrimary = trusted std.memory.borrow_mut_from<ReportPrimary, RawPointer<ReportPrimary>>(
+        &mut primary,
+        primary_pointer
+    );
+
+    let old: ReportPrimary = entry.primary;
+
+    entry.primary = trusted std.memory.read<ReportPrimary>(std.memory.address_of_mut<ReportPrimary>(&mut value));
+    trusted std.memory.write<ReportPrimary>(std.memory.address_of_mut<ReportPrimary>(&mut value), old);
+}
+
+@abi(c)
+trusted internal func report_segment_mark(
+    pos mut chain: RawPointer<ReportRecords>,
+    pos mut metadata: RawPointer<ReportSegment>
+)
+    uses(raw_memory, unchecked_alias)
+{
+    let segment_records: &mut ReportRecords = trusted records(&mut chain);
+
+    let segment: &ReportSegment = trusted std.memory.borrow_from<ReportSegment, RawPointer<ReportSegment>>(
+        &metadata,
+        metadata
+    );
+
+    let first: &mut ReportRecord = trusted record(&mut segment_records.head);
+
+    first.segment = trusted std.memory.read<ReportSegment>(std.memory.address_of<ReportSegment>(segment));
+    first.segment_tail = segment_records.tail;
+    first.segment_count = segment_records.count;
+}
+
+@abi(c)
+trusted internal func report_segment_take(
+    pos mut chain: RawPointer<ReportRecords>,
+    pos mut metadata: RawPointer<ReportSegment>,
+    pos mut destination: RawPointer<ReportRecords>,
+)
+    uses(raw_memory, unchecked_init, unchecked_alias)
+{
+    let source: &mut ReportRecords = trusted records(&mut chain);
+    let output: &mut ReportRecords = trusted records(&mut destination);
+    let head: usize = source.head;
+    let first: &mut ReportRecord = trusted record(&mut source.head);
+    let metadata_pointer: RawPointer<ReportSegment> = metadata;
+
+    let segment: &mut ReportSegment = trusted std.memory.borrow_mut_from<ReportSegment, RawPointer<ReportSegment>>(
+        &mut metadata,
+        metadata_pointer
+    );
+
+    trusted std.memory.write<ReportSegment>(std.memory.address_of_mut<ReportSegment>(segment), first.segment);
+    output.head = head;
+    output.tail = first.segment_tail;
+    output.count = first.segment_count;
+
+    let last: &mut ReportRecord = trusted record(&mut output.tail);
+
+    source.head = last.next;
+    source.count -= output.count;
+    last.next = 0;
+
+    if source.count == 0
+    {
+        source.tail = 0;
+    }
+}

@@ -3,6 +3,78 @@
 macro_rules! runtime_role_catalog {
     ($projection:ident) => {
         $projection! {
+            ReportRecordAdmission {
+                "Reserve records before a Rust producer accepts ownership.", "report_records_admit",
+                native: (REPORT_RECORDS_ADMIT_SYMBOL = "bray_runtime_report_records_admit", [Usize, Pointer] -> U32),
+                call_hook: (),
+                compiler: C [Usize, Pointer] -> U32,
+                owner: Host, availability: All, bootstrap: ("report_records_admit"), host_control: false,
+                capabilities: [],
+                effects: [TransferCleanupIncident]
+            }
+            ReportRecordTake {
+                "Detach an admitted prefix without allocating.", "report_records_take",
+                native: (REPORT_RECORDS_TAKE_SYMBOL = "bray_runtime_report_records_take", [Pointer, Usize, Pointer] -> Void),
+                call_hook: (),
+                compiler: C [Pointer, Usize, Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("report_records_take"), host_control: false,
+                capabilities: [],
+                effects: [TransferCleanupIncident]
+            }
+            ReportRecordExchange {
+                "Exchange one owned record primary without releasing its payload.", "report_record_exchange",
+                native: (REPORT_RECORD_EXCHANGE_SYMBOL = "bray_runtime_report_record_exchange", [Usize, Pointer] -> Void),
+                call_hook: (),
+                compiler: C [Usize, Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("report_record_exchange"), host_control: false,
+                capabilities: [],
+                effects: [TransferCleanupIncident]
+            }
+            ReportRecordAppend {
+                "Splice exclusively owned chains in constant time.", "report_records_append",
+                native: (REPORT_RECORDS_APPEND_SYMBOL = "bray_runtime_report_records_append", [Pointer, Pointer] -> Void),
+                call_hook: (),
+                compiler: C [Pointer, Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("report_records_append"), host_control: false,
+                capabilities: [],
+                effects: [TransferCleanupIncident]
+            }
+            ReportRecordPop {
+                "Detach a primary and recycle its record.", "report_records_pop",
+                native: (REPORT_RECORDS_POP_SYMBOL = "bray_runtime_report_records_pop", [Pointer, Pointer] -> Void),
+                call_hook: (),
+                compiler: C [Pointer, Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("report_records_pop"), host_control: false,
+                capabilities: [],
+                effects: [TransferCleanupIncident]
+            }
+            ReportSegmentMark {
+                "Attach cleanup context to an exclusively owned report segment.", "report_segment_mark",
+                native: (REPORT_SEGMENT_MARK_SYMBOL = "bray_runtime_report_segment_mark", [Pointer, Pointer] -> Void),
+                call_hook: (),
+                compiler: C [Pointer, Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("report_segment_mark"), host_control: false,
+                capabilities: [],
+                effects: [TransferCleanupIncident]
+            }
+            ReportSegmentTake {
+                "Detach an ordered cleanup segment and its context.", "report_segment_take",
+                native: (REPORT_SEGMENT_TAKE_SYMBOL = "bray_runtime_report_segment_take", [Pointer, Pointer, Pointer] -> Void),
+                call_hook: (),
+                compiler: C [Pointer, Pointer, Pointer] -> Void,
+                owner: Host, availability: All, bootstrap: ("report_segment_take"), host_control: false,
+                capabilities: [],
+                effects: [TransferCleanupIncident]
+            }
+            ReportConsumer {
+                "Return the linked Bray report consumer.", "report_consumer",
+                native: (REPORT_CONSUMER_SYMBOL = "bray_runtime_report_consumer", [] -> Pointer),
+                call_hook: (),
+                compiler: C [] -> Pointer,
+                owner: Host, availability: All, bootstrap: ("consume_pointer"), host_control: false,
+                capabilities: [],
+                effects: [TransferCleanupIncident]
+            }
             RuntimeInitialization {
                 "Initialize one loaded runtime artifact instance before product entry.", "runtime_initialization",
                 native: (RUNTIME_INITIALIZATION_SYMBOL = "bray_runtime_initialization", [Usize, Usize] -> U32),
@@ -385,7 +457,7 @@ macro_rules! runtime_role_catalog {
                 resident: (Host outgoing_admission: extern "C" fn(usize, &mut NativeRunOutcome)),
                 call_hook: (),
                 compiler: C [Usize, Pointer] -> Void,
-                owner: Host, availability: All, bootstrap: (), host_control: false,
+                owner: Host, availability: All, bootstrap: ("outgoing_admission"), host_control: false,
                 capabilities: [],
                 effects: [ConstructPanicReport]
             }
@@ -395,7 +467,7 @@ macro_rules! runtime_role_catalog {
                 resident: (Host outgoing_discharge: extern "C" fn(usize)),
                 call_hook: (),
                 compiler: C [Usize] -> Void,
-                owner: Host, availability: All, bootstrap: (), host_control: false,
+                owner: Host, availability: All, bootstrap: ("outgoing_discharge"), host_control: false,
                 capabilities: [],
                 effects: [DestroyPanicReport]
             }
@@ -405,7 +477,7 @@ macro_rules! runtime_role_catalog {
                 resident: (Host outgoing_activation: extern "C" fn() -> usize),
                 call_hook: (),
                 compiler: C [] -> Usize,
-                owner: Host, availability: All, bootstrap: (), host_control: false,
+                owner: Host, availability: All, bootstrap: ("outgoing_activation"), host_control: false,
                 capabilities: [],
                 effects: [TransferCleanupIncident]
             }
@@ -415,7 +487,7 @@ macro_rules! runtime_role_catalog {
                 resident: (Host outgoing_retirement: extern "C" fn(usize, &mut NativeRunOutcome)),
                 call_hook: (),
                 compiler: C [Usize, Pointer] -> Void,
-                owner: Host, availability: All, bootstrap: (), host_control: false,
+                owner: Host, availability: All, bootstrap: ("outgoing_retirement"), host_control: false,
                 capabilities: [],
                 effects: [TransferCleanupIncident]
             }
@@ -425,7 +497,7 @@ macro_rules! runtime_role_catalog {
                 resident: (Host panic_report_suppression: extern "C" fn(&mut NativePanicReport, &mut NativePanicReport) -> NativePanicReport),
                 call_hook: (),
                 compiler: Bray [PanicReport, PanicReport] -> PanicReport,
-                owner: Host, availability: All, bootstrap: (), host_control: false,
+                owner: Host, availability: All, bootstrap: ("panic_report_suppression"), host_control: false,
                 capabilities: [],
                 effects: [TransferCleanupIncident]
             }

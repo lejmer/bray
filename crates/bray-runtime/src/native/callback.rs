@@ -9,17 +9,6 @@ use crate::{RunOutcome, execute_synchronous_root};
 use super::state::runtime_failure;
 
 native_export! {
-    pub extern "C" fn bray_runtime_substrate_panic_report_initialization(report: &mut bray_runtime_abi::NativePanicReport) -> NativeRuntimeStatus {
-        let (primary, head, tail, count, reserved) = report.take_parts();
-        if !primary.cause().is_known() || !primary.source().is_valid() || head != 0 || tail != 0 || count != 0 || reserved != 0 {
-            return NativeRuntimeStatus::INVALID_ARGUMENT;
-        }
-        *report = crate::frame::native_report(primary);
-        NativeRuntimeStatus::SUCCESS
-    }
-}
-
-native_export! {
     pub extern "C" fn bray_runtime_native_thread_execution(
         callback: NativeThreadOperationCallback,
         context: usize,

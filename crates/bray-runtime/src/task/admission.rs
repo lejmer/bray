@@ -8,6 +8,10 @@ static NEXT_TASK_ID: AtomicU64 = AtomicU64::new(1);
 pub struct TaskId(NonZeroU64);
 
 impl TaskId {
+    pub(crate) const fn from_native(value: NonZeroU64) -> Self {
+        Self(value)
+    }
+
     /// Returns the process-local numeric identity.
     pub const fn raw(self) -> u64 {
         self.0.get()

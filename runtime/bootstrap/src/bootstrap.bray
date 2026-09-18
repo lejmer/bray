@@ -4,12 +4,25 @@ trusted internal module bray.runtime.bootstrap;
 using std.memory;
 
 internal const STATUS_SUCCESS: u32 = 0;
+
 internal const STATUS_NOT_INITIALIZED: u32 = 1;
+
 internal const STATUS_ALREADY_INITIALIZED: u32 = 2;
+
 internal const STATUS_RUNTIME_FAILURE: u32 = 4;
 
+internal const STATUS_PANICKED: u32 = 5;
+
+internal const RUN_COMPLETED: u32 = 0;
+
+internal const RUN_PANICKED: u32 = 2;
+
+internal const PANIC_ALLOCATION_FAILURE: u32 = 4;
+
 internal const INITIALIZATION_EMPTY: u32 = 0;
+
 internal const INITIALIZATION_PENDING: u32 = 1;
+
 internal const INITIALIZATION_READY: u32 = 2;
 
 internal const ONE_USIZE: usize = 1;
@@ -91,10 +104,7 @@ trusted internal func structured_shutdown() -> u32
 @link(name = "bray_runtime_host", kind = system)
 @symbol(name = "bray_runtime_substrate_initialization")
 @abi(c)
-extern trusted internal func substrate_initialization(
-    pos worker_capacity: usize,
-    pos timer_capacity: usize,
-) -> u32
+extern trusted internal func substrate_initialization(pos worker_capacity: usize, pos timer_capacity: usize) -> u32
     uses(foreign_call);
 
 @link(name = "bray_runtime_host", kind = system)

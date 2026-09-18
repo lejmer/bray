@@ -10,6 +10,7 @@ mod panic;
 mod platform;
 mod process;
 mod product;
+mod records;
 mod run_result;
 mod runtime;
 mod services;
@@ -40,6 +41,7 @@ pub use product::{
 };
 pub use run_result::NativeRunResultLayout;
 pub use services::{NativeExecutionServices, NativeHostServices};
+pub use records::{NativeReportRecords, NativeReportSegment};
 pub use runtime::{
     MAX_PERFORMANCE_OBSERVATION_RECORDS, MEMORY_ALLOCATION_OBSERVATION_SYMBOL,
     MEMORY_COPY_OBSERVATION_SYMBOL, MEMORY_OBSERVATION_BEGIN_SYMBOL, NativeExecutionLane,

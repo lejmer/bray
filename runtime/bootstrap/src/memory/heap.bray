@@ -1,6 +1,7 @@
 trusted internal module bray.runtime.bootstrap.heap;
 
 using std.memory;
+using internal std.runtime.memory;
 
 trusted internal func allocation_bytes<T>() -> usize
     uses(intrinsic)
@@ -19,12 +20,15 @@ trusted internal func allocation_bytes<T>() -> usize
 
 trusted internal func allocate(pos bytes: usize, align: usize) -> RawPointer<u8>
     ensures(
-        trusted core.memory.owned_allocation(pointer = result, bytes = bytes, align = align),
-        trusted core.memory.valid_write<u8>(pointer = result, count = bytes),
+        std.memory.is_null<u8>(result) || trusted core.memory.owned_allocation(
+            pointer = result,
+            bytes = bytes,
+            align = align
+        ),
+        std.memory.is_null<u8>(result) || trusted core.memory.valid_write<u8>(pointer = result, count = bytes),
     )
-    uses(manual_alloc)
 {
-    return trusted core.memory.allocate(bytes = bytes, align = align);
+    return trusted internal std.runtime.memory.try_allocate(bytes, align);
 }
 
 trusted internal func deallocate<T>(pos pointer: RawPointer<T>)

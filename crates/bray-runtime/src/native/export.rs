@@ -17,6 +17,8 @@ use crate::root::propagate_current_run_cancellation;
 use super::state::{initialize, runtime_failure, shutdown, with_runtime};
 
 native_export! {
+    #[cfg_attr(test, expect(unsafe_code, reason = "runtime tests link this substrate export to the Bray provider"))]
+    #[cfg_attr(test, unsafe(no_mangle))]
     pub extern "C" fn bray_runtime_substrate_initialization(
         worker_capacity: usize,
         timer_capacity: usize,
@@ -31,6 +33,8 @@ native_export! {
 }
 
 native_export! {
+    #[cfg_attr(test, expect(unsafe_code, reason = "runtime tests link this substrate export to the Bray provider"))]
+    #[cfg_attr(test, unsafe(no_mangle))]
     pub extern "C" fn bray_runtime_product_host_control(
         descriptor: &NativeProductHostDescriptor,
         operation: NativeProductHostOperation,
@@ -138,36 +142,40 @@ native_export! {
     }
 }
 
-pub(crate) fn report_primary(
-    primary: &bray_runtime_abi::NativePanicPrimary,
-) -> NativeRuntimeStatus {
-    if !primary.cause().is_known() || !primary.source().is_valid() {
-        return NativeRuntimeStatus::INVALID_ARGUMENT;
+native_export! {
+    #[cfg_attr(test, expect(unsafe_code, reason = "runtime tests link this substrate export to the Bray provider"))]
+    #[cfg_attr(test, unsafe(no_mangle))]
+    pub extern "C" fn bray_runtime_substrate_report_primary(
+        primary: &bray_runtime_abi::NativePanicPrimary,
+    ) -> NativeRuntimeStatus {
+        if !primary.cause().is_known() || !primary.source().is_valid() {
+            return NativeRuntimeStatus::INVALID_ARGUMENT;
+        }
+
+        let mut message = Vec::new();
+
+        if message.try_reserve_exact(primary.message().len()).is_err() {
+            report_panic(primary.cause(), primary.source(), String::new());
+
+            return NativeRuntimeStatus::RUNTIME_FAILURE;
+        }
+
+        message.resize(primary.message().len(), 0);
+
+        let status = primary.message().copy_to(0, &mut message);
+
+        if !status.is_success() {
+            return status;
+        }
+
+        let Ok(message) = String::from_utf8(message) else {
+            return NativeRuntimeStatus::INVALID_ARGUMENT;
+        };
+
+        report_panic(primary.cause(), primary.source(), message);
+
+        NativeRuntimeStatus::SUCCESS
     }
-
-    let mut message = Vec::new();
-
-    if message.try_reserve_exact(primary.message().len()).is_err() {
-        report_panic(primary.cause(), primary.source(), String::new());
-
-        return NativeRuntimeStatus::RUNTIME_FAILURE;
-    }
-
-    message.resize(primary.message().len(), 0);
-
-    let status = primary.message().copy_to(0, &mut message);
-
-    if !status.is_success() {
-        return status;
-    }
-
-    let Ok(message) = String::from_utf8(message) else {
-        return NativeRuntimeStatus::INVALID_ARGUMENT;
-    };
-
-    report_panic(primary.cause(), primary.source(), message);
-
-    NativeRuntimeStatus::SUCCESS
 }
 
 pub(crate) fn report_panic(cause: NativePanicCause, source: NativeSourceAnchor, message: String) {
@@ -213,6 +221,8 @@ native_export! {
 }
 
 native_export! {
+    #[cfg_attr(test, expect(unsafe_code, reason = "runtime tests link this substrate export to the Bray provider"))]
+    #[cfg_attr(test, unsafe(no_mangle))]
     pub extern "C" fn bray_runtime_panic_propagation(report: &mut bray_runtime_abi::NativePanicReport) -> ! {
         report.consume(true);
         std::process::abort()
@@ -424,18 +434,24 @@ native_export! {
 }
 
 native_export! {
+    #[cfg_attr(test, expect(unsafe_code, reason = "runtime tests link this substrate export to the Bray provider"))]
+    #[cfg_attr(test, unsafe(no_mangle))]
     pub extern "C" fn bray_runtime_cleanup_shield_enter() {
         crate::context::enter_current_run_cleanup_shield();
     }
 }
 
 native_export! {
+    #[cfg_attr(test, expect(unsafe_code, reason = "runtime tests link this substrate export to the Bray provider"))]
+    #[cfg_attr(test, unsafe(no_mangle))]
     pub extern "C" fn bray_runtime_cleanup_shield_leave() {
         crate::context::leave_current_run_cleanup_shield();
     }
 }
 
 native_export! {
+    #[cfg_attr(test, expect(unsafe_code, reason = "runtime tests link this substrate export to the Bray provider"))]
+    #[cfg_attr(test, unsafe(no_mangle))]
     pub extern "C-unwind" fn bray_runtime_current_run_cancellation_propagation() -> ! {
         propagate_current_run_cancellation()
     }
@@ -495,6 +511,8 @@ pub(crate) extern "C" fn bray_runtime_structured_shutdown() -> NativeRuntimeStat
 }
 
 native_export! {
+    #[cfg_attr(test, expect(unsafe_code, reason = "runtime tests link this substrate export to the Bray provider"))]
+    #[cfg_attr(test, unsafe(no_mangle))]
     pub extern "C" fn bray_runtime_substrate_shutdown() -> NativeRuntimeStatus {
         bray_runtime_structured_shutdown()
     }

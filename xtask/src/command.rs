@@ -112,3 +112,26 @@ pub(crate) fn failure(operation: &str, output: &Output) -> String {
 
     format!("{operation} failed with status {}{details}", output.status)
 }
+const USAGE: &str = "usage: cargo xtask <compiler-known | composition | format | package-interface | performance | readiness | runtime-artifact | standard-library | style> ...";
+
+/// Runs the repository task command selected by process arguments.
+pub fn run() -> std::process::ExitCode {
+    let mut arguments = std::env::args().skip(1);
+
+    match arguments.next().as_deref() {
+        Some("composition") => crate::composition::run(arguments),
+        Some("compiler-known") => crate::compiler_known::run(arguments),
+        Some("format") => crate::source_format::run(arguments),
+        Some("package-interface") => crate::package_interface::run(arguments),
+        Some("performance") => crate::performance::run(arguments),
+        Some("readiness") => crate::readiness::run(arguments),
+        Some("runtime-artifact") => crate::runtime_artifact::run(arguments),
+        Some("standard-library") => crate::standard_library::run(arguments),
+        Some("style") => crate::style::run(arguments),
+        _ => {
+            eprintln!("{USAGE}");
+
+            std::process::ExitCode::FAILURE
+        }
+    }
+}

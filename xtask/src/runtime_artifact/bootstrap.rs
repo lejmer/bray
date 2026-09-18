@@ -54,14 +54,15 @@ pub(super) fn cache_identity(
     Ok(Some(bray_base::lowercase_hex(&identity.finalize())))
 }
 
-pub(super) fn build(root: &Path, target: NativeTarget, destination: &Path) -> Result<(), String> {
+/// Compiles the manifest-selected trusted runtime bootstrap for the requested target.
+pub fn build(root: &Path, target: NativeTarget, destination: &Path) -> Result<(), String> {
     let support = tempfile::Builder::new()
         .prefix("bray-runtime-bootstrap-")
         .tempdir()
         .map_err(|error| format!("could not create bootstrap build directory: {error}"))?;
 
-    let standard_library = root
-        .join("target/runtime-bootstrap-standard-library")
+    let standard_library = crate::workspace::cargo_target(root)
+        .join("runtime-bootstrap-standard-library")
         .join(target.as_str());
 
     crate::standard_library::build_target_bundle(

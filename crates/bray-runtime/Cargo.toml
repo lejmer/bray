@@ -23,5 +23,9 @@ bray-runtime-model = { path = "../bray-runtime-model" }
 [dev-dependencies]
 bray-testing = { path = "../bray-testing" }
 
+[build-dependencies]
+bray-target = { path = "../bray-target" }
+xtask = { path = "../../xtask" }
+
 [lints]
 workspace = true

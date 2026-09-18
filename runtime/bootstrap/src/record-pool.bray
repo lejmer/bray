@@ -1,0 +1,214 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap;
+
+using std.memory;
+
+internal const RECORD_LOCK: usize = 0;
+
+internal const FREE_RECORD: usize = 1;
+
+internal const FREE_RECORD_COUNT: usize = 2;
+
+internal const POOL_RECORD_COUNT: usize = 3;
+
+internal const SOURCE_CREDITS: usize = 4;
+
+// Pool state shares one linked-image lifetime. Named slots keep the atomic words together.
+internal static RECORD_POOL: [core.atomic.Atomic<usize>; 5] = [
+    core.atomic.initialize<usize>(0),
+    core.atomic.initialize<usize>(0),
+    core.atomic.initialize<usize>(0),
+    core.atomic.initialize<usize>(0),
+    core.atomic.initialize<usize>(0),
+];
+
+@abi(c)
+trusted internal func lock_records()
+    uses(intrinsic)
+{
+    loop
+    {
+        let (_, acquired) = core.atomic.compare_exchange<usize, 1, 0>(
+            &RECORD_POOL[RECORD_LOCK],
+            expected = 0,
+            desired = 1
+        );
+
+        if acquired
+        {
+            return;
+        }
+
+        trusted core.target.spin_loop_hint();
+    }
+}
+
+@abi(c)
+internal func unlock_records()
+{
+    core.atomic.store<usize, 2>(&RECORD_POOL[RECORD_LOCK], value = 0);
+}
+
+@abi(c)
+trusted internal func reserve_records(pos count: usize) -> bool
+    uses(raw_memory, unchecked_init, intrinsic)
+{
+    let available: usize = core.atomic.load<usize, 0>(&RECORD_POOL[FREE_RECORD_COUNT]);
+
+    if count <= available
+    {
+        return true;
+    }
+
+    let required: usize = count - available;
+    let size: usize = std.memory.size_of<ReportRecord>();
+    let maximum: usize = ~0;
+    let total: usize = core.atomic.load<usize, 0>(&RECORD_POOL[POOL_RECORD_COUNT]);
+    let limit: usize = maximum / size - total;
+
+    if required > limit
+    {
+        return false;
+    }
+
+    let mut additional: usize = required;
+
+    // Slabs keep handles stable and double capacity to amortize repeated admissions.
+    if total > required && total <= limit
+    {
+        additional = total;
+    }
+
+    let bytes: usize = additional * size;
+
+    let allocation: RawPointer<u8> = trusted internal bray.runtime.bootstrap.heap.allocate(
+        bytes,
+        align = std.memory.align_of<ReportRecord>()
+    );
+
+    if std.memory.is_null<u8>(allocation)
+    {
+        return false;
+    }
+
+    let mut head: usize = core.atomic.load<usize, 0>(&RECORD_POOL[FREE_RECORD]);
+    let mut index: usize = 0;
+    let base: usize = trusted core.target.expose_address<u8>(allocation);
+
+    while index < additional
+    {
+        let address: usize = base + index * size;
+
+        let pointer: RawPointer<ReportRecord> = trusted core.target.from_exposed_address<ReportRecord>(
+            address = address
+        );
+
+        trusted std.memory.write<ReportRecord>(
+            pointer,
+            {
+                primary = empty_primary(),
+                next = head,
+                segment =
+                {
+                    ordinal = 0,
+                    task = 0,
+                    frame = [0; 32],
+                    state = 0
+                },
+                segment_tail = 0,
+                segment_count = 0,
+            }
+        );
+
+        head = address;
+        index += 1;
+    }
+
+    core.atomic.store<usize, 0>(&RECORD_POOL[FREE_RECORD], value = head);
+    core.atomic.store<usize, 0>(&RECORD_POOL[FREE_RECORD_COUNT], value = available + additional);
+    core.atomic.store<usize, 0>(&RECORD_POOL[POOL_RECORD_COUNT], value = total + additional);
+    return true;
+}
+
+@abi(c)
+trusted internal func activate_record() -> usize
+    uses(intrinsic)
+{
+    let mut head: usize = core.atomic.load<usize, 0>(&RECORD_POOL[FREE_RECORD]);
+
+    if head == 0
+    {
+        trusted core.target.abort();
+    }
+
+    let entry: &mut ReportRecord = trusted record(&mut head);
+
+    core.atomic.store<usize, 0>(&RECORD_POOL[FREE_RECORD], value = entry.next);
+    entry.next = 0;
+
+    let count: usize = core.atomic.load<usize, 0>(&RECORD_POOL[FREE_RECORD_COUNT]);
+
+    core.atomic.store<usize, 0>(&RECORD_POOL[FREE_RECORD_COUNT], value = count - 1);
+    return head;
+}
+
+@abi(c)
+trusted internal func report_records_admit(pos count: usize, pos mut destination: RawPointer<ReportRecords>) -> u32
+{
+    trusted lock_records();
+
+    let credits: usize = core.atomic.load<usize, 0>(&RECORD_POOL[SOURCE_CREDITS]);
+    let maximum: usize = ~0;
+
+    if count > maximum - credits
+    {
+        unlock_records();
+        return 1;
+    }
+
+    if !trusted reserve_records(credits + count)
+    {
+        unlock_records();
+        return 1;
+    }
+
+    let mut output: &mut ReportRecords = trusted records(&mut destination);
+    let mut remaining: usize = count;
+
+    while remaining != 0
+    {
+        let handle: usize = trusted activate_record();
+
+        trusted append_record(&mut output, handle);
+        remaining -= 1;
+    }
+
+    unlock_records();
+    return 0;
+}
+
+@abi(c)
+trusted internal func report_records_pop(
+    pos mut chain: RawPointer<ReportRecords>,
+    pos destination: RawPointer<ReportPrimary>
+)
+    uses(raw_memory, unchecked_init)
+{
+    let value: &mut ReportRecords = trusted records(&mut chain);
+    let mut handle: usize = trusted detach_record(value);
+    let entry: &mut ReportRecord = trusted record(&mut handle);
+
+    trusted std.memory.write<ReportPrimary>(destination, entry.primary);
+    entry.primary = empty_primary();
+    entry.segment_count = 0;
+    entry.segment_tail = 0;
+
+    trusted lock_records();
+    entry.next = core.atomic.load<usize, 0>(&RECORD_POOL[FREE_RECORD]);
+    core.atomic.store<usize, 0>(&RECORD_POOL[FREE_RECORD], value = handle);
+
+    let available: usize = core.atomic.load<usize, 0>(&RECORD_POOL[FREE_RECORD_COUNT]);
+
+    core.atomic.store<usize, 0>(&RECORD_POOL[FREE_RECORD_COUNT], value = available + 1);
+    unlock_records();
+}
