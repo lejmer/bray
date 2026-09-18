@@ -748,9 +748,20 @@ mod tests {
             StorageRelationship::Disjoint
         );
 
-        assert_eq!(plan.value_relationship(owner_access, first), StorageRelationship::Disjoint);
-        assert_eq!(plan.value_relationship(first, child_access), StorageRelationship::Identical);
-        assert_eq!(plan.value_relationship(first, second), StorageRelationship::Disjoint);
+        assert_eq!(
+            plan.value_relationship(owner_access, first),
+            StorageRelationship::Disjoint
+        );
+
+        assert_eq!(
+            plan.value_relationship(first, child_access),
+            StorageRelationship::Identical
+        );
+
+        assert_eq!(
+            plan.value_relationship(first, second),
+            StorageRelationship::Disjoint
+        );
 
         assert_ne!(
             plan.relationship(owner_access, second),

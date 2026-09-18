@@ -19,9 +19,7 @@ use super::binding::{
     CleanupWorkloadScope, current_native_task, current_thread_lanes, lane_result, runtime_failure,
     task_outcome, write_cleanup_incident_report,
 };
-use super::core::{
-    NativeRuntime, NativeTaskSlot, StartedTask, SuspendedWait, with_current_task,
-};
+use super::core::{NativeRuntime, NativeTaskSlot, StartedTask, SuspendedWait, with_current_task};
 
 struct TaskObservationClaim<'a>(&'a AtomicBool);
 

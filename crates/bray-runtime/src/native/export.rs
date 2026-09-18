@@ -1228,11 +1228,7 @@ mod tests {
         }
     }
 
-    extern "C" fn release_frame_bridge_primary(
-        _: usize,
-        _: usize,
-        _: &mut NativeRunOutcome,
-    ) {
+    extern "C" fn release_frame_bridge_primary(_: usize, _: usize, _: &mut NativeRunOutcome) {
         assert_eq!(FRAME_BRIDGE_RELEASES.fetch_add(1, Ordering::Relaxed), 0);
     }
 
@@ -1668,8 +1664,7 @@ mod tests {
 
     #[test]
     fn synchronous_root_boundary_catches_current_run_cancellation() {
-        let outcome =
-            bray_runtime_synchronous_root_execution(propagate_test_cancellation, 0);
+        let outcome = bray_runtime_synchronous_root_execution(propagate_test_cancellation, 0);
 
         assert_eq!(outcome.state(), NativeRunState::CANCELLED);
         assert_eq!(outcome.payload(), 0);

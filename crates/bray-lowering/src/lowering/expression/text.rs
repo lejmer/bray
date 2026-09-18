@@ -125,9 +125,8 @@ impl Lowerer<'_> {
                 );
             };
 
-            let lowered = self.lower_text_operand(
-                id, *expression, current, &source, conversion, *reborrow,
-            )?;
+            let lowered =
+                self.lower_text_operand(id, *expression, current, &source, conversion, *reborrow)?;
 
             let Some(continuation) = lowered.block else {
                 return Ok(lowered);

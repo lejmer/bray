@@ -752,7 +752,9 @@ where
             .moved
             .iter()
             .filter(|(moved, _)| {
-                let moves_borrow_value = self.storage.access(**moved)
+                let moves_borrow_value = self
+                    .storage
+                    .access(**moved)
                     .is_some_and(|record| self.type_is_borrow(record.reached_type()));
 
                 let relationship = if moves_borrow_value {

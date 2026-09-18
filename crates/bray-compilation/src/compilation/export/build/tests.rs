@@ -823,7 +823,11 @@ fn runtime_default_storage_cannot_escape_source_or_imported_calls() {
 
     let provider = compilation(provider_source);
 
-    assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
 
     for (result, invocation, valid) in [
         ("&bool", "choose(first)", false),
@@ -1026,30 +1030,44 @@ public func same(pos value: &mut bool) -> &mut bool
     let conflict = bray_diagnostics::DiagnosticKind::CheckingConflictingBorrow;
 
     for (body, expected) in [
-        (r#"let local: &mut bool = caller;
+        (
+            r#"let local: &mut bool = caller;
 
     touch(local);
-    touch(local);"#, None),
-        (r#"let local: &mut bool = same(caller);
+    touch(local);"#,
+            None,
+        ),
+        (
+            r#"let local: &mut bool = same(caller);
 
     touch(local);
-    touch(local);"#, None),
-        (r#"let local: &mut bool = caller;
+    touch(local);"#,
+            None,
+        ),
+        (
+            r#"let local: &mut bool = caller;
 
     take(local);
-    touch(local);"#, Some(moved)),
-        (r#"let local: &mut bool = caller;
+    touch(local);"#,
+            Some(moved),
+        ),
+        (
+            r#"let local: &mut bool = caller;
     let escaped: &mut bool = same(local);
 
     touch(local);
-    touch(escaped);"#, Some(conflict)),
+    touch(escaped);"#,
+            Some(conflict),
+        ),
     ] {
-        let body = format!(r#"
+        let body = format!(
+            r#"
 func check(pos caller: &mut bool)
 {{
     {body}
 }}
-"#);
+"#
+        );
 
         let source = compilation(&format!("module app;\n{declaration}\n{body}"));
 
@@ -1076,7 +1094,11 @@ func check(pos caller: &mut bool)
                     .lowered_unit(key)
                     .expect("source or imported call reborrow lowering");
 
-                assert!(!lowered.diagnostics().has_errors(), "{body}: {:?}", lowered.diagnostics());
+                assert!(
+                    !lowered.diagnostics().has_errors(),
+                    "{body}: {:?}",
+                    lowered.diagnostics()
+                );
             }
         }
     }

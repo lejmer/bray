@@ -133,8 +133,10 @@ mod tests {
             RuntimeAbiRole::PanicReportSuppression,
             RuntimeAbiRole::PanicReportConstruction,
         ] {
-            let owners: Vec<_> = RuntimeArchiveKind::ALL.into_iter()
-                .filter(|kind| kind.runtime_roles().any(|candidate| candidate == role)).collect();
+            let owners: Vec<_> = RuntimeArchiveKind::ALL
+                .into_iter()
+                .filter(|kind| kind.runtime_roles().any(|candidate| candidate == role))
+                .collect();
 
             assert_eq!(owners, [RuntimeArchiveKind::Bootstrap], "{role:?}");
         }
@@ -142,11 +144,21 @@ mod tests {
         let outgoing = include_str!("../../../crates/bray-runtime/src/outgoing.rs");
 
         for obsolete in ["struct Record", "static RECORDS", "Mutex", "Vec<"] {
-            assert!(!outgoing.contains(obsolete), "Rust report storage remains: {obsolete}");
+            assert!(
+                !outgoing.contains(obsolete),
+                "Rust report storage remains: {obsolete}"
+            );
         }
 
-        assert!(!include_str!("../../../crates/bray-runtime/src/frame.rs").contains("consume_native_report"));
-        assert!(!include_str!("../../../crates/bray-runtime/src/native/callback.rs").contains("substrate_panic_report_initialization"));
+        assert!(
+            !include_str!("../../../crates/bray-runtime/src/frame.rs")
+                .contains("consume_native_report")
+        );
+
+        assert!(
+            !include_str!("../../../crates/bray-runtime/src/native/callback.rs")
+                .contains("substrate_panic_report_initialization")
+        );
     }
 
     #[test]

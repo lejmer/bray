@@ -431,7 +431,11 @@ mod tests {
             .unwrap_or_else(|| panic!("runtime initialization must have a bootstrap binding"));
 
         assert_eq!(binding.role(), RuntimeAbiRole::RuntimeInitialization);
-        assert_eq!(binding.dotted_path(), "bray.runtime.bootstrap.runtime_initialization");
+
+        assert_eq!(
+            binding.dotted_path(),
+            "bray.runtime.bootstrap.runtime_initialization"
+        );
 
         assert_eq!(
             RuntimeAbiRole::SynchronousRootExecution.resident_service(),

@@ -48,10 +48,10 @@ pub use observation::{
     TaskSnapshot, TaskStartSite, TaskWakeCause,
 };
 pub use outcome::{RunOutcome, RunOutcomeKind};
+pub(crate) use root::execute_synchronous_root;
 pub use root::{
     RootCancellationHandle, RootCancellationSource, RootExecutionError, execute_async_root,
 };
-pub(crate) use root::execute_synchronous_root;
 pub use scheduler::{
     ReadyTask, Scheduler, SchedulerError, SchedulerLimits, TaskRegistration, TaskWakeHandle,
     TimerRegistration,

@@ -40,7 +40,8 @@ pub(super) fn immutable_field_accesses<C: CheckerRequestContext + ?Sized>(
             continue;
         };
 
-        let projections = storage.resolved_projections(access)
+        let projections = storage
+            .resolved_projections(access)
             .expect("resolved mutation access must retain its projections");
 
         for (index, projection) in projections.iter().enumerate() {

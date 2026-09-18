@@ -265,11 +265,8 @@ mod tests {
             RunOutcome::Completed(17)
         ));
 
-        let panicked = execute_synchronous_root(
-            || -> i32 { panic!("root panic") },
-            |_| {},
-            &mut admitted,
-        );
+        let panicked =
+            execute_synchronous_root(|| -> i32 { panic!("root panic") }, |_| {}, &mut admitted);
 
         assert!(matches!(panicked, RunOutcome::Panicked(_)));
     }
@@ -278,9 +275,13 @@ mod tests {
     fn synchronous_roots_expose_host_cancellation_to_run_operations() {
         let mut admitted = crate::outgoing::OutgoingRecords::admit(1).unwrap();
 
-        let outcome = execute_synchronous_root(current_run_cancellation_observable, |root| {
-            assert!(root.request());
-        }, &mut admitted);
+        let outcome = execute_synchronous_root(
+            current_run_cancellation_observable,
+            |root| {
+                assert!(root.request());
+            },
+            &mut admitted,
+        );
 
         assert!(matches!(outcome, RunOutcome::Completed(true)));
     }
@@ -289,11 +290,8 @@ mod tests {
     fn synchronous_cancellation_entry_reaches_the_root_outcome() {
         let mut admitted = crate::outgoing::OutgoingRecords::admit(1).unwrap();
 
-        let outcome = execute_synchronous_root(
-            propagate_current_run_cancellation,
-            |_| {},
-            &mut admitted,
-        );
+        let outcome =
+            execute_synchronous_root(propagate_current_run_cancellation, |_| {}, &mut admitted);
 
         assert!(matches!(outcome, RunOutcome::Cancelled));
     }

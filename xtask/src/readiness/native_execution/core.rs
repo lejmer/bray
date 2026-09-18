@@ -12,12 +12,11 @@ use super::built_fixture::BuiltFixture;
 use super::fixtures::{
     ABI_FIXTURE, ABI_HOST, ASYNC_ERROR_FIXTURE, ASYNC_I32_FIXTURE, ASYNC_TASKS_FIXTURE,
     ASYNC_UNIT_FIXTURE, ATOMIC_FIXTURE, CALL_REBORROWS_FIXTURE, ENTRY_RESULT_FIXTURE,
-    GUARDED_PART_CLEANUP_FIXTURE,
-    GUARDED_ROOT_CLEANUP_FIXTURE, HEAP_STORAGE_FIXTURE, MEMORY_FIXTURE, MEMORY_LAYOUT_FIXTURE,
-    PATTERN_CONDITIONS_FIXTURE, PRODUCT_NAME, RANGE_FIXTURE, STANDARD_MEMORY_FIXTURE,
-    STANDARD_RUN_SOURCE, STANDARD_TASK_SOURCE, STANDARD_TESTING_SOURCE, STANDARD_TEXT_FIXTURE,
-    STARTUP_FIXTURE, SYNC_CATCH_PROPAGATION_FIXTURE, SYNC_PANIC_FIXTURE, TEXT_CURSOR_FIXTURE,
-    VALUE_REPLACEMENT_FIXTURE,
+    GUARDED_PART_CLEANUP_FIXTURE, GUARDED_ROOT_CLEANUP_FIXTURE, HEAP_STORAGE_FIXTURE,
+    MEMORY_FIXTURE, MEMORY_LAYOUT_FIXTURE, PATTERN_CONDITIONS_FIXTURE, PRODUCT_NAME, RANGE_FIXTURE,
+    STANDARD_MEMORY_FIXTURE, STANDARD_RUN_SOURCE, STANDARD_TASK_SOURCE, STANDARD_TESTING_SOURCE,
+    STANDARD_TEXT_FIXTURE, STARTUP_FIXTURE, SYNC_CATCH_PROPAGATION_FIXTURE, SYNC_PANIC_FIXTURE,
+    TEXT_CURSOR_FIXTURE, VALUE_REPLACEMENT_FIXTURE,
 };
 use super::hello::audit_standard_hello_world;
 use super::nullable::audit_nullable_state_queries;
@@ -123,8 +122,16 @@ pub(crate) fn audit(root: &Path) -> Result<(), String> {
     })?;
 
     for (fixture, prefix, name) in [
-        (VALUE_REPLACEMENT_FIXTURE, "bray-native-replacement-", "value replacement"),
-        (CALL_REBORROWS_FIXTURE, "bray-native-call-reborrows-", "call reborrows"),
+        (
+            VALUE_REPLACEMENT_FIXTURE,
+            "bray-native-replacement-",
+            "value replacement",
+        ),
+        (
+            CALL_REBORROWS_FIXTURE,
+            "bray-native-call-reborrows-",
+            "call reborrows",
+        ),
     ] {
         crate::progress::run(&format!("Checking {name}"), || {
             audit_repeatable_fixture(root, target, &runtime, prefix, fixture, 0, name, &[])

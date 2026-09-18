@@ -189,7 +189,10 @@ static RUST_PANIC_BACKINGS: Mutex<RustPanicBackings> = Mutex::new(RustPanicBacki
 
 impl RuntimePanic {
     #[cfg(test)]
-    pub(crate) fn new(payload: impl Any + Send, admitted: &mut crate::outgoing::OutgoingRecords) -> Self {
+    pub(crate) fn new(
+        payload: impl Any + Send,
+        admitted: &mut crate::outgoing::OutgoingRecords,
+    ) -> Self {
         Self::from_payload(Box::new(payload), admitted)
     }
 
@@ -214,7 +217,10 @@ impl RuntimePanic {
         }
     }
 
-    pub(crate) fn from_payload(payload: Box<dyn Any + Send>, admitted: &mut crate::outgoing::OutgoingRecords) -> Self {
+    pub(crate) fn from_payload(
+        payload: Box<dyn Any + Send>,
+        admitted: &mut crate::outgoing::OutgoingRecords,
+    ) -> Self {
         match payload.downcast::<Self>() {
             Ok(panic) => *panic,
             Err(payload) => {
@@ -231,7 +237,10 @@ impl RuntimePanic {
         }
     }
 
-    pub(crate) fn into_records(mut self, admitted: &mut crate::outgoing::OutgoingRecords) -> crate::outgoing::OutgoingRecords {
+    pub(crate) fn into_records(
+        mut self,
+        admitted: &mut crate::outgoing::OutgoingRecords,
+    ) -> crate::outgoing::OutgoingRecords {
         self.reserve_from(admitted);
 
         let (mut primary, head, tail, count, reserved) = self.report.take_parts();
@@ -239,7 +248,10 @@ impl RuntimePanic {
         let mut records = crate::outgoing::OutgoingRecords::from_parts(reserved, reserved, 1);
         records.exchange(&mut primary);
         drop(primary);
-        records.append(&mut crate::outgoing::OutgoingRecords::from_parts(head, tail, count));
+
+        records.append(&mut crate::outgoing::OutgoingRecords::from_parts(
+            head, tail, count,
+        ));
 
         records
     }
@@ -255,16 +267,32 @@ impl RuntimePanic {
         Self { report }
     }
 
-    pub(crate) fn push_suppressed(&mut self, payload: Box<dyn Any + Send>, admitted: &mut crate::outgoing::OutgoingRecords) {
+    pub(crate) fn push_suppressed(
+        &mut self,
+        payload: Box<dyn Any + Send>,
+        admitted: &mut crate::outgoing::OutgoingRecords,
+    ) {
         self.append(Self::from_payload(payload, admitted), admitted);
     }
 
-    pub(crate) fn append(&mut self, mut incident: Self, admitted: &mut crate::outgoing::OutgoingRecords) {
+    pub(crate) fn append(
+        &mut self,
+        mut incident: Self,
+        admitted: &mut crate::outgoing::OutgoingRecords,
+    ) {
         incident.reserve_from(admitted);
-        self.report = crate::report_provider::bray_runtime_panic_report_suppression(&mut self.report, &mut incident.report);
+
+        self.report = crate::report_provider::bray_runtime_panic_report_suppression(
+            &mut self.report,
+            &mut incident.report,
+        );
     }
 
-    pub(crate) fn record(panic: &mut Option<Self>, payload: Box<dyn Any + Send>, admitted: &mut crate::outgoing::OutgoingRecords) {
+    pub(crate) fn record(
+        panic: &mut Option<Self>,
+        payload: Box<dyn Any + Send>,
+        admitted: &mut crate::outgoing::OutgoingRecords,
+    ) {
         if let Some(panic) = panic {
             panic.push_suppressed(payload, admitted);
         } else {
@@ -276,7 +304,9 @@ impl RuntimePanic {
         self.report.consume(reporting)
     }
 }
-pub(crate) fn reserve_rust_panic_backings(records: &mut crate::outgoing::OutgoingRecords) -> Result<(), TryReserveError> {
+pub(crate) fn reserve_rust_panic_backings(
+    records: &mut crate::outgoing::OutgoingRecords,
+) -> Result<(), TryReserveError> {
     let mut backings = rust_panic_backings();
     let count = records.len();
     backings.reserve_free(count)?;
@@ -365,11 +395,7 @@ extern "C" fn copy_rust_panic_message(
 
     let backings = rust_panic_backings();
 
-    let Some(payload) = backings
-        .slots
-        .get(index)
-        .and_then(Option::as_deref)
-    else {
+    let Some(payload) = backings.slots.get(index).and_then(Option::as_deref) else {
         return bray_runtime_abi::NativeRuntimeStatus::INVALID_ARGUMENT;
     };
 
@@ -423,7 +449,9 @@ impl RustPanicBackings {
         let additional = count.saturating_sub(self.free.len());
 
         self.slots.try_reserve(additional)?;
-        self.free.try_reserve(self.slots.len() + additional - self.free.len())?;
+
+        self.free
+            .try_reserve(self.slots.len() + additional - self.free.len())?;
 
         for _ in 0..additional {
             let index = self.slots.len();
@@ -460,7 +488,10 @@ fn rust_panic_backings() -> MutexGuard<'static, RustPanicBackings> {
 pub(crate) fn native_report(
     primary: bray_runtime_abi::NativePanicPrimary,
 ) -> bray_runtime_abi::NativePanicReport {
-    bray_runtime_abi::NativePanicReport::new(primary, crate::report_provider::bray_runtime_report_consumer())
+    bray_runtime_abi::NativePanicReport::new(
+        primary,
+        crate::report_provider::bray_runtime_report_consumer(),
+    )
 }
 
 impl fmt::Debug for RuntimePanic {
@@ -691,11 +722,16 @@ mod tests {
 
         let report = std::thread::spawn(move || {
             let mut admitted = crate::outgoing::OutgoingRecords::admit(2).unwrap();
-            let mut report = super::RuntimePanic::new(Release(1, Arc::clone(&producer_events)), &mut admitted);
+
+            let mut report =
+                super::RuntimePanic::new(Release(1, Arc::clone(&producer_events)), &mut admitted);
+
             report.push_suppressed(Box::new(Release(2, producer_events)), &mut admitted);
 
             report.into_native()
-        }).join().unwrap();
+        })
+        .join()
+        .unwrap();
 
         assert!(released.lock().unwrap().is_empty());
 
@@ -703,7 +739,9 @@ mod tests {
             let mut report = report;
             assert!(report.consume(false).is_success());
             assert!(report.consume(false).is_success());
-        }).join().unwrap();
+        })
+        .join()
+        .unwrap();
 
         assert_eq!(*released.lock().unwrap(), [1, 2]);
     }
@@ -746,10 +784,7 @@ mod tests {
         let drops = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let mut admitted = crate::outgoing::OutgoingRecords::admit(1).unwrap();
 
-        let panic = super::RuntimePanic::new(
-            Payload(std::sync::Arc::clone(&drops)),
-            &mut admitted,
-        );
+        let panic = super::RuntimePanic::new(Payload(std::sync::Arc::clone(&drops)), &mut admitted);
 
         let native = panic.into_native();
 

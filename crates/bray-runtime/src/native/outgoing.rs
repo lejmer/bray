@@ -12,12 +12,12 @@ pub(super) fn allocation_failure() -> NativeRunOutcome {
 
 #[cfg(test)]
 mod tests {
-    use bray_runtime_abi::NativeRunOutcome;
     use crate::report_provider::{
         bray_runtime_outgoing_activation, bray_runtime_outgoing_admission,
         bray_runtime_outgoing_discharge, bray_runtime_outgoing_retirement,
         bray_runtime_panic_report_suppression,
     };
+    use bray_runtime_abi::NativeRunOutcome;
     use bray_runtime_abi::{
         NativePanicCause, NativePanicMessage, NativePanicPrimary, NativeSourceAnchor,
     };
@@ -84,6 +84,5 @@ mod tests {
         assert!(report.consume(false).is_success());
         assert!(report.consume(false).is_success());
         assert_eq!(RELEASES.with_borrow(Clone::clone), [1, 2]);
-
     }
 }

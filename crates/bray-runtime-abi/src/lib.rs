@@ -39,9 +39,8 @@ pub use product::{
     NativeStaticTransitionCallback, NativeThreadStaticCleanupRegistration, NativeTypeIdentity,
     PRODUCT_HOST_ABI_VERSION,
 };
-pub use run_result::NativeRunResultLayout;
-pub use services::{NativeExecutionServices, NativeHostServices};
 pub use records::{NativeReportRecords, NativeReportSegment};
+pub use run_result::NativeRunResultLayout;
 pub use runtime::{
     MAX_PERFORMANCE_OBSERVATION_RECORDS, MEMORY_ALLOCATION_OBSERVATION_SYMBOL,
     MEMORY_COPY_OBSERVATION_SYMBOL, MEMORY_OBSERVATION_BEGIN_SYMBOL, NativeExecutionLane,
@@ -57,6 +56,7 @@ pub use runtime::{
     PERFORMANCE_INTERVAL_BEGIN_SYMBOL, PERFORMANCE_INTERVAL_END_SYMBOL,
     PERFORMANCE_OBSERVATION_HEADER, PERFORMANCE_OBSERVATION_PATH_ENVIRONMENT,
 };
+pub use services::{NativeExecutionServices, NativeHostServices};
 pub use temporal::{
     NativePlatformDateTime, NativePlatformTemporalObservation, NativePlatformTemporalResolution,
     NativePlatformTemporalValue,

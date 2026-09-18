@@ -43,7 +43,10 @@ pub(in crate::native) fn current_runtime() -> Option<Rc<NativeRuntime>> {
 }
 
 pub(in crate::native) fn current_task() -> Option<NativeTaskHandle> {
-    NATIVE_CONTEXT.try_with(|context| context.borrow().task).ok().flatten()
+    NATIVE_CONTEXT
+        .try_with(|context| context.borrow().task)
+        .ok()
+        .flatten()
 }
 
 fn replace_runtime(runtime: Option<Rc<NativeRuntime>>) -> Option<Rc<NativeRuntime>> {
@@ -64,9 +67,7 @@ pub(in crate::native) fn with_bound_runtime<T>(
     with_independent_execution_context(callback)
 }
 
-pub(in crate::native) fn with_independent_execution_context<T>(
-    callback: impl FnOnce() -> T,
-) -> T {
+pub(in crate::native) fn with_independent_execution_context<T>(callback: impl FnOnce() -> T) -> T {
     let task = NATIVE_CONTEXT.with_borrow_mut(|context| context.task.take());
     let _scope = NativeTaskScope(task);
 
@@ -524,7 +525,10 @@ fn initialize_with_capabilities(
         _test_isolation: test_isolation,
     })));
 
-    debug_assert!(previous.is_none(), "runtime initialization checked current context");
+    debug_assert!(
+        previous.is_none(),
+        "runtime initialization checked current context"
+    );
 
     NativeRuntimeStatus::SUCCESS
 }
@@ -616,7 +620,11 @@ pub(in crate::native) fn run_worker(
     });
 
     let previous = replace_runtime(Some(Rc::clone(&runtime)));
-    debug_assert!(previous.is_none(), "worker starts without a runtime context");
+
+    debug_assert!(
+        previous.is_none(),
+        "worker starts without a runtime context"
+    );
 
     let lane = ExecutionLane::new(ExecutionLanePlacement::Migratable, workload);
     let mut accounted_as_idle = workload == ExecutionWorkload::Blocking;

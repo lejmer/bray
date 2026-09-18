@@ -324,9 +324,12 @@ where
         )
         .with_generic_substitution(substitution)
         .with_parameter_borrows(
-            template.signature().parameter_type_templates(values)
+            template
+                .signature()
+                .parameter_type_templates(values)
                 .expect("callable candidate must have parameter type templates")
-                .iter().map(|template| match template {
+                .iter()
+                .map(|template| match template {
                     TypeExpressionTemplate::Borrow { kind, .. } => Some(*kind),
                     TypeExpressionTemplate::Resolved(ty) => match values.type_data(*ty).as_ref() {
                         TypeData::Borrow { kind, .. } => Some(*kind),

@@ -638,23 +638,14 @@ mod tests {
         let mut child_admitted = crate::outgoing::OutgoingRecords::admit(2).unwrap();
         let mut child = RuntimePanic::new(Release(2), &mut child_admitted);
 
-        child.push_suppressed(
-            Box::new(Release(3)),
-            &mut child_admitted,
-        );
+        child.push_suppressed(Box::new(Release(3)), &mut child_admitted);
 
         let mut primary_admitted = crate::outgoing::OutgoingRecords::admit(3).unwrap();
         let mut primary = RuntimePanic::new(Release(1), &mut primary_admitted);
 
-        primary.push_suppressed(
-            Box::new(child),
-            &mut primary_admitted,
-        );
+        primary.push_suppressed(Box::new(child), &mut primary_admitted);
 
-        primary.push_suppressed(
-            Box::new(Release(4)),
-            &mut primary_admitted,
-        );
+        primary.push_suppressed(Box::new(Release(4)), &mut primary_admitted);
 
         drop(primary);
 
