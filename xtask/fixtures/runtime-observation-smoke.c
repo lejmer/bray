@@ -21,7 +21,6 @@ int main(int argc, char **argv)
 
     if (strcmp(argv[1], "records") == 0)
     {
-        bray_runtime_memory_observation_begin();
         bray_runtime_memory_allocation_observation(3);
         bray_runtime_memory_copy_observation(5);
         bray_runtime_performance_interval_begin();
@@ -42,6 +41,15 @@ int main(int argc, char **argv)
     {
         bray_runtime_memory_observation_begin();
         bray_runtime_performance_interval_begin();
+        bray_runtime_performance_interval_begin();
+
+        return 0;
+    }
+
+    if (strcmp(argv[1], "repeated-interval") == 0)
+    {
+        bray_runtime_performance_interval_begin();
+        bray_runtime_performance_interval_end();
         bray_runtime_performance_interval_begin();
 
         return 0;

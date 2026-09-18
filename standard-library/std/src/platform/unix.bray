@@ -44,12 +44,14 @@ trusted internal func working_directory_storage() -> std.memory.RawBuffer<u8>
     panic("the platform startup working directory is unavailable");
 }
 
-trusted internal func environment_storage() -> std.memory.RawBuffer<u8>
+trusted internal func environment_storage() -> Result<std.memory.RawBuffer<u8>, PlatformStatus>
     uses(foreign_call, raw_memory)
 {
-    return trusted internal copy_native_text_list(
-        trusted internal environment_pointer(),
-        limit = 18_446_744_073_709_551_615,
+    return Ok(
+        trusted internal copy_native_text_list(
+            trusted internal environment_pointer(),
+            limit = 18_446_744_073_709_551_615,
+        )
     );
 }
 

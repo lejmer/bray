@@ -124,10 +124,29 @@ struct Environment
 }
 
 /// Reads one current native environment value without initializing the cached process-context snapshot.
-func current_environment_value(pos key: &std.path.NativeText) -> std.path.NativeText?
+/// Returns an I/O error when the target cannot retrieve the current environment.
+func current_environment_value(pos key: &std.path.NativeText) -> Result<std.path.NativeText?, std.io.IoError>
 {
     let expected: &[u8] = internal std.path.native_bytes(key);
-    let storage: std.memory.RawBuffer<u8> = trusted internal std.platform.environment_storage();
+
+    let storage: std.memory.RawBuffer<u8> = match consume trusted internal std.platform.environment_storage()
+    {
+        case Ok(value) { yield value; }
+        case Error(status)
+        {
+            match internal std.io.checked_status(status)
+            {
+                case Ok(_)
+                {
+                    return Error(
+                        internal std.io.io_error(kind = std.io.IoErrorKind.Other, native_code = 0, transferred = 0)
+                    );
+                }
+                case Error(error) { return Error(error); }
+            }
+        }
+    };
+
     let source: &[u8] = trusted std.memory.initialized_slice<u8>(&storage);
     let width: usize = trusted internal std.platform.native_text_width() / 8;
 
@@ -164,7 +183,7 @@ func current_environment_value(pos key: &std.path.NativeText) -> std.path.Native
 
                 result = native;
 
-                return result;
+                return Ok(result);
             }
 
             start = index + width;
@@ -178,7 +197,7 @@ func current_environment_value(pos key: &std.path.NativeText) -> std.path.Native
         panic("the platform process environment contains invalid native text");
     }
 
-    return none;
+    return Ok(none);
 }
 
 func current_id() -> Id
