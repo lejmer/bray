@@ -522,18 +522,24 @@ impl RuntimeConformance for BrayRuntime {
             ProtectedFrameStateId::new(0),
         );
 
-        reports.transfer(
-            CleanupIncidentProducer::SynchronousRoot,
-            origin,
-            crate::RuntimePanic::new("first"),
-            &mut crate::outgoing::OutgoingRecords::admit(1).unwrap(),
-        );
+        let mut first_admitted = crate::outgoing::OutgoingRecords::admit(1).unwrap();
+        let first = crate::RuntimePanic::new("first", &mut first_admitted);
 
         reports.transfer(
             CleanupIncidentProducer::SynchronousRoot,
             origin,
-            crate::RuntimePanic::new("second"),
-            &mut crate::outgoing::OutgoingRecords::admit(1).unwrap(),
+            first,
+            &mut first_admitted,
+        );
+
+        let mut second_admitted = crate::outgoing::OutgoingRecords::admit(1).unwrap();
+        let second = crate::RuntimePanic::new("second", &mut second_admitted);
+
+        reports.transfer(
+            CleanupIncidentProducer::SynchronousRoot,
+            origin,
+            second,
+            &mut second_admitted,
         );
 
         let cleanup_ordinals = RefCell::new(Vec::new());

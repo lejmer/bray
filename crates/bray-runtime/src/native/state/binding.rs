@@ -149,14 +149,11 @@ pub(in crate::native) fn write_cleanup_incident_report(
     writeln!(writer, " state={}", incident.origin().state().raw())
 }
 
-pub(in crate::native) fn task_outcome(
-    outcome: RunOutcome<usize>,
-    task: &crate::TaskControlBlock<usize>,
-) -> NativeRunOutcome {
+pub(in crate::native) fn task_outcome(outcome: RunOutcome<usize>) -> NativeRunOutcome {
     match outcome {
         RunOutcome::Completed(payload) => NativeRunOutcome::new(NativeRunState::COMPLETED, payload),
         RunOutcome::Cancelled => NativeRunOutcome::new(NativeRunState::CANCELLED, 0),
-        RunOutcome::Panicked(panic) => NativeRunOutcome::panicked(task.native_panic(panic)),
+        RunOutcome::Panicked(panic) => NativeRunOutcome::panicked(panic.into_native()),
     }
 }
 
@@ -192,11 +189,14 @@ mod tests {
             bray_runtime_model::ProtectedFrameStateId::new(7),
         );
 
+        let mut admitted = crate::outgoing::OutgoingRecords::admit(1).unwrap();
+        let panic = crate::RuntimePanic::new("cleanup failed", &mut admitted);
+
         reports.transfer(
             CleanupIncidentProducer::SynchronousRoot,
             origin,
-            crate::RuntimePanic::new("cleanup failed"),
-            &mut crate::outgoing::OutgoingRecords::admit(1).unwrap(),
+            panic,
+            &mut admitted,
         );
 
         let mut output = Vec::new();

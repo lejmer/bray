@@ -44,7 +44,7 @@ native_export! {
 
             panic.retain_reservation(reservation);
 
-            *outcome = NativeRunOutcome::panicked(panic.into_native(&mut OutgoingRecords::default()));
+            *outcome = NativeRunOutcome::panicked(panic.into_native());
         }
     }
 }
@@ -56,7 +56,7 @@ native_export! {
         let mut unused = OutgoingRecords::default();
 
         primary.append(incident, &mut unused);
-        primary.into_native(&mut unused)
+        primary.into_native()
     }
 }
 
@@ -74,7 +74,7 @@ mod tests {
 
     thread_local! { static RELEASES: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) }; }
 
-    extern "C" fn release(id: usize, _: usize) {
+    extern "C" fn release(id: usize, _: usize, _: &mut NativeRunOutcome) {
         RELEASES.with_borrow_mut(|releases| releases.push(id));
     }
 

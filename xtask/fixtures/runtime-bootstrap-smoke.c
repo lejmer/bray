@@ -25,13 +25,14 @@ typedef struct SourceAnchor {
 } SourceAnchor;
 
 typedef struct PanicReport PanicReport;
+typedef struct RunOutcome RunOutcome;
 struct PanicReport {
     SourceAnchor source;
     uint32_t cause;
     uintptr_t message;
     uintptr_t message_length;
     uint32_t (*copy_message)(uintptr_t, uintptr_t, uint8_t *, uintptr_t);
-    void (*release_message)(uintptr_t, uintptr_t);
+    void (*release_message)(uintptr_t, uintptr_t, RunOutcome *);
     uintptr_t head;
     uintptr_t tail;
     uintptr_t count;
@@ -39,11 +40,11 @@ struct PanicReport {
     uint32_t (*consume)(PanicReport *, _Bool);
 };
 
-typedef struct RunOutcome {
+struct RunOutcome {
     uint32_t state;
     uintptr_t payload;
     PanicReport report;
-} RunOutcome;
+};
 
 _Static_assert(sizeof(PanicReport) == 104, "native report layout");
 _Static_assert(sizeof(RunOutcome) == 120, "native outcome layout");
@@ -140,7 +141,11 @@ static uint32_t consume_report(PanicReport *report, _Bool reporting) {
         status = 3;
     }
     if (report->release_message != NULL) {
-        report->release_message(report->message, report->message_length);
+        RunOutcome outcome = {0};
+        report->release_message(report->message, report->message_length, &outcome);
+        if (outcome.state != 0) {
+            abort();
+        }
     }
     *report = (PanicReport){0};
     return status;

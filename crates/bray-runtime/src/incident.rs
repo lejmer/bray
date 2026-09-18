@@ -108,16 +108,25 @@ impl OwnedCleanupIncident {
 }
 
 pub(crate) fn dispose_panic(payload: Box<dyn Any + Send>) -> NativeRuntimeStatus {
-    dispose_report(crate::RuntimePanic::from_payload(payload))
-}
-
-pub(crate) fn dispose_report(mut pending: crate::RuntimePanic) -> NativeRuntimeStatus {
+    let mut pending = Some(payload);
     let mut status = NativeRuntimeStatus::SUCCESS;
 
-    while let Some(payload) = pending.pop_payload() {
-        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| drop(payload))) {
-            status = NativeRuntimeStatus::PANICKED;
-            pending.prepend(crate::RuntimePanic::from_payload(payload));
+    while let Some(payload) = pending.take() {
+        match payload.downcast::<crate::RuntimePanic>() {
+            Ok(report) => {
+                let mut report = *report;
+                let found = report.consume(false);
+
+                if status.is_success() {
+                    status = found;
+                }
+            }
+            Err(payload) => {
+                if let Err(payload) = catch_unwind(AssertUnwindSafe(|| drop(payload))) {
+                    status = NativeRuntimeStatus::PANICKED;
+                    pending = Some(payload);
+                }
+            }
         }
     }
 
@@ -199,6 +208,7 @@ mod tests {
             );
 
             *outcome = published_panic(18);
+
             panic_any(Release(19));
         });
 
@@ -219,7 +229,11 @@ mod tests {
         );
     }
 
-    extern "C" fn release_published_panic(payload: usize, _: usize) {
+    extern "C" fn release_published_panic(
+        payload: usize,
+        _: usize,
+        _: &mut bray_runtime_abi::NativeRunOutcome,
+    ) {
         record("native release", payload);
     }
 
@@ -245,6 +259,7 @@ mod tests {
     ) {
         *outcome = published_panic(payload);
         *release = published_panic(payload + 1);
+
         panic_any(Release(payload + 2));
     }
 
@@ -296,6 +311,7 @@ mod tests {
     #[test]
     fn dropping_an_unreported_incident_releases_its_payload_once() {
         drop(native(5, report, destroy));
+
         assert_eq!(events(), [("release", 5)]);
     }
 
@@ -426,6 +442,7 @@ mod tests {
         );
 
         drop(native(9, report, failing_destroy));
+
         assert_eq!(events(), [("release", 9), ("panic release", 2)]);
     }
 
@@ -445,16 +462,18 @@ mod tests {
 
     #[test]
     fn a_rust_destructor_failure_does_not_discard_later_cleanup() {
-        struct FailingRelease;
+        struct FailingRelease(Option<RuntimePanic>);
 
         impl Drop for FailingRelease {
             fn drop(&mut self) {
                 record("release", 1);
-                panic_any(RuntimePanic::new(Release(2)));
+                panic_any(self.0.take().unwrap());
             }
         }
 
-        let mut panic = RuntimePanic::new(FailingRelease);
+        let mut admitted = crate::outgoing::OutgoingRecords::admit(2).unwrap();
+        let nested = RuntimePanic::new(Release(2), &mut admitted);
+        let mut panic = RuntimePanic::new(FailingRelease(Some(nested)), &mut admitted);
 
         panic.push_suppressed(
             Box::new(Release(3)),
@@ -470,14 +489,17 @@ mod tests {
     }
 
     fn transfer(sink: &CleanupReportSink, payload: Box<dyn std::any::Any + Send>) {
+        let mut admitted = crate::outgoing::OutgoingRecords::admit(1).unwrap();
+        let panic = RuntimePanic::from_payload(payload, &mut admitted);
+
         sink.transfer(
             CleanupIncidentProducer::SynchronousRoot,
             CleanupIncidentOrigin::new(
                 bray_runtime_model::ProtectedAsyncFrameId::new([9; 32]),
                 bray_runtime_model::ProtectedFrameStateId::new(1),
             ),
-            RuntimePanic::from_payload(payload),
-            &mut crate::outgoing::OutgoingRecords::admit(1).unwrap(),
+            panic,
+            &mut admitted,
         );
     }
 
@@ -508,9 +530,12 @@ mod tests {
     #[test]
     fn callbacks_append_after_existing_work_without_holding_the_sink_lock() {
         let sink = CleanupReportSink::new();
+
         REENTRANT.with_borrow_mut(|slot| *slot = Some(sink.clone()));
+
         transfer(&sink, Box::new(()));
         transfer(&sink, Box::new(()));
+
         let mut ordinals = Vec::new();
 
         sink.drain(|mut incident| {
@@ -544,6 +569,7 @@ mod tests {
         );
 
         REENTRANT.with_borrow_mut(|slot| *slot = None);
+
         assert_eq!(sink.pending_count(), 0);
     }
 
@@ -574,7 +600,9 @@ mod tests {
         assert_eq!(events(), [("panic release", 4)]);
 
         transfer(&sink, Box::new(Release(5)));
+
         sink.drain(drop);
+
         assert_eq!(events(), [("panic release", 5)]);
         assert_eq!(sink.pending_count(), 0);
     }
@@ -582,8 +610,10 @@ mod tests {
     #[test]
     fn concurrent_drain_leaves_pending_incidents_to_the_active_drain() {
         let sink = CleanupReportSink::new();
+
         transfer(&sink, Box::new(()));
         transfer(&sink, Box::new(()));
+
         let mut ordinals = Vec::new();
 
         sink.drain(|incident| {
@@ -605,23 +635,25 @@ mod tests {
 
     #[test]
     fn runtime_primary_and_nested_children_release_in_encounter_order() {
-        let mut child = RuntimePanic::new(Release(2));
+        let mut child_admitted = crate::outgoing::OutgoingRecords::admit(2).unwrap();
+        let mut child = RuntimePanic::new(Release(2), &mut child_admitted);
 
         child.push_suppressed(
             Box::new(Release(3)),
-            &mut crate::outgoing::OutgoingRecords::admit(1).unwrap(),
+            &mut child_admitted,
         );
 
-        let mut primary = RuntimePanic::new(Release(1));
+        let mut primary_admitted = crate::outgoing::OutgoingRecords::admit(3).unwrap();
+        let mut primary = RuntimePanic::new(Release(1), &mut primary_admitted);
 
         primary.push_suppressed(
             Box::new(child),
-            &mut crate::outgoing::OutgoingRecords::admit(1).unwrap(),
+            &mut primary_admitted,
         );
 
         primary.push_suppressed(
             Box::new(Release(4)),
-            &mut crate::outgoing::OutgoingRecords::admit(1).unwrap(),
+            &mut primary_admitted,
         );
 
         drop(primary);
@@ -642,23 +674,25 @@ mod tests {
         std::thread::Builder::new()
             .stack_size(128 * 1024)
             .spawn(|| {
-                let mut panic = RuntimePanic::new(Release(0));
+                let mut initial = crate::outgoing::OutgoingRecords::admit(1).unwrap();
+                let mut panic = RuntimePanic::new(Release(0), &mut initial);
 
                 for index in 1..20_000 {
-                    let mut parent = RuntimePanic::new(Release(index));
+                    let mut admitted = crate::outgoing::OutgoingRecords::admit(2).unwrap();
+                    let mut parent = RuntimePanic::new(Release(index), &mut admitted);
 
-                    parent.push_suppressed(
-                        Box::new(panic),
-                        &mut crate::outgoing::OutgoingRecords::admit(1).unwrap(),
-                    );
+                    parent.push_suppressed(Box::new(panic), &mut admitted);
 
                     panic = parent;
                 }
 
                 let sink = CleanupReportSink::new();
+
                 transfer(&sink, Box::new(panic));
                 sink.drain(drop);
+
                 let released = events();
+
                 assert_eq!(released.len(), 20_000);
 
                 assert!(
@@ -688,10 +722,10 @@ mod tests {
         let address = std::ptr::from_ref(payload.as_ref()).addr();
 
         let sink = CleanupReportSink::new();
+
         transfer(&sink, payload);
 
         sink.drain(|mut incident| {
-            assert!(incident.payload_is::<Payload>());
             assert!(incident.dispose().is_success());
         });
 

@@ -230,8 +230,7 @@ impl NativeRun {
             return NativeRuntimeStatus::INVALID_ARGUMENT;
         };
 
-        frame.outgoing = outgoing.take_one();
-        frame.outgoing.append(&mut outgoing.take_one());
+        frame.outgoing = outgoing.take(4);
 
         let mut child = Box::new(NativeActivation::new(frame, outgoing));
 
@@ -392,13 +391,17 @@ impl NativeRun {
             frame.as_mut().resume(FrameContext::new(
                 crate::current_run_cancellation_observable(),
             ))
-        }))
-        .unwrap_or_else(|payload| FrameProgress::Panicked(RuntimePanic::from_payload(payload)));
+        }));
 
-        self.lock_current()
-            .as_mut()
-            .unwrap_or_else(|| panic!("dispatch retains the active frame"))
-            .frame = Some(frame);
+        let mut current = self.lock_current();
+        let active = Self::active(&mut current);
+
+        let progress = progress.unwrap_or_else(|payload| {
+            FrameProgress::Panicked(RuntimePanic::from_payload(payload, &mut active.outgoing))
+        });
+
+        active.frame = Some(frame);
+        drop(current);
 
         let progress = self.begin_pending_cleanup(progress)?;
 
@@ -537,9 +540,7 @@ impl NativeRun {
                 NativeRunOutcome::new(NativeRunState::COMPLETED, payload)
             }
             Some(RunOutcome::Cancelled) => NativeRunOutcome::new(NativeRunState::CANCELLED, 0),
-            Some(RunOutcome::Panicked(panic)) => {
-                NativeRunOutcome::panicked(panic.into_native(&mut outgoing))
-            }
+            Some(RunOutcome::Panicked(panic)) => NativeRunOutcome::panicked(panic.into_native()),
             None => NativeRunOutcome::new(
                 NativeRunState::RUNTIME_FAILURE,
                 NativeRuntimeStatus::RUNTIME_FAILURE.code() as usize,

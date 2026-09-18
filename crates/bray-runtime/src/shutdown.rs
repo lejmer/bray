@@ -1,10 +1,8 @@
-use std::any::Any;
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
 use bray_runtime_model::{ProtectedAsyncFrameId, ProtectedFrameStateId};
 
-use crate::incident::dispose_report;
 use crate::outgoing::OutgoingRecords;
 use crate::{RunOutcome, TaskId};
 
@@ -32,7 +30,7 @@ impl CleanupIncident {
     pub(crate) fn dispose(&mut self) -> bray_runtime_abi::NativeRuntimeStatus {
         self.payload.take().map_or(
             bray_runtime_abi::NativeRuntimeStatus::SUCCESS,
-            dispose_report,
+            |mut report| report.consume(false),
         )
     }
 
@@ -51,20 +49,6 @@ impl CleanupIncident {
         self.metadata.origin
     }
 
-    /// Returns whether the primary payload has one exact host representation.
-    pub fn payload_is<T: Any>(&self) -> bool {
-        self.payload
-            .as_ref()
-            .is_some_and(|panic| panic.primary_type_id() == std::any::TypeId::of::<T>())
-    }
-
-    /// Returns the host type identity carried by the primary payload.
-    pub fn payload_type_id(&self) -> std::any::TypeId {
-        self.payload
-            .as_ref()
-            .map(crate::RuntimePanic::primary_type_id)
-            .unwrap_or_else(|| unreachable!("live cleanup incident must own its payload"))
-    }
 }
 
 impl Drop for CleanupIncident {
@@ -281,7 +265,8 @@ mod tests {
 
         let mut admitted = OutgoingRecords::admit(4).unwrap();
         let denied = crate::outgoing::tests::reject_admission();
-        let mut first = RuntimePanic::new(Payload(1));
+        let mut first = RuntimePanic::new(Payload(1), &mut admitted);
+
         first.push_suppressed(Box::new(Payload(2)), &mut admitted);
         first.push_suppressed(Box::new(Payload(3)), &mut admitted);
 
@@ -292,23 +277,26 @@ mod tests {
             &mut admitted,
         );
 
+        let second = RuntimePanic::new(Payload(4), &mut admitted);
+
         sink.transfer(
             CleanupIncidentProducer::SynchronousRoot,
             origin,
-            RuntimePanic::new(Payload(4)),
+            second,
             &mut admitted,
         );
 
         assert!(OutgoingRecords::admit(1).is_err());
+
         assert_eq!(admitted.len(), 0);
         assert_eq!(sink.pending_count(), 2);
         assert_eq!(RELEASE_ORDER.get(), 0);
+
         let mut ordinal = 0;
 
         sink.drain(|incident| {
             assert_eq!(incident.ordinal(), ordinal);
             assert_eq!(incident.origin(), origin);
-            assert!(incident.payload_is::<Payload>());
 
             assert_eq!(
                 incident.payload.as_ref().unwrap().suppressed_count(),
@@ -321,6 +309,7 @@ mod tests {
         assert_eq!(ordinal, 2);
         assert_eq!(RELEASE_ORDER.get(), 1234);
         assert_eq!(sink.pending_count(), 0);
+
         drop(denied);
     }
 
@@ -333,18 +322,24 @@ mod tests {
             bray_runtime_model::ProtectedFrameStateId::new(3),
         );
 
-        reports.transfer(
-            CleanupIncidentProducer::SynchronousRoot,
-            origin,
-            crate::RuntimePanic::new("first"),
-            &mut crate::outgoing::OutgoingRecords::admit(1).unwrap(),
-        );
+        let mut first_admitted = crate::outgoing::OutgoingRecords::admit(1).unwrap();
+        let first = crate::RuntimePanic::new("first", &mut first_admitted);
 
         reports.transfer(
             CleanupIncidentProducer::SynchronousRoot,
             origin,
-            crate::RuntimePanic::new("second"),
-            &mut crate::outgoing::OutgoingRecords::admit(1).unwrap(),
+            first,
+            &mut first_admitted,
+        );
+
+        let mut second_admitted = crate::outgoing::OutgoingRecords::admit(1).unwrap();
+        let second = crate::RuntimePanic::new("second", &mut second_admitted);
+
+        reports.transfer(
+            CleanupIncidentProducer::SynchronousRoot,
+            origin,
+            second,
+            &mut second_admitted,
         );
 
         let events = RefCell::new(Vec::new());
@@ -360,14 +355,7 @@ mod tests {
                     RunOutcome::Cancelled | RunOutcome::Panicked(_) => 0,
                 }
             },
-            |incident| {
-                assert!(incident.payload_is::<&'static str>());
-
-                assert_eq!(
-                    incident.payload_type_id(),
-                    std::any::TypeId::of::<&'static str>()
-                );
-
+            |_| {
                 events.borrow_mut().push("report");
             },
             || {
@@ -379,9 +367,7 @@ mod tests {
         .unwrap_or_else(|()| panic!("runtime shutdown must succeed"));
 
         assert_eq!(result, 7);
-
         assert_eq!(events.into_inner(), ["map", "report", "report", "shutdown"]);
-
         assert_eq!(reports.pending_count(), 0);
     }
 }

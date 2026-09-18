@@ -20,4 +20,4 @@ pub(crate) use static_finalizer::{
     run_static_finalizer, with_retained_static_cleanup_runtime, with_static_cleanup_runtime,
 };
 
-pub(crate) use export::{report_panic, report_primary};
+pub(crate) use export::report_primary;

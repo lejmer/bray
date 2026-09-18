@@ -1,7 +1,9 @@
 use std::any::Any;
+use std::collections::TryReserveError;
 use std::fmt;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::pin::Pin;
+use std::sync::{Mutex, MutexGuard};
 
 use bray_runtime_model::{
     ProtectedFrameDescriptor, ProtectedFrameStateDescriptor, ProtectedFrameStateId,
@@ -170,20 +172,30 @@ pub enum FrameExit {
 /// Disposal visits the primary before suppressed failures. Reports are flattened when
 /// transferred, so their depth does not affect disposal stack usage.
 pub struct RuntimePanic {
-    primary: Option<crate::outgoing::Payload>,
+    primary: Option<bray_runtime_abi::NativePanicPrimary>,
     suppressed: crate::outgoing::OutgoingRecords,
     reserved: crate::outgoing::OutgoingRecords,
 }
 
-impl RuntimePanic {
-    /// Creates a runtime panic from one owned payload.
-    pub fn new(payload: impl Any + Send) -> Self {
-        Self::from_payload(Box::new(payload))
-    }
+#[derive(Default)]
+struct RustPanicBackings {
+    slots: Vec<Option<Box<dyn Any + Send>>>,
+    free: Vec<usize>,
+}
 
-    /// Returns whether the primary panic payload has the requested Rust type.
-    pub fn primary_is<T: Any>(&self) -> bool {
-        self.primary.is_some() && self.primary_type_id() == std::any::TypeId::of::<T>()
+// Reports cross native threads, so their Rust payload provider must outlive every producer.
+static RUST_PANIC_BACKINGS: Mutex<RustPanicBackings> = Mutex::new(RustPanicBackings {
+    slots: Vec::new(),
+    free: Vec::new(),
+});
+
+impl RuntimePanic {
+    #[cfg(test)]
+    pub(crate) fn new(
+        payload: impl Any + Send,
+        admitted: &mut crate::outgoing::OutgoingRecords,
+    ) -> Self {
+        Self::from_payload(Box::new(payload), admitted)
     }
 
     /// Returns the number of later panics retained behind the primary panic.
@@ -195,7 +207,7 @@ impl RuntimePanic {
         let (primary, head, tail, count, reserved) = report.take_parts();
 
         Self {
-            primary: Some(crate::outgoing::Payload::Native(primary)),
+            primary: Some(primary),
             suppressed: crate::outgoing::OutgoingRecords::from_parts(head, tail, count),
             reserved: crate::outgoing::OutgoingRecords::from_parts(
                 reserved,
@@ -205,38 +217,11 @@ impl RuntimePanic {
         }
     }
 
-    pub(crate) fn into_native(
-        mut self,
-        admitted: &mut crate::outgoing::OutgoingRecords,
-    ) -> bray_runtime_abi::NativePanicReport {
-        let primary = match self.primary.take() {
-            Some(crate::outgoing::Payload::Native(primary)) => primary,
-            Some(payload @ crate::outgoing::Payload::Rust(_)) => {
-                let mut record = crate::outgoing::OutgoingRecords::default();
-
-                let capacity = if self.reserved.len() == 0 {
-                    admitted
-                } else {
-                    &mut self.reserved
-                };
-
-                record.push(payload, capacity);
-
-                let (head, _, _) = record.into_parts();
-
-                bray_runtime_abi::NativePanicPrimary::new(
-                    bray_runtime_abi::NativePanicCause::RUNTIME_PANIC,
-                    bray_runtime_abi::NativeSourceAnchor::unavailable(),
-                    bray_runtime_abi::NativePanicMessage::new(
-                        head,
-                        0,
-                        None,
-                        Some(release_rust_primary),
-                    ),
-                )
-            }
-            None => bray_runtime_abi::NativePanicPrimary::empty(),
-        };
+    pub(crate) fn into_native(mut self) -> bray_runtime_abi::NativePanicReport {
+        let primary = self
+            .primary
+            .take()
+            .unwrap_or_else(bray_runtime_abi::NativePanicPrimary::empty);
 
         let mut report = native_report(primary);
 
@@ -257,14 +242,27 @@ impl RuntimePanic {
         }
     }
 
-    pub(crate) fn from_payload(payload: Box<dyn Any + Send>) -> Self {
+    pub(crate) fn reserve_from(&mut self, admitted: &mut crate::outgoing::OutgoingRecords) {
+        if self.reserved.len() == 0 {
+            self.reserved = admitted.take(1);
+        }
+    }
+
+    pub(crate) fn from_payload(
+        payload: Box<dyn Any + Send>,
+        admitted: &mut crate::outgoing::OutgoingRecords,
+    ) -> Self {
         match payload.downcast::<Self>() {
             Ok(panic) => *panic,
-            Err(payload) => Self {
-                primary: Some(crate::outgoing::Payload::Rust(payload)),
-                suppressed: crate::outgoing::OutgoingRecords::default(),
-                reserved: crate::outgoing::OutgoingRecords::default(),
-            },
+            Err(payload) => {
+                let (primary, reserved) = admitted.take_rust_primary(payload);
+
+                Self {
+                    primary: Some(primary),
+                    suppressed: crate::outgoing::OutgoingRecords::default(),
+                    reserved,
+                }
+            }
         }
     }
 
@@ -297,20 +295,7 @@ impl RuntimePanic {
         }
     }
 
-    pub(crate) fn primary_type_id(&self) -> std::any::TypeId {
-        match self.primary.as_ref() {
-            Some(crate::outgoing::Payload::Rust(payload)) => payload.as_ref().type_id(),
-            Some(crate::outgoing::Payload::Native(primary)) => {
-                primary.provider_handle(release_rust_primary).map_or(
-                    std::any::TypeId::of::<bray_runtime_abi::NativePanicPrimary>(),
-                    crate::outgoing::OutgoingRecords::payload_type_id,
-                )
-            }
-            None => unreachable!("a live cleanup incident owns its primary"),
-        }
-    }
-
-    pub(crate) fn pop_payload(&mut self) -> Option<crate::outgoing::Payload> {
+    fn pop_primary(&mut self) -> Option<bray_runtime_abi::NativePanicPrimary> {
         self.primary.take().or_else(|| self.suppressed.pop())
     }
 
@@ -328,7 +313,10 @@ impl RuntimePanic {
         payload: Box<dyn Any + Send>,
         admitted: &mut crate::outgoing::OutgoingRecords,
     ) {
-        self.append(Self::from_payload(payload), admitted);
+        match payload.downcast::<Self>() {
+            Ok(panic) => self.append(*panic, admitted),
+            Err(payload) => self.suppressed.push_rust(payload, admitted),
+        }
     }
 
     pub(crate) fn append(
@@ -357,21 +345,219 @@ impl RuntimePanic {
         if let Some(panic) = panic {
             panic.push_suppressed(payload, admitted);
         } else {
-            *panic = Some(Self::from_payload(payload));
+            *panic = Some(Self::from_payload(payload, admitted));
         }
     }
+
+    pub(crate) fn consume(&mut self, reporting: bool) -> bray_runtime_abi::NativeRuntimeStatus {
+        let mut status = bray_runtime_abi::NativeRuntimeStatus::SUCCESS;
+
+        while let Some(mut primary) = self.pop_primary() {
+            if reporting {
+                let found = crate::native::report_primary(&primary);
+
+                if status.is_success() {
+                    status = found;
+                }
+            }
+
+            let mut release = primary.release_message();
+
+            match release.state() {
+                bray_runtime_abi::NativeRunState::COMPLETED => {}
+                bray_runtime_abi::NativeRunState::PANICKED => {
+                    if status.is_success() {
+                        status = bray_runtime_abi::NativeRuntimeStatus::PANICKED;
+                    }
+
+                    self.prepend(Self::from_native(release.take_report()));
+                }
+                _ => unreachable!("message release returns completed or panicked"),
+            }
+        }
+
+        status
+    }
+}
+
+pub(crate) fn reserve_rust_panic_backings(count: usize) -> Result<(), TryReserveError> {
+    rust_panic_backings().reserve_free(count)
+}
+
+pub(crate) fn reserved_rust_panic_primary() -> bray_runtime_abi::NativePanicPrimary {
+    let handle = rust_panic_backings().take_free() + 1;
+
+    rust_panic_primary(handle, 0)
+}
+
+pub(crate) fn attach_rust_panic_payload(
+    primary: &mut bray_runtime_abi::NativePanicPrimary,
+    payload: Box<dyn Any + Send>,
+) {
+    let handle = primary
+        .take_provider_handle(release_rust_panic)
+        .unwrap_or_else(|| unreachable!("an admitted Rust panic owns reserved callback backing"));
+
+    let length = rust_panic_message(payload.as_ref()).len();
+
+    let index = handle
+        .checked_sub(1)
+        .unwrap_or_else(|| unreachable!("Rust panic backing handles are nonzero"));
+
+    let mut backings = rust_panic_backings();
+
+    let payload_slot = backings
+        .slots
+        .get_mut(index)
+        .unwrap_or_else(|| unreachable!("Rust panic backing handle remains provider-owned"));
+
+    assert!(
+        payload_slot.replace(payload).is_none(),
+        "reserved Rust panic backing is initialized exactly once"
+    );
+
+    drop(backings);
+
+    *primary = rust_panic_primary(handle, length);
+}
+
+fn rust_panic_primary(handle: usize, length: usize) -> bray_runtime_abi::NativePanicPrimary {
+    bray_runtime_abi::NativePanicPrimary::new(
+        bray_runtime_abi::NativePanicCause::RUNTIME_PANIC,
+        bray_runtime_abi::NativeSourceAnchor::unavailable(),
+        bray_runtime_abi::NativePanicMessage::new(
+            handle,
+            length,
+            Some(copy_rust_panic_message),
+            Some(release_rust_panic),
+        ),
+    )
+}
+
+fn rust_panic_message(payload: &(dyn Any + Send)) -> &[u8] {
+    payload
+        .downcast_ref::<String>()
+        .map(String::as_bytes)
+        .or_else(|| {
+            payload
+                .downcast_ref::<&'static str>()
+                .map(|message| message.as_bytes())
+        })
+        .unwrap_or_default()
+}
+
+#[expect(
+    unsafe_code,
+    reason = "the panic-message ABI callback writes the caller-validated destination range"
+)]
+extern "C" fn copy_rust_panic_message(
+    handle: usize,
+    offset: usize,
+    destination: *mut u8,
+    length: usize,
+) -> bray_runtime_abi::NativeRuntimeStatus {
+    let Some(index) = handle.checked_sub(1) else {
+        return bray_runtime_abi::NativeRuntimeStatus::INVALID_ARGUMENT;
+    };
+
+    let backings = rust_panic_backings();
+
+    let Some(payload) = backings
+        .slots
+        .get(index)
+        .and_then(Option::as_deref)
+    else {
+        return bray_runtime_abi::NativeRuntimeStatus::INVALID_ARGUMENT;
+    };
+
+    let message = rust_panic_message(payload);
+
+    if offset > message.len() || length > message.len() - offset {
+        return bray_runtime_abi::NativeRuntimeStatus::INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        std::ptr::copy_nonoverlapping(message.as_ptr().add(offset), destination, length);
+    }
+
+    bray_runtime_abi::NativeRuntimeStatus::SUCCESS
+}
+
+extern "C" fn release_rust_panic(
+    handle: usize,
+    _: usize,
+    outcome: &mut bray_runtime_abi::NativeRunOutcome,
+) {
+    let index = handle
+        .checked_sub(1)
+        .unwrap_or_else(|| unreachable!("Rust panic backing handles are nonzero"));
+
+    let payload = rust_panic_backings()
+        .slots
+        .get_mut(index)
+        .unwrap_or_else(|| unreachable!("Rust panic backing handle remains provider-owned"))
+        .take();
+
+    if let Some(payload) = payload {
+        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| drop(payload))) {
+            let length = rust_panic_message(payload.as_ref()).len();
+
+            rust_panic_backings().slots[index] = Some(payload);
+
+            *outcome = bray_runtime_abi::NativeRunOutcome::panicked(native_report(
+                rust_panic_primary(handle, length),
+            ));
+
+            return;
+        }
+    }
+
+    rust_panic_backings().release(index);
+}
+
+impl RustPanicBackings {
+    fn reserve_free(&mut self, count: usize) -> Result<(), TryReserveError> {
+        let additional = count.saturating_sub(self.free.len());
+
+        self.slots.try_reserve(additional)?;
+        self.free.try_reserve(additional)?;
+
+        for _ in 0..additional {
+            let index = self.slots.len();
+
+            self.slots.push(None);
+            self.free.push(index);
+        }
+
+        Ok(())
+    }
+
+    fn take_free(&mut self) -> usize {
+        self.free
+            .pop()
+            .unwrap_or_else(|| unreachable!("admission reserves Rust panic callback backing"))
+    }
+
+    fn release(&mut self, index: usize) {
+        assert!(
+            self.slots[index].is_none(),
+            "Rust panic backing releases only after its payload"
+        );
+
+        self.free.push(index);
+    }
+}
+
+fn rust_panic_backings() -> MutexGuard<'static, RustPanicBackings> {
+    RUST_PANIC_BACKINGS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 pub(crate) fn native_report(
     primary: bray_runtime_abi::NativePanicPrimary,
 ) -> bray_runtime_abi::NativePanicReport {
     bray_runtime_abi::NativePanicReport::new(primary, consume_native_report)
-}
-
-extern "C" fn release_rust_primary(record: usize, _: usize) {
-    drop(crate::outgoing::OutgoingRecords::from_parts(
-        record, record, 1,
-    ));
 }
 
 extern "C" fn consume_native_report(
@@ -383,64 +569,13 @@ extern "C" fn consume_native_report(
         bray_runtime_abi::NativePanicReport::empty(),
     ));
 
-    let mut status = bray_runtime_abi::NativeRuntimeStatus::SUCCESS;
-
-    while let Some(payload) = panic.pop_payload() {
-        let payload = match payload {
-            crate::outgoing::Payload::Native(mut primary) if reporting => {
-                if let Some(record) = primary.take_provider_handle(release_rust_primary) {
-                    crate::outgoing::OutgoingRecords::from_parts(record, record, 1)
-                        .pop()
-                        .unwrap_or_else(|| {
-                            unreachable!("the Rust provider retains its primary until consumption")
-                        })
-                } else {
-                    crate::outgoing::Payload::Native(primary)
-                }
-            }
-            payload => payload,
-        };
-
-        match payload {
-            crate::outgoing::Payload::Native(primary) if reporting => {
-                let found = crate::native::report_primary(&primary);
-
-                if status.is_success() {
-                    status = found;
-                }
-            }
-            crate::outgoing::Payload::Rust(payload) if reporting => {
-                let message = match payload.downcast::<String>() {
-                    Ok(message) => *message,
-                    Err(payload) => match payload.downcast::<&'static str>() {
-                        Ok(message) => (*message).to_owned(),
-                        Err(payload) => {
-                            crate::incident::dispose_panic(payload);
-
-                            String::new()
-                        }
-                    },
-                };
-
-                crate::native::report_panic(
-                    bray_runtime_abi::NativePanicCause::RUNTIME_PANIC,
-                    bray_runtime_abi::NativeSourceAnchor::unavailable(),
-                    message,
-                );
-            }
-            payload => payload.dispose(),
-        }
-    }
-
-    status
+    panic.consume(reporting)
 }
 
 impl Drop for RuntimePanic {
     #[inline(never)]
     fn drop(&mut self) {
-        while let Some(payload) = self.pop_payload() {
-            payload.dispose();
-        }
+        self.consume(false);
     }
 }
 
@@ -607,7 +742,7 @@ fn record_terminal_panic<T>(
             panic
         }
         Some(crate::RunOutcome::Completed(value)) => {
-            let mut panic = RuntimePanic::from_payload(payload);
+            let mut panic = RuntimePanic::from_payload(payload, outgoing);
 
             if let Err(payload) = catch_unwind(AssertUnwindSafe(|| drop(value))) {
                 panic.push_suppressed(payload, outgoing);
@@ -615,7 +750,7 @@ fn record_terminal_panic<T>(
 
             panic
         }
-        Some(crate::RunOutcome::Cancelled) | None => RuntimePanic::from_payload(payload),
+        Some(crate::RunOutcome::Cancelled) | None => RuntimePanic::from_payload(payload, outgoing),
     };
 
     *outcome = Some(crate::RunOutcome::Panicked(panic));
@@ -659,7 +794,7 @@ mod tests {
     }
 
     #[test]
-    fn native_round_trip_preserves_rust_primary_identity_after_producer_release() {
+    fn native_round_trip_owns_rust_primary_until_report_disposal() {
         struct Payload(std::sync::Arc<std::sync::atomic::AtomicUsize>);
 
         impl Drop for Payload {
@@ -670,16 +805,24 @@ mod tests {
 
         let drops = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let mut admitted = crate::outgoing::OutgoingRecords::admit(1).unwrap();
-        let panic = super::RuntimePanic::new(Payload(std::sync::Arc::clone(&drops)));
-        let native = panic.into_native(&mut admitted);
+
+        let panic = super::RuntimePanic::new(
+            Payload(std::sync::Arc::clone(&drops)),
+            &mut admitted,
+        );
+
+        let native = panic.into_native();
+
         drop(admitted);
+
         let failure = crate::outgoing::tests::reject_admission();
         let panic = super::RuntimePanic::from_native(native);
-        assert!(panic.primary_is::<Payload>());
-        assert!(!panic.primary_is::<String>());
-        let native = panic.into_native(&mut crate::outgoing::OutgoingRecords::default());
+        let native = panic.into_native();
+
         drop(super::RuntimePanic::from_native(native));
+
         assert_eq!(drops.load(std::sync::atomic::Ordering::SeqCst), 1);
+
         drop(failure);
     }
 

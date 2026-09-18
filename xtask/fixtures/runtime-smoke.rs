@@ -464,7 +464,9 @@ fn main() {
 
 static REPORT_RELEASES: AtomicUsize = AtomicUsize::new(0);
 
-extern "C" fn release_report(id: usize, _: usize) {
+extern "C" fn release_report(id: usize, _: usize, outcome: &mut RunOutcome) {
+    assert!(outcome.state == RunState::COMPLETED);
+
     let previous = REPORT_RELEASES.fetch_add(id, Ordering::Relaxed);
     assert_eq!(previous, if id == 1 { 0 } else { 1 });
 }

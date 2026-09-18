@@ -221,6 +221,7 @@ mod tests {
 
         let mut timer = None;
         let mut cancellation = None;
+        let mut admitted = crate::outgoing::OutgoingRecords::admit(1).unwrap();
 
         let outcome = execute_synchronous_root(
             || {
@@ -237,6 +238,7 @@ mod tests {
                         .unwrap_or_else(|error| panic!("test timeout must register: {error:?}")),
                 );
             },
+            &mut admitted,
         );
 
         drop(timer);
@@ -257,6 +259,7 @@ mod tests {
 
         let mut timer = None;
         let mut cancellation = None;
+        let mut admitted = crate::outgoing::OutgoingRecords::admit(1).unwrap();
 
         let outcome = execute_synchronous_root(
             || (),
@@ -269,6 +272,7 @@ mod tests {
                         .unwrap_or_else(|error| panic!("test timeout must register: {error:?}")),
                 );
             },
+            &mut admitted,
         );
 
         drop(timer);
@@ -290,6 +294,7 @@ mod tests {
         let mut first = None;
         let mut second = None;
         let mut registrations = Vec::new();
+        let mut first_admitted = crate::outgoing::OutgoingRecords::admit(1).unwrap();
 
         let _ = execute_synchronous_root(
             || (),
@@ -302,7 +307,10 @@ mod tests {
                         .unwrap_or_else(|error| panic!("first timeout must register: {error:?}")),
                 );
             },
+            &mut first_admitted,
         );
+
+        let mut second_admitted = crate::outgoing::OutgoingRecords::admit(1).unwrap();
 
         let _ = execute_synchronous_root(
             || (),
@@ -315,6 +323,7 @@ mod tests {
                         .unwrap_or_else(|error| panic!("second timeout must register: {error:?}")),
                 );
             },
+            &mut second_admitted,
         );
 
         wait_for_timeout(

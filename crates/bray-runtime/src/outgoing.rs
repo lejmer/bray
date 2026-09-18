@@ -1,26 +1,9 @@
-use std::any::Any;
 use std::collections::TryReserveError;
 use std::sync::{Mutex, MutexGuard};
 
-pub(crate) enum Payload {
-    Rust(Box<dyn Any + Send>),
-    Native(bray_runtime_abi::NativePanicPrimary),
-}
-
-impl Payload {
-    pub(crate) fn dispose(self) {
-        match self {
-            Self::Rust(payload) => {
-                crate::incident::dispose_panic(payload);
-            }
-            Self::Native(primary) => drop(primary),
-        }
-    }
-}
-
 #[derive(Default)]
 struct Record {
-    payload: Option<Payload>,
+    primary: Option<bray_runtime_abi::NativePanicPrimary>,
     next: Option<usize>,
     incident: Option<(crate::shutdown::CleanupIncidentMetadata, usize, usize)>,
 }
@@ -51,19 +34,6 @@ pub(crate) struct OutgoingRecords {
 }
 
 impl OutgoingRecords {
-    pub(crate) fn payload_type_id(record: usize) -> std::any::TypeId {
-        let records = records();
-
-        match record
-            .checked_sub(1)
-            .and_then(|index| records.slots.get(index))
-            .and_then(|slot| slot.payload.as_ref())
-        {
-            Some(Payload::Rust(payload)) => payload.as_ref().type_id(),
-            _ => unreachable!("the Rust provider retains one Rust payload record"),
-        }
-    }
-
     pub(crate) fn admit(count: usize) -> Result<Self, TryReserveError> {
         #[cfg(test)]
         if let Some(error) = tests::admission_failure() {
@@ -123,15 +93,17 @@ impl OutgoingRecords {
         admitted
     }
 
-    pub(crate) fn take_one(&mut self) -> Self {
+    pub(crate) fn take(&mut self, count: usize) -> Self {
         let mut records = records();
-
-        let index = self
-            .detach_front(&mut records)
-            .unwrap_or_else(|| unreachable!("the admitted bridge owns a record"));
-
         let mut taken = Self::default();
-        taken.push_record(&mut records, index);
+
+        for _ in 0..count {
+            let index = self
+                .detach_front(&mut records)
+                .unwrap_or_else(|| unreachable!("the admitted bridge owns its records"));
+
+            taken.push_record(&mut records, index);
+        }
 
         taken
     }
@@ -162,16 +134,71 @@ impl OutgoingRecords {
         self.count
     }
 
-    pub(crate) fn push(&mut self, payload: Payload, admitted: &mut Self) {
+    pub(crate) fn push(
+        &mut self,
+        primary: bray_runtime_abi::NativePanicPrimary,
+        admitted: &mut Self,
+    ) {
+        let mut provider = records();
+
+        let index = admitted
+            .detach_front(&mut provider)
+            .unwrap_or_else(|| unreachable!("an accepted producer owns its outgoing record"));
+
+        let reserved = provider.slots[index].primary.replace(primary);
+
+        drop(provider);
+        drop(reserved);
+
+        let mut records = records();
+
+        self.push_record(&mut records, index);
+    }
+
+    pub(crate) fn push_rust(
+        &mut self,
+        payload: Box<dyn std::any::Any + Send>,
+        admitted: &mut Self,
+    ) {
         let mut records = records();
 
         let index = admitted
             .detach_front(&mut records)
             .unwrap_or_else(|| unreachable!("an accepted producer owns its outgoing record"));
 
-        records.slots[index].payload = Some(payload);
+        let primary = records.slots[index]
+            .primary
+            .as_mut()
+            .unwrap_or_else(|| unreachable!("an admitted record owns Rust callback backing"));
+
+        crate::frame::attach_rust_panic_payload(primary, payload);
 
         self.push_record(&mut records, index);
+    }
+
+    pub(crate) fn take_rust_primary(
+        &mut self,
+        payload: Box<dyn std::any::Any + Send>,
+    ) -> (bray_runtime_abi::NativePanicPrimary, Self) {
+        let mut records = records();
+
+        let index = self
+            .detach_front(&mut records)
+            .unwrap_or_else(|| unreachable!("an accepted producer owns Rust callback backing"));
+
+        let mut primary = records.slots[index]
+            .primary
+            .take()
+            .unwrap_or_else(|| unreachable!("an admitted record owns Rust callback backing"));
+
+        let mut reserved = Self::default();
+        reserved.push_record(&mut records, index);
+
+        drop(records);
+
+        crate::frame::attach_rust_panic_payload(&mut primary, payload);
+
+        (primary, reserved)
     }
 
     pub(crate) fn append(&mut self, other: &mut Self) {
@@ -189,18 +216,18 @@ impl OutgoingRecords {
         self.count += std::mem::take(&mut other.count);
     }
 
-    pub(crate) fn pop(&mut self) -> Option<Payload> {
+    pub(crate) fn pop(&mut self) -> Option<bray_runtime_abi::NativePanicPrimary> {
         let mut records = records();
         let index = self.detach_front(&mut records)?;
 
-        let payload = records.slots[index].payload.take();
+        let primary = records.slots[index].primary.take();
 
         records.slots[index].incident = None;
         records.slots[index].next = records.free;
         records.free = Some(index);
         records.free_count += 1;
 
-        payload
+        primary
     }
 
     pub(crate) fn push_incident(
@@ -279,9 +306,7 @@ impl Drop for OutgoingRecords {
     #[inline(never)]
     fn drop(&mut self) {
         while self.head.is_some() {
-            if let Some(payload) = self.pop() {
-                payload.dispose();
-            }
+            drop(self.pop());
         }
     }
 }
@@ -290,13 +315,15 @@ impl Records {
     fn reserve_free(&mut self, count: usize) -> Result<(), TryReserveError> {
         let additional = count.saturating_sub(self.free_count);
 
+        crate::frame::reserve_rust_panic_backings(count)?;
+
         self.slots.try_reserve(additional)?;
 
         for _ in 0..additional {
             let index = self.slots.len();
 
             self.slots.push(Record {
-                payload: None,
+                primary: None,
                 next: self.free,
                 incident: None,
             });
@@ -316,6 +343,7 @@ impl Records {
 
         self.free = self.slots[index].next.take();
         self.free_count -= 1;
+        self.slots[index].primary = Some(crate::frame::reserved_rust_panic_primary());
 
         index
     }
