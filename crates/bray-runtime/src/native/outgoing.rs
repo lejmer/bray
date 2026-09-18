@@ -1,7 +1,4 @@
-use bray_runtime_abi::{NativePanicReport, NativeRunOutcome, NativeRunState};
-
-use crate::RuntimePanic;
-use crate::outgoing::OutgoingRecords;
+use bray_runtime_abi::NativeRunOutcome;
 
 pub(super) fn allocation_failure() -> NativeRunOutcome {
     NativeRunOutcome::panicked(crate::frame::native_report(
@@ -13,57 +10,11 @@ pub(super) fn allocation_failure() -> NativeRunOutcome {
     ))
 }
 
-native_export! {
-    pub extern "C" fn bray_runtime_outgoing_admission(count: usize, outcome: &mut NativeRunOutcome) {
-        if OutgoingRecords::admit_source(count).is_err() {
-            *outcome = allocation_failure();
-        }
-    }
-}
-
-native_export! {
-    pub extern "C" fn bray_runtime_outgoing_discharge(count: usize) {
-        OutgoingRecords::discharge_source(count);
-    }
-}
-
-native_export! {
-    pub extern "C" fn bray_runtime_outgoing_activation() -> usize {
-        let (record, _, _) = OutgoingRecords::activate_source().into_parts();
-
-        record
-    }
-}
-
-native_export! {
-    pub extern "C" fn bray_runtime_outgoing_retirement(record: usize, outcome: &mut NativeRunOutcome) {
-        let reservation = OutgoingRecords::from_parts(record, record, 1);
-
-        if outcome.state() == NativeRunState::PANICKED {
-            let mut panic = RuntimePanic::from_native(outcome.take_report());
-
-            panic.retain_reservation(reservation);
-
-            *outcome = NativeRunOutcome::panicked(panic.into_native());
-        }
-    }
-}
-
-native_export! {
-    pub extern "C" fn bray_runtime_panic_report_suppression(primary: &mut NativePanicReport, incident: &mut NativePanicReport) -> NativePanicReport {
-        let mut primary = RuntimePanic::from_native(std::mem::replace(primary, NativePanicReport::empty()));
-        let incident = RuntimePanic::from_native(std::mem::replace(incident, NativePanicReport::empty()));
-        let mut unused = OutgoingRecords::default();
-
-        primary.append(incident, &mut unused);
-        primary.into_native()
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{
-        NativeRunOutcome, bray_runtime_outgoing_activation, bray_runtime_outgoing_admission,
+    use bray_runtime_abi::NativeRunOutcome;
+    use crate::report_provider::{
+        bray_runtime_outgoing_activation, bray_runtime_outgoing_admission,
         bray_runtime_outgoing_discharge, bray_runtime_outgoing_retirement,
         bray_runtime_panic_report_suppression,
     };
@@ -95,6 +46,16 @@ mod tests {
     }
 
     #[test]
+    fn empty_report_consumes_repeatedly_without_admission() {
+        let mut report = crate::frame::native_report(NativePanicPrimary::empty());
+
+        assert!(report.consume(false).is_success());
+        assert!(report.consume(false).is_success());
+        assert_eq!(report.outgoing_count(), 0);
+        assert!(!report.has_reservation());
+    }
+
+    #[test]
     fn admitted_records_follow_reports_after_owner_discharge_with_further_admission_denied() {
         RELEASES.with_borrow_mut(Vec::clear);
 
@@ -102,9 +63,8 @@ mod tests {
 
         let first = bray_runtime_outgoing_activation();
         let second = bray_runtime_outgoing_activation();
-        let failure = crate::outgoing::tests::reject_admission();
 
-        assert!(!admit(1));
+        assert!(!admit(usize::MAX));
 
         let mut primary = outcome(1);
         let mut incident = outcome(2);
@@ -113,7 +73,7 @@ mod tests {
         bray_runtime_outgoing_retirement(second, &mut incident);
         bray_runtime_outgoing_discharge(2);
 
-        assert!(!admit(1));
+        assert!(!admit(usize::MAX));
 
         let mut report = bray_runtime_panic_report_suppression(
             &mut primary.take_report(),
@@ -125,6 +85,5 @@ mod tests {
         assert!(report.consume(false).is_success());
         assert_eq!(RELEASES.with_borrow(Clone::clone), [1, 2]);
 
-        drop(failure);
     }
 }

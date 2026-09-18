@@ -1,0 +1,189 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap;
+
+using std.memory;
+
+@layout(c)
+internal struct ReportOutcome
+{
+    mut state: u32;
+    mut payload: usize;
+    mut report: PanicReportData;
+}
+
+internal callable ReportConsumer = @abi(c) trusted func(
+    pos pointer: RawPointer<PanicReportData>,
+    pos reporting: bool
+) -> u32;
+
+@abi(c)
+trusted internal func consume_pointer() -> RawPointer<u8>
+    uses(layout_reinterpret)
+{
+    let consumer: ReportConsumer = consume_report;
+
+    return trusted std.memory.reinterpret<u8, ReportConsumer>(
+        trusted std.memory.pointer_from_callable<ReportConsumer>(consumer)
+    );
+}
+
+@abi(c)
+internal func report_primary_value(pos report: PanicReportData) -> ReportPrimary
+{
+    return
+    {
+        source_present = report.source_present,
+        source_identity = report.source_identity,
+        source_start = report.source_start,
+        source_end = report.source_end,
+        source_version = report.source_version,
+        cause = report.cause,
+        message = report.message,
+        message_length = report.message_length,
+        copy_message = report.copy_message,
+        release_message = report.release_message,
+    };
+}
+
+trusted internal func release_primary(pos primary: &ReportPrimary) -> ReportOutcome
+    uses(layout_reinterpret)
+{
+    let mut outcome: ReportOutcome =
+    {
+        state = RUN_COMPLETED,
+        payload = 0,
+        report = empty_panic_report()
+    };
+
+    if !std.memory.is_null<u8>(primary.release_message)
+    {
+        let pointer: RawPointer<PanicMessageRelease> = trusted std.memory.reinterpret<PanicMessageRelease, u8>(
+            primary.release_message
+        );
+
+        let release: PanicMessageRelease = trusted std.memory.callable_from_pointer<PanicMessageRelease>(pointer);
+
+        let output: RawPointer<u8> = trusted std.memory.reinterpret<u8, ReportOutcome>(
+            std.memory.address_of_mut<ReportOutcome>(&mut outcome)
+        );
+
+        trusted release(primary.message, primary.message_length, output);
+    }
+
+    return outcome;
+}
+
+@abi(c)
+trusted internal func recycle_reservation(pos handle: usize)
+    uses(intrinsic)
+{
+    if handle == 0
+    {
+        return;
+    }
+
+    let mut reserved: ReportRecords =
+    {
+        head = handle,
+        tail = handle,
+        count = 1
+    };
+
+    let mut primary: ReportPrimary = empty_primary();
+
+    trusted report_records_pop(
+        std.memory.address_of_mut<ReportRecords>(&mut reserved),
+        std.memory.address_of_mut<ReportPrimary>(&mut primary)
+    );
+
+    let outcome: ReportOutcome = trusted release_primary(&primary);
+
+    if outcome.state != RUN_COMPLETED
+    {
+        trusted core.target.abort();
+    }
+}
+
+@abi(c)
+trusted internal func consume_report(pos pointer: RawPointer<PanicReportData>, pos reporting: bool) -> u32
+    uses(intrinsic, foreign_call)
+{
+    let owned: PanicReportData = trusted take_report(pointer);
+
+    let mut remaining: ReportRecords =
+    {
+        head = owned.outgoing_head,
+        tail = owned.outgoing_tail,
+        count = owned.outgoing_count
+    };
+
+    let reserved: usize = owned.reserved;
+    let mut primary: ReportPrimary = report_primary_value(owned);
+
+    trusted recycle_reservation(reserved);
+
+    let mut status: u32 = STATUS_SUCCESS;
+
+    loop
+    {
+        if reporting
+        {
+            let found: u32 = trusted substrate_report_primary(std.memory.address_of<ReportPrimary>(&primary));
+
+            if status == STATUS_SUCCESS
+            {
+                status = found;
+            }
+        }
+
+        let mut release: ReportOutcome = trusted release_primary(&primary);
+
+        if release.state == RUN_PANICKED
+        {
+            if status == STATUS_SUCCESS
+            {
+                status = STATUS_PANICKED;
+            }
+
+            let mut incidents: ReportRecords =
+            {
+                head = release.report.outgoing_head,
+                tail = release.report.outgoing_tail,
+                count = release.report.outgoing_count
+            };
+
+            trusted recycle_reservation(release.report.reserved);
+            primary = report_primary_value(release.report);
+
+            trusted report_records_append(
+                std.memory.address_of_mut<ReportRecords>(&mut incidents),
+                std.memory.address_of_mut<ReportRecords>(&mut remaining)
+            );
+
+            remaining = incidents;
+        }
+        else
+        {
+            if release.state != RUN_COMPLETED
+            {
+                trusted core.target.abort();
+            }
+
+            if remaining.count == 0
+            {
+                return status;
+            }
+
+            trusted report_records_pop(
+                std.memory.address_of_mut<ReportRecords>(&mut remaining),
+                std.memory.address_of_mut<ReportPrimary>(&mut primary)
+            );
+        }
+    }
+}
+
+@link(name = "bray_runtime_host", kind = system)
+@symbol(name = "bray_runtime_substrate_report_primary")
+@abi(c)
+extern trusted internal func substrate_report_primary(pos primary: RawPointer<ReportPrimary>) -> u32
+    uses(foreign_call);

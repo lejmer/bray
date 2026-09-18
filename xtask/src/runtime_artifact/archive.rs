@@ -82,19 +82,12 @@ pub(super) fn support_exports(kind: RuntimeArchiveKind) -> impl Iterator<Item = 
     .then_some([
         "bray_runtime_substrate_initialization",
         "bray_runtime_substrate_shutdown",
+        "bray_runtime_substrate_report_primary",
     ])
     .into_iter()
     .flatten();
 
-    let callback = matches!(
-        kind,
-        RuntimeArchiveKind::Callback | RuntimeArchiveKind::TestHost
-    )
-    .then_some(["bray_runtime_substrate_panic_report_initialization"])
-    .into_iter()
-    .flatten();
-
-    observation.chain(host).chain(callback)
+    observation.chain(host)
 }
 
 #[cfg(test)]
@@ -123,8 +116,42 @@ mod tests {
     }
 
     #[test]
+    fn report_provider_roles_have_one_bray_owner_and_no_rust_record_arena() {
+        for role in [
+            RuntimeAbiRole::ReportRecordAdmission,
+            RuntimeAbiRole::ReportRecordTake,
+            RuntimeAbiRole::ReportRecordExchange,
+            RuntimeAbiRole::ReportRecordAppend,
+            RuntimeAbiRole::ReportRecordPop,
+            RuntimeAbiRole::ReportSegmentMark,
+            RuntimeAbiRole::ReportSegmentTake,
+            RuntimeAbiRole::ReportConsumer,
+            RuntimeAbiRole::OutgoingAdmission,
+            RuntimeAbiRole::OutgoingDischarge,
+            RuntimeAbiRole::OutgoingActivation,
+            RuntimeAbiRole::OutgoingRetirement,
+            RuntimeAbiRole::PanicReportSuppression,
+            RuntimeAbiRole::PanicReportConstruction,
+        ] {
+            let owners: Vec<_> = RuntimeArchiveKind::ALL.into_iter()
+                .filter(|kind| kind.runtime_roles().any(|candidate| candidate == role)).collect();
+
+            assert_eq!(owners, [RuntimeArchiveKind::Bootstrap], "{role:?}");
+        }
+
+        let outgoing = include_str!("../../../crates/bray-runtime/src/outgoing.rs");
+
+        for obsolete in ["struct Record", "static RECORDS", "Mutex", "Vec<"] {
+            assert!(!outgoing.contains(obsolete), "Rust report storage remains: {obsolete}");
+        }
+
+        assert!(!include_str!("../../../crates/bray-runtime/src/frame.rs").contains("consume_native_report"));
+        assert!(!include_str!("../../../crates/bray-runtime/src/native/callback.rs").contains("substrate_panic_report_initialization"));
+    }
+
+    #[test]
     fn rejects_unprojected_exports_and_misplaced_support() {
-        let misplaced = support_exports(RuntimeArchiveKind::Callback)
+        let misplaced = support_exports(RuntimeArchiveKind::Observation)
             .next()
             .unwrap();
 

@@ -4,6 +4,33 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+static atomic_bool reject_allocations;
+static atomic_uint allocation_attempts;
+
+static void *allocate_report_memory(size_t bytes, size_t alignment) {
+    atomic_fetch_add(&allocation_attempts, 1);
+    if (atomic_load(&reject_allocations)) {
+        return NULL;
+    }
+    if (alignment > _Alignof(max_align_t)) {
+        abort();
+    }
+    return malloc(bytes);
+}
+
+#ifdef _WIN32
+void *_aligned_malloc(size_t bytes, size_t alignment) {
+    return allocate_report_memory(bytes, alignment);
+}
+void _aligned_free(void *memory) {
+    free(memory);
+}
+#else
+void *aligned_alloc(size_t alignment, size_t bytes) {
+    return allocate_report_memory(bytes, alignment);
+}
+#endif
+
 typedef struct ProductHostObservation {
     uint32_t status;
     uint32_t state;
@@ -48,37 +75,6 @@ struct RunOutcome {
 
 _Static_assert(sizeof(PanicReport) == 104, "native report layout");
 _Static_assert(sizeof(RunOutcome) == 120, "native outcome layout");
-
-// This isolated bootstrap fixture models successful cleanup only. The linked Rust
-// smoke fixture exercises real record admission, failed reservation and incidents.
-static _Atomic uintptr_t outgoing_credits;
-
-void bray_runtime_outgoing_admission(uintptr_t count, RunOutcome *outcome) {
-    atomic_fetch_add(&outgoing_credits, count);
-    *outcome = (RunOutcome){0};
-}
-
-uintptr_t bray_runtime_outgoing_activation(void) {
-    if (atomic_load(&outgoing_credits) == 0) {
-        fputs("bootstrap cleanup has no admitted record\n", stderr);
-        abort();
-    }
-    return 1;
-}
-
-void bray_runtime_outgoing_retirement(uintptr_t record, RunOutcome *outcome) {
-    if (record != 1 || outcome->state == 2) {
-        fputs("unexpected bootstrap cleanup incident\n", stderr);
-        abort();
-    }
-}
-
-void bray_runtime_outgoing_discharge(uintptr_t count) {
-    if (atomic_fetch_sub(&outgoing_credits, count) < count) {
-        fputs("bootstrap cleanup discharged an unadmitted owner\n", stderr);
-        abort();
-    }
-}
 
 extern uint32_t bray_runtime_initialization(uintptr_t worker_capacity, uintptr_t timer_capacity);
 static uint32_t substrate_initialized;
@@ -128,40 +124,21 @@ void bray_runtime_current_run_cancellation_propagation(void) {
     abort();
 }
 
-// This isolated bootstrap test supplies only the primary consumer. Detached records
-// and native bridges are exercised against the real runtime by runtime-smoke.rs.
-static uint32_t consume_report(PanicReport *report, _Bool reporting) {
-    if (report->head || report->tail || report->count || report->reserved) {
-        abort();
-    }
-    uint32_t status = 0;
-    if (reporting && (report->cause > 4 || report->source.present > 1 ||
-        report->source.start > report->source.end ||
-        (report->message_length != 0 && report->message == 0))) {
-        status = 3;
-    }
-    if (report->release_message != NULL) {
-        RunOutcome outcome = {0};
-        report->release_message(report->message, report->message_length, &outcome);
-        if (outcome.state != 0) {
-            abort();
-        }
-    }
-    *report = (PanicReport){0};
-    return status;
-}
+// Reporting remains a host service; the Bray provider owns consumption and release.
+typedef struct PanicPrimary {
+    SourceAnchor source;
+    uint32_t cause;
+    uintptr_t message;
+    uintptr_t message_length;
+    uint32_t (*copy_message)(uintptr_t, uintptr_t, uint8_t *, uintptr_t);
+    void (*release_message)(uintptr_t, uintptr_t, RunOutcome *);
+} PanicPrimary;
 
-uint32_t bray_runtime_substrate_panic_report_initialization(PanicReport *report) {
-    report->consume = consume_report;
-    return 0;
+uint32_t bray_runtime_substrate_report_primary(const PanicPrimary *primary) {
+    return primary->cause > 4 || primary->source.present > 1 ||
+        primary->source.start > primary->source.end ||
+        (primary->message_length != 0 && primary->message == 0) ? 3 : 0;
 }
-
-PanicReport bray_runtime_panic_report_suppression(PanicReport *primary, PanicReport *incident) {
-    (void)primary;
-    (void)incident;
-    abort(); // This isolated primary-report fixture must not invoke detached-record operations.
-}
-
 uint32_t bray_runtime_panic_reporting(PanicReport *report) {
     return report->consume == NULL ? 0 : report->consume(report, 1);
 }
@@ -181,6 +158,34 @@ extern PanicReport bray_runtime_panic_report_construction(
     uintptr_t message_length
 );
 extern uint32_t bray_runtime_structured_shutdown(void);
+extern void bray_runtime_outgoing_admission(uintptr_t count, RunOutcome *outcome);
+extern uintptr_t bray_runtime_outgoing_activation(void);
+extern void bray_runtime_outgoing_retirement(uintptr_t record, RunOutcome *outcome);
+extern void bray_runtime_outgoing_discharge(uintptr_t count);
+extern PanicReport bray_runtime_panic_report_suppression(PanicReport *primary, PanicReport *incident);
+typedef uint32_t (*ReportConsumer)(PanicReport *, _Bool);
+extern ReportConsumer bray_runtime_report_consumer(void);
+
+static PanicReport *reentrant_report;
+static unsigned reentrant_releases;
+
+static void reentrant_release(uintptr_t message, uintptr_t length, RunOutcome *outcome) {
+    (void)message;
+    (void)length;
+    (void)outcome;
+    ++reentrant_releases;
+    if (bray_runtime_panic_report_destruction(reentrant_report) != 0) {
+        abort();
+    }
+    RunOutcome admitted = {0};
+    bray_runtime_outgoing_admission(1, &admitted);
+    if (admitted.state != 0) {
+        abort();
+    }
+    uintptr_t record = bray_runtime_outgoing_activation();
+    bray_runtime_outgoing_retirement(record, &admitted);
+    bray_runtime_outgoing_discharge(1);
+}
 
 static PanicReport panic_report(void) {
     static const uint8_t message[] = "bootstrap panic";
@@ -202,9 +207,57 @@ void bray_runtime_panic_propagation(PanicReport *report) {
     abort();
 }
 
+static int consume_after_allocator_failure(void) {
+    RunOutcome admission = {0};
+    bray_runtime_outgoing_admission(2, &admission);
+    if (admission.state != 0) {
+        return 10;
+    }
+    uintptr_t first = bray_runtime_outgoing_activation();
+    uintptr_t second = bray_runtime_outgoing_activation();
+    atomic_store(&reject_allocations, 1);
+    for (unsigned index = 0; index < 8; ++index) {
+        RunOutcome rejected = {0};
+        bray_runtime_outgoing_admission(64, &rejected);
+        if (rejected.state != 2 || rejected.report.cause != 4) {
+            return 11;
+        }
+        bray_runtime_panic_report_destruction(&rejected.report);
+    }
+    RunOutcome primary = {.state = 2, .report = panic_report()};
+    RunOutcome incident = {.state = 2, .report = panic_report()};
+    if (primary.report.cause != 4 || incident.report.cause != 4) {
+        return 12;
+    }
+    unsigned before = atomic_load(&allocation_attempts);
+    bray_runtime_outgoing_retirement(first, &primary);
+    bray_runtime_outgoing_retirement(second, &incident);
+    bray_runtime_outgoing_discharge(2);
+    PanicReport report = bray_runtime_panic_report_suppression(&primary.report, &incident.report);
+    if (bray_runtime_panic_reporting(&report) != 0 ||
+        bray_runtime_panic_report_destruction(&report) != 0 ||
+        before != atomic_load(&allocation_attempts)) {
+        return 13;
+    }
+    PanicReport reentrant = {.release_message = reentrant_release, .consume = bray_runtime_report_consumer()};
+    reentrant_report = &reentrant;
+    if (bray_runtime_panic_report_destruction(&reentrant) != 0 || reentrant_releases != 1 ||
+        before != atomic_load(&allocation_attempts)) {
+        return 14;
+    }
+    reentrant_report = NULL;
+    atomic_store(&reject_allocations, 0);
+    return 0;
+}
+
 int main(void) {
     if (bray_runtime_initialization(1, 1) != 0 || bray_runtime_initialization(1, 1) != 2) {
         return 1;
+    }
+
+    int allocation_status = consume_after_allocator_failure();
+    if (allocation_status != 0) {
+        return allocation_status;
     }
 
     PanicReport pending = panic_report();
@@ -232,10 +285,6 @@ int main(void) {
 
     if (atomic_load_explicit(&cleanup_shield_balance, memory_order_relaxed) != 0) {
         return 7;
-    }
-
-    if (atomic_load(&outgoing_credits) != 0) {
-        return 8;
     }
 
     return 0;

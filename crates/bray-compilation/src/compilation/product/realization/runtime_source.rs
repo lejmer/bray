@@ -40,7 +40,7 @@ macro_rules! define_runtime_source_fields {
         capabilities: [$($capability:ident),*],
         effects: [$($effect:ident),*]
     })+) => {
-        fn runtime_source_fields(role: RuntimeAbiRole) -> Option<(&'static [AbiField], AbiField)> {
+        fn runtime_source_fields(role: RuntimeAbiRole) -> Option<(&'static [AbiField], Option<AbiField>)> {
             match role {
                 $(RuntimeAbiRole::$role => define_runtime_source_fields!(
                     @bootstrap ($($bootstrap)?) ($([$($native_parameter),*] -> $native_result)?)
@@ -50,15 +50,17 @@ macro_rules! define_runtime_source_fields {
     };
     (@bootstrap () $native:tt) => { None };
     (@bootstrap ($name:literal) ([$($parameter:ident),*] -> $result:ident)) => {
-        Some((&[$(define_runtime_source_fields!(@parameter $parameter),)*], define_runtime_source_fields!(@field $result)))
+        Some((&[$(define_runtime_source_fields!(@parameter $parameter),)*], define_runtime_source_fields!(@result $result)))
     };
     (@field U32) => { U32 };
     (@field U64) => { U64 };
     (@field Usize) => { USIZE };
-    (@field Pointer) => { BYTE_POINTER };
-    (@parameter PanicReport) => { BYTE_POINTER };
+    (@field Pointer) => { AbiField::RawPointer };
+    (@parameter PanicReport) => { AbiField::RawPointer };
     (@parameter $kind:ident) => { define_runtime_source_fields!(@field $kind) };
     (@field PanicReport) => { PANIC_REPORT };
+    (@result Void) => { None };
+    (@result $kind:ident) => { Some(define_runtime_source_fields!(@field $kind)) };
 }
 
 bray_runtime_abi::runtime_role_catalog!(define_runtime_source_fields);
@@ -96,7 +98,9 @@ pub(super) fn runtime_source_signature_matches(
         }
     }
 
-    let expected_result = &result;
+    let Some(expected_result) = &result else {
+        return Ok(Some(matches!(signature.result(), CodegenResultMapping::Void)));
+    };
 
     let CodegenResultMapping::Direct {
         ty,
@@ -160,6 +164,31 @@ mod tests {
                 .unwrap(),
                 Some(expected),
             );
+        }
+    }
+
+    #[test]
+    fn record_roles_accept_typed_raw_pointers_and_require_void_results() {
+        let compilation = compilation("module app;\n");
+        let usize = compilation.codegen_representation_type(RepresentationRole::ScalarUsize).unwrap();
+
+        let pointer = compilation.available_compiler_known_symbols().unary_representation_type(
+            compilation.semantic_value_store().unwrap(), RepresentationRole::RawPointer, usize,
+        ).unwrap().unwrap();
+
+        for (parameter, result, expected) in [
+            (pointer, CodegenResultMapping::Void, true),
+            (usize, CodegenResultMapping::Void, false),
+            (pointer, CodegenResultMapping::direct(usize, None, []), false),
+        ] {
+            let signature = CodegenCallableSignature::new(
+                [CodegenParameterMapping::direct(parameter, None, []), CodegenParameterMapping::direct(pointer, None, [])],
+                result, CallableAbi::C, false,
+            );
+
+            assert_eq!(runtime_source_signature_matches(
+                &compilation, RuntimeAbiRole::ReportRecordPop, &signature, &CancellationToken::new(),
+            ).unwrap(), Some(expected));
         }
     }
 }

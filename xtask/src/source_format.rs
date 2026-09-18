@@ -10,6 +10,7 @@ use crate::{command, workspace};
 
 const MAINTAINED_SOURCE_ROOTS: &[&str] = &[
     "standard-library",
+    "runtime",
     "examples",
     "xtask/fixtures",
     "fuzz/corpus",
@@ -166,10 +167,12 @@ mod tests {
             .unwrap_or_else(|error| panic!("temporary workspace must be created: {error}"));
 
         let example = workspace.path().join("examples/demo/src/main.bray");
+        let runtime = workspace.path().join("runtime/bootstrap/src/report.bray");
         let recovery = workspace.path().join("fuzz/corpus/recovery/broken.bray");
         let ignored = workspace.path().join("other/ignored.bray");
 
         write_source(&example, "module demo;func main(){return;}");
+        write_source(&runtime, "module runtime;func entry(){return;}");
         write_source(&recovery, "module broken;func main(){let value=@;}\n");
         write_source(&ignored, "module ignored;");
 
@@ -193,7 +196,7 @@ mod tests {
         let maintained = maintained_sources(workspace.path())
             .unwrap_or_else(|error| panic!("maintained sources must be discoverable: {error}"));
 
-        assert_eq!(maintained, vec![example, recovery]);
+        assert_eq!(maintained, vec![example, recovery, runtime]);
 
         assert_eq!(
             fs::read_to_string(&ignored)

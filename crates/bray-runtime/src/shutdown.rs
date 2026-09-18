@@ -19,6 +19,34 @@ pub(crate) struct CleanupIncidentMetadata {
     origin: CleanupIncidentOrigin,
 }
 
+impl CleanupIncidentMetadata {
+    pub(crate) fn into_native(self) -> bray_runtime_abi::NativeReportSegment {
+        bray_runtime_abi::NativeReportSegment {
+            ordinal: self.ordinal,
+            task: match self.producer {
+                CleanupIncidentProducer::SynchronousRoot => 0,
+                CleanupIncidentProducer::Task(task) => task.raw(),
+            },
+            frame: self.origin.frame.digest(),
+            state: self.origin.state.raw(),
+        }
+    }
+
+    pub(crate) fn from_native(segment: bray_runtime_abi::NativeReportSegment) -> Self {
+        Self {
+            ordinal: segment.ordinal,
+            producer: std::num::NonZeroU64::new(segment.task).map_or(
+                CleanupIncidentProducer::SynchronousRoot,
+                |task| CleanupIncidentProducer::Task(TaskId::from_native(task)),
+            ),
+            origin: CleanupIncidentOrigin::new(
+                ProtectedAsyncFrameId::new(segment.frame),
+                ProtectedFrameStateId::new(segment.state),
+            ),
+        }
+    }
+}
+
 impl CleanupIncident {
     pub(crate) fn new(metadata: CleanupIncidentMetadata, payload: crate::RuntimePanic) -> Self {
         Self {

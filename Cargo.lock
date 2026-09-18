@@ -551,7 +551,9 @@ dependencies = [
  "bray-platform",
  "bray-runtime-abi",
  "bray-runtime-model",
+ "bray-target",
  "bray-testing",
+ "xtask",
 ]
 
 [[package]]

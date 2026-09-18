@@ -1,0 +1,176 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap;
+
+using std.memory;
+
+@abi(c)
+trusted internal func outgoing_admission(pos count: usize, pos outcome: RawPointer<ReportOutcome>)
+    uses(raw_memory, unchecked_init)
+{
+    trusted lock_records();
+
+    let credits: usize = core.atomic.load<usize, 0>(&RECORD_POOL[SOURCE_CREDITS]);
+    let maximum: usize = ~0;
+
+    if count <= maximum - credits
+    {
+        if trusted reserve_records(credits + count)
+        {
+            core.atomic.store<usize, 0>(&RECORD_POOL[SOURCE_CREDITS], value = credits + count);
+            unlock_records();
+            return;
+        }
+    }
+
+    unlock_records();
+
+    let mut failure: PanicReportData = empty_panic_report();
+
+    failure.cause = PANIC_ALLOCATION_FAILURE;
+    failure.consumer = trusted consume_pointer();
+
+    trusted std.memory.write<ReportOutcome>(
+        outcome,
+        {
+            state = RUN_PANICKED,
+            payload = 0,
+            report = failure
+        }
+    );
+}
+
+@abi(c)
+trusted internal func outgoing_discharge(pos count: usize)
+    uses(intrinsic)
+{
+    trusted lock_records();
+
+    let credits: usize = core.atomic.load<usize, 0>(&RECORD_POOL[SOURCE_CREDITS]);
+
+    if count > credits
+    {
+        trusted core.target.abort();
+    }
+
+    core.atomic.store<usize, 0>(&RECORD_POOL[SOURCE_CREDITS], value = credits - count);
+    unlock_records();
+}
+
+@abi(c)
+trusted internal func outgoing_activation() -> usize
+{
+    trusted lock_records();
+
+    let handle: usize = trusted activate_record();
+
+    unlock_records();
+    return handle;
+}
+
+@abi(c)
+trusted internal func outgoing_retirement(pos handle: usize, pos mut outcome: RawPointer<ReportOutcome>)
+    uses(raw_memory, unchecked_alias)
+{
+    let pointer: RawPointer<ReportOutcome> = outcome;
+
+    let result: &mut ReportOutcome = trusted std.memory.borrow_mut_from<ReportOutcome, RawPointer<ReportOutcome>>(
+        &mut outcome,
+        pointer
+    );
+
+    if result.state == RUN_PANICKED && result.report.reserved == 0
+    {
+        result.report.reserved = handle;
+    }
+    else
+    {
+        trusted recycle_reservation(handle);
+    }
+}
+
+@abi(c)
+trusted internal func take_report(pos mut pointer: RawPointer<PanicReportData>) -> PanicReportData
+    uses(raw_memory, unchecked_init, unchecked_alias)
+{
+    let address: RawPointer<PanicReportData> = pointer;
+
+    let mut value: &mut PanicReportData = trusted std.memory.borrow_mut_from<
+        PanicReportData,
+        RawPointer<PanicReportData>
+    >(&mut pointer, address);
+
+    let owned: PanicReportData = trusted std.memory.read<PanicReportData>(
+        std.memory.address_of_mut<PanicReportData>(&mut value)
+    );
+
+    trusted std.memory.write<PanicReportData>(
+        std.memory.address_of_mut<PanicReportData>(&mut value),
+        empty_panic_report()
+    );
+
+    return owned;
+}
+
+@abi(c)
+trusted internal func panic_report_suppression(
+    pos primary: RawPointer<PanicReportData>,
+    pos incident: RawPointer<PanicReportData>
+) -> PanicReportData
+    uses(intrinsic)
+{
+    let mut report: PanicReportData = trusted take_report(primary);
+    let suppressed: PanicReportData = trusted take_report(incident);
+    let handle: usize = suppressed.reserved;
+
+    if handle == 0
+    {
+        trusted core.target.abort();
+    }
+
+    let mut incident_records: ReportRecords =
+    {
+        head = handle,
+        tail = handle,
+        count = 1
+    };
+
+    let mut later: ReportRecords =
+    {
+        head = suppressed.outgoing_head,
+        tail = suppressed.outgoing_tail,
+        count = suppressed.outgoing_count
+    };
+
+    let mut value: ReportPrimary = report_primary_value(suppressed);
+
+    trusted report_record_exchange(handle, std.memory.address_of_mut<ReportPrimary>(&mut value));
+
+    let released: ReportOutcome = trusted release_primary(&value);
+
+    if released.state != RUN_COMPLETED
+    {
+        trusted core.target.abort();
+    }
+
+    trusted report_records_append(
+        std.memory.address_of_mut<ReportRecords>(&mut incident_records),
+        std.memory.address_of_mut<ReportRecords>(&mut later)
+    );
+
+    let mut chain: ReportRecords =
+    {
+        head = report.outgoing_head,
+        tail = report.outgoing_tail,
+        count = report.outgoing_count
+    };
+
+    trusted report_records_append(
+        std.memory.address_of_mut<ReportRecords>(&mut chain),
+        std.memory.address_of_mut<ReportRecords>(&mut incident_records)
+    );
+
+    report.outgoing_head = chain.head;
+    report.outgoing_tail = chain.tail;
+    report.outgoing_count = chain.count;
+    return report;
+}

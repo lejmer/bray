@@ -283,7 +283,9 @@ fn build_contents(target: NativeTarget, output: &Path, profile: &str) -> Result<
             kind == RuntimeArchiveKind::TestHost,
         )?;
 
-        native_links.extend(built.native_links().iter().cloned());
+        native_links.extend(built.native_links().iter().filter(|link| {
+            !RuntimeArchiveKind::ALL.into_iter().any(|owner| owner.archive_stem() == link.name())
+        }).cloned());
     }
 
     crate::progress::run("Partitioning runtime archives", || {
@@ -1221,6 +1223,14 @@ mod tests {
         assert_eq!(
             roles,
             [
+                RuntimeAbiRole::ReportRecordAdmission,
+                RuntimeAbiRole::ReportRecordTake,
+                RuntimeAbiRole::ReportRecordExchange,
+                RuntimeAbiRole::ReportRecordAppend,
+                RuntimeAbiRole::ReportRecordPop,
+                RuntimeAbiRole::ReportSegmentMark,
+                RuntimeAbiRole::ReportSegmentTake,
+                RuntimeAbiRole::ReportConsumer,
                 RuntimeAbiRole::RuntimeInitialization,
                 RuntimeAbiRole::RootExecution,
                 RuntimeAbiRole::SynchronousRootExecution,

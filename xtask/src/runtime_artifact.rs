@@ -9,4 +9,6 @@ mod partition;
 mod reuse;
 mod smoke;
 
+pub use bootstrap::build as build_bootstrap;
+
 pub(crate) use command::{build_for_readiness, run, smoke_test_host};

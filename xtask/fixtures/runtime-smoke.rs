@@ -125,6 +125,7 @@ struct InactiveFrame {
 struct ProtectedFrameTransfer(usize);
 
 unsafe extern "C" {
+    safe fn bray_runtime_report_consumer() -> extern "C" fn(&mut PanicReport, bool) -> u32;
     safe fn bray_runtime_initialization(worker_capacity: usize, timer_capacity: usize) -> Status;
     safe fn bray_runtime_root_execution(
         frame: ProtectedFrameTransfer,
@@ -493,6 +494,7 @@ fn admitted_reports_survive_failed_reservation() {
         report.cause = 1;
         report.message = if index == 0 { 1 } else { 10 };
         report.release_message = Some(release_report);
+        report.consume = Some(bray_runtime_report_consumer());
 
         let mut outcome = RunOutcome {
             state: RunState::PANICKED,

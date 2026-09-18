@@ -4,12 +4,6 @@ use bray_runtime_abi::{
     NativeThreadOperationCallback,
 };
 
-native_adapter! {
-    pub extern "C" fn bray_runtime_substrate_panic_report_initialization(report: &mut bray_runtime_abi::NativePanicReport) -> NativeRuntimeStatus {
-        implementation::bray_runtime_substrate_panic_report_initialization(report)
-    }
-}
-
 fn services() -> &'static bray_runtime_abi::NativeHostServices {
     implementation::resident_host_services()
 }

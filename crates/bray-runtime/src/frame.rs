@@ -172,9 +172,7 @@ pub enum FrameExit {
 /// Disposal visits the primary before suppressed failures. Reports are flattened when
 /// transferred, so their depth does not affect disposal stack usage.
 pub struct RuntimePanic {
-    primary: Option<bray_runtime_abi::NativePanicPrimary>,
-    suppressed: crate::outgoing::OutgoingRecords,
-    reserved: crate::outgoing::OutgoingRecords,
+    report: bray_runtime_abi::NativePanicReport,
 }
 
 #[derive(Default)]
@@ -191,157 +189,82 @@ static RUST_PANIC_BACKINGS: Mutex<RustPanicBackings> = Mutex::new(RustPanicBacki
 
 impl RuntimePanic {
     #[cfg(test)]
-    pub(crate) fn new(
-        payload: impl Any + Send,
-        admitted: &mut crate::outgoing::OutgoingRecords,
-    ) -> Self {
+    pub(crate) fn new(payload: impl Any + Send, admitted: &mut crate::outgoing::OutgoingRecords) -> Self {
         Self::from_payload(Box::new(payload), admitted)
     }
 
     /// Returns the number of later panics retained behind the primary panic.
     pub fn suppressed_count(&self) -> usize {
-        self.suppressed.len()
+        self.report.outgoing_count()
     }
 
-    pub(crate) fn from_native(mut report: bray_runtime_abi::NativePanicReport) -> Self {
-        let (primary, head, tail, count, reserved) = report.take_parts();
-
-        Self {
-            primary: Some(primary),
-            suppressed: crate::outgoing::OutgoingRecords::from_parts(head, tail, count),
-            reserved: crate::outgoing::OutgoingRecords::from_parts(
-                reserved,
-                reserved,
-                usize::from(reserved != 0),
-            ),
-        }
+    pub(crate) fn from_native(report: bray_runtime_abi::NativePanicReport) -> Self {
+        Self { report }
     }
 
-    pub(crate) fn into_native(mut self) -> bray_runtime_abi::NativePanicReport {
-        let primary = self
-            .primary
-            .take()
-            .unwrap_or_else(bray_runtime_abi::NativePanicPrimary::empty);
-
-        let mut report = native_report(primary);
-
-        let (head, tail, count) = std::mem::take(&mut self.suppressed).into_parts();
-
-        report.set_outgoing(head, tail, count);
-
-        let (reserved, _, _) = std::mem::take(&mut self.reserved).into_parts();
-
-        report.set_reserved(reserved);
-
-        report
-    }
-
-    pub(crate) fn retain_reservation(&mut self, reservation: crate::outgoing::OutgoingRecords) {
-        if self.reserved.len() == 0 {
-            self.reserved = reservation;
-        }
+    pub(crate) fn into_native(self) -> bray_runtime_abi::NativePanicReport {
+        self.report
     }
 
     pub(crate) fn reserve_from(&mut self, admitted: &mut crate::outgoing::OutgoingRecords) {
-        if self.reserved.len() == 0 {
-            self.reserved = admitted.take(1);
+        if !self.report.has_reservation() {
+            let (reserved, _, _) = admitted.take(1).into_parts();
+
+            self.report.set_reserved(reserved);
         }
     }
 
-    pub(crate) fn from_payload(
-        payload: Box<dyn Any + Send>,
-        admitted: &mut crate::outgoing::OutgoingRecords,
-    ) -> Self {
+    pub(crate) fn from_payload(payload: Box<dyn Any + Send>, admitted: &mut crate::outgoing::OutgoingRecords) -> Self {
         match payload.downcast::<Self>() {
             Ok(panic) => *panic,
             Err(payload) => {
                 let (primary, reserved) = admitted.take_rust_primary(payload);
 
-                Self {
-                    primary: Some(primary),
-                    suppressed: crate::outgoing::OutgoingRecords::default(),
-                    reserved,
-                }
+                let mut report = native_report(primary);
+
+                let (reserved, _, _) = reserved.into_parts();
+
+                report.set_reserved(reserved);
+
+                Self { report }
             }
         }
     }
 
-    pub(crate) fn into_records(
-        mut self,
-        admitted: &mut crate::outgoing::OutgoingRecords,
-    ) -> crate::outgoing::OutgoingRecords {
-        let mut records = crate::outgoing::OutgoingRecords::default();
+    pub(crate) fn into_records(mut self, admitted: &mut crate::outgoing::OutgoingRecords) -> crate::outgoing::OutgoingRecords {
+        self.reserve_from(admitted);
 
-        if let Some(primary) = self.primary.take() {
-            let capacity = if self.reserved.len() == 0 {
-                admitted
-            } else {
-                &mut self.reserved
-            };
+        let (mut primary, head, tail, count, reserved) = self.report.take_parts();
 
-            records.push(primary, capacity);
-        }
-
-        records.append(&mut self.suppressed);
+        let mut records = crate::outgoing::OutgoingRecords::from_parts(reserved, reserved, 1);
+        records.exchange(&mut primary);
+        drop(primary);
+        records.append(&mut crate::outgoing::OutgoingRecords::from_parts(head, tail, count));
 
         records
     }
 
     pub(crate) fn from_records(mut records: crate::outgoing::OutgoingRecords) -> Self {
-        Self {
-            primary: records.pop(),
-            suppressed: records,
-            reserved: crate::outgoing::OutgoingRecords::default(),
-        }
+        let primary = records.pop().expect("a report segment owns its primary");
+        let mut report = native_report(primary);
+
+        let (head, tail, count) = records.into_parts();
+
+        report.set_outgoing(head, tail, count);
+
+        Self { report }
     }
 
-    fn pop_primary(&mut self) -> Option<bray_runtime_abi::NativePanicPrimary> {
-        self.primary.take().or_else(|| self.suppressed.pop())
+    pub(crate) fn push_suppressed(&mut self, payload: Box<dyn Any + Send>, admitted: &mut crate::outgoing::OutgoingRecords) {
+        self.append(Self::from_payload(payload, admitted), admitted);
     }
 
-    pub(crate) fn prepend(&mut self, mut incident: Self) {
-        // Disposal has already consumed the primary before a destructor can report a failure.
-        incident.suppressed.append(&mut self.suppressed);
-
-        self.primary = incident.primary.take();
-        self.reserved = std::mem::take(&mut incident.reserved);
-        self.suppressed = std::mem::take(&mut incident.suppressed);
+    pub(crate) fn append(&mut self, mut incident: Self, admitted: &mut crate::outgoing::OutgoingRecords) {
+        incident.reserve_from(admitted);
+        self.report = crate::report_provider::bray_runtime_panic_report_suppression(&mut self.report, &mut incident.report);
     }
 
-    pub(crate) fn push_suppressed(
-        &mut self,
-        payload: Box<dyn Any + Send>,
-        admitted: &mut crate::outgoing::OutgoingRecords,
-    ) {
-        match payload.downcast::<Self>() {
-            Ok(panic) => self.append(*panic, admitted),
-            Err(payload) => self.suppressed.push_rust(payload, admitted),
-        }
-    }
-
-    pub(crate) fn append(
-        &mut self,
-        mut incident: Self,
-        admitted: &mut crate::outgoing::OutgoingRecords,
-    ) {
-        if let Some(primary) = incident.primary.take() {
-            let capacity = if incident.reserved.len() != 0 {
-                &mut incident.reserved
-            } else {
-                admitted
-            };
-
-            self.suppressed.push(primary, capacity);
-        }
-
-        self.suppressed.append(&mut incident.suppressed);
-    }
-
-    pub(crate) fn record(
-        panic: &mut Option<Self>,
-        payload: Box<dyn Any + Send>,
-        admitted: &mut crate::outgoing::OutgoingRecords,
-    ) {
+    pub(crate) fn record(panic: &mut Option<Self>, payload: Box<dyn Any + Send>, admitted: &mut crate::outgoing::OutgoingRecords) {
         if let Some(panic) = panic {
             panic.push_suppressed(payload, admitted);
         } else {
@@ -350,46 +273,26 @@ impl RuntimePanic {
     }
 
     pub(crate) fn consume(&mut self, reporting: bool) -> bray_runtime_abi::NativeRuntimeStatus {
-        let mut status = bray_runtime_abi::NativeRuntimeStatus::SUCCESS;
-
-        while let Some(mut primary) = self.pop_primary() {
-            if reporting {
-                let found = crate::native::report_primary(&primary);
-
-                if status.is_success() {
-                    status = found;
-                }
-            }
-
-            let mut release = primary.release_message();
-
-            match release.state() {
-                bray_runtime_abi::NativeRunState::COMPLETED => {}
-                bray_runtime_abi::NativeRunState::PANICKED => {
-                    if status.is_success() {
-                        status = bray_runtime_abi::NativeRuntimeStatus::PANICKED;
-                    }
-
-                    self.prepend(Self::from_native(release.take_report()));
-                }
-                _ => unreachable!("message release returns completed or panicked"),
-            }
-        }
-
-        status
+        self.report.consume(reporting)
     }
 }
+pub(crate) fn reserve_rust_panic_backings(records: &mut crate::outgoing::OutgoingRecords) -> Result<(), TryReserveError> {
+    let mut backings = rust_panic_backings();
+    let count = records.len();
+    backings.reserve_free(count)?;
+    let mut admitted = crate::outgoing::OutgoingRecords::default();
 
-pub(crate) fn reserve_rust_panic_backings(count: usize) -> Result<(), TryReserveError> {
-    rust_panic_backings().reserve_free(count)
+    for _ in 0..count {
+        let mut record = records.take(1);
+        let mut primary = rust_panic_primary(backings.take_free() + 1, 0);
+        record.exchange(&mut primary);
+        admitted.append(&mut record);
+    }
+
+    records.append(&mut admitted);
+
+    Ok(())
 }
-
-pub(crate) fn reserved_rust_panic_primary() -> bray_runtime_abi::NativePanicPrimary {
-    let handle = rust_panic_backings().take_free() + 1;
-
-    rust_panic_primary(handle, 0)
-}
-
 pub(crate) fn attach_rust_panic_payload(
     primary: &mut bray_runtime_abi::NativePanicPrimary,
     payload: Box<dyn Any + Send>,
@@ -520,7 +423,7 @@ impl RustPanicBackings {
         let additional = count.saturating_sub(self.free.len());
 
         self.slots.try_reserve(additional)?;
-        self.free.try_reserve(additional)?;
+        self.free.try_reserve(self.slots.len() + additional - self.free.len())?;
 
         for _ in 0..additional {
             let index = self.slots.len();
@@ -557,33 +460,14 @@ fn rust_panic_backings() -> MutexGuard<'static, RustPanicBackings> {
 pub(crate) fn native_report(
     primary: bray_runtime_abi::NativePanicPrimary,
 ) -> bray_runtime_abi::NativePanicReport {
-    bray_runtime_abi::NativePanicReport::new(primary, consume_native_report)
-}
-
-extern "C" fn consume_native_report(
-    report: &mut bray_runtime_abi::NativePanicReport,
-    reporting: bool,
-) -> bray_runtime_abi::NativeRuntimeStatus {
-    let mut panic = RuntimePanic::from_native(std::mem::replace(
-        report,
-        bray_runtime_abi::NativePanicReport::empty(),
-    ));
-
-    panic.consume(reporting)
-}
-
-impl Drop for RuntimePanic {
-    #[inline(never)]
-    fn drop(&mut self) {
-        self.consume(false);
-    }
+    bray_runtime_abi::NativePanicReport::new(primary, crate::report_provider::bray_runtime_report_consumer())
 }
 
 impl fmt::Debug for RuntimePanic {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("RuntimePanic")
-            .field("suppressed_count", &self.suppressed.len())
+            .field("suppressed_count", &self.suppressed_count())
             .finish_non_exhaustive()
     }
 }
@@ -767,6 +651,62 @@ mod tests {
         erase_protected_frame, resume_direct,
     };
     use crate::test_support::TestFrame;
+
+    #[test]
+    fn admitted_payload_backings_can_all_return_without_growing_the_free_list() {
+        let mut backings = super::RustPanicBackings::default();
+        let mut handles = Vec::new();
+
+        for _ in 0..3 {
+            backings.reserve_free(4).unwrap();
+            handles.extend((0..4).map(|_| backings.take_free()));
+        }
+
+        let capacity = backings.free.capacity();
+        let allocation = backings.free.as_ptr();
+
+        for handle in handles {
+            backings.release(handle);
+        }
+
+        assert_eq!(backings.free.capacity(), capacity);
+        assert_eq!(backings.free.as_ptr(), allocation);
+        assert_eq!(backings.free.len(), 12);
+    }
+
+    #[test]
+    fn report_survives_its_producing_thread_and_releases_on_another_thread() {
+        use std::sync::{Arc, Mutex};
+
+        struct Release(usize, Arc<Mutex<Vec<usize>>>);
+
+        impl Drop for Release {
+            fn drop(&mut self) {
+                self.1.lock().unwrap().push(self.0);
+            }
+        }
+
+        let released = Arc::new(Mutex::new(Vec::new()));
+        let producer_events = Arc::clone(&released);
+
+        let report = std::thread::spawn(move || {
+            let mut admitted = crate::outgoing::OutgoingRecords::admit(2).unwrap();
+            let mut report = super::RuntimePanic::new(Release(1, Arc::clone(&producer_events)), &mut admitted);
+            report.push_suppressed(Box::new(Release(2, producer_events)), &mut admitted);
+
+            report.into_native()
+        }).join().unwrap();
+
+        assert!(released.lock().unwrap().is_empty());
+
+        std::thread::spawn(move || {
+            let mut report = report;
+            assert!(report.consume(false).is_success());
+            assert!(report.consume(false).is_success());
+        }).join().unwrap();
+
+        assert_eq!(*released.lock().unwrap(), [1, 2]);
+    }
 
     #[test]
     fn direct_resume_needs_no_task_storage() {

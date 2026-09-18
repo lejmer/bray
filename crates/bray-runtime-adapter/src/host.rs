@@ -9,6 +9,12 @@ fn host() -> &'static bray_runtime_abi::NativeHostServices {
     implementation::resident_host_services()
 }
 
+native_adapter! {
+    pub extern "C" fn bray_runtime_substrate_report_primary(primary: &bray_runtime_abi::NativePanicPrimary) -> NativeRuntimeStatus {
+        implementation::bray_runtime_substrate_report_primary(primary)
+    }
+}
+
 fn execution() -> &'static bray_runtime_abi::NativeExecutionServices {
     implementation::resident_execution_services()
 }
@@ -108,35 +114,5 @@ native_adapter! {
 native_adapter! {
     pub extern "C" fn bray_runtime_panic_report_destruction(report: &mut bray_runtime_abi::NativePanicReport) -> NativeRuntimeStatus {
         (host().panic_report_destruction)(report)
-    }
-}
-
-native_adapter! {
-    pub extern "C" fn bray_runtime_outgoing_admission(count: usize, outcome: &mut NativeRunOutcome) {
-        (host().outgoing_admission)(count, outcome);
-    }
-}
-
-native_adapter! {
-    pub extern "C" fn bray_runtime_outgoing_discharge(count: usize) {
-        (host().outgoing_discharge)(count);
-    }
-}
-
-native_adapter! {
-    pub extern "C" fn bray_runtime_outgoing_activation() -> usize {
-        (host().outgoing_activation)()
-    }
-}
-
-native_adapter! {
-    pub extern "C" fn bray_runtime_outgoing_retirement(record: usize, outcome: &mut NativeRunOutcome) {
-        (host().outgoing_retirement)(record, outcome);
-    }
-}
-
-native_adapter! {
-    pub extern "C" fn bray_runtime_panic_report_suppression(primary: &mut bray_runtime_abi::NativePanicReport, incident: &mut bray_runtime_abi::NativePanicReport) -> bray_runtime_abi::NativePanicReport {
-        (host().panic_report_suppression)(primary, incident)
     }
 }

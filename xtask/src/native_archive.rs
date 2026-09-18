@@ -91,9 +91,11 @@ fn build_rust_static_library_with_configuration(
     abort_on_panic: bool,
     native_compilation: NativeCompilation,
 ) -> Result<RustStaticLibrary, BuildError> {
+    let target_root = crate::workspace::cargo_target(root).join("native").join(package);
+
     let target_directory = match native_compilation {
-        NativeCompilation::Object => crate::workspace::cargo_target(root),
-        NativeCompilation::ThinLto => crate::workspace::cargo_target(root).join("thin-lto-native"),
+        NativeCompilation::Object => target_root.join("object"),
+        NativeCompilation::ThinLto => target_root.join("thin-lto"),
     };
 
     let mut command = Command::new("cargo");
@@ -113,6 +115,7 @@ fn build_rust_static_library_with_configuration(
     ]);
 
     command.arg(&target_directory);
+    command.env("CARGO_BUILD_BUILD_DIR", target_directory.join("cargo"));
 
     if !features.is_empty() {
         command.arg("--features").arg(features.join(","));

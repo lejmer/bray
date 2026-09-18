@@ -14,13 +14,26 @@ internal callable PanicMessageRelease = @abi(c) trusted func(
     pos outcome: RawPointer<u8>,
 );
 
+@abi(c)
 internal func empty_panic_report() -> PanicReportData
 {
-    return {
-        source_present = 0, source_identity = 0, source_start = 0, source_end = 0, source_version = 0,
-        cause = 0, message = 0, message_length = 0,
-        copy_message = std.memory.null<u8>(), release_message = std.memory.null<u8>(),
-        outgoing_head = 0, outgoing_tail = 0, outgoing_count = 0, reserved = 0, consumer = std.memory.null<u8>(),
+    return
+    {
+        source_present = 0,
+        source_identity = 0,
+        source_start = 0,
+        source_end = 0,
+        source_version = 0,
+        cause = 0,
+        message = 0,
+        message_length = 0,
+        copy_message = std.memory.null<u8>(),
+        release_message = std.memory.null<u8>(),
+        outgoing_head = 0,
+        outgoing_tail = 0,
+        outgoing_count = 0,
+        reserved = 0,
+        consumer = std.memory.null<u8>(),
     };
 }
 
@@ -39,14 +52,17 @@ trusted internal func panic_report_construction(
         trusted core.memory.valid_read<u8>(pointer = message, count = message_length),
         trusted core.memory.initialized_range_as<u8>(pointer = message, count = message_length),
     )
-    uses(intrinsic, layout_reinterpret, raw_memory, unchecked_init, foreign_call)
+    uses(intrinsic, layout_reinterpret, raw_memory, unchecked_init)
 {
-    if cause > 2 || source_present > 1 || source_start > source_end || (message_length != 0 && std.memory.is_null<u8>(message))
+    if cause > 2 || source_present > 1 || source_start > source_end || (message_length != 0 && std.memory.is_null<u8>(
+        message
+    ))
     {
         trusted core.target.abort();
     }
 
     let mut report: PanicReportData = empty_panic_report();
+
     report.source_present = source_present;
     report.source_identity = source_identity;
     report.source_start = source_start;
@@ -57,9 +73,10 @@ trusted internal func panic_report_construction(
     if message_length != 0
     {
         let copy: RawPointer<u8> = trusted internal bray.runtime.bootstrap.heap.allocate(message_length, align = 1);
+
         if std.memory.is_null<u8>(copy)
         {
-            report.cause = 4;
+            report.cause = PANIC_ALLOCATION_FAILURE;
         }
         else
         {
@@ -71,29 +88,39 @@ trusted internal func panic_report_construction(
 
     let copy: PanicMessageCopy = panic_message_copy;
     let release: PanicMessageRelease = panic_message_release;
-    report.copy_message = trusted std.memory.reinterpret<u8, PanicMessageCopy>(trusted std.memory.pointer_from_callable(copy));
-    report.release_message = trusted std.memory.reinterpret<u8, PanicMessageRelease>(trusted std.memory.pointer_from_callable(release));
-    let destination: RawPointer<u8> = trusted std.memory.reinterpret<u8, PanicReportData>(std.memory.address_of_mut(&mut report));
-    let _: u32 = trusted substrate_panic_report_initialization(destination);
+
+    report.copy_message = trusted std.memory.reinterpret<u8, PanicMessageCopy>(
+        trusted std.memory.pointer_from_callable(copy)
+    );
+
+    report.release_message = trusted std.memory.reinterpret<u8, PanicMessageRelease>(
+        trusted std.memory.pointer_from_callable(release)
+    );
+
+    report.consumer = trusted consume_pointer();
+
     let _: u64 = core.atomic.fetch_add<u64, 0>(&CONSTRUCTED_REPORTS, value = 1);
+
     return report;
 }
 
 @abi(c)
-trusted internal func panic_message_copy(pos address: usize, pos offset: usize, pos destination: RawPointer<u8>, pos length: usize) -> u32
+trusted internal func panic_message_copy(
+    pos address: usize,
+    pos offset: usize,
+    pos destination: RawPointer<u8>,
+    pos length: usize
+) -> u32
     uses(intrinsic, raw_memory, unchecked_init)
 {
     let source: RawPointer<u8> = trusted core.target.from_exposed_address<u8>(address = address + offset);
+
     trusted internal std.memory.byte_buffer_copy(source, destination = destination, count = length);
     return STATUS_SUCCESS;
 }
 
 @abi(c)
-trusted internal func panic_message_release(
-    pos address: usize,
-    pos length: usize,
-    pos outcome: RawPointer<u8>,
-)
+trusted internal func panic_message_release(pos address: usize, pos length: usize, pos outcome: RawPointer<u8>)
     uses(intrinsic)
 {
     let _ = outcome;
@@ -101,14 +128,9 @@ trusted internal func panic_message_release(
     if length != 0
     {
         let bytes: RawPointer<u8> = trusted core.target.from_exposed_address<u8>(address = address);
+
         trusted internal bray.runtime.bootstrap.heap.deallocate_bytes(bytes, bytes = length, align = ONE_USIZE);
     }
 
     let _: u64 = core.atomic.fetch_add<u64, 0>(&CONSUMED_REPORTS, value = 1);
 }
-
-@link(name = "bray_runtime_callback", kind = system)
-@symbol(name = "bray_runtime_substrate_panic_report_initialization")
-@abi(c)
-extern trusted internal func substrate_panic_report_initialization(pos report: RawPointer<u8>) -> u32
-    uses(foreign_call);

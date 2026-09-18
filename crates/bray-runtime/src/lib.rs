@@ -16,6 +16,7 @@ mod observation;
 mod outcome;
 mod outgoing;
 mod product;
+mod report_provider;
 mod root;
 mod scheduler;
 mod shutdown;

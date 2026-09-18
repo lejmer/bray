@@ -22,11 +22,11 @@ pub(crate) static HOST_SERVICES: NativeHostServices = NativeHostServices {
     panic_propagation: implementation::bray_runtime_panic_propagation,
     panic_reporting: implementation::bray_runtime_panic_reporting,
     panic_report_destruction: implementation::bray_runtime_panic_report_destruction,
-    outgoing_admission: implementation::bray_runtime_outgoing_admission,
-    outgoing_discharge: implementation::bray_runtime_outgoing_discharge,
-    outgoing_activation: implementation::bray_runtime_outgoing_activation,
-    outgoing_retirement: implementation::bray_runtime_outgoing_retirement,
-    panic_report_suppression: implementation::bray_runtime_panic_report_suppression,
+    outgoing_admission: crate::report_provider::bray_runtime_outgoing_admission,
+    outgoing_discharge: crate::report_provider::bray_runtime_outgoing_discharge,
+    outgoing_activation: crate::report_provider::bray_runtime_outgoing_activation,
+    outgoing_retirement: crate::report_provider::bray_runtime_outgoing_retirement,
+    panic_report_suppression: crate::report_provider::bray_runtime_panic_report_suppression,
 };
 
 pub(crate) static EXECUTION_SERVICES: NativeExecutionServices = NativeExecutionServices {
