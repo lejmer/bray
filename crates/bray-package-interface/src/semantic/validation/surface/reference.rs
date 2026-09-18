@@ -63,7 +63,7 @@ pub(super) fn reference_owner<'surface>(
     Ok(reference_key(reference, surface)?.owner())
 }
 
-pub(super) fn reference_key<'surface>(
+pub(in crate::semantic::validation) fn reference_key<'surface>(
     reference: &'surface InterfaceSymbolReference,
     surface: &'surface PackageInterfaceSurface,
 ) -> Result<&'surface bray_symbols::ExternalSymbolKey, InterfaceValidationError> {

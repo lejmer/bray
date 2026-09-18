@@ -823,11 +823,7 @@ fn runtime_default_storage_cannot_escape_source_or_imported_calls() {
 
     let provider = compilation(provider_source);
 
-    assert!(
-        !provider.check_diagnostics().has_errors(),
-        "{:?}",
-        provider.check_diagnostics()
-    );
+    assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
 
     for (result, invocation, valid) in [
         ("&bool", "choose(first)", false),
@@ -1019,7 +1015,12 @@ public func same(pos value: &mut bool) -> &mut bool
 "#;
 
     let provider = compilation(&format!("module api;\n{declaration}"));
-    assert!(!provider.check_diagnostics().has_errors(), "{:?}", provider.check_diagnostics());
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
 
     let moved = bray_diagnostics::DiagnosticKind::CheckingUseOfMovedStorage;
     let conflict = bray_diagnostics::DiagnosticKind::CheckingConflictingBorrow;
@@ -5030,6 +5031,98 @@ fn custom_indexing_is_rejected_during_constant_evaluation() {
         bray_diagnostics::DiagnosticKind::CheckingInvalidConstantExpression,
     );
 }
+
+#[test]
+fn aggregate_static_initializers_export_for_source_independent_consumers() {
+    let provider = compilation(
+        r#"
+        module api;
+
+        public struct Pair
+        {
+            public first: i32;
+            public second: i32;
+        }
+
+        public struct State
+        {
+            public nested: Pair;
+            public marker: i32;
+        }
+
+        public struct AtomicState
+        {
+            public value: core.atomic.Atomic<u32>;
+        }
+
+        public static Stored: State = State
+        {
+            marker = 39,
+            nested = Pair
+            {
+                second = 38,
+                first = 37
+            }
+        };
+
+        public static Generic<const N: i32>: State
+            with(true) = State
+        {
+            marker = N + 2,
+            nested = Pair
+            {
+                second = N + 1,
+                first = N
+            }
+        };
+
+        public static Atomic: AtomicState = AtomicState
+        {
+            value = core.atomic.initialize<u32>(0)
+        };
+    "#,
+    );
+
+    assert!(
+        provider.check_diagnostics().is_empty(),
+        "{:#?}",
+        provider.check_diagnostics()
+    );
+
+    let bundle = export(&provider);
+
+    assert!(
+        bundle
+            .semantics()
+            .checked_templates()
+            .iter()
+            .flat_map(|template| template.nodes())
+            .any(|node| matches!(
+                node.operation(),
+                InterfaceCheckedTemplateOperation::Product(_)
+            ))
+    );
+
+    let consumer = execution_consumer(
+        &provider,
+        r#"
+        module app;
+
+        using example.package.api;
+
+        func ready()
+        {
+        }
+    "#,
+    );
+
+    assert!(
+        consumer.check_diagnostics().is_empty(),
+        "{:#?}",
+        consumer.check_diagnostics()
+    );
+}
+
 #[test]
 fn mutable_default_results_allow_field_writes() {
     let declarations = r#"

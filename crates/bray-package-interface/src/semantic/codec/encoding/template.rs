@@ -198,6 +198,15 @@ fn encode_operation(encoder: &mut WireEncoder, operation: &InterfaceCheckedTempl
             encoder.write_u32(7);
             write_node_ids(encoder, elements);
         }
+        InterfaceCheckedTemplateOperation::Product(fields) => {
+            encoder.write_u32(17);
+            write_count(encoder, fields.len());
+
+            for field in fields.iter() {
+                encode_template_reference(encoder, field.field());
+                encoder.write_u32(field.value().raw());
+            }
+        }
         InterfaceCheckedTemplateOperation::Project { subject, member } => {
             encoder.write_u32(8);
             encoder.write_u32(subject.raw());

@@ -11,7 +11,9 @@ use crate::semantic::model::{
 use crate::validation::is_strictly_sorted;
 use crate::{
     InterfaceLimit, InterfaceValidationError, InterfaceValidationLimits, PackageInterfaceSurface,
-    semantic::validation::surface::{validate_index, validate_symbol, validate_symbol_kind},
+    semantic::validation::surface::{
+        reference_key, validate_index, validate_symbol, validate_symbol_kind,
+    },
 };
 
 use super::checked_index;
@@ -425,6 +427,29 @@ fn validate_operation_references(
         InterfaceCheckedTemplateOperation::Project { member, .. } => {
             validate_template_reference(context, member)?;
         }
+        InterfaceCheckedTemplateOperation::Product(fields) => {
+            let Some(InterfaceType::Named { definition, .. }) =
+                type_at(context.semantics, context.template.nodes()[node_index].ty())
+            else {
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Template,
+                ));
+            };
+
+            let owner = reference_key(definition, context.surface)?;
+            let mut seen = std::collections::BTreeSet::new();
+
+            for field in fields.iter() {
+                if validate_template_reference(context, field.field())? != SymbolKind::StructField
+                    || template_reference_key(context, field.field())?.owner() != Some(owner)
+                    || !seen.insert(field.field())
+                {
+                    return Err(crate::semantic::codec::invalid_value(
+                        crate::InterfaceValidationField::Template,
+                    ));
+                }
+            }
+        }
         InterfaceCheckedTemplateOperation::Unary { .. }
         | InterfaceCheckedTemplateOperation::Binary { .. }
         | InterfaceCheckedTemplateOperation::Borrow { .. }
@@ -499,6 +524,12 @@ fn validate_operation_type(
             elements
                 .iter()
                 .all(|node| node_type(template, *node) == Some(*element))
+        }
+        InterfaceCheckedTemplateOperation::Product(_) => {
+            matches!(
+                type_at(semantics, node.ty()),
+                Some(InterfaceType::Named { .. })
+            )
         }
         InterfaceCheckedTemplateOperation::Index {
             subject,
@@ -636,6 +667,34 @@ fn validate_template_reference(
             };
 
             Ok(declaration.kind())
+        }
+    }
+}
+
+fn template_reference_key<'a>(
+    context: TemplateValidationContext<'a>,
+    reference: &'a InterfaceTemplateReference,
+) -> Result<&'a bray_symbols::ExternalSymbolKey, InterfaceValidationError> {
+    match reference {
+        InterfaceTemplateReference::Symbol(symbol) => reference_key(symbol, context.surface),
+        InterfaceTemplateReference::Support(entity) => {
+            let reference_index = support_index(*entity, context.semantics.support_entities.len())?;
+
+            if reference_index >= context.entity_index {
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Template,
+                ));
+            }
+
+            let InterfaceSupportEntity::Declaration(declaration) =
+                &context.semantics.support_entities[reference_index]
+            else {
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Template,
+                ));
+            };
+
+            Ok(declaration)
         }
     }
 }

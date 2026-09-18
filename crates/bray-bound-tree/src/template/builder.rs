@@ -224,6 +224,7 @@ fn validate_operation_types(
         | CheckedTemplateOperation::Call { .. }
         | CheckedTemplateOperation::Convert { .. }
         | CheckedTemplateOperation::Tuple(_)
+        | CheckedTemplateOperation::Product(_)
         | CheckedTemplateOperation::Index { .. }
         | CheckedTemplateOperation::Slice { .. }
         | CheckedTemplateOperation::Project { .. } => {}
