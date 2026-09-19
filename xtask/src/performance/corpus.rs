@@ -457,23 +457,25 @@ func main()
 {
     let mut writer: ValidatingWriter = ValidatingWriter();
 
-    let mut sink: std.io.FormattingSink<ValidatingWriter> = std.io.FormattingSink<ValidatingWriter>(&mut writer);
-
-    let value: u32 = 42;
-    let mut formatted: usize = 0;
-
-    while formatted < 1024
     {
-        match consume trusted std.format.write_to<u32, std.io.FormattingSink<ValidatingWriter>, std.io.IoError>(
-            &mut sink,
-            std.format.Argument<u32>(&value)
-        )
-        {
-            case Ok(_) {}
-            case Error(_) { assert(false); }
-        }
+        let mut sink: std.io.FormattingSink<ValidatingWriter> = std.io.FormattingSink<ValidatingWriter>(&mut writer);
 
-        formatted += 1;
+        let value: u32 = 42;
+        let mut formatted: usize = 0;
+
+        while formatted < 1024
+        {
+            match consume trusted std.format.write_to<u32, std.io.FormattingSink<ValidatingWriter>, std.io.IoError>(
+                &mut sink,
+                std.format.Argument<u32>(&value)
+            )
+            {
+                case Ok(_) {}
+                case Error(_) { assert(false); }
+            }
+
+            formatted += 1;
+        }
     }
 
     assert(writer.valid);
