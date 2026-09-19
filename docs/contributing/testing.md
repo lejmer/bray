@@ -9,11 +9,13 @@ Use [Compiler profiling](profiling.md) to diagnose compiler performance and comp
 
 ## Test a changed Rust crate
 
-Run the tests for the crate you changed:
+Use nextest to run the tests for the crate you changed:
 
 ```text
-cargo test -p <crate>
+cargo nextest run -p <crate>
 ```
+
+`cargo test` must also remain supported, as required by the repository rules.
 
 ## Testing Bray programs
 
@@ -82,7 +84,7 @@ cargo xtask readiness native-execution
 
 The default readiness command excludes native execution. Pass `semantic`, `diagnostics`, `lowering`, `memory`, `codegen`, `emission`, or `linker` to run one structural audit. The command
 parses the Rust workspace once and shares that corpus across every selected audit. Pass `native-execution` to compile
-Bray fixtures twice, inspect their native objects, and execute the linked products. Normal `cargo test` does not run
+Bray fixtures twice, inspect their native objects, and execute the linked products. Ordinary Rust test runs do not run
 these comparatively expensive repository-wide and toolchain checks.
 
 The native execution fixtures live under `xtask/fixtures/native-execution/`. The startup fixture verifies deterministic
@@ -170,5 +172,5 @@ source-semantic dependencies and interpretations.
 ## Parser coverage
 
 [The parser coverage fixture](../../crates/bray-parser/tests/fixtures/parser-coverage.md) maps grammar nonterminals to
-parser and test anchors. Update it with changes to the grammar or those anchors. Check it with `cargo test -p
+parser and test anchors. Update it with changes to the grammar or those anchors. Check it with `cargo nextest run -p
 bray-parser --test parser_coverage`.
