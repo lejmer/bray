@@ -923,7 +923,7 @@ mod tests {
         );
 
         assert!(workload.source.contains("capacity = 256"));
-        assert!(workload.source.contains("std.io.write_all<"));
+        assert!(workload.source.contains("writer.write_all("));
 
         let storage = workload.storage.expect("file output storage contract");
 
