@@ -39,6 +39,7 @@ task executable from another checkout.
 | Test or verify standard-library changes | [Standard-library checks](standard-library.md#run-focused-native-tests) |
 | Check runtime packaging and native linking | [Runtime verification](runtime-artifacts.md#verify-packaging-and-native-linking) |
 | Update generated platform declarations or an SDK baseline | [OS binding generation and probes](os-bindings.md) |
+| Update generated Unicode character tables | [Unicode table generation](standard-library.md#regenerate-unicode-tables) |
 | Regenerate and validate compiler-known definitions | [Compiler-known catalog](compiler-known-catalog.md) |
 | Measure a change against a performance baseline | [Performance corpus](performance.md) |
 | Diagnose where compilation time goes | [Compiler profiling](profiling.md) |

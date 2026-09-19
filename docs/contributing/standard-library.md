@@ -59,8 +59,27 @@ cargo xtask standard-library verify
 ```
 
 This checks standard-library conformance and reproducible bundle production. It also checks generated OS-binding bytes
-and source-checks the generated Bray declarations for every supported native target. Follow the
+and Unicode data, and source-checks the generated Bray declarations for every supported native target. Follow the
 [OS binding workflow](os-bindings.md) when changing platform declarations or SDK baselines.
+
+## Regenerate Unicode tables
+
+After changing the pinned Unicode inputs or their generator, regenerate the character-property tables and metadata:
+
+```text
+cargo xtask standard-library unicode generate
+```
+
+The inputs live under `standard-library/targets/unicode/17.0.0`. The command writes
+`standard-library/std/src/runtime/character/unicode_tables.bray` and `standard-library/targets/unicode/metadata.json`.
+To check that both generated files are current without changing them, run:
+
+```text
+cargo xtask standard-library unicode generate --check
+```
+
+`standard-library verify` includes this freshness check. Regenerate stale files before building a bundle, since bundle
+builds also check the generated Unicode data.
 
 ## Diagnose a slow build
 
