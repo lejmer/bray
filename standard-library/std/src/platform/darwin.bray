@@ -36,11 +36,6 @@ trusted internal func argument_storage() -> std.memory.RawBuffer<u8>
     return trusted internal copy_native_text_list(entries, limit = std.truncate_to<usize>(count));
 }
 
-trusted internal func current_thread_identity() -> u64
-{
-    return trusted std.os.unix.pthread_self();
-}
-
 trusted internal func unix_error_status() -> PlatformStatus
 {
     return darwin_error_status();

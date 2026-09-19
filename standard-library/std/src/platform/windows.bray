@@ -276,12 +276,6 @@ trusted internal func terminated_u16_length(pos pointer: RawPointer<u16>) -> usi
     panic("the platform process context contains invalid native text");
 }
 
-trusted internal func current_thread_identity() -> u64
-    uses(foreign_call)
-{
-    return trusted std.os.windows.get_current_thread_id() as u64;
-}
-
 trusted internal func windows_error_status() -> PlatformStatus
     uses(foreign_call)
 {

@@ -1,6 +1,14 @@
 @target(target.platform.native_threads && target.identity.SYSTEM == "darwin")
 trusted module std.thread;
 
+/// Returns the current native thread's opaque platform identity.
+/// Only equality comparisons are portable across targets.
+trusted func current_platform_identity() -> u64
+    uses(foreign_call)
+{
+    return trusted std.os.unix.pthread_self();
+}
+
 trusted internal func platform_set_native_thread_name(pos name: RawPointer<u8>) -> i32
     uses(foreign_call)
 {

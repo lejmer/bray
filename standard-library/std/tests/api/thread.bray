@@ -49,6 +49,11 @@ internal func observe_identity(pos state: unit) -> std.thread.Id
     return identity;
 }
 
+internal func observe_platform_identity(pos state: unit) -> u64
+{
+    return trusted std.thread.current_platform_identity();
+}
+
 internal struct PanickingThreadState
 {
     cleanups: &core.atomic.Atomic<u32>;
@@ -123,6 +128,22 @@ func main_native_thread_identity_is_stable()
 {
     assert(std.thread.is_main());
     assert(std.thread.current_id() == std.thread.main_id());
+}
+
+@test
+func native_platform_identity_is_stable_and_distinguishes_concurrent_threads()
+{
+    let expected: u64 = trusted std.thread.current_platform_identity();
+
+    assert(trusted std.thread.current_platform_identity() == expected);
+
+    let mut thread: std.thread.Thread<u64> = std.testing.assert_ok<std.thread.Thread<u64>, std.thread.ThreadError>(
+        std.thread.start<unit, u64>(observe_platform_identity, unit)
+    );
+
+    let observed: u64 = std.testing.assert_completed<u64>(thread.join());
+
+    assert(observed != expected);
 }
 
 @test

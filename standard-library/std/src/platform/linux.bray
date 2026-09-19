@@ -27,12 +27,6 @@ trusted internal func argument_storage() -> std.memory.RawBuffer<u8>
     return trusted internal read_process_file(std.memory.address_of<u8>(&path[0]));
 }
 
-trusted internal func current_thread_identity() -> u64
-    uses(foreign_call)
-{
-    return trusted internal std.os.linux.pthread_self();
-}
-
 trusted internal func unix_error_status() -> PlatformStatus
 {
     return linux_error_status();
