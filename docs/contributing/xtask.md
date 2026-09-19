@@ -1,8 +1,8 @@
 # Repository tasks
 
-Run repository automation from the Bray checkout you intend to work on with `cargo xtask`. Provision LLVM with
-`cargo llvm`, which works before compiler crates can build. These are contributor tools, separate from Bray Tack's
-user-facing commands.
+Run repository automation from the Bray checkout you intend to work on with `cargo xtask`. Provision LLVM with `cargo
+llvm`, which works before compiler crates can build. These are contributor tools, separate from Bray Tack's user-facing
+commands.
 
 ## Format and check a change
 
@@ -16,19 +16,23 @@ user-facing commands.
 | Exercise native products | `cargo xtask composition` |
 
 Run the mutating `cargo xtask style` after changing Rust source. Style includes Bray formatting, which covers the
-standard library, its tests, examples, readiness fixtures, and recovery corpus. See [coding conventions](coding-conventions.md)
-for the enforced rules and [testing](testing.md) for choosing coverage. Default readiness audits exclude native execution.
+standard library, its tests, examples, readiness fixtures, and recovery corpus. See [coding
+conventions](coding-conventions.md) for the enforced rules and [testing](testing.md) for choosing coverage. Default
+readiness audits exclude native execution.
 
 ## Build required artifacts
 
-| Task | Command and guide |
-| --- | --- |
-| Provision the pinned LLVM toolchain | `cargo llvm fetch`, then follow [LLVM setup](llvm.md) |
-| Build the installed host runtime | `cargo xtask runtime-artifact build --output target/release/lib/bray/runtime`, see [runtime artifacts](runtime-artifacts.md) |
-| Build the installed standard library | `cargo xtask standard-library build --output target/release/lib/bray/standard-library`, see [standard-library builds](standard-library.md#build-a-bundle) |
+Provision [LLVM](llvm.md), then build the installed [runtime](runtime-artifacts.md) and
+[standard-library bundles](standard-library.md#build-a-bundle) beside release binaries:
 
-Read [artifact storage across checkouts](build-artifacts.md) before sharing Cargo output directories or running a retained
-task executable from another checkout.
+```text
+cargo llvm fetch
+cargo xtask runtime-artifact build --output target/release/lib/bray/runtime
+cargo xtask standard-library build --output target/release/lib/bray/standard-library
+```
+
+Read [artifact storage across checkouts](build-artifacts.md) before sharing Cargo output directories or running a
+retained task executable from another checkout.
 
 ## Choose a specialized workflow
 
@@ -36,12 +40,14 @@ task executable from another checkout.
 | --- | --- |
 | Run focused audits, native fixtures, or retained-product reruns | [Testing workflows](testing.md) |
 | Test or verify standard-library changes | [Standard-library checks](standard-library.md#run-focused-native-tests) |
-| Check runtime packaging and native linking | [Runtime verification](runtime-artifacts.md#verify-packaging-and-native-linking) |
+| Check runtime packaging and linking | [Runtime verification][runtime-checks] |
 | Update generated platform declarations or an SDK baseline | [OS binding generation and probes](os-bindings.md) |
-| Update generated Unicode character tables | [Unicode table generation](standard-library.md#regenerate-unicode-tables) |
+| Update Unicode character tables | [Unicode table generation](standard-library.md#regenerate-unicode-tables) |
 | Regenerate and validate compiler-known definitions | [Compiler-known catalog](compiler-known-catalog.md) |
 | Measure a change against a performance baseline | [Performance corpus](performance.md) |
 | Diagnose where compilation time goes | [Compiler profiling](profiling.md) |
+
+[runtime-checks]: runtime-artifacts.md#verify-packaging-and-native-linking
 
 ## Inspect a package interface
 

@@ -9,18 +9,17 @@ The two compiler comparisons invoke the optimized Bray compiler executable, `rus
 processes. Workload compilation records full process duration, including startup and teardown, separately from
 compiler-reported work.
 
-The application lane compiles source-equivalent applications against each language's packaged library and
-runtime. The library lane compiles equivalent library code from source. The report records source units and
-bytes, package and module inputs, exact compiler and linker arguments, packaged-library and runtime reuse evidence,
-toolchains, source digests, and elapsed time.
+The application lane compiles source-equivalent applications against each language's packaged library and runtime. The
+library lane compiles equivalent library code from source. The report records source units and bytes, package and module
+inputs, exact compiler and linker arguments, packaged-library and runtime reuse evidence, toolchains, source digests,
+and elapsed time.
 
-Measured compiler invocations do not generate profiles or linker maps.
-Separate untimed evidence invocations produce those records from the same source and release policy. 
+Measured compiler invocations do not generate profiles or linker maps. Separate untimed evidence invocations produce
+those records from the same source and release policy.
 
-Cross-language
-syntax may differ in verbosity, so source byte counts remain comparable only while the largest source is no more than
-eight times the smallest. A row with incomplete or different compilation inputs is explicitly non-comparable, records exact
-reasons, and cannot publish a winner.
+Cross-language syntax may differ in verbosity, so source byte counts remain comparable only while the largest source is
+no more than eight times the smallest. A row with incomplete or different compilation inputs is explicitly
+non-comparable, records exact reasons, and cannot publish a winner.
 
 ## Runtime peers and sample ordering
 
@@ -28,11 +27,10 @@ Every workload also builds maintained Rust and C++ runtime peers directly throug
 records each exact toolchain, optimization configuration, source digest, process duration, language-controlled duration,
 artifact size, sections, and dependencies. These preparation builds are not ranked as compiler comparisons.
 
-Process and
-language-controlled rounds rotate their starting language independently so Bray, Rust, and C++ do not receive a fixed
-warm-cache or scheduling advantage. Every execution must produce the same validated output digest and side-effect
-contract. The HTML report states the shared semantic contract for each row. Missing peer sources, failed peer builds,
-mismatched output, or incomplete peer reports fail the run instead of producing an incomplete comparison.
+Process and language-controlled rounds rotate their starting language independently so Bray, Rust, and C++ do not
+receive a fixed warm-cache or scheduling advantage. Every execution must produce the same validated output digest and
+side-effect contract. The HTML report states the shared semantic contract for each row. Missing peer sources, failed
+peer builds, mismatched output, or incomplete peer reports fail the run instead of producing an incomplete comparison.
 
 ## Calibrate short workloads
 
@@ -53,29 +51,27 @@ executable entry does not run. The report records the policy and exact compiler 
 linker-map inputs to reject retained static CRT archives. Linux peers embed their language runtimes while using target
 system libraries. Mach-O comparison is rejected until the C++ peer can provide the same runtime model.
 
-Rust and C++
-memory-work observations remain unavailable until equally attributed measurement support exists for all three
-languages.
+Rust and C++ memory-work observations remain unavailable until equally attributed measurement support exists for all
+three languages.
 
 ## Report measurements
 
 Reports keep executable and relocatable-object sizes, per-section sizes, logical optimization-partition provenance,
 physical static linker-map inputs, dynamic library dependencies, the complete compiler profile, and robust median and
-median absolute deviation execution statistics. Logical provenance remains stable when cross-module optimization emits a retained provider
-definition from a product module. It combines optimization-partition identities, platform-provider
+median absolute deviation execution statistics. Logical provenance remains stable when cross-module optimization emits a
+retained provider definition from a product module. It combines optimization-partition identities, platform-provider
 families derived from exact retained service symbols, and exact archive identities for definitions that remain in their
 input archive. Physical inputs continue to describe the files observed by the linker.
 
-The HTML report
-presents duration in milliseconds and artifact size in KiB, with exact nanoseconds available as hover text. It reports
-process wall time separately from the measured Bray root execution interval, and bases throughput on the Bray interval.
-Exact byte counts appear beside rounded KiB values.
+The HTML report presents duration in milliseconds and artifact size in KiB, with exact nanoseconds available as hover
+text. It reports process wall time separately from the measured Bray root execution interval, and bases throughput on
+the Bray interval. Exact byte counts appear beside rounded KiB values.
 
-Allocation, copying, and platform-call observations are tagged as measured or unavailable. Never replace a missing observation hook with an inferred count.
+Allocation, copying, and platform-call observations are tagged as measured or unavailable. Never replace a missing
+observation hook with an inferred count.
 
-Section, dynamic-library, and
-retained-input collections have fixed entry limits and disclose omitted counts rather than allowing reports to grow
-without bound.
+Section, dynamic-library, and retained-input collections have fixed entry limits and disclose omitted counts rather than
+allowing reports to grow without bound.
 
 ## Timing and memory observation
 

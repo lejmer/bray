@@ -1,13 +1,13 @@
 # Measure performance
 
-Use the performance corpus to compare compiler time, executable size, and runtime work across Bray, Rust, and C++.
-For a slow compiler invocation, start with [compiler profiling](profiling.md) instead.
+Use the performance corpus to compare compiler time, executable size, and runtime work across Bray, Rust, and C++. For a
+slow compiler invocation, start with [compiler profiling](profiling.md) instead.
 
 ## Prepare and run
 
 Run on a supported native host with [LLVM](llvm.md), `rustc`, `clang++`, and a native linker available. The runner
-executes its products locally. `--target <triple>` must match the current host. See the
-[platform runtime policy](performance-reference.md#platform-runtime-policy) for comparison restrictions.
+executes its products locally. `--target <triple>` must match the current host. See the [platform runtime
+policy](performance-reference.md#platform-runtime-policy) for comparison restrictions.
 
 ```text
 cargo xtask performance --output profiles/performance-baseline
@@ -20,14 +20,15 @@ output directory. Open the HTML report to inspect results and retain the JSON re
 
 Progress goes to standard error. The only standard output line is the `candidate.json` path.
 
-The first run prepares a target-specific toolchain under Cargo's target directory. Later runs reuse it when the compiler,
-Cargo lockfile, runtime, temporal provider, standard library, and target are unchanged. Changing report options does not
-rebuild that toolchain. Follow the [artifact storage rules](build-artifacts.md) when working across checkouts.
+The first run prepares a target-specific toolchain under Cargo's target directory. Later runs reuse it when the
+compiler, Cargo lockfile, runtime, temporal provider, standard library, and target are unchanged. Changing report
+options does not rebuild that toolchain. Follow the [artifact storage rules](build-artifacts.md) when working across
+checkouts.
 
 ## Focus a run
 
-Use repeated `--workload <identity>` options to select workloads from the
-[corpus inventory](../../xtask/src/performance/corpus.rs):
+Use repeated `--workload <identity>` options to select workloads from the [corpus
+inventory](../../xtask/src/performance/corpus.rs):
 
 ```text
 cargo xtask performance --output profiles/performance-focused --workload <identity> --warmup 2 --samples 7
@@ -55,19 +56,20 @@ libraries, allocation/copy observations, and selected platform-operation observa
 reports is the supported way to establish a baseline.
 
 For the meaning and limits of measurements, see [compiler comparisons](performance-reference.md#compiler-comparisons),
-[sample ordering](performance-reference.md#runtime-peers-and-sample-ordering),
-[short-workload calibration](performance-reference.md#calibrate-short-workloads), and
-[report measurements](performance-reference.md#report-measurements).
+[sample ordering](performance-reference.md#runtime-peers-and-sample-ordering), [short-workload
+calibration](performance-reference.md#calibrate-short-workloads), and [report
+measurements](performance-reference.md#report-measurements).
 
 ## Extend the corpus
 
 Add a workload only when it has a stable identity, deterministic output, an explicit scale and unit, and exercises a
 distinct implemented cost boundary. Prefer increasing the scale of a focused workload over combining unrelated
-operations in one source file. Check the [corpus inventory](../../xtask/src/performance/corpus.rs) for existing coverage.
+operations in one source file. Check the [corpus inventory](../../xtask/src/performance/corpus.rs) for existing
+coverage.
 
 Representative stream-only and file-only workloads also enforce required and forbidden logical optimization provenance,
-so resource capability boundaries remain independently retainable. See the
-[report reference](performance-reference.md#report-measurements) when changing these expectations.
+so resource capability boundaries remain independently retainable. See the [report
+reference](performance-reference.md#report-measurements) when changing these expectations.
 
 Keep [timing and memory observations](performance-reference.md#timing-and-memory-observation) separate, and preserve
 cross-language validation and comparability rules when adding or changing a workload.

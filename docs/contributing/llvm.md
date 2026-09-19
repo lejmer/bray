@@ -40,6 +40,6 @@ cargo llvm validate
 cargo llvm host
 ```
 
-Validation checks the provisioned toolchain. `host` prints the supported Rust host identity selected by the LLVM manifest.
-Provisioning installs the executable's pinned distribution and native instrumentation into the selected checkout.
-Rebuild the provisioning executable after changing its pinned distribution or native sources.
+Validation checks the provisioned toolchain. `host` prints the supported Rust host identity selected by the LLVM
+manifest. Provisioning installs the executable's pinned distribution and native instrumentation into the selected
+checkout. Rebuild the provisioning executable after changing its pinned distribution or native sources.

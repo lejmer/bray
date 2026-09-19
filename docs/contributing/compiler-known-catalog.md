@@ -16,8 +16,8 @@ cargo xtask compiler-known generate
 cargo xtask compiler-known check
 ```
 
-Generation updates the Rust source and digest. The check validates freshness, identities, ownership, target views,
-and complete semantic interpretation. To check generated files without semantic validation or writing files, run:
+Generation updates the Rust source and digest. The check validates freshness, identities, ownership, target views, and
+complete semantic interpretation. To check generated files without semantic validation or writing files, run:
 
 ```text
 cargo xtask compiler-known generate --check

@@ -1,7 +1,7 @@
 # Build and verify runtime artifacts
 
-Build a runtime bundle when preparing a toolchain installation or changing runtime packaging. Provision
-[LLVM](llvm.md) first, and follow the [artifact storage rules](build-artifacts.md) when sharing build outputs.
+Build a runtime bundle when preparing a toolchain installation or changing runtime packaging. Provision [LLVM](llvm.md)
+first, and follow the [artifact storage rules](build-artifacts.md) when sharing build outputs.
 
 ## Build a bundle
 
@@ -10,8 +10,8 @@ cargo xtask runtime-artifact build --output <directory> [--target <triple>] [--p
 ```
 
 The target defaults to the compiler host and the Cargo profile defaults to `release`. The command creates a
-target-specific directory beneath the output root and transactionally replaces an existing catalog for that target.
-To install the host runtime beside release binaries, run:
+target-specific directory beneath the output root and transactionally replaces an existing catalog for that target. To
+install the host runtime beside release binaries, run:
 
 ```text
 cargo xtask runtime-artifact build --output target/release/lib/bray/runtime
@@ -37,6 +37,7 @@ archive members before producing deterministic component archives, so support co
 
 Metadata assigns every runtime role and capability to exactly one component per product category, records exact
 component dependencies, and names any platform-service roles explicitly overridden by a selected component. When
-investigating unexpected runtime size, inspect the [selected runtime artifacts in compiler profiles](profiling.md#selected-runtime-artifacts).
+investigating unexpected runtime size, inspect the [selected runtime artifacts in compiler
+profiles](profiling.md#selected-runtime-artifacts).
 
 Return to [repository tasks](xtask.md) to choose another workflow.

@@ -82,10 +82,11 @@ cargo xtask readiness semantic
 cargo xtask readiness native-execution
 ```
 
-The default readiness command excludes native execution. Pass `semantic`, `diagnostics`, `lowering`, `memory`, `codegen`, `emission`, or `linker` to run one structural audit. The command
-parses the Rust workspace once and shares that corpus across every selected audit. Pass `native-execution` to compile
-Bray fixtures twice, inspect their native objects, and execute the linked products. Ordinary Rust test runs do not run
-these comparatively expensive repository-wide and toolchain checks.
+The default readiness command excludes native execution. Pass `semantic`, `diagnostics`, `lowering`, `memory`,
+`codegen`, `emission`, or `linker` to run one structural audit. The command parses the Rust workspace once and shares
+that corpus across every selected audit. Pass `native-execution` to compile Bray fixtures twice, inspect their native
+objects, and execute the linked products. Ordinary Rust test runs do not run these comparatively expensive
+repository-wide and toolchain checks.
 
 The native execution fixtures live under `xtask/fixtures/native-execution/`. The startup fixture verifies deterministic
 objects and executables, the expected ELF structure and direct-call relocation, and a successful process exit. The ABI

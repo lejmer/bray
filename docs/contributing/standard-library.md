@@ -16,8 +16,7 @@ artifacts for every supported native target. Use `--target <triple>` to build on
 transactionally replaces an existing bundle at the output path.
 
 The bundle records the exact source, dependency, compiler, and packaging inputs that produced it. Repeated builds
-authenticate the manifest and every published artifact, then reuse a current bundle that contains all requested
-targets.
+authenticate the manifest and every published artifact, then reuse a current bundle that contains all requested targets.
 
 To produce the installed layout expected by Bray Tack beside release binaries in `target/release/`, run:
 
@@ -35,8 +34,8 @@ cargo xtask standard-library test
 ```
 
 Use one or more `--part` options to run only the needed phases. Available parts are `provider-retention`,
-`interoperability`, `api`, and `outcomes`. Omitting `--part` runs every phase. For example, run only the public API tests
-with:
+`interoperability`, `api`, and `outcomes`. Omitting `--part` runs every phase. For example, run only the public API
+tests with:
 
 ```text
 cargo xtask standard-library test --part api
@@ -59,8 +58,8 @@ cargo xtask standard-library verify
 ```
 
 This checks standard-library conformance and reproducible bundle production. It also checks generated OS-binding bytes
-and Unicode data, and source-checks the generated Bray declarations for every supported native target. Follow the
-[OS binding workflow](os-bindings.md) when changing platform declarations or SDK baselines.
+and Unicode data, and source-checks the generated Bray declarations for every supported native target. Follow the [OS
+binding workflow](os-bindings.md) when changing platform declarations or SDK baselines.
 
 ## Regenerate Unicode tables
 
