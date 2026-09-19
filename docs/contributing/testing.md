@@ -3,7 +3,7 @@
 Follow the [unit-test placement rules](coding-conventions.md#tests). Use integration tests for repository contracts that
 cross module or crate boundaries.
 
-See [Repository tasks](xtask.md) for the complete development-command reference.
+See [Repository tasks](xtask.md) for common commands and specialized workflows.
 
 Use [Compiler profiling](profiling.md) to diagnose compiler performance and compare compilation runs.
 
@@ -65,7 +65,14 @@ explicitly with:
 cargo xtask readiness
 ```
 
-Pass `semantic`, `diagnostics`, `lowering`, `codegen`, `emission`, or `linker` to run one structural audit. The command
+For example, run one structural audit or the separate native execution fixtures:
+
+```text
+cargo xtask readiness semantic
+cargo xtask readiness native-execution
+```
+
+The default readiness command excludes native execution. Pass `semantic`, `diagnostics`, `lowering`, `memory`, `codegen`, `emission`, or `linker` to run one structural audit. The command
 parses the Rust workspace once and shares that corpus across every selected audit. Pass `native-execution` to compile
 Bray fixtures twice, inspect their native objects, and execute the linked products. Normal `cargo test` does not run
 these comparatively expensive repository-wide and toolchain checks.
