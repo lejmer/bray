@@ -31,17 +31,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 runtime,
             } => {
                 self.begin_memory_observation()?;
-                self.begin_performance_interval()?;
 
                 if self.host_role_implementation(*runtime)
                     == RuntimeRoleImplementation::CompilerLowering
                     && *execution == RootExecution::Synchronous
                 {
-                    let (function, signature) = self.root_entry(root, *execution)?;
-
-                    let result = self.invoke_function(function, signature, &[], "root")?;
-
-                    self.host_result = result;
+                    self.translate_compiler_lowered_synchronous_root(*entry, root)?;
 
                     return Ok(None);
                 }
@@ -54,6 +49,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 }
 
                 if let RootExecution::Asynchronous { frame } = execution {
+                    if self.begin_performance_interval(self.function)?.is_some() {
+                        panic!(
+                            "calibrated performance intervals require a synchronous executable entry"
+                        );
+                    }
+
                     let (constructor, signature) =
                         self.root_entry(root, RootExecution::Synchronous)?;
 
@@ -212,7 +213,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     *entry_failure,
                 )?;
 
-                let status = self.finish_performance_interval_iteration(status)?;
+                self.finish_asynchronous_performance_interval(*entry, status)?;
 
                 self.host_status = Some(match self.host_status.take() {
                     Some(current) => llvm(self.builder.build_or(current, status, "host.status"))?,
@@ -251,6 +252,69 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 self.translate_compiler_shutdown(status)
             }
         }
+    }
+
+    fn translate_compiler_lowered_synchronous_root(
+        &mut self,
+        entry: bray_runtime_interface::ExecutableHostEntryId,
+        root: &BoundUnitKey,
+    ) -> Result<(), CodegenFailure> {
+        let (function, signature) = self.root_entry(root, RootExecution::Synchronous)?;
+
+        let performance_loop = self.begin_performance_interval(self.function)?;
+        let result = self.invoke_function(function, signature, &[], "root")?;
+
+        if matches!(
+            self.request.options().runtime_observations(),
+            bray_codegen::RuntimeObservationMode::PerformanceInterval { .. }
+        ) {
+            let bray_ir::MirUnitKind::ExecutableHost(host) = self.unit.kind() else {
+                panic!("checked MIR effect translation violated an established compiler contract");
+            };
+
+            let entry_result = host
+                .entry(entry)
+                .map(bray_runtime_interface::ExecutableHostEntry::result)
+                .expect("checked MIR effect translation requires an established mapping or value");
+
+            let succeeded = self.entry_result_succeeded(entry_result, result)?;
+
+            self.finish_performance_interval_iteration(performance_loop, succeeded)?;
+        }
+
+        self.host_result = result;
+
+        Ok(())
+    }
+
+    fn finish_asynchronous_performance_interval(
+        &self,
+        entry: bray_runtime_interface::ExecutableHostEntryId,
+        status: inkwell::values::IntValue<'context>,
+    ) -> Result<(), CodegenFailure> {
+        let bray_ir::MirUnitKind::ExecutableHost(host) = self.unit.kind() else {
+            panic!("checked MIR effect translation violated an established compiler contract");
+        };
+
+        if !host
+            .entry(entry)
+            .is_some_and(|entry| matches!(entry.root(), RootExecution::Asynchronous { .. }))
+            || !matches!(
+                self.request.options().runtime_observations(),
+                bray_codegen::RuntimeObservationMode::PerformanceInterval { .. }
+            )
+        {
+            return Ok(());
+        }
+
+        let successful = llvm(self.builder.build_int_compare(
+            IntPredicate::EQ,
+            status,
+            status.get_type().const_zero(),
+            "root.performance.succeeded",
+        ))?;
+
+        self.finish_performance_interval_iteration(None, successful)
     }
 
     fn finish_product_statics(&mut self) -> Result<(), CodegenFailure> {

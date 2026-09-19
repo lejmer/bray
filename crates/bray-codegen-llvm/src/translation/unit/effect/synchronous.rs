@@ -93,6 +93,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 .build_store(panic_report, outcome_type.const_zero()),
         )?;
 
+        let callback_destination_handle = callback
+            .get_first_param()
+            .and_then(int_value)
+            .expect("checked MIR effect translation requires an established mapping or value");
+
+        let performance_loop = self.begin_performance_interval(callback)?;
+
         let result = self.invoke_function_with_panic_report_context(
             function,
             signature,
@@ -100,11 +107,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             "root",
             Some(panic_report),
         )?;
-
-        let callback_destination_handle = callback
-            .get_first_param()
-            .and_then(int_value)
-            .expect("checked MIR effect translation requires an established mapping or value");
 
         match (result_type, result) {
             (Some(result_type), Some(result)) => {
@@ -132,10 +134,47 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             ),
         }
 
-        let value = llvm(
-            self.builder
-                .build_load(outcome_type, panic_report, "root.outcome"),
-        )?;
+        let observed_outcome = if matches!(
+            self.request.options().runtime_observations(),
+            bray_codegen::RuntimeObservationMode::PerformanceInterval { .. }
+        ) {
+            let value = llvm(self.builder.build_load(
+                outcome_type,
+                panic_report,
+                "root.performance.outcome",
+            ))?;
+
+            let (state, _) = native_run_outcome(&self.builder, value)?;
+
+            let completed = native_run_state_is(
+                &self.builder,
+                state,
+                NativeRunState::COMPLETED,
+                "root.performance.completed",
+            )?;
+
+            let entry_succeeded = self.entry_result_succeeded(entry_result, result)?;
+
+            let successful = llvm(self.builder.build_and(
+                completed,
+                entry_succeeded,
+                "root.performance.succeeded",
+            ))?;
+
+            self.finish_performance_interval_iteration(performance_loop, successful)?;
+
+            Some(value)
+        } else {
+            None
+        };
+
+        let value = match observed_outcome {
+            Some(value) => value,
+            None => llvm(
+                self.builder
+                    .build_load(outcome_type, panic_report, "root.outcome"),
+            )?,
+        };
 
         let (state, report) = native_run_outcome(&self.builder, value)?;
 

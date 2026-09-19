@@ -41,9 +41,9 @@ pub enum BuildConfiguration {
     ObjectRelease,
     /// Preserve release behavior while observing generated memory work.
     ObservedRelease,
-    /// Preserve release behavior while observing the generated root interval.
+    /// Preserve release behavior while observing repeated executable-entry work.
     TimedRelease {
-        /// Number of root executions included in the observed interval.
+        /// Number of entry-body executions included in the observed interval.
         inner_iterations: std::num::NonZeroU64,
     },
 }
