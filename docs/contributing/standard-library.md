@@ -1,7 +1,11 @@
-# Build and check the standard library
+# Contribute to the standard library
 
 Use these workflows after changing `standard-library/` or preparing an installed toolchain. For native tests, provision
 [LLVM](llvm.md) and configure a native linker. Follow the [artifact storage rules](build-artifacts.md) across checkouts.
+
+The standard library includes target-specific OS bindings for calling operating-system APIs. When changing platform
+declarations or SDK baselines, follow [OS binding generation and verification](os-bindings.md) to regenerate the Bray
+declarations and check them against the pinned SDK.
 
 ## Build a bundle
 
