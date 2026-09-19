@@ -3,7 +3,7 @@
 Bray's first code generation backend targets LLVM 22.1.8. Compiler development, continuous integration, and release
 builds must use the exact host package recorded in `toolchains/llvm.json`.
 
-See [Repository tasks](xtask.md) for the complete development-command reference.
+See [Repository tasks](xtask.md) for common commands and specialized workflows.
 
 Provision the supported package for the active Rust host:
 
@@ -32,3 +32,14 @@ search `PATH` for another LLVM installation.
 
 The supported Rust host triples are listed in `toolchains/llvm.json`. Adding another host requires an official LLVM
 development archive, its exact release metadata, and CI coverage for provisioning and backend compilation on that host.
+
+## Validate or inspect the selected host
+
+```text
+cargo llvm validate
+cargo llvm host
+```
+
+Validation checks the provisioned toolchain. `host` prints the supported Rust host identity selected by the LLVM
+manifest. Provisioning installs the executable's pinned distribution and native instrumentation into the selected
+checkout. Rebuild the provisioning executable after changing its pinned distribution or native sources.
