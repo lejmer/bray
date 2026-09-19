@@ -12,7 +12,6 @@ user-facing commands.
 | Check style without changing files | `cargo xtask style check` |
 | Format maintained Bray sources | `cargo xtask format` |
 | Check Bray formatting without changing files | `cargo xtask format check` |
-| Run Rust tests for a changed crate | `cargo test -p <crate>` |
 | Run structural readiness audits | `cargo xtask readiness` |
 | Exercise native products | `cargo xtask composition` |
 

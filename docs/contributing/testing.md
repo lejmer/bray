@@ -7,6 +7,14 @@ See [Repository tasks](xtask.md) for common commands and specialized workflows.
 
 Use [Compiler profiling](profiling.md) to diagnose compiler performance and compare compilation runs.
 
+## Test a changed Rust crate
+
+Run the tests for the crate you changed:
+
+```text
+cargo test -p <crate>
+```
+
 ## Testing Bray programs
 
 Use `bray test` to compile and run tests written in Bray. This workflow matters when developing the compiler because it
