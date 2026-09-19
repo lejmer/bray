@@ -22,6 +22,8 @@ use super::smoke::{audit_link_symbols, compile_c_smoke, component_archives};
 const C_SMOKE_SOURCE: &str = include_str!("../../fixtures/runtime-observation-smoke.c");
 const PRODUCT_SOURCE: &str = include_str!("../../fixtures/runtime-observation-product.bray");
 const EXECUTION_TIMEOUT: Duration = Duration::from_secs(30);
+const CONCURRENT_THREAD_COUNT: usize = 32;
+const CONCURRENT_RECORDS_PER_THREAD: usize = 256;
 
 const OBSERVATION_SYMBOLS: [&str; 5] = [
     bray_runtime_abi::MEMORY_OBSERVATION_BEGIN_SYMBOL,
@@ -115,6 +117,51 @@ fn smoke_test_direct_hooks(
     {
         return Err(CommandError::ObservationSmoke(format!(
             "direct-hook session has unexpected records {values:?}"
+        )));
+    }
+
+    let concurrent = directory.join("runtime-observation-concurrent.bin");
+
+    require_mode_success(
+        &executable,
+        Some("concurrent-first-hooks"),
+        &concurrent,
+    )?;
+
+    let concurrent_values = read_records(&concurrent)?;
+    let expected_concurrent_records = CONCURRENT_THREAD_COUNT * CONCURRENT_RECORDS_PER_THREAD;
+
+    if concurrent_values.len() != expected_concurrent_records {
+        return Err(CommandError::ObservationSmoke(format!(
+            "concurrent first-hook session produced {} records instead of {expected_concurrent_records}",
+            concurrent_values.len()
+        )));
+    }
+
+    let mut concurrent_counts = [0; CONCURRENT_THREAD_COUNT];
+
+    for (kind, value) in concurrent_values {
+        let Some(index) = value.checked_sub(1).and_then(|value| usize::try_from(value).ok()) else {
+            return Err(CommandError::ObservationSmoke(format!(
+                "concurrent first-hook session recorded invalid value {value}"
+            )));
+        };
+
+        if kind != 1 || index >= CONCURRENT_THREAD_COUNT {
+            return Err(CommandError::ObservationSmoke(format!(
+                "concurrent first-hook session recorded invalid kind/value ({kind}, {value})"
+            )));
+        }
+
+        concurrent_counts[index] += 1;
+    }
+
+    if concurrent_counts
+        .iter()
+        .any(|count| *count != CONCURRENT_RECORDS_PER_THREAD)
+    {
+        return Err(CommandError::ObservationSmoke(format!(
+            "concurrent first-hook session has unexpected per-thread counts {concurrent_counts:?}"
         )));
     }
 

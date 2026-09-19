@@ -21,6 +21,7 @@ const PACKAGE_IDENTITY: &str = "std";
 const API_PRODUCT: &str = "api";
 const OUTCOME_PRODUCT: &str = "outcomes";
 const CHILD_EXECUTABLE_ENVIRONMENT_VARIABLE: &str = "BRAY_STANDARD_LIBRARY_TEST_EXECUTABLE";
+const API_TEST_COUNT: usize = 150;
 const API_FILTERED_TEST_COUNT: usize = 3;
 const CONCURRENCY_MODEL_TEST_COUNT: usize = 7;
 const CONCURRENCY_STRESS_TEST_COUNT: usize = 5;
@@ -233,7 +234,9 @@ pub(super) fn test(parts: &[TestPart], profile_output: Option<&Path>) -> Result<
 
         if selected(parts, TestPart::Api) {
             crate::progress::run(
-                "Running native standard library API tests (7 plans)",
+                &format!(
+                    "Running native standard library API tests ({API_TEST_COUNT} tests, 7 plans)"
+                ),
                 || audit_api(&root, &workspace, &toolchain, target, profile_output),
             )?;
         }
@@ -305,20 +308,15 @@ fn audit_api(
     let filtered = batch.report("api-filtered")?;
     let concurrency_model = batch.report("concurrency-model")?;
     let concurrency_stress = batch.report("concurrency-stress")?;
-    let discovered = sequential.selection.discovered;
 
     let catalog = product_catalog(workspace, target, API_PRODUCT)?;
     let catalog = read_artifact(&catalog)?;
-
-    validate_api_report("api-sequential", sequential)?;
-    validate_api_report("api-parallel", parallel)?;
 
     require_startup_report(
         "startup-byte-buffer",
         byte_buffer,
         "byte_buffer_mutation",
         &[],
-        discovered,
     )?;
 
     require_startup_report(
@@ -326,13 +324,19 @@ fn audit_api(
         output_lock,
         "repeated_standard_output_locks_are_released",
         b"first-lock|second-lock",
-        discovered,
     )?;
 
+    validate_api_report("api-sequential", sequential)?;
+    validate_api_report("api-parallel", parallel)?;
     require_stable_order(sequential, parallel)?;
     require_serial_metadata(&catalog)?;
 
-    require_selection(filtered, discovered, API_FILTERED_TEST_COUNT)?;
+    require_selection(
+        filtered,
+        API_TEST_COUNT,
+        API_FILTERED_TEST_COUNT,
+        API_TEST_COUNT - API_FILTERED_TEST_COUNT,
+    )?;
 
     let tests = tests(filtered);
 
@@ -351,17 +355,15 @@ fn audit_api(
         concurrency_model,
         "concurrency_model_",
         CONCURRENCY_MODEL_TEST_COUNT,
-        discovered,
     )?;
 
     require_concurrency_selection(
         concurrency_stress,
         "concurrency_stress_",
         CONCURRENCY_STRESS_TEST_COUNT,
-        discovered,
     )?;
 
-    audit_no_build_rerun(root, workspace, toolchain, target, discovered)?;
+    audit_no_build_rerun(root, workspace, toolchain, target)?;
 
     Ok(())
 }
@@ -371,7 +373,6 @@ fn audit_no_build_rerun(
     workspace: &Path,
     toolchain: &Path,
     target: NativeTarget,
-    discovered: usize,
 ) -> Result<(), BuildError> {
     let request = test_batch_request([test_batch_plan(
         "no-build",
@@ -413,7 +414,6 @@ fn audit_no_build_rerun(
         batch.report("no-build")?,
         "byte_buffer_mutation",
         &[],
-        discovered,
     )
 }
 
@@ -421,10 +421,9 @@ fn require_concurrency_selection(
     report: &NativeTestReport,
     identity_fragment: &str,
     expected: usize,
-    discovered: usize,
 ) -> Result<(), BuildError> {
     require_product(report, API_PRODUCT)?;
-    require_selection(report, discovered, expected)?;
+    require_selection(report, API_TEST_COUNT, expected, API_TEST_COUNT - expected)?;
 
     let tests = tests(report);
 
@@ -447,10 +446,9 @@ fn require_startup_report(
     report: &NativeTestReport,
     identity: &str,
     expected_output: &[u8],
-    discovered: usize,
 ) -> Result<(), BuildError> {
     require_product(report, API_PRODUCT)?;
-    require_selection(report, discovered, 1)?;
+    require_selection(report, API_TEST_COUNT, 1, API_TEST_COUNT - 1)?;
 
     let tests = tests(report);
 
@@ -460,6 +458,13 @@ fn require_startup_report(
             format!("{identity} did not produce one result"),
         ));
     };
+
+    if !test.identity.ends_with(identity) {
+        return Err(BuildError::conformance(
+            "focused test-host startup",
+            format!("{identity} selected unrelated test {}", test.identity),
+        ));
+    }
 
     require_stream(
         plan,
@@ -529,7 +534,7 @@ fn outcome_batch_request() -> Result<TestBatchRequest, BuildError> {
 
 fn audit_outcome(report: &NativeTestReport, case: OutcomeCase) -> Result<(), BuildError> {
     require_product(report, OUTCOME_PRODUCT)?;
-    require_selection(report, OUTCOME_CASES.len(), 1)?;
+    require_selection(report, OUTCOME_CASES.len(), 1, OUTCOME_CASES.len() - 1)?;
 
     if report.summary.passed != 0 || report.summary.failed != 1 {
         return Err(BuildError::conformance(
@@ -576,17 +581,7 @@ fn audit_outcome(report: &NativeTestReport, case: OutcomeCase) -> Result<(), Bui
 
 fn validate_api_report(plan: &str, report: &NativeTestReport) -> Result<(), BuildError> {
     require_product(report, API_PRODUCT)?;
-
-    let discovered = report.selection.discovered;
-
-    if discovered == 0 {
-        return Err(BuildError::conformance(
-            "native discovery",
-            "the API product did not discover any tests",
-        ));
-    }
-
-    require_selection(report, discovered, discovered)?;
+    require_selection(report, API_TEST_COUNT, API_TEST_COUNT, 0)?;
 
     let tests = tests(report);
 
@@ -600,10 +595,10 @@ fn validate_api_report(plan: &str, report: &NativeTestReport) -> Result<(), Buil
         ));
     }
 
-    if report.summary.passed != discovered || report.summary.failed != 0 {
+    if report.summary.passed != API_TEST_COUNT || report.summary.failed != 0 {
         return Err(BuildError::conformance(
             "native execution",
-            format!("the API product did not report all {discovered} discovered tests as passing"),
+            format!("the API product did not report {API_TEST_COUNT} passing tests"),
         ));
     }
 
@@ -721,14 +716,8 @@ fn require_selection(
     report: &NativeTestReport,
     discovered: usize,
     selected: usize,
+    filtered_out: usize,
 ) -> Result<(), BuildError> {
-    let Some(filtered_out) = discovered.checked_sub(selected) else {
-        return Err(BuildError::conformance(
-            "native selection",
-            format!("expected selection count {selected} exceeds discovered count {discovered}"),
-        ));
-    };
-
     if report.selection.discovered != discovered
         || report.selection.selected != selected
         || report.selection.filtered_out != filtered_out
@@ -1333,9 +1322,9 @@ mod tests {
                 products: Vec::new(),
             },
             selection: super::NativeSelection {
-                discovered: 2,
+                discovered: super::API_TEST_COUNT,
                 selected: 1,
-                filtered_out: 1,
+                filtered_out: super::API_TEST_COUNT - 1,
             },
             products: vec![super::NativeProductReport {
                 package: super::PACKAGE_IDENTITY.to_owned(),
@@ -1350,9 +1339,60 @@ mod tests {
             },
         };
 
-        let error = super::require_startup_report("focused", &report, "fixture", &[], 2)
+        let error = super::require_startup_report("focused", &report, "fixture", &[])
             .expect_err("the outcome product must not satisfy an API startup report");
 
         assert!(error.to_string().contains("report identity"));
+    }
+
+    #[test]
+    fn focused_startup_report_requires_the_selected_test_identity() {
+        let report = serde_json::from_value::<super::NativeTestReport>(serde_json::json!({
+            "format": 1,
+            "build": {
+                "reused": false,
+                "compilation": true,
+                "emission": true,
+                "linking": true,
+                "products": []
+            },
+            "selection": {
+                "discovered": super::API_TEST_COUNT,
+                "selected": 1,
+                "filtered_out": super::API_TEST_COUNT - 1
+            },
+            "products": [{
+                "package": super::PACKAGE_IDENTITY,
+                "product": super::API_PRODUCT,
+                "catalog_digest": "0".repeat(64),
+                "tests": [{
+                    "identity": "std.api.unrelated",
+                    "outcome": { "kind": "passed" },
+                    "stdout": {
+                        "policy": "captured",
+                        "bytes": [],
+                        "truncated": false,
+                        "discarded_byte_count": 0,
+                        "failure": null
+                    },
+                    "stderr": {
+                        "policy": "captured",
+                        "bytes": [],
+                        "truncated": false,
+                        "discarded_byte_count": 0,
+                        "failure": null
+                    },
+                    "duration_nanoseconds": 1
+                }]
+            }],
+            "summary": { "passed": 1, "failed": 0 },
+            "duration_nanoseconds": 1
+        }))
+        .unwrap_or_else(|error| panic!("focused report must decode: {error:?}"));
+
+        let error = super::require_startup_report("focused", &report, "expected", &[])
+            .expect_err("an unrelated focused test identity must be rejected");
+
+        assert!(error.to_string().contains("selected unrelated test"));
     }
 }
