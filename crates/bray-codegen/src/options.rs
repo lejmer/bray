@@ -40,9 +40,9 @@ pub enum RuntimeObservationMode {
     /// Generate no runtime observation calls.
     #[default]
     None,
-    /// Observe the generated root execution interval over repeated root executions.
+    /// Observe generated entry work inside one root execution interval.
     PerformanceInterval {
-        /// Number of root executions included in the recorded interval.
+        /// Number of entry-body executions included in the recorded interval.
         inner_iterations: std::num::NonZeroU64,
     },
     /// Observe generated allocation and memory-transfer events.

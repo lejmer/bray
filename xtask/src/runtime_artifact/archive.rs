@@ -183,9 +183,7 @@ mod tests {
                 if error.unexpected == [symbol]));
         }
 
-        let misplaced = support_exports(RuntimeArchiveKind::Host)
-            .next()
-            .unwrap();
+        let misplaced = support_exports(RuntimeArchiveKind::Host).next().unwrap();
 
         let mut callback = exports(RuntimeArchiveKind::Callback);
         callback.push(misplaced.to_owned());

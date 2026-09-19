@@ -3350,6 +3350,7 @@ public func invoke<T>(pos value: T)
             native_link_inputs,
             platform_services,
             [],
+            crate::BuildConfiguration::Development,
         )
     }
 
@@ -3360,6 +3361,7 @@ public func invoke<T>(pos value: T)
         native_link_inputs: &[NativeLinkRequirement],
         platform_services: impl IntoIterator<Item = PlatformServiceBinding>,
         runtime_platform_services: impl IntoIterator<Item = PlatformServiceRole>,
+        configuration: crate::BuildConfiguration,
     ) -> (
         Arc<bray_codegen_llvm::LlvmCodeGenerator>,
         Arc<super::NativeProductPlan>,
@@ -3386,7 +3388,7 @@ public func invoke<T>(pos value: T)
         let plan = compilation
             .native_product_plan(
                 product,
-                crate::BuildConfiguration::Development,
+                configuration,
                 Some(runtime),
                 [
                     RuntimeCapability::CooperativeExecution,
@@ -4251,6 +4253,70 @@ public func invoke<T>(pos value: T)
     }
 
     #[test]
+    fn timed_synchronous_entries_repeat_inside_one_runtime_root() {
+        let source = concat!(
+            "trusted module app;\n",
+            "@link(name = \"native\")\n",
+            "@symbol(name = \"native_status\")\n",
+            "@abi(c)\n",
+            "extern trusted func native_status() -> i32 uses(foreign_call);\n",
+            "trusted func main() -> i32 uses(foreign_call)\n",
+            "{\n",
+            "    return trusted native_status();\n",
+            "}\n",
+        );
+
+        let native_link = NativeLinkRequirement::new(
+            NonEmptySharedStr::try_new("native")
+                .unwrap_or_else(|| panic!("native link name must be valid")),
+            NativeLinkKind::Dynamic,
+        );
+
+        let (backend, plan) = runtime_native_plan_for_sources_target_with_platform_overrides(
+            &[source],
+            ProductKind::Executable,
+            SelectedTarget::baseline(),
+            &[native_link],
+            [],
+            [],
+            crate::BuildConfiguration::TimedRelease {
+                inner_iterations: std::num::NonZeroU64::new(3)
+                    .unwrap_or_else(|| panic!("timed test iteration count must be nonzero")),
+            },
+        );
+
+        let backend_ir =
+            generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr)
+                .into_iter()
+                .map(|artifact| String::from_utf8_lossy(&artifact).into_owned())
+                .collect::<String>();
+
+        let callback = backend_ir
+            .split("define private void @bray_host_synchronous_root_callback_0")
+            .nth(1)
+            .and_then(|tail| tail.split("\n}").next())
+            .unwrap_or_else(|| panic!("timed executable must define its synchronous callback"));
+
+        assert!(callback.contains(bray_runtime_abi::PERFORMANCE_INTERVAL_BEGIN_SYMBOL));
+        assert!(callback.contains(bray_runtime_abi::PERFORMANCE_INTERVAL_END_SYMBOL));
+        assert!(callback.contains("performance.iteration"));
+        assert!(callback.contains("root.performance.succeeded"));
+
+        let root_execution_symbol = RuntimeAbiRole::SynchronousRootExecution
+            .native_symbol()
+            .unwrap_or_else(|| panic!("synchronous root execution must have a native symbol"));
+
+        assert!(!callback.contains(root_execution_symbol));
+
+        let root_executions = backend_ir
+            .lines()
+            .filter(|line| line.contains(" call ") && line.contains(root_execution_symbol))
+            .count();
+
+        assert_eq!(root_executions, 1);
+    }
+
+    #[test]
     fn direct_platform_bindings_and_callback_entries_cover_every_native_target() {
         let callback_source = concat!(
             "module app;\n",
@@ -4397,6 +4463,7 @@ public func invoke<T>(pos value: T)
             &[],
             [binding],
             [PlatformServiceRole::StandardOutputFlush],
+            crate::BuildConfiguration::Development,
         );
 
         let backend_ir =
@@ -4888,6 +4955,7 @@ public func invoke<T>(pos value: T)
             RuntimeCapability::CooperativeExecution,
             RuntimeCapability::LocalLanes,
             RuntimeCapability::MainThreadLane,
+            RuntimeCapability::PerformanceObservation,
         ];
 
         let contract = RuntimeContract::try_new(

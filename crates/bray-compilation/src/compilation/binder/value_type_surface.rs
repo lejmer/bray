@@ -561,15 +561,12 @@ impl DeclaredValueTypeBinding<'_> {
         declaration: bray_symbols::StaticSymbolId,
         declared: TypeExpressionTemplate,
     ) -> BindingQueryResult<TypeExpressionTemplate> {
-        let record = self
-            .context
-            .static_symbol(declaration)?
-            .ok_or_else(|| {
-                binding_contract(
-                    SemanticQueryContext::Symbol(declaration.into()),
-                    SemanticQueryViolation::Missing(SemanticDataKind::DeclarationRecord),
-                )
-            })?;
+        let record = self.context.static_symbol(declaration)?.ok_or_else(|| {
+            binding_contract(
+                SemanticQueryContext::Symbol(declaration.into()),
+                SemanticQueryViolation::Missing(SemanticDataKind::DeclarationRecord),
+            )
+        })?;
 
         let exposes_address = match record.syntax_anchor() {
             Some(anchor) => {

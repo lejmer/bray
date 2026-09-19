@@ -457,23 +457,25 @@ func main()
 {
     let mut writer: ValidatingWriter = ValidatingWriter();
 
-    let mut sink: std.io.FormattingSink<ValidatingWriter> = std.io.FormattingSink<ValidatingWriter>(&mut writer);
-
-    let value: u32 = 42;
-    let mut formatted: usize = 0;
-
-    while formatted < 1024
     {
-        match consume trusted std.format.write_to<u32, std.io.FormattingSink<ValidatingWriter>, std.io.IoError>(
-            &mut sink,
-            std.format.Argument<u32>(&value)
-        )
-        {
-            case Ok(_) {}
-            case Error(_) { assert(false); }
-        }
+        let mut sink: std.io.FormattingSink<ValidatingWriter> = std.io.FormattingSink<ValidatingWriter>(&mut writer);
 
-        formatted += 1;
+        let value: u32 = 42;
+        let mut formatted: usize = 0;
+
+        while formatted < 1024
+        {
+            match consume trusted std.format.write_to<u32, std.io.FormattingSink<ValidatingWriter>, std.io.IoError>(
+                &mut sink,
+                std.format.Argument<u32>(&value)
+            )
+            {
+                case Ok(_) {}
+                case Error(_) { assert(false); }
+            }
+
+            formatted += 1;
+        }
     }
 
     assert(writer.valid);
@@ -921,7 +923,7 @@ mod tests {
         );
 
         assert!(workload.source.contains("capacity = 256"));
-        assert!(workload.source.contains("std.io.write_all<"));
+        assert!(workload.source.contains("writer.write_all("));
 
         let storage = workload.storage.expect("file output storage contract");
 

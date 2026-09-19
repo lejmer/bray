@@ -1,6 +1,4 @@
-use bray_bound_tree::{
-    BoundExpressionId, SemanticSelection, StorageIdentityId,
-};
+use bray_bound_tree::{BoundExpressionId, SemanticSelection, StorageIdentityId};
 use bray_ir::{MirBlockId, MirOperand, MirOperationKind, MirStoreKind};
 use bray_symbols::{StaticReferenceSelection, StaticSymbolId};
 

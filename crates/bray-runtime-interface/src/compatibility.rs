@@ -288,9 +288,11 @@ mod tests {
             [],
         );
 
-        assert!(!ordinary
-            .capabilities()
-            .contains(&RuntimeCapability::PerformanceObservation));
+        assert!(
+            !ordinary
+                .capabilities()
+                .contains(&RuntimeCapability::PerformanceObservation)
+        );
 
         let observed = requirements(
             RuntimeAbiVersion::new(1, 0),
@@ -298,9 +300,11 @@ mod tests {
             [],
         );
 
-        assert!(observed
-            .capabilities()
-            .contains(&RuntimeCapability::PerformanceObservation));
+        assert!(
+            observed
+                .capabilities()
+                .contains(&RuntimeCapability::PerformanceObservation)
+        );
     }
 
     #[test]
