@@ -6,14 +6,14 @@ commands.
 
 ## Format and check a change
 
-| Task | Command |
-| --- | --- |
-| Apply formatting fixes and structural style checks | `cargo xtask style` |
-| Check style without changing files | `cargo xtask style check` |
-| Format maintained Bray sources | `cargo xtask format` |
-| Check Bray formatting without changing files | `cargo xtask format check` |
-| Run structural readiness audits | `cargo xtask readiness` |
-| Exercise native products | `cargo xtask composition` |
+| Task                                               | Command                    |
+|----------------------------------------------------|----------------------------|
+| Apply formatting fixes and structural style checks | `cargo xtask style`        |
+| Check style without changing files                 | `cargo xtask style check`  |
+| Format maintained Bray sources                     | `cargo xtask format`       |
+| Check Bray formatting without changing files       | `cargo xtask format check` |
+| Run structural readiness audits                    | `cargo xtask readiness`    |
+| Exercise native products                           | `cargo xtask composition`  |
 
 Run the mutating `cargo xtask style` after changing Rust source. Style includes Bray formatting, which covers the
 standard library, its tests, examples, readiness fixtures, and recovery corpus. See [coding
@@ -36,16 +36,16 @@ retained task executable from another checkout.
 
 ## Choose a specialized workflow
 
-| I need to... | Guide |
-| --- | --- |
-| Run focused audits, native fixtures, or retained-product reruns | [Testing workflows](testing.md) |
-| Test or verify standard-library changes | [Standard-library checks](standard-library.md#run-focused-native-tests) |
-| Check runtime packaging and linking | [Runtime verification][runtime-checks] |
-| Update generated platform declarations or an SDK baseline | [OS binding generation and probes](os-bindings.md) |
-| Update Unicode character tables | [Unicode table generation](standard-library.md#regenerate-unicode-tables) |
-| Regenerate and validate compiler-known definitions | [Compiler-known catalog](compiler-known-catalog.md) |
-| Measure a change against a performance baseline | [Performance corpus](performance.md) |
-| Diagnose where compilation time goes | [Compiler profiling](profiling.md) |
+| I need to...                                                    | Guide                                                                     |
+|-----------------------------------------------------------------|---------------------------------------------------------------------------|
+| Run focused audits, native fixtures, or retained-product reruns | [Testing workflows](testing.md)                                           |
+| Test or verify standard-library changes                         | [Standard-library checks](standard-library.md#run-focused-native-tests)   |
+| Check runtime packaging and linking                             | [Runtime verification][runtime-checks]                                    |
+| Update generated platform declarations or an SDK baseline       | [OS binding generation and probes](os-bindings.md)                        |
+| Update Unicode character tables                                 | [Unicode table generation](standard-library.md#regenerate-unicode-tables) |
+| Regenerate and validate compiler-known definitions              | [Compiler-known catalog](compiler-known-catalog.md)                       |
+| Measure a change against a performance baseline                 | [Performance corpus](performance.md)                                      |
+| Diagnose where compilation time goes                            | [Compiler profiling](profiling.md)                                        |
 
 [runtime-checks]: runtime-artifacts.md#verify-packaging-and-native-linking
 

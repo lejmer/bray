@@ -334,14 +334,8 @@ Write `match` cases without blank lines between them.
 ```bray
 match consume result
 {
-    case Ok(value)
-    {
-        return value;
-    }
-    case Error(error)
-    {
-        return fallback(error);
-    }
+    case Ok(value) { return value; }
+    case Error(error) { return fallback(error); }
 }
 ```
 
