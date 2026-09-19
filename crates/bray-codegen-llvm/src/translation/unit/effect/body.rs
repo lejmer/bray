@@ -314,11 +314,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let source = self.native_source_anchor(operation)?;
 
-        let source_fields = (0..5)
+        let source_field_count = source.into_struct_value().get_type().count_fields();
+
+        let source_fields = (0..source_field_count)
             .map(|index| extract_value(&self.builder, source, index))
             .collect::<Result<Vec<_>, _>>()?;
 
-        let message_fields = (0..2)
+        let message_field_count = message.into_struct_value().get_type().count_fields();
+
+        let message_fields = (0..message_field_count)
             .map(|index| extract_value(&self.builder, message, index))
             .collect::<Result<Vec<_>, _>>()?;
 
