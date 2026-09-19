@@ -15,7 +15,7 @@ Use nextest to run the tests for the crate you changed:
 cargo nextest run -p <crate>
 ```
 
-`cargo test` must also remain supported, as required by the repository rules.
+> `cargo test` must also remain supported, as required by the repository rules.
 
 ## Testing Bray programs
 
