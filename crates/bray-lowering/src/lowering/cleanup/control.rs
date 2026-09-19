@@ -11,8 +11,8 @@ use crate::lowering::LoweringError;
 use crate::lowering::inputs::{InputExit, InputTemporary};
 use crate::lowering::lowerer::Lowerer;
 
-#[derive(Clone, Copy, Debug)]
-pub(super) enum CleanupDestination {
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(in crate::lowering) enum CleanupDestination {
     Goto(MirBlockId),
     Return,
     PropagatePanic,
@@ -24,7 +24,8 @@ enum CleanupEntry {
     Cancellation,
 }
 
-pub(super) enum TerminalState {
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(in crate::lowering) enum TerminalState {
     Completed(TypeId),
     Panicked(TypeId),
     Cancelled,
@@ -183,6 +184,10 @@ impl Lowerer<'_> {
         source: &MirSourceAnchor,
         terminal: TerminalState,
     ) -> Result<MirBlockId, LoweringError> {
+        if let Some(block) = self.terminal_state_blocks.get(&terminal).copied() {
+            return Ok(block);
+        }
+
         let block = self
             .builder
             .push_block(Self::retained_source(source), MirBlockKind::Ordinary)?;
@@ -224,6 +229,8 @@ impl Lowerer<'_> {
             Self::retained_source(source),
             MirTerminatorKind::Return(None),
         )?;
+
+        self.terminal_state_blocks.insert(terminal, block);
 
         Ok(block)
     }
@@ -315,12 +322,15 @@ impl Lowerer<'_> {
         plans: &[bray_bound_tree::AsyncScopeExitPlan],
         temporaries: &[InputTemporary],
         mut value: Option<(bray_ir::MirValueId, TypeId)>,
-        failures: &std::collections::BTreeMap<BoundBlockId, (MirBlockId, MirBlockId, TypeId)>,
+        failures: &std::collections::BTreeMap<
+            BoundBlockId,
+            (MirBlockId, MirBlockId, bray_ir::MirPlace),
+        >,
     ) -> Result<(MirBlockId, Option<(bray_ir::MirValueId, TypeId)>), LoweringError> {
         let mut temporaries = temporaries.iter().rev().peekable();
 
         for plan in plans {
-            self.cleanup_failure_targets = failures.get(&plan.scope()).copied();
+            self.cleanup_failure_targets = failures.get(&plan.scope()).cloned();
 
             let depth = self
                 .active_scopes
@@ -334,59 +344,119 @@ impl Lowerer<'_> {
                 })
                 + 1;
 
-            block = self.push_input_cleanup(block, source, phase, &mut temporaries, depth)?;
+            block = self.push_input_cleanup(block, phase, &mut temporaries, depth)?;
 
             for access in match phase {
                 MirCleanupPhase::TaskCancellation => plan.cancellation_broadcast(),
                 MirCleanupPhase::LifecycleResolution => plan.lifecycle_resolution(),
             } {
-                let place = self.place_for_access(*access, false)?;
+                let completed = self.input.finalizer_is_complete(plan.exit(), *access);
 
-                let state = self.initialization_guards.get(&place.storage());
-                let guard = state.map(|state| Self::retained_place(&state.guard));
-
-                // Cleanup construction mutates the lowerer while retaining shared checked paths and flag types.
-                let parts = state
-                    .map(|state| {
-                        state
-                            .parts
-                            .iter()
-                            .map(|part| crate::lowering::initialization::InitializedPart {
-                                plan: part.plan,
-                                guard: Self::retained_place(&part.guard),
-                                array_types: std::sync::Arc::clone(&part.array_types),
-                            })
-                            .collect::<Vec<_>>()
-                    })
-                    .unwrap_or_default();
-
-                if parts.is_empty() {
-                    let completed = self.input.finalizer_is_complete(plan.exit(), *access);
-
-                    (block, value) = self.push_guarded_cleanup(
-                        block, source, phase, place, guard, None, completed, value,
-                    )?;
-                } else {
-                    (block, value) = self.guarded_cleanup_region(
-                        block,
-                        source,
-                        place,
-                        guard,
-                        value,
-                        |lowerer, block, place, value| {
-                            lowerer.push_part_cleanup(
-                                block, source, phase, *access, place, &parts, 0, value,
-                            )
-                        },
-                    )?;
-                }
+                (block, value) =
+                    self.push_cleanup_access(block, source, phase, *access, completed, value)?;
             }
         }
 
-        block = self.push_input_cleanup(block, source, phase, &mut temporaries, 0)?;
+        block = self.push_input_cleanup(block, phase, &mut temporaries, 0)?;
         self.cleanup_failure_targets = None;
 
         Ok((block, value))
+    }
+
+    pub(super) fn push_cleanup_access(
+        &mut self,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        phase: MirCleanupPhase,
+        access: bray_bound_tree::StorageAccessId,
+        completed: bool,
+        value: Option<(bray_ir::MirValueId, TypeId)>,
+    ) -> Result<(MirBlockId, Option<(bray_ir::MirValueId, TypeId)>), LoweringError> {
+        let place = self.place_for_access(access, false)?;
+
+        self.push_cleanup_place(block, source, phase, access, place, completed, value)
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "cleanup construction requires the resolved place and its checked context"
+    )]
+    pub(super) fn push_cleanup_place(
+        &mut self,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        phase: MirCleanupPhase,
+        access: bray_bound_tree::StorageAccessId,
+        place: bray_ir::MirPlace,
+        completed: bool,
+        value: Option<(bray_ir::MirValueId, TypeId)>,
+    ) -> Result<(MirBlockId, Option<(bray_ir::MirValueId, TypeId)>), LoweringError> {
+        let cleanup_source = self.cleanup_source(access);
+        let state = self.initialization_guards.get(&place.storage());
+        let guard = state.map(|state| Self::retained_place(&state.guard));
+
+        let parts = state
+            .map(|state| {
+                state
+                    .parts
+                    .iter()
+                    .map(|part| crate::lowering::initialization::InitializedPart {
+                        plan: part.plan,
+                        guard: Self::retained_place(&part.guard),
+                        array_types: std::sync::Arc::clone(&part.array_types),
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        if parts.is_empty() {
+            return self.push_guarded_cleanup(
+                block,
+                &cleanup_source,
+                phase,
+                place,
+                guard,
+                None,
+                completed,
+                value,
+            );
+        }
+
+        self.guarded_cleanup_region(
+            block,
+            source,
+            place,
+            guard,
+            value,
+            |lowerer, block, place, value| {
+                lowerer.push_part_cleanup(
+                    block,
+                    &cleanup_source,
+                    phase,
+                    access,
+                    place,
+                    &parts,
+                    0,
+                    value,
+                )
+            },
+        )
+    }
+
+    pub(super) fn cleanup_source(
+        &self,
+        access: bray_bound_tree::StorageAccessId,
+    ) -> MirSourceAnchor {
+        let source = self
+            .input
+            .storage_plan()
+            .access(access)
+            .unwrap_or_else(|| {
+                panic!("lowering cleanup contract violated: missing storage access {access:?}")
+            })
+            .source();
+
+        self.source(bray_bound_tree::BoundNodeOrigin::source(source))
     }
 
     pub(in crate::lowering) fn push_guarded_cleanup(

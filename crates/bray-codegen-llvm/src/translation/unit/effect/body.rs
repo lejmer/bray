@@ -2,7 +2,7 @@ use super::super::core::UnitTranslator;
 use super::super::support::{
     extract_value, insert_value, int_value, llvm, next_helper, nonzero_integer, pointer_value,
 };
-use bray_codegen::{CodegenFailure, CodegenSymbolKey, CodegenTypeKind};
+use bray_codegen::{CodegenFailure, CodegenSymbolKey, CodegenTypeBehavior, CodegenTypeKind};
 use bray_ir::{
     MirAsyncOperation, MirFrameInitializer, MirHelperReference, MirOperation, MirOperationKind,
     MirPlace, MirSourceAnchor,
@@ -20,14 +20,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             MirOperationKind::Store {
                 destination, value, ..
             } => {
-                let destination = self.place(destination)?;
-                let value = self.operand(value)?;
-
-                // A transferred source can alias its destination, including self-replacement.
-                // Retire the source before installing the already-evaluated value.
-                self.clear_moved_places()?;
-
-                llvm(self.builder.build_store(destination, value))?;
+                self.translate_store(destination, value)?;
 
                 None
             }
@@ -227,6 +220,61 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         } else if result.is_some() {
             panic!("checked MIR effect translation violated an established compiler contract");
         }
+
+        Ok(())
+    }
+
+    fn translate_store(
+        &mut self,
+        destination: &MirPlace,
+        value: &bray_ir::MirOperand,
+    ) -> Result<(), CodegenFailure> {
+        if let bray_ir::MirOperand::Move(source) = value
+            && self
+                .type_mapping(destination.ty())
+                .is_some_and(|mapping| mapping.behavior() == Some(CodegenTypeBehavior::PanicReport))
+        {
+            if source == destination {
+                return Ok(());
+            }
+
+            let source_pointer = self.place(source)?;
+            let destination_pointer = self.place(destination)?;
+
+            let layout = self
+                .type_mapping(destination.ty())
+                .and_then(bray_codegen::CodegenTypeMapping::layout)
+                .expect("panic report types must have represented codegen layouts");
+
+            let alignment = crate::conversion::target_value(
+                layout.alignment().get(),
+                "panic_report_move_alignment",
+            )?;
+
+            llvm(self.builder.build_memcpy(
+                destination_pointer,
+                alignment,
+                source_pointer,
+                alignment,
+                self.pointer_integer_type().const_int(layout.size(), false),
+            ))?;
+
+            llvm(
+                self.builder
+                    .build_store(source_pointer, self.types.map(source.ty())?.const_zero()),
+            )?;
+
+            return Ok(());
+        }
+
+        let destination = self.place(destination)?;
+        let value = self.operand(value)?;
+
+        // A transferred source can alias its destination, including self-replacement.
+        // Retire the source before installing the already-evaluated value.
+        self.clear_moved_places()?;
+
+        llvm(self.builder.build_store(destination, value))?;
 
         Ok(())
     }

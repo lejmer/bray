@@ -1041,9 +1041,10 @@ mod tests {
             let completed = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
             let panicked = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
             let cancelled = push_block(&mut builder, source.clone(), cancellation_kind);
-            push_parameter(&mut builder, panicked, source.clone(), ty);
             let storage = push_storage(&mut builder, source.clone(), ty);
             let place = MirPlace::new(storage, [], ty);
+            let report_storage = push_storage(&mut builder, source.clone(), ty);
+            let report = MirPlace::new(report_storage, [], ty);
 
             let operation = if fallible {
                 MirOperationKind::Destroy(place)
@@ -1068,7 +1069,7 @@ mod tests {
                 source.clone(),
                 MirTerminatorKind::CheckCallOutcome {
                     completed: MirEdge::new(completed, []),
-                    panicked: crate::MirCallPanicEdge::new(panicked, ty),
+                    panicked: crate::MirCallPanicEdge::new(panicked, report),
                     cancelled: MirEdge::new(cancelled, []),
                 },
             );

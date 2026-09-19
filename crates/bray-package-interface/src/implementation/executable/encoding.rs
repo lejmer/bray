@@ -1078,7 +1078,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.wire.write_u32(17);
                 self.edge(completed)?;
                 self.wire.write_u32(panicked.target().slot());
-                self.ty(panicked.report_type())?;
+                self.place(panicked.report())?;
                 self.edge(cancelled)?;
             }
         }

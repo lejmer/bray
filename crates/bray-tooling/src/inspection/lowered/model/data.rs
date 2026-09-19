@@ -1781,7 +1781,7 @@ fn inspection_terminator(
                 cleanup_phase: None,
             });
 
-            parts.r#type("report", panicked.report_type(), &context)?;
+            parts.place("report", panicked.report(), &context)?;
 
             "check_call_outcome"
         }

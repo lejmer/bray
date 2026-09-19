@@ -374,11 +374,13 @@ impl Lowerer<'_> {
             .builder
             .push_block(Self::retained_source(source), MirBlockKind::Ordinary)?;
 
-        let report = self.builder.push_block_parameter(
-            panicked,
+        let report_storage = self.builder.push_storage(
             Self::retained_source(source),
+            bray_ir::MirStorageKind::Temporary,
             report_type,
         )?;
+
+        let report = bray_ir::MirPlace::new(report_storage, [], report_type);
 
         let cancelled = self
             .builder
@@ -389,7 +391,7 @@ impl Lowerer<'_> {
             Self::retained_source(source),
             MirTerminatorKind::CheckCallOutcome {
                 completed: MirEdge::new(completed, [Self::retained_operand(value)]),
-                panicked: MirCallPanicEdge::new(panicked, report_type),
+                panicked: MirCallPanicEdge::new(panicked, Self::retained_place(&report)),
                 cancelled: MirEdge::new(cancelled, []),
             },
         )?;
@@ -404,7 +406,7 @@ impl Lowerer<'_> {
             expression,
             panicked,
             source,
-            MirOperand::Value(report),
+            MirOperand::Move(report),
             report_type,
         )?;
 

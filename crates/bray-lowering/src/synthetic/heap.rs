@@ -352,11 +352,17 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             .context
             .representation_type(RepresentationRole::PanicReport)?;
 
+        let report_storage = builder
+            .push_storage(source.clone(), MirStorageKind::Temporary, report_type)
+            .map_err(invalid)?;
+
+        let report = MirPlace::new(report_storage, [], report_type);
+
         let panicked = self.push_heap_construction_failure(
             builder,
             source,
             parameter.clone(),
-            Some(report_type),
+            Some(report.clone()),
         )?;
 
         let cancelled =
@@ -367,7 +373,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             source.clone(),
             MirTerminatorKind::CheckCallOutcome {
                 completed: MirEdge::new(completed, [MirOperand::Value(allocation)]),
-                panicked: MirCallPanicEdge::new(panicked, report_type),
+                panicked: MirCallPanicEdge::new(panicked, report),
                 cancelled: MirEdge::new(cancelled, []),
             },
         );
@@ -406,7 +412,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         builder: &mut MirUnitBuilder,
         source: &MirSourceAnchor,
         parameter: MirPlace,
-        report_type: Option<TypeId>,
+        report: Option<MirPlace>,
     ) -> Result<MirBlockId, C::Error> {
         let invalid = |cause| self.capacity_error(cause);
 
@@ -414,16 +420,11 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             .push_block(source.clone(), MirBlockKind::Ordinary)
             .map_err(invalid)?;
 
-        let report = report_type
-            .map(|ty| builder.push_block_parameter(failed, source.clone(), ty))
-            .transpose()
-            .map_err(invalid)?;
-
         let outcome = self.cleanup_outcome(builder, failed, source)?;
 
         if let Some(report) = report {
             outcome
-                .initialize_panic(builder, failed, source, MirOperand::Value(report))
+                .initialize_panic(builder, failed, source, MirOperand::Move(report))
                 .map_err(invalid)?;
         } else {
             outcome

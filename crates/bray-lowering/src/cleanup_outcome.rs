@@ -9,10 +9,12 @@ use bray_runtime_interface::{RuntimeAbiRole, RuntimeAbiVersion};
 use bray_symbols::TypeId;
 
 /// Retains cleanup incidents until every selected obligation has been resolved.
+#[derive(Clone)]
 pub(crate) struct CleanupOutcome {
     panicked: MirPlace,
     cancelled: MirPlace,
     report: MirPlace,
+    incoming_report: MirPlace,
     unit: TypeId,
     runtime_abi: RuntimeAbiVersion,
 }
@@ -45,6 +47,20 @@ impl CleanupOutcome {
         unit: TypeId,
         runtime_abi: RuntimeAbiVersion,
     ) -> Result<Self, MirCapacityError> {
+        let outcome = Self::allocate(builder, source, boolean, report, unit, runtime_abi)?;
+        outcome.begin(builder, block, source)?;
+
+        Ok(outcome)
+    }
+
+    pub(crate) fn allocate(
+        builder: &mut MirUnitBuilder,
+        source: &MirSourceAnchor,
+        boolean: TypeId,
+        report: TypeId,
+        unit: TypeId,
+        runtime_abi: RuntimeAbiVersion,
+    ) -> Result<Self, MirCapacityError> {
         // Every generated operation retains the same Arc-backed source provenance.
         let mut storage = |ty| {
             builder
@@ -52,21 +68,33 @@ impl CleanupOutcome {
                 .map(|id| MirPlace::new(id, [], ty))
         };
 
-        let outcome = Self {
+        Ok(Self {
             panicked: storage(boolean)?,
             cancelled: storage(boolean)?,
             report: storage(report)?,
+            incoming_report: storage(report)?,
             unit,
             runtime_abi,
-        };
+        })
+    }
 
-        for flag in [&outcome.panicked, &outcome.cancelled] {
-            outcome.store(builder, block, source, flag, Self::boolean(false, boolean))?;
+    pub(crate) fn begin(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+    ) -> Result<(), MirCapacityError> {
+        for flag in [&self.panicked, &self.cancelled] {
+            self.store(
+                builder,
+                block,
+                source,
+                flag,
+                Self::boolean(false, flag.ty()),
+            )?;
         }
 
-        outcome.shield(builder, block, source, RuntimeAbiRole::CleanupShieldEnter)?;
-
-        Ok(outcome)
+        self.shield(builder, block, source, RuntimeAbiRole::CleanupShieldEnter)
     }
 
     pub(crate) fn report(&self) -> MirOperand {
@@ -126,7 +154,6 @@ impl CleanupOutcome {
         let kind = builder.block_kind(block);
         let panicked = builder.push_block(source.clone(), kind)?;
         let cancelled = builder.push_block(source.clone(), kind)?;
-        let report = builder.push_block_parameter(panicked, source.clone(), self.report.ty())?;
 
         let completed = check_call_outcome(
             builder,
@@ -134,7 +161,7 @@ impl CleanupOutcome {
             source,
             panicked,
             cancelled,
-            self.report.ty(),
+            self.incoming_report.clone(),
         )?;
 
         self.store(
@@ -151,13 +178,7 @@ impl CleanupOutcome {
             MirTerminatorKind::Goto(MirEdge::new(completed, [])),
         );
 
-        self.retain_panic(
-            builder,
-            panicked,
-            source,
-            MirOperand::Value(report),
-            completed,
-        )?;
+        self.retain_panic(builder, panicked, source, completed)?;
 
         Ok(completed)
     }
@@ -167,27 +188,19 @@ impl CleanupOutcome {
         builder: &mut MirUnitBuilder,
         block: MirBlockId,
         source: &MirSourceAnchor,
-        report: MirOperand,
         completed: MirBlockId,
     ) -> Result<(), MirCapacityError> {
         let kind = builder.block_kind(block);
         let primary = builder.push_block(source.clone(), kind)?;
         let suppressed = builder.push_block(source.clone(), kind)?;
 
-        let primary_report =
-            builder.push_block_parameter(primary, source.clone(), self.report.ty())?;
-
-        let suppressed_report =
-            builder.push_block_parameter(suppressed, source.clone(), self.report.ty())?;
-
         builder.set_terminator(
             block,
             source.clone(),
             MirTerminatorKind::Branch {
                 condition: MirOperand::Copy(self.panicked.clone()),
-                // Only the selected edge transfers the newly reported incident.
-                then_edge: MirEdge::new(suppressed, [report.clone()]),
-                else_edge: MirEdge::new(primary, [report]),
+                then_edge: MirEdge::new(suppressed, []),
+                else_edge: MirEdge::new(primary, []),
             },
         );
 
@@ -196,7 +209,7 @@ impl CleanupOutcome {
             primary,
             source,
             &self.report,
-            MirOperand::Value(primary_report),
+            MirOperand::Move(self.incoming_report.clone()),
         )?;
 
         self.store(
@@ -222,7 +235,10 @@ impl CleanupOutcome {
                     self.runtime_abi,
                 )),
                 BoundCallResult::Immediate(self.report.ty()),
-                [self.report(), MirOperand::Value(suppressed_report)],
+                [
+                    self.report(),
+                    MirOperand::Move(self.incoming_report.clone()),
+                ],
                 [],
             )),
             Some(self.report.ty()),
@@ -345,7 +361,7 @@ pub(crate) fn check_call_outcome(
     source: &MirSourceAnchor,
     panicked: MirBlockId,
     cancelled: MirBlockId,
-    report_type: TypeId,
+    report: MirPlace,
 ) -> Result<MirBlockId, MirCapacityError> {
     let kind = builder.block_kind(block);
 
@@ -357,14 +373,12 @@ pub(crate) fn check_call_outcome(
 
             let cancel_bridge = builder.push_block(source.clone(), kind)?;
 
-            let report = builder.push_block_parameter(panic_bridge, source.clone(), report_type)?;
-
             builder.set_terminator(
                 panic_bridge,
                 source.clone(),
                 MirTerminatorKind::ContinueCleanup(MirCleanupEdge::new(
                     MirCleanupPhase::LifecycleResolution,
-                    MirEdge::new(panicked, [MirOperand::Value(report)]),
+                    MirEdge::new(panicked, []),
                 )),
             );
 
@@ -387,7 +401,7 @@ pub(crate) fn check_call_outcome(
         source.clone(),
         MirTerminatorKind::CheckCallOutcome {
             completed: MirEdge::new(completed, []),
-            panicked: MirCallPanicEdge::new(panicked, report_type),
+            panicked: MirCallPanicEdge::new(panicked, report),
             cancelled: MirEdge::new(cancelled, []),
         },
     );

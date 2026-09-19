@@ -1958,10 +1958,20 @@ mod tests {
 
         assert!(
             broadcast.blocks().iter().any(|block| {
-                matches!(block.terminator().kind(), MirTerminatorKind::ContinueCleanup(edge)
-                if !edge.edge().arguments().is_empty())
+                let MirTerminatorKind::CheckCallOutcome { panicked, .. } =
+                    block.terminator().kind()
+                else {
+                    return false;
+                };
+
+                matches!(
+                    broadcast
+                        .block(panicked.target())
+                        .map(|target| target.terminator().kind()),
+                    Some(MirTerminatorKind::ContinueCleanup(_))
+                )
             }),
-            "storage borrow panic must transfer its report out of cleanup broadcast"
+            "storage borrow panic must retain its report across cleanup broadcast"
         );
     }
 

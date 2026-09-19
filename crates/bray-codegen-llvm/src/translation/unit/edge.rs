@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use bray_codegen::CodegenFailure;
 use bray_ir::{MirBlockId, MirCallPanicEdge, MirEdge, MirOperationId, MirPlace, MirUnit};
 use inkwell::basic_block::BasicBlock;
-use inkwell::values::{BasicValueEnum, PhiValue};
+use inkwell::values::{BasicValueEnum, PhiValue, PointerValue};
 
 use super::core::UnitTranslator;
 
@@ -97,29 +97,50 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
     pub(super) fn route_call_panic(
         &mut self,
-        edge: MirCallPanicEdge,
-        report: BasicValueEnum<'context>,
+        edge: &MirCallPanicEdge,
+        report: PointerValue<'context>,
+        source: Option<BasicValueEnum<'context>>,
         name: &str,
         pending_moves: &[MirPlace],
     ) -> Result<BasicBlock<'context>, CodegenFailure> {
         let route = self.begin_route(name, pending_moves);
+        let destination = self.place(edge.report())?;
 
-        let target = self
-            .unit
-            .block(edge.target())
-            .expect("checked MIR translation requires an established mapping or value");
+        let layout = self
+            .type_mapping(edge.report().ty())
+            .and_then(bray_codegen::CodegenTypeMapping::layout)
+            .expect("call panic report types must have represented codegen layouts");
 
-        let [parameter] = target.parameters() else {
-            panic!("checked MIR translation violated an established compiler contract");
-        };
+        let alignment = crate::conversion::target_value(
+            layout.alignment().get(),
+            "call_panic_report_alignment",
+        )?;
 
-        let phi = self
-            .phis
-            .get(parameter)
-            .copied()
-            .expect("checked MIR translation requires an established mapping or value");
+        super::support::llvm(self.builder.build_memcpy(
+            destination,
+            alignment,
+            report,
+            alignment,
+            self.pointer_integer_type().const_int(layout.size(), false),
+        ))?;
 
-        phi.add_incoming(&[(&report, route)]);
+        if let Some(source) = source {
+            let report_type = crate::native::panic_report_type(self.types.context());
+
+            for index in 0..5 {
+                let value = super::support::extract_value(&self.builder, source, index)?;
+
+                let field = super::support::llvm(self.builder.build_struct_gep(
+                    report_type,
+                    destination,
+                    index,
+                    "call.panic.report.source",
+                ))?;
+
+                super::support::llvm(self.builder.build_store(field, value))?;
+            }
+        }
+
         self.finish_route(edge.target())?;
 
         Ok(route)
