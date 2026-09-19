@@ -105,6 +105,17 @@ func panic_failure()
     panic("expected panic");
 }
 
+internal func panic_from_checked_call()
+{
+    panic("checked call panic");
+}
+
+@test
+func checked_call_panic_preserves_report()
+{
+    panic_from_checked_call();
+}
+
 @test
 func once_indirect_reentry_panics()
 {

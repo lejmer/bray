@@ -138,11 +138,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         ))?
         .into_int_value();
 
-        let report = llvm(
-            self.builder
-                .build_struct_gep(ty, context, 2, "call.outcome.report"),
-        )?;
-
         let report_source = admission
             .map(|operation| self.native_source_anchor(operation))
             .transpose()?;
@@ -202,20 +197,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let panicked_route = self.route_call_panic(
             panicked,
-            report,
+            context,
             report_source,
             "call.panicked",
             &pending_moves,
         )?;
-
-        // Successful calls leave the empty destination intact. Clear transferred ownership
-        // only on the failure routes, before another cleanup call can reuse this destination.
-        let first = panicked_route
-            .get_first_instruction()
-            .expect("checked MIR translation requires an established mapping or value");
-
-        self.builder.position_before(&first);
-        llvm(self.builder.build_store(context, ty.const_zero()))?;
 
         self.builder.position_at_end(source);
 

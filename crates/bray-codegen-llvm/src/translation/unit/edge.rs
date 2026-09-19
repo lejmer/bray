@@ -98,7 +98,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     pub(super) fn route_call_panic(
         &mut self,
         edge: &MirCallPanicEdge,
-        report: PointerValue<'context>,
+        context: PointerValue<'context>,
         source: Option<BasicValueEnum<'context>>,
         name: &str,
         pending_moves: &[MirPlace],
@@ -116,6 +116,36 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             "call_panic_report_alignment",
         )?;
 
+        let outcome_type =
+            crate::native::run_outcome_type(self.types.context(), self.request.target());
+
+        let report = super::support::llvm(self.builder.build_struct_gep(
+            outcome_type,
+            context,
+            2,
+            "call.outcome.report",
+        ))?;
+
+        if let Some(source) = source {
+            let report_type = crate::native::panic_report_type(self.types.context());
+
+            let source_field_count =
+                crate::native::source_anchor_type(self.types.context()).count_fields();
+
+            for index in 0..source_field_count {
+                let value = super::support::extract_value(&self.builder, source, index)?;
+
+                let field = super::support::llvm(self.builder.build_struct_gep(
+                    report_type,
+                    report,
+                    index,
+                    "call.panic.report.source",
+                ))?;
+
+                super::support::llvm(self.builder.build_store(field, value))?;
+            }
+        }
+
         super::support::llvm(self.builder.build_memcpy(
             destination,
             alignment,
@@ -124,22 +154,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             self.pointer_integer_type().const_int(layout.size(), false),
         ))?;
 
-        if let Some(source) = source {
-            let report_type = crate::native::panic_report_type(self.types.context());
-
-            for index in 0..5 {
-                let value = super::support::extract_value(&self.builder, source, index)?;
-
-                let field = super::support::llvm(self.builder.build_struct_gep(
-                    report_type,
-                    destination,
-                    index,
-                    "call.panic.report.source",
-                ))?;
-
-                super::support::llvm(self.builder.build_store(field, value))?;
-            }
-        }
+        super::support::llvm(
+            self.builder
+                .build_store(context, outcome_type.const_zero()),
+        )?;
 
         self.finish_route(edge.target())?;
 
