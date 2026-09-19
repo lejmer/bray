@@ -35,7 +35,7 @@ bray-platform = {
     default-features = false,
 }
 bray-platform-abi-support = { path = "../bray-platform-abi-support", optional = true }
-bray-runtime = { path = "../bray-runtime" }
+bray-runtime = { path = "../bray-runtime", default-features = false }
 bray-runtime-abi = { path = "../bray-runtime-abi" }
 bray-source = { path = "../bray-source", optional = true }
 bray-test-protocol = { path = "../bray-test-protocol", optional = true }

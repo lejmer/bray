@@ -2,6 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
 use bray_target::NativeTarget;
 
 use super::command::{CommandError, Package, RuntimeArchiveKind};
@@ -98,6 +99,7 @@ pub(super) fn smoke_test(
 
     audit_synchronous_link_map(&map)?;
     smoke_test_bootstrap(package, target, directory)?;
+    super::observation_smoke::smoke_test(package, target, directory)?;
 
     Ok(())
 }
@@ -113,7 +115,16 @@ fn smoke_test_bootstrap(
         .ok_or(CommandError::MetadataContract)?;
 
     let map = directory.join("runtime-bootstrap-smoke.map");
-    let executable = compile_bootstrap_smoke(archive, target, directory, &map)?;
+
+    let executable = compile_c_smoke(
+        BOOTSTRAP_SMOKE_SOURCE,
+        "runtime-bootstrap-smoke",
+        &[archive],
+        target,
+        directory,
+        &map,
+        &[],
+    )?;
 
     let status = Command::new(&executable)
         .status()
@@ -126,22 +137,24 @@ fn smoke_test_bootstrap(
     audit_bootstrap_link_map(&map)
 }
 
-fn compile_bootstrap_smoke(
-    archive: &Path,
+pub(super) fn compile_c_smoke(
+    source_text: &str,
+    name: &str,
+    archives: &[&Path],
     target: NativeTarget,
     directory: &Path,
     map: &Path,
+    native_links: &[NativeLinkRequirement],
 ) -> Result<PathBuf, CommandError> {
-    let source = directory.join("runtime-bootstrap-smoke.c");
+    let source = directory.join(format!("{name}.c"));
 
     let executable = directory.join(if cfg!(windows) {
-        "runtime-bootstrap-smoke.exe"
+        format!("{name}.exe")
     } else {
-        "runtime-bootstrap-smoke"
+        name.to_owned()
     });
 
-    fs::write(&source, BOOTSTRAP_SMOKE_SOURCE)
-        .map_err(|error| CommandError::write(&source, error))?;
+    fs::write(&source, source_text).map_err(|error| CommandError::write(&source, error))?;
 
     let compiler =
         bray_tooling::llvm_tool_path(bray_diagnostics::DiagnosticLlvmToolRole::CompilerDriver)
@@ -153,7 +166,25 @@ fn compile_bootstrap_smoke(
         .arg(format!("--target={}", target.as_str()))
         .args(["-std=c11", "-O2", "-fuse-ld=lld"])
         .arg(&source)
-        .arg(archive);
+        .args(archives);
+
+    for link in native_links {
+        if target.object_format() == bray_target::ObjectFormat::Coff
+            && link.kind() == NativeLinkKind::System
+            && link.name().eq_ignore_ascii_case("ucrt")
+        {
+            continue;
+        }
+
+        match link.kind() {
+            NativeLinkKind::Framework => {
+                command.arg("-framework").arg(link.name());
+            }
+            NativeLinkKind::Dynamic | NativeLinkKind::Static | NativeLinkKind::System => {
+                command.arg(format!("-l{}", link.name()));
+            }
+        }
+    }
 
     match target.object_format() {
         bray_target::ObjectFormat::Coff => {
@@ -178,7 +209,7 @@ fn compile_bootstrap_smoke(
         .map_err(CommandError::NativeCompiler)?;
 
     if !status.success() {
-        return Err(CommandError::BootstrapSmokeLinkFailed);
+        return Err(CommandError::NativeSmokeLinkFailed(name.to_owned()));
     }
 
     Ok(executable)
@@ -233,7 +264,7 @@ fn compile_smoke(
     Ok(executable)
 }
 
-fn component_archives<'package>(
+pub(super) fn component_archives<'package>(
     package: &'package Package,
     kinds: &[RuntimeArchiveKind],
 ) -> Result<Vec<&'package Path>, CommandError> {
@@ -347,7 +378,11 @@ fn audit_bootstrap_link_map(map: &Path) -> Result<(), CommandError> {
     Ok(())
 }
 
-fn audit_link_symbols(contents: &str, required: &[&str], forbidden: &[&str]) -> Result<(), String> {
+pub(super) fn audit_link_symbols(
+    contents: &str,
+    required: &[&str],
+    forbidden: &[&str],
+) -> Result<(), String> {
     if let Some(symbol) = required
         .iter()
         .find(|symbol| !crate::link_map::contains_symbol(contents, symbol))

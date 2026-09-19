@@ -1,7 +1,13 @@
+#[cfg(feature = "bundled-bootstrap")]
 use std::path::PathBuf;
 
+#[cfg(feature = "bundled-bootstrap")]
 use bray_target::{NativeTarget, TargetOutputKind, TargetOutputName};
 
+#[cfg(not(feature = "bundled-bootstrap"))]
+fn main() {}
+
+#[cfg(feature = "bundled-bootstrap")]
 fn main() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let triple = std::env::var("TARGET").expect("Cargo supplies the target triple");

@@ -281,6 +281,29 @@ mod tests {
     }
 
     #[test]
+    fn observation_capability_is_not_implied_by_ordinary_runtime_initialization() {
+        let ordinary = requirements(
+            RuntimeAbiVersion::new(1, 0),
+            [RuntimeAbiRole::RuntimeInitialization],
+            [],
+        );
+
+        assert!(!ordinary
+            .capabilities()
+            .contains(&RuntimeCapability::PerformanceObservation));
+
+        let observed = requirements(
+            RuntimeAbiVersion::new(1, 0),
+            [RuntimeAbiRole::PerformanceIntervalEnd],
+            [],
+        );
+
+        assert!(observed
+            .capabilities()
+            .contains(&RuntimeCapability::PerformanceObservation));
+    }
+
+    #[test]
     fn requirement_merging_rejects_each_exact_compatibility_mismatch() {
         let baseline = requirements(RuntimeAbiVersion::new(1, 0), [], []);
         let incompatible = requirements(RuntimeAbiVersion::new(2, 0), [], []);

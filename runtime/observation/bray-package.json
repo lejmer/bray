@@ -1,0 +1,25 @@
+{
+  "format": 1,
+  "identity": "bray_runtime_observation",
+  "version": { "workspace": true },
+  "source_roots": [
+    { "name": "observation", "path": "src" }
+  ],
+  "products": [
+    {
+      "name": "observation",
+      "kind": "library",
+      "source_roots": ["observation"],
+      "targets": [
+        "aarch64-linux",
+        "aarch64-macos",
+        "aarch64-windows",
+        "x86-64-linux",
+        "x86-64-macos",
+        "x86-64-windows"
+      ],
+      "dependencies": [],
+      "outputs": ["package_interface", "package_implementation", "static_library"]
+    }
+  ]
+}

@@ -123,6 +123,83 @@ struct Environment
     }
 }
 
+/// Reads one current native environment value without initializing the cached process-context snapshot.
+/// Returns an I/O error when the target cannot retrieve the current environment.
+func current_environment_value(pos key: &std.path.NativeText) -> Result<std.path.NativeText?, std.io.IoError>
+{
+    let expected: &[u8] = internal std.path.native_bytes(key);
+
+    let storage: std.memory.RawBuffer<u8> = match consume trusted internal std.platform.environment_storage()
+    {
+        case Ok(value) { yield value; }
+        case Error(status)
+        {
+            match internal std.io.checked_status(status)
+            {
+                case Ok(_)
+                {
+                    return Error(
+                        internal std.io.io_error(kind = std.io.IoErrorKind.Other, native_code = 0, transferred = 0)
+                    );
+                }
+                case Error(error) { return Error(error); }
+            }
+        }
+    };
+
+    let source: &[u8] = trusted std.memory.initialized_slice<u8>(&storage);
+    let width: usize = trusted internal std.platform.native_text_width() / 8;
+
+    if width == 0 || source.length() % width != 0
+    {
+        panic("the platform process environment contains invalid native text");
+    }
+
+    let base: RawPointer<u8> = internal std.memory.byte_slice_pointer(source);
+    let mut start: usize = 0;
+    let mut index: usize = 0;
+
+    while index < source.length()
+    {
+        if trusted internal native_unit_is_zero(base, index = index, width = width)
+        {
+            let entry: std.platform.NativeTextPair = trusted internal context_pair(
+                base,
+                start = start,
+                end = index,
+                width = width,
+                environment = true,
+            );
+
+            if trusted internal std.platform.environment_key_equals_span(expected, right = entry.key)
+            {
+                let value: std.memory.RawBuffer<u8> = trusted internal std.platform.copy_context_text(
+                    entry.value.address,
+                    length = entry.value.length,
+                );
+
+                let native: std.path.NativeText = trusted internal required_native_text(value);
+                let mut result: std.path.NativeText? = none;
+
+                result = native;
+
+                return Ok(result);
+            }
+
+            start = index + width;
+        }
+
+        index += width;
+    }
+
+    if start != source.length()
+    {
+        panic("the platform process environment contains invalid native text");
+    }
+
+    return Ok(none);
+}
+
 func current_id() -> Id
 {
     return

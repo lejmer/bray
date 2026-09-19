@@ -308,7 +308,6 @@ impl Lowerer<'_> {
         let static_reference = if let StorageIdentity::Static(declaration) = model {
             let selection = crate::lowering::expression::static_access::static_reference(
                 &self.input,
-                access,
                 expression,
                 declaration,
             );

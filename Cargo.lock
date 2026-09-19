@@ -591,13 +591,6 @@ name = "bray-runtime-model"
 version = "0.0.0"
 
 [[package]]
-name = "bray-runtime-observation"
-version = "0.0.0"
-dependencies = [
- "bray-runtime-abi",
-]
-
-[[package]]
 name = "bray-source"
 version = "0.0.0"
 dependencies = [

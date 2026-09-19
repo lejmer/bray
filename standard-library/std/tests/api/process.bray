@@ -5,6 +5,7 @@ using std.path;
 using std.process;
 using std.testing;
 using internal std.process.ChildOutputReader;
+using std.process.current_environment_value;
 
 @test
 func process_context_accessors_observe_one_snapshot()
@@ -32,6 +33,33 @@ func process_context_accessors_observe_one_snapshot()
 
         let entry: std.process.EnvironmentEntry = std.testing.assert_present<std.process.EnvironmentEntry>(first_entry);
         let _: std.path.NativeText = std.testing.assert_present<std.path.NativeText>(environment.value(&entry.key));
+    }
+}
+
+@test
+func direct_environment_lookup_matches_the_process_snapshot()
+{
+    let key: std.path.NativeText = required_native_text("BRAY_STANDARD_LIBRARY_TEST_EXECUTABLE");
+    let snapshot: std.path.NativeText? = std.process.environment().value(&key);
+
+    let direct: std.path.NativeText? = std.testing.assert_ok<std.path.NativeText?, std.io.IoError>(
+        std.process.current_environment_value(&key)
+    );
+
+    match consume snapshot
+    {
+        case ?snapshot_value
+        {
+            let direct_value: std.path.NativeText = std.testing.assert_present<std.path.NativeText>(direct);
+
+            assert(
+                std.testing.assert_ok<string, std.path.PathError>(snapshot_value.to_string()) == std.testing.assert_ok<
+                    string,
+                    std.path.PathError
+                >(direct_value.to_string())
+            );
+        }
+        case none { std.testing.assert_absent<std.path.NativeText>(direct); }
     }
 }
 

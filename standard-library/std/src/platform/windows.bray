@@ -143,14 +143,14 @@ trusted internal func argument_storage() -> std.memory.RawBuffer<u8>
     return buffer;
 }
 
-trusted internal func environment_storage() -> std.memory.RawBuffer<u8>
+trusted internal func environment_storage() -> Result<std.memory.RawBuffer<u8>, PlatformStatus>
     uses(foreign_call)
 {
     let environment: RawPointer<u16> = trusted std.os.windows.get_environment_strings_w();
 
     if std.memory.is_null<u16>(environment)
     {
-        panic("the platform process environment is unavailable");
+        return Error(trusted internal windows_error_status());
     }
 
     let owner: EnvironmentBlock =
@@ -226,7 +226,7 @@ trusted internal func environment_storage() -> std.memory.RawBuffer<u8>
 
     trusted std.memory.set_initialized_count<u8>(&mut buffer, count = total);
 
-    return buffer;
+    return Ok(buffer);
 }
 
 trusted internal func environment_key_equals_span(pos left: &[u8], right: NativeTextSpan) -> bool
@@ -274,12 +274,6 @@ trusted internal func terminated_u16_length(pos pointer: RawPointer<u16>) -> usi
     }
 
     panic("the platform process context contains invalid native text");
-}
-
-trusted internal func current_thread_identity() -> u64
-    uses(foreign_call)
-{
-    return trusted std.os.windows.get_current_thread_id() as u64;
 }
 
 trusted internal func windows_error_status() -> PlatformStatus

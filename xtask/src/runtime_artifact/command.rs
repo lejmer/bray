@@ -224,11 +224,6 @@ fn build_contents(target: NativeTarget, output: &Path, profile: &str) -> Result<
         );
 
         let (crate_name, features, member_prefix) = match kind {
-            RuntimeArchiveKind::Observation => (
-                "bray-runtime-observation",
-                &["performance-observation"][..],
-                "bray_runtime_observation-",
-            ),
             RuntimeArchiveKind::Host => (
                 "bray-runtime-adapter",
                 &["host"][..],
@@ -261,6 +256,7 @@ fn build_contents(target: NativeTarget, output: &Path, profile: &str) -> Result<
             ),
             RuntimeArchiveKind::Common
             | RuntimeArchiveKind::TestCommon
+            | RuntimeArchiveKind::Observation
             | RuntimeArchiveKind::Bootstrap => {
                 unreachable!("common support is derived from owners")
             }
@@ -295,14 +291,20 @@ fn build_contents(target: NativeTarget, output: &Path, profile: &str) -> Result<
         partitioner.write(target, output)
     })?;
 
-    crate::progress::run("Building the trusted Bray bootstrap archive", || {
-        super::bootstrap::build(
+    crate::progress::run("Building the trusted Bray runtime archives", || {
+        super::bootstrap::build_runtime_components(
             &root,
             target,
             &output.join(archive_file_name(target, RuntimeArchiveKind::Bootstrap)),
+            &output.join(archive_file_name(target, RuntimeArchiveKind::Observation)),
         )
         .map_err(CommandError::Bootstrap)
     })?;
+
+    native_links.extend(
+        crate::standard_library::native_links(&target.identity())
+            .map_err(CommandError::Bootstrap)?,
+    );
 
     native_links
         .sort_by(|left, right| (left.kind(), left.name()).cmp(&(right.kind(), right.name())));
@@ -348,24 +350,6 @@ fn build_contents(target: NativeTarget, output: &Path, profile: &str) -> Result<
 fn audit_dependency_boundaries(root: &Path) -> Result<(), CommandError> {
     crate::dependency_audit::require_no_normal_dependencies(root, "bray-runtime-abi")
         .map_err(CommandError::DependencyAudit)?;
-
-    crate::dependency_audit::require_absent_normal_dependencies(
-        root,
-        "bray-runtime-observation",
-        &[
-            "blake3",
-            "bray-base",
-            "bray-platform",
-            "bray-runtime",
-            "bray-runtime-interface",
-            "bray-runtime-model",
-            "serde",
-            "serde_json",
-            "sha2",
-            "tempfile",
-        ],
-    )
-    .map_err(CommandError::DependencyAudit)?;
 
     crate::dependency_audit::require_absent_normal_dependencies(
         root,
@@ -458,10 +442,10 @@ fn metadata(
                 purpose,
                 component(components, RuntimeArchiveKind::Observation)?,
                 "observation",
-                [],
+                RuntimeArchiveKind::Observation.runtime_roles(),
                 [RuntimeCapability::PerformanceObservation],
             )?
-            .with_dependencies([common_identity.clone()]),
+            .with_dependencies([component_identity(target, purpose, "bootstrap")?]),
         );
 
         let common = component_metadata(
@@ -582,6 +566,8 @@ fn runtime_role_archive(role: RuntimeAbiRole) -> Option<RuntimeArchiveKind> {
 
     Some(match role.artifact_owner() {
         RuntimeRoleArtifact::Compiler => return None,
+        RuntimeRoleArtifact::Bootstrap => RuntimeArchiveKind::Bootstrap,
+        RuntimeRoleArtifact::Observation => RuntimeArchiveKind::Observation,
         RuntimeRoleArtifact::Host => RuntimeArchiveKind::Host,
         RuntimeRoleArtifact::Callback => RuntimeArchiveKind::Callback,
         RuntimeRoleArtifact::Scheduler => RuntimeArchiveKind::Scheduler,
@@ -670,7 +656,7 @@ impl BuildOptions {
 }
 
 pub(super) struct Package {
-    metadata: PathBuf,
+    pub(super) metadata: PathBuf,
     pub(super) components: Vec<PackageComponent>,
 }
 
@@ -714,8 +700,7 @@ impl RuntimeArchiveKind {
         Self::TestHost,
     ];
 
-    const OWNING: [Self; 7] = [
-        Self::Observation,
+    const OWNING: [Self; 6] = [
         Self::Host,
         Self::Callback,
         Self::Scheduler,
@@ -745,8 +730,16 @@ impl RuntimeArchiveKind {
                 return false;
             }
 
-            if role.bootstrap_declaration().is_some() {
-                return self == Self::Bootstrap;
+            if let Some(source) = role.source_artifact() {
+                return match source {
+                    bray_runtime_interface::RuntimeRoleArtifact::Bootstrap => {
+                        self == Self::Bootstrap
+                    }
+                    bray_runtime_interface::RuntimeRoleArtifact::Observation => {
+                        self == Self::Observation
+                    }
+                    _ => unreachable!("runtime source role has a non-source artifact"),
+                };
             }
 
             self == Self::TestHost || runtime_role_archive(*role) == Some(self)
@@ -772,6 +765,7 @@ impl RuntimeArchiveKind {
                 | Self::Event => false,
             })
     }
+
 }
 
 #[derive(Debug)]
@@ -827,9 +821,10 @@ pub(super) enum CommandError {
         name: &'static str,
         status: std::process::ExitStatus,
     },
-    BootstrapSmokeLinkFailed,
+    NativeSmokeLinkFailed(String),
     BootstrapSmokeExecution(std::io::Error),
     BootstrapSmokeExecutionFailed(std::process::ExitStatus),
+    ObservationSmoke(String),
     CleanupReportMissing,
 }
 
@@ -959,8 +954,8 @@ impl fmt::Display for CommandError {
                     "{name} runtime smoke execution failed with {status}"
                 )
             }
-            Self::BootstrapSmokeLinkFailed => {
-                formatter.write_str("bootstrap runtime smoke link failed")
+            Self::NativeSmokeLinkFailed(name) => {
+                write!(formatter, "{name} runtime smoke link failed")
             }
             Self::BootstrapSmokeExecution(error) => {
                 write!(
@@ -973,6 +968,9 @@ impl fmt::Display for CommandError {
                     formatter,
                     "bootstrap runtime smoke execution failed with {status}"
                 )
+            }
+            Self::ObservationSmoke(detail) => {
+                write!(formatter, "observation runtime smoke failed: {detail}")
             }
             Self::CleanupReportMissing => {
                 formatter.write_str("runtime smoke did not report its cleanup incident")
@@ -990,12 +988,14 @@ fn required_value(
 
 #[cfg(test)]
 mod tests {
-    use bray_runtime_interface::{PlatformServiceRole, RuntimeAbiRole, RuntimeArtifactDigest};
+    use bray_runtime_interface::{
+        PlatformServiceRole, RuntimeAbiRole, RuntimeArtifactDigest, RuntimeArtifactPurpose,
+    };
     use bray_target::NativeTarget;
 
     use super::{
         BuildOptions, BuiltComponent, CommandError, RuntimeArchiveKind, archive_file_name,
-        metadata, runtime_role_archive, runtime_role_bindings,
+        component_identity, metadata, runtime_role_archive, runtime_role_bindings,
     };
 
     #[test]
@@ -1103,7 +1103,22 @@ mod tests {
                 })
                 .unwrap_or_else(|| panic!("runtime metadata must contain observation support"));
 
-            assert_eq!(observation.dependencies(), [common.identity().clone()]);
+            assert_eq!(
+                observation.dependencies(),
+                [component_identity(target, RuntimeArtifactPurpose::Product, "bootstrap")
+                    .unwrap_or_else(|error| panic!("bootstrap identity must be valid: {error}"))]
+            );
+
+            assert_eq!(
+                observation.roles(),
+                &[
+                    RuntimeAbiRole::MemoryObservationBegin,
+                    RuntimeAbiRole::MemoryAllocationObservation,
+                    RuntimeAbiRole::MemoryCopyObservation,
+                    RuntimeAbiRole::PerformanceIntervalBegin,
+                    RuntimeAbiRole::PerformanceIntervalEnd,
+                ]
+            );
 
             let callback = first
                 .components()
@@ -1114,7 +1129,7 @@ mod tests {
             let callback_roles = RuntimeAbiRole::ALL
                 .into_iter()
                 .filter(|role| {
-                    role.bootstrap_declaration().is_none()
+                    role.source_declaration().is_none()
                         && runtime_role_archive(*role) == Some(RuntimeArchiveKind::Callback)
                 })
                 .collect::<Vec<_>>();
@@ -1133,7 +1148,10 @@ mod tests {
                 bootstrap.roles(),
                 RuntimeAbiRole::ALL
                     .into_iter()
-                    .filter(|role| role.bootstrap_declaration().is_some())
+                    .filter(|role| {
+                        role.source_artifact()
+                            == Some(bray_runtime_interface::RuntimeRoleArtifact::Bootstrap)
+                    })
                     .collect::<Vec<_>>()
             );
 
@@ -1235,6 +1253,11 @@ mod tests {
                 RuntimeAbiRole::ReportSegmentTake,
                 RuntimeAbiRole::ReportConsumer,
                 RuntimeAbiRole::RuntimeInitialization,
+                RuntimeAbiRole::MemoryObservationBegin,
+                RuntimeAbiRole::MemoryAllocationObservation,
+                RuntimeAbiRole::MemoryCopyObservation,
+                RuntimeAbiRole::PerformanceIntervalBegin,
+                RuntimeAbiRole::PerformanceIntervalEnd,
                 RuntimeAbiRole::RootExecution,
                 RuntimeAbiRole::SynchronousRootExecution,
                 RuntimeAbiRole::ForeignCallbackExecution,

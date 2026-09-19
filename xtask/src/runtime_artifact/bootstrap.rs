@@ -15,6 +15,37 @@ use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
 use bray_target::{NativeTarget, TargetOutputKind, TargetOutputName};
 use sha2::{Digest as _, Sha256};
 
+#[derive(Clone, Copy)]
+pub(super) enum BrayRuntimeComponent {
+    Bootstrap,
+    Observation,
+}
+
+impl BrayRuntimeComponent {
+    const ALL: [Self; 2] = [Self::Bootstrap, Self::Observation];
+
+    const fn package(self) -> &'static str {
+        match self {
+            Self::Bootstrap => "bray_runtime_bootstrap",
+            Self::Observation => "bray_runtime_observation",
+        }
+    }
+
+    const fn product(self) -> &'static str {
+        match self {
+            Self::Bootstrap => "runtime",
+            Self::Observation => "observation",
+        }
+    }
+
+    const fn role_artifact(self) -> bray_runtime_interface::RuntimeRoleArtifact {
+        match self {
+            Self::Bootstrap => bray_runtime_interface::RuntimeRoleArtifact::Bootstrap,
+            Self::Observation => bray_runtime_interface::RuntimeRoleArtifact::Observation,
+        }
+    }
+}
+
 pub(super) fn cache_identity(
     root: &Path,
     target: NativeTarget,
@@ -26,27 +57,29 @@ pub(super) fn cache_identity(
     let graph = load_project_graph(&workspace)
         .map_err(|error| format!("could not load bootstrap project: {error:?}"))?;
 
-    let (_, product) = selected_product(&graph, target)?;
-
     let mut identity = Sha256::new();
 
     identity.update(input);
 
-    for kind in [
-        TargetOutputKind::PackageInterface,
-        TargetOutputKind::PackageImplementation,
-    ] {
-        let name = TargetOutputName::for_native(target.object_format(), kind)
-            .file_name(product.identity().name())
-            .unwrap_or_else(|| unreachable!("package artifacts always have file names"));
+    for component in BrayRuntimeComponent::ALL {
+        let (_, product) = selected_product(&graph, target, component)?;
 
-        let path = output.join(name);
+        for kind in [
+            TargetOutputKind::PackageInterface,
+            TargetOutputKind::PackageImplementation,
+        ] {
+            let name = TargetOutputName::for_native(target.object_format(), kind)
+                .file_name(product.identity().name())
+                .unwrap_or_else(|| unreachable!("package artifacts always have file names"));
 
-        match bray_base::sha256_file(&path) {
-            Ok(artifact) => identity.update(artifact),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => {
-                return Err(format!("could not hash {}: {error}", path.display()));
+            let path = output.join(name);
+
+            match bray_base::sha256_file(&path) {
+                Ok(artifact) => identity.update(artifact),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+                Err(error) => {
+                    return Err(format!("could not hash {}: {error}", path.display()));
+                }
             }
         }
     }
@@ -56,8 +89,32 @@ pub(super) fn cache_identity(
 
 /// Compiles the manifest-selected trusted runtime bootstrap for the requested target.
 pub fn build(root: &Path, target: NativeTarget, destination: &Path) -> Result<(), String> {
+    build_components(root, target, &[(BrayRuntimeComponent::Bootstrap, destination)])
+}
+
+pub(super) fn build_runtime_components(
+    root: &Path,
+    target: NativeTarget,
+    bootstrap: &Path,
+    observation: &Path,
+) -> Result<(), String> {
+    build_components(
+        root,
+        target,
+        &[
+            (BrayRuntimeComponent::Bootstrap, bootstrap),
+            (BrayRuntimeComponent::Observation, observation),
+        ],
+    )
+}
+
+fn build_components(
+    root: &Path,
+    target: NativeTarget,
+    components: &[(BrayRuntimeComponent, &Path)],
+) -> Result<(), String> {
     let support = tempfile::Builder::new()
-        .prefix("bray-runtime-bootstrap-")
+        .prefix("bray-runtime-components-")
         .tempdir()
         .map_err(|error| format!("could not create bootstrap build directory: {error}"))?;
 
@@ -77,7 +134,31 @@ pub fn build(root: &Path, target: NativeTarget, destination: &Path) -> Result<()
     let graph = load_project_graph(&workspace)
         .map_err(|error| format!("could not load bootstrap project: {error:?}"))?;
 
-    let (package, product) = selected_product(&graph, target)?;
+    for (component, destination) in components {
+        build_component(
+            &workspace,
+            &graph,
+            &standard_library,
+            target,
+            support.path(),
+            *component,
+            destination,
+        )?;
+    }
+
+    Ok(())
+}
+
+fn build_component(
+    workspace: &Path,
+    graph: &ProjectGraph,
+    standard_library: &Path,
+    target: NativeTarget,
+    support: &Path,
+    component: BrayRuntimeComponent,
+    destination: &Path,
+) -> Result<(), String> {
+    let (package, product) = selected_product(graph, target, component)?;
 
     let sources = product
         .sources()
@@ -88,12 +169,14 @@ pub fn build(root: &Path, target: NativeTarget, destination: &Path) -> Result<()
     let selected = bray_compilation::SelectedTarget::for_native(target);
 
     let mut native_links = crate::standard_library::native_links(selected.profile().identity())
-        .map_err(|error| format!("could not load bootstrap native link inputs: {error}"))?;
+        .map_err(|error| format!("could not load runtime native link inputs: {error}"))?;
 
-    native_links.extend([
-        runtime_dependency("bray_runtime_host"),
-        runtime_dependency("bray_runtime_callback"),
-    ]);
+    if matches!(component, BrayRuntimeComponent::Bootstrap) {
+        native_links.extend([
+            runtime_dependency("bray_runtime_host"),
+            runtime_dependency("bray_runtime_callback"),
+        ]);
+    }
 
     let compilation = DriverCompilationConfiguration::new(
         product.identity().clone(),
@@ -105,10 +188,10 @@ pub fn build(root: &Path, target: NativeTarget, destination: &Path) -> Result<()
         product.platform_services().to_vec(),
         native_links,
     )
-    .with_runtime_roles(runtime_bindings());
+    .with_runtime_roles(runtime_bindings(component));
 
     let standard_library = StandardLibraryRoot::try_new(&standard_library)
-        .ok_or_else(|| "bootstrap standard-library root is invalid".to_owned())?;
+        .ok_or_else(|| "runtime standard-library root is invalid".to_owned())?;
 
     let options = DriverOptions::new(
         WorkerBudget::default(),
@@ -119,7 +202,7 @@ pub fn build(root: &Path, target: NativeTarget, destination: &Path) -> Result<()
         PackageSourceAuthority::Ordinary,
     );
 
-    let output = support.path().join("emission");
+    let output = support.join(component.product()).join("emission");
 
     let build = DriverProductConfiguration::new(
         DriverBackend::Llvm,
@@ -142,7 +225,7 @@ pub fn build(root: &Path, target: NativeTarget, destination: &Path) -> Result<()
             })
             .unwrap_or_else(|| format!("{:?}", result.diagnostics()));
 
-        return Err(format!("bootstrap product build failed:\n{detail}"));
+        return Err(format!("{} product build failed:\n{detail}", component.product()));
     }
 
     publish_outputs(product, &output, destination)
@@ -151,20 +234,24 @@ pub fn build(root: &Path, target: NativeTarget, destination: &Path) -> Result<()
 fn selected_product(
     graph: &ProjectGraph,
     target: NativeTarget,
+    component: BrayRuntimeComponent,
 ) -> Result<(&ProjectPackage, &ProjectProduct), String> {
     let target = target.identity();
 
     let plan = graph.build_plan(&target).ok_or_else(|| {
         format!(
-            "bootstrap project does not support target {}",
+            "runtime project does not support target {}",
             target.as_str()
         )
     })?;
 
-    let mut selected = plan.products().iter().filter_map(|identity| {
+    let selected = plan.products().iter().find_map(|identity| {
         let package = graph.package(identity.package())?;
 
-        (package.role() == PackageRole::Root).then(|| {
+        (package.role() == PackageRole::Root
+            && package.identity().as_str() == component.package()
+            && identity.name() == component.product())
+        .then(|| {
             package
                 .products()
                 .iter()
@@ -173,15 +260,12 @@ fn selected_product(
         })?
     });
 
-    let product = selected
-        .next()
-        .ok_or_else(|| "bootstrap project has no root product".to_owned())?;
-
-    if selected.next().is_some() {
-        return Err("bootstrap project selects more than one root product".to_owned());
-    }
-
-    Ok(product)
+    selected.ok_or_else(|| {
+        format!(
+            "runtime project has no {} root product",
+            component.product()
+        )
+    })
 }
 
 fn runtime_dependency(name: &'static str) -> NativeLinkRequirement {
@@ -192,10 +276,11 @@ fn runtime_dependency(name: &'static str) -> NativeLinkRequirement {
     )
 }
 
-fn runtime_bindings() -> Vec<RuntimeRoleSourceBinding> {
+fn runtime_bindings(component: BrayRuntimeComponent) -> Vec<RuntimeRoleSourceBinding> {
     RuntimeAbiRole::ALL
         .into_iter()
-        .filter_map(RuntimeAbiRole::bootstrap_source_binding)
+        .filter(|role| role.source_artifact() == Some(component.role_artifact()))
+        .filter_map(RuntimeAbiRole::source_binding)
         .collect()
 }
 

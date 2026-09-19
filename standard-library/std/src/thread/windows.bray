@@ -4,6 +4,14 @@ trusted module std.thread;
 using std.memory;
 using std.os.windows;
 
+/// Returns the current native thread's opaque platform identity.
+/// Only equality comparisons are portable across targets.
+trusted func current_platform_identity() -> u64
+    uses(foreign_call)
+{
+    return trusted std.os.windows.get_current_thread_id() as u64;
+}
+
 trusted internal func platform_set_current_thread_name(pos name: &string) -> Result<unit, ThreadNameError>
     uses(foreign_call)
 {

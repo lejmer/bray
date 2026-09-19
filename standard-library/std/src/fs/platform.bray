@@ -47,6 +47,7 @@ internal func file_creation_value(pos value: FileCreation) -> u32
         case CreateIfMissing { yield 1; }
         case CreateNew { yield 2; }
         case Truncate { yield 3; }
+        case CreateOrTruncate { yield 4; }
     };
 }
 

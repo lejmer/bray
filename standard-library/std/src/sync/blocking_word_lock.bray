@@ -1,0 +1,33 @@
+trusted module std.sync;
+
+/// Acquires a non-reentrant runtime lock represented by an exclusively owned, zero-initialized atomic word.
+trusted func acquire_blocking_word_lock(pos lock: &core.atomic.Atomic<u32>)
+    requires(blocking_execution())
+{
+    let (_, acquired) = core.atomic.compare_exchange<u32, 1, 0>(lock, expected = 0, desired = 1);
+
+    if acquired
+    {
+        return;
+    }
+
+    let mut observed: u32 = core.atomic.exchange<u32, 1>(lock, value = 2);
+
+    while observed != 0
+    {
+        trusted internal std.atomic.platform_wait_word(lock, expected = 2);
+
+        observed = core.atomic.exchange<u32, 1>(lock, value = 2);
+    }
+}
+
+/// Releases a runtime lock previously acquired by the calling execution.
+trusted func release_blocking_word_lock(pos lock: &core.atomic.Atomic<u32>)
+{
+    let previous: u32 = core.atomic.exchange<u32, 2>(lock, value = 0);
+
+    if previous == 2
+    {
+        trusted internal std.atomic.platform_wake_word(lock);
+    }
+}

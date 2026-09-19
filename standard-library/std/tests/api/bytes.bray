@@ -5,6 +5,21 @@ using std.memory;
 using std.testing;
 
 @test
+func unsigned_words_encode_in_little_endian_order()
+{
+    let bytes: [u8; 8] = std.bytes.u64_little_endian(0x0123456789abcdef);
+
+    assert(bytes[0] == 0xef);
+    assert(bytes[1] == 0xcd);
+    assert(bytes[2] == 0xab);
+    assert(bytes[3] == 0x89);
+    assert(bytes[4] == 0x67);
+    assert(bytes[5] == 0x45);
+    assert(bytes[6] == 0x23);
+    assert(bytes[7] == 0x01);
+}
+
+@test
 func byte_slice_operations()
 {
     let first: u8 = 65;

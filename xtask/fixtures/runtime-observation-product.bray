@@ -1,0 +1,19 @@
+module runtime_observation_product;
+
+using std.bytes;
+using std.memory;
+
+func main() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let mut buffer: std.bytes.Buffer = try std.bytes.Buffer(capacity = 0);
+    let mut index: usize = 0;
+
+    while index < 64
+    {
+        try trusted std.bytes.push(&mut buffer, value = 65);
+        index += 1;
+    }
+
+    assert(std.bytes.length(&buffer) == 64);
+    return Ok(unit);
+}

@@ -1605,6 +1605,65 @@ mod tests {
     }
 
     #[test]
+    fn borrowed_union_patterns_emit_valid_native_units() {
+        assert_source_emits_valid_native_units(
+            concat!(
+                "module app;\n",
+                "public union Choice { First; Second; }\n",
+                "public func select(pos value: &Choice) -> bool\n",
+                "{\n",
+                "    match value\n",
+                "    {\n",
+                "        case .First { return true; }\n",
+                "        case .Second { return false; }\n",
+                "    }\n",
+                "}\n",
+            ),
+            crate::BuildConfiguration::Development,
+        );
+    }
+
+    #[test]
+    fn indexed_static_accesses_emit_valid_native_units() {
+        assert_source_emits_valid_native_units(
+            concat!(
+                "module app;\n",
+                "internal static VALUES: [core.atomic.Atomic<usize>; 1] = [\n",
+                "    core.atomic.initialize<usize>(7)\n",
+                "];\n",
+                "public trusted func read() -> usize\n",
+                "{\n",
+                "    return core.atomic.load<usize, 0>(&VALUES[0]);\n",
+                "}\n",
+            ),
+            crate::BuildConfiguration::Development,
+        );
+    }
+
+    #[test]
+    fn never_calls_in_typed_return_paths_emit_valid_native_units() {
+        assert_source_emits_valid_native_units(
+            concat!(
+                "trusted module app;\n",
+                "trusted func terminate() -> never uses(intrinsic)\n",
+                "{\n",
+                "    trusted core.target.abort();\n",
+                "}\n",
+                "public trusted func select(pos terminate_now: bool) -> u64\n",
+                "{\n",
+                "    if terminate_now\n",
+                "    {\n",
+                "        return trusted terminate();\n",
+                "    }\n",
+                "\n",
+                "    return 7;\n",
+                "}\n",
+            ),
+            crate::BuildConfiguration::Development,
+        );
+    }
+
+    #[test]
     fn imported_execution_guarantees_emit_native_units() {
         let dependency = generic_dependency_from_fixture(
             true,

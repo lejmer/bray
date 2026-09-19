@@ -96,11 +96,20 @@ trusted internal func create_process_context() -> ProcessContext
             environment = false,
         ),
         environment = trusted internal context_table(
-            trusted internal std.platform.environment_storage(),
+            trusted internal required_environment_storage(),
             environment = true,
         ),
         directory = trusted internal persistent_context_text(trusted internal std.platform.working_directory_storage()),
     };
+}
+
+trusted internal func required_environment_storage() -> std.memory.RawBuffer<u8>
+{
+    match consume trusted internal std.platform.environment_storage()
+    {
+        case Ok(value) { return value; }
+        case Error(_) { panic("the platform process environment is unavailable"); }
+    }
 }
 
 trusted internal func argument_context_table() -> ProcessContextTable

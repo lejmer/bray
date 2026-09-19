@@ -408,8 +408,7 @@ mod tests {
 
     use super::{
         NativeCompilation, NativeTools, c_compiler_flags, native_tools,
-        parse_native_link_arguments, rust_compiler_flags, rust_static_library_file_name,
-        thin_lto_flags,
+        parse_native_link_arguments, rust_compiler_flags, thin_lto_flags,
     };
 
     #[test]
@@ -489,25 +488,6 @@ mod tests {
                 "-flto=thin -ffile-prefix-map=C:/work=. -fdebug-compilation-dir=. {}",
                 crate::windows_crt::CLANG_CL_DYNAMIC_RUNTIME
             )
-        );
-    }
-
-    #[test]
-    fn rust_static_library_names_follow_cargo_target_conventions() {
-        assert_eq!(
-            rust_static_library_file_name(
-                bray_target::NativeTarget::X86_64WindowsMsvc,
-                "bray-runtime-observation",
-            ),
-            "bray_runtime_observation.lib"
-        );
-
-        assert_eq!(
-            rust_static_library_file_name(
-                bray_target::NativeTarget::X86_64LinuxGnu,
-                "bray-runtime-observation",
-            ),
-            "libbray_runtime_observation.a"
         );
     }
 

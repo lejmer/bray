@@ -289,6 +289,15 @@ internal func open_flags(pos options: PlatformFileOptions) -> Result<i32, std.pl
 
             flags |= std.os.unix.O_TRUNC;
         }
+        case 4
+        {
+            if options.access == 0
+            {
+                return Error(internal std.platform.invalid_input_status());
+            }
+
+            flags |= std.os.unix.O_CREAT | std.os.unix.O_TRUNC;
+        }
         case _ { return Error(internal std.platform.invalid_input_status()); }
     }
 

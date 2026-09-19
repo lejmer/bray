@@ -21,7 +21,7 @@ const PACKAGE_IDENTITY: &str = "std";
 const API_PRODUCT: &str = "api";
 const OUTCOME_PRODUCT: &str = "outcomes";
 const CHILD_EXECUTABLE_ENVIRONMENT_VARIABLE: &str = "BRAY_STANDARD_LIBRARY_TEST_EXECUTABLE";
-const API_TEST_COUNT: usize = 146;
+const API_TEST_COUNT: usize = 150;
 const API_FILTERED_TEST_COUNT: usize = 3;
 const CONCURRENCY_MODEL_TEST_COUNT: usize = 7;
 const CONCURRENCY_STRESS_TEST_COUNT: usize = 5;
@@ -459,6 +459,13 @@ fn require_startup_report(
         ));
     };
 
+    if !test.identity.ends_with(identity) {
+        return Err(BuildError::conformance(
+            "focused test-host startup",
+            format!("{identity} selected unrelated test {}", test.identity),
+        ));
+    }
+
     require_stream(
         plan,
         &test.identity,
@@ -789,6 +796,7 @@ fn require_serial_metadata(bytes: &[u8]) -> Result<(), BuildError> {
         != [
             "asynchronous_file_operations_preserve_data_and_metadata",
             "buffered_file_io_preserves_order_and_flushes",
+            "create_or_truncate_replaces_existing_contents",
             "files_and_directories_follow_the_portable_contract",
             "missing_files_report_the_portable_error_kind",
             "child_processes_accept_an_empty_environment",
@@ -1335,5 +1343,56 @@ mod tests {
             .expect_err("the outcome product must not satisfy an API startup report");
 
         assert!(error.to_string().contains("report identity"));
+    }
+
+    #[test]
+    fn focused_startup_report_requires_the_selected_test_identity() {
+        let report = serde_json::from_value::<super::NativeTestReport>(serde_json::json!({
+            "format": 1,
+            "build": {
+                "reused": false,
+                "compilation": true,
+                "emission": true,
+                "linking": true,
+                "products": []
+            },
+            "selection": {
+                "discovered": super::API_TEST_COUNT,
+                "selected": 1,
+                "filtered_out": super::API_TEST_COUNT - 1
+            },
+            "products": [{
+                "package": super::PACKAGE_IDENTITY,
+                "product": super::API_PRODUCT,
+                "catalog_digest": "0".repeat(64),
+                "tests": [{
+                    "identity": "std.api.unrelated",
+                    "outcome": { "kind": "passed" },
+                    "stdout": {
+                        "policy": "captured",
+                        "bytes": [],
+                        "truncated": false,
+                        "discarded_byte_count": 0,
+                        "failure": null
+                    },
+                    "stderr": {
+                        "policy": "captured",
+                        "bytes": [],
+                        "truncated": false,
+                        "discarded_byte_count": 0,
+                        "failure": null
+                    },
+                    "duration_nanoseconds": 1
+                }]
+            }],
+            "summary": { "passed": 1, "failed": 0 },
+            "duration_nanoseconds": 1
+        }))
+        .unwrap_or_else(|error| panic!("focused report must decode: {error:?}"));
+
+        let error = super::require_startup_report("focused", &report, "expected", &[])
+            .expect_err("an unrelated focused test identity must be rejected");
+
+        assert!(error.to_string().contains("selected unrelated test"));
     }
 }

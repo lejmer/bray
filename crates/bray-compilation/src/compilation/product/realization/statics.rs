@@ -310,8 +310,16 @@ impl Compilation {
                 )
             })?;
 
+            let mut demanded = instance.mir().referenced_types();
+
+            demanded.extend(self.active_union_referent_types(
+                instance.mir(),
+                realization,
+                cancellation,
+            )?);
+
             self.extend_codegen_types(
-                instance.mir().referenced_types(),
+                demanded,
                 realization.substitution(),
                 target,
                 cancellation,
