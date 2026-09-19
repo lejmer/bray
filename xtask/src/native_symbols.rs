@@ -230,6 +230,7 @@ fn parse_coff_comdat_external_symbols(inventory: &str) -> BTreeSet<String> {
                 file,
                 line.len() - line.trim_start().len(),
             ));
+
             continue;
         }
 

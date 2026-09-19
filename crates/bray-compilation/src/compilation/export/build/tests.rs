@@ -5171,6 +5171,7 @@ fn aggregate_static_initializers_export_for_source_independent_consumers() {
             .unwrap_or_else(|error| panic!("imported aggregate static must lower: {error:?}"));
 
         assert!(lowered.value().is_some(), "{:#?}", lowered.diagnostics());
+
         assert!(
             lowered.diagnostics().is_empty(),
             "{:#?}",
