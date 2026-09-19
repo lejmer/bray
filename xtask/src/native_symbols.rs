@@ -122,9 +122,9 @@ pub(crate) fn defined_external_symbols(
     let mut symbols = parse_external_symbols(&symbols, object_format);
 
     if object_format == ObjectFormat::Coff
-        && symbols.iter().any(|symbol| {
-            !symbol.is_weak() && symbol.name().starts_with("bray_platform_")
-        })
+        && symbols
+            .iter()
+            .any(|symbol| !symbol.is_weak() && symbol.name().starts_with("bray_platform_"))
     {
         let output = Command::new(bray_llvm_toolchain::tool_path(root, "llvm-readobj"))
             .arg("--symbols")
@@ -147,9 +147,7 @@ pub(crate) fn defined_external_symbols(
         let fallbacks = parse_coff_comdat_external_symbols(&inventory);
 
         for symbol in &mut symbols {
-            if symbol.name().starts_with("bray_platform_")
-                && fallbacks.contains(symbol.name())
-            {
+            if symbol.name().starts_with("bray_platform_") && fallbacks.contains(symbol.name()) {
                 symbol.coff_comdat = true;
             }
         }
@@ -228,7 +226,10 @@ fn parse_coff_comdat_external_symbols(inventory: &str) -> BTreeSet<String> {
         }
 
         if trimmed == "Symbol {" {
-            block = Some(CoffSymbolBlock::new(file, line.len() - line.trim_start().len()));
+            block = Some(CoffSymbolBlock::new(
+                file,
+                line.len() - line.trim_start().len(),
+            ));
             continue;
         }
 
@@ -334,7 +335,9 @@ pub(crate) enum InspectionError {
 impl fmt::Display for InspectionError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Invocation { tool, source } => write!(formatter, "could not run {tool}: {source}"),
+            Self::Invocation { tool, source } => {
+                write!(formatter, "could not run {tool}: {source}")
+            }
             Self::Failed {
                 tool,
                 status,

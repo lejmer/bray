@@ -449,8 +449,8 @@ mod tests {
     use bray_diagnostics::DiagnosticResult;
     use bray_ir::{
         MirAggregateKind, MirBinaryOperator, MirCallIntrinsic, MirCallTarget, MirImmediateValue,
-        MirOperand, MirOperationKind, MirPanicCause, MirProjectionKind, MirStorageKind, MirStoreKind,
-        MirTerminatorKind, MirTextOperationKind, MirUnit, MirValueOrigin,
+        MirOperand, MirOperationKind, MirPanicCause, MirProjectionKind, MirStorageKind,
+        MirStoreKind, MirTerminatorKind, MirTextOperationKind, MirUnit, MirValueOrigin,
     };
     use bray_lowering::LoweredUnit;
     use bray_runtime_interface::{ExecutionLaneRequirement, RuntimeAbiVersion};

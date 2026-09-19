@@ -91,8 +91,7 @@ fn smoke_test_direct_hooks(
 
     let empty = directory.join("runtime-observation-empty.bin");
 
-    fs::write(&empty, b"stale observation")
-        .map_err(|error| CommandError::write(&empty, error))?;
+    fs::write(&empty, b"stale observation").map_err(|error| CommandError::write(&empty, error))?;
 
     require_mode_success(&executable, Some("empty"), &empty)?;
 
@@ -110,11 +109,7 @@ fn smoke_test_direct_hooks(
 
     let values = read_records(&records)?;
 
-    if values.len() != 3
-        || values[0] != (1, 3)
-        || values[1] != (2, 5)
-        || values[2].0 != 3
-    {
+    if values.len() != 3 || values[0] != (1, 3) || values[1] != (2, 5) || values[2].0 != 3 {
         return Err(CommandError::ObservationSmoke(format!(
             "direct-hook session has unexpected records {values:?}"
         )));
@@ -122,11 +117,7 @@ fn smoke_test_direct_hooks(
 
     let concurrent = directory.join("runtime-observation-concurrent.bin");
 
-    require_mode_success(
-        &executable,
-        Some("concurrent-first-hooks"),
-        &concurrent,
-    )?;
+    require_mode_success(&executable, Some("concurrent-first-hooks"), &concurrent)?;
 
     let concurrent_values = read_records(&concurrent)?;
     let expected_concurrent_records = CONCURRENT_THREAD_COUNT * CONCURRENT_RECORDS_PER_THREAD;
@@ -141,7 +132,10 @@ fn smoke_test_direct_hooks(
     let mut concurrent_counts = [0; CONCURRENT_THREAD_COUNT];
 
     for (kind, value) in concurrent_values {
-        let Some(index) = value.checked_sub(1).and_then(|value| usize::try_from(value).ok()) else {
+        let Some(index) = value
+            .checked_sub(1)
+            .and_then(|value| usize::try_from(value).ok())
+        else {
             return Err(CommandError::ObservationSmoke(format!(
                 "concurrent first-hook session recorded invalid value {value}"
             )));
@@ -172,10 +166,7 @@ fn smoke_test_direct_hooks(
         "observation missing path",
     )?;
 
-    require_failure(
-        &missing,
-        "performance observation output path is missing",
-    )?;
+    require_failure(&missing, "performance observation output path is missing")?;
 
     let invalid = directory.join("runtime-observation-invalid.bin");
 
@@ -211,9 +202,8 @@ fn smoke_test_direct_hooks(
         .map_err(|error| CommandError::read(&invalid, error))?
         .len();
 
-    let expected_record_cap_length =
-        bray_runtime_abi::PERFORMANCE_OBSERVATION_HEADER.len() as u64
-            + bray_runtime_abi::MAX_PERFORMANCE_OBSERVATION_RECORDS * 9;
+    let expected_record_cap_length = bray_runtime_abi::PERFORMANCE_OBSERVATION_HEADER.len() as u64
+        + bray_runtime_abi::MAX_PERFORMANCE_OBSERVATION_RECORDS * 9;
 
     if record_cap_length != expected_record_cap_length {
         return Err(CommandError::ObservationSmoke(format!(
@@ -231,17 +221,18 @@ fn smoke_test_generated_products(
 ) -> Result<(), CommandError> {
     let (compilation, product) = observation_product(target)?;
 
-    let (ordinary, ordinary_map) = crate::progress::run("Emitting an ordinary Bray smoke product", || {
-        emit_product(
-            &compilation,
-            product.clone(),
-            package,
-            target,
-            directory,
-            "ordinary",
-            BuildConfiguration::Release,
-        )
-    })?;
+    let (ordinary, ordinary_map) =
+        crate::progress::run("Emitting an ordinary Bray smoke product", || {
+            emit_product(
+                &compilation,
+                product.clone(),
+                package,
+                target,
+                directory,
+                "ordinary",
+                BuildConfiguration::Release,
+            )
+        })?;
 
     let ordinary_execution = command_output(
         Command::new(&ordinary)
@@ -252,17 +243,18 @@ fn smoke_test_generated_products(
     require_clean_success("ordinary generated product", &ordinary_execution)?;
     audit_unobserved_link_map(&ordinary_map)?;
 
-    let (memory, memory_map) = crate::progress::run("Emitting a memory-observed Bray smoke product", || {
-        emit_product(
-            &compilation,
-            product.clone(),
-            package,
-            target,
-            directory,
-            "memory",
-            BuildConfiguration::ObservedRelease,
-        )
-    })?;
+    let (memory, memory_map) =
+        crate::progress::run("Emitting a memory-observed Bray smoke product", || {
+            emit_product(
+                &compilation,
+                product.clone(),
+                package,
+                target,
+                directory,
+                "memory",
+                BuildConfiguration::ObservedRelease,
+            )
+        })?;
 
     let memory_output = directory.join("runtime-observation-generated-memory.bin");
 
@@ -362,9 +354,7 @@ fn observation_product(
     Ok((compilation, product))
 }
 
-fn observation_standard_library(
-    target: NativeTarget,
-) -> Result<StandardLibraryRoot, CommandError> {
+fn observation_standard_library(target: NativeTarget) -> Result<StandardLibraryRoot, CommandError> {
     let root = crate::workspace::root().map_err(CommandError::Workspace)?;
 
     let path = crate::workspace::cargo_target(&root)

@@ -89,7 +89,11 @@ pub(super) fn cache_identity(
 
 /// Compiles the manifest-selected trusted runtime bootstrap for the requested target.
 pub fn build(root: &Path, target: NativeTarget, destination: &Path) -> Result<(), String> {
-    build_components(root, target, &[(BrayRuntimeComponent::Bootstrap, destination)])
+    build_components(
+        root,
+        target,
+        &[(BrayRuntimeComponent::Bootstrap, destination)],
+    )
 }
 
 pub(super) fn build_runtime_components(
@@ -225,7 +229,10 @@ fn build_component(
             })
             .unwrap_or_else(|| format!("{:?}", result.diagnostics()));
 
-        return Err(format!("{} product build failed:\n{detail}", component.product()));
+        return Err(format!(
+            "{} product build failed:\n{detail}",
+            component.product()
+        ));
     }
 
     publish_outputs(product, &output, destination)

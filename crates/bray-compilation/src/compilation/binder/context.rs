@@ -15,9 +15,8 @@ use bray_symbols::{
     ReceiverParameterSymbol, ReceiverParameterSymbolId, SemanticValueStore, StaticSymbol,
     StaticSymbolId, StructFieldSymbol, StructFieldSymbolId, StructSymbol, StructSymbolId,
     SymbolGraph, SymbolQueryRequest, TypeAssociatedSurface, TypeExpressionTemplate,
-    UnionPayloadFieldSymbol,
-    UnionPayloadFieldSymbolId, UnionSymbol, UnionSymbolId, UnionVariantSymbol,
-    UnionVariantSymbolId,
+    UnionPayloadFieldSymbol, UnionPayloadFieldSymbolId, UnionSymbol, UnionSymbolId,
+    UnionVariantSymbol, UnionVariantSymbolId,
 };
 use bray_syntax::{PathSyntax, SyntaxTree};
 

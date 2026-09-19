@@ -765,7 +765,6 @@ impl RuntimeArchiveKind {
                 | Self::Event => false,
             })
     }
-
 }
 
 #[derive(Debug)]
@@ -1105,8 +1104,12 @@ mod tests {
 
             assert_eq!(
                 observation.dependencies(),
-                [component_identity(target, RuntimeArtifactPurpose::Product, "bootstrap")
-                    .unwrap_or_else(|error| panic!("bootstrap identity must be valid: {error}"))]
+                [
+                    component_identity(target, RuntimeArtifactPurpose::Product, "bootstrap")
+                        .unwrap_or_else(|error| panic!(
+                            "bootstrap identity must be valid: {error}"
+                        ))
+                ]
             );
 
             assert_eq!(

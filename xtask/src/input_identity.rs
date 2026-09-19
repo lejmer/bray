@@ -29,11 +29,7 @@ const RUNTIME_SOURCE_INPUTS: &[&str] = &[
 ];
 const STANDARD_LIBRARY_SOURCE_INPUTS: &[&str] =
     &["third-party/temporal", "xtask/src/standard_library"];
-const RUNTIME_PACKAGES: &[&str] = &[
-    "bray-driver",
-    "bray-llvm-toolchain",
-    "bray-runtime-adapter",
-];
+const RUNTIME_PACKAGES: &[&str] = &["bray-driver", "bray-llvm-toolchain", "bray-runtime-adapter"];
 const STANDARD_LIBRARY_PACKAGES: &[&str] = &[
     "bray-codegen",
     "bray-compilation",

@@ -1100,9 +1100,12 @@ impl Lowerer<'_> {
         let (current, value) =
             self.lower_call_operation(id, current, Self::retained_source(&source), call)?;
 
-        if self.type_representation(self.expression_type(id)) == Some(RepresentationRole::Never)
-        {
-            self.set_terminator(current, Self::retained_source(&source), MirTerminatorKind::Unreachable)?;
+        if self.type_representation(self.expression_type(id)) == Some(RepresentationRole::Never) {
+            self.set_terminator(
+                current,
+                Self::retained_source(&source),
+                MirTerminatorKind::Unreachable,
+            )?;
 
             return Ok(LoweredExpression::terminated(source));
         }

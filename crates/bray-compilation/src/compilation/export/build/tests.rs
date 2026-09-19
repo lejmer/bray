@@ -5171,7 +5171,11 @@ fn aggregate_static_initializers_export_for_source_independent_consumers() {
             .unwrap_or_else(|error| panic!("imported aggregate static must lower: {error:?}"));
 
         assert!(lowered.value().is_some(), "{:#?}", lowered.diagnostics());
-        assert!(lowered.diagnostics().is_empty(), "{:#?}", lowered.diagnostics());
+        assert!(
+            lowered.diagnostics().is_empty(),
+            "{:#?}",
+            lowered.diagnostics()
+        );
 
         let value = imported_static_initializer_value(&consumer, function);
         let mut actual = Vec::new();
@@ -5229,7 +5233,11 @@ fn imported_static_initializer_value(consumer: &Compilation, function: &str) -> 
         )
         .unwrap_or_else(|error| panic!("imported static initializer must evaluate: {error:?}"));
 
-    assert!(evaluated.diagnostics().is_empty(), "{:#?}", evaluated.diagnostics());
+    assert!(
+        evaluated.diagnostics().is_empty(),
+        "{:#?}",
+        evaluated.diagnostics()
+    );
 
     evaluated.value().value()
 }
