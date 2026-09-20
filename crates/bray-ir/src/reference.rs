@@ -214,6 +214,22 @@ pub enum MirCallIntrinsic {
 }
 
 impl MirCall {
+    pub(crate) fn remap_local_ids(
+        &mut self,
+        mappings: &impl crate::unit::local_id_remap::MirLocalIdMapping,
+    ) {
+        if let MirCallTarget::Indirect { callee, .. } = &mut self.target {
+            callee.remap_local_ids(mappings);
+        }
+
+        for argument in Arc::make_mut(&mut self.arguments) {
+            match argument {
+                MirCallArgument::Receiver { value, .. }
+                | MirCallArgument::Explicit { value, .. } => value.remap_local_ids(mappings),
+            }
+        }
+    }
+
     /// Marks an invocation of a mandatory local action backed by its owner's admission.
     pub const fn with_cleanup(mut self, cleanup: bool) -> Self {
         self.cleanup = cleanup;

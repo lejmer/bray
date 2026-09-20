@@ -50,7 +50,8 @@ pub use storage::{MirPlace, MirProjection, MirProjectionKind, MirStorage, MirSto
 pub use target::MirTargetContract;
 pub use unit::{
     MirCapacityError, MirExecutableTemplateId, MirGeneratedLifecycleKey, MirGeneratedLifecycleRole,
-    MirImportedExecutableKey, MirUnit, MirUnitBuilder, MirUnitKey, MirUnitKind,
+    MirImportedExecutableKey, MirReconstructionMappings, MirUnit, MirUnitBuilder, MirUnitKey,
+    MirUnitKind, reconstruct_reachable,
 };
 pub use value::{MirImmediateValue, MirOperand, MirValue, MirValueOrigin};
 pub use walk::{MirVisitControl, MirVisitor, walk_mir_unit};

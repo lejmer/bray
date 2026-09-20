@@ -11,11 +11,11 @@ use crate::{
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct MirInlineAssemblyTerminator {
     contract: bray_bound_tree::InlineAssemblyContract,
-    inputs: MirOperand,
+    pub(crate) inputs: MirOperand,
     inputs_type: TypeId,
     output_type: TypeId,
-    normal: MirBlockId,
-    alternates: Arc<[MirBlockId]>,
+    pub(crate) normal: MirBlockId,
+    pub(crate) alternates: Arc<[MirBlockId]>,
     symbols: Arc<[MirCallableReference]>,
 }
 
@@ -121,8 +121,8 @@ impl From<bray_bound_tree::PatternPredicate> for MirPatternPredicate {
 /// One control-flow transfer and its block arguments.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct MirEdge {
-    target: MirBlockId,
-    arguments: Arc<[MirOperand]>,
+    pub(crate) target: MirBlockId,
+    pub(crate) arguments: Arc<[MirOperand]>,
 }
 
 impl MirEdge {
@@ -158,14 +158,14 @@ pub enum MirCleanupPhase {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct MirCleanupEdge {
     phase: MirCleanupPhase,
-    edge: MirEdge,
+    pub(crate) edge: MirEdge,
 }
 
 /// Panic successor of one synchronous Bray call.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct MirCallPanicEdge {
-    target: MirBlockId,
-    report: MirPlace,
+    pub(crate) target: MirBlockId,
+    pub(crate) report: MirPlace,
 }
 
 impl MirCallPanicEdge {
@@ -206,7 +206,7 @@ impl MirCleanupEdge {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct MirSwitchCase {
     value: ConstantValueId,
-    edge: MirEdge,
+    pub(crate) edge: MirEdge,
 }
 
 impl MirSwitchCase {
@@ -230,9 +230,9 @@ impl MirSwitchCase {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct MirRunResultEdges {
     variants: MirRunResultVariants,
-    completed: MirEdge,
-    panicked: MirCleanupEdge,
-    cancelled: MirCleanupEdge,
+    pub(crate) completed: MirEdge,
+    pub(crate) panicked: MirCleanupEdge,
+    pub(crate) cancelled: MirCleanupEdge,
 }
 
 /// Exact union variants used to form one compiler-known run result.

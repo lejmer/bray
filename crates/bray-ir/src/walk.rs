@@ -1,8 +1,8 @@
 use crate::{
-    MirAsyncOperation, MirBlock, MirBlockId, MirCall, MirCallTarget, MirFrameInitializer,
-    MirGeneratorOperation, MirOperand, MirOperation, MirOperationId, MirOperationKind,
-    MirPanicCause, MirPlace, MirProjectionKind, MirStorage, MirStorageId, MirTaskTerminalState,
-    MirTerminator, MirTerminatorKind, MirUnit, MirValue, MirValueId,
+    MirAsyncOperation, MirBlock, MirBlockId, MirCall, MirCallTarget, MirEdge, MirFrameInitializer,
+    MirGeneratorOperation, MirHostOperation, MirOperand, MirOperation, MirOperationId,
+    MirOperationKind, MirPanicCause, MirPlace, MirProjectionKind, MirStorage, MirStorageId,
+    MirTaskTerminalState, MirTerminator, MirTerminatorKind, MirUnit, MirValue, MirValueId,
 };
 
 /// Controls deterministic traversal of immutable MIR.
@@ -320,6 +320,151 @@ fn visit_place_operands(place: &MirPlace, visit: &mut impl FnMut(&MirOperand)) {
             | MirProjectionKind::OwnedStorage => {}
         }
     }
+}
+
+pub(crate) fn for_each_operation_storage(
+    operation: &MirOperationKind,
+    mut visit: impl FnMut(MirStorageId),
+) {
+    operation.for_each_operand(|operand| visit_operand_storage(operand, &mut visit));
+
+    match operation {
+        MirOperationKind::Store { destination, .. }
+        | MirOperationKind::Borrow {
+            place: destination, ..
+        }
+        | MirOperationKind::Finalize(destination)
+        | MirOperationKind::Destroy(destination)
+        | MirOperationKind::Cleanup {
+            place: destination, ..
+        }
+        | MirOperationKind::Generator(
+            MirGeneratorOperation::Push { destination, .. }
+            | MirGeneratorOperation::Begin { destination, .. }
+            | MirGeneratorOperation::Finish { destination }
+            | MirGeneratorOperation::CleanupBroadcast { destination, .. }
+            | MirGeneratorOperation::Destroy { destination, .. },
+        )
+        | MirOperationKind::Host(MirHostOperation::MaterializeStatic {
+            place: destination,
+        }) => visit(destination.storage()),
+        MirOperationKind::Async(MirAsyncOperation::MoveInactiveFrame {
+            source,
+            destination,
+            ..
+        }) => {
+            visit(source.storage());
+            visit(destination.storage());
+        }
+        MirOperationKind::Async(MirAsyncOperation::ResumeFrame { storage, .. }) => visit(*storage),
+        MirOperationKind::Unary { .. }
+        | MirOperationKind::Binary { .. }
+        | MirOperationKind::Convert { .. }
+        | MirOperationKind::NumericConversion { .. }
+        | MirOperationKind::Aggregate(_)
+        | MirOperationKind::Construct(_)
+        | MirOperationKind::NullableQuery(_)
+        | MirOperationKind::PatternProjection { .. }
+        | MirOperationKind::Call(_)
+        | MirOperationKind::Memory(_)
+        | MirOperationKind::Text(_)
+        | MirOperationKind::PanicReport(_)
+        | MirOperationKind::Async(_)
+        | MirOperationKind::Host(_)
+        | MirOperationKind::AnonymousCallable(_)
+        | MirOperationKind::DeclaredCallable(_)
+        | MirOperationKind::AdmitOutgoing { .. }
+        | MirOperationKind::DischargeOutgoing { .. } => {}
+    }
+}
+
+pub(crate) fn for_each_terminator_storage(
+    terminator: &MirTerminatorKind,
+    mut visit: impl FnMut(MirStorageId),
+) {
+    terminator.for_each_input(|operand| visit_operand_storage(operand, &mut visit));
+
+    match terminator {
+        MirTerminatorKind::Goto(edge) => visit_edge_storage(edge, &mut visit),
+        MirTerminatorKind::Branch {
+            then_edge,
+            else_edge,
+            ..
+        }
+        | MirTerminatorKind::PatternBranch {
+            matched: then_edge,
+            unmatched: else_edge,
+            ..
+        } => {
+            visit_edge_storage(then_edge, &mut visit);
+            visit_edge_storage(else_edge, &mut visit);
+        }
+        MirTerminatorKind::Iterate {
+            cursor, exhausted, ..
+        }
+        | MirTerminatorKind::RangeIterate {
+            cursor, exhausted, ..
+        } => {
+            visit(cursor.storage());
+            visit_edge_storage(exhausted, &mut visit);
+        }
+        MirTerminatorKind::Switch {
+            cases, otherwise, ..
+        } => {
+            for case in cases.iter() {
+                visit_edge_storage(case.edge(), &mut visit);
+            }
+
+            visit_edge_storage(otherwise, &mut visit);
+        }
+        MirTerminatorKind::Suspend {
+            resume,
+            cancellation,
+            ..
+        } => {
+            visit_edge_storage(resume, &mut visit);
+            visit_edge_storage(cancellation.edge(), &mut visit);
+        }
+        MirTerminatorKind::ForwardRunResult { edges, .. } => {
+            visit_edge_storage(edges.completed(), &mut visit);
+            visit_edge_storage(edges.panicked().edge(), &mut visit);
+            visit_edge_storage(edges.cancelled().edge(), &mut visit);
+        }
+        MirTerminatorKind::CheckCallOutcome {
+            completed,
+            panicked,
+            cancelled,
+        } => {
+            visit_edge_storage(completed, &mut visit);
+            visit(panicked.report().storage());
+            visit_edge_storage(cancelled, &mut visit);
+        }
+        MirTerminatorKind::BeginCleanup(cleanup)
+        | MirTerminatorKind::ContinueCleanup(cleanup)
+        | MirTerminatorKind::Panic { cleanup, .. }
+        | MirTerminatorKind::CancelCurrentRun { cleanup } => {
+            visit_edge_storage(cleanup.edge(), &mut visit);
+        }
+        MirTerminatorKind::InlineAssembly(_)
+        | MirTerminatorKind::Return(_)
+        | MirTerminatorKind::Unreachable
+        | MirTerminatorKind::PropagatePanic { .. }
+        | MirTerminatorKind::PropagateCancellation { .. } => {}
+    }
+}
+
+fn visit_edge_storage(edge: &MirEdge, visit: &mut impl FnMut(MirStorageId)) {
+    for argument in edge.arguments() {
+        visit_operand_storage(argument, visit);
+    }
+}
+
+fn visit_operand_storage(operand: &MirOperand, visit: &mut impl FnMut(MirStorageId)) {
+    operand.for_each_operand(|operand| {
+        if let MirOperand::Copy(place) | MirOperand::Move(place) = operand {
+            visit(place.storage());
+        }
+    });
 }
 
 #[cfg(test)]

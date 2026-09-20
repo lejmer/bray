@@ -77,6 +77,17 @@ pub enum MirOperand {
 }
 
 impl MirOperand {
+    pub(crate) fn remap_local_ids(
+        &mut self,
+        mappings: &impl crate::unit::local_id_remap::MirLocalIdMapping,
+    ) {
+        match self {
+            Self::Value(value) => *value = mappings.value(*value),
+            Self::Copy(place) | Self::Move(place) => place.remap_local_ids(mappings),
+            Self::Constant { .. } | Self::Immediate { .. } => {}
+        }
+    }
+
     /// Returns the operand's known type when it is carried directly by the operand.
     pub const fn explicit_type(&self) -> Option<TypeId> {
         match self {

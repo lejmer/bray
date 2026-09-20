@@ -36,6 +36,22 @@ pub struct MirUnitBuilder {
 }
 
 impl MirUnitBuilder {
+    pub(super) fn for_reconstruction(unit: &MirUnit) -> Self {
+        // The reconstructed unit must own the same immutable semantic identity and target contract.
+        Self {
+            key: unit.key.clone(),
+            unit: unit.unit,
+            source: unit.source.clone(),
+            target: unit.target.clone(),
+            kind: unit.kind.clone(),
+            frame_descriptor: None,
+            blocks: Vec::new(),
+            operations: Vec::new(),
+            storages: Vec::new(),
+            values: Vec::new(),
+        }
+    }
+
     /// Returns the target contract retained by the body under construction.
     pub const fn target(&self) -> &MirTargetContract {
         &self.target
