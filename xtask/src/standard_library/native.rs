@@ -25,7 +25,7 @@ const API_TEST_COUNT: usize = 150;
 const API_FILTERED_TEST_COUNT: usize = 3;
 const CONCURRENCY_MODEL_TEST_COUNT: usize = 7;
 const CONCURRENCY_STRESS_TEST_COUNT: usize = 5;
-const OUTCOME_CASES: [OutcomeCase; 17] = [
+const OUTCOME_CASES: [OutcomeCase; 18] = [
     OutcomeCase::new(
         "assertion-failure",
         "assertion_failure",
@@ -132,6 +132,15 @@ const OUTCOME_CASES: [OutcomeCase; 17] = [
         OutcomeExpectation::Panic {
             cause: "message",
             message: "expected panic",
+            source_available: true,
+        },
+    ),
+    OutcomeCase::new(
+        "checked-call-panic-report",
+        "checked_call_panic_preserves_report",
+        OutcomeExpectation::Panic {
+            cause: "message",
+            message: "checked call panic",
             source_available: true,
         },
     ),

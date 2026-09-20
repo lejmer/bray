@@ -241,7 +241,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 completed,
                 panicked,
                 cancelled,
-            } => self.translate_call_panic(block, completed, *panicked, cancelled)?,
+            } => self.translate_call_panic(block, completed, panicked, cancelled)?,
         }
 
         Ok(())

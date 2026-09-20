@@ -303,7 +303,7 @@ fn collect_terminator_types(terminator: &MirTerminatorKind, types: &mut BTreeSet
         } => {
             collect_edge_types(completed, types);
             collect_edge_types(cancelled, types);
-            types.insert(panicked.report_type());
+            collect_place_types(panicked.report(), types);
         }
         MirTerminatorKind::BeginCleanup(edge) | MirTerminatorKind::ContinueCleanup(edge) => {
             collect_cleanup_edge_types(edge, types)

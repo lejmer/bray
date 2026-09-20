@@ -65,8 +65,8 @@ trusted internal func swap_at<T>(pos list: &mut List<T>, left: usize, right: usi
     let right_pointer: RawPointer<T> = std.memory.address_of_mut<T>(&mut values[right]);
     let replacement: T = trusted std.memory.read<T>(right_pointer);
 
-    values[left] = replacement;
-    values[right] = temporary;
+    trusted std.memory.write<T>(left_pointer, replacement);
+    trusted std.memory.write<T>(right_pointer, temporary);
 }
 
 trusted internal func reverse_values<T>(pos list: &mut List<T>, count: usize) -> unit

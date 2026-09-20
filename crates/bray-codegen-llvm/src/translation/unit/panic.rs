@@ -3,9 +3,7 @@ use bray_ir::{MirEdge, MirOperand};
 use inkwell::values::{FunctionValue, PointerValue};
 
 use super::core::UnitTranslator;
-use super::support::{
-    llvm, native_run_outcome, native_run_outcome_value, native_run_state_is, pointer_value,
-};
+use super::support::{llvm, native_run_outcome_value, native_run_state_is, pointer_value};
 
 use bray_runtime_abi::NativeRunState;
 
@@ -97,7 +95,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &mut self,
         block: bray_ir::MirBlockId,
         completed: &MirEdge,
-        panicked: bray_ir::MirCallPanicEdge,
+        panicked: &bray_ir::MirCallPanicEdge,
         cancelled_edge: &MirEdge,
     ) -> Result<(), CodegenFailure> {
         let admission = self
@@ -126,26 +124,23 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .expect("checked MIR translation requires an established mapping or value");
 
         let ty = crate::native::run_outcome_type(self.types.context(), self.request.target());
-        let outcome = llvm(self.builder.build_load(ty, context, "call.outcome"))?;
 
-        let (state, _) = native_run_outcome(&self.builder, outcome)?;
+        let state_pointer =
+            llvm(
+                self.builder
+                    .build_struct_gep(ty, context, 0, "call.outcome.state"),
+            )?;
 
-        let report = super::support::extract_value(&self.builder, outcome, 2)?;
+        let state = llvm(self.builder.build_load(
+            self.types.context().i32_type(),
+            state_pointer,
+            "call.outcome.state",
+        ))?
+        .into_int_value();
 
-        let report = if let Some(operation) = admission {
-            // Admission supplies the exact cause; this source operation supplies its occurrence.
-            let source = self.native_source_anchor(operation)?;
-            let mut report = report;
-
-            for (index, source_index) in (0..5).enumerate() {
-                let field = super::support::extract_value(&self.builder, source, source_index)?;
-                report = super::support::insert_value(&self.builder, report, field, index)?;
-            }
-
-            report
-        } else {
-            report
-        };
+        let report_source = admission
+            .map(|operation| self.native_source_anchor(operation))
+            .transpose()?;
 
         let cancelled = native_run_state_is(
             &self.builder,
@@ -200,17 +195,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let completed_route = self.route_edge(completed, "call.completed", &pending_moves)?;
 
-        let panicked_route =
-            self.route_call_panic(panicked, report.into(), "call.panicked", &pending_moves)?;
-
-        // Successful calls leave the empty destination intact. Clear transferred ownership
-        // only on the failure routes, before another cleanup call can reuse this destination.
-        let first = panicked_route
-            .get_first_instruction()
-            .expect("checked MIR translation requires an established mapping or value");
-
-        self.builder.position_before(&first);
-        llvm(self.builder.build_store(context, ty.const_zero()))?;
+        let panicked_route = self.route_call_panic(
+            panicked,
+            context,
+            report_source,
+            "call.panicked",
+            &pending_moves,
+        )?;
 
         self.builder.position_at_end(source);
 

@@ -126,9 +126,15 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
         let panicked = builder.push_block(source.clone(), kind).map_err(invalid)?;
 
-        let report = builder
-            .push_block_parameter(panicked, source.clone(), report_type)
+        let report_storage = builder
+            .push_storage(
+                source.clone(),
+                bray_ir::MirStorageKind::Temporary,
+                report_type,
+            )
             .map_err(invalid)?;
+
+        let report = bray_ir::MirPlace::new(report_storage, [], report_type);
 
         let cancelled = builder.push_block(source.clone(), kind).map_err(invalid)?;
 
@@ -137,7 +143,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             source.clone(),
             MirTerminatorKind::CheckCallOutcome {
                 completed: MirEdge::new(completed, [bray_ir::MirOperand::Value(value)]),
-                panicked: bray_ir::MirCallPanicEdge::new(panicked, report_type),
+                panicked: bray_ir::MirCallPanicEdge::new(panicked, report.clone()),
                 cancelled: MirEdge::new(cancelled, []),
             },
         );
@@ -149,7 +155,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             panicked,
             source,
             MirTerminatorKind::PropagatePanic {
-                report: bray_ir::MirOperand::Value(report),
+                report: bray_ir::MirOperand::Move(report),
                 runtime: MirRuntimeReference::new(RuntimeAbiRole::PanicPropagation, abi),
             },
         )?;

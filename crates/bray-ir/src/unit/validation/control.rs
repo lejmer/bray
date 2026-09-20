@@ -190,7 +190,7 @@ pub(super) fn validate_terminator(
             panicked,
             cancelled,
         } => {
-            validate_call_panic_check(unit, block_id, block, completed, *panicked)?;
+            validate_call_panic_check(unit, block_id, block, completed, panicked)?;
             validate_local_edge(unit, block_id, cancelled)?;
         }
         MirTerminatorKind::BeginCleanup(edge) => {
@@ -279,25 +279,19 @@ fn validate_iteration_item(
 fn validate_call_panic_edge(
     unit: &MirUnit,
     source: MirBlockId,
-    edge: crate::MirCallPanicEdge,
+    edge: &crate::MirCallPanicEdge,
 ) -> Option<()> {
     let Some(block) = unit.block(edge.target()) else {
         return None;
     };
 
-    let [parameter] = block.parameters() else {
-        return None;
-    };
-
-    let Some(parameter) = unit.value(*parameter) else {
-        return None;
-    };
-
     if unit.block(source).map(MirBlock::kind) != Some(block.kind())
-        || parameter.ty() != edge.report_type()
+        || !block.parameters().is_empty()
     {
         return None;
     }
+
+    super::operation::validate_place(unit, edge.report(), source, None)?;
 
     Some(())
 }
@@ -307,7 +301,7 @@ fn validate_call_panic_check(
     source: MirBlockId,
     block: &MirBlock,
     completed: &MirEdge,
-    panicked: crate::MirCallPanicEdge,
+    panicked: &crate::MirCallPanicEdge,
 ) -> Option<()> {
     validate_local_edge(unit, source, completed)?;
     validate_call_panic_edge(unit, source, panicked)?;

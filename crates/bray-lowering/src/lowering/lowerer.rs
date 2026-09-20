@@ -72,7 +72,14 @@ pub(super) struct Lowerer<'unit> {
     pub(super) input_temporaries: Vec<super::inputs::InputTemporary>,
     pub(super) frame_states: Vec<MirFrameState>,
     pub(super) cleanup_outcome: Option<crate::cleanup_outcome::CleanupOutcome>,
-    pub(super) cleanup_failure_targets: Option<(MirBlockId, MirBlockId, bray_symbols::TypeId)>,
+    pub(super) cleanup_failure_targets: Option<(MirBlockId, MirBlockId, bray_ir::MirPlace)>,
+    pub(super) abnormal_cleanup_machine: Option<super::cleanup::AbnormalCleanupMachine>,
+    pub(super) terminal_state_blocks:
+        std::collections::HashMap<super::cleanup::TerminalState, MirBlockId>,
+    pub(super) cleanup_transfer_places: std::collections::HashMap<
+        (bray_ir::MirStorageKind, bray_symbols::TypeId),
+        bray_ir::MirPlace,
+    >,
 }
 
 /// Lowers one complete checked semantic unit into validated backend-independent MIR.
@@ -104,6 +111,9 @@ impl<'unit> Lowerer<'unit> {
             frame_states: Vec::new(),
             cleanup_outcome: None,
             cleanup_failure_targets: None,
+            abnormal_cleanup_machine: None,
+            terminal_state_blocks: std::collections::HashMap::new(),
+            cleanup_transfer_places: std::collections::HashMap::new(),
         }
     }
 
@@ -221,6 +231,8 @@ impl<'unit> Lowerer<'unit> {
                 )?;
             }
         }
+
+        self.finish_abnormal_cleanup_dispatchers(&source)?;
 
         if let Some(frame) = self.input.unit_kind().protected_frame() {
             let result_type = self
@@ -533,6 +545,212 @@ mod tests {
         assert!(
             matches!(bridge.terminator().kind(), MirTerminatorKind::Goto(edge) if edge.target() == consumed && matches!(edge.arguments(), [MirOperand::Value(_)]))
         );
+    }
+
+    #[test]
+    fn abnormal_exits_share_only_identical_cleanup_suffixes() {
+        use bray_ir::{
+            MirBlockKind, MirPlace, MirSourceAnchor, MirStorageKind, MirTerminatorKind,
+        };
+
+        let fixture = lowering_fixture(102, BoundOperator::Add);
+        let mut lowerer = super::Lowerer::new(fixture.input());
+        let source = MirSourceAnchor::from(fixture.unit.key().source());
+
+        let first = lowerer
+            .builder
+            .push_block(source.clone(), MirBlockKind::Ordinary)
+            .unwrap();
+
+        let second = lowerer
+            .builder
+            .push_block(source.clone(), MirBlockKind::Ordinary)
+            .unwrap();
+
+        let different = lowerer
+            .builder
+            .push_block(source.clone(), MirBlockKind::Ordinary)
+            .unwrap();
+
+        let different_source = MirSourceAnchor::source(
+            bray_bound_tree::BoundNodeOrigin::synthesized(
+                fixture.unit.key().source(),
+                bray_bound_tree::BoundSynthesisRole::OwnershipOperation,
+                bray_bound_tree::BoundNodeOrdinal::new(1),
+            ),
+        );
+
+        let different_occurrence = lowerer
+            .builder
+            .push_block(different_source.clone(), MirBlockKind::Ordinary)
+            .unwrap();
+
+        let panicking = lowerer
+            .builder
+            .push_block(source.clone(), MirBlockKind::Ordinary)
+            .unwrap();
+
+        let ty = fixture.values.intern_type(TypeData::tuple([])).unwrap();
+
+        let shared_storage = lowerer
+            .builder
+            .push_storage(source.clone(), MirStorageKind::Temporary, ty)
+            .unwrap();
+
+        let different_storage = lowerer
+            .builder
+            .push_storage(source.clone(), MirStorageKind::Temporary, ty)
+            .unwrap();
+
+        let shared_place = MirPlace::new(shared_storage, [], ty);
+        let different_place = MirPlace::new(different_storage, [], ty);
+
+        let report_type = lowerer
+            .representation_type(bray_compiler_known::RepresentationRole::PanicReport)
+            .unwrap();
+
+        let report_storage = lowerer
+            .builder
+            .push_storage(source.clone(), MirStorageKind::Temporary, report_type)
+            .unwrap();
+
+        let report = MirPlace::new(report_storage, [], report_type);
+
+        lowerer
+            .finish_abnormal_cleanup(
+                first,
+                &source,
+                None,
+                crate::lowering::cleanup::CleanupDestination::PropagateCancellation,
+                &[],
+                Some(&shared_place),
+            )
+            .unwrap();
+
+        lowerer
+            .finish_abnormal_cleanup(
+                different,
+                &source,
+                None,
+                crate::lowering::cleanup::CleanupDestination::Return,
+                &[],
+                Some(&different_place),
+            )
+            .unwrap();
+
+        lowerer
+            .finish_abnormal_cleanup(
+                second,
+                &source,
+                None,
+                crate::lowering::cleanup::CleanupDestination::PropagateCancellation,
+                &[],
+                Some(&shared_place),
+            )
+            .unwrap();
+
+        lowerer
+            .finish_abnormal_cleanup(
+                different_occurrence,
+                &different_source,
+                None,
+                crate::lowering::cleanup::CleanupDestination::PropagateCancellation,
+                &[],
+                Some(&shared_place),
+            )
+            .unwrap();
+
+        lowerer
+            .finish_abnormal_cleanup(
+                panicking,
+                &source,
+                Some(bray_ir::MirOperand::Move(report)),
+                crate::lowering::cleanup::CleanupDestination::PropagatePanic,
+                &[],
+                Some(&shared_place),
+            )
+            .unwrap();
+
+        lowerer
+            .finish_abnormal_cleanup_dispatchers(&source)
+            .unwrap();
+
+        let mir = lowerer.builder.finish(first);
+
+        let MirTerminatorKind::CancelCurrentRun {
+            cleanup: first_edge,
+        } = mir.block(first).unwrap().terminator().kind()
+        else {
+            panic!("first abnormal exit must begin cancellation cleanup")
+        };
+
+        let MirTerminatorKind::CancelCurrentRun {
+            cleanup: second_edge,
+        } = mir.block(second).unwrap().terminator().kind()
+        else {
+            panic!("second abnormal exit must begin cancellation cleanup")
+        };
+
+        let MirTerminatorKind::CancelCurrentRun {
+            cleanup: different_edge,
+        } = mir.block(different).unwrap().terminator().kind()
+        else {
+            panic!("different abnormal exit must begin cancellation cleanup")
+        };
+
+        let MirTerminatorKind::CancelCurrentRun {
+            cleanup: different_occurrence_edge,
+        } = mir
+            .block(different_occurrence)
+            .unwrap()
+            .terminator()
+            .kind()
+        else {
+            panic!("different source occurrence must begin cancellation cleanup")
+        };
+
+        let MirTerminatorKind::Panic {
+            cleanup: panic_edge,
+            ..
+        } = mir.block(panicking).unwrap().terminator().kind()
+        else {
+            panic!("panic exit must begin panic cleanup")
+        };
+
+        assert_eq!(first_edge.edge().target(), second_edge.edge().target());
+        assert_ne!(first_edge.edge().target(), different_edge.edge().target());
+
+        assert_ne!(
+            first_edge.edge().target(),
+            different_occurrence_edge.edge().target()
+        );
+
+        assert_ne!(first_edge.edge().target(), panic_edge.edge().target());
+
+        let routes = mir
+            .blocks()
+            .iter()
+            .find_map(|block| match block.terminator().kind() {
+                MirTerminatorKind::Switch { cases, .. } if cases.len() == 2 => Some(cases),
+                _ => None,
+            })
+            .expect("cancellation dispatcher must retain both destinations");
+
+        let destinations = routes
+            .iter()
+            .map(|route| mir.block(route.edge().target()).unwrap().terminator().kind())
+            .collect::<Vec<_>>();
+
+        assert!(
+            destinations
+                .iter()
+                .any(|destination| matches!(destination, MirTerminatorKind::Return(None)))
+        );
+
+        assert!(destinations.iter().any(|destination| matches!(
+            destination,
+            MirTerminatorKind::PropagateCancellation { .. }
+        )));
     }
 
     #[test]

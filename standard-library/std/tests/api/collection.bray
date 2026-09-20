@@ -297,10 +297,11 @@ trusted func iterator_boundaries() -> Result<unit, std.memory.MemoryLayoutError>
 }
 
 @test
-trusted func list_growth_relocates_only_initialized_owned_values() -> Result<unit, std.memory.MemoryLayoutError>
+trusted func list_owned_values_survive_growth_and_removal() -> Result<unit, std.memory.MemoryLayoutError>
 {
     let first_bytes: [u8; 1] = [11];
     let second_bytes: [u8; 1] = [22];
+    let third_bytes: [u8; 1] = [33];
 
     let first: OwnedValue =
     {
@@ -312,13 +313,19 @@ trusted func list_growth_relocates_only_initialized_owned_values() -> Result<uni
         bytes = try std.bytes.Buffer.from_slice(&second_bytes[..]),
     };
 
+    let third: OwnedValue =
+    {
+        bytes = try std.bytes.Buffer.from_slice(&third_bytes[..]),
+    };
+
     let mut values: std.collection.List<OwnedValue> = try trusted std.collection.List<OwnedValue>(capacity = 4);
 
     try trusted std.collection.push<OwnedValue>(&mut values, first);
     try trusted std.collection.push<OwnedValue>(&mut values, second);
+    try trusted std.collection.push<OwnedValue>(&mut values, third);
     try trusted std.collection.reserve<OwnedValue>(&mut values, additional = 3);
 
-    assert(std.collection.length<OwnedValue>(&values) == 2);
+    assert(std.collection.length<OwnedValue>(&values) == 3);
     assert(std.collection.capacity<OwnedValue>(&values) == 8);
 
     try trusted std.collection.reserve_exact<OwnedValue>(&mut values, additional = 1);
@@ -329,12 +336,19 @@ trusted func list_growth_relocates_only_initialized_owned_values() -> Result<uni
 
     assert(stored[0].bytes.as_slice()[0] == 11);
     assert(stored[1].bytes.as_slice()[0] == 22);
+    assert(stored[2].bytes.as_slice()[0] == 33);
 
-    let removed: OwnedValue? = trusted std.collection.pop<OwnedValue>(&mut values);
+    let removed: OwnedValue? = trusted std.collection.remove<OwnedValue>(&mut values, index = 1);
 
     let value: OwnedValue = std.testing.assert_present<OwnedValue>(removed);
 
     assert(value.bytes.as_slice()[0] == 22);
+    assert(std.collection.length<OwnedValue>(&values) == 2);
+
+    let remaining: &[OwnedValue] = values.as_slice();
+
+    assert(remaining[0].bytes.as_slice()[0] == 11);
+    assert(remaining[1].bytes.as_slice()[0] == 33);
 
     return Ok(unit);
 }

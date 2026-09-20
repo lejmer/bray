@@ -162,29 +162,26 @@ pub struct MirCleanupEdge {
 }
 
 /// Panic successor of one synchronous Bray call.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct MirCallPanicEdge {
     target: MirBlockId,
-    report_type: TypeId,
+    report: MirPlace,
 }
 
 impl MirCallPanicEdge {
-    /// Creates a panic successor whose sole block parameter receives the propagated report.
-    pub const fn new(target: MirBlockId, report_type: TypeId) -> Self {
-        Self {
-            target,
-            report_type,
-        }
+    /// Creates a panic successor that stores the propagated report before transfer.
+    pub const fn new(target: MirBlockId, report: MirPlace) -> Self {
+        Self { target, report }
     }
 
-    /// Returns the block that receives the propagated report.
-    pub const fn target(self) -> MirBlockId {
+    /// Returns the block entered after storing the propagated report.
+    pub const fn target(&self) -> MirBlockId {
         self.target
     }
 
-    /// Returns the panic-report type received by the target block.
-    pub const fn report_type(self) -> TypeId {
-        self.report_type
+    /// Returns the caller-owned destination for the propagated report.
+    pub const fn report(&self) -> &MirPlace {
+        &self.report
     }
 }
 

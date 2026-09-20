@@ -32,11 +32,7 @@ impl Lowerer<'_> {
                     MirStorageKind::Temporary
                 };
 
-                let storage = self
-                    .builder
-                    .push_storage(Self::retained_source(source), kind, ty)?;
-
-                let place = MirPlace::new(storage, [], ty);
+                let place = self.cleanup_transfer_place(source, kind, ty)?;
 
                 self.push_operation(
                     current,
@@ -83,13 +79,37 @@ impl Lowerer<'_> {
         )
     }
 
+    fn cleanup_transfer_place(
+        &mut self,
+        source: &MirSourceAnchor,
+        kind: MirStorageKind,
+        ty: TypeId,
+    ) -> Result<MirPlace, LoweringError> {
+        let key = (kind.clone(), ty);
+
+        if let Some(place) = self.cleanup_transfer_places.get(&key) {
+            return Ok(Self::retained_place(place));
+        }
+
+        let storage = self
+            .builder
+            .push_storage(Self::retained_source(source), kind, ty)?;
+
+        let place = MirPlace::new(storage, [], ty);
+
+        self.cleanup_transfer_places
+            .insert(key, Self::retained_place(&place));
+
+        Ok(place)
+    }
+
     fn ordinary_cleanup_failures(
         &mut self,
         source: &MirSourceAnchor,
         exit: AnyBoundNodeId,
         plans: &[AsyncScopeExitPlan],
         pending: Option<&MirPlace>,
-    ) -> Result<BTreeMap<BoundBlockId, (MirBlockId, MirBlockId, TypeId)>, LoweringError> {
+    ) -> Result<BTreeMap<BoundBlockId, (MirBlockId, MirBlockId, MirPlace)>, LoweringError> {
         let report_type = self.representation_type(RepresentationRole::PanicReport)?;
 
         let cancelled = self.builder.push_block(
@@ -104,6 +124,7 @@ impl Lowerer<'_> {
         };
 
         let remaining = self.cleanup_plans(0, exit);
+
         self.finish_abnormal_cleanup(cancelled, source, None, destination, &remaining, pending)?;
 
         let mut handlers = BTreeMap::new();
@@ -128,19 +149,21 @@ impl Lowerer<'_> {
                 .find(|target| target.scope_depth <= index)
                 .map(|target| (target.block, target.scope_depth));
 
-            let panicked = if let Some(block) = handlers.get(&catch) {
-                *block
+            let (panicked, report) = if let Some((block, report)) = handlers.get(&catch) {
+                (*block, Self::retained_place(report))
             } else {
                 let panicked = self.builder.push_block(
                     Self::retained_source(source),
                     MirBlockKind::LifecycleResolution,
                 )?;
 
-                let report = self.builder.push_block_parameter(
-                    panicked,
+                let report_storage = self.builder.push_storage(
                     Self::retained_source(source),
+                    MirStorageKind::Temporary,
                     report_type,
                 )?;
+
+                let report = MirPlace::new(report_storage, [], report_type);
 
                 let (destination, depth) =
                     match catch {
@@ -160,18 +183,18 @@ impl Lowerer<'_> {
                 self.finish_abnormal_cleanup(
                     panicked,
                     source,
-                    Some(MirOperand::Value(report)),
+                    Some(MirOperand::Move(Self::retained_place(&report))),
                     destination,
                     &remaining,
                     pending,
                 )?;
 
-                handlers.insert(catch, panicked);
+                handlers.insert(catch, (panicked, Self::retained_place(&report)));
 
-                panicked
+                (panicked, report)
             };
 
-            failures.insert(plan.scope(), (panicked, cancelled, report_type));
+            failures.insert(plan.scope(), (panicked, cancelled, report));
         }
 
         Ok(failures)
@@ -183,32 +206,25 @@ impl Lowerer<'_> {
         source: &MirSourceAnchor,
         released_owner: Option<TypeId>,
     ) -> Result<MirBlockId, LoweringError> {
-        let Some((mut panicked, mut cancelled, report_type)) = self.cleanup_failure_targets else {
+        let Some((mut panicked, mut cancelled, report)) = self.cleanup_failure_targets.clone()
+        else {
             return Ok(block);
         };
 
         if let Some(owner) = released_owner {
             let kind = self.builder.block_kind(block);
 
-            for (target, parameter) in [(&mut panicked, Some(report_type)), (&mut cancelled, None)]
-            {
+            for target in [&mut panicked, &mut cancelled] {
                 let edge = self
                     .builder
                     .push_block(Self::retained_source(source), kind)?;
-
-                let argument = parameter
-                    .map(|ty| {
-                        self.builder
-                            .push_block_parameter(edge, Self::retained_source(source), ty)
-                    })
-                    .transpose()?;
 
                 self.discharge_outgoing_owner(edge, source, owner)?;
 
                 self.set_terminator(
                     edge,
                     Self::retained_source(source),
-                    MirTerminatorKind::Goto(MirEdge::new(*target, argument.map(MirOperand::Value))),
+                    MirTerminatorKind::Goto(MirEdge::new(*target, [])),
                 )?;
 
                 *target = edge;
@@ -221,7 +237,7 @@ impl Lowerer<'_> {
             source,
             panicked,
             cancelled,
-            report_type,
+            report,
         )
         .map_err(Into::into)
     }

@@ -449,8 +449,8 @@ mod tests {
     use bray_diagnostics::DiagnosticResult;
     use bray_ir::{
         MirAggregateKind, MirBinaryOperator, MirCallIntrinsic, MirCallTarget, MirImmediateValue,
-        MirOperand, MirOperationKind, MirPanicCause, MirProjectionKind, MirStorageKind, MirStoreKind,
-        MirTerminatorKind, MirTextOperationKind, MirUnit, MirValueOrigin,
+        MirOperand, MirOperationKind, MirPanicCause, MirProjectionKind, MirStorageKind,
+        MirStoreKind, MirTerminatorKind, MirTextOperationKind, MirUnit, MirValueOrigin,
     };
     use bray_lowering::LoweredUnit;
     use bray_runtime_interface::{ExecutionLaneRequirement, RuntimeAbiVersion};
@@ -1434,7 +1434,7 @@ mod tests {
 
             let MirTerminatorKind::CheckCallOutcome { panicked, .. } = block.terminator().kind() else { return None; };
 
-            Some((block, *panicked))
+            Some((block, panicked.clone()))
         }).expect("default must retain a failure edge before construction");
 
             assert!(!block.operations().iter().any(|id| matches!(mir.operation(*id).unwrap().kind(), MirOperationKind::Construct(construction) if construction.inputs().len() == 2)));

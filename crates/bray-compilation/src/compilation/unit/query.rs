@@ -677,7 +677,9 @@ mod tests {
         DiagnosticSelectionRejections, DiagnosticStorageProjection, DiagnosticStorageRoot,
         DiagnosticType,
     };
-    use bray_ir::{MirBinaryOperator, MirNullableQueryKind, MirOperationKind};
+    use bray_ir::{
+        MirBinaryOperator, MirBlockKind, MirNullableQueryKind, MirOperationKind, MirTerminatorKind,
+    };
     use bray_messages::DiagnosticRenderer;
     use bray_source::SourceSpan;
     use bray_symbols::{
@@ -8348,7 +8350,7 @@ func tupled(pos flag: bool, pos pair: (Guard, Guard)) -> i32
         let key = source_function_body_key(&compilation, "boxed");
         let analysis = compilation.async_analysis(key.clone()).unwrap();
 
-        let releases = analysis
+        let release_instances = analysis
             .value()
             .storage_requirements()
             .iter()
@@ -8357,18 +8359,77 @@ func tupled(pos flag: bool, pos pair: (Guard, Guard)) -> i32
             .map(|call| call.callable())
             .collect::<Vec<_>>();
 
-        assert_eq!(releases.len(), 1, "{analysis:?}");
+        assert_eq!(release_instances.len(), 1, "{analysis:?}");
 
         let lowered = compilation.lowered_unit(key).unwrap();
         let mir = lowered.value().as_ref().unwrap().mir().unwrap();
 
-        let releases = mir.operations().iter().filter(|operation| matches!(operation.kind(),
-            bray_ir::MirOperationKind::Call(call) if matches!(call.target(), bray_ir::MirCallTarget::Direct(reference) if releases.contains(&reference.instance()))
-        )).count();
+        let reaches_release = |entry| {
+            let mut pending = vec![entry];
+            let mut visited = std::collections::BTreeSet::new();
 
-        assert_eq!(
-            releases, 5,
-            "normal exit, body panic/cancellation and cleanup panic/cancellation must each release: {mir:?}"
+            while let Some(id) = pending.pop() {
+                if !visited.insert(id) {
+                    continue;
+                }
+
+                let block = mir.block(id).expect("reachable cleanup block must exist");
+
+                if block.operations().iter().any(|id| {
+                    matches!(
+                        mir.operation(*id).expect("cleanup operation must exist").kind(),
+                        MirOperationKind::Call(call)
+                            if matches!(call.target(), bray_ir::MirCallTarget::Direct(reference)
+                                if release_instances.contains(&reference.instance()))
+                    )
+                }) {
+                    return true;
+                }
+
+                block
+                    .terminator()
+                    .kind()
+                    .for_each_successor(|target| pending.push(target));
+            }
+
+            false
+        };
+
+        let mut normal = false;
+        let mut body_panic = false;
+        let mut body_cancellation = false;
+        let mut cleanup_panic = false;
+        let mut cleanup_cancellation = false;
+
+        for block in mir.blocks() {
+            match block.terminator().kind() {
+                MirTerminatorKind::BeginCleanup(edge) => {
+                    normal |= reaches_release(edge.edge().target());
+                }
+                MirTerminatorKind::CheckCallOutcome {
+                    panicked,
+                    cancelled,
+                    ..
+                } => {
+                    if block.kind() == MirBlockKind::Ordinary {
+                        body_panic |= reaches_release(panicked.target());
+                        body_cancellation |= reaches_release(cancelled.target());
+                    } else {
+                        cleanup_panic |= reaches_release(panicked.target());
+                        cleanup_cancellation |= reaches_release(cancelled.target());
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        assert!(
+            normal
+                && body_panic
+                && body_cancellation
+                && cleanup_panic
+                && cleanup_cancellation,
+            "normal exit, body panic/cancellation and cleanup panic/cancellation must each reach the policy release: {mir:?}"
         );
 
         assert!(mir.operations().iter().any(|operation| matches!(operation.kind(),

@@ -7,12 +7,26 @@ use super::LoweringError;
 use super::initialization::InitializationState;
 use super::lowerer::Lowerer;
 
-#[derive(Clone)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(super) struct InputTemporary {
     pub(super) place: MirPlace,
+    source: MirSourceAnchor,
     pub(super) scope_depth: usize,
     catch_depth: usize,
     phases: Option<AsyncCleanupPhases>,
+}
+
+impl InputTemporary {
+    pub(super) const fn requires_cleanup(&self, phase: MirCleanupPhase) -> bool {
+        let Some(phases) = self.phases else {
+            return false;
+        };
+
+        match phase {
+            MirCleanupPhase::TaskCancellation => phases.includes_cancellation(),
+            MirCleanupPhase::LifecycleResolution => phases.includes_lifecycle(),
+        }
+    }
 }
 #[derive(Clone, Copy)]
 pub(super) enum InputExit {
@@ -136,6 +150,7 @@ impl Lowerer<'_> {
 
         self.input_temporaries.push(InputTemporary {
             place: Self::retained_place(&place),
+            source: Self::retained_source(source),
             scope_depth: self.active_scopes.len(),
             catch_depth: self.catch_targets.len(),
             phases,
@@ -156,7 +171,6 @@ impl Lowerer<'_> {
     pub(super) fn push_input_cleanup(
         &mut self,
         mut block: MirBlockId,
-        source: &MirSourceAnchor,
         phase: MirCleanupPhase,
         temporaries: &mut std::iter::Peekable<std::iter::Rev<std::slice::Iter<'_, InputTemporary>>>,
         scope_depth: usize,
@@ -169,39 +183,38 @@ impl Lowerer<'_> {
                 break;
             };
 
-            let Some(phases) = temporary.phases else {
-                continue;
-            };
-
-            let required = match phase {
-                MirCleanupPhase::TaskCancellation => phases.includes_cancellation(),
-                MirCleanupPhase::LifecycleResolution => phases.includes_lifecycle(),
-            };
-
-            if !required {
-                continue;
-            }
-
-            let guard = self
-                .initialization_guards
-                .get(&temporary.place.storage())
-                .map(|state| Self::retained_place(&state.guard));
-
-            block = self
-                .push_guarded_cleanup(
-                    block,
-                    source,
-                    phase,
-                    Self::retained_place(&temporary.place),
-                    guard,
-                    None,
-                    false,
-                    None,
-                )?
-                .0;
+            block = self.push_input_cleanup_temporary(block, phase, temporary)?;
         }
 
         Ok(block)
+    }
+
+    pub(super) fn push_input_cleanup_temporary(
+        &mut self,
+        block: MirBlockId,
+        phase: MirCleanupPhase,
+        temporary: &InputTemporary,
+    ) -> Result<MirBlockId, LoweringError> {
+        if !temporary.requires_cleanup(phase) {
+            return Ok(block);
+        }
+
+        let guard = self
+            .initialization_guards
+            .get(&temporary.place.storage())
+            .map(|state| Self::retained_place(&state.guard));
+
+        self.push_guarded_cleanup(
+            block,
+            &temporary.source,
+            phase,
+            Self::retained_place(&temporary.place),
+            guard,
+            None,
+            false,
+            None,
+        )
+        .map(|(block, _)| block)
     }
 }
 
@@ -219,6 +232,7 @@ mod tests {
 
         let temporary = InputTemporary {
             place: MirPlace::new(MirStorageId::from_slot(MirUnitId::new(1), 0), [], ty),
+            source: bray_ir::MirSourceAnchor::from(bray_testing::test_bound_unit(1).key().source()),
             scope_depth: 2,
             catch_depth: 1,
             phases: Some(AsyncCleanupPhases::Lifecycle),

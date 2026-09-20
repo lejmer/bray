@@ -100,7 +100,7 @@ func main() -> Result<unit, std.io.IoError>
         try std.io.BufferedWriter<std.fs.File>(opened, capacity = 256);
     let bytes: [u8; 4096] = [120; 4096];
 
-    try std.io.write_all<std.io.BufferedWriter<std.fs.File>>(&mut writer, &bytes[..]);
+    try writer.write_all(&bytes[..]);
 
     let mut completed: std.fs.File = try writer.into_sink();
     try completed.close();
@@ -164,7 +164,7 @@ func main() -> Result<unit, std.io.IoError>
 
     let bytes: [u8; 4096] = [120; 4096];
 
-    try std.io.write_all<CapturedOutput>(&mut output, &bytes[..]);
+    try output.write_all(&bytes[..]);
     assert(std.bytes.length(&output.bytes) == 4096);
 
     return Ok(unit);
@@ -199,7 +199,7 @@ func run_pipe_child() -> Result<unit, std.io.IoError>
     let mut input: std.io.StandardInput = std.io.standard_input();
     let mut bytes: [u8; 4096] = [0; 4096];
 
-    try std.io.read_exact<std.io.StandardInput>(&mut input, &mut bytes[..]);
+    try input.read_exact(&mut bytes[..]);
 
     return Ok(unit);
 }
@@ -215,9 +215,13 @@ func run_pipe_parent() -> Result<unit, std.io.IoError>
         case Error(_) { panic("performance executable key must be valid"); }
     };
 
-    let environment: std.process.Environment = std.process.environment();
+    let current_executable: std.path.NativeText? = match consume std.process.current_environment_value(&executable_key)
+    {
+        case Ok(value) { yield value; }
+        case Error(_) { panic("performance executable path must be readable"); }
+    };
 
-    let executable_text: std.path.NativeText = match consume environment.value(&executable_key)
+    let executable_text: std.path.NativeText = match consume current_executable
     {
         case ?value { yield value; }
         case none { panic("performance executable path must be present"); }
@@ -250,6 +254,12 @@ func run_pipe_parent() -> Result<unit, std.io.IoError>
         case Ok(value) { yield value; }
         case Error(_) { panic("performance child observation path must be valid"); }
     };
+
+    match command.environment_policy(policy = std.process.EnvironmentPolicy.Empty)
+    {
+        case Ok(_) {}
+        case Error(_) { panic("performance child environment must be isolated"); }
+    }
 
     match command.set_environment(observation_key, observation_value)
     {
@@ -287,7 +297,7 @@ func run_pipe_parent() -> Result<unit, std.io.IoError>
 
     let bytes: [u8; 4096] = [120; 4096];
 
-    try std.io.write_all<std.process.ChildInput>(&mut input, &bytes[..]);
+    try input.write_all(&bytes[..]);
     try input(std.io.Writer).flush();
     try input.close();
 

@@ -77,15 +77,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     "checked MIR effect translation requires an established mapping or value",
                 );
 
-                let tag = self.union_tag(result, ty)?;
-                let success = self.union_variant_tag(ty, success_variant, tag.get_type())?;
-
-                let succeeded = llvm(self.builder.build_int_compare(
-                    IntPredicate::EQ,
-                    tag,
-                    success,
-                    "host.succeeded",
-                ))?;
+                let succeeded = self.entry_result_succeeded(entry_result, Some(result))?;
 
                 let mapping = self.type_mapping(ty).expect(
                     "checked MIR effect translation requires an established mapping or value",
@@ -195,6 +187,55 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         }
 
         Ok(status)
+    }
+
+    pub(super) fn entry_result_succeeded(
+        &mut self,
+        entry_result: ExecutableEntryResult,
+        result: Option<BasicValueEnum<'context>>,
+    ) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
+        match entry_result {
+            ExecutableEntryResult::Unit => {
+                if result.is_some() {
+                    panic!(
+                        "checked MIR effect translation violated an established compiler contract"
+                    );
+                }
+
+                Ok(self.types.context().bool_type().const_int(1, false))
+            }
+            ExecutableEntryResult::I32 => {
+                let result = result.and_then(int_value).expect(
+                    "checked MIR effect translation requires an established mapping or value",
+                );
+
+                llvm(self.builder.build_int_compare(
+                    IntPredicate::EQ,
+                    result,
+                    result.get_type().const_zero(),
+                    "entry.succeeded",
+                ))
+            }
+            ExecutableEntryResult::Fallible {
+                ty,
+                success_variant,
+                ..
+            } => {
+                let result = result.expect(
+                    "checked MIR effect translation requires an established mapping or value",
+                );
+
+                let tag = self.union_tag(result, ty)?;
+                let success = self.union_variant_tag(ty, success_variant, tag.get_type())?;
+
+                llvm(self.builder.build_int_compare(
+                    IntPredicate::EQ,
+                    tag,
+                    success,
+                    "entry.succeeded",
+                ))
+            }
+        }
     }
 
     fn take_host_result(
