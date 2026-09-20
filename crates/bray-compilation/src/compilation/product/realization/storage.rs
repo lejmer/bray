@@ -156,6 +156,7 @@ impl Compilation {
 
     pub(in crate::compilation::product) fn product_static_host_entries(
         &self,
+        product_kind: bray_symbols::ProductKind,
         reachability: &ConcreteCodegenReachability,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
@@ -181,9 +182,11 @@ impl Compilation {
                 let static_instance =
                     self.concrete_codegen_static(owner, &reference, target, cancellation)?;
 
-                realized
-                    .entry(static_instance.key.clone())
-                    .or_insert(static_instance);
+                if static_instance.requires_host(product_kind) {
+                    realized
+                        .entry(static_instance.key.clone())
+                        .or_insert(static_instance);
+                }
             }
         }
 
@@ -197,18 +200,10 @@ impl Compilation {
         let mut dependencies = BTreeMap::<_, Vec<_>>::new();
 
         for (consumer_key, consumer) in &realized {
-            let providers =
+            let mut providers =
                 self.static_lifecycle_providers(consumer, reachability, target, cancellation)?;
 
-            for provider in &providers {
-                if !realized.contains_key(provider) {
-                    return Err(ProductQueryFailure::missing(
-                        ProductQueryContext::CodegenStatic(provider.clone()),
-                        ProductDataKind::RealizedStatic,
-                    )
-                    .into());
-                }
-            }
+            providers.retain(|provider| realized.contains_key(provider));
 
             for provider in providers {
                 outgoing

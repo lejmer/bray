@@ -81,6 +81,7 @@ mod tests {
             }],
             runtime_roles: Vec::new(),
             native_callback_entries: Vec::new(),
+            native_codegen: None,
             events: Vec::new(),
             dropped_events: 0,
         };

@@ -56,7 +56,6 @@ fn smoke_test_direct_hooks(
             RuntimeArchiveKind::Host,
             RuntimeArchiveKind::Callback,
             RuntimeArchiveKind::Cancellation,
-            RuntimeArchiveKind::Common,
         ],
     )?;
 
@@ -66,16 +65,12 @@ fn smoke_test_direct_hooks(
     let native_links = metadata
         .components()
         .iter()
-        .find(|component| {
-            component.purpose() == RuntimeArtifactPurpose::Product
-                && component.identity().as_str().ends_with(".common")
-        })
-        .ok_or_else(|| {
-            CommandError::ObservationSmoke(
-                "runtime metadata has no product common component".to_owned(),
-            )
-        })?
-        .native_links();
+        .filter(|component| component.purpose() == RuntimeArtifactPurpose::Product)
+        .flat_map(bray_runtime_interface::RuntimeArtifactComponentMetadata::native_links)
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
 
     let map = directory.join("runtime-observation-smoke.map");
 
@@ -86,7 +81,7 @@ fn smoke_test_direct_hooks(
         target,
         directory,
         &map,
-        native_links,
+        &native_links,
     )?;
 
     let empty = directory.join("runtime-observation-empty.bin");

@@ -346,6 +346,8 @@ pub enum DiagnosticProfileValidationProblem {
     InvalidSchedulerStatistics,
     /// Query aggregates contradict their request, evaluation, or distribution counts.
     InvalidQueryStatistics { id: u16 },
+    /// Native reachability, unit, or selected-artifact inventory is internally inconsistent.
+    InvalidNativeCodegenInventory,
 }
 
 /// Exact structured cause of a failed project command operation.

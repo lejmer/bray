@@ -380,6 +380,26 @@ fn build_bundle(
         .map(|artifact| artifact.with_native_links(native_links))
         .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
 
+        let compiler_support_archive = crate::native_archive::target_compiler_support(native)
+            .map_err(|error| BuildError::NativeArchive(error.to_string()))?;
+
+        let compiler_support_bytes = fs::read(&compiler_support_archive)
+            .map_err(|error| BuildError::read(&compiler_support_archive, error))?;
+
+        let compiler_support_path = format!(
+            "{target_path}/{}",
+            platform_abi_archive_name(native, "bray_compiler_support")?
+        );
+
+        write_bundle_artifact(bundle, &compiler_support_path, &compiler_support_bytes)?;
+
+        let compiler_support = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::StaticLibrary,
+            compiler_support_path,
+            &compiler_support_bytes,
+        )
+        .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
+
         let provenance_path = format!("{target_path}/temporal-provider.json");
 
         write_bundle_artifact(bundle, &provenance_path, &temporal_provenance)?;
@@ -415,7 +435,13 @@ fn build_bundle(
         let optimization_artifact =
             optimization_publication.publish_bray(&archive, optimization)?;
 
-        let mut artifacts = vec![interface, implementation, archive, optimization_artifact];
+        let mut artifacts = vec![
+            interface,
+            implementation,
+            archive,
+            compiler_support,
+            optimization_artifact,
+        ];
 
         for platform in platform_archives {
             let platform_file_name = platform_abi_archive_name(native, platform.name)?;

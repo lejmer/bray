@@ -27,13 +27,3 @@ pub use super::export::{
 };
 #[cfg(feature = "test-output")]
 pub use super::host::{NativeHostCallbacks, register_host_callbacks};
-
-/// Borrows the resident host callback table.
-pub const fn resident_host_services() -> &'static bray_runtime_abi::NativeHostServices {
-    super::services::host()
-}
-
-/// Borrows the resident execution callback table.
-pub const fn resident_execution_services() -> &'static bray_runtime_abi::NativeExecutionServices {
-    super::services::execution()
-}

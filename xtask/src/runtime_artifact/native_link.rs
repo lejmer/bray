@@ -2,7 +2,7 @@ use bray_base::NonEmptySharedStr;
 use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
 use bray_target::NativeTarget;
 
-pub(super) fn common_support_requirements(
+pub(super) fn runtime_native_link_requirements(
     target: NativeTarget,
     reported: &[NativeLinkRequirement],
 ) -> Vec<NativeLinkRequirement> {

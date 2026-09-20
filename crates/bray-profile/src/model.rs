@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Current compiler profile schema revision.
-pub const COMPILATION_PROFILE_SCHEMA_REVISION: u32 = 1;
+pub const COMPILATION_PROFILE_SCHEMA_REVISION: u32 = 2;
 
 /// Profiling detail requested for one compiler invocation.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
@@ -379,6 +379,77 @@ pub struct CompilationProfileRuntimeArtifact {
     pub bytes: u64,
 }
 
+/// Deterministic native plan recorded before LLVM generation and optimization.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CompilationProfileNativeCodegen {
+    /// Every reachable generated definition and external leaf in stable identity order.
+    pub instances: Vec<CompilationProfileCodegenInstance>,
+    /// Every typed reachability edge in source and target identity order.
+    pub dependencies: Vec<CompilationProfileCodegenDependency>,
+    /// Every generated unit in emission order.
+    pub units: Vec<CompilationProfileCodegenUnit>,
+    /// Every selected standard-library archive supplied to native linking or ThinLTO.
+    pub standard_library_artifacts: Vec<CompilationProfileOptimizationArtifact>,
+}
+
+/// One reachable generated definition or external leaf.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CompilationProfileCodegenInstance {
+    /// Report-local stable identity referenced by edges and units.
+    pub id: u32,
+    /// Exact selected native symbol when this instance contributes one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub symbol: Option<String>,
+    /// Whether product root selection demanded this instance directly.
+    pub root: bool,
+    /// Whether the instance is a bodyless external leaf.
+    pub external: bool,
+}
+
+/// One typed reachability edge between report-local instance identities.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CompilationProfileCodegenDependency {
+    /// Demanding instance identity.
+    pub source: u32,
+    /// Demanded instance identity.
+    pub target: u32,
+    /// Stable dependency role.
+    pub kind: String,
+}
+
+/// One independently generated unit and the boundary class that formed it.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CompilationProfileCodegenUnit {
+    /// Emission-order unit identity.
+    pub id: u32,
+    /// Deterministic estimated generation work.
+    pub work: u64,
+    /// Report-local instance identities contained by the unit.
+    pub instances: Vec<u32>,
+    /// Package boundary shared by ordinary unit members.
+    pub packages: Vec<String>,
+    /// Linkage boundary shared by ordinary unit members.
+    pub linkages: Vec<String>,
+    /// Visibility boundary shared by ordinary unit members.
+    pub visibilities: Vec<String>,
+}
+
+/// One selected standard-library native or optimization archive.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CompilationProfileOptimizationArtifact {
+    /// Bundle-relative artifact path.
+    pub path: String,
+    /// Stable optimization partition identity when the archive contains LLVM modules.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub partition: Option<String>,
+    /// Number of independently summarized LLVM modules supplied by this archive.
+    pub modules: u32,
+    /// Authenticated archive size.
+    pub bytes: u64,
+    /// Platform-service roles implemented by this optimization partition.
+    pub platform_services: Vec<String>,
+}
+
 /// One bounded detailed profiling event.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CompilationProfileEvent {
@@ -452,6 +523,9 @@ pub struct CompilationProfileReport {
     /// Native callback entry symbols that require foreign thread entry and panic isolation.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub native_callback_entries: Vec<String>,
+    /// Deterministic reachability, partition, and standard-library selection inventory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_codegen: Option<CompilationProfileNativeCodegen>,
     /// Detailed events retained in trace mode.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub events: Vec<CompilationProfileEvent>,

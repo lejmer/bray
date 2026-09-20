@@ -3593,7 +3593,7 @@ public func invoke<T>(pos value: T)
     }
 
     #[test]
-    fn generic_static_instances_have_distinct_realizations_and_one_host_owner() {
+    fn trivial_generic_statics_use_direct_native_storage() {
         let source = concat!(
             "module app;\n",
             "\n",
@@ -3641,38 +3641,7 @@ public func invoke<T>(pos value: T)
         assert_eq!(product_instances, 2);
         assert_eq!(thread_instances, 0);
 
-        let host = plan
-            .units()
-            .iter()
-            .flat_map(bray_codegen::CodegenUnit::mir_units)
-            .find(|unit| matches!(unit.kind(), MirUnitKind::ExecutableHost(_)))
-            .unwrap_or_else(|| panic!("static native plan must retain host MIR"));
-
-        assert_eq!(
-            host.operations()
-                .iter()
-                .filter(|operation| matches!(
-                    operation.kind(),
-                    MirOperationKind::Host(MirHostOperation::MaterializeStatic { .. })
-                ))
-                .count(),
-            product_instances
-        );
-
-        assert_eq!(
-            host.operations()
-                .iter()
-                .filter(|operation| matches!(
-                    operation.kind(),
-                    MirOperationKind::Cleanup {
-                        phase: bray_ir::MirCleanupPhase::LifecycleResolution,
-                        ..
-                    }
-                ))
-                .count(),
-            0,
-            "the runtime product owner must execute static callbacks"
-        );
+        assert!(plan.product_host().is_none());
 
         assert!(
             generated_artifacts(&backend, &plan)

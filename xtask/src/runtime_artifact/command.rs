@@ -1,6 +1,7 @@
 // rust-style: allow(module-too-large, reason = "runtime artifact command parsing, construction, and metadata publication form one reproducible packaging contract")
 
 use std::fmt;
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -189,15 +190,32 @@ fn build(target: NativeTarget, output: &Path, profile: &str) -> Result<Package, 
 }
 
 fn package(output: &Path, target: NativeTarget) -> Package {
+    let mut components = RuntimeArchiveKind::ALL
+        .into_iter()
+        .map(|kind| PackageComponent {
+            kind: Some(kind),
+            archive: output.join(archive_file_name(target, kind)),
+        })
+        .collect::<Vec<_>>();
+
+    if let Ok(bytes) = fs::read(output.join(METADATA_FILE_NAME))
+        && let Ok(metadata) = RuntimeArtifactMetadata::decode_json(&bytes)
+    {
+        for component in metadata.components() {
+            let archive = output.join(component.archive_file_name());
+
+            if !components.iter().any(|candidate| candidate.archive == archive) {
+                components.push(PackageComponent {
+                    kind: None,
+                    archive,
+                });
+            }
+        }
+    }
+
     Package {
         metadata: output.join(METADATA_FILE_NAME),
-        components: RuntimeArchiveKind::ALL
-            .into_iter()
-            .map(|kind| PackageComponent {
-                kind,
-                archive: output.join(archive_file_name(target, kind)),
-            })
-            .collect(),
+        components,
     }
 }
 
@@ -211,7 +229,7 @@ fn build_contents(target: NativeTarget, output: &Path, profile: &str) -> Result<
     })?;
 
     let mut partitioner = super::partition::RuntimeArchivePartitioner::new(&root)?;
-    let mut native_links = Vec::new();
+    let mut native_links = BTreeMap::<RuntimeArchiveKind, Vec<NativeLinkRequirement>>::new();
     let metadata_path = output.join(METADATA_FILE_NAME);
 
     let archive_count = RuntimeArchiveKind::OWNING.len();
@@ -254,11 +272,8 @@ fn build_contents(target: NativeTarget, output: &Path, profile: &str) -> Result<
                 &["test-host"][..],
                 "bray_runtime_adapter-",
             ),
-            RuntimeArchiveKind::Common
-            | RuntimeArchiveKind::TestCommon
-            | RuntimeArchiveKind::Observation
-            | RuntimeArchiveKind::Bootstrap => {
-                unreachable!("common support is derived from owners")
+            RuntimeArchiveKind::Observation | RuntimeArchiveKind::Bootstrap => {
+                unreachable!("support archives are derived from component owners")
             }
         };
 
@@ -274,20 +289,10 @@ fn build_contents(target: NativeTarget, output: &Path, profile: &str) -> Result<
             kind == RuntimeArchiveKind::TestHost,
         )?;
 
-        native_links.extend(
-            built
-                .native_links()
-                .iter()
-                .filter(|link| {
-                    !RuntimeArchiveKind::ALL
-                        .into_iter()
-                        .any(|owner| owner.archive_stem() == link.name())
-                })
-                .cloned(),
-        );
+        native_links.insert(kind, built.native_links().to_vec());
     }
 
-    crate::progress::run("Partitioning runtime archives", || {
+    let support = crate::progress::run("Partitioning runtime archives", || {
         partitioner.write(target, output)
     })?;
 
@@ -301,15 +306,11 @@ fn build_contents(target: NativeTarget, output: &Path, profile: &str) -> Result<
         .map_err(CommandError::Bootstrap)
     })?;
 
-    native_links.extend(
+    native_links.insert(
+        RuntimeArchiveKind::Bootstrap,
         crate::standard_library::native_links(&target.identity())
             .map_err(CommandError::Bootstrap)?,
     );
-
-    native_links
-        .sort_by(|left, right| (left.kind(), left.name()).cmp(&(right.kind(), right.name())));
-
-    native_links.dedup();
 
     let components = RuntimeArchiveKind::ALL
         .into_iter()
@@ -319,15 +320,20 @@ fn build_contents(target: NativeTarget, output: &Path, profile: &str) -> Result<
             Ok(BuiltComponent {
                 kind,
                 digest: digest_file(&archive)?,
-                native_links: if matches!(
-                    kind,
-                    RuntimeArchiveKind::Common | RuntimeArchiveKind::TestCommon
-                ) {
-                    native_links.clone()
-                } else {
-                    Vec::new()
-                },
+                native_links: native_links.remove(&kind).unwrap_or_default(),
                 archive,
+            })
+        })
+        .collect::<Result<Vec<_>, CommandError>>()?;
+
+    let support = support
+        .into_iter()
+        .map(|support| {
+            Ok(BuiltSupportComponent {
+                digest: digest_file(&support.archive)?,
+                owners: support.owners,
+                name: support.name,
+                archive: support.archive,
             })
         })
         .collect::<Result<Vec<_>, CommandError>>()?;
@@ -336,7 +342,7 @@ fn build_contents(target: NativeTarget, output: &Path, profile: &str) -> Result<
         super::archive::validate(&root, &package(output, target), target)
     })?;
 
-    let metadata_value = metadata(target, &components)?;
+    let metadata_value = metadata(target, &components, &support)?;
 
     let bytes = metadata_value
         .encode_json()
@@ -378,6 +384,7 @@ fn audit_dependency_boundaries(root: &Path) -> Result<(), CommandError> {
 fn metadata(
     target: NativeTarget,
     components: &[BuiltComponent],
+    support: &[BuiltSupportComponent],
 ) -> Result<RuntimeArtifactMetadata, CommandError> {
     let identity =
         RuntimeIdentity::try_new(RUNTIME_IDENTITY).ok_or(CommandError::MetadataContract)?;
@@ -404,25 +411,6 @@ fn metadata(
     let mut metadata_components = Vec::new();
 
     for purpose in RuntimeArtifactPurpose::ALL {
-        let common_kind = match purpose {
-            RuntimeArtifactPurpose::Product => RuntimeArchiveKind::Common,
-            RuntimeArtifactPurpose::TestRunner => RuntimeArchiveKind::TestCommon,
-        };
-
-        let common_identity = component_identity(target, purpose, "common")?;
-        let mut bootstrap_dependencies = vec![common_identity.clone()];
-
-        match purpose {
-            RuntimeArtifactPurpose::Product => {
-                bootstrap_dependencies.push(component_identity(target, purpose, "host")?);
-                bootstrap_dependencies.push(component_identity(target, purpose, "callback")?);
-                bootstrap_dependencies.push(component_identity(target, purpose, "cancellation")?);
-            }
-            RuntimeArtifactPurpose::TestRunner => {
-                bootstrap_dependencies.push(component_identity(target, purpose, "test_host")?);
-            }
-        }
-
         metadata_components.push(
             component_metadata(
                 target,
@@ -432,8 +420,7 @@ fn metadata(
                 RuntimeArchiveKind::Bootstrap.runtime_roles(),
                 [],
             )?
-            .with_platform_services(RuntimeArchiveKind::Bootstrap.platform_services())
-            .with_dependencies(bootstrap_dependencies),
+            .with_platform_services(RuntimeArchiveKind::Bootstrap.platform_services()),
         );
 
         metadata_components.push(
@@ -447,15 +434,6 @@ fn metadata(
             )?
             .with_dependencies([component_identity(target, purpose, "bootstrap")?]),
         );
-
-        let common = component_metadata(
-            target,
-            purpose,
-            component(components, common_kind)?,
-            "common",
-            [],
-            [],
-        )?;
 
         if purpose == RuntimeArtifactPurpose::Product {
             for (kind, name, capabilities) in [
@@ -473,38 +451,46 @@ fn metadata(
                     &[RuntimeCapability::Reactor][..],
                 ),
             ] {
-                metadata_components.push(
-                    component_metadata(
-                        target,
-                        purpose,
-                        component(components, kind)?,
-                        name,
-                        kind.runtime_roles(),
-                        capabilities.iter().copied(),
-                    )?
-                    .with_dependencies([common_identity.clone()]),
-                );
+                metadata_components.push(component_metadata(
+                    target,
+                    purpose,
+                    component(components, kind)?,
+                    name,
+                    kind.runtime_roles(),
+                    capabilities.iter().copied(),
+                )?
+                .with_dependencies(support_dependencies(
+                    target, purpose, kind, support,
+                )?));
             }
         }
 
         if purpose == RuntimeArtifactPurpose::TestRunner {
-            metadata_components.push(
-                component_metadata(
-                    target,
-                    purpose,
-                    component(components, RuntimeArchiveKind::TestHost)?,
-                    "test_host",
-                    RuntimeArchiveKind::TestHost.runtime_roles(),
-                    SCHEDULER_CAPABILITIES
-                        .into_iter()
-                        .chain([RuntimeCapability::Reactor]),
-                )?
-                .with_platform_services(RuntimeArchiveKind::TestHost.platform_services())
-                .with_dependencies([common_identity.clone()]),
-            );
+            metadata_components.push(component_metadata(
+                target,
+                purpose,
+                component(components, RuntimeArchiveKind::TestHost)?,
+                "test_host",
+                RuntimeArchiveKind::TestHost.runtime_roles(),
+                SCHEDULER_CAPABILITIES
+                    .into_iter()
+                    .chain([RuntimeCapability::Reactor]),
+            )?
+            .with_platform_services(RuntimeArchiveKind::TestHost.platform_services())
+            .with_dependencies(support_dependencies(
+                target,
+                purpose,
+                RuntimeArchiveKind::TestHost,
+                support,
+            )?));
         }
 
-        metadata_components.push(common);
+        for support in support.iter().filter(|support| {
+            support.owners.contains(&RuntimeArchiveKind::TestHost)
+                == (purpose == RuntimeArtifactPurpose::TestRunner)
+        }) {
+            metadata_components.push(support_component_metadata(target, purpose, support)?);
+        }
     }
 
     RuntimeArtifactMetadata::try_new(contract, metadata_components)
@@ -535,16 +521,53 @@ fn component_metadata(
     )
     .map_err(|_| CommandError::MetadataContract)?;
 
-    let native_links = if matches!(
-        component.kind,
-        RuntimeArchiveKind::Common | RuntimeArchiveKind::TestCommon
-    ) {
-        super::native_link::common_support_requirements(target, &component.native_links)
-    } else {
-        component.native_links.clone()
-    };
+    let native_links = super::native_link::runtime_native_link_requirements(
+        target,
+        &component.native_links,
+    );
 
     Ok(metadata.with_native_links(native_links))
+}
+
+fn support_dependencies(
+    target: NativeTarget,
+    purpose: RuntimeArtifactPurpose,
+    owner: RuntimeArchiveKind,
+    support: &[BuiltSupportComponent],
+) -> Result<Vec<RuntimeArtifactId>, CommandError> {
+    support
+        .iter()
+        .filter(|support| support.owners.contains(&owner))
+        .map(|support| support_identity(target, purpose, &support.name))
+        .collect()
+}
+
+fn support_component_metadata(
+    target: NativeTarget,
+    purpose: RuntimeArtifactPurpose,
+    support: &BuiltSupportComponent,
+) -> Result<RuntimeArtifactComponentMetadata, CommandError> {
+    RuntimeArtifactComponentMetadata::try_new(
+        support_identity(target, purpose, &support.name)?,
+        purpose,
+        [],
+        [],
+        support
+            .archive
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or(CommandError::MetadataContract)?,
+        support.digest,
+    )
+    .map_err(|_| CommandError::MetadataContract)
+}
+
+fn support_identity(
+    target: NativeTarget,
+    purpose: RuntimeArtifactPurpose,
+    name: &str,
+) -> Result<RuntimeArtifactId, CommandError> {
+    component_identity(target, purpose, &format!("support.{name}"))
 }
 
 fn component_identity(
@@ -661,7 +684,7 @@ pub(super) struct Package {
 }
 
 pub(super) struct PackageComponent {
-    pub(super) kind: RuntimeArchiveKind,
+    pub(super) kind: Option<RuntimeArchiveKind>,
     pub(super) archive: PathBuf,
 }
 
@@ -672,10 +695,15 @@ struct BuiltComponent {
     native_links: Vec<NativeLinkRequirement>,
 }
 
+struct BuiltSupportComponent {
+    owners: std::collections::BTreeSet<RuntimeArchiveKind>,
+    name: String,
+    archive: PathBuf,
+    digest: RuntimeArtifactDigest,
+}
+
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(super) enum RuntimeArchiveKind {
-    Common,
-    TestCommon,
     Observation,
     Bootstrap,
     Host,
@@ -687,9 +715,7 @@ pub(super) enum RuntimeArchiveKind {
 }
 
 impl RuntimeArchiveKind {
-    pub(super) const ALL: [Self; 10] = [
-        Self::Common,
-        Self::TestCommon,
+    pub(super) const ALL: [Self; 8] = [
         Self::Observation,
         Self::Bootstrap,
         Self::Host,
@@ -711,8 +737,6 @@ impl RuntimeArchiveKind {
 
     const fn archive_stem(self) -> &'static str {
         match self {
-            Self::Common => "bray_runtime_common",
-            Self::TestCommon => "bray_runtime_test_common",
             Self::Observation => "bray_runtime_observation",
             Self::Bootstrap => "bray_runtime_bootstrap",
             Self::Host => "bray_runtime_host",
@@ -721,6 +745,19 @@ impl RuntimeArchiveKind {
             Self::Cancellation => "bray_runtime_cancellation",
             Self::Event => "bray_runtime_event",
             Self::TestHost => "bray_runtime_test_host",
+        }
+    }
+
+    pub(super) const fn component_name(self) -> &'static str {
+        match self {
+            Self::Observation => "observation",
+            Self::Bootstrap => "bootstrap",
+            Self::Host => "host",
+            Self::Callback => "callback",
+            Self::Scheduler => "scheduler",
+            Self::Cancellation => "cancellation",
+            Self::Event => "event",
+            Self::TestHost => "test_host",
         }
     }
 
@@ -755,9 +792,7 @@ impl RuntimeArchiveKind {
                     role.family() == bray_runtime_interface::PlatformServiceFamily::StandardStreams
                 }
                 Self::Bootstrap => role.bootstrap_declaration().is_some(),
-                Self::Common
-                | Self::TestCommon
-                | Self::Observation
+            Self::Observation
                 | Self::Host
                 | Self::Callback
                 | Self::Scheduler
@@ -1075,21 +1110,15 @@ mod tests {
                 native_links: Vec::new(),
             });
 
-            let first = metadata(target, &components)
+            let first = metadata(target, &components, &[])
                 .unwrap_or_else(|error| panic!("runtime metadata must be valid: {error}"));
 
-            let second = metadata(target, &components)
+            let second = metadata(target, &components, &[])
                 .unwrap_or_else(|error| panic!("runtime metadata must be valid: {error}"));
 
             assert_eq!(first, second);
             assert_eq!(first.contract().target().as_str(), target.as_str());
-            assert_eq!(first.components().len(), 12);
-
-            let common = first
-                .components()
-                .iter()
-                .find(|component| component.identity().as_str().ends_with("product.common"))
-                .unwrap_or_else(|| panic!("runtime metadata must contain product support"));
+            assert_eq!(first.components().len(), 10);
 
             let observation = first
                 .components()
@@ -1139,7 +1168,7 @@ mod tests {
 
             assert_eq!(callback.roles(), callback_roles);
 
-            assert_eq!(callback.dependencies(), [common.identity().clone()]);
+            assert!(callback.dependencies().is_empty());
 
             let bootstrap = first
                 .components()
@@ -1165,27 +1194,9 @@ mod tests {
                     .collect::<Vec<_>>()
             );
 
-            assert!(
-                bootstrap
-                    .dependencies()
-                    .contains(&common.identity().clone())
-            );
+            assert!(bootstrap.dependencies().is_empty());
 
-            assert!(
-                bootstrap
-                    .dependencies()
-                    .iter()
-                    .any(|dependency| dependency.as_str().ends_with("product.host"))
-            );
-
-            assert!(
-                bootstrap
-                    .dependencies()
-                    .iter()
-                    .any(|dependency| dependency.as_str().ends_with("product.callback"))
-            );
-
-            let has_synchronization = common
+            let has_synchronization = callback
                 .native_links()
                 .iter()
                 .any(|requirement| requirement.name() == "synchronization");

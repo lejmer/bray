@@ -56,7 +56,7 @@ native_export! {
         callback: NativeSynchronousRootCallback,
         destination: usize,
     ) -> NativeRunOutcome {
-        let outcome = super::state::with_independent_execution_context(|| {
+        let outcome = crate::context::with_independent_execution_context(|| {
             execute_synchronous_callback(
                 callback,
                 destination,

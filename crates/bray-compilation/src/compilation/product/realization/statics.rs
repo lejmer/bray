@@ -38,6 +38,16 @@ pub(super) struct ConcreteStaticRealization {
     pub(super) lifecycle_dependencies: Vec<bray_symbols::StaticSymbolId>,
 }
 
+impl ConcreteStaticRealization {
+    pub(super) fn requires_host(&self, product_kind: bray_symbols::ProductKind) -> bool {
+        product_kind == bray_symbols::ProductKind::Library
+            || self.key.duration() == bray_symbols::StaticStorageDuration::ExactThread
+            || self.outgoing_capacity != 0
+            || self.finalization.is_some()
+            || self.destroy.is_some()
+    }
+}
+
 pub(super) struct ConcreteStaticFinalization {
     execution: CallableExecution,
     pub(super) instance: ConcreteCodegenInstance,

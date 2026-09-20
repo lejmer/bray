@@ -50,6 +50,69 @@ pub(crate) fn build_thin_lto_rust_static_library(
     )
 }
 
+pub(crate) fn target_compiler_support(target: NativeTarget) -> Result<PathBuf, BuildError> {
+    let output = Command::new("rustc")
+        .args(["--print", "target-libdir", "--target", target.as_str()])
+        .output()
+        .map_err(|error| {
+            BuildError::CompilerSupport(format!("could not query rustc: {error}"))
+        })?;
+
+    if !output.status.success() {
+        return Err(BuildError::CompilerSupport(format!(
+            "rustc could not locate support for {}: {}",
+            target.as_str(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        )));
+    }
+
+    let directory = String::from_utf8(output.stdout).map_err(|_| {
+        BuildError::CompilerSupport("rustc reported a non-UTF-8 directory".to_owned())
+    })?;
+
+    let directory = PathBuf::from(directory.trim());
+
+    let entries = std::fs::read_dir(&directory).map_err(|error| {
+        BuildError::CompilerSupport(format!(
+            "could not inspect {}: {error}",
+            directory.display()
+        ))
+    })?;
+
+    let paths = entries
+        .map(|entry| entry.map(|entry| entry.path()))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| {
+            BuildError::CompilerSupport(format!(
+                "could not inspect {}: {error}",
+                directory.display()
+            ))
+        })?;
+
+    let mut archives = paths.into_iter().filter(|path| {
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| {
+                name.starts_with("libcompiler_builtins-") && name.ends_with(".rlib")
+            })
+    });
+
+    let archive = archives
+        .next()
+        .ok_or_else(|| {
+            BuildError::CompilerSupport(format!("missing from {}", directory.display()))
+        })?;
+
+    if archives.next().is_some() {
+        return Err(BuildError::CompilerSupport(format!(
+            "ambiguous in {}",
+            directory.display()
+        )));
+    }
+
+    Ok(archive)
+}
+
 fn build_rust_static_library_with_options(
     root: &Path,
     target: NativeTarget,
@@ -366,6 +429,7 @@ fn profile_directory(profile: &str) -> &str {
 #[derive(Debug)]
 pub(crate) enum BuildError {
     Cargo(std::io::Error),
+    CompilerSupport(String),
     BuildFailed { package: String, detail: String },
     MissingArchive(PathBuf),
     MissingNativeLinks,
@@ -376,6 +440,7 @@ impl fmt::Display for BuildError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Cargo(error) => write!(formatter, "could not run Cargo: {error}"),
+            Self::CompilerSupport(detail) => write!(formatter, "compiler support {detail}"),
             Self::BuildFailed { package, detail } => {
                 write!(formatter, "native archive build failed for {package}")?;
 
