@@ -1643,6 +1643,38 @@ mod tests {
                 .iter()
                 .any(|package| package == "example.dependency")
         }));
+
+        let hosted = profiled_product(
+            concat!(
+                "module application;\n",
+                "internal struct HostedResource {}\n",
+                "impl HostedResource\n",
+                "{\n",
+                "    finalize() {}\n",
+                "}\n",
+                "internal static HOSTED_RESOURCE: HostedResource = HostedResource {};\n",
+                "func main() {}\n",
+            ),
+            ProductKind::Executable,
+            WorkerBudget::serial(),
+            [],
+        );
+
+        let hosted = native_profile(&hosted);
+
+        assert!(
+            hosted
+                .demands
+                .iter()
+                .any(|demand| demand.kind == Kind::ExecutableEntry)
+        );
+
+        assert!(
+            hosted
+                .demands
+                .iter()
+                .any(|demand| demand.kind == Kind::StaticLifecycle)
+        );
     }
 
     #[test]
@@ -3294,9 +3326,14 @@ public func invoke<T>(pos value: T)
             .is_none()
         );
 
+        let root_key = root.key().clone();
+
         let reachability = compilation
             .codegen_reachability(
-                [ConcreteCodegenRoot::new(root, NativeDemandReason::ExecutableEntry)],
+                [
+                    ConcreteCodegenRoot::new(root.clone(), NativeDemandReason::ExecutableEntry),
+                    ConcreteCodegenRoot::new(root, NativeDemandReason::NativeExport),
+                ],
                 None,
                 &target,
                 &cancellation,
@@ -3306,6 +3343,19 @@ public func invoke<T>(pos value: T)
         let [instance] = reachability.graph().instances() else {
             panic!("test root must be the only reachable instance");
         };
+
+        assert_eq!(
+            reachability
+                .demands()
+                .iter()
+                .filter(|demand| demand.predecessor().is_none() && demand.target() == &root_key)
+                .map(crate::compilation::NativeDemand::reason)
+                .collect::<Vec<_>>(),
+            [
+                NativeDemandReason::ExecutableEntry,
+                NativeDemandReason::NativeExport,
+            ]
+        );
 
         assert!(matches!(
             instance.key().witnesses()[0].specialization(),
@@ -5584,6 +5634,20 @@ public func invoke<T>(pos value: T)
         worker_budget: WorkerBudget,
         dependency: GenericDependencyFixture,
     ) -> crate::Compilation {
+        profiled_product(
+            source,
+            ProductKind::Library,
+            worker_budget,
+            [generic_dependency_from_fixture(true, false, dependency)],
+        )
+    }
+
+    fn profiled_product<const N: usize>(
+        source: &str,
+        kind: ProductKind,
+        worker_budget: WorkerBudget,
+        dependencies: [DependencyInterfaceInput; N],
+    ) -> crate::Compilation {
         let backend = Arc::new(
             bray_codegen_llvm::LlvmCodeGenerator::try_new()
                 .unwrap_or_else(|error| panic!("LLVM backend must initialize: {error:?}")),
@@ -5602,12 +5666,9 @@ public func invoke<T>(pos value: T)
         let request = CompilationRequest::with_options(
             crate::test_support::package_identity(),
             vec![crate::test_support::source_input(source, 0)],
-            CompilationOptions::new(worker_budget, ProductKind::Library, target),
+            CompilationOptions::new(worker_budget, kind, target),
         )
-        .with_dependency_interfaces([
-            runtime,
-            generic_dependency_from_fixture(true, false, dependency),
-        ])
+        .with_dependency_interfaces(std::iter::once(runtime).chain(dependencies))
         .with_profile(CompilationProfileConfiguration::new(
             CompilationProfileMode::Summary,
         ));
@@ -5621,15 +5682,31 @@ public func invoke<T>(pos value: T)
             compilation.check_diagnostics()
         );
 
+        let archive = TemporaryFile::write("libbray_runtime.a", b"!<arch>\n");
+
+        let runtime = match kind {
+            ProductKind::Executable | ProductKind::Test => {
+                Some(runtime_artifact(&compilation, archive.path()))
+            }
+            ProductKind::Library => None,
+        };
+
+        let required_capabilities = runtime.as_ref().map_or_else(Vec::new, |_| {
+            vec![
+                RuntimeCapability::CooperativeExecution,
+                RuntimeCapability::MainThreadLane,
+            ]
+        });
+
         compilation
             .native_product_plan(
                 test_product_identity(),
                 crate::BuildConfiguration::Development,
-                None,
-                [],
+                runtime,
+                required_capabilities,
                 Some(&test_linker()),
             )
-            .unwrap_or_else(|error| panic!("profiled library plan must resolve: {error:?}"));
+            .unwrap_or_else(|error| panic!("profiled native plan must resolve: {error:?}"));
 
         compilation
     }

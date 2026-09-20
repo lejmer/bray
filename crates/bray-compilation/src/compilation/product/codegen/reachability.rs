@@ -106,15 +106,10 @@ impl Compilation {
                             && key == host_key
                         {
                             for root in source_roots {
-                                if !concrete_dependencies
-                                    .iter()
-                                    .any(|dependency| dependency.key() == root.key())
-                                {
-                                    concrete_dependencies.push(ConcreteCodegenDemand::definition(
-                                        root.instance().clone(),
-                                        root.reason(),
-                                    ));
-                                }
+                                concrete_dependencies.push(ConcreteCodegenDemand::definition(
+                                    root.instance().clone(),
+                                    root.reason(),
+                                ));
                             }
                         }
 
@@ -129,6 +124,8 @@ impl Compilation {
                                     dependency.key().clone(),
                                 )
                             })
+                            .collect::<BTreeSet<_>>()
+                            .into_iter()
                             .collect::<Vec<_>>();
 
                         let instance = CodegenInstance::try_new(key.clone(), mir, dependencies)
@@ -138,6 +135,8 @@ impl Compilation {
                             .iter()
                             .map(ConcreteCodegenDemand::instance)
                             .cloned()
+                            .collect::<BTreeSet<_>>()
+                            .into_iter()
                             .collect::<Vec<_>>();
 
                         Ok(BatchWork::new(

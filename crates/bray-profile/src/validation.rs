@@ -221,6 +221,26 @@ fn valid_native_codegen_inventory(inventory: &crate::CompilationProfileNativeCod
         return false;
     }
 
+    let demand_edges = inventory
+        .demands
+        .iter()
+        .filter_map(|demand| {
+            demand
+                .predecessor
+                .map(|predecessor| (predecessor, demand.target))
+        })
+        .collect::<BTreeSet<_>>();
+
+    let dependency_edges = inventory
+        .dependencies
+        .iter()
+        .map(|dependency| (dependency.source, dependency.target))
+        .collect::<BTreeSet<_>>();
+
+    if demand_edges != dependency_edges {
+        return false;
+    }
+
     if inventory.dependencies.windows(2).any(|entries| {
         (&entries[0].source, &entries[0].target, &entries[0].kind)
             >= (&entries[1].source, &entries[1].target, &entries[1].kind)
@@ -711,7 +731,52 @@ mod tests {
 
         let mut valid = report(1_000_000);
         valid.native_codegen = Some(inventory.clone());
+
         assert_eq!(valid.validate(), Ok(()));
+
+        let mut fabricated_demand = report(1_000_000);
+        fabricated_demand.native_codegen = Some(inventory.clone());
+
+        fabricated_demand
+            .native_codegen
+            .as_mut()
+            .expect("test inventory must exist")
+            .demands
+            .insert(
+                1,
+                crate::CompilationProfileNativeDemand {
+                    predecessor: Some(0),
+                    target: 0,
+                    kind: crate::CompilationProfileNativeDemandKind::DirectCall,
+                },
+            );
+
+        assert_eq!(
+            fabricated_demand.validate(),
+            Err(CompilationProfileValidationError::InvalidNativeCodegenInventory)
+        );
+
+        let mut unexplained_dependency = report(1_000_000);
+        unexplained_dependency.native_codegen = Some(inventory.clone());
+
+        unexplained_dependency
+            .native_codegen
+            .as_mut()
+            .expect("test inventory must exist")
+            .dependencies
+            .insert(
+                0,
+                crate::CompilationProfileCodegenDependency {
+                    source: 0,
+                    target: 0,
+                    kind: "definition".to_owned(),
+                },
+            );
+
+        assert_eq!(
+            unexplained_dependency.validate(),
+            Err(CompilationProfileValidationError::InvalidNativeCodegenInventory)
+        );
 
         let mut duplicate = report(1_000_000);
         duplicate.native_codegen = Some(inventory);
