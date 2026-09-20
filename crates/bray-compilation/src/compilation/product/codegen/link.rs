@@ -397,6 +397,7 @@ impl Compilation {
                 .map(|artifact| {
                     let metadata = artifact.metadata();
                     let optimization = metadata.optimization();
+                    let platform_services = profile_platform_services(optimization);
 
                     bray_profile::CompilationProfileOptimizationArtifact {
                         path: metadata.path().to_owned(),
@@ -405,11 +406,7 @@ impl Compilation {
                         modules: optimization
                             .map_or(0, |optimization| optimization.module_count().get()),
                         bytes: metadata.byte_len(),
-                        platform_services: optimization
-                            .into_iter()
-                            .flat_map(|optimization| optimization.platform_services())
-                            .map(|role| role.as_str().to_owned())
-                            .collect(),
+                        platform_services,
                     }
                 })
                 .collect::<Vec<_>>();
@@ -509,6 +506,20 @@ impl Compilation {
         )
         .map(|selection| selection.inputs)
     }
+}
+
+fn profile_platform_services(
+    optimization: Option<&bray_standard_library::StandardLibraryOptimizationMetadata>,
+) -> Vec<String> {
+    let mut services = optimization
+        .into_iter()
+        .flat_map(bray_standard_library::StandardLibraryOptimizationMetadata::platform_services)
+        .map(|role| role.as_str().to_owned())
+        .collect::<Vec<_>>();
+
+    services.sort();
+
+    services
 }
 
 fn standard_library_artifact_provenance(
@@ -743,7 +754,8 @@ mod tests {
     use bray_target::NativeTarget;
 
     use super::{
-        optimization_artifact_is_compatible, select_optimization_artifact_indices,
+        optimization_artifact_is_compatible, profile_platform_services,
+        select_optimization_artifact_indices,
         standard_library_artifact_provenance,
     };
 
@@ -798,8 +810,8 @@ mod tests {
         )
         .map(|artifact| {
             artifact.with_platform_services([
-                PlatformServiceRole::ContextNativeTextWidth,
                 PlatformServiceRole::TimeDateValidate,
+                PlatformServiceRole::TimeDateAdd,
             ])
         })
         .unwrap_or_else(|error| panic!("test fallback must be valid: {error:?}"));
@@ -814,7 +826,18 @@ mod tests {
 
         let optimization =
             optimization_metadata(&fallback, &contract, RuntimeAbiVersion::new(1, 0), &backend)
-                .with_platform_services([PlatformServiceRole::TimeDateValidate]);
+                .with_platform_services([
+                    PlatformServiceRole::TimeDateValidate,
+                    PlatformServiceRole::TimeDateAdd,
+                ]);
+
+        assert_eq!(
+            profile_platform_services(Some(&optimization)),
+            [
+                PlatformServiceRole::TimeDateAdd.as_str().to_owned(),
+                PlatformServiceRole::TimeDateValidate.as_str().to_owned(),
+            ],
+        );
 
         let standard_library =
             optimization_artifact(&contract, RuntimeAbiVersion::new(1, 0), &backend);

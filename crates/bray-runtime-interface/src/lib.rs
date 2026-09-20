@@ -43,8 +43,9 @@ pub use platform::{
     PlatformAbiType, PlatformServiceBinding, PlatformServiceRole, PlatformServiceSignature,
 };
 pub use role::{
-    ResidentRuntimeService, RuntimeAbiRole, RuntimeRoleBinding, RuntimeRoleContract,
+    RuntimeAbiRole, RuntimeRoleBinding, RuntimeRoleContract,
     RuntimeRoleContractEffect, RuntimeRoleImplementation, RuntimeRoleSourceBinding,
+    RuntimeServiceClass,
 };
 pub use runtime::{RuntimeCompatibilityError, RuntimeContract, RuntimeContractBuildError};
 

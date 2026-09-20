@@ -7,8 +7,9 @@ use bray_codegen::{
 use bray_compiler_known::RepresentationRole;
 use bray_runtime_interface::{
     BinarySymbolName, ExecutableEntryResult, ExecutableHostContract, ExecutableHostContractBuilder,
-    ExecutableHostEntry, ResidentRuntimeService, RootExecution, RuntimeAbiRole, RuntimeArtifact,
+    ExecutableHostEntry, RootExecution, RuntimeAbiRole, RuntimeArtifact,
     RuntimeCapability, RuntimeRequirements, RuntimeRoleBinding, RuntimeRoleImplementation,
+    RuntimeServiceClass,
 };
 use bray_symbols::{GenericArgument, ProductIdentity, ProductKind};
 
@@ -260,7 +261,7 @@ impl Compilation {
 
         if runtime_roles
             .iter()
-            .any(|role| role.resident_service() == Some(ResidentRuntimeService::Execution))
+            .any(|role| role.service_class() == Some(RuntimeServiceClass::Execution))
         {
             capabilities.insert(RuntimeCapability::CooperativeExecution);
         }

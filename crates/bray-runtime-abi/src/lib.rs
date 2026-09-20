@@ -13,7 +13,6 @@ mod product;
 mod records;
 mod run_result;
 mod runtime;
-mod services;
 mod signature;
 pub mod symbols;
 mod temporal;
@@ -54,7 +53,6 @@ pub use runtime::{
     NativeThreadCancellationCallback, NativeThreadOperationCallback, NativeWakeCallback,
     PERFORMANCE_OBSERVATION_HEADER, PERFORMANCE_OBSERVATION_PATH_ENVIRONMENT,
 };
-pub use services::{NativeExecutionServices, NativeHostServices};
 pub use symbols::{
     MEMORY_ALLOCATION_OBSERVATION_SYMBOL, MEMORY_COPY_OBSERVATION_SYMBOL,
     MEMORY_OBSERVATION_BEGIN_SYMBOL, PERFORMANCE_INTERVAL_BEGIN_SYMBOL,

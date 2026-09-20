@@ -41,21 +41,19 @@ live providers remain valid. Lazy source initialization retains its ordinary tim
 
 ## Resident services and execution contexts
 
-Typed native service tables route generated calls back to one retained resident implementation. Its identity and binding
-outlive dependent provider state, and unloading and reloading a provider cannot reuse an earlier ownership identity.
-Host and capacity services are separately retainable from execution services so synchronous products do not acquire a
-scheduler dependency.
+Typed native symbols route generated calls to the selected runtime components. Component metadata distinguishes host
+services from execution services so synchronous products do not acquire a scheduler dependency.
 
 The resident implementation owns reservations and the run interpreter. Rust activation and terminal owners stay inside
-that implementation. Fixed-ABI generated callbacks operate on admitted backing and return through the bound tables for
+that implementation. Fixed-ABI generated callbacks operate on admitted backing and return through selected symbols for
 all context-sensitive operations, including cancellation, incidents, attachment, output, and product execution.
 
 Independent execution contexts retain their own scheduler, budgets, workers, and lane authority. Entry scopes and
 restores the entire root context, not only task identity. Cleanup retains its selected context after that host stops
 accepting new work. Sharing services does not merge independent schedulers.
 
-Explicit host formation operations establish services before product bindings exist. Ordinary generated operations use
-the published binding. One typed callback inventory supplies both dispatch and compiler service-demand analysis.
+Explicit host formation operations establish services before product bindings exist. One typed native-role inventory
+supplies compiler service-demand analysis and symbol contracts.
 
 ## Consuming reserved frame storage
 
