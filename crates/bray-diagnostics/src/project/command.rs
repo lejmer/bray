@@ -410,7 +410,8 @@ pub enum DiagnosticProjectCommandFailure {
         /// Process exit code when the host supplied one.
         code: Option<i32>,
     },
-    /// A compiler child exited unsuccessfully without its required structured report.
+    /// A compiler child exited unsuccessfully without the diagnostic output required by the
+    /// selected output format.
     CompilerOutputMissing {
         /// Exact package/product identity compiled by the child.
         product: String,
