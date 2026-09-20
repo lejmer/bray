@@ -436,7 +436,7 @@ pub(crate) fn for_each_terminator_storage(
             cancelled,
         } => {
             visit_edge_storage(completed, &mut visit);
-            visit(panicked.report().storage());
+            visit_place_storage(panicked.report(), &mut visit);
             visit_edge_storage(cancelled, &mut visit);
         }
         MirTerminatorKind::BeginCleanup(cleanup)
@@ -457,6 +457,14 @@ fn visit_edge_storage(edge: &MirEdge, visit: &mut impl FnMut(MirStorageId)) {
     for argument in edge.arguments() {
         visit_operand_storage(argument, visit);
     }
+}
+
+fn visit_place_storage(place: &MirPlace, visit: &mut impl FnMut(MirStorageId)) {
+    visit(place.storage());
+
+    visit_place_operands(place, &mut |operand| {
+        visit_operand_storage(operand, visit);
+    });
 }
 
 fn visit_operand_storage(operand: &MirOperand, visit: &mut impl FnMut(MirStorageId)) {
@@ -489,6 +497,40 @@ mod tests {
         let mut inputs = Vec::new();
         terminator.for_each_input(|input| inputs.push(input.clone()));
         assert_eq!(inputs, [condition]);
+    }
+
+    #[test]
+    fn call_panic_report_storage_includes_projection_selectors() {
+        use crate::{
+            MirBlockId, MirCallPanicEdge, MirEdge, MirOperand, MirPlace, MirProjection,
+            MirProjectionKind, MirStorageId, MirTerminatorKind, MirUnitId,
+        };
+
+        let unit = MirUnitId::new(9);
+        let ty = crate::test_support::test_type();
+        let root = MirStorageId::from_slot(unit, 0);
+        let selector = MirStorageId::from_slot(unit, 1);
+
+        let report = MirPlace::new(
+            root,
+            [MirProjection::new(
+                MirProjectionKind::Index(MirOperand::Copy(MirPlace::new(selector, [], ty))),
+                ty,
+                ty,
+            )],
+            ty,
+        );
+
+        let terminator = MirTerminatorKind::CheckCallOutcome {
+            completed: MirEdge::new(MirBlockId::from_slot(unit, 1), []),
+            panicked: MirCallPanicEdge::new(MirBlockId::from_slot(unit, 2), report),
+            cancelled: MirEdge::new(MirBlockId::from_slot(unit, 3), []),
+        };
+
+        let mut storages = Vec::new();
+        super::for_each_terminator_storage(&terminator, |storage| storages.push(storage));
+
+        assert_eq!(storages, [root, selector]);
     }
 
     #[test]
