@@ -14,6 +14,7 @@ use super::super::realization::ProductStaticHostEntry;
 use super::super::specialization::{ConcreteCodegenInstance, ConcreteCodegenReachability};
 use super::error::{NativeProductPlanningError, native_batch_error};
 use super::implementation::{GENERATED_HOST_UNIT, bound_template, runtime_artifact_purpose};
+use super::{ConcreteCodegenRoot, NativeDemandReason};
 use crate::fact::{BatchWork, CancellationToken, FactQueryError};
 
 type NativeCodegenPreparation = (
@@ -32,7 +33,7 @@ impl Compilation {
         &self,
         product: &ProductIdentity,
         kind: ProductKind,
-        source_roots: Vec<ConcreteCodegenInstance>,
+        source_roots: Vec<ConcreteCodegenRoot>,
         entry_roots: &[ConcreteCodegenInstance],
         runtime: Option<&RuntimeArtifact>,
         required_capabilities: impl IntoIterator<Item = RuntimeCapability>,
@@ -153,7 +154,10 @@ impl Compilation {
                     crate::profile::ProfileOperation::NativeReachability,
                     || {
                         self.codegen_reachability(
-                            [host],
+                            [ConcreteCodegenRoot::new(
+                                host,
+                                NativeDemandReason::HostedRoot,
+                            )],
                             Some((host_mir, source_roots)),
                             target,
                             cancellation,
@@ -189,7 +193,12 @@ impl Compilation {
         )?;
 
         if let Some(profile) = self.state.fact_runtime.profile() {
-            profile.set_native_codegen_plan(reachability.graph(), &units, &mappings);
+            profile.set_native_codegen_plan(
+                reachability.graph(),
+                reachability.demands(),
+                &units,
+                &mappings,
+            );
 
             let runtime_roles = host
                 .iter()

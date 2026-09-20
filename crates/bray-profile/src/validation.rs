@@ -111,7 +111,13 @@ impl CompilationProfileReport {
         if let Some(index) = self
             .runtime_artifacts
             .iter()
-            .position(|artifact| artifact.identity.trim().is_empty())
+            .position(|artifact| {
+                artifact.identity.trim().is_empty()
+                    || !valid_canonical_strings(&artifact.runtime_roles)
+                    || !valid_canonical_strings(&artifact.capabilities)
+                    || !valid_canonical_strings(&artifact.platform_services)
+                    || !valid_canonical_strings(&artifact.retained_by)
+            })
         {
             return Err(
                 CompilationProfileValidationError::InvalidRuntimeArtifactIdentity { index },
@@ -128,6 +134,22 @@ impl CompilationProfileReport {
                     first: entries[0].identity.clone(),
                     second: entries[1].identity.clone(),
                 },
+            );
+        }
+
+        let runtime_identities = self
+            .runtime_artifacts
+            .iter()
+            .map(|artifact| artifact.identity.as_str())
+            .collect::<BTreeSet<_>>();
+
+        if let Some(index) = self.runtime_artifacts.iter().position(|artifact| {
+            artifact.retained_by.iter().any(|identity| {
+                identity == &artifact.identity || !runtime_identities.contains(identity.as_str())
+            })
+        }) {
+            return Err(
+                CompilationProfileValidationError::InvalidRuntimeArtifactIdentity { index },
             );
         }
 
@@ -173,8 +195,49 @@ fn valid_native_codegen_inventory(inventory: &crate::CompilationProfileNativeCod
                 .symbol
                 .as_ref()
                 .is_some_and(|symbol| symbol.trim().is_empty())
-            || instance.external && instance.root
+            || instance.external
+                != (instance.pre_optimization_blocks == 0
+                    && instance.pre_optimization_operations == 0
+                    && instance.post_optimization_blocks == 0
+                    && instance.post_optimization_operations == 0)
+            || !valid_inclusion_path(inventory, instance.id, &instance.inclusion_path)
     }) {
+        return false;
+    }
+
+    if inventory.demands.windows(2).any(|entries| {
+        (&entries[0].predecessor, &entries[0].target, &entries[0].kind)
+            >= (&entries[1].predecessor, &entries[1].target, &entries[1].kind)
+    }) || inventory.demands.iter().any(|demand| {
+        usize::try_from(demand.target).map_or(true, |id| id >= instance_count)
+            || demand.predecessor.is_some_and(|predecessor| {
+                usize::try_from(predecessor).map_or(true, |id| {
+                    id >= instance_count || inventory.instances[id].external
+                })
+            })
+            || demand.predecessor.is_none()
+                && inventory.instances[usize::try_from(demand.target).unwrap_or(usize::MAX)].external
+    }) {
+        return false;
+    }
+
+    let demand_edges = inventory
+        .demands
+        .iter()
+        .filter_map(|demand| {
+            demand
+                .predecessor
+                .map(|predecessor| (predecessor, demand.target))
+        })
+        .collect::<BTreeSet<_>>();
+
+    let dependency_edges = inventory
+        .dependencies
+        .iter()
+        .map(|dependency| (dependency.source, dependency.target))
+        .collect::<BTreeSet<_>>();
+
+    if demand_edges != dependency_edges {
         return false;
     }
 
@@ -202,6 +265,9 @@ fn valid_native_codegen_inventory(inventory: &crate::CompilationProfileNativeCod
             || !valid_canonical_strings(&unit.linkages)
             || !valid_canonical_strings(&unit.visibilities)
             || unit.instances.windows(2).any(|ids| ids[0] >= ids[1])
+            || !unit.instances.contains(
+                &demand_path_target(inventory, &unit.inclusion_path).unwrap_or(u32::MAX),
+            )
         {
             return false;
         }
@@ -248,6 +314,39 @@ fn valid_native_codegen_inventory(inventory: &crate::CompilationProfileNativeCod
             && (artifact.modules == 0) == artifact.partition.is_none()
             && valid_canonical_strings(&artifact.platform_services)
     })
+}
+
+fn valid_inclusion_path(
+    inventory: &crate::CompilationProfileNativeCodegen,
+    target: u32,
+    path: &[u32],
+) -> bool {
+    demand_path_target(inventory, path) == Some(target)
+}
+
+fn demand_path_target(
+    inventory: &crate::CompilationProfileNativeCodegen,
+    path: &[u32],
+) -> Option<u32> {
+    let first = inventory.demands.get(usize::try_from(*path.first()?).ok()?)?;
+
+    if first.predecessor.is_some() {
+        return None;
+    }
+
+    let mut target = first.target;
+
+    for &index in &path[1..] {
+        let demand = inventory.demands.get(usize::try_from(index).ok()?)?;
+
+        if demand.predecessor != Some(target) {
+            return None;
+        }
+
+        target = demand.target;
+    }
+
+    Some(target)
 }
 
 fn valid_canonical_strings(entries: &[String]) -> bool {
@@ -482,6 +581,10 @@ mod tests {
         invalid.runtime_artifacts = vec![crate::CompilationProfileRuntimeArtifact {
             identity: " ".to_owned(),
             bytes: 1,
+            runtime_roles: Vec::new(),
+            capabilities: Vec::new(),
+            platform_services: Vec::new(),
+            retained_by: Vec::new(),
         }];
 
         assert_eq!(
@@ -495,10 +598,18 @@ mod tests {
             crate::CompilationProfileRuntimeArtifact {
                 identity: "runtime.host".to_owned(),
                 bytes: 1,
+                runtime_roles: Vec::new(),
+                capabilities: Vec::new(),
+                platform_services: Vec::new(),
+                retained_by: Vec::new(),
             },
             crate::CompilationProfileRuntimeArtifact {
                 identity: "runtime.host".to_owned(),
                 bytes: 1,
+                runtime_roles: Vec::new(),
+                capabilities: Vec::new(),
+                platform_services: Vec::new(),
+                retained_by: Vec::new(),
             },
         ];
 
@@ -565,14 +676,34 @@ mod tests {
                 crate::CompilationProfileCodegenInstance {
                     id: 0,
                     symbol: Some("main".to_owned()),
-                    root: true,
                     external: false,
+                    inclusion_path: vec![0],
+                    pre_optimization_blocks: 1,
+                    pre_optimization_operations: 1,
+                    post_optimization_blocks: 1,
+                    post_optimization_operations: 1,
                 },
                 crate::CompilationProfileCodegenInstance {
                     id: 1,
                     symbol: Some("WriteFile".to_owned()),
-                    root: false,
                     external: true,
+                    inclusion_path: vec![0, 1],
+                    pre_optimization_blocks: 0,
+                    pre_optimization_operations: 0,
+                    post_optimization_blocks: 0,
+                    post_optimization_operations: 0,
+                },
+            ],
+            demands: vec![
+                crate::CompilationProfileNativeDemand {
+                    predecessor: None,
+                    target: 0,
+                    kind: crate::CompilationProfileNativeDemandKind::ExecutableEntry,
+                },
+                crate::CompilationProfileNativeDemand {
+                    predecessor: Some(0),
+                    target: 1,
+                    kind: crate::CompilationProfileNativeDemandKind::NativeReference,
                 },
             ],
             dependencies: vec![crate::CompilationProfileCodegenDependency {
@@ -584,6 +715,7 @@ mod tests {
                 id: 0,
                 work: 1,
                 instances: vec![0],
+                inclusion_path: vec![0],
                 packages: vec!["example".to_owned()],
                 linkages: vec!["export".to_owned()],
                 visibilities: vec!["public".to_owned()],
@@ -599,7 +731,52 @@ mod tests {
 
         let mut valid = report(1_000_000);
         valid.native_codegen = Some(inventory.clone());
+
         assert_eq!(valid.validate(), Ok(()));
+
+        let mut fabricated_demand = report(1_000_000);
+        fabricated_demand.native_codegen = Some(inventory.clone());
+
+        fabricated_demand
+            .native_codegen
+            .as_mut()
+            .expect("test inventory must exist")
+            .demands
+            .insert(
+                1,
+                crate::CompilationProfileNativeDemand {
+                    predecessor: Some(0),
+                    target: 0,
+                    kind: crate::CompilationProfileNativeDemandKind::DirectCall,
+                },
+            );
+
+        assert_eq!(
+            fabricated_demand.validate(),
+            Err(CompilationProfileValidationError::InvalidNativeCodegenInventory)
+        );
+
+        let mut unexplained_dependency = report(1_000_000);
+        unexplained_dependency.native_codegen = Some(inventory.clone());
+
+        unexplained_dependency
+            .native_codegen
+            .as_mut()
+            .expect("test inventory must exist")
+            .dependencies
+            .insert(
+                0,
+                crate::CompilationProfileCodegenDependency {
+                    source: 0,
+                    target: 0,
+                    kind: "definition".to_owned(),
+                },
+            );
+
+        assert_eq!(
+            unexplained_dependency.validate(),
+            Err(CompilationProfileValidationError::InvalidNativeCodegenInventory)
+        );
 
         let mut duplicate = report(1_000_000);
         duplicate.native_codegen = Some(inventory);

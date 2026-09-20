@@ -51,7 +51,7 @@ pub(crate) struct ProfileSession {
     clock: Arc<dyn ProfileClock>,
     shards: Box<[Mutex<ProfileShard>]>,
     concurrency: ProfileConcurrency,
-    runtime_artifacts: Mutex<BTreeMap<String, u64>>,
+    runtime_artifacts: Mutex<BTreeMap<String, CompilationProfileRuntimeArtifact>>,
     runtime_roles: Mutex<BTreeSet<String>>,
     native_callback_entries: Mutex<BTreeSet<String>>,
     native_codegen: Mutex<CompilationProfileNativeCodegen>,
@@ -370,13 +370,13 @@ impl ProfileSession {
         self.record_metric(ProfileMetricKind::OptimizationInputBytes, bytes);
     }
 
-    pub(crate) fn add_runtime_artifact(&self, identity: &str, bytes: u64) {
+    pub(crate) fn add_runtime_artifact(&self, artifact: CompilationProfileRuntimeArtifact) {
         let mut artifacts = self
             .runtime_artifacts
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
 
-        artifacts.insert(identity.to_owned(), bytes);
+        artifacts.insert(artifact.identity.clone(), artifact);
     }
 
     pub(crate) fn add_native_product_contract<'entry>(
@@ -391,6 +391,7 @@ impl ProfileSession {
     pub(crate) fn set_native_codegen_plan(
         &self,
         reachability: &bray_codegen::CodegenReachability,
+        demands: &[crate::compilation::NativeDemand],
         units: &[bray_codegen::CodegenUnit],
         mappings: &[bray_codegen::CodegenMappings],
     ) {
@@ -402,6 +403,7 @@ impl ProfileSession {
         super::inventory::set_native_codegen_plan(
             &mut inventory,
             reachability,
+            demands,
             units,
             mappings,
         );
@@ -457,10 +459,7 @@ impl ProfileSession {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .iter()
-            .map(|(identity, bytes)| CompilationProfileRuntimeArtifact {
-                identity: identity.clone(),
-                bytes: *bytes,
-            })
+            .map(|(_, artifact)| artifact.clone())
             .collect();
 
         let runtime_roles = profile_strings(&self.runtime_roles);

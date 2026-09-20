@@ -52,6 +52,7 @@ pub(super) struct ConcreteCodegenInstance {
 pub(super) struct ConcreteCodegenReachability {
     graph: CodegenReachability,
     instances: BTreeMap<CodegenInstanceKey, ConcreteCodegenInstance>,
+    demands: Arc<[super::codegen::NativeDemand]>,
 }
 
 pub(super) enum ConcreteCodegenCallee {
@@ -63,8 +64,13 @@ impl ConcreteCodegenReachability {
     pub(super) fn new(
         graph: CodegenReachability,
         instances: BTreeMap<CodegenInstanceKey, ConcreteCodegenInstance>,
+        demands: impl Into<Arc<[super::codegen::NativeDemand]>>,
     ) -> Self {
-        Self { graph, instances }
+        Self {
+            graph,
+            instances,
+            demands: demands.into(),
+        }
     }
 
     pub(super) const fn graph(&self) -> &CodegenReachability {
@@ -73,6 +79,10 @@ impl ConcreteCodegenReachability {
 
     pub(super) fn instance(&self, key: &CodegenInstanceKey) -> Option<&ConcreteCodegenInstance> {
         self.instances.get(key)
+    }
+
+    pub(super) fn demands(&self) -> &[super::codegen::NativeDemand] {
+        &self.demands
     }
 }
 

@@ -16,6 +16,7 @@ use super::super::super::substitution::empty_substitution;
 use super::super::error::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
 use super::super::specialization::ConcreteCodegenInstance;
 use super::error::NativeProductPlanningError;
+use super::{ConcreteCodegenRoot, NativeDemandReason};
 use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
@@ -25,16 +26,30 @@ impl Compilation {
         test_discovery: Option<&super::super::super::testing::TestDiscovery>,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
-    ) -> Result<Vec<ConcreteCodegenInstance>, NativeProductPlanningError> {
+    ) -> Result<Vec<ConcreteCodegenRoot>, NativeProductPlanningError> {
         let binding_context = self.binding_context(cancellation)?;
 
         crate::compilation::foreign::validate_source_roles(self)?;
 
-        let mut symbols = match semantic.kind() {
+        let mut symbols: Vec<(AnySymbolId, NativeDemandReason)> = match semantic.kind() {
             ProductKind::Executable | ProductKind::Test => {
+                let reason = match semantic.kind() {
+                    ProductKind::Executable => NativeDemandReason::ExecutableEntry,
+                    ProductKind::Test => NativeDemandReason::TestEntry,
+                    ProductKind::Library => unreachable!("entry products cannot be libraries"),
+                };
+
                 product_entry_symbols(semantic, test_discovery)?
+                    .into_iter()
+                    .map(|symbol| (symbol, reason))
+                    .collect()
             }
-            ProductKind::Library => semantic.public_symbols().to_vec(),
+            ProductKind::Library => semantic
+                .public_symbols()
+                .iter()
+                .copied()
+                .map(|symbol| (symbol, NativeDemandReason::LibraryExport))
+                .collect(),
         };
 
         if semantic.kind() == ProductKind::Library {
@@ -49,14 +64,17 @@ impl Compilation {
                         .callables
                         .iter()
                         .copied()
-                        .map(AnySymbolId::from),
+                        .map(AnySymbolId::from)
+                        .map(|symbol| {
+                            (symbol, NativeDemandReason::ImplementationFulfillment)
+                        }),
                 );
             }
         }
 
         for function in binding_context.symbols().functions() {
             if crate::compilation::foreign::has_source_role(self, function.id())? {
-                symbols.push(function.id().into());
+                symbols.push((function.id().into(), NativeDemandReason::RuntimeRole));
 
                 continue;
             }
@@ -69,7 +87,7 @@ impl Compilation {
                     contract.direction() == bray_symbols::ForeignCallableDirection::Export
                 })
             {
-                symbols.push(function.id().into());
+                symbols.push((function.id().into(), NativeDemandReason::NativeExport));
             }
         }
 
@@ -101,7 +119,13 @@ impl Compilation {
                 || !template.value().lifecycle_obligations().is_empty()
                 || !self.codegen_cleanup_is_trivial(ty, cancellation)?
             {
-                symbols.push(static_symbol.id().into());
+                let reason = if native_export {
+                    NativeDemandReason::NativeExport
+                } else {
+                    NativeDemandReason::StaticLifecycle
+                };
+
+                symbols.push((static_symbol.id().into(), reason));
             }
         }
 
@@ -116,7 +140,7 @@ impl Compilation {
 
         let mut roots = Vec::new();
 
-        for symbol in symbols {
+        for (symbol, reason) in symbols {
             if TraitCallableMemberSymbolId::try_from_any(symbol).is_some() {
                 continue;
             }
@@ -129,7 +153,7 @@ impl Compilation {
                 if let Some(root) =
                     self.product_root_static(declaration, &binding_context, target, cancellation)?
                 {
-                    roots.push(root);
+                    roots.push(ConcreteCodegenRoot::new(root, reason));
                 }
 
                 continue;
@@ -158,10 +182,16 @@ impl Compilation {
                 self.concrete_codegen_callable(callable, witnesses, target, cancellation)?;
 
             if semantic.kind() == ProductKind::Library {
-                roots.extend(self.concrete_codegen_callable_defaults(definition, &callable)?);
+                roots.extend(
+                    self.concrete_codegen_callable_defaults(definition, &callable)?
+                        .into_iter()
+                        .map(|root| {
+                            ConcreteCodegenRoot::new(root, NativeDemandReason::CallableDefault)
+                        }),
+                );
             }
 
-            roots.push(callable);
+            roots.push(ConcreteCodegenRoot::new(callable, reason));
         }
 
         if semantic.kind() != ProductKind::Test {
