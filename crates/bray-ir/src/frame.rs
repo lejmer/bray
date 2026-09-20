@@ -90,6 +90,19 @@ pub struct MirFrameDescriptor {
 }
 
 impl MirFrameDescriptor {
+    pub(crate) fn remap_local_ids(
+        &mut self,
+        mappings: &impl crate::unit::local_id_remap::MirLocalIdMapping,
+    ) {
+        for state in Arc::make_mut(&mut self.states) {
+            state.entry = mappings.block(state.entry);
+
+            for storage in Arc::make_mut(&mut state.initialized_storages) {
+                *storage = mappings.storage(*storage);
+            }
+        }
+    }
+
     /// Creates a descriptor from a nonempty state table with unique entries and
     /// contiguous descriptor-local state identities in order.
     pub fn new(
