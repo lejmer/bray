@@ -158,7 +158,9 @@ fn execute_callback_boundary(
 
 #[cfg(test)]
 mod tests {
-    use bray_runtime_abi::{NativeRunOutcome, NativeRunState, NativeTaskHandle};
+    use bray_runtime_abi::{
+        NativeRunOutcome, NativeRunState, NativeSynchronousRootCallback, NativeTaskHandle,
+    };
 
     use super::bray_runtime_native_thread_execution;
 
@@ -185,8 +187,9 @@ mod tests {
         *outcome = NativeRunOutcome::new(NativeRunState::COMPLETED, 0);
     }
 
-    #[test]
-    fn reentrant_foreign_callback_isolates_and_restores_outer_context() {
+    fn assert_reentrant_entry_isolates_and_restores_outer_context(
+        execute: extern "C" fn(NativeSynchronousRootCallback, usize) -> NativeRunOutcome,
+    ) {
         let task = NativeTaskHandle::new(7).expect("fixed task handle is nonzero");
         let cancellation = crate::CancellationContext::root();
 
@@ -202,10 +205,7 @@ mod tests {
             crate::context::with_run_cancellation_context(cancellation, || {
                 crate::context::with_task_output(output, || {
                     super::super::state::with_current_task(task, || {
-                        let outcome = super::bray_runtime_foreign_callback_execution(
-                            assert_independent_native_task,
-                            0,
-                        );
+                        let outcome = execute(assert_independent_native_task, 0);
 
                         assert_eq!(outcome.state(), NativeRunState::COMPLETED);
                         assert_eq!(super::super::state::current_native_task(), Some(task));
@@ -219,6 +219,20 @@ mod tests {
         });
 
         assert_eq!(super::super::state::current_native_task(), None);
+    }
+
+    #[test]
+    fn reentrant_foreign_callback_isolates_and_restores_outer_context() {
+        assert_reentrant_entry_isolates_and_restores_outer_context(
+            super::bray_runtime_foreign_callback_execution,
+        );
+    }
+
+    #[test]
+    fn reentrant_synchronous_root_isolates_and_restores_outer_context() {
+        assert_reentrant_entry_isolates_and_restores_outer_context(
+            super::bray_runtime_synchronous_root_execution,
+        );
     }
 
     extern "C-unwind" fn propagate_cancellation(_: usize, outcome: &mut NativeRunOutcome) {

@@ -9,7 +9,6 @@ mod host;
 pub mod implementation;
 mod outgoing;
 mod run;
-mod services;
 mod state;
 mod static_finalizer;
 mod task_observation;

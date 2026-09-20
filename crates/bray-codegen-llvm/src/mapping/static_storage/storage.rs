@@ -65,23 +65,23 @@ pub(in crate::mapping) fn declare_static_storages<'context, 'mappings>(
             types,
         )?;
 
-        let host_mapping = product_host
-            .and_then(|host| {
+        let host_mapping = product_host.and_then(|host| {
                 host.statics()
                     .iter()
                     .find(|entry| entry.host_symbol().as_str() == mapping.host_name())
-            })
-            .expect("static-storage realization requires an established mapping or value");
+            });
 
-        retained_globals.push(declare_static_host_entry(
-            module,
-            mapping,
-            host_mapping,
-            global.as_pointer_value(),
-            accessor,
-            callbacks,
-            types,
-        )?);
+        if let Some(host_mapping) = host_mapping {
+            retained_globals.push(declare_static_host_entry(
+                module,
+                mapping,
+                host_mapping,
+                global.as_pointer_value(),
+                accessor,
+                callbacks,
+                types,
+            )?);
+        }
     }
 
     retain_globals(module, &retained_globals, "llvm.compiler.used", types)?;

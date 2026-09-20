@@ -60,7 +60,7 @@ impl Compilation {
             Some(reachability) => self.profile_native_product_operation(
                 crate::profile::ProfileOperation::NativeHostPreparation,
                 || {
-                    self.product_static_host_entries(reachability, target, cancellation)
+                    self.product_static_host_entries(kind, reachability, target, cancellation)
                         .map_err(NativeProductPlanningError::from)
                 },
             )?,
@@ -85,6 +85,7 @@ impl Compilation {
                     source_reachability
                         .as_ref()
                         .map(ConcreteCodegenReachability::graph),
+                    &host_statics,
                     runtime,
                     foreign_callback_roles,
                     required_capabilities,
@@ -188,6 +189,8 @@ impl Compilation {
         )?;
 
         if let Some(profile) = self.state.fact_runtime.profile() {
+            profile.set_native_codegen_plan(reachability.graph(), &units, &mappings);
+
             let runtime_roles = host
                 .iter()
                 .flat_map(|host| host.requirements().roles())

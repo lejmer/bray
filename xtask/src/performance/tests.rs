@@ -1379,6 +1379,7 @@ fn profile(elapsed_nanoseconds: u64) -> CompilationProfileReport {
         runtime_artifacts: Vec::new(),
         runtime_roles: Vec::new(),
         native_callback_entries: Vec::new(),
+        native_codegen: None,
         events: Vec::new(),
         dropped_events: 0,
     }

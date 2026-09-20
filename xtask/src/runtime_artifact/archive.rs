@@ -12,6 +12,10 @@ pub(super) fn validate(
     target: NativeTarget,
 ) -> Result<(), CommandError> {
     for component in &package.components {
+        let Some(kind) = component.kind else {
+            continue;
+        };
+
         let symbols = crate::native_symbols::defined_external_symbols(
             root,
             &component.archive,
@@ -21,17 +25,17 @@ pub(super) fn validate(
 
         let strong = symbols
             .iter()
-            .filter(|symbol| !is_fallback(component.kind, symbol))
+            .filter(|symbol| !is_fallback(kind, symbol))
             .map(|symbol| symbol.name().to_owned())
             .collect::<Vec<_>>();
 
         let weak = symbols
             .iter()
-            .filter(|symbol| is_fallback(component.kind, symbol))
+            .filter(|symbol| is_fallback(kind, symbol))
             .map(|symbol| symbol.name().to_owned())
             .collect::<Vec<_>>();
 
-        validate_exports(component.kind, &strong, &weak)?;
+        validate_exports(kind, &strong, &weak)?;
     }
 
     Ok(())

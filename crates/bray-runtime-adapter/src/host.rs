@@ -5,18 +5,10 @@ use bray_runtime_abi::{
     NativeThreadStaticCleanupRegistration,
 };
 
-fn host() -> &'static bray_runtime_abi::NativeHostServices {
-    implementation::resident_host_services()
-}
-
 native_adapter! {
     pub extern "C" fn bray_runtime_substrate_report_primary(primary: &bray_runtime_abi::NativePanicPrimary) -> NativeRuntimeStatus {
         implementation::bray_runtime_substrate_report_primary(primary)
     }
-}
-
-fn execution() -> &'static bray_runtime_abi::NativeExecutionServices {
-    implementation::resident_execution_services()
 }
 
 native_adapter! {
@@ -33,7 +25,7 @@ native_adapter! {
         callback: NativeSynchronousRootCallback,
         context: usize,
     ) -> NativeRunOutcome {
-        (host().synchronous_root_execution)(callback, context)
+        implementation::bray_runtime_synchronous_root_execution(callback, context)
     }
 }
 
@@ -42,7 +34,7 @@ native_adapter! {
         descriptor: &NativeProductHostDescriptor,
         operation: NativeProductHostOperation,
     ) -> NativeProductHostObservation {
-        (host().product_host_control)(descriptor, operation)
+        implementation::bray_runtime_product_host_control(descriptor, operation)
     }
 }
 
@@ -50,7 +42,7 @@ native_adapter! {
     pub extern "C" fn bray_runtime_thread_attachment_identity(
         descriptor: &'static NativeProductHostDescriptor,
     ) -> u64 {
-        (host().thread_attachment_identity)(descriptor)
+        implementation::resident_thread_attachment_identity(descriptor)
     }
 }
 
@@ -58,7 +50,7 @@ native_adapter! {
     pub extern "C" fn bray_runtime_thread_static_cleanup_registration(
         registration: &NativeThreadStaticCleanupRegistration,
     ) -> NativeRuntimeStatus {
-        (host().thread_static_cleanup_registration)(registration)
+        implementation::resident_thread_static_cleanup_registration(registration)
     }
 }
 
@@ -66,7 +58,7 @@ native_adapter! {
     pub extern "C" fn bray_runtime_root_terminal_observation(
         root: NativeRootHandle,
     ) -> NativeRunOutcome {
-        (execution().root_terminal_observation)(root)
+        implementation::bray_runtime_root_terminal_observation(root)
     }
 }
 
@@ -74,7 +66,7 @@ native_adapter! {
     pub extern "C" fn bray_runtime_root_completion_resolution(
         root: NativeRootHandle,
     ) -> NativeRuntimeStatus {
-        (execution().root_completion_resolution)(root)
+        implementation::bray_runtime_root_completion_resolution(root)
     }
 }
 
@@ -83,19 +75,19 @@ native_adapter! {
         payload: usize,
         size: usize,
     ) -> NativeRuntimeStatus {
-        (host().entry_failure_reporting)(payload, size)
+        implementation::bray_runtime_entry_failure_reporting(payload, size)
     }
 }
 
 native_adapter! {
     pub extern "C" fn bray_runtime_panic_propagation(report: &mut bray_runtime_abi::NativePanicReport) -> ! {
-        (host().panic_propagation)(report)
+        implementation::bray_runtime_panic_propagation(report)
     }
 }
 
 native_adapter! {
     pub extern "C" fn bray_runtime_cleanup_incident_reporting() -> NativeRuntimeStatus {
-        (host().cleanup_incident_reporting)()
+        implementation::bray_runtime_cleanup_incident_reporting()
     }
 }
 
@@ -107,12 +99,12 @@ native_adapter! {
 
 native_adapter! {
     pub extern "C" fn bray_runtime_panic_reporting(report: &mut bray_runtime_abi::NativePanicReport) -> NativeRuntimeStatus {
-        (host().panic_reporting)(report)
+        implementation::bray_runtime_panic_reporting(report)
     }
 }
 
 native_adapter! {
     pub extern "C" fn bray_runtime_panic_report_destruction(report: &mut bray_runtime_abi::NativePanicReport) -> NativeRuntimeStatus {
-        (host().panic_report_destruction)(report)
+        implementation::bray_runtime_panic_report_destruction(report)
     }
 }

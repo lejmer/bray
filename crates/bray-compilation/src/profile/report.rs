@@ -15,7 +15,6 @@ use super::aggregate::{
 };
 use super::concurrency::ProfileConcurrency;
 use super::descriptor::{ProfileMetricKind, ProfileOperation, ProfileQueryKind};
-
 pub(super) fn operation_reports(
     aggregates: &[ProfileAggregate; ProfileOperation::COUNT],
     concurrency: &ProfileConcurrency,

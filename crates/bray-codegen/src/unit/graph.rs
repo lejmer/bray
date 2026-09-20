@@ -36,6 +36,11 @@ impl CodegenReachability {
     pub fn is_external(&self, key: &CodegenInstanceKey) -> bool {
         self.external.binary_search(key).is_ok()
     }
+
+    /// Returns bodyless external leaves in canonical identity order.
+    pub fn external_instances(&self) -> &[CodegenInstanceKey] {
+        &self.external
+    }
 }
 
 /// Demand-driven builder for a closed concrete-instance reachability graph.

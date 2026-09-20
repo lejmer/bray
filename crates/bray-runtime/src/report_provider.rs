@@ -56,8 +56,10 @@ unsafe extern "C" {
 
     pub(crate) safe fn bray_runtime_outgoing_discharge(count: usize);
 
+    #[cfg(test)]
     pub(crate) safe fn bray_runtime_outgoing_activation() -> usize;
 
+    #[cfg(test)]
     pub(crate) safe fn bray_runtime_outgoing_retirement(
         record: usize,
         outcome: &mut NativeRunOutcome,

@@ -49,6 +49,8 @@ pub enum CompilationProfileValidationError {
     InvalidSchedulerStatistics,
     /// Query aggregates contradict their request, evaluation, or distribution counts.
     InvalidQueryStatistics { id: u16 },
+    /// Native reachability, unit, or selected-artifact inventory is internally inconsistent.
+    InvalidNativeCodegenInventory,
 }
 
 impl CompilationProfileReport {
@@ -132,6 +134,14 @@ impl CompilationProfileReport {
         validate_runtime_roles(&self.runtime_roles)?;
         validate_native_callback_entries(&self.native_callback_entries)?;
 
+        if self
+            .native_codegen
+            .as_ref()
+            .is_some_and(|inventory| !valid_native_codegen_inventory(inventory))
+        {
+            return Err(CompilationProfileValidationError::InvalidNativeCodegenInventory);
+        }
+
         for event in &self.events {
             if self.operation_descriptor(event.operation_id).is_none() {
                 return Err(CompilationProfileValidationError::UnknownDescriptor {
@@ -152,6 +162,97 @@ impl CompilationProfileReport {
 
         Ok(())
     }
+}
+
+fn valid_native_codegen_inventory(inventory: &crate::CompilationProfileNativeCodegen) -> bool {
+    let instance_count = inventory.instances.len();
+
+    if inventory.instances.iter().enumerate().any(|(index, instance)| {
+        usize::try_from(instance.id) != Ok(index)
+            || instance
+                .symbol
+                .as_ref()
+                .is_some_and(|symbol| symbol.trim().is_empty())
+            || instance.external && instance.root
+    }) {
+        return false;
+    }
+
+    if inventory.dependencies.windows(2).any(|entries| {
+        (&entries[0].source, &entries[0].target, &entries[0].kind)
+            >= (&entries[1].source, &entries[1].target, &entries[1].kind)
+    }) || inventory.dependencies.iter().any(|dependency| {
+        dependency.kind.trim().is_empty()
+            || usize::try_from(dependency.source).map_or(true, |id| id >= instance_count)
+            || usize::try_from(dependency.target).map_or(true, |id| id >= instance_count)
+            || inventory
+                .instances
+                .get(usize::try_from(dependency.source).unwrap_or(usize::MAX))
+                .is_some_and(|instance| instance.external)
+    }) {
+        return false;
+    }
+
+    let mut unit_membership = vec![false; instance_count];
+
+    for (index, unit) in inventory.units.iter().enumerate() {
+        if usize::try_from(unit.id) != Ok(index)
+            || unit.work == 0
+            || !valid_canonical_strings(&unit.packages)
+            || !valid_canonical_strings(&unit.linkages)
+            || !valid_canonical_strings(&unit.visibilities)
+            || unit.instances.windows(2).any(|ids| ids[0] >= ids[1])
+        {
+            return false;
+        }
+
+        for &id in &unit.instances {
+            let Ok(id) = usize::try_from(id) else {
+                return false;
+            };
+
+            let Some(instance) = inventory.instances.get(id) else {
+                return false;
+            };
+
+            if instance.external || std::mem::replace(&mut unit_membership[id], true) {
+                return false;
+            }
+        }
+    }
+
+    if inventory
+        .instances
+        .iter()
+        .zip(unit_membership)
+        .any(|(instance, in_unit)| instance.external == in_unit)
+    {
+        return false;
+    }
+
+    if inventory
+        .standard_library_artifacts
+        .windows(2)
+        .any(|entries| entries[0].path >= entries[1].path)
+    {
+        return false;
+    }
+
+    inventory.standard_library_artifacts.iter().all(|artifact| {
+        !artifact.path.trim().is_empty()
+            && artifact.bytes != 0
+            && artifact
+                .partition
+                .as_ref()
+                .is_none_or(|partition| !partition.trim().is_empty())
+            && (artifact.modules == 0) == artifact.partition.is_none()
+            && valid_canonical_strings(&artifact.platform_services)
+    })
+}
+
+fn valid_canonical_strings(entries: &[String]) -> bool {
+    entries.iter().all(|entry| !entry.trim().is_empty())
+        && entries.windows(2).all(|entries| entries[0] < entries[1])
 }
 
 fn validate_runtime_roles(roles: &[String]) -> Result<(), CompilationProfileValidationError> {
@@ -454,6 +555,66 @@ mod tests {
                     second: "callback".to_owned(),
                 }
             )
+        );
+    }
+
+    #[test]
+    fn validation_reconciles_native_codegen_instances_and_units() {
+        let inventory = crate::CompilationProfileNativeCodegen {
+            instances: vec![
+                crate::CompilationProfileCodegenInstance {
+                    id: 0,
+                    symbol: Some("main".to_owned()),
+                    root: true,
+                    external: false,
+                },
+                crate::CompilationProfileCodegenInstance {
+                    id: 1,
+                    symbol: Some("WriteFile".to_owned()),
+                    root: false,
+                    external: true,
+                },
+            ],
+            dependencies: vec![crate::CompilationProfileCodegenDependency {
+                source: 0,
+                target: 1,
+                kind: "definition".to_owned(),
+            }],
+            units: vec![crate::CompilationProfileCodegenUnit {
+                id: 0,
+                work: 1,
+                instances: vec![0],
+                packages: vec!["example".to_owned()],
+                linkages: vec!["export".to_owned()],
+                visibilities: vec!["public".to_owned()],
+            }],
+            standard_library_artifacts: vec![crate::CompilationProfileOptimizationArtifact {
+                path: "targets/test/std.bc".to_owned(),
+                partition: Some("std".to_owned()),
+                modules: 1,
+                bytes: 1,
+                platform_services: Vec::new(),
+            }],
+        };
+
+        let mut valid = report(1_000_000);
+        valid.native_codegen = Some(inventory.clone());
+        assert_eq!(valid.validate(), Ok(()));
+
+        let mut duplicate = report(1_000_000);
+        duplicate.native_codegen = Some(inventory);
+
+        duplicate
+            .native_codegen
+            .as_mut()
+            .expect("test inventory must exist")
+            .units[0]
+            .instances
+            .push(0);
+
+        assert_eq!(
+            duplicate.validate(),
+            Err(CompilationProfileValidationError::InvalidNativeCodegenInventory)
         );
     }
 

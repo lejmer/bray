@@ -69,6 +69,7 @@ pub(in crate::output::diagnostic::json) enum DiagnosticProfileValidationProblemJ
     NonCanonicalNativeCallbackEntries { first: String, second: String },
     InvalidSchedulerStatistics,
     InvalidQueryStatistics { id: u16 },
+    InvalidNativeCodegenInventory,
 }
 
 impl DiagnosticProfileValidationProblemJson {
@@ -119,6 +120,7 @@ impl DiagnosticProfileValidationProblemJson {
             }
             Problem::InvalidSchedulerStatistics => Self::InvalidSchedulerStatistics,
             Problem::InvalidQueryStatistics { id } => Self::InvalidQueryStatistics { id: *id },
+            Problem::InvalidNativeCodegenInventory => Self::InvalidNativeCodegenInventory,
         }
     }
 }

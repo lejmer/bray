@@ -2,6 +2,8 @@ mod aggregate;
 mod concurrency;
 mod descriptor;
 mod distribution;
+mod inventory;
+mod operation;
 mod report;
 mod session;
 mod subject;
@@ -20,7 +22,8 @@ pub use bray_profile::{
 pub(crate) use descriptor::{
     ProfileMetricKind, ProfileOperation, ProfileQueryKind, result_outcome,
 };
+pub(crate) use operation::{merge_diagnostics, profile_operation};
 pub(crate) use session::{
-    ProfileQueryRequest, ProfileSession, merge_diagnostics, profile_operation,
-    record_query_diagnostic_collection, record_query_result_reference,
+    ProfileQueryRequest, ProfileSession, record_query_diagnostic_collection,
+    record_query_result_reference,
 };

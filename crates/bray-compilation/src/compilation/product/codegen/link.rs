@@ -349,6 +349,7 @@ impl Compilation {
 
             select_optimization_artifacts(
                 &artifacts,
+                &provider_services,
                 &compatibility,
                 selected.runtime_abi(),
                 codegen.selected(),
@@ -389,6 +390,30 @@ impl Compilation {
             .filter(|artifact| artifact.metadata().optimization().is_some())
             .map(|artifact| artifact.metadata().byte_len())
             .sum();
+
+        if let Some(profile) = self.state.fact_runtime.profile() {
+            let mut profile_artifacts = selected_artifacts
+                .clone()
+                .map(|artifact| {
+                    let metadata = artifact.metadata();
+                    let optimization = metadata.optimization();
+                    let platform_services = profile_platform_services(optimization);
+
+                    bray_profile::CompilationProfileOptimizationArtifact {
+                        path: metadata.path().to_owned(),
+                        partition: optimization
+                            .map(|optimization| optimization.partition().to_owned()),
+                        modules: optimization
+                            .map_or(0, |optimization| optimization.module_count().get()),
+                        bytes: metadata.byte_len(),
+                        platform_services,
+                    }
+                })
+                .collect::<Vec<_>>();
+
+            profile_artifacts.sort_by(|left, right| left.path.cmp(&right.path));
+            profile.set_standard_library_artifacts(profile_artifacts);
+        }
 
         let artifact_inputs = selected_artifacts.clone().filter_map(|artifact| {
             let kind = match artifact.metadata().kind() {
@@ -483,6 +508,20 @@ impl Compilation {
     }
 }
 
+fn profile_platform_services(
+    optimization: Option<&bray_standard_library::StandardLibraryOptimizationMetadata>,
+) -> Vec<String> {
+    let mut services = optimization
+        .into_iter()
+        .flat_map(bray_standard_library::StandardLibraryOptimizationMetadata::platform_services)
+        .map(|role| role.as_str().to_owned())
+        .collect::<Vec<_>>();
+
+    services.sort();
+
+    services
+}
+
 fn standard_library_artifact_provenance(
     artifact: &bray_standard_library::StandardLibraryArtifact,
     package: &bray_symbols::PackageIdentity,
@@ -503,6 +542,7 @@ fn standard_library_artifact_provenance(
 
 fn select_optimization_artifacts(
     artifacts: &[bray_standard_library::ResolvedStandardLibraryArtifact],
+    provider_services: &[bray_runtime_interface::PlatformServiceRole],
     compatibility: &bray_codegen::BackendBitcodeTargetContract,
     runtime_abi: bray_runtime_interface::RuntimeAbiVersion,
     backend: &bray_codegen::BackendIdentity,
@@ -516,6 +556,7 @@ fn select_optimization_artifacts(
 
     select_optimization_artifact_indices(
         &metadata,
+        provider_services,
         compatibility,
         runtime_abi,
         backend,
@@ -531,6 +572,7 @@ fn select_optimization_artifacts(
 
 fn select_optimization_artifact_indices(
     artifacts: &[&bray_standard_library::StandardLibraryArtifact],
+    provider_services: &[bray_runtime_interface::PlatformServiceRole],
     compatibility: &bray_codegen::BackendBitcodeTargetContract,
     runtime_abi: bray_runtime_interface::RuntimeAbiVersion,
     backend: &bray_codegen::BackendIdentity,
@@ -540,16 +582,33 @@ fn select_optimization_artifact_indices(
         .iter()
         .enumerate()
         .filter_map(|(index, artifact)| {
-            optimization_artifact_is_compatible(artifact, compatibility, runtime_abi, backend)
-                .then_some(index)
+            let metadata = artifact.optimization()?;
+
+            (optimization_artifact_is_compatible(
+                artifact,
+                compatibility,
+                runtime_abi,
+                backend,
+            ) && (metadata.partition() == "std"
+                || metadata
+                    .platform_services()
+                    .iter()
+                    .any(|service| provider_services.binary_search(service).is_ok())))
+            .then_some(index)
         })
         .collect::<Vec<_>>();
 
-    let fully_optimized_fallbacks = compatible_optimization
+    let optimized_services = compatible_optimization
         .iter()
         .filter_map(|index| artifacts[*index].optimization())
-        .filter(|metadata| optimization_fully_replaces_fallback(metadata, artifacts))
-        .map(|metadata| (metadata.fallback().path(), metadata.fallback().digest()))
+        .flat_map(|metadata| metadata.platform_services())
+        .copied()
+        .collect::<BTreeSet<_>>();
+
+    let optimization_fallbacks = artifacts
+        .iter()
+        .filter_map(|artifact| artifact.optimization())
+        .map(|metadata| metadata.fallback().path())
         .collect::<BTreeSet<_>>();
 
     let selected = compatible_optimization
@@ -561,10 +620,23 @@ fn select_optimization_artifact_indices(
                 .enumerate()
                 .filter_map(|(index, artifact)| {
                     (artifact.kind()
-                == bray_standard_library::StandardLibraryArtifactKind::PlatformServiceLibrary
-                && !fully_optimized_fallbacks
-                    .contains(&(artifact.path(), artifact.digest())))
-            .then_some(index)
+                        == bray_standard_library::StandardLibraryArtifactKind::StaticLibrary
+                        && !optimization_fallbacks.contains(artifact.path()))
+                    .then_some(index)
+                }),
+        )
+        .chain(
+            artifacts
+                .iter()
+                .enumerate()
+                .filter_map(|(index, artifact)| {
+                    (artifact.kind()
+                        == bray_standard_library::StandardLibraryArtifactKind::PlatformServiceLibrary
+                        && artifact.platform_services().iter().any(|service| {
+                            provider_services.binary_search(service).is_ok()
+                                && !optimized_services.contains(service)
+                        }))
+                    .then_some(index)
                 }),
         )
         .collect::<Vec<_>>();
@@ -583,29 +655,6 @@ fn select_optimization_artifact_indices(
     }
 
     Ok(selected)
-}
-
-fn optimization_fully_replaces_fallback(
-    optimization: &bray_standard_library::StandardLibraryOptimizationMetadata,
-    artifacts: &[&bray_standard_library::StandardLibraryArtifact],
-) -> bool {
-    artifacts.iter().any(|artifact| {
-        artifact.path() == optimization.fallback().path()
-            && artifact.digest() == optimization.fallback().digest()
-            && optimization_covers_fallback(optimization, artifact)
-    })
-}
-
-fn optimization_covers_fallback(
-    optimization: &bray_standard_library::StandardLibraryOptimizationMetadata,
-    fallback: &bray_standard_library::StandardLibraryArtifact,
-) -> bool {
-    fallback.platform_services().iter().all(|service| {
-        optimization
-            .platform_services()
-            .binary_search(service)
-            .is_ok()
-    })
 }
 
 fn optimization_artifact_is_compatible(
@@ -705,8 +754,9 @@ mod tests {
     use bray_target::NativeTarget;
 
     use super::{
-        optimization_artifact_is_compatible, optimization_covers_fallback,
-        select_optimization_artifact_indices, standard_library_artifact_provenance,
+        optimization_artifact_is_compatible, profile_platform_services,
+        select_optimization_artifact_indices,
+        standard_library_artifact_provenance,
     };
 
     #[test]
@@ -750,7 +800,7 @@ mod tests {
     }
 
     #[test]
-    fn partial_provider_optimization_retains_its_object_fallback() {
+    fn optimization_selection_ignores_undemanded_provider_services() {
         use bray_runtime_interface::PlatformServiceRole;
 
         let fallback = StandardLibraryArtifact::try_for_bytes(
@@ -760,8 +810,8 @@ mod tests {
         )
         .map(|artifact| {
             artifact.with_platform_services([
-                PlatformServiceRole::ContextNativeTextWidth,
                 PlatformServiceRole::TimeDateValidate,
+                PlatformServiceRole::TimeDateAdd,
             ])
         })
         .unwrap_or_else(|error| panic!("test fallback must be valid: {error:?}"));
@@ -776,16 +826,18 @@ mod tests {
 
         let optimization =
             optimization_metadata(&fallback, &contract, RuntimeAbiVersion::new(1, 0), &backend)
-                .with_platform_services([PlatformServiceRole::TimeDateValidate]);
+                .with_platform_services([
+                    PlatformServiceRole::TimeDateValidate,
+                    PlatformServiceRole::TimeDateAdd,
+                ]);
 
-        assert!(!optimization_covers_fallback(&optimization, &fallback));
-
-        let complete = optimization.clone().with_platform_services([
-            PlatformServiceRole::ContextNativeTextWidth,
-            PlatformServiceRole::TimeDateValidate,
-        ]);
-
-        assert!(optimization_covers_fallback(&complete, &fallback));
+        assert_eq!(
+            profile_platform_services(Some(&optimization)),
+            [
+                PlatformServiceRole::TimeDateAdd.as_str().to_owned(),
+                PlatformServiceRole::TimeDateValidate.as_str().to_owned(),
+            ],
+        );
 
         let standard_library =
             optimization_artifact(&contract, RuntimeAbiVersion::new(1, 0), &backend);
@@ -802,6 +854,7 @@ mod tests {
 
         let selected = select_optimization_artifact_indices(
             &artifacts,
+            &[PlatformServiceRole::TimeDateValidate],
             &contract,
             RuntimeAbiVersion::new(1, 0),
             &backend,
@@ -816,8 +869,96 @@ mod tests {
 
         assert_eq!(
             selected_paths,
-            [standard_library.path(), provider.path(), fallback.path(),]
+            [standard_library.path(), provider.path()]
         );
+    }
+
+    #[test]
+    fn optimization_selection_keeps_unconditional_compiler_support() {
+        let target = bray_codegen::CodegenTarget::for_native(NativeTarget::X86_64WindowsMsvc);
+
+        let contract = bray_codegen::BackendBitcodeTargetContract::try_new(&target, "layout")
+            .unwrap_or_else(|| panic!("test target contract must be valid"));
+
+        let backend = bray_codegen::BackendIdentity::try_new("llvm", "1", "22.1.8")
+            .unwrap_or_else(|| panic!("test backend identity must be valid"));
+
+        let standard_library =
+            optimization_artifact(&contract, RuntimeAbiVersion::new(1, 0), &backend);
+
+        let compiler_support = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::StaticLibrary,
+            "targets/test/libbray_compiler_support.a",
+            b"compiler support",
+        )
+        .unwrap_or_else(|error| panic!("test compiler support must be valid: {error:?}"));
+
+        let artifacts = [&compiler_support, &standard_library];
+
+        let selected = select_optimization_artifact_indices(
+            &artifacts,
+            &[],
+            &contract,
+            RuntimeAbiVersion::new(1, 0),
+            &backend,
+            std::path::Path::new("standard-library.json"),
+        )
+        .unwrap_or_else(|error| panic!("test optimization selection must be valid: {error:?}"));
+
+        let selected_paths = selected
+            .into_iter()
+            .map(|index| artifacts[index].path())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            selected_paths,
+            [standard_library.path(), compiler_support.path()]
+        );
+    }
+
+    #[test]
+    fn optimization_selection_uses_fallback_for_unoptimized_demand() {
+        use bray_runtime_interface::PlatformServiceRole;
+
+        let fallback = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::PlatformServiceLibrary,
+            "targets/test/libprovider.a",
+            b"fallback",
+        )
+        .map(|artifact| {
+            artifact.with_platform_services([PlatformServiceRole::StandardOutputWrite])
+        })
+        .unwrap_or_else(|error| panic!("test fallback must be valid: {error:?}"));
+
+        let target = bray_codegen::CodegenTarget::for_native(NativeTarget::X86_64WindowsMsvc);
+
+        let contract = bray_codegen::BackendBitcodeTargetContract::try_new(&target, "layout")
+            .unwrap_or_else(|| panic!("test target contract must be valid"));
+
+        let backend = bray_codegen::BackendIdentity::try_new("llvm", "1", "22.1.8")
+            .unwrap_or_else(|| panic!("test backend identity must be valid"));
+
+        let standard_library =
+            optimization_artifact(&contract, RuntimeAbiVersion::new(1, 0), &backend);
+
+        let artifacts = [&fallback, &standard_library];
+
+        let selected = select_optimization_artifact_indices(
+            &artifacts,
+            &[PlatformServiceRole::StandardOutputWrite],
+            &contract,
+            RuntimeAbiVersion::new(1, 0),
+            &backend,
+            std::path::Path::new("standard-library.json"),
+        )
+        .unwrap_or_else(|error| panic!("test optimization selection must be valid: {error:?}"));
+
+        let selected_paths = selected
+            .into_iter()
+            .map(|index| artifacts[index].path())
+            .collect::<Vec<_>>();
+
+        assert_eq!(selected_paths, [standard_library.path(), fallback.path()]);
     }
 
     #[test]

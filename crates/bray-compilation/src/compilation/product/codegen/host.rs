@@ -7,8 +7,9 @@ use bray_codegen::{
 use bray_compiler_known::RepresentationRole;
 use bray_runtime_interface::{
     BinarySymbolName, ExecutableEntryResult, ExecutableHostContract, ExecutableHostContractBuilder,
-    ExecutableHostEntry, ResidentRuntimeService, RootExecution, RuntimeAbiRole, RuntimeArtifact,
+    ExecutableHostEntry, RootExecution, RuntimeAbiRole, RuntimeArtifact,
     RuntimeCapability, RuntimeRequirements, RuntimeRoleBinding, RuntimeRoleImplementation,
+    RuntimeServiceClass,
 };
 use bray_symbols::{GenericArgument, ProductIdentity, ProductKind};
 
@@ -137,6 +138,7 @@ impl Compilation {
         kind: ProductKind,
         roots: &[ConcreteCodegenInstance],
         reachability: Option<&bray_codegen::CodegenReachability>,
+        statics: &[super::super::realization::ProductStaticHostEntry],
         runtime: Option<&RuntimeArtifact>,
         required_roles: impl IntoIterator<Item = RuntimeAbiRole>,
         required_capabilities: impl IntoIterator<Item = RuntimeCapability>,
@@ -194,42 +196,13 @@ impl Compilation {
             runtime_roles.extend(demanded_product_runtime_roles(reachability));
         }
 
-        let has_statics = reachability
-            .into_iter()
-            .flat_map(bray_codegen::CodegenReachability::instances)
-            .flat_map(|instance| instance.mir().storages())
-            .any(|storage| matches!(storage.kind(), bray_ir::MirStorageKind::Static(_)));
-
-        if has_statics {
+        if !statics.is_empty() {
             runtime_roles.insert(RuntimeAbiRole::ProductHostControl);
         }
 
-        let has_exact_thread_statics = reachability
-            .into_iter()
-            .flat_map(bray_codegen::CodegenReachability::instances)
-            .flat_map(|instance| instance.mir().storages())
-            .filter_map(|storage| match storage.kind() {
-                bray_ir::MirStorageKind::Static(reference) => Some(reference),
-                bray_ir::MirStorageKind::NativeStatic(_)
-                | bray_ir::MirStorageKind::Parameter(_)
-                | bray_ir::MirStorageKind::BorrowedParameter(_)
-                | bray_ir::MirStorageKind::Local
-                | bray_ir::MirStorageKind::Temporary
-                | bray_ir::MirStorageKind::Return
-                | bray_ir::MirStorageKind::InactiveFrame
-                | bray_ir::MirStorageKind::CurrentFrame
-                | bray_ir::MirStorageKind::CurrentTask
-                | bray_ir::MirStorageKind::ChildTask => None,
-            })
-            .try_fold(false, |found, reference| {
-                let template = self.static_instance_template(reference.template().declaration())?;
-
-                Ok::<_, NativeProductPlanningError>(
-                    found
-                        || template.value().duration()
-                            == bray_symbols::StaticStorageDuration::ExactThread,
-                )
-            })?;
+        let has_exact_thread_statics = statics.iter().any(|entry| {
+            entry.key().duration() == bray_symbols::StaticStorageDuration::ExactThread
+        });
 
         if has_exact_thread_statics {
             runtime_roles.extend([
@@ -288,7 +261,7 @@ impl Compilation {
 
         if runtime_roles
             .iter()
-            .any(|role| role.resident_service() == Some(ResidentRuntimeService::Execution))
+            .any(|role| role.service_class() == Some(RuntimeServiceClass::Execution))
         {
             capabilities.insert(RuntimeCapability::CooperativeExecution);
         }

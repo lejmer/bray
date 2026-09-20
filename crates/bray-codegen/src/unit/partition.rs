@@ -101,7 +101,9 @@ pub fn partition_codegen_units(
         current_work = current_work.saturating_add(group.work);
         current.extend(group.instances.into_iter().cloned());
 
-        if is_content_boundary(policy, group.anchor, group.work) {
+        if current_work >= policy.lower_bound()
+            && is_content_boundary(policy, group.anchor, group.work)
+        {
             finish_unit(
                 policy,
                 &mut current,
@@ -217,8 +219,11 @@ fn is_content_boundary(
     anchor: [u8; 32],
     group_work: CodegenWork,
 ) -> bool {
+    // Partition ordering consumes the digest prefix. Use a disjoint suffix so the
+    // cut marker remains independent of an insertion's sorted position.
     let marker = u64::from_le_bytes([
-        anchor[0], anchor[1], anchor[2], anchor[3], anchor[4], anchor[5], anchor[6], anchor[7],
+        anchor[24], anchor[25], anchor[26], anchor[27], anchor[28], anchor[29], anchor[30],
+        anchor[31],
     ]);
 
     marker % policy.target_work().units() < group_work.units().min(policy.target_work().units())
@@ -418,6 +423,23 @@ mod tests {
 
         assert_eq!(forward, reversed);
         assert_eq!(forward.len(), 1);
+    }
+
+    #[test]
+    fn optional_content_cuts_wait_for_the_lower_bound() {
+        let instances = (0..16).map(partition_test_instance).collect::<Vec<_>>();
+
+        let units = partitions(locality_policy(), instances, |_| {
+            compatibility(1, CodegenLinkage::Internal)
+        });
+
+        assert!(
+            units
+                .iter()
+                .take(units.len().saturating_sub(1))
+                .all(|unit| unit.estimated_work() >= locality_policy().lower_bound()),
+            "only the final remainder may be below the lower bound: {units:?}",
+        );
     }
 
     #[test]

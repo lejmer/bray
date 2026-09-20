@@ -401,6 +401,9 @@ fn format_english_profile_validation_problem(
         Problem::InvalidQueryStatistics { id } => {
             format!("contains inconsistent request statistics for descriptor {id}")
         }
+        Problem::InvalidNativeCodegenInventory => {
+            "contains an inconsistent native code-generation inventory".to_owned()
+        }
     }
 }
 

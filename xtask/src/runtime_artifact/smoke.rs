@@ -26,7 +26,6 @@ pub(super) fn smoke_test(
             RuntimeArchiveKind::Scheduler,
             RuntimeArchiveKind::Cancellation,
             RuntimeArchiveKind::Event,
-            RuntimeArchiveKind::Common,
         ],
     )?;
 
@@ -69,7 +68,6 @@ pub(super) fn smoke_test(
             RuntimeArchiveKind::Host,
             RuntimeArchiveKind::Callback,
             RuntimeArchiveKind::Cancellation,
-            RuntimeArchiveKind::Common,
         ],
     )?;
 
@@ -268,17 +266,27 @@ pub(super) fn component_archives<'package>(
     package: &'package Package,
     kinds: &[RuntimeArchiveKind],
 ) -> Result<Vec<&'package Path>, CommandError> {
-    kinds
+    let mut archives = kinds
         .iter()
         .map(|kind| {
             package
                 .components
                 .iter()
-                .find(|component| component.kind == *kind)
+                .find(|component| component.kind == Some(*kind))
                 .map(|component| component.archive.as_path())
                 .ok_or(CommandError::MetadataContract)
         })
-        .collect()
+        .collect::<Result<Vec<_>, _>>()?;
+
+    archives.extend(
+        package
+            .components
+            .iter()
+            .filter(|component| component.kind.is_none())
+            .map(|component| component.archive.as_path()),
+    );
+
+    Ok(archives)
 }
 
 fn linker_map_argument(target: NativeTarget, map: &Path) -> Result<String, CommandError> {

@@ -18,52 +18,12 @@ use super::report::{
 };
 use super::subject::{ProfileSubjectRecord, profile_subject};
 use crate::fact::CompilationFactKey;
-use bray_diagnostics::DiagnosticBag;
 use bray_profile::{
     COMPILATION_PROFILE_SCHEMA_REVISION, CompilationProfileConfiguration,
-    CompilationProfileContext, CompilationProfileOutcome, CompilationProfileReport,
+    CompilationProfileContext, CompilationProfileNativeCodegen,
+    CompilationProfileOptimizationArtifact, CompilationProfileOutcome, CompilationProfileReport,
     CompilationProfileRuntimeArtifact,
 };
-
-#[inline(always)]
-pub(crate) fn profile_operation<T>(
-    session: Option<&ProfileSession>,
-    operation: ProfileOperation,
-    action: impl FnOnce() -> T,
-    outcome: impl FnOnce(&T) -> CompilationProfileOutcome,
-) -> T {
-    let Some(session) = session else {
-        return action();
-    };
-
-    let span = session.start(operation, None);
-    let result = action();
-
-    span.finish(outcome(&result));
-
-    result
-}
-
-pub(crate) fn merge_diagnostics<'diagnostic>(
-    session: Option<&ProfileSession>,
-    diagnostics: impl IntoIterator<Item = &'diagnostic DiagnosticBag>,
-) -> DiagnosticBag {
-    let Some(session) = session else {
-        return DiagnosticBag::merged_all(diagnostics);
-    };
-
-    let diagnostics = diagnostics.into_iter().collect::<Vec<_>>();
-
-    let volume = diagnostics.iter().fold(0_usize, |total, diagnostics| {
-        total.saturating_add(diagnostics.len())
-    });
-
-    let merged = DiagnosticBag::merged_all(diagnostics);
-
-    session.record_diagnostic_merge(volume);
-
-    merged
-}
 
 #[inline(always)]
 pub(crate) fn record_query_diagnostic_collection(
@@ -94,6 +54,7 @@ pub(crate) struct ProfileSession {
     runtime_artifacts: Mutex<BTreeMap<String, u64>>,
     runtime_roles: Mutex<BTreeSet<String>>,
     native_callback_entries: Mutex<BTreeSet<String>>,
+    native_codegen: Mutex<CompilationProfileNativeCodegen>,
 }
 
 impl std::fmt::Debug for ProfileSession {
@@ -154,6 +115,7 @@ impl ProfileSession {
             runtime_artifacts: Mutex::new(BTreeMap::new()),
             runtime_roles: Mutex::new(BTreeSet::new()),
             native_callback_entries: Mutex::new(BTreeSet::new()),
+            native_codegen: Mutex::new(CompilationProfileNativeCodegen::default()),
         })
     }
 
@@ -426,6 +388,37 @@ impl ProfileSession {
         extend_profile_strings(&self.native_callback_entries, native_callback_entries);
     }
 
+    pub(crate) fn set_native_codegen_plan(
+        &self,
+        reachability: &bray_codegen::CodegenReachability,
+        units: &[bray_codegen::CodegenUnit],
+        mappings: &[bray_codegen::CodegenMappings],
+    ) {
+        let mut inventory = self
+            .native_codegen
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        super::inventory::set_native_codegen_plan(
+            &mut inventory,
+            reachability,
+            units,
+            mappings,
+        );
+    }
+
+    pub(crate) fn set_standard_library_artifacts(
+        &self,
+        artifacts: Vec<CompilationProfileOptimizationArtifact>,
+    ) {
+        let mut inventory = self
+            .native_codegen
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        inventory.standard_library_artifacts = artifacts;
+    }
+
     pub(crate) fn report(&self) -> CompilationProfileReport {
         let mut operations = [ProfileAggregate::default(); ProfileOperation::COUNT];
         let mut queries = [ProfileQueryAggregate::default(); ProfileQueryKind::COUNT];
@@ -473,6 +466,17 @@ impl ProfileSession {
         let runtime_roles = profile_strings(&self.runtime_roles);
         let native_callback_entries = profile_strings(&self.native_callback_entries);
 
+        // The report owns its inventory after the session lock is released.
+        let native_codegen = self
+            .native_codegen
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+
+        let native_codegen = (!native_codegen.instances.is_empty()
+            || !native_codegen.standard_library_artifacts.is_empty())
+        .then_some(native_codegen);
+
         CompilationProfileReport {
             schema_revision: COMPILATION_PROFILE_SCHEMA_REVISION,
             mode: self.configuration.mode(),
@@ -495,6 +499,7 @@ impl ProfileSession {
             runtime_artifacts,
             runtime_roles,
             native_callback_entries,
+            native_codegen,
             events: event_reports(events),
             dropped_events,
         }

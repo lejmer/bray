@@ -4,7 +4,7 @@ macro_rules! define_runtime_symbols {
     ($( $role:ident {
         $documentation:literal, $name:literal,
         native: ($($symbol:ident = $native:literal, [$($native_parameter:ident),*] -> $native_result:ident)?),
-        $(resident: ($resident_service:ident $resident_field:ident: $resident_callback:ty),)?
+        $(service: $service:ident,)?
         call_hook: ($($hook:ident)?),
         compiler: $abi:ident [$($parameter:ident),*] -> $result:ident,
         owner: $owner:ident, availability: $availability:ident,
