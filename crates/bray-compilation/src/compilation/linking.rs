@@ -182,6 +182,10 @@ fn record_optimization_report(
             report.cache_misses(),
         ),
         (
+            ProfileMetricKind::OptimizationProcessedModules,
+            report.cache_misses(),
+        ),
+        (
             ProfileMetricKind::OptimizationCacheWrites,
             report.cache_writes(),
         ),

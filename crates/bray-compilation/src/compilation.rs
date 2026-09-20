@@ -69,8 +69,8 @@ pub use product::{
     NativeProductPlan, NativeProductPlanningError, ProductQueryError, ProductQueryErrorKind,
 };
 pub(crate) use product::{
-    ProductDataKind, ProductQueryContext, ProductQueryFailure, ProductTestCatalogFailureKind,
-    ProductValueKind,
+    NativeDemand, NativeDemandReason, ProductDataKind, ProductQueryContext, ProductQueryFailure,
+    ProductTestCatalogFailureKind, ProductValueKind,
 };
 pub(crate) use product_emission::diagnostics::diagnostic_evaluation_failure;
 pub use product_emission::{ProductEmissionError, ProductEmissionErrorKind, ProductEmissionInputs};

@@ -377,6 +377,14 @@ pub struct CompilationProfileRuntimeArtifact {
     pub identity: String,
     /// Published archive size authenticated for this selection.
     pub bytes: u64,
+    /// Private runtime ABI roles physically owned by this component.
+    pub runtime_roles: Vec<String>,
+    /// Runtime capabilities physically owned by this component.
+    pub capabilities: Vec<String>,
+    /// Platform services overridden by this component.
+    pub platform_services: Vec<String>,
+    /// Runtime components whose selection co-retains this component.
+    pub retained_by: Vec<String>,
 }
 
 /// Deterministic native plan recorded before LLVM generation and optimization.
@@ -384,6 +392,8 @@ pub struct CompilationProfileRuntimeArtifact {
 pub struct CompilationProfileNativeCodegen {
     /// Every reachable generated definition and external leaf in stable identity order.
     pub instances: Vec<CompilationProfileCodegenInstance>,
+    /// Every reason that retained an instance, including root demands and predecessor edges.
+    pub demands: Vec<CompilationProfileNativeDemand>,
     /// Every typed reachability edge in source and target identity order.
     pub dependencies: Vec<CompilationProfileCodegenDependency>,
     /// Every generated unit in emission order.
@@ -400,10 +410,62 @@ pub struct CompilationProfileCodegenInstance {
     /// Exact selected native symbol when this instance contributes one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub symbol: Option<String>,
-    /// Whether product root selection demanded this instance directly.
-    pub root: bool,
     /// Whether the instance is a bodyless external leaf.
     pub external: bool,
+    /// Canonical demand indices from a product root to this instance.
+    pub inclusion_path: Vec<u32>,
+    /// MIR blocks before native optimization.
+    pub pre_optimization_blocks: u64,
+    /// MIR operations before native optimization.
+    pub pre_optimization_operations: u64,
+    /// MIR blocks retained after native optimization.
+    pub post_optimization_blocks: u64,
+    /// MIR operations retained after native optimization.
+    pub post_optimization_operations: u64,
+}
+
+/// Stable reason that one native instance is retained.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CompilationProfileNativeDemandKind {
+    /// Executable entry point.
+    ExecutableEntry,
+    /// Test entry point.
+    TestEntry,
+    /// Public library export.
+    LibraryExport,
+    /// Callable required to fulfill a public implementation.
+    ImplementationFulfillment,
+    /// Callable selected for a private runtime ABI role.
+    RuntimeRole,
+    /// Symbol exported through the native ABI.
+    NativeExport,
+    /// Generated static initialization, finalization, cleanup, or destruction.
+    StaticLifecycle,
+    /// Default callable body selected for a trait member.
+    CallableDefault,
+    /// Direct MIR call.
+    DirectCall,
+    /// Function retained because its address is used.
+    AddressedFunction,
+    /// Compiler-generated helper dependency.
+    GeneratedHelper,
+    /// Native symbol referenced by generated code.
+    NativeReference,
+    /// Compiler-generated hosted entry root.
+    HostedRoot,
+}
+
+/// One canonical native retention edge.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CompilationProfileNativeDemand {
+    /// Demanding instance, absent when the target is a product root.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub predecessor: Option<u32>,
+    /// Retained instance.
+    pub target: u32,
+    /// Why the target is retained.
+    pub kind: CompilationProfileNativeDemandKind,
 }
 
 /// One typed reachability edge between report-local instance identities.
@@ -426,6 +488,8 @@ pub struct CompilationProfileCodegenUnit {
     pub work: u64,
     /// Report-local instance identities contained by the unit.
     pub instances: Vec<u32>,
+    /// Canonical demand indices explaining why this unit is retained.
+    pub inclusion_path: Vec<u32>,
     /// Package boundary shared by ordinary unit members.
     pub packages: Vec<String>,
     /// Linkage boundary shared by ordinary unit members.

@@ -16,6 +16,7 @@ use bray_symbols::{
 
 use super::super::super::CodegenPreparationError;
 use super::super::super::Compilation;
+use super::super::codegen::{ConcreteCodegenDemand, NativeDemandReason};
 use super::super::specialization::{
     ConcreteCodegenCallee, ConcreteCodegenInstance, ConcreteCodegenReachability,
 };
@@ -180,14 +181,17 @@ impl Compilation {
         mir: &MirUnit,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
-    ) -> Result<Vec<ConcreteCodegenInstance>, CodegenPreparationError> {
+    ) -> Result<Vec<ConcreteCodegenDemand>, CodegenPreparationError> {
         let mut dependencies = Vec::new();
 
         for demand in demanded_callable_instances_for_mir(mir) {
             let callee = self.concrete_codegen_callee(owner, &demand, target, cancellation)?;
 
             if let ConcreteCodegenCallee::Instance(dependency) = callee {
-                dependencies.push(dependency);
+                dependencies.push(ConcreteCodegenDemand::definition(
+                    dependency,
+                    NativeDemandReason::for_call_site(demand.site()),
+                ));
             }
         }
 
@@ -204,7 +208,10 @@ impl Compilation {
                     target,
                     cancellation,
                 )? {
-                    dependencies.push(dependency);
+                    dependencies.push(ConcreteCodegenDemand::definition(
+                        dependency,
+                        NativeDemandReason::for_helper(&reference),
+                    ));
                 }
             }
         }
@@ -219,30 +226,37 @@ impl Compilation {
                 self.concrete_codegen_static(owner, &reference, target, cancellation)?;
 
             if static_realization.initializer.key() != owner.key() {
-                dependencies.push(static_realization.initializer);
+                dependencies.push(ConcreteCodegenDemand::static_lifecycle(
+                    static_realization.initializer,
+                ));
             }
 
             if let Some(finalization) = static_realization.finalization {
-                dependencies.push(finalization.instance);
+                dependencies.push(ConcreteCodegenDemand::static_lifecycle(
+                    finalization.instance,
+                ));
 
                 if let Some(cleanup) = finalization.incident_cleanup {
-                    dependencies.push(cleanup);
+                    dependencies.push(ConcreteCodegenDemand::static_lifecycle(cleanup));
                 }
 
                 if let Some(memory) = finalization.incident_memory {
-                    dependencies.extend([memory.allocation, memory.deallocation]);
+                    dependencies.extend(
+                        [memory.allocation, memory.deallocation]
+                            .map(ConcreteCodegenDemand::static_lifecycle),
+                    );
                 }
             }
 
             if let Some(destroy) = static_realization.destroy {
-                dependencies.push(destroy);
+                dependencies.push(ConcreteCodegenDemand::static_lifecycle(destroy));
             }
         }
 
-        dependencies.sort_unstable_by(|left, right| left.key().cmp(right.key()));
+        dependencies.sort_unstable();
 
         for pair in dependencies.windows(2) {
-            if pair[0].key() == pair[1].key() && pair[0] != pair[1] {
+            if pair[0].key() == pair[1].key() && pair[0].instance() != pair[1].instance() {
                 return Err(ProductQueryFailure::ConflictingConcreteInstance {
                     key: pair[0].key().clone(),
                 }
@@ -250,7 +264,7 @@ impl Compilation {
             }
         }
 
-        dependencies.dedup_by(|left, right| left.key() == right.key());
+        dependencies.dedup();
 
         Ok(dependencies)
     }

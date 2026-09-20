@@ -172,10 +172,11 @@ impl Compilation {
         let entry_roots = source_roots
             .iter()
             .filter(|root| {
-                root.callable_instance()
+                root.instance()
+                    .callable_instance()
                     .is_some_and(|callable| entry_definitions.contains(&callable.definition()))
             })
-            .cloned()
+            .map(|root| root.instance().clone())
             .collect::<Vec<_>>();
 
         // Native product plans retain the exact immutable catalog selected for this host.
@@ -443,7 +444,36 @@ impl Compilation {
                 .metadata()
                 .map_or(0, |metadata| metadata.len());
 
-            profile.add_runtime_artifact(component.metadata().identity().as_str(), component_bytes);
+            let metadata = component.metadata();
+            let identity = metadata.identity();
+
+            let retained_by = runtime
+                .components()
+                .iter()
+                .filter(|candidate| candidate.metadata().dependencies().contains(identity))
+                .map(|candidate| candidate.metadata().identity().as_str().to_owned())
+                .collect();
+
+            profile.add_runtime_artifact(bray_profile::CompilationProfileRuntimeArtifact {
+                identity: identity.as_str().to_owned(),
+                bytes: component_bytes,
+                runtime_roles: metadata
+                    .roles()
+                    .iter()
+                    .map(|role| role.as_str().to_owned())
+                    .collect(),
+                capabilities: metadata
+                    .capabilities()
+                    .iter()
+                    .map(|capability| capability.as_str().to_owned())
+                    .collect(),
+                platform_services: metadata
+                    .platform_services()
+                    .iter()
+                    .map(|role| role.as_str().to_owned())
+                    .collect(),
+                retained_by,
+            });
         }
 
         profile.record_metric(
@@ -527,10 +557,12 @@ mod tests {
     use bray_testing::TemporaryFile;
 
     use super::super::super::specialization::ConcreteCodegenInstance;
+    use super::super::{ConcreteCodegenRoot, NativeDemandReason};
     use super::NativeProductPlanningError;
     use crate::compilation::CodegenPreparationError;
     use crate::{
-        CancellationToken, CompilationOptions, CompilationRequest, DependencyInterfaceInput,
+        CancellationToken, CompilationOptions, CompilationProfileConfiguration,
+        CompilationProfileMode, CompilationRequest, DependencyInterfaceInput,
         ImportedSemanticRecordKey, PackageInterfaceExportRequest, SelectedTarget, WorkerBudget,
     };
 
@@ -1539,6 +1571,81 @@ mod tests {
     }
 
     #[test]
+    fn native_demand_inventory_is_stable_for_imports_exports_and_static_lifecycle() {
+        let source = concat!(
+            "module application;\n",
+            "using example.dependency.templates.identity;\n",
+            "internal struct Resource {}\n",
+            "impl Resource\n",
+            "{\n",
+            "    finalize() {}\n",
+            "}\n",
+            "internal static RESOURCE: Resource = Resource {};\n",
+            "public func exported() -> i32\n",
+            "{\n",
+            "    return example.dependency.templates.identity<i32>(1);\n",
+            "}\n",
+        );
+
+        let serial = profiled_dependency_library(
+            source,
+            WorkerBudget::serial(),
+            PROFILE_DEPENDENCY,
+        );
+
+        let parallel = profiled_dependency_library(
+            source,
+            WorkerBudget::new(4)
+                .unwrap_or_else(|error| panic!("parallel test worker budget must validate: {error:?}")),
+            PROFILE_DEPENDENCY,
+        );
+
+        let reordered = profiled_dependency_library(
+            source,
+            WorkerBudget::serial(),
+            REORDERED_PROFILE_DEPENDENCY,
+        );
+
+        let serial = native_profile(&serial);
+        let parallel = native_profile(&parallel);
+        let reordered = native_profile(&reordered);
+
+        assert_eq!(serial, parallel);
+        assert_eq!(serial, reordered);
+        assert_eq!(serial.instances.len(), 8);
+
+        assert!(serial.instances.iter().all(|instance| {
+            !instance.inclusion_path.is_empty()
+                && instance.pre_optimization_blocks == instance.post_optimization_blocks
+                && instance.pre_optimization_operations == instance.post_optimization_operations
+        }));
+
+        use bray_profile::CompilationProfileNativeDemandKind as Kind;
+
+        for expected in [
+            Kind::LibraryExport,
+            Kind::StaticLifecycle,
+            Kind::DirectCall,
+        ] {
+            assert!(
+                serial.demands.iter().any(|demand| demand.kind == expected),
+                "missing {expected:?} from {:?}",
+                serial
+                    .demands
+                    .iter()
+                    .map(|demand| demand.kind)
+                    .collect::<Vec<_>>()
+            );
+        }
+
+        assert!(serial.units.iter().any(|unit| {
+            unit.packages
+                .iter()
+                .any(|package| package == "example.dependency")
+        }));
+    }
+
+    #[test]
     fn device_volatile_contracts_accept_device_pointer_storage_contracts() {
         let native = NativeTarget::X86_64LinuxGnu.profile();
         let baseline = native.properties();
@@ -2375,7 +2482,7 @@ mod tests {
             .unwrap_or_else(|| panic!("trait callable fulfillment must be callable"));
 
         assert!(roots.iter().any(|root| {
-            root.callable_instance()
+            root.instance().callable_instance()
                 .is_some_and(|callable| callable.definition() == fulfillment)
         }));
     }
@@ -3188,7 +3295,12 @@ public func invoke<T>(pos value: T)
         );
 
         let reachability = compilation
-            .codegen_reachability([root], None, &target, &cancellation)
+            .codegen_reachability(
+                [ConcreteCodegenRoot::new(root, NativeDemandReason::ExecutableEntry)],
+                None,
+                &target,
+                &cancellation,
+            )
             .unwrap_or_else(|error| panic!("generic reachability must close: {error:?}"));
 
         let [instance] = reachability.graph().instances() else {
@@ -5308,6 +5420,38 @@ public func invoke<T>(pos value: T)
         platform_service: None,
     };
 
+    const PROFILE_DEPENDENCY: GenericDependencyFixture = GenericDependencyFixture {
+        source: concat!(
+            "module templates;\n",
+            "func helper<T>(pos value: T) -> T { return value; }\n",
+            "public func identity<T>(pos value: T) -> T\n",
+            "{\n",
+            "    let invoke = lambda(pos item: T) -> T { return helper<T>(item); };\n",
+            "    return invoke(value);\n",
+            "}\n",
+            "public func disconnected(pos value: i32) -> i32 { return value; }\n",
+        ),
+        runtime_frames: None,
+        executable_templates: 4,
+        platform_service: None,
+    };
+
+    const REORDERED_PROFILE_DEPENDENCY: GenericDependencyFixture = GenericDependencyFixture {
+        source: concat!(
+            "module templates;\n",
+            "public func disconnected(pos value: i32) -> i32 { return value; }\n",
+            "public func identity<T>(pos value: T) -> T\n",
+            "{\n",
+            "    let invoke = lambda(pos item: T) -> T { return helper<T>(item); };\n",
+            "    return invoke(value);\n",
+            "}\n",
+            "func helper<T>(pos value: T) -> T { return value; }\n",
+        ),
+        runtime_frames: None,
+        executable_templates: 4,
+        platform_service: None,
+    };
+
     const ASYNC_GENERIC_DEPENDENCY: GenericDependencyFixture = GenericDependencyFixture {
         source: concat!(
             "module templates;\n",
@@ -5433,6 +5577,70 @@ public func invoke<T>(pos value: T)
 
     fn generic_consumer(dependency: DependencyInterfaceInput) -> crate::Compilation {
         generic_consumer_for_target(dependency, SelectedTarget::baseline())
+    }
+
+    fn profiled_dependency_library(
+        source: &str,
+        worker_budget: WorkerBudget,
+        dependency: GenericDependencyFixture,
+    ) -> crate::Compilation {
+        let backend = Arc::new(
+            bray_codegen_llvm::LlvmCodeGenerator::try_new()
+                .unwrap_or_else(|error| panic!("LLVM backend must initialize: {error:?}")),
+        );
+
+        let registry =
+            CodeGeneratorRegistry::try_new([Arc::clone(&backend) as Arc<dyn CodeGenerator>])
+                .unwrap_or_else(|error| panic!("LLVM backend must register: {error:?}"));
+
+        let codegen = CodegenConfiguration::try_new(registry, backend.identity().clone())
+            .unwrap_or_else(|error| panic!("LLVM backend must select: {error:?}"));
+
+        let target = SelectedTarget::baseline();
+        let runtime = crate::test_support::runtime_standard_library_dependency(&target);
+
+        let request = CompilationRequest::with_options(
+            crate::test_support::package_identity(),
+            vec![crate::test_support::source_input(source, 0)],
+            CompilationOptions::new(worker_budget, ProductKind::Library, target),
+        )
+        .with_dependency_interfaces([
+            runtime,
+            generic_dependency_from_fixture(true, false, dependency),
+        ])
+        .with_profile(CompilationProfileConfiguration::new(
+            CompilationProfileMode::Summary,
+        ));
+
+        let compilation = crate::Compilation::load_with_codegen(request, codegen)
+            .unwrap_or_else(|error| panic!("profiled library must load: {error:?}"));
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        compilation
+            .native_product_plan(
+                test_product_identity(),
+                crate::BuildConfiguration::Development,
+                None,
+                [],
+                Some(&test_linker()),
+            )
+            .unwrap_or_else(|error| panic!("profiled library plan must resolve: {error:?}"));
+
+        compilation
+    }
+
+    fn native_profile(
+        compilation: &crate::Compilation,
+    ) -> bray_profile::CompilationProfileNativeCodegen {
+        compilation
+            .profile_report()
+            .and_then(|report| report.native_codegen)
+            .unwrap_or_else(|| panic!("native compilation profile must retain its inventory"))
     }
 
     fn async_generic_consumer(dependency: DependencyInterfaceInput) -> crate::Compilation {

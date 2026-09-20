@@ -1,3 +1,4 @@
+mod demand;
 mod error;
 mod host;
 mod implementation;
@@ -12,3 +13,6 @@ pub(in crate::compilation) use error::{
     codegen_preparation_failure_kind, native_product_preparation_diagnostic,
 };
 pub use plan::NativeProductPlan;
+pub(crate) use demand::{
+    ConcreteCodegenDemand, ConcreteCodegenRoot, NativeDemand, NativeDemandReason,
+};

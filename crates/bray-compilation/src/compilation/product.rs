@@ -13,6 +13,7 @@ pub use codegen::{NativeProductPlan, NativeProductPlanningError};
 pub(in crate::compilation) use codegen::{
     codegen_preparation_failure_kind, native_product_preparation_diagnostic,
 };
+pub(crate) use codegen::{NativeDemand, NativeDemandReason};
 pub(crate) use error::{
     ProductDataKind, ProductQueryContext, ProductQueryFailure, ProductSynchronizationComponent,
     ProductTestCatalogFailureKind, ProductValueKind,

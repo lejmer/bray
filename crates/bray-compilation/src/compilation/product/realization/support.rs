@@ -1518,7 +1518,7 @@ mod tests {
         };
 
         assert_eq!(
-            dependency.generated_lifecycle_reference(),
+            dependency.instance().generated_lifecycle_reference(),
             Some(&MirHelperReference::Destroy(element))
         );
     }
@@ -1691,11 +1691,15 @@ mod tests {
             .product_root_instances(semantic.value(), None, &target, &cancellation)
             .unwrap_or_else(|error| panic!("product roots must resolve: {error:?}"));
 
-        assert!(roots.iter().any(|root| root.callable_instance().is_some()));
+        assert!(
+            roots
+                .iter()
+                .any(|root| root.instance().callable_instance().is_some())
+        );
 
         for root in roots {
             compilation
-                .codegen_instance_signature(&root, &cancellation)
+                .codegen_instance_signature(root.instance(), &cancellation)
                 .unwrap_or_else(|error| panic!("root signature must realize: {error:?}"));
         }
     }
