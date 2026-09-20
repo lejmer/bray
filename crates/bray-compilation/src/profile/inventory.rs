@@ -55,7 +55,7 @@ pub(super) fn set_native_codegen_plan(
         })
         .collect();
 
-    inventory.dependencies = reachability
+    let dependencies = reachability
         .instances()
         .iter()
         .flat_map(|instance| {
@@ -67,7 +67,9 @@ pub(super) fn set_native_codegen_plan(
                 }
             })
         })
-        .collect();
+        .collect::<Vec<_>>();
+
+    inventory.dependencies = canonical_dependencies(dependencies);
 
     inventory.units = units
         .iter()
@@ -131,5 +133,46 @@ const fn visibility_name(visibility: bray_codegen::CodegenDefinitionVisibility) 
         bray_codegen::CodegenDefinitionVisibility::Unit => "unit",
         bray_codegen::CodegenDefinitionVisibility::Product => "product",
         bray_codegen::CodegenDefinitionVisibility::Public => "public",
+    }
+}
+
+fn canonical_dependencies(
+    mut dependencies: Vec<CompilationProfileCodegenDependency>,
+) -> Vec<CompilationProfileCodegenDependency> {
+    dependencies.sort_unstable_by(|left, right| {
+        (&left.source, &left.target, &left.kind).cmp(&(&right.source, &right.target, &right.kind))
+    });
+
+    dependencies
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_profile::CompilationProfileCodegenDependency;
+
+    use super::canonical_dependencies;
+
+    #[test]
+    fn mixed_dependency_kinds_are_ordered_by_source_target_then_kind() {
+        let dependency = |source, target, kind: &str| CompilationProfileCodegenDependency {
+            source,
+            target,
+            kind: kind.to_owned(),
+        };
+
+        let dependencies = canonical_dependencies(vec![
+            dependency(0, 2, "direct_awaited_frame"),
+            dependency(0, 1, "started_task"),
+            dependency(0, 1, "definition"),
+        ]);
+
+        assert_eq!(
+            dependencies,
+            [
+                dependency(0, 1, "definition"),
+                dependency(0, 1, "started_task"),
+                dependency(0, 2, "direct_awaited_frame"),
+            ]
+        );
     }
 }
