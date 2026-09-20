@@ -10,6 +10,9 @@ use serde::Deserialize;
 
 #[path = "src/environment.rs"]
 mod environment;
+#[cfg(windows)]
+#[path = "build_layout.rs"]
+mod layout;
 
 use environment::LLVM_PREFIX_ENVIRONMENT_VARIABLE;
 
@@ -120,7 +123,7 @@ fn configure_linkage(prefix: &Path) -> io::Result<()> {
     copy_dynamic_library(&dynamic_library, profile_directory)?;
     copy_dynamic_library(&dynamic_library, &profile_directory.join("deps"))?;
 
-    let artifact_directory = cargo_artifact_profile_directory()?;
+    let artifact_directory = cargo_artifact_profile_directory(profile_directory)?;
 
     if artifact_directory != profile_directory {
         copy_dynamic_library(&dynamic_library, &artifact_directory)?;
@@ -130,7 +133,7 @@ fn configure_linkage(prefix: &Path) -> io::Result<()> {
 }
 
 #[cfg(windows)]
-fn cargo_artifact_profile_directory() -> io::Result<PathBuf> {
+fn cargo_artifact_profile_directory(build_profile_directory: &Path) -> io::Result<PathBuf> {
     let manifest_directory = PathBuf::from(
         env::var_os("CARGO_MANIFEST_DIR")
             .ok_or_else(|| io::Error::other("Cargo did not provide CARGO_MANIFEST_DIR"))?,
@@ -141,20 +144,16 @@ fn cargo_artifact_profile_directory() -> io::Result<PathBuf> {
         .and_then(Path::parent)
         .ok_or_else(|| io::Error::other("LLVM backend is not inside the Cargo workspace"))?;
 
-    let mut target_directory = env::var_os("CARGO_TARGET_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| workspace_directory.join("target"));
-
-    let host = env::var("HOST").map_err(io::Error::other)?;
     let target = env::var("TARGET").map_err(io::Error::other)?;
+    let profile = env::var("PROFILE").map_err(io::Error::other)?;
 
-    if host != target {
-        target_directory.push(target);
-    }
-
-    target_directory.push(env::var("PROFILE").map_err(io::Error::other)?);
-
-    Ok(target_directory)
+    Ok(layout::artifact_profile_directory(
+        workspace_directory,
+        env::var_os("CARGO_TARGET_DIR"),
+        build_profile_directory,
+        target.as_ref(),
+        profile.as_ref(),
+    ))
 }
 
 #[cfg(windows)]
