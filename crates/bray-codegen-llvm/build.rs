@@ -17,6 +17,7 @@ const LLVM_REVISION: &str = "22.1.8";
 
 fn main() -> Result<(), Box<dyn Error>> {
     println!("cargo:rerun-if-env-changed={LLVM_PREFIX_ENVIRONMENT_VARIABLE}");
+    println!("cargo:rerun-if-env-changed=CARGO_TARGET_DIR");
 
     let prefix = PathBuf::from(env::var(LLVM_PREFIX_ENVIRONMENT_VARIABLE)?);
     let config = llvm_config(&prefix);
@@ -119,7 +120,41 @@ fn configure_linkage(prefix: &Path) -> io::Result<()> {
     copy_dynamic_library(&dynamic_library, profile_directory)?;
     copy_dynamic_library(&dynamic_library, &profile_directory.join("deps"))?;
 
+    let artifact_directory = cargo_artifact_profile_directory()?;
+
+    if artifact_directory != profile_directory {
+        copy_dynamic_library(&dynamic_library, &artifact_directory)?;
+    }
+
     Ok(())
+}
+
+#[cfg(windows)]
+fn cargo_artifact_profile_directory() -> io::Result<PathBuf> {
+    let manifest_directory = PathBuf::from(
+        env::var_os("CARGO_MANIFEST_DIR")
+            .ok_or_else(|| io::Error::other("Cargo did not provide CARGO_MANIFEST_DIR"))?,
+    );
+
+    let workspace_directory = manifest_directory
+        .parent()
+        .and_then(Path::parent)
+        .ok_or_else(|| io::Error::other("LLVM backend is not inside the Cargo workspace"))?;
+
+    let mut target_directory = env::var_os("CARGO_TARGET_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| workspace_directory.join("target"));
+
+    let host = env::var("HOST").map_err(io::Error::other)?;
+    let target = env::var("TARGET").map_err(io::Error::other)?;
+
+    if host != target {
+        target_directory.push(target);
+    }
+
+    target_directory.push(env::var("PROFILE").map_err(io::Error::other)?);
+
+    Ok(target_directory)
 }
 
 #[cfg(windows)]

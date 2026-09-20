@@ -33,10 +33,14 @@ pub(super) fn result_from_outputs(
     let mut stderr = String::new();
 
     for output in outputs {
-        let (_, _, _, child_stdout, child_stderr) = output.into_parts();
+        let (child_success, code, subject, child_stdout, child_stderr) = output.into_parts();
 
         stdout.push_str(&child_stdout);
         stderr.push_str(&child_stderr);
+
+        if compiler_output_missing(child_success, output_format, &child_stdout, &child_stderr) {
+            return missing_compiler_output(subject, code, output_format, stdout, stderr);
+        }
     }
 
     TackRunResult::with_output(
@@ -69,23 +73,19 @@ fn aggregate_json_outputs(outputs: Vec<ToolOutput>, output_format: OutputFormat)
     for output in outputs {
         let (child_success, exit_code, subject, stdout, child_stderr) = output.into_parts();
 
-        let product = subject.unwrap_or_else(|| "unknown product".to_owned());
-
         stderr.push_str(&child_stderr);
 
-        if !child_success && stdout.trim().is_empty() {
-            return TackRunResult::with_output(
-                ExitCode::FAILURE,
-                operation_diagnostics(DiagnosticProjectCommandFailure::CompilerOutputMissing {
-                    product,
-                    program: std::path::PathBuf::from("brayc"),
-                    code: exit_code,
-                }),
+        if compiler_output_missing(child_success, output_format, &stdout, &child_stderr) {
+            return missing_compiler_output(
+                subject,
+                exit_code,
                 output_format,
                 String::new(),
                 stderr,
             );
         }
+
+        let product = subject.unwrap_or_else(|| "unknown product".to_owned());
 
         let mut report = match serde_json::from_str::<serde_json::Value>(&stdout) {
             Ok(report) => report,
@@ -162,6 +162,39 @@ fn aggregate_json_outputs(outputs: Vec<ToolOutput>, output_format: OutputFormat)
     TackRunResult::with_output(
         exit_code(success),
         DiagnosticBag::new(),
+        output_format,
+        stdout,
+        stderr,
+    )
+}
+
+fn compiler_output_missing(
+    success: bool,
+    output_format: OutputFormat,
+    stdout: &str,
+    stderr: &str,
+) -> bool {
+    if success || !stdout.trim().is_empty() {
+        return false;
+    }
+
+    output_format == OutputFormat::Json || stderr.trim().is_empty()
+}
+
+fn missing_compiler_output(
+    subject: Option<String>,
+    code: Option<i32>,
+    output_format: OutputFormat,
+    stdout: String,
+    stderr: String,
+) -> TackRunResult {
+    TackRunResult::with_output(
+        ExitCode::FAILURE,
+        operation_diagnostics(DiagnosticProjectCommandFailure::CompilerOutputMissing {
+            product: subject.unwrap_or_else(|| "unknown product".to_owned()),
+            program: std::path::PathBuf::from("brayc"),
+            code,
+        }),
         output_format,
         stdout,
         stderr,
@@ -261,29 +294,38 @@ mod tests {
 
         assert_eq!(result.stderr(), "native compiler failure\n");
 
-        let diagnostic = result
-            .diagnostics()
-            .by_kind(DiagnosticKind::ProjectCompilerDefect)
-            .next()
-            .expect("missing compiler output must produce a compiler-defect diagnostic");
+        assert_missing_output_failure(&result, "std/api", Some(-1_073_741_575));
+    }
 
-        let failure = diagnostic
-            .args()
-            .iter()
-            .find_map(|argument| match argument.value() {
-                DiagnosticArgValue::ProjectCommandFailure(failure) => Some(failure),
-                _ => None,
-            })
-            .expect("compiler-defect diagnostic must retain its structured cause");
+    #[test]
+    fn failed_text_compiler_without_output_reports_the_process_failure() {
+        let output =
+            ToolOutput::from_process(false, Some(-1_073_741_515), String::new(), String::new())
+                .with_subject("hello_world/application");
 
-        assert_eq!(
-            failure,
-            &DiagnosticProjectCommandFailure::CompilerOutputMissing {
-                product: "std/api".to_owned(),
-                program: std::path::PathBuf::from("brayc"),
-                code: Some(-1_073_741_575),
-            }
+        let result = result_from_outputs(vec![output], OutputFormat::Text);
+
+        assert_missing_output_failure(
+            &result,
+            "hello_world/application",
+            Some(-1_073_741_515),
         );
+    }
+
+    #[test]
+    fn failed_text_compiler_preserves_its_diagnostic_output() {
+        let output = ToolOutput::from_process(
+            false,
+            Some(1),
+            String::new(),
+            "compiler diagnostic\n".to_owned(),
+        )
+        .with_subject("hello_world/application");
+
+        let result = result_from_outputs(vec![output], OutputFormat::Text);
+
+        assert!(result.diagnostics().is_empty());
+        assert_eq!(result.stderr(), "compiler diagnostic\n");
     }
 
     #[test]
@@ -346,5 +388,35 @@ mod tests {
             .to_string(),
             String::new(),
         )
+    }
+
+    fn assert_missing_output_failure(
+        result: &crate::tack::result::TackRunResult,
+        product: &str,
+        code: Option<i32>,
+    ) {
+        let diagnostic = result
+            .diagnostics()
+            .by_kind(DiagnosticKind::ProjectCompilerDefect)
+            .next()
+            .expect("missing compiler output must produce a compiler-defect diagnostic");
+
+        let failure = diagnostic
+            .args()
+            .iter()
+            .find_map(|argument| match argument.value() {
+                DiagnosticArgValue::ProjectCommandFailure(failure) => Some(failure),
+                _ => None,
+            })
+            .expect("compiler-defect diagnostic must retain its structured cause");
+
+        assert_eq!(
+            failure,
+            &DiagnosticProjectCommandFailure::CompilerOutputMissing {
+                product: product.to_owned(),
+                program: std::path::PathBuf::from("brayc"),
+                code,
+            }
+        );
     }
 }
