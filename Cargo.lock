@@ -460,6 +460,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "bray-native-artifact"
+version = "0.0.0"
+dependencies = [
+ "bray-base",
+ "bray-symbols",
+ "bray-target",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "bray-package-interface"
 version = "0.0.0"
 dependencies = [
@@ -577,6 +589,7 @@ name = "bray-runtime-interface"
 version = "0.0.0"
 dependencies = [
  "bray-base",
+ "bray-native-artifact",
  "bray-runtime-abi",
  "bray-runtime-model",
  "bray-symbols",
