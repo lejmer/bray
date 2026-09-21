@@ -250,3 +250,34 @@ fn sorted<T: Clone + Ord>(items: Arc<[T]>) -> Arc<[T]> {
 
     items.into()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{NativeContentDigest, NativeUnitKind};
+    use bray_target::NativeTarget;
+
+    #[test]
+    fn payload_names_follow_target_object_and_archive_formats() {
+        let id = NativeContentDigest::new([7; 32]);
+
+        assert_eq!(
+            NativeUnitKind::Object.file_name(id, NativeTarget::X86_64WindowsMsvc),
+            format!("{id}.obj")
+        );
+
+        assert_eq!(
+            NativeUnitKind::Object.file_name(id, NativeTarget::X86_64LinuxGnu),
+            format!("{id}.o")
+        );
+
+        assert_eq!(
+            NativeUnitKind::OpaqueArchive.file_name(id, NativeTarget::X86_64WindowsMsvc),
+            format!("{id}.lib")
+        );
+
+        assert_eq!(
+            NativeUnitKind::OpaqueArchive.file_name(id, NativeTarget::X86_64LinuxGnu),
+            format!("lib{id}.a")
+        );
+    }
+}

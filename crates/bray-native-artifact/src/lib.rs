@@ -2,8 +2,6 @@
 
 mod index;
 mod model;
-#[cfg(test)]
-mod tests;
 mod wire;
 
 pub use index::{NativeArtifactIndex, NativeIndexError, ValidatedNativeArtifact};
