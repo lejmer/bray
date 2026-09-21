@@ -734,7 +734,7 @@ mod tests {
     use bray_ir::{
         MirBlockKind, MirImmediateValue, MirNullableQuery, MirNullableQueryKind, MirOperand,
         MirOperationKind, MirPlace, MirSourceAnchor, MirStorageKind, MirStoreKind,
-        MirTargetContract, MirTerminatorKind, MirUnitBuilder, MirUnitKind,
+        MirTargetContract, MirTerminatorKind, MirUnitBuilder, MirUnitKind, reconstruct_reachable,
     };
     use bray_runtime_interface::{BinarySymbolName, RuntimeAbiVersion};
     use bray_symbols::testing::intern_type;
@@ -1025,7 +1025,8 @@ mod tests {
 
         builder.set_terminator(entry, source.clone(), MirTerminatorKind::Return(None));
 
-        let mir = builder.finish(entry);
+        let (mir, _) = reconstruct_reachable(&builder.finish(entry))
+            .unwrap_or_else(|error| panic!("literal test MIR must reconstruct: {error:?}"));
 
         let unit = CodegenUnit::try_new(
             bray_codegen::CodegenPartitionPolicy::NATIVE_BALANCED,

@@ -1,5 +1,5 @@
 [package]
-name = "bray-runtime-interface"
+name = "bray-native-artifact"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -7,9 +7,6 @@ rust-version.workspace = true
 
 [dependencies]
 bray-base = { path = "../bray-base" }
-bray-native-artifact = { path = "../bray-native-artifact" }
-bray-runtime-abi = { path = "../bray-runtime-abi" }
-bray-runtime-model = { path = "../bray-runtime-model" }
 bray-symbols = { path = "../bray-symbols" }
 bray-target = { path = "../bray-target" }
 serde = { version = "1", features = ["derive"] }

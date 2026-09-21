@@ -22,6 +22,13 @@ pub struct MirNullableQuery {
 }
 
 impl MirNullableQuery {
+    pub(crate) fn remap_local_ids(
+        &mut self,
+        mappings: &impl crate::unit::local_id_remap::MirLocalIdMapping,
+    ) {
+        self.operand.remap_local_ids(mappings);
+    }
+
     /// Creates one checked nullable state query.
     pub const fn new(
         kind: MirNullableQueryKind,

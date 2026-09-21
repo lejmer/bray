@@ -38,6 +38,10 @@ Compiler libraries and installed Bray tools.
 - `bray-package-interface`
     - Deterministic encoding, bounded decoding, validation, and semantic access for compiled package interfaces.
 
+- `bray-native-artifact`
+    - Content-addressed native unit identities, target-specific symbol and retention summaries, deterministic index
+      encoding, and payload authentication at import.
+
 - `bray-package-interface-model`
     - Dependency-free package-interface record categories shared by semantic records and diagnostic arguments.
 

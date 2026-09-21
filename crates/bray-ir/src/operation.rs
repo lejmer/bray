@@ -152,7 +152,7 @@ pub enum MirTextOperationKind {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct MirTextOperation {
     kind: MirTextOperationKind,
-    operands: Arc<[MirOperand]>,
+    pub(crate) operands: Arc<[MirOperand]>,
     operand_types: Arc<[TypeId]>,
     result_type: Option<TypeId>,
 }
@@ -198,7 +198,7 @@ impl MirTextOperation {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct MirMemoryOperation {
     kind: CheckedMemoryOperationKind,
-    operands: Arc<[MirOperand]>,
+    pub(crate) operands: Arc<[MirOperand]>,
     operand_types: Arc<[TypeId]>,
     result_type: Option<TypeId>,
     inline_assembly_symbols: Arc<[MirCallableReference]>,
@@ -307,7 +307,7 @@ pub enum MirGeneratorOperation {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct MirAggregate {
     kind: MirAggregateKind,
-    operands: Arc<[MirOperand]>,
+    pub(crate) operands: Arc<[MirOperand]>,
 }
 
 impl MirAggregate {
@@ -335,7 +335,7 @@ impl MirAggregate {
 pub struct MirConstructionInput {
     input: ConstructionInputId,
     ordinal: u32,
-    value: MirOperand,
+    pub(crate) value: MirOperand,
 }
 
 impl MirConstructionInput {
@@ -368,7 +368,7 @@ impl MirConstructionInput {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct MirConstruction {
     target: ConstructionTarget,
-    inputs: Arc<[MirConstructionInput]>,
+    pub(crate) inputs: Arc<[MirConstructionInput]>,
 }
 
 impl MirConstruction {

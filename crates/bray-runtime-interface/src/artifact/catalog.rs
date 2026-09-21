@@ -2,7 +2,8 @@ use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::Arc;
 
-use bray_base::{NonEmptySharedStr, decode_lowercase_hex, lowercase_hex, shared_slice};
+use bray_base::{NonEmptySharedStr, shared_slice};
+pub use bray_native_artifact::NativeContentDigest as RuntimeArtifactDigest;
 use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
 use bray_target::TargetIdentity;
 use serde::{Deserialize, Serialize};
@@ -17,31 +18,6 @@ use crate::{
 const FORMAT: &str = "bray_native_runtime";
 const FORMAT_VERSION: u16 = 1;
 const MAXIMUM_METADATA_BYTES: usize = 64 * 1024;
-
-/// Content digest of one packaged native runtime archive.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct RuntimeArtifactDigest([u8; 32]);
-
-impl RuntimeArtifactDigest {
-    /// Creates a digest from its exact bytes.
-    pub const fn new(bytes: [u8; 32]) -> Self {
-        Self(bytes)
-    }
-
-    /// Returns the exact digest bytes.
-    pub const fn bytes(self) -> [u8; 32] {
-        self.0
-    }
-
-    /// Returns the lowercase hexadecimal digest.
-    pub fn to_hex(self) -> String {
-        lowercase_hex(&self.0)
-    }
-
-    fn from_hex(value: &str) -> Option<Self> {
-        decode_lowercase_hex(value).map(Self)
-    }
-}
 
 /// Product category used to select one non-overlapping runtime implementation surface.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]

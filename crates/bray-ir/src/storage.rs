@@ -150,6 +150,34 @@ pub struct MirPlace {
 }
 
 impl MirPlace {
+    pub(crate) fn remap_local_ids(
+        &mut self,
+        mappings: &impl crate::unit::local_id_remap::MirLocalIdMapping,
+    ) {
+        self.storage = mappings.storage(self.storage);
+
+        for projection in Arc::make_mut(&mut self.projections) {
+            match &mut projection.kind {
+                MirProjectionKind::Index(operand) => operand.remap_local_ids(mappings),
+                MirProjectionKind::Slice { start, end } => {
+                    for operand in start.iter_mut().chain(end) {
+                        operand.remap_local_ids(mappings);
+                    }
+                }
+                MirProjectionKind::Dereference
+                | MirProjectionKind::Field(_)
+                | MirProjectionKind::TupleField(_)
+                | MirProjectionKind::ElementFromStart(_)
+                | MirProjectionKind::ElementFromEnd(_)
+                | MirProjectionKind::Variant(_)
+                | MirProjectionKind::ActiveUnionPayloadField { .. }
+                | MirProjectionKind::ActiveUnionPayloadElement { .. }
+                | MirProjectionKind::NullableValue
+                | MirProjectionKind::OwnedStorage => {}
+            }
+        }
+    }
+
     /// Creates a place from its root storage, source-order projections, and resulting type.
     pub fn new(
         storage: MirStorageId,
