@@ -16,10 +16,11 @@ use super::hash::{
     compute_artifact_hash, compute_content_hash, compute_payload_content_hash, compute_payload_hash,
 };
 use super::payload::{
-    encode_native_boundary, encode_pre_specialized_mir, specialization_discriminator,
+    encode_native_binding, encode_native_boundary, encode_pre_specialized_mir,
+    specialization_discriminator,
 };
 use super::{
-    InterfaceConstantCallableBody, InterfaceExecutableTemplate, InterfaceNativeBoundary,
+    InterfaceConstantCallableBody, InterfaceExecutableTemplate, InterfaceNativeBinding, InterfaceNativeBoundary,
     InterfacePreSpecializedMir, PackageImplementationArtifactBuildError,
     PackageImplementationIdentity,
 };
@@ -30,6 +31,9 @@ pub(super) fn encode_artifact(
     templates: &[InterfaceExecutableTemplate],
     boundaries: &[InterfaceNativeBoundary],
     pre_specialized_mir: &[InterfacePreSpecializedMir],
+    native_index: Option<&[u8]>,
+    native_units: &[([u8; 32], Arc<[u8]>)],
+    native_bindings: &[InterfaceNativeBinding],
 ) -> Result<Arc<[u8]>, PackageImplementationArtifactBuildError> {
     let mut payloads = vec![EncodedImplementationPayload::new(
         InterfaceSymbolId::new(0),
@@ -77,6 +81,36 @@ pub(super) fn encode_artifact(
             specialization_discriminator(mir.key()),
             0,
             encode_pre_specialized_mir(mir),
+        )
+    }));
+
+    if let Some(index) = native_index {
+        payloads.push(EncodedImplementationPayload::new(
+            InterfaceSymbolId::new(0),
+            ImplementationPayloadKind::NativeIndex,
+            [0; 32],
+            0,
+            index.to_vec(),
+        ));
+    }
+
+    payloads.extend(native_units.iter().map(|(digest, bytes)| {
+        EncodedImplementationPayload::new(
+            InterfaceSymbolId::new(0),
+            ImplementationPayloadKind::NativeUnit,
+            *digest,
+            0,
+            bytes.to_vec(),
+        )
+    }));
+
+    payloads.extend(native_bindings.iter().map(|binding| {
+        EncodedImplementationPayload::new(
+            binding.owner(),
+            ImplementationPayloadKind::NativeBinding,
+            specialization_discriminator(binding.key()),
+            0,
+            encode_native_binding(binding),
         )
     }));
 

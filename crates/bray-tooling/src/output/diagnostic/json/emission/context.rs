@@ -162,6 +162,8 @@ pub(super) fn package_interface_failure_context(
         | Failure::ImplementationDuplicateExecutableTemplate(record)
         | Failure::ImplementationInvalidExecutableTemplateFamily(record)
         | Failure::ImplementationDuplicateNativeBoundary(record)
+        | Failure::ImplementationDuplicateNativeBinding(record)
+        | Failure::ImplementationInvalidNativeBinding(record)
         | Failure::ImplementationInvalidExecutableOwner(record)
         | Failure::ImplementationInvalidNativeBoundaryOwner(record)
         | Failure::ImplementationInvalidCallableOwner(record) => {

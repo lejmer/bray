@@ -141,14 +141,12 @@ impl NativeArtifactIndex {
         Ok(bytes)
     }
 
-    /// Authenticates a bounded index and every referenced payload at an artifact import boundary.
-    pub fn import(
+    /// Decodes and authenticates index bytes for one selected target.
+    pub fn decode(
         bytes: &[u8],
         expected_digest: NativeContentDigest,
         expected_target: NativeTarget,
-        expected_producer: NativeContentDigest,
-        payload_directory: &Path,
-    ) -> Result<ValidatedNativeArtifact, NativeIndexError> {
+    ) -> Result<Self, NativeIndexError> {
         if bytes.len() > MAXIMUM_INDEX_BYTES {
             return Err(NativeIndexError::SizeLimitExceeded);
         }
@@ -174,6 +172,19 @@ impl NativeArtifactIndex {
                 actual: index.target,
             });
         }
+
+        Ok(index)
+    }
+
+    /// Authenticates a bounded index and every referenced payload at an artifact import boundary.
+    pub fn import(
+        bytes: &[u8],
+        expected_digest: NativeContentDigest,
+        expected_target: NativeTarget,
+        expected_producer: NativeContentDigest,
+        payload_directory: &Path,
+    ) -> Result<ValidatedNativeArtifact, NativeIndexError> {
+        let index = Self::decode(bytes, expected_digest, expected_target)?;
 
         if index.producer != expected_producer {
             return Err(NativeIndexError::WrongProducer {

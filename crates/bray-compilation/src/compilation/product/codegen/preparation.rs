@@ -172,7 +172,7 @@ impl Compilation {
 
         let units = self.profile_native_product_operation(
             crate::profile::ProfileOperation::NativePartitioning,
-            || self.partition_native_codegen(product, &reachability, &roots, cancellation),
+            || self.partition_native_codegen(product, kind, &reachability, &roots, cancellation),
         )?;
 
         let mappings = self.profile_native_product_operation(
@@ -241,6 +241,7 @@ impl Compilation {
     fn partition_native_codegen(
         &self,
         product: &ProductIdentity,
+        kind: ProductKind,
         reachability: &ConcreteCodegenReachability,
         roots: &BTreeSet<CodegenInstanceKey>,
         cancellation: &CancellationToken,
@@ -285,8 +286,14 @@ impl Compilation {
         let compatibility = completed.into_iter().collect::<BTreeMap<_, _>>();
 
         // The partitioner receives owned compatibility identities independently of the table.
+        let policy = if kind == ProductKind::Library {
+            CodegenPartitionPolicy::NATIVE_LIBRARY_PUBLICATION
+        } else {
+            CodegenPartitionPolicy::NATIVE_BALANCED
+        };
+
         partition_codegen_units(
-            CodegenPartitionPolicy::NATIVE_BALANCED,
+            policy,
             reachability.graph(),
             |instance| compatibility.get(instance.key()).cloned(),
         )

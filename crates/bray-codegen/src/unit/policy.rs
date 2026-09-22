@@ -96,6 +96,16 @@ impl CodegenPartitionPolicy {
         upper_bound: CodegenWork::new(4_096),
     };
 
+    /// Keeps mandatory native groups indivisible while publishing library members separately.
+    pub const NATIVE_LIBRARY_PUBLICATION: Self = Self {
+        identity: 2,
+        revision: 1,
+        cost_model_revision: MIR_STRUCTURE_COST_MODEL_REVISION,
+        lower_bound: CodegenWork::new(1),
+        target_work: CodegenWork::new(1),
+        upper_bound: CodegenWork::new(u64::MAX),
+    };
+
     /// Creates a policy when its identities and work bounds are valid.
     pub const fn try_new(
         identity: u32,

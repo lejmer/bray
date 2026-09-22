@@ -262,6 +262,7 @@ dependencies = [
  "bray-linker",
  "bray-lowering",
  "bray-messages",
+ "bray-native-artifact",
  "bray-package-interface",
  "bray-parser",
  "bray-profile",
@@ -482,6 +483,7 @@ dependencies = [
  "bray-diagnostics",
  "bray-ir",
  "bray-messages",
+ "bray-native-artifact",
  "bray-runtime-interface",
  "bray-symbols",
  "bray-target",
@@ -1430,6 +1432,7 @@ name = "rust-style"
 version = "0.0.0"
 dependencies = [
  "ra_ap_syntax",
+ "rayon",
 ]
 
 [[package]]

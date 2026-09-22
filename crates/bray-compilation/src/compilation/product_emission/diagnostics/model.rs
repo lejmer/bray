@@ -78,6 +78,12 @@ pub enum ProductEmissionErrorKind {
     PackageImplementation(bray_package_interface::PackageImplementationArtifactBuildError),
     /// The implementation companion cannot be represented as artifact content.
     PackageImplementationContent(bray_codegen::ArtifactContentBuildError),
+    /// The native index exceeds its bounded wire format.
+    NativeIndexSizeLimitExceeded,
+    /// The native library has no selected inspector toolchain.
+    MissingNativeInspector,
+    /// The selected LLVM inspector could not inspect a staged native unit.
+    NativeInspection(super::super::native::NativeInspectionError),
     /// A requested test catalog has no matching planned artifact.
     MissingTestCatalogArtifact,
     /// The encoded test catalog cannot be represented as artifact content.

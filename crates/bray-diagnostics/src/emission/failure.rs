@@ -38,6 +38,13 @@ pub enum DiagnosticEmissionFailure {
     PackageInterface(DiagnosticPackageInterfaceFailure),
     Codegen(DiagnosticEmissionCodegenFailure),
     Staging(DiagnosticEmissionStagingFailure),
+    /// The published native package index exceeds its supported size.
+    NativeIndexSizeLimitExceeded,
+    NativeInspection {
+        tool: Option<crate::DiagnosticLlvmToolRole>,
+        path: Option<PathBuf>,
+        reason: DiagnosticNativeInspectionFailure,
+    },
     LinkPlan(DiagnosticEmissionLinkPlanFailure),
     Evaluation(DiagnosticEmissionEvaluationFailure),
     /// Test-catalog encoding failed before the output could be published.
@@ -48,6 +55,28 @@ pub enum DiagnosticEmissionFailure {
     Linking,
     // rust-style: broad-failure
     IncompleteProduct,
+}
+
+/// Exact failure while publishing a native unit summary.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticNativeInspectionFailure {
+    MissingToolchain,
+    Read(DiagnosticIoErrorKind),
+    Invoke(DiagnosticIoErrorKind),
+    Failed(Option<i32>),
+    Encoding,
+}
+
+impl DiagnosticNativeInspectionFailure {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::MissingToolchain => "missing_toolchain",
+            Self::Read(_) => "read",
+            Self::Invoke(_) => "invoke",
+            Self::Failed(_) => "failed",
+            Self::Encoding => "encoding",
+        }
+    }
 }
 
 /// Exact test-catalog protocol failure observed before publication.
@@ -188,6 +217,8 @@ pub enum DiagnosticPackageInterfaceFailure {
     ImplementationDuplicateExecutableTemplate(u32),
     ImplementationInvalidExecutableTemplateFamily(u32),
     ImplementationDuplicateNativeBoundary(u32),
+    ImplementationDuplicateNativeBinding(u32),
+    ImplementationInvalidNativeBinding(u32),
     ImplementationDuplicateSpecialization,
     ImplementationSpecializationIdentityMismatch,
     ImplementationInvalidExecutableOwner(u32),
@@ -444,6 +475,8 @@ impl DiagnosticEmissionFailure {
             Self::PackageInterface(_) => "package_interface",
             Self::Codegen(_) => "codegen",
             Self::Staging(_) => "staging",
+            Self::NativeIndexSizeLimitExceeded => "native_index",
+            Self::NativeInspection { .. } => "native_inspection",
             Self::LinkPlan(_) => "link_plan",
             Self::Evaluation(_) => "evaluation",
             Self::TestCatalog(_) => "test_catalog",
@@ -462,6 +495,8 @@ impl DiagnosticEmissionFailure {
             Self::PackageInterface(failure) => failure.as_str(),
             Self::Codegen(failure) => failure.as_str(),
             Self::Staging(failure) => failure.as_str(),
+            Self::NativeIndexSizeLimitExceeded => "size_limit_exceeded",
+            Self::NativeInspection { reason, .. } => reason.as_str(),
             Self::LinkPlan(failure) => failure.as_str(),
             Self::Evaluation(failure) => failure.as_str(),
             Self::TestCatalog(failure) => failure.as_str(),
@@ -553,6 +588,12 @@ impl DiagnosticPackageInterfaceFailure {
             }
             Self::ImplementationDuplicateNativeBoundary(_) => {
                 "implementation_duplicate_native_boundary"
+            }
+            Self::ImplementationDuplicateNativeBinding(_) => {
+                "implementation_duplicate_native_binding"
+            }
+            Self::ImplementationInvalidNativeBinding(_) => {
+                "implementation_invalid_native_binding"
             }
             Self::ImplementationDuplicateSpecialization => {
                 "implementation_duplicate_specialization"

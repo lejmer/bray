@@ -6,6 +6,7 @@ use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticEmissionFailure, DiagnosticId,
     DiagnosticIoErrorKind, DiagnosticKind, DiagnosticNote, DiagnosticNoteKind,
     DiagnosticProjectCommandFailure, DiagnosticProjectOperation, DiagnosticTestCatalogFailure,
+    DiagnosticLlvmToolRole,
     SeverityKind,
 };
 use bray_emitter::{
@@ -15,7 +16,8 @@ use bray_emitter::{
 use bray_symbols::{ProductIdentity, ProductKind};
 use bray_target::{TargetOutputDescription, TargetOutputKind};
 use bray_tooling::{
-    OutputFormat, exit_code_from_diagnostics, load_llvm_compilation, native_linker,
+    NativeLinkerBuildError, OutputFormat, exit_code_from_diagnostics, llvm_tool_path,
+    load_llvm_compilation, native_linker,
 };
 
 use super::execute::{DriverRunResult, compilation_request, driver_result_from_compilation};
@@ -175,7 +177,41 @@ pub fn run_build_request(
             .and_then(|native| native.executable_host().cloned()),
     );
 
+    let native_inspectors = if product_kind == ProductKind::Library
+        && artifacts.contains(&TargetOutputKind::PackageImplementation)
+        && requires_generation
+    {
+        let tools = [
+            DiagnosticLlvmToolRole::SymbolInspector,
+            DiagnosticLlvmToolRole::ObjectInspector,
+            DiagnosticLlvmToolRole::BitcodeInspector,
+        ]
+        .map(llvm_tool_path)
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>();
+
+        match tools {
+            Ok(tools) => Some(tools),
+            Err(error) => {
+                let diagnostics = compilation.check_diagnostics().merged(&DiagnosticBag::single(
+                    NativeLinkerBuildError::Tool(error)
+                        .diagnostic(selected_target.profile().identity().as_str()),
+                ));
+
+                return driver_result_from_compilation(
+                    compilation, diagnostics, output_format, ExitCode::FAILURE,
+                );
+            }
+        }
+    } else {
+        None
+    };
+
     let mut inputs = ProductEmissionInputs::new(&target_outputs);
+
+    if let Some(tools) = native_inspectors.as_ref() {
+        inputs = inputs.with_native_inspection(&tools[0], &tools[1], &tools[2]);
+    }
 
     if let Some(test_catalog) = test_catalog.as_deref() {
         inputs = inputs.with_test_catalog(test_catalog);

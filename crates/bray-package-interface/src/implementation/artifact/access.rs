@@ -6,10 +6,11 @@ use bray_symbols::{AnySymbolId, InterfaceSymbolId};
 use crate::implementation::artifact_decoding::decode_entry_payload;
 use crate::implementation::codec::configuration_identity;
 use crate::implementation::payload::{
-    decode_native_boundary, decode_pre_specialized_mir, specialization_discriminator,
+    decode_native_binding, decode_native_boundary, decode_pre_specialized_mir,
+    specialization_discriminator,
 };
 use crate::implementation::{
-    InterfaceConstantCallableBody, InterfaceExecutableTemplate, InterfaceNativeBoundary,
+    InterfaceConstantCallableBody, InterfaceExecutableTemplate, InterfaceNativeBinding, InterfaceNativeBoundary,
     PackageImplementationConfiguration, PackageImplementationSpecializationKey,
     PreSpecializedMirDecodeError,
 };
@@ -59,6 +60,49 @@ impl PackageImplementationArtifact {
     /// Returns the canonical encoded implementation artifact bytes.
     pub fn shared_bytes(&self) -> Arc<[u8]> {
         Arc::clone(&self.bytes)
+    }
+
+    /// Returns the native unit index embedded in this implementation, when present.
+    pub fn native_index_bytes(&self) -> Result<Option<Arc<[u8]>>, InterfaceValidationError> {
+        self.entry(InterfaceSymbolId::new(0), ImplementationPayloadKind::NativeIndex, [0; 32])
+            .map(|(index, entry)| self.payload(index, entry))
+            .transpose()
+    }
+
+    /// Returns one native unit by its exact content identity.
+    pub fn native_unit_bytes(
+        &self,
+        digest: [u8; 32],
+    ) -> Result<Option<Arc<[u8]>>, InterfaceValidationError> {
+        self.entry(InterfaceSymbolId::new(0), ImplementationPayloadKind::NativeUnit, digest)
+            .map(|(index, entry)| self.payload(index, entry))
+            .transpose()
+    }
+
+    /// Resolves one optional source specialization to its native symbol and physical unit.
+    pub fn native_binding(
+        &self,
+        owner: InterfaceSymbolId,
+        key: &PackageImplementationSpecializationKey,
+    ) -> Result<Option<InterfaceNativeBinding>, InterfaceValidationError> {
+        let Some((index, entry)) = self.entry(
+            owner,
+            ImplementationPayloadKind::NativeBinding,
+            specialization_discriminator(key),
+        ) else {
+            return Ok(None);
+        };
+
+        let binding = decode_native_binding(owner, &self.payload(index, entry)?, self.limits)?;
+
+        if binding.key() != key {
+            return Err(InterfaceValidationError::SpecializationKeyMismatch {
+                expected: key.cache_identity(),
+                actual: binding.key().cache_identity(),
+            });
+        }
+
+        Ok(Some(binding))
     }
 
     /// Decodes and validates only the requested checked body payload.
@@ -230,6 +274,29 @@ impl PackageImplementationArtifact {
             });
         }
 
+        for (index, entry) in self.directory.iter().enumerate() {
+            if entry.kind != Some(ImplementationPayloadKind::NativeBinding) {
+                continue;
+            }
+
+            let payload = self.payload(index, entry)?;
+            let binding = decode_native_binding(entry.owner, &payload, self.limits)?;
+
+            if surface.symbols().symbol(entry.owner)
+                .is_none_or(|symbol| symbol.key() != binding.key().declaration().key())
+            {
+                return Err(InterfaceValidationError::Malformed {
+                    context: crate::InterfaceValidationContext::ImplementationEntry {
+                        index: entry.index,
+                        raw_kind: entry.raw_kind,
+                    },
+                    cause: crate::InterfaceMalformedCause::InvalidValue {
+                        field: crate::InterfaceValidationField::Owner,
+                    },
+                });
+            }
+        }
+
         Ok(())
     }
 
@@ -250,7 +317,7 @@ impl PackageImplementationArtifact {
         Ok(())
     }
 
-    fn payload(
+    pub(super) fn payload(
         &self,
         index: usize,
         entry: &ImplementationDirectoryEntry,

@@ -9,7 +9,10 @@ use bray_emitter::{
 use bray_linker::Linker;
 use bray_package_interface::encode_package_interface;
 use bray_target::TargetOutputDescription;
+use std::path::Path;
+use std::sync::Arc;
 
+use super::native::package_native_implementation;
 use super::publishing::{
     package_implementation_contribution, publisher, test_catalog_contribution,
 };
@@ -28,6 +31,7 @@ pub struct ProductEmissionInputs<'operation> {
     test_catalog: Option<&'operation [u8]>,
     sink_resolver: Option<&'operation dyn OutputSinkResolver>,
     publication_validation: Option<&'operation dyn PublicationValidator>,
+    native_inspection: Option<NativeInspectionInputs<'operation>>,
 }
 
 impl<'operation> ProductEmissionInputs<'operation> {
@@ -39,6 +43,7 @@ impl<'operation> ProductEmissionInputs<'operation> {
             test_catalog: None,
             sink_resolver: None,
             publication_validation: None,
+            native_inspection: None,
         }
     }
 
@@ -130,6 +135,18 @@ impl<'operation> ProductEmissionInputs<'operation> {
         self
     }
 
+    /// Supplies the selected LLVM tools used once when publishing native library units.
+    pub const fn with_native_inspection(
+        mut self,
+        symbols: &'operation Path,
+        objects: &'operation Path,
+        bitcode: &'operation Path,
+    ) -> Self {
+        self.native_inspection = Some(NativeInspectionInputs { symbols, objects, bitcode });
+
+        self
+    }
+
     /// Requires one final host validation after generation and before publication.
     pub const fn with_publication_validation(
         mut self,
@@ -139,6 +156,13 @@ impl<'operation> ProductEmissionInputs<'operation> {
 
         self
     }
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct NativeInspectionInputs<'operation> {
+    pub(super) symbols: &'operation Path,
+    pub(super) objects: &'operation Path,
+    pub(super) bitcode: &'operation Path,
 }
 
 #[derive(Clone, Copy)]
@@ -300,13 +324,6 @@ impl Compilation {
             )
         })?;
 
-        let package_implementation = package_implementation
-            .map(|artifact| package_implementation_contribution(&plan, artifact))
-            .transpose()
-            .map_err(|kind| {
-                ProductEmissionError::new(kind, planning_diagnostics.clone(), &product, &target)
-            })?;
-
         let test_catalog = inputs
             .test_catalog
             .map(|catalog| test_catalog_contribution(&plan, catalog))
@@ -371,6 +388,8 @@ impl Compilation {
                 package_implementation,
                 test_catalog,
                 inputs.generation.linking(),
+                inputs.generation.native(),
+                inputs.native_inspection,
                 inputs.sink_resolver,
                 inputs.publication_validation,
                 cancellation,
@@ -557,15 +576,7 @@ impl Compilation {
         }
 
         let implementation = implementation_required
-            .then(|| {
-                bray_package_interface::PackageImplementationArtifact::try_from_export_bundle(
-                    &artifact,
-                    bundle,
-                    bray_package_interface::InterfaceValidationLimits::default(),
-                )
-                .map_err(ProductEmissionErrorKind::PackageImplementation)
-            })
-            .transpose()?;
+            .then(|| (artifact.clone(), Arc::clone(bundle)));
 
         cancellation
             .check()
@@ -622,9 +633,11 @@ impl Compilation {
         &self,
         plan: &EmissionPlan,
         backend: Option<BackendContributionSet>,
-        package_implementation: Option<ArtifactContribution>,
+        package_implementation: Option<(bray_package_interface::InterfaceArtifact, Arc<bray_package_interface::PackageInterfaceExportBundle>)>,
         test_catalog: Option<ArtifactContribution>,
         linking: Option<ProductLinkingInputs<'_>>,
+        native: Option<&NativeProductPlan>,
+        inspection: Option<NativeInspectionInputs<'_>>,
         resolver: Option<&dyn OutputSinkResolver>,
         validation: Option<&dyn PublicationValidator>,
         cancellation: &CancellationToken,
@@ -636,6 +649,18 @@ impl Compilation {
 
         match (requires_linking, linking) {
             (false, None) => {
+                let package_implementation = package_implementation
+                    .map(|(interface, bundle)| {
+                        bray_package_interface::PackageImplementationArtifact::try_from_export_bundle(
+                            &interface,
+                            &bundle,
+                            bray_package_interface::InterfaceValidationLimits::default(),
+                        )
+                        .map_err(ProductEmissionErrorKind::PackageImplementation)
+                        .and_then(|artifact| package_implementation_contribution(plan, artifact))
+                    })
+                    .transpose()?;
+
                 let contributions = backend
                     .iter()
                     .flat_map(|contributions| contributions.published(plan))
@@ -650,13 +675,6 @@ impl Compilation {
             (false, Some(_)) => Err(ProductEmissionErrorKind::UnexpectedLinker),
             (true, None) => Err(ProductEmissionErrorKind::MissingLinker),
             (true, Some(linking)) => {
-                let published = backend
-                    .iter()
-                    .flat_map(|contributions| contributions.published(plan))
-                    .cloned()
-                    .chain(package_implementation)
-                    .chain(test_catalog);
-
                 let staged = backend
                     .iter()
                     .flat_map(|contributions| contributions.staged(plan))
@@ -669,6 +687,31 @@ impl Compilation {
                     crate::profile::result_outcome,
                 )
                 .map_err(product_staging_error)?;
+
+                let package_implementation = package_implementation
+                    .map(|(interface, bundle)| {
+                        let artifact = match (native, inspection) {
+                            (Some(native), Some(inspection)) => package_native_implementation(
+                                self, plan, &staging, native, inspection, &interface, &bundle,
+                            )?,
+                            (Some(_), None) => return Err(ProductEmissionErrorKind::MissingNativeInspector),
+                            (None, _) => bray_package_interface::PackageImplementationArtifact::try_from_export_bundle(
+                                &interface,
+                                &bundle,
+                                bray_package_interface::InterfaceValidationLimits::default(),
+                            ).map_err(ProductEmissionErrorKind::PackageImplementation)?,
+                        };
+
+                        package_implementation_contribution(plan, artifact)
+                    })
+                    .transpose()?;
+
+                let published = backend
+                    .iter()
+                    .flat_map(|contributions| contributions.published(plan))
+                    .cloned()
+                    .chain(package_implementation)
+                    .chain(test_catalog);
 
                 let link_plan = construct_link_plan(
                     plan,
@@ -703,13 +746,13 @@ impl Compilation {
 
 struct ProductEmissionPreparation {
     package_interface: Option<bray_package_interface::InterfaceArtifact>,
-    package_implementation: Option<bray_package_interface::PackageImplementationArtifact>,
+    package_implementation: Option<(bray_package_interface::InterfaceArtifact, Arc<bray_package_interface::PackageInterfaceExportBundle>)>,
     diagnostics: DiagnosticBag,
 }
 
 struct ProductInterfaceArtifacts {
     interface: Option<bray_package_interface::InterfaceArtifact>,
-    implementation: Option<bray_package_interface::PackageImplementationArtifact>,
+    implementation: Option<(bray_package_interface::InterfaceArtifact, Arc<bray_package_interface::PackageInterfaceExportBundle>)>,
 }
 
 enum ProductEmissionInput {

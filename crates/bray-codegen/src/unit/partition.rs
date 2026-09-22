@@ -487,6 +487,36 @@ mod tests {
     }
 
     #[test]
+    fn library_publication_separates_independent_groups_and_keeps_required_frames() {
+        let first_mir = test_mir_unit(4);
+        let second_mir = test_mir_unit_with_declaration(8, 1);
+        let second_key = CodegenInstanceKey::non_generic(&second_mir);
+
+        let first = CodegenInstance::try_new(
+            CodegenInstanceKey::non_generic(&first_mir),
+            first_mir,
+            [CodegenInstanceDependency::new(
+                crate::CodegenInstanceDependencyKind::DirectAwaitedFrame,
+                second_key,
+            )],
+        )
+        .unwrap_or_else(|error| panic!("first instance must validate: {error:?}"));
+
+        let second = CodegenInstance::non_generic(second_mir);
+        let independent = CodegenInstance::non_generic(test_mir_unit_with_declaration(12, 2));
+
+        let units = partitions(
+            CodegenPartitionPolicy::NATIVE_LIBRARY_PUBLICATION,
+            [first, second, independent],
+            |_| compatibility(1, CodegenLinkage::Internal),
+        );
+
+        assert_eq!(units.len(), 2);
+        assert!(units.iter().any(|unit| unit.instances().len() == 2));
+        assert!(units.iter().any(|unit| unit.instances().len() == 1));
+    }
+
+    #[test]
     fn direct_awaited_frames_and_definition_cycles_are_co_located() {
         let first_mir = test_mir_unit(4);
         let second_mir = test_mir_unit_with_declaration(8, 1);
