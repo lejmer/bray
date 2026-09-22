@@ -146,23 +146,31 @@ fn object_roots(inventory: &str) -> Option<BTreeSet<NativeRoot>> {
             return None;
         }
 
-        if lower.starts_with("name:") || lower.starts_with("section:") {
-            if lower.contains(".init_array")
-                || lower.contains(".preinit_array")
-                || lower.contains(".ctors")
-                || lower.contains("__mod_init_func")
-                || lower.contains(".crt$x") && !lower.contains(".crt$xt")
-            {
-                roots.insert(NativeRoot::Initialization);
-            }
+        let Some(section) = lower
+            .strip_prefix("name:")
+            .or_else(|| lower.strip_prefix("section:"))
+            .and_then(|value| value.split_whitespace().next())
+        else {
+            continue;
+        };
 
-            if lower.contains(".fini_array")
-                || lower.contains(".dtors")
-                || lower.contains("__mod_term_func")
-                || lower.contains(".crt$xt")
-            {
-                roots.insert(NativeRoot::Finalization);
-            }
+        if section == ".init"
+            || section.contains(".init_array")
+            || section.contains(".preinit_array")
+            || section.contains(".ctors")
+            || section.contains("__mod_init_func")
+            || section.contains(".crt$x") && !section.contains(".crt$xt")
+        {
+            roots.insert(NativeRoot::Initialization);
+        }
+
+        if section == ".fini"
+            || section.contains(".fini_array")
+            || section.contains(".dtors")
+            || section.contains("__mod_term_func")
+            || section.contains(".crt$xt")
+        {
+            roots.insert(NativeRoot::Finalization);
         }
     }
 
@@ -213,6 +221,16 @@ mod tests {
             scan_native_unit_summary(NativeUnitKind::Object, "entry T 0 0", "Name: .CRT$XTU"),
             NativeUnitSummary::Exact { roots, .. } if roots.as_ref() == [NativeRoot::Finalization],
         ));
+
+        for (inventory, root) in [
+            ("Name: .init (2E 69 6E 69 74)", NativeRoot::Initialization),
+            ("Section: .fini (2E 66 69 6E 69)", NativeRoot::Finalization),
+        ] {
+            assert!(matches!(
+                scan_native_unit_summary(NativeUnitKind::Object, "entry T 0 0", inventory),
+                NativeUnitSummary::Exact { roots, .. } if roots.as_ref() == [root],
+            ));
+        }
     }
 
     #[test]
