@@ -99,8 +99,7 @@ fn bitcode_roots(ir: &str) -> Option<BTreeSet<NativeRoot>> {
 
         if line.starts_with("@llvm.")
             || line.starts_with('$')
-            || line.contains(" = alias ")
-            || line.contains(" = ifunc ")
+            || line.split_whitespace().any(|token| matches!(token, "alias" | "ifunc"))
             || line.contains(" comdat")
             || line.contains(" extern_weak ")
             || line.contains(" weak ")
@@ -229,6 +228,20 @@ mod tests {
             assert!(matches!(
                 scan_native_unit_summary(NativeUnitKind::Object, "entry T 0 0", inventory),
                 NativeUnitSummary::Exact { roots, .. } if roots.as_ref() == [root],
+            ));
+        }
+    }
+
+    #[test]
+    fn qualified_aliases_and_ifuncs_are_opaque() {
+        for declaration in [
+            "@alternate = dso_local alias i32, ptr @value",
+            "@alternate = hidden unnamed_addr alias i32, ptr @value",
+            "@dispatch = dso_local ifunc void (), ptr @resolver",
+        ] {
+            assert!(matches!(
+                scan_native_unit_summary(NativeUnitKind::Bitcode, "entry T 0 0", declaration),
+                NativeUnitSummary::Opaque,
             ));
         }
     }
