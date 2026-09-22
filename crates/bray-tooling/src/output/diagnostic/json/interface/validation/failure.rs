@@ -185,20 +185,53 @@ pub(in crate::output::diagnostic::json) fn interface_validation_failure_json(
                 .into_iter()
                 .chain(digest_fields(expected, actual)),
         ),
-        Failure::NativeArtifact { cause, unit, expected, actual, owner,
-            expected_target, actual_target, path, io_error_kind } => {
+        Failure::NativeArtifact {
+            cause,
+            unit,
+            expected,
+            actual,
+            owner,
+            expected_target,
+            actual_target,
+            path,
+            io_error_kind,
+        } => {
             let mut fields = vec![problem_text("cause", cause.as_str())];
-            if let Some(unit) = unit { fields.push(problem_text("unit", hex_bytes(unit))); }
-            if let Some(expected) = expected { fields.push(problem_text("expected", hex_bytes(expected))); }
-            if let Some(actual) = actual { fields.push(problem_text("actual", hex_bytes(actual))); }
-            if let Some(owner) = owner { fields.push(problem_count_u64("owner", u64::from(*owner))); }
-            if let Some(target) = expected_target { fields.push(problem_text("expected_target", target)); }
-            if let Some(target) = actual_target { fields.push(problem_text("actual_target", target)); }
-            if let Some(path) = path { fields.push(problem_text("path", path.display().to_string())); }
-            if let Some(kind) = io_error_kind { fields.push(problem_text("io_error_kind", kind.as_str())); }
+
+            if let Some(unit) = unit {
+                fields.push(problem_text("unit", hex_bytes(unit)));
+            }
+
+            if let Some(expected) = expected {
+                fields.push(problem_text("expected", hex_bytes(expected)));
+            }
+
+            if let Some(actual) = actual {
+                fields.push(problem_text("actual", hex_bytes(actual)));
+            }
+
+            if let Some(owner) = owner {
+                fields.push(problem_count_u64("owner", u64::from(*owner)));
+            }
+
+            if let Some(target) = expected_target {
+                fields.push(problem_text("expected_target", target));
+            }
+
+            if let Some(target) = actual_target {
+                fields.push(problem_text("actual_target", target));
+            }
+
+            if let Some(path) = path {
+                fields.push(problem_text("path", path.display().to_string()));
+            }
+
+            if let Some(kind) = io_error_kind {
+                fields.push(problem_text("io_error_kind", kind.as_str()));
+            }
 
             problem(failure.as_str(), fields)
-        },
+        }
         Failure::ResourceLimitExceeded {
             limit,
             actual,
