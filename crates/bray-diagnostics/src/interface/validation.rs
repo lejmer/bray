@@ -1,6 +1,7 @@
 use super::context::DiagnosticInterfaceValidationContext;
 use super::identity::{DiagnosticInterfaceDependency, DiagnosticPackageInterfaceIdentity};
 use super::inventory::{DiagnosticInterfaceLimit, DiagnosticInterfaceSection};
+use super::native_artifact::DiagnosticNativeArtifactCause;
 use super::problem::DiagnosticInterfaceSymbolGraphProblem;
 use crate::DiagnosticArtifactDigest;
 
@@ -651,6 +652,18 @@ pub enum DiagnosticInterfaceValidationFailure {
         /// Hash computed from decoded content.
         actual: DiagnosticArtifactDigest,
     },
+    /// Embedded native package metadata is invalid.
+    NativeArtifact {
+        cause: DiagnosticNativeArtifactCause,
+        unit: Option<[u8; 32]>,
+        expected: Option<[u8; 32]>,
+        actual: Option<[u8; 32]>,
+        owner: Option<u32>,
+        expected_target: Option<String>,
+        actual_target: Option<String>,
+        path: Option<std::path::PathBuf>,
+        io_error_kind: Option<crate::DiagnosticIoErrorKind>,
+    },
     /// Externally controlled input exceeds a configured ceiling.
     ResourceLimitExceeded {
         /// Resource category that exceeded its ceiling.
@@ -694,6 +707,7 @@ impl DiagnosticInterfaceValidationFailure {
             Self::SectionChecksumMismatch { .. } => "section_checksum_mismatch",
             Self::UnknownSectionChecksumMismatch { .. } => "unknown_section_checksum_mismatch",
             Self::SectionContentHashMismatch { .. } => "section_content_hash_mismatch",
+            Self::NativeArtifact { .. } => "native_artifact",
             Self::ResourceLimitExceeded { .. } => "resource_limit_exceeded",
         }
     }

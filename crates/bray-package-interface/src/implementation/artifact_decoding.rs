@@ -366,18 +366,18 @@ fn validate_payload_address(
                 || discriminator[4..].iter().any(|byte| *byte != 0)
             {
                 return Err(crate::implementation::invalid_value(
-                    crate::InterfaceValidationField::Value,
+                    InterfaceValidationField::Value,
                 ));
             }
         }
-        Some(ImplementationPayloadKind::Identity) => {
+        Some(ImplementationPayloadKind::Identity | ImplementationPayloadKind::NativeIndex) => {
             if owner.raw() != 0
                 || discriminator != [0; 32]
                 || family_size != 0
                 || platform_service.is_some()
             {
                 return Err(crate::implementation::invalid_value(
-                    crate::InterfaceValidationField::Value,
+                    InterfaceValidationField::Value,
                 ));
             }
         }
@@ -385,14 +385,21 @@ fn validate_payload_address(
         | Some(ImplementationPayloadKind::NativeBoundary) => {
             if discriminator != [0; 32] || family_size != 0 || platform_service.is_some() {
                 return Err(crate::implementation::invalid_value(
-                    crate::InterfaceValidationField::Value,
+                    InterfaceValidationField::Value,
                 ));
             }
         }
-        Some(ImplementationPayloadKind::PreSpecializedMir) => {
+        Some(ImplementationPayloadKind::PreSpecializedMir | ImplementationPayloadKind::NativeUnit) => {
             if owner.raw() != 0 || family_size != 0 || platform_service.is_some() {
                 return Err(crate::implementation::invalid_value(
-                    crate::InterfaceValidationField::Value,
+                    InterfaceValidationField::Value,
+                ));
+            }
+        }
+        Some(ImplementationPayloadKind::NativeBinding) => {
+            if owner.raw() == 0 || family_size != 0 || platform_service.is_some() {
+                return Err(crate::implementation::invalid_value(
+                    InterfaceValidationField::Value,
                 ));
             }
         }

@@ -155,6 +155,47 @@ impl InterfaceNativeBoundary {
     }
 }
 
+/// One exact source specialization bound to a physical native unit and target symbol.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct InterfaceNativeBinding {
+    owner: InterfaceSymbolId,
+    key: super::PackageImplementationSpecializationKey,
+    unit: [u8; 32],
+    symbol: bray_base::NonEmptySharedStr,
+}
+
+impl InterfaceNativeBinding {
+    /// Creates a binding for one interface declaration and complete specialization key.
+    pub const fn new(
+        owner: InterfaceSymbolId,
+        key: super::PackageImplementationSpecializationKey,
+        unit: [u8; 32],
+        symbol: bray_base::NonEmptySharedStr,
+    ) -> Self {
+        Self { owner, key, unit, symbol }
+    }
+
+    /// Returns the owning interface declaration.
+    pub const fn owner(&self) -> InterfaceSymbolId {
+        self.owner
+    }
+
+    /// Returns the complete semantic and target specialization identity.
+    pub const fn key(&self) -> &super::PackageImplementationSpecializationKey {
+        &self.key
+    }
+
+    /// Returns the native unit content identity.
+    pub const fn unit(&self) -> [u8; 32] {
+        self.unit
+    }
+
+    /// Returns the exact target symbol spelling.
+    pub fn symbol(&self) -> &str {
+        self.symbol.as_str()
+    }
+}
+
 /// Failure while assembling a package implementation artifact.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PackageImplementationArtifactBuildError {
@@ -168,6 +209,10 @@ pub enum PackageImplementationArtifactBuildError {
     DuplicateNativeBoundary(InterfaceSymbolId),
     /// Two pre-specialized MIR payloads claim the same complete specialization identity.
     DuplicateSpecialization,
+    /// Two native bindings claim the same owner and specialization.
+    DuplicateNativeBinding(InterfaceSymbolId),
+    /// Native binding identity differs from this implementation or names a missing unit.
+    InvalidNativeBinding(InterfaceSymbolId),
     /// A pre-specialized payload does not belong to this bundle configuration and dependency graph.
     SpecializationIdentityMismatch,
     /// An executable template owner is missing or cannot own executable code.

@@ -600,6 +600,12 @@ fn package_implementation_failure_diagnostic(
         PackageImplementationArtifactBuildError::DuplicateNativeBoundary(owner) => {
             DiagnosticPackageInterfaceFailure::ImplementationDuplicateNativeBoundary(owner.raw())
         }
+        PackageImplementationArtifactBuildError::DuplicateNativeBinding(owner) => {
+            DiagnosticPackageInterfaceFailure::ImplementationDuplicateNativeBinding(owner.raw())
+        }
+        PackageImplementationArtifactBuildError::InvalidNativeBinding(owner) => {
+            DiagnosticPackageInterfaceFailure::ImplementationInvalidNativeBinding(owner.raw())
+        }
         PackageImplementationArtifactBuildError::DuplicateSpecialization => {
             DiagnosticPackageInterfaceFailure::ImplementationDuplicateSpecialization
         }

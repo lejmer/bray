@@ -82,7 +82,7 @@ pub use emission::{
     DiagnosticConstantEvaluationFailure, DiagnosticEmissionArtifact,
     DiagnosticEmissionCodegenFailure, DiagnosticEmissionEvaluationFailure,
     DiagnosticEmissionFailure, DiagnosticEmissionLinkPlanFailure,
-    DiagnosticEmissionPlanningFailure, DiagnosticEmissionStagingFailure,
+    DiagnosticEmissionPlanningFailure, DiagnosticEmissionStagingFailure, DiagnosticNativeInspectionFailure,
     DiagnosticEvaluationFailureDetail, DiagnosticFactRuntimeFailure, DiagnosticFailureField,
     DiagnosticFailureValue, DiagnosticForeignQueryFailure, DiagnosticGenericSubstitutionFailure,
     DiagnosticHostEnvironmentVariable, DiagnosticLiteralValueFailure, DiagnosticLivenessFailure,
@@ -113,6 +113,7 @@ pub use interface::{
     DiagnosticInterfaceSymbolReference, DiagnosticInterfaceSynthesizedIdentity,
     DiagnosticInterfaceUtf8Failure, DiagnosticInterfaceValidationContext,
     DiagnosticInterfaceValidationFailure, DiagnosticInterfaceValidationField,
+    DiagnosticNativeArtifactCause,
     DiagnosticPackageInterfaceIdentity, DiagnosticSemanticContentProblem,
     DiagnosticSemanticValueKind,
 };

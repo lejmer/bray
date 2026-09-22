@@ -66,5 +66,6 @@ const fn llvm_tool_role(role: bray_diagnostics::DiagnosticLlvmToolRole) -> &'sta
         Role::Optimizer => "LLVM optimizer",
         Role::SymbolInspector => "LLVM symbol inspector",
         Role::ObjectInspector => "LLVM object inspector",
+        Role::BitcodeInspector => "LLVM bitcode inspector",
     }
 }

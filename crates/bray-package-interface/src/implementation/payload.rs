@@ -15,7 +15,7 @@ use crate::{
 
 use super::codec::{decode_specialization_key, encode_specialization_key};
 use super::{
-    CURRENT_MIR_SCHEMA_REVISION, ImplementationMirSchemaRevision, InterfaceNativeBoundary,
+    CURRENT_MIR_SCHEMA_REVISION, ImplementationMirSchemaRevision, InterfaceNativeBinding, InterfaceNativeBoundary,
     InterfaceNativeBoundaryKind, InterfacePreSpecializedMir,
     PackageImplementationSpecializationKey,
 };
@@ -79,6 +79,35 @@ pub(super) fn specialization_discriminator(
     key: &PackageImplementationSpecializationKey,
 ) -> [u8; 32] {
     key.cache_identity()
+}
+
+pub(super) fn encode_native_binding(binding: &InterfaceNativeBinding) -> Vec<u8> {
+    let mut encoder = WireEncoder::new();
+
+    encode_specialization_key(binding.key(), &mut encoder);
+    encoder.write_bytes(&binding.unit());
+    write_string(&mut encoder, binding.symbol());
+
+    encoder.into_bytes()
+}
+
+pub(super) fn decode_native_binding(
+    owner: InterfaceSymbolId,
+    payload: &[u8],
+    limits: InterfaceValidationLimits,
+) -> Result<InterfaceNativeBinding, InterfaceValidationError> {
+    let mut reader = WireReader::new(payload);
+    let key = decode_specialization_key(&mut reader, limits)?;
+
+    let unit = reader.read_array::<32>()
+        .map_err(wire_error(InterfaceValidationField::Hash))?;
+
+    let symbol = read_nonempty_string(&mut reader, limits)?;
+
+    reader.finish()
+        .map_err(wire_error(InterfaceValidationField::RecordPayload))?;
+
+    Ok(InterfaceNativeBinding::new(owner, key, unit, symbol))
 }
 
 pub(super) fn encode_native_boundary(boundary: &InterfaceNativeBoundary) -> Vec<u8> {

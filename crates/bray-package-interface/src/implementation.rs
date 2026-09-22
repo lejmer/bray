@@ -13,7 +13,7 @@ mod specialization;
 pub(crate) use codec::{invalid_value, map_wire_error};
 pub(crate) use family::invalid_executable_template_family;
 
-pub use artifact::PackageImplementationArtifact;
+pub use artifact::{PackageImplementationArtifact, PackageNativeArtifactError};
 pub use executable::{
     ExecutableTemplateDecodeError, ExecutableTemplateEncodeContext, ExecutableTemplateEncodeError,
     decode_executable_template, encode_executable_template, encode_pre_specialized_mir,
@@ -25,7 +25,7 @@ pub use identity::{
     PackageImplementationTargetPropertyValue,
 };
 pub use model::{
-    InterfaceConstantCallableBody, InterfaceExecutableTemplate, InterfaceNativeBoundary,
+    InterfaceConstantCallableBody, InterfaceExecutableTemplate, InterfaceNativeBinding, InterfaceNativeBoundary,
     InterfaceNativeBoundaryKind, PackageImplementationArtifactBuildError,
 };
 pub use specialization::{

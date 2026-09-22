@@ -37,6 +37,34 @@ impl DiagnosticEmissionFailureJson {
             },
             Failure::Codegen(failure) => codegen_failure_context(failure),
             Failure::Staging(failure) => staging_failure_context(failure),
+            Failure::NativeIndexSizeLimitExceeded => Vec::new(),
+            Failure::NativeInspection { tool, path, reason } => {
+                let mut fields = Vec::new();
+
+                if let Some(tool) = tool {
+                    fields.push(text_field("tool", tool.as_str()));
+                }
+
+                if let Some(path) = path {
+                    fields.push(text_field("path", path.display().to_string()));
+                }
+
+                match reason {
+                    bray_diagnostics::DiagnosticNativeInspectionFailure::Read(kind)
+                    | bray_diagnostics::DiagnosticNativeInspectionFailure::Invoke(kind) => {
+                        fields.push(text_field("io_error_kind", kind.as_str()));
+                    }
+                    bray_diagnostics::DiagnosticNativeInspectionFailure::Failed(status) => {
+                        if let Some(status) = status {
+                            fields.push(text_field("exit_status", status.to_string()));
+                        }
+                    }
+                    bray_diagnostics::DiagnosticNativeInspectionFailure::MissingToolchain
+                    | bray_diagnostics::DiagnosticNativeInspectionFailure::Encoding => {}
+                }
+
+                fields
+            },
             Failure::LinkPlan(failure) => link_plan_failure_context(failure),
             Failure::MissingContribution(artifact)
             | Failure::InvalidContribution(artifact)

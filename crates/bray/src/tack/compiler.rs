@@ -36,7 +36,8 @@ pub(crate) struct ProjectCompiler<'project> {
 struct CheckedInterface {
     path: PathBuf,
     source_input_digest: Option<[u8; 32]>,
-    _operation: bray_emitter::ManagedOperation,
+    _operation: Option<bray_emitter::ManagedOperation>,
+    configuration: Option<TackBuildConfiguration>,
 }
 
 pub(crate) struct ProductBuild {
@@ -86,7 +87,7 @@ impl<'project> ProjectCompiler<'project> {
         let product = self.project_product(planned)?.clone();
         let mut outputs = Vec::new();
 
-        if !self.check_dependencies(&product, planned.target(), &mut outputs, None, None)? {
+        if !self.check_dependencies(&product, planned.target(), &mut outputs, None, None, None)? {
             return Ok(outputs);
         }
 
@@ -136,7 +137,7 @@ impl<'project> ProjectCompiler<'project> {
         let product = self.project_product(planned)?.clone();
         let mut outputs = Vec::new();
 
-        if !self.check_dependencies(&product, planned.target(), &mut outputs, progress, evidence)? {
+        if !self.check_dependencies(&product, planned.target(), &mut outputs, progress, evidence, Some(configuration))? {
             return Ok(ProductBuild {
                 outputs,
                 executable: None,
@@ -254,7 +255,7 @@ impl<'project> ProjectCompiler<'project> {
             .unwrap_or_else(|| product.identity().name().to_owned());
 
         let packages =
-            self.progress_packages(product, planned.target(), &dependencies, evidence)?;
+            self.progress_packages(product, planned.target(), &dependencies, evidence, configuration)?;
 
         let product_identity = format!(
             "{}/{}",
@@ -306,7 +307,7 @@ impl<'project> ProjectCompiler<'project> {
         let product = self.project_product(planned)?.clone();
         let mut outputs = Vec::new();
 
-        if !self.check_dependencies(&product, planned.target(), &mut outputs, None, None)? {
+        if !self.check_dependencies(&product, planned.target(), &mut outputs, None, None, None)? {
             return Ok(outputs);
         }
 
@@ -334,11 +335,12 @@ impl<'project> ProjectCompiler<'project> {
         outputs: &mut Vec<ToolOutput>,
         progress: Option<&BuildProgressSession<'_>>,
         evidence: Option<&crate::tack::identity::TestProductBuildEvidence>,
+        configuration: Option<TackBuildConfiguration>,
     ) -> Result<bool, DiagnosticBag> {
         let dependencies = self.direct_dependencies(product, target)?;
 
         for dependency in dependencies {
-            if !self.ensure_dependency(&dependency, target, outputs, progress, evidence)? {
+            if !self.ensure_dependency(&dependency, target, outputs, progress, evidence, configuration)? {
                 return Ok(false);
             }
         }
@@ -353,10 +355,11 @@ impl<'project> ProjectCompiler<'project> {
         outputs: &mut Vec<ToolOutput>,
         progress: Option<&BuildProgressSession<'_>>,
         evidence: Option<&crate::tack::identity::TestProductBuildEvidence>,
+        configuration: Option<TackBuildConfiguration>,
     ) -> Result<bool, DiagnosticBag> {
         let key = (identity.clone(), target.clone());
 
-        if self.interface_matches(identity, target, evidence) {
+        if self.interface_matches(identity, target, evidence, configuration) {
             return Ok(true);
         }
 
@@ -373,31 +376,63 @@ impl<'project> ProjectCompiler<'project> {
             ));
         }
 
-        if !self.check_dependencies(&product, target, outputs, progress, evidence)? {
+        if !self.check_dependencies(&product, target, outputs, progress, evidence, configuration)? {
             return Ok(false);
         }
 
-        let operation = bray_emitter::ManagedOperation::begin(
-            &self.graph.output_root().beneath(self.workspace_root),
-            identity,
-            target,
-            &|| false,
-        )
-        .map_err(storage_diagnostics)?;
+        let output_root = self.graph.output_root().beneath(self.workspace_root);
 
-        let interface = operation
-            .directory()
-            .join(format!("{}.brayi", identity.name()));
+        let (interface, operation, action) = if let Some(configuration) = configuration {
+            let target_name = self.graph.targets().iter()
+                .find(|candidate| candidate.identity() == target)
+                .expect("selected dependency target must belong to the workspace")
+                .name();
 
-        let output = self.run_compiler(
-            &product,
-            target,
-            CompilerAction::Check {
+            let relative_output_directory =
+                self.relative_output_directory(identity, target_name, configuration);
+
+            let output_directory = output_root.join(&relative_output_directory);
+
+            std::fs::create_dir_all(&output_directory).map_err(|error| {
+                operation_diagnostics(DiagnosticProjectCommandFailure::Io {
+                    operation: DiagnosticProjectOperation::ProductOutputDirectory,
+                    path: output_directory.clone(),
+                    error: DiagnosticIoErrorKind::from(error.kind()),
+                })
+            })?;
+
+            let interface = output_directory.join(format!("{}.brayi", identity.name()));
+
+            let action = CompilerAction::Build {
+                output_root,
+                output_directory: relative_output_directory,
+                configuration,
+                test_catalog: product.kind() == ProductKind::Test,
+                build_identity: None,
+                expected_source_digest: source_inputs,
+            };
+
+            (interface, None, action)
+        } else {
+            let operation = bray_emitter::ManagedOperation::begin(
+                &output_root,
+                identity,
+                target,
+                &|| false,
+            )
+            .map_err(storage_diagnostics)?;
+
+            let interface = operation.directory().join(format!("{}.brayi", identity.name()));
+
+            let action = CompilerAction::Check {
                 interface: Some(interface.clone()),
                 expected_source_digest: source_inputs,
-            },
-            progress,
-        )?;
+            };
+
+            (interface, Some(operation), action)
+        };
+
+        let output = self.run_compiler(&product, target, action, progress)?;
 
         let success = output.success();
 
@@ -410,6 +445,7 @@ impl<'project> ProjectCompiler<'project> {
                     path: interface,
                     source_input_digest: source_inputs,
                     _operation: operation,
+                    configuration,
                 },
             );
         }
@@ -502,7 +538,7 @@ impl<'project> ProjectCompiler<'project> {
             }
         }
 
-        for dependency in self.dependencies(product, target)? {
+        for dependency in self.dependencies(product, target, action.configuration())? {
             request
                 .arg("--dependency-product")
                 .arg(format!(
@@ -642,6 +678,7 @@ impl<'project> ProjectCompiler<'project> {
         target: &TargetIdentity,
         dependencies: &BTreeSet<ProductIdentity>,
         evidence: Option<&crate::tack::identity::TestProductBuildEvidence>,
+        configuration: TackBuildConfiguration,
     ) -> Result<Vec<BuildProgressPackage>, DiagnosticBag> {
         let mut packages = Vec::new();
 
@@ -653,7 +690,7 @@ impl<'project> ProjectCompiler<'project> {
                 let is_root = candidate.identity() == product.identity();
 
                 let is_pending_dependency = dependencies.contains(candidate.identity())
-                    && !self.interface_matches(candidate.identity(), target, evidence);
+                    && !self.interface_matches(candidate.identity(), target, evidence, Some(configuration));
 
                 if !is_root && !is_pending_dependency {
                     continue;
@@ -665,7 +702,7 @@ impl<'project> ProjectCompiler<'project> {
                     ))
                 })?;
 
-                if is_root {
+                if is_root || is_pending_dependency {
                     action = BuildProgressAction::ProduceArtifacts;
                 }
             }
@@ -690,26 +727,29 @@ impl<'project> ProjectCompiler<'project> {
         identity: &ProductIdentity,
         target: &TargetIdentity,
         evidence: Option<&crate::tack::identity::TestProductBuildEvidence>,
+        configuration: Option<TackBuildConfiguration>,
     ) -> bool {
         let key = (identity.clone(), target.clone());
         let source_input_digest = evidence.and_then(|evidence| evidence.source_inputs(identity));
 
         self.interfaces
             .get(&key)
-            .is_some_and(|interface| interface.source_input_digest == source_input_digest)
+            .is_some_and(|interface| interface.source_input_digest == source_input_digest
+                && interface.configuration == configuration)
     }
 
     fn dependencies(
         &self,
         product: &ProjectProduct,
         target: &TargetIdentity,
+        configuration: Option<TackBuildConfiguration>,
     ) -> Result<Vec<DependencyArtifact>, DiagnosticBag> {
         self.direct_dependencies(product, target)?
             .into_iter()
             .map(|identity| {
                 let key = (identity.clone(), target.clone());
 
-                let path = self.interfaces.get(&key).ok_or_else(|| {
+                let path = self.interfaces.get(&key).filter(|entry| entry.configuration == configuration).ok_or_else(|| {
                     operation_diagnostics(DiagnosticProjectCommandFailure::MissingResult(
                         DiagnosticProjectOperation::DependencyInterface,
                     ))
@@ -989,6 +1029,13 @@ enum CompilerAction {
 }
 
 impl CompilerAction {
+    const fn configuration(&self) -> Option<TackBuildConfiguration> {
+        match self {
+            Self::Build { configuration, .. } => Some(*configuration),
+            Self::Check { .. } | Self::Inspect { .. } => None,
+        }
+    }
+
     const fn profile_name(&self) -> &'static str {
         match self {
             Self::Check { .. } => "check",

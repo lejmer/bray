@@ -1,5 +1,6 @@
 pub(in crate::compilation) mod diagnostics;
 mod execution;
+mod native;
 mod publishing;
 
 pub use diagnostics::{ProductEmissionError, ProductEmissionErrorKind};

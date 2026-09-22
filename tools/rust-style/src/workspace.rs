@@ -2,7 +2,8 @@
 
 use std::path::{Path, PathBuf};
 
-use ra_ap_syntax::{Edition, SourceFile};
+use ra_ap_syntax::{AstNode, Edition, SourceFile};
+use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 
 use super::diagnostic::{Diagnostic, Severity};
 use super::{blank_line, exemption, failure, source, structure};
@@ -33,43 +34,53 @@ pub fn check_workspace(root: &Path) -> Result<(), String> {
 }
 
 fn fix_sources(paths: &[PathBuf]) -> Result<usize, String> {
-    let mut fix_count = 0;
+    let results = paths
+        .par_iter()
+        .map(|path| {
+            let source = read_source(path)?;
 
-    for path in paths {
-        let source = read_source(path)?;
+            let (fixed, source_fix_count) = blank_line::fix_source(&source)
+                .map_err(|error| format!("{}: {error}", path.display()))?;
 
-        let (fixed, source_fix_count) = blank_line::fix_source(&source)?;
+            if source_fix_count > 0 {
+                std::fs::write(path, fixed)
+                    .map_err(|error| source::io_error("write", path, error))?;
+            }
 
-        if source_fix_count == 0 {
-            continue;
-        }
+            Ok(source_fix_count)
+        })
+        .collect::<Vec<Result<usize, String>>>();
 
-        std::fs::write(path, fixed).map_err(|error| source::io_error("write", path, error))?;
-
-        fix_count += source_fix_count;
-    }
-
-    Ok(fix_count)
+    results.into_iter().try_fold(0, |total, result| result.map(|count| total + count))
 }
 
 fn validate_workspace(root: &Path, paths: &[PathBuf]) -> Result<(), String> {
     let failure_policy = failure::Policy::from_paths(paths)?;
+
+    let results = paths
+        .par_iter()
+        .map(|path| {
+            let source = read_source(path)?;
+            let diagnostics = source_diagnostics(path, &source, &failure_policy);
+
+            let relative_path = path.strip_prefix(root).unwrap_or(path);
+
+            diagnostics
+                .iter()
+                .map(|diagnostic| {
+                    format_diagnostic(relative_path, &source, diagnostic)
+                        .map(|message| (message, diagnostic.rule.severity() == Severity::Error))
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .collect::<Vec<Result<Vec<(String, bool)>, String>>>();
+
     let mut error_count = 0;
 
-    for path in paths {
-        let source = read_source(path)?;
-        let diagnostics = source_diagnostics(path, &source, &failure_policy);
-        let relative_path = path.strip_prefix(root).unwrap_or(path);
-
-        for diagnostic in diagnostics {
-            eprintln!(
-                "{}",
-                format_diagnostic(relative_path, &source, &diagnostic)?
-            );
-
-            if diagnostic.rule.severity() == Severity::Error {
-                error_count += 1;
-            }
+    for result in results {
+        for (message, is_error) in result? {
+            eprintln!("{message}");
+            error_count += usize::from(is_error);
         }
     }
 
@@ -88,7 +99,7 @@ fn source_diagnostics(
     failure_policy: &failure::Policy,
 ) -> Vec<Diagnostic> {
     let file = SourceFile::parse(source, Edition::Edition2024).tree();
-    let mut diagnostics = blank_line::check_source(source);
+    let mut diagnostics = blank_line::check_syntax(source, file.syntax());
 
     diagnostics.extend(structure::check(path, source, &file));
     diagnostics.extend(failure::check(path, source, &file, failure_policy));

@@ -7,7 +7,7 @@ use bray_symbols::InterfaceSymbolId;
 use crate::implementation::artifact_encoding::encode_artifact;
 use crate::implementation::{
     CURRENT_MIR_SCHEMA_REVISION, CURRENT_TEMPLATE_SCHEMA_REVISION, InterfaceConstantCallableBody,
-    InterfaceExecutableTemplate, InterfaceNativeBoundary, InterfaceNativeBoundaryKind,
+    InterfaceExecutableTemplate, InterfaceNativeBinding, InterfaceNativeBoundary, InterfaceNativeBoundaryKind,
     InterfacePreSpecializedMir, PackageImplementationArtifactBuildError,
     PackageImplementationConfiguration, PackageImplementationIdentity,
     invalid_executable_template_family,
@@ -46,6 +46,37 @@ impl PackageImplementationArtifact {
         )
     }
 
+    /// Encodes semantic and native payloads in one atomic implementation artifact.
+    pub fn try_from_export_bundle_with_native(
+        interface: &InterfaceArtifact,
+        bundle: &PackageInterfaceExportBundle,
+        native_index: &[u8],
+        native_units: &[([u8; 32], std::sync::Arc<[u8]>)],
+        native_bindings: &[InterfaceNativeBinding],
+        limits: InterfaceValidationLimits,
+    ) -> Result<Self, PackageImplementationArtifactBuildError> {
+        let validated = ValidatedPackageInterface::try_new(
+            interface.shared_bytes(),
+            InterfaceValidationPolicy::new(bundle.language_revision()).with_limits(limits),
+        )
+        .map_err(PackageImplementationArtifactBuildError::InvalidArtifact)?;
+
+        Self::try_new_internal(
+            &validated,
+            bundle.surface(),
+            bundle.semantics(),
+            bundle.implementation_configuration().clone(),
+            bundle.constant_callable_bodies().iter().cloned(),
+            bundle.executable_templates().iter().cloned(),
+            bundle.native_boundaries().iter().cloned(),
+            [],
+            Some(native_index),
+            native_units,
+            native_bindings,
+            limits,
+        )
+    }
+
     /// Validates and encodes implementation payloads for one exact package interface.
     pub fn try_new(
         interface: &ValidatedPackageInterface,
@@ -56,6 +87,27 @@ impl PackageImplementationArtifact {
         executable_templates: impl IntoIterator<Item = InterfaceExecutableTemplate>,
         native_boundaries: impl IntoIterator<Item = InterfaceNativeBoundary>,
         pre_specialized_mir: impl IntoIterator<Item = InterfacePreSpecializedMir>,
+        limits: InterfaceValidationLimits,
+    ) -> Result<Self, PackageImplementationArtifactBuildError> {
+        Self::try_new_internal(
+            interface, surface, semantics, configuration, constant_callable_bodies,
+            executable_templates, native_boundaries, pre_specialized_mir, None, &[], &[], limits,
+        )
+    }
+
+    #[expect(clippy::too_many_arguments, reason = "artifact encoding retains each independently validated payload family")]
+    fn try_new_internal(
+        interface: &ValidatedPackageInterface,
+        surface: &PackageInterfaceSurface,
+        semantics: &InterfaceSemantics,
+        configuration: PackageImplementationConfiguration,
+        constant_callable_bodies: impl IntoIterator<Item = InterfaceConstantCallableBody>,
+        executable_templates: impl IntoIterator<Item = InterfaceExecutableTemplate>,
+        native_boundaries: impl IntoIterator<Item = InterfaceNativeBoundary>,
+        pre_specialized_mir: impl IntoIterator<Item = InterfacePreSpecializedMir>,
+        native_index: Option<&[u8]>,
+        native_units: &[([u8; 32], std::sync::Arc<[u8]>)],
+        native_bindings: &[InterfaceNativeBinding],
         limits: InterfaceValidationLimits,
     ) -> Result<Self, PackageImplementationArtifactBuildError> {
         let mut bodies = constant_callable_bodies.into_iter().collect::<Vec<_>>();
@@ -135,6 +187,25 @@ impl PackageImplementationArtifact {
             return Err(PackageImplementationArtifactBuildError::SpecializationIdentityMismatch);
         }
 
+        let mut binding_keys = BTreeSet::new();
+
+        for binding in native_bindings {
+            if !binding_keys.insert((binding.owner(), binding.key().cache_identity())) {
+                return Err(PackageImplementationArtifactBuildError::DuplicateNativeBinding(binding.owner()));
+            }
+
+            if binding.owner().raw() == 0
+                || surface.symbols().symbol(binding.owner())
+                    .is_none_or(|symbol| symbol.key() != binding.key().declaration().key())
+                || binding.key().configuration() != &configuration
+                || binding.key().template_schema_revision() != CURRENT_TEMPLATE_SCHEMA_REVISION
+                || binding.key().dependencies() != surface.dependencies()
+                || !native_units.iter().any(|(digest, _)| *digest == binding.unit())
+            {
+                return Err(PackageImplementationArtifactBuildError::InvalidNativeBinding(binding.owner()));
+            }
+        }
+
         let identity = implementation_identity(interface, surface, semantics, configuration);
 
         let bytes = encode_artifact(
@@ -143,6 +214,9 @@ impl PackageImplementationArtifact {
             &templates,
             &boundaries,
             &pre_specialized_mir,
+            native_index,
+            native_units,
+            native_bindings,
         )?;
 
         Self::try_from_bytes(bytes, limits)

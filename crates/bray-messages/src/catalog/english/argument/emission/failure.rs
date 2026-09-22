@@ -24,6 +24,31 @@ pub(crate) fn format_english_emission_failure(
         Failure::PackageInterface(failure) => format_english_package_interface_failure(failure),
         Failure::Codegen(failure) => format_english_emission_codegen_failure(failure),
         Failure::Staging(failure) => format_english_emission_staging_failure(failure),
+        Failure::NativeIndexSizeLimitExceeded => {
+            "native package index exceeds its supported size".to_owned()
+        }
+        Failure::NativeInspection { tool, path, reason } => {
+            use bray_diagnostics::DiagnosticNativeInspectionFailure as Reason;
+
+            let subject = tool.map_or_else(
+                || "native unit".to_owned(),
+                |tool| tool.executable_name().to_owned(),
+            );
+
+            let location = path.as_ref().map_or_else(String::new, |path| {
+                format!(" for {}", path.display())
+            });
+
+            let cause = match reason {
+                Reason::MissingToolchain => "has no selected inspector toolchain".to_owned(),
+                Reason::Read(error) => format!("could not read input: {}", format_english_io_error_kind(*error)),
+                Reason::Invoke(error) => format!("could not start: {}", format_english_io_error_kind(*error)),
+                Reason::Failed(status) => format!("exited unsuccessfully with status {status:?}"),
+                Reason::Encoding => "returned invalid UTF-8 output".to_owned(),
+            };
+
+            format!("{subject}{location} {cause}")
+        }
         Failure::LinkPlan(failure) => format_english_emission_link_plan_failure(failure),
         Failure::Evaluation(failure) => format_english_emission_evaluation_failure(failure),
         Failure::TestCatalog(_) => {
@@ -295,6 +320,12 @@ fn format_english_package_interface_failure(
         ),
         Failure::ImplementationDuplicateNativeBoundary(owner) => {
             format!("two implementation native boundaries claim declaration record {owner}")
+        }
+        Failure::ImplementationDuplicateNativeBinding(owner) => {
+            format!("native implementation binding for declaration #{owner} occurs more than once")
+        }
+        Failure::ImplementationInvalidNativeBinding(owner) => {
+            format!("native implementation binding for declaration #{owner} has a mismatched identity or unit")
         }
         Failure::ImplementationDuplicateSpecialization => {
             "two implementation payloads claim the same specialization".to_owned()

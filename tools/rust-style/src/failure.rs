@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use ra_ap_syntax::ast::{HasArgList, HasName};
 use ra_ap_syntax::{AstNode, AstToken, NodeOrToken, SourceFile, SyntaxNode, TextRange, ast};
+use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 
 use super::diagnostic::{Diagnostic, Rule};
 use super::source::{self, range_is_test_only, source_text, test_only_ranges};
@@ -24,19 +25,26 @@ pub(super) struct Policy {
 
 impl Policy {
     pub(super) fn from_paths(paths: &[PathBuf]) -> Result<Self, String> {
+        let results = paths
+            .par_iter()
+            .map(|path| {
+                if source::is_test_source(path) {
+                    return Ok(Vec::new());
+                }
+
+                let source = std::fs::read_to_string(path)
+                    .map_err(|error| source::io_error("read", path, error))?;
+
+                let file = SourceFile::parse(&source, ra_ap_syntax::Edition::Edition2024).tree();
+
+                Ok(valid_categories(&source, &file))
+            })
+            .collect::<Vec<Result<Vec<Category>, String>>>();
+
         let mut categories = BTreeSet::new();
 
-        for path in paths {
-            if source::is_test_source(path) {
-                continue;
-            }
-
-            let source = std::fs::read_to_string(path)
-                .map_err(|error| source::io_error("read", path, error))?;
-
-            let file = SourceFile::parse(&source, ra_ap_syntax::Edition::Edition2024).tree();
-
-            categories.extend(valid_categories(&source, &file));
+        for result in results {
+            categories.extend(result?);
         }
 
         Ok(Self { categories })
@@ -537,7 +545,7 @@ fn references_name(node: &SyntaxNode, name: &str) -> bool {
         .any(|reference| reference.text() == name)
 }
 
-fn valid_categories(source: &str, file: &ast::SourceFile) -> Vec<Category> {
+fn valid_categories(source: &str, file: &SourceFile) -> Vec<Category> {
     let test_ranges = test_only_ranges(file, source);
 
     category_markers(source, file)
@@ -547,7 +555,7 @@ fn valid_categories(source: &str, file: &ast::SourceFile) -> Vec<Category> {
         .collect()
 }
 
-fn marker_diagnostics(source: &str, file: &ast::SourceFile) -> Vec<Diagnostic> {
+fn marker_diagnostics(source: &str, file: &SourceFile) -> Vec<Diagnostic> {
     let test_ranges = test_only_ranges(file, source);
 
     category_markers(source, file)
@@ -563,7 +571,7 @@ struct CategoryMarker {
     diagnostic: Option<Diagnostic>,
 }
 
-fn category_markers(source: &str, file: &ast::SourceFile) -> Vec<CategoryMarker> {
+fn category_markers(source: &str, file: &SourceFile) -> Vec<CategoryMarker> {
     let syntax = file.syntax();
 
     syntax

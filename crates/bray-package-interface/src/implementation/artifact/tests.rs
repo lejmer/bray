@@ -3,6 +3,12 @@ use std::sync::Arc;
 
 use bray_base::NonEmptySharedStr;
 use bray_bound_tree::CheckedTemplateKind;
+use bray_native_artifact::{
+    NativeArtifactIndex, NativeCoRetentionGroup, NativeContentDigest, NativeDefinition, NativeDefinitionSelection,
+    NativeRoot,
+    NativeIndexError, NativeUnit, NativeUnitKind, NativeUnitSummary,
+};
+use bray_target::NativeTarget;
 use bray_symbols::{
     ExternalSymbolKey, ForeignCallableDirection, ImportedInterfaceId, InterfaceSymbolId,
     NativeSymbolContract, PackageIdentity, SemanticValueStore, SymbolId, SymbolKind,
@@ -19,12 +25,254 @@ use crate::{
     ImplementationExternalSymbolIdentity, ImplementationSpecializationArgument,
     ImplementationSpecializationArgumentKind, InterfaceCheckedTemplate,
     InterfaceConstantCallableBody, InterfaceExecutableTemplate, InterfaceLanguageRevision,
-    InterfaceNativeBoundary, InterfacePreSpecializedMir, InterfaceValidationError,
+    InterfaceNativeBinding, InterfaceNativeBoundary, InterfacePreSpecializedMir, InterfaceValidationError,
     InterfaceValidationLimits, InterfaceValidationPolicy, LoadedInterfaceSurface,
     PackageImplementationArtifactBuildError, PackageImplementationConfiguration,
     PackageImplementationSpecializationKey, PreSpecializedMirDecodeError,
     ValidatedPackageInterface, construct_imported_symbol_skeletons, encode_package_interface,
 };
+
+#[test]
+fn native_package_units_round_trip_with_exact_source_binding() {
+    let fixture = artifact_fixture();
+
+    let encoded = encode_package_interface(&fixture.bundle)
+        .unwrap_or_else(|error| panic!("test interface must encode: {error:?}"));
+
+    let target = NativeTarget::for_identity(fixture.bundle.implementation_configuration().target())
+        .unwrap_or_else(|| panic!("test package target must be supported"));
+
+    let first = b"independent first bitcode";
+    let second = b"independent second bitcode";
+    let first_digest = native_digest(first);
+    let second_digest = native_digest(second);
+
+    let owner_symbol = fixture.bundle.surface().symbols().symbol(fixture.body.owner())
+        .unwrap_or_else(|| panic!("test callable must be exported"));
+
+    let symbol = NonEmptySharedStr::try_new("bray_test_first")
+        .unwrap_or_else(|| panic!("test native name must be valid"));
+
+    let key = PackageImplementationSpecializationKey::new(
+        ImplementationExternalSymbolIdentity::new(owner_symbol.key()),
+        [],
+        [],
+        fixture.bundle.implementation_configuration().clone(),
+        CURRENT_TEMPLATE_SCHEMA_REVISION,
+        fixture.bundle.surface().dependencies().iter().cloned(),
+    );
+
+    let binding = InterfaceNativeBinding::new(
+        fixture.body.owner(), key, first_digest.bytes(), symbol.clone(),
+    );
+
+    let first_unit = NativeUnit::new(
+        first_digest,
+        NativeUnitKind::Bitcode,
+        NativeUnitSummary::Exact {
+            definitions: Arc::from([NativeDefinition::new(
+                NativeSymbolContract::required_name(symbol),
+                NativeDefinitionSelection::Ordinary,
+            )]),
+            references: Arc::from([]),
+            roots: Arc::from([]),
+        },
+        [],
+        [],
+    );
+
+    let second_unit = NativeUnit::new(
+        second_digest,
+        NativeUnitKind::Bitcode,
+        NativeUnitSummary::Opaque,
+        [],
+        [],
+    );
+
+    let index = NativeArtifactIndex::try_new(target, native_digest(b"producer"),
+        [second_unit, first_unit], [])
+        .unwrap_or_else(|error| panic!("test native index must validate: {error:?}"));
+
+    let index_bytes = index.encode()
+        .unwrap_or_else(|error| panic!("test native index must encode: {error:?}"));
+
+    let payloads = [
+        (second_digest.bytes(), Arc::<[u8]>::from(second.as_slice())),
+        (first_digest.bytes(), Arc::<[u8]>::from(first.as_slice())),
+    ];
+
+    let artifact = PackageImplementationArtifact::try_from_export_bundle_with_native(
+        &encoded, &fixture.bundle, &index_bytes, &payloads, &[binding.clone()],
+        InterfaceValidationLimits::default(),
+    )
+    .unwrap_or_else(|error| panic!("native package must encode: {error:?}"));
+
+    let imported = PackageImplementationArtifact::try_from_bytes(
+        artifact.bytes().to_vec(), InterfaceValidationLimits::default(),
+    )
+    .unwrap_or_else(|error| panic!("native package must import: {error:?}"));
+
+    let imported_index = imported.native_artifact()
+        .unwrap_or_else(|error| panic!("native units must authenticate: {error:?}"))
+        .unwrap_or_else(|| panic!("native index must be present"));
+
+    assert_eq!(imported_index, index);
+    assert_eq!(imported.native_bindings().unwrap_or_else(|error| panic!("bindings must decode: {error:?}")), vec![binding.clone()]);
+    assert_eq!(imported.native_unit_bytes(first_digest.bytes()), Ok(Some(Arc::from(first.as_slice()))));
+
+    let wrong = PackageImplementationArtifact::try_from_export_bundle_with_native(
+        &encoded, &fixture.bundle, &index_bytes,
+        &[(first_digest.bytes(), Arc::from(b"wrong payload".as_slice())),
+          (second_digest.bytes(), Arc::from(second.as_slice()))],
+        &[], InterfaceValidationLimits::default(),
+    )
+    .unwrap_or_else(|error| panic!("outer artifact may encode an inconsistent unit: {error:?}"));
+
+    assert!(matches!(wrong.native_artifact(), Err(super::native::PackageNativeArtifactError::Index(NativeIndexError::PayloadDigestMismatch { .. }))));
+
+    let opaque_binding = InterfaceNativeBinding::new(
+        fixture.body.owner(), binding.key().clone(), second_digest.bytes(),
+        NonEmptySharedStr::try_new("bray_test_first")
+            .unwrap_or_else(|| panic!("test native name must be valid")),
+    );
+
+    let opaque = PackageImplementationArtifact::try_from_export_bundle_with_native(
+        &encoded, &fixture.bundle, &index_bytes, &payloads, &[opaque_binding],
+        InterfaceValidationLimits::default(),
+    )
+    .unwrap_or_else(|error| panic!("outer artifact may encode a binding to an opaque unit: {error:?}"));
+
+    assert!(matches!(opaque.native_artifact(), Err(super::native::PackageNativeArtifactError::InvalidBinding(owner))
+        if owner == fixture.body.owner()));
+
+    let other_target = if target == NativeTarget::X86_64WindowsMsvc {
+        NativeTarget::X86_64LinuxGnu
+    } else {
+        NativeTarget::X86_64WindowsMsvc
+    };
+
+    let stale_index = NativeArtifactIndex::try_new(
+        other_target, index.producer(), index.units().iter().cloned(), [],
+    )
+    .unwrap_or_else(|error| panic!("stale target index must encode: {error:?}"));
+
+    let stale_bytes = stale_index.encode()
+        .unwrap_or_else(|error| panic!("stale target bytes must encode: {error:?}"));
+
+    let stale = PackageImplementationArtifact::try_from_export_bundle_with_native(
+        &encoded, &fixture.bundle, &stale_bytes, &payloads, &[],
+        InterfaceValidationLimits::default(),
+    )
+    .unwrap_or_else(|error| panic!("outer artifact may encode a stale target: {error:?}"));
+
+    assert!(matches!(stale.native_artifact(), Err(super::native::PackageNativeArtifactError::Index(NativeIndexError::WrongTarget { .. }))));
+
+    let other_owner = fixture.bundle.surface().symbols().symbols().iter().find(|symbol| symbol.id() != fixture.body.owner())
+        .unwrap_or_else(|| panic!("other exported callable must be present"));
+
+    let wrong_key = PackageImplementationSpecializationKey::new(
+        ImplementationExternalSymbolIdentity::new(other_owner.key()),
+        [], [], fixture.bundle.implementation_configuration().clone(),
+        CURRENT_TEMPLATE_SCHEMA_REVISION,
+        fixture.bundle.surface().dependencies().iter().cloned(),
+    );
+
+    let wrong_binding = InterfaceNativeBinding::new(
+        fixture.body.owner(), wrong_key, first_digest.bytes(),
+        NonEmptySharedStr::try_new("bray_test_first")
+            .unwrap_or_else(|| panic!("test native name must be valid")),
+    );
+
+    assert!(matches!(
+        PackageImplementationArtifact::try_from_export_bundle_with_native(
+            &encoded, &fixture.bundle, &index_bytes, &payloads, &[wrong_binding],
+            InterfaceValidationLimits::default(),
+        ),
+        Err(PackageImplementationArtifactBuildError::InvalidNativeBinding(owner))
+            if owner == fixture.body.owner()
+    ));
+}
+
+#[test]
+fn native_package_preserves_function_address_data_initialization_and_group() {
+    let fixture = artifact_fixture();
+
+    let encoded = encode_package_interface(&fixture.bundle)
+        .unwrap_or_else(|error| panic!("test interface must encode: {error:?}"));
+
+    let target = NativeTarget::for_identity(fixture.bundle.implementation_configuration().target())
+        .unwrap_or_else(|| panic!("test package target must be supported"));
+
+    let function = b"function bitcode";
+    let data = b"function pointer data";
+    let initializer = b"initializer bitcode";
+    let function_id = native_digest(function);
+    let data_id = native_digest(data);
+    let initializer_id = native_digest(initializer);
+
+    let named = |value| NativeSymbolContract::required_name(
+        NonEmptySharedStr::try_new(value)
+            .unwrap_or_else(|| panic!("test native symbol must be nonempty")),
+    );
+
+    let function_unit = NativeUnit::new(function_id, NativeUnitKind::Bitcode,
+        NativeUnitSummary::Exact {
+            definitions: Arc::from([NativeDefinition::new(named("callback"), NativeDefinitionSelection::Ordinary)]),
+            references: Arc::from([]), roots: Arc::from([]),
+        }, [], []);
+
+    let data_unit = NativeUnit::new(data_id, NativeUnitKind::Bitcode,
+        NativeUnitSummary::Exact {
+            definitions: Arc::from([NativeDefinition::new(named("callback_table"), NativeDefinitionSelection::Ordinary)]),
+            references: Arc::from([named("callback")]), roots: Arc::from([]),
+        }, [], []);
+
+    let initializer_unit = NativeUnit::new(initializer_id, NativeUnitKind::Bitcode,
+        NativeUnitSummary::Exact {
+            definitions: Arc::from([]), references: Arc::from([named("callback_table")]),
+            roots: Arc::from([NativeRoot::Initialization]),
+        }, [], []);
+
+    let group = NativeCoRetentionGroup::try_new([data_id, initializer_id])
+        .unwrap_or_else(|| panic!("two units must form a co-retention group"));
+
+    let index = NativeArtifactIndex::try_new(target, native_digest(b"producer"),
+        [function_unit, data_unit, initializer_unit], [group.clone()])
+        .unwrap_or_else(|error| panic!("native graph must validate: {error:?}"));
+
+    let index_bytes = index.encode()
+        .unwrap_or_else(|error| panic!("native graph must encode: {error:?}"));
+
+    let payloads = [
+        (function_id.bytes(), Arc::<[u8]>::from(function.as_slice())),
+        (data_id.bytes(), Arc::<[u8]>::from(data.as_slice())),
+        (initializer_id.bytes(), Arc::<[u8]>::from(initializer.as_slice())),
+    ];
+
+    let artifact = PackageImplementationArtifact::try_from_export_bundle_with_native(
+        &encoded, &fixture.bundle, &index_bytes, &payloads, &[],
+        InterfaceValidationLimits::default(),
+    )
+    .unwrap_or_else(|error| panic!("native graph must publish: {error:?}"));
+
+    let imported = artifact.native_artifact()
+        .unwrap_or_else(|error| panic!("native graph must authenticate: {error:?}"))
+        .unwrap_or_else(|| panic!("native graph must be present"));
+
+    assert_eq!(imported, index);
+    assert_eq!(imported.co_retention_groups(), [group]);
+
+    assert!(matches!(imported.units().iter().find(|unit| unit.digest() == initializer_id)
+        .map(NativeUnit::summary), Some(NativeUnitSummary::Exact { roots, .. })
+        if roots.as_ref() == [NativeRoot::Initialization]));
+}
+
+fn native_digest(bytes: &[u8]) -> NativeContentDigest {
+    NativeContentDigest::new(
+        bray_base::sha256_reader(bytes)
+            .unwrap_or_else(|error| panic!("test bytes must hash: {error}")),
+    )
+}
 
 #[test]
 fn artifacts_decode_only_the_requested_constant_body() {
@@ -123,7 +371,7 @@ fn malformed_unrequested_payloads_do_not_block_other_body_lookups() {
         fixture.bundle.implementation_configuration().clone(),
     );
 
-    let encoded = encode_artifact(&identity, &[fixture.body.clone(), second], &[], &[], &[])
+    let encoded = encode_artifact(&identity, &[fixture.body.clone(), second], &[], &[], &[], None, &[], &[])
         .unwrap_or_else(|error| panic!("test artifact must encode: {error:?}"));
 
     let pristine = PackageImplementationArtifact::try_from_bytes(
@@ -310,7 +558,7 @@ fn artifacts_reject_incomplete_executable_template_families() {
         fixture.bundle.implementation_configuration().clone(),
     );
 
-    let bytes = encode_artifact(&identity, &[], std::slice::from_ref(&root), &[], &[])
+    let bytes = encode_artifact(&identity, &[], std::slice::from_ref(&root), &[], &[], None, &[], &[])
         .unwrap_or_else(|error| panic!("test artifact must encode: {error:?}"));
 
     let result =

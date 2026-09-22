@@ -1,5 +1,7 @@
 //! Checks and automatic fixes for mechanically decidable blank-line rules.
 
+use std::collections::BTreeSet;
+
 use ra_ap_syntax::{AstNode, AstToken};
 use ra_ap_syntax::{NodeOrToken, SyntaxKind, SyntaxNode, SyntaxToken, TextRange, TextSize, ast};
 
@@ -9,21 +11,42 @@ use super::source::{count_newlines, source_text, text_offset};
 pub(super) fn fix_source(source: &str) -> Result<(String, usize), String> {
     let mut fixed = source.to_owned();
     let mut fix_count = 0;
+    let mut seen = BTreeSet::new();
 
     loop {
-        let Some(diagnostic) = check_source(&fixed).into_iter().next() else {
-            return Ok((fixed, fix_count));
-        };
+        let diagnostics = check_source(&fixed);
 
-        apply_fix(&mut fixed, diagnostic)?;
-        fix_count += 1;
+        if diagnostics.is_empty() {
+            return Ok((fixed, fix_count));
+        }
+
+        if !seen.insert(fixed.clone()) {
+            return Err("blank-line fixes did not converge".to_owned());
+        }
+
+        // Later edits cannot invalidate the original byte offsets of earlier edits.
+        let mut previous_offset = None;
+
+        for diagnostic in diagnostics.into_iter().rev() {
+            if previous_offset == Some(diagnostic.offset) {
+                continue;
+            }
+
+            previous_offset = Some(diagnostic.offset);
+            apply_fix(&mut fixed, diagnostic)?;
+            fix_count += 1;
+        }
     }
 }
 
 pub(super) fn check_source(source: &str) -> Vec<Diagnostic> {
     let parse = ra_ap_syntax::SourceFile::parse(source, ra_ap_syntax::Edition::Edition2024);
+
+    check_syntax(source, &parse.syntax_node())
+}
+
+pub(super) fn check_syntax(source: &str, syntax: &SyntaxNode) -> Vec<Diagnostic> {
     let mut diagnostics = Vec::new();
-    let syntax = parse.syntax_node();
 
     check_whitespace(&syntax, &mut diagnostics);
     check_comments(&syntax, &mut diagnostics);
@@ -303,7 +326,9 @@ fn check_statement_boundary(
 
     let gap = TextRange::new(previous.range.end(), next.range.start());
 
-    if count_newlines(source_text(source, gap)) >= 2 {
+    // A line boundary can be inserted only when the statements already occupy
+    // separate lines. One-line blocks are left to Rust source formatting.
+    if count_newlines(source_text(source, gap)) != 1 {
         return;
     }
 
@@ -610,6 +635,33 @@ enum Example {
 
         assert_eq!(fixed_again, fixed);
         assert_eq!(second_fix_count, 0);
+    }
+
+    #[test]
+    fn one_line_match_arm_blocks_do_not_trigger_conflicting_fixes() {
+        let source = "fn example(value: usize) -> usize {\n    match value {\n        0 => { let result = 1; result },\n        _ => { let result = 2; result },\n    }\n}\n";
+
+        let (fixed, count) = fixed_source(source);
+
+        assert_eq!(fixed, source);
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn many_disjoint_fixes_complete_and_remain_idempotent() {
+        let mut source = String::new();
+
+        for index in 0..128 {
+            source.push_str(&format!(
+                "fn item_{index}() -> usize {{\n    let value = {index};\n    value\n}}\n\n"
+            ));
+        }
+
+        let (fixed, count) = fixed_source(&source);
+
+        assert_eq!(count, 128);
+        assert!(rules(&fixed).is_empty());
+        assert_eq!(fixed_source(&fixed), (fixed, 0));
     }
 
     #[test]

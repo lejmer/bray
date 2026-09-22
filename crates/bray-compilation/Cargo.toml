@@ -18,6 +18,7 @@ bray-emitter = { path = "../bray-emitter" }
 bray-ir = { path = "../bray-ir" }
 bray-linker = { path = "../bray-linker" }
 bray-lowering = { path = "../bray-lowering" }
+bray-native-artifact = { path = "../bray-native-artifact" }
 bray-parser = { path = "../bray-parser" }
 bray-package-interface = { path = "../bray-package-interface" }
 bray-profile = { path = "../bray-profile" }

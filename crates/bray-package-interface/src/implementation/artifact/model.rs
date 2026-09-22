@@ -23,6 +23,9 @@ pub(in crate::implementation) enum ImplementationPayloadKind {
     ExecutableTemplate = 2,
     NativeBoundary = 3,
     PreSpecializedMir = 4,
+    NativeIndex = 5,
+    NativeUnit = 6,
+    NativeBinding = 7,
 }
 
 impl ImplementationPayloadKind {
@@ -33,6 +36,9 @@ impl ImplementationPayloadKind {
             2 => Some(Self::ExecutableTemplate),
             3 => Some(Self::NativeBoundary),
             4 => Some(Self::PreSpecializedMir),
+            5 => Some(Self::NativeIndex),
+            6 => Some(Self::NativeUnit),
+            7 => Some(Self::NativeBinding),
             _ => None,
         }
     }
