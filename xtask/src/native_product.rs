@@ -104,7 +104,13 @@ pub(crate) fn emit_executable_with_configuration(
 
     let outcome = compilation
         .emit_product(request, inputs)
-        .map_err(|error| format!("native fixture emission failed: {:?}", error.kind()))?;
+        .map_err(|error| {
+            format!(
+                "native fixture emission failed: {:?}. Diagnostics: {:?}",
+                error.kind(),
+                compilation.check_diagnostics()
+            )
+        })?;
 
     if matches!(outcome.status(), EmissionStatus::Complete) {
         return Ok(());

@@ -1176,6 +1176,32 @@ mod tests {
         );
     }
 
+    #[test]
+    fn bitcode_serialization_policy_does_not_require_bitcode_when_linking_objects() {
+        let serialization = BackendSerializationOptions::new(AssemblySyntaxKind::TargetDefault)
+            .with_bitcode_semantics(BackendBitcodeSemantics::ThinLto);
+
+        let policy = BackendEmissionPolicy::new(
+            DebugInformationMode::None,
+            DebugInformationOutputMode::Omit,
+            Some(LinkableArtifactKind::RelocatableObject),
+            serialization,
+        );
+
+        let planner = planner(backend_capabilities(), [codegen_unit_key(1)], policy);
+
+        let request = emission_request_for(
+            ProductKind::Executable,
+            RequestedArtifactDestination::FilesystemDirectory("out".into()),
+            [RequestedArtifact::new(
+                ArtifactKind::Executable,
+                ArtifactRequirement::Required,
+            )],
+        );
+
+        assert!(planner.plan(request).is_ok());
+    }
+
     fn planner(
         capabilities: BackendCapabilities,
         units: impl IntoIterator<Item = bray_codegen::CodegenUnitKey>,

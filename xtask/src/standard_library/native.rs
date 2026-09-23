@@ -25,7 +25,7 @@ const API_TEST_COUNT: usize = 152;
 const API_FILTERED_TEST_COUNT: usize = 3;
 const CONCURRENCY_MODEL_TEST_COUNT: usize = 7;
 const CONCURRENCY_STRESS_TEST_COUNT: usize = 5;
-const OUTCOME_CASES: [OutcomeCase; 20] = [
+const OUTCOME_CASES: [OutcomeCase; 25] = [
     OutcomeCase::new(
         "assertion-failure",
         "assertion_failure",
@@ -141,6 +141,51 @@ const OUTCOME_CASES: [OutcomeCase; 20] = [
         OutcomeExpectation::Panic {
             cause: "message",
             message: "panic after owned allocation",
+            source_available: true,
+        },
+    ),
+    OutcomeCase::new(
+        "raw-buffer-release-destructor-panic",
+        "raw_buffer_release_preserves_destructor_panic",
+        OutcomeExpectation::Panic {
+            cause: "message",
+            message: "raw buffer element cleanup panic",
+            source_available: true,
+        },
+    ),
+    OutcomeCase::new(
+        "raw-buffer-replace-destructor-panic",
+        "raw_buffer_replace_preserves_destructor_panic",
+        OutcomeExpectation::Panic {
+            cause: "message",
+            message: "raw buffer element cleanup panic",
+            source_available: true,
+        },
+    ),
+    OutcomeCase::new(
+        "raw-buffer-implicit-release-destructor-panic",
+        "raw_buffer_implicit_release_preserves_destructor_panic",
+        OutcomeExpectation::Panic {
+            cause: "message",
+            message: "raw buffer element cleanup panic",
+            source_available: true,
+        },
+    ),
+    OutcomeCase::new(
+        "raw-buffer-release-deallocation-failure",
+        "raw_buffer_release_preserves_deallocation_failure",
+        OutcomeExpectation::Panic {
+            cause: "assertion",
+            message: "memory deallocation received an invalid allocation",
+            source_available: false,
+        },
+    ),
+    OutcomeCase::new(
+        "raw-buffer-cleanup-progress",
+        "raw_buffer_release_finishes_each_element_once",
+        OutcomeExpectation::Panic {
+            cause: "message",
+            message: "raw buffer cleanup progress checked",
             source_available: true,
         },
     ),

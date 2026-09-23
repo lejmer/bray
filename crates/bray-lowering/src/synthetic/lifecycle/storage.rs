@@ -69,6 +69,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
         match action {
             bray_bound_tree::LifecycleAction::RawBuffer(element) => {
+                let outcome = self.cleanup_outcome(builder, block, source)?;
                 let values = self.context.semantic_values();
 
                 let borrowed = values
@@ -105,6 +106,12 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                         None,
                     )),
                 )?;
+
+                let block = outcome
+                    .check(builder, block, source)
+                    .map_err(|cause| self.capacity_error(cause))?;
+
+                return self.finish_cleanup_outcome(builder, block, source, &outcome);
             }
             bray_bound_tree::LifecycleAction::ReleaseString => {
                 self.push_lifecycle_operation(

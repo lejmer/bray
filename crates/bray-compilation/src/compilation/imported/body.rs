@@ -14,15 +14,18 @@ use crate::fact::{
     CancellationToken, CompilationFactKey, FactQueryError, ImportedExecutableTemplateAddress,
 };
 
+pub(in crate::compilation) type LoadedImplementation = Result<
+    Arc<bray_package_interface::PackageImplementationArtifact>,
+    bray_package_interface::InterfaceValidationError,
+>;
+
 impl super::super::Compilation {
     pub(in crate::compilation) fn loaded_dependency_implementation_with_cancellation(
         &self,
         interface: bray_symbols::ImportedInterfaceId,
         cancellation: &CancellationToken,
     ) -> Result<
-        Option<
-            &DiagnosticResult<Option<Arc<bray_package_interface::PackageImplementationArtifact>>>,
-        >,
+        Option<&DiagnosticResult<Option<LoadedImplementation>>>,
         FactQueryError,
     > {
         let Some(index) = interface.to_index() else {
@@ -51,38 +54,52 @@ impl super::super::Compilation {
                     )
                 });
 
-                if let Some(artifact) = input.implementation_artifact() {
-                    return Ok(DiagnosticResult::without_diagnostics(Some(Arc::new(
-                        artifact.clone(),
-                    ))));
-                }
+                let artifact = if let Some(artifact) = input.implementation_artifact() {
+                    artifact.clone()
+                } else {
+                    let bytes = match input.shared_implementation_bytes() {
+                        Ok(Some(bytes)) => bytes,
+                        Ok(None) => return Ok(DiagnosticResult::without_diagnostics(None)),
+                        Err(error) => {
+                            return Ok(DiagnosticResult::new(
+                                None,
+                                standard_library_diagnostics(error, input),
+                            ));
+                        }
+                    };
 
-                let bytes = match input.shared_implementation_bytes() {
-                    Ok(Some(bytes)) => bytes,
-                    Ok(None) => return Ok(DiagnosticResult::without_diagnostics(None)),
-                    Err(error) => {
-                        return Ok(DiagnosticResult::new(
-                            None,
-                            standard_library_diagnostics(error, input),
-                        ));
+                    match bray_package_interface::PackageImplementationArtifact::try_from_bytes(
+                        bytes,
+                        input.validation_policy().limits(),
+                    ) {
+                        Ok(artifact) => artifact,
+                        Err(error) => {
+                            return Ok(DiagnosticResult::new(
+                                None,
+                                implementation_validation_diagnostics(error, input),
+                            ));
+                        }
                     }
                 };
 
-                let artifact =
-                    bray_package_interface::PackageImplementationArtifact::try_from_bytes(
-                        bytes,
-                        input.validation_policy().limits(),
-                    );
+                let loaded = self
+                    .loaded_dependency_interface_with_cancellation(interface, cancellation)?
+                    .expect("implementation input must have a loaded dependency interface");
 
-                match artifact {
-                    Ok(artifact) => Ok(DiagnosticResult::without_diagnostics(Some(Arc::new(
-                        artifact,
-                    )))),
-                    Err(error) => Ok(DiagnosticResult::new(
-                        None,
-                        implementation_validation_diagnostics(error, input),
-                    )),
-                }
+                let (Some(validated), Some(surface)) = (loaded.validated(), loaded.surface()) else {
+                    return Ok(DiagnosticResult::without_diagnostics(None));
+                };
+
+                let configuration = self
+                    .package_implementation_configuration(None)
+                    .map_err(FactQueryError::CodegenTarget)?;
+
+                let artifact = artifact
+                    .validate_interface(validated, surface)
+                    .and_then(|()| artifact.validate_configuration(&configuration))
+                    .map(|()| Arc::new(artifact));
+
+                Ok(DiagnosticResult::without_diagnostics(Some(artifact)))
             },
         )
         .map(Some)
@@ -112,9 +129,9 @@ impl super::super::Compilation {
                 )
             });
 
-        let (Some(interface), Some(surface)) = (loaded.validated(), loaded.surface()) else {
+        if loaded.validated().is_none() {
             return Ok(None);
-        };
+        }
 
         let implementation = self
             .loaded_dependency_implementation_with_cancellation(address.interface(), cancellation)?
@@ -129,17 +146,9 @@ impl super::super::Compilation {
             return Ok(None);
         };
 
-        let configuration = self
-            .package_implementation_configuration(None)
-            .map_err(FactQueryError::CodegenTarget)?;
-
-        implementation
-            .validate_interface(interface, surface)
-            .map_err(FactQueryError::from)?;
-
-        implementation
-            .validate_configuration(&configuration)
-            .map_err(FactQueryError::from)?;
+        let implementation = implementation
+            .as_ref()
+            .map_err(|error| FactQueryError::from(error.clone()))?;
 
         implementation
             .native_boundary(address.symbol())
@@ -194,9 +203,9 @@ impl super::super::Compilation {
                 )
             });
 
-        let Some(validated) = loaded.validated() else {
+        if loaded.validated().is_none() {
             return Ok(DiagnosticResult::without_diagnostics(None));
-        };
+        }
 
         let artifact = self
             .loaded_dependency_implementation_with_cancellation(
@@ -220,30 +229,15 @@ impl super::super::Compilation {
             ));
         };
 
-        let Some(surface) = loaded.surface() else {
-            panic!(
-                "imported publication invariant MissingLoadedSurface: {:?}",
-                symbol_address.interface()
-            );
+        let artifact = match artifact.as_ref() {
+            Ok(artifact) => artifact,
+            Err(error) => {
+                return Ok(DiagnosticResult::new(
+                    None,
+                    implementation_validation_diagnostics(error.clone(), input),
+                ));
+            }
         };
-
-        let configuration = self
-            .package_implementation_configuration(None)
-            .map_err(FactQueryError::CodegenTarget)?;
-
-        if let Err(error) = artifact.validate_interface(validated, surface) {
-            return Ok(DiagnosticResult::new(
-                None,
-                implementation_validation_diagnostics(error, input),
-            ));
-        }
-
-        if let Err(error) = artifact.validate_configuration(&configuration) {
-            return Ok(DiagnosticResult::new(
-                None,
-                implementation_validation_diagnostics(error, input),
-            ));
-        }
 
         let template =
             match artifact.executable_template(symbol_address.symbol(), address.template()) {
@@ -452,7 +446,7 @@ impl super::super::Compilation {
                 )
             });
 
-        let (Some(validated), Some(surface)) = (loaded.validated(), loaded.surface()) else {
+        let Some(surface) = loaded.surface() else {
             return Ok(DiagnosticResult::without_diagnostics(None));
         };
 
@@ -475,23 +469,15 @@ impl super::super::Compilation {
             ));
         };
 
-        let configuration = self
-            .package_implementation_configuration(None)
-            .map_err(FactQueryError::CodegenTarget)?;
-
-        if let Err(error) = artifact.validate_interface(validated, surface) {
-            return Ok(DiagnosticResult::new(
-                None,
-                implementation_validation_diagnostics(error, input),
-            ));
-        }
-
-        if let Err(error) = artifact.validate_configuration(&configuration) {
-            return Ok(DiagnosticResult::new(
-                None,
-                implementation_validation_diagnostics(error, input),
-            ));
-        }
+        let artifact = match artifact.as_ref() {
+            Ok(artifact) => artifact,
+            Err(error) => {
+                return Ok(DiagnosticResult::new(
+                    None,
+                    implementation_validation_diagnostics(error.clone(), input),
+                ));
+            }
+        };
 
         let graph_result = self
             .imported_semantic_graph_result_with_cancellation(address.interface(), cancellation)?

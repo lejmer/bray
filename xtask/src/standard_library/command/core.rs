@@ -640,7 +640,6 @@ fn build_target(
 
     let inspectors = [
         DiagnosticLlvmToolRole::SymbolInspector,
-        DiagnosticLlvmToolRole::ObjectInspector,
         DiagnosticLlvmToolRole::BitcodeInspector,
     ]
     .map(llvm_tool_path)
@@ -650,7 +649,7 @@ fn build_target(
 
     let inputs = ProductEmissionInputs::new(&output_description)
         .with_native_product(&native_plan, linker.linker())
-        .with_native_inspection(&inspectors[0], &inspectors[1], &inspectors[2]);
+        .with_native_inspection(&inspectors[0], &inspectors[1]);
 
     let outcome = crate::progress::run("Emitting standard library artifacts", || {
         compilation.emit_product(request, inputs).map_err(|error| {
@@ -709,12 +708,14 @@ fn build_target(
         .map(|path| fs::read(path).map_err(|error| BuildError::read(path, error)))
         .collect::<Result<Vec<_>, _>>()?;
 
-    let optimization = super::super::optimization::from_bray_modules(
-        &root,
-        work,
-        bitcode_modules,
-        native_plan.preservation_roots().cloned(),
-    )?;
+    let optimization = crate::progress::run("Preparing the standard library optimization archive", || {
+        super::super::optimization::from_bray_modules(
+            &root,
+            work,
+            bitcode_modules,
+            native_plan.preservation_roots().cloned(),
+        )
+    })?;
 
     let backend = native_plan.backend().identity().clone();
     let codegen_target = native_plan.target().clone();

@@ -145,159 +145,19 @@ pub(super) fn clean_failed_static_allocation<'context>(
         types,
     )?;
 
-    merge_static_outcomes(
+    crate::translation::merge_pending_outcomes(
         module,
+        context,
         builder,
-        mapping.owner(),
+        types.target(),
+        mapping.owner().target().runtime_abi(),
         destination,
         cleanup_outcome,
-        types,
     )?;
 
     builder
         .build_return(Some(&context.i32_type().const_zero()))
         .map_err(CodegenFailure::backend_library)?;
-
-    Ok(())
-}
-
-fn merge_static_outcomes<'context>(
-    module: &Module<'context>,
-    builder: &Builder<'context>,
-    owner: &CodegenInstanceKey,
-    destination: PointerValue<'context>,
-    secondary: PointerValue<'context>,
-    types: &LlvmTypeMappings<'context, '_>,
-) -> Result<(), CodegenFailure> {
-    let context = types.context();
-    let outcome_type = crate::native::run_outcome_type(context, types.target());
-
-    let first = builder
-        .build_load(outcome_type, destination, "static.first")
-        .map_err(CodegenFailure::backend_library)?
-        .into_struct_value();
-
-    let second = builder
-        .build_load(outcome_type, secondary, "static.second")
-        .map_err(CodegenFailure::backend_library)?
-        .into_struct_value();
-
-    let first_state = builder
-        .build_extract_value(first, 0, "static.first.state")
-        .map_err(CodegenFailure::backend_library)?
-        .into_int_value();
-
-    let second_state = builder
-        .build_extract_value(second, 0, "static.second.state")
-        .map_err(CodegenFailure::backend_library)?
-        .into_int_value();
-
-    let panic = context.i32_type().const_int(
-        u64::from(bray_runtime_abi::NativeRunState::PANICKED.code()),
-        false,
-    );
-
-    let first_panicked = builder
-        .build_int_compare(
-            inkwell::IntPredicate::EQ,
-            first_state,
-            panic,
-            "static.first.panicked",
-        )
-        .map_err(CodegenFailure::backend_library)?;
-
-    let second_panicked = builder
-        .build_int_compare(
-            inkwell::IntPredicate::EQ,
-            second_state,
-            panic,
-            "static.second.panicked",
-        )
-        .map_err(CodegenFailure::backend_library)?;
-
-    let both_panicked = builder
-        .build_and(first_panicked, second_panicked, "static.both.panicked")
-        .map_err(CodegenFailure::backend_library)?;
-
-    let function = builder
-        .get_insert_block()
-        .and_then(|block| block.get_parent())
-        .expect("static-storage realization requires an established mapping or value");
-
-    let merge = context.append_basic_block(function, "static.merge");
-    let inspect = context.append_basic_block(function, "static.inspect.second");
-    let replace = context.append_basic_block(function, "static.replace.outcome");
-    let finished = context.append_basic_block(function, "static.outcomes.finished");
-
-    builder
-        .build_conditional_branch(both_panicked, merge, inspect)
-        .map_err(CodegenFailure::backend_library)?;
-
-    builder.position_at_end(merge);
-
-    let first_report = builder
-        .build_struct_gep(outcome_type, destination, 2, "static.first.report")
-        .map_err(CodegenFailure::backend_library)?;
-
-    let second_report = builder
-        .build_struct_gep(outcome_type, secondary, 2, "static.second.report")
-        .map_err(CodegenFailure::backend_library)?;
-
-    let role = bray_runtime_interface::RuntimeAbiRole::PanicReportSuppression;
-    let runtime = crate::native::declare_runtime_function(module, context, types.target(), role)?;
-
-    let report = crate::native::invoke_function(
-        context,
-        builder,
-        types.target(),
-        &bray_codegen::CodegenSymbolKey::Runtime(bray_ir::MirRuntimeReference::new(
-            role,
-            owner.target().runtime_abi(),
-        )),
-        runtime,
-        &[first_report.into(), second_report.into()],
-        "static.suppressed.report",
-    )?
-    .expect("static-storage realization requires an established mapping or value");
-
-    builder
-        .build_store(first_report, report)
-        .map_err(CodegenFailure::backend_library)?;
-
-    builder
-        .build_unconditional_branch(finished)
-        .map_err(CodegenFailure::backend_library)?;
-
-    builder.position_at_end(inspect);
-
-    let second_completed = builder
-        .build_int_compare(
-            inkwell::IntPredicate::EQ,
-            second_state,
-            second_state.get_type().const_zero(),
-            "static.second.completed",
-        )
-        .map_err(CodegenFailure::backend_library)?;
-
-    let keep = builder
-        .build_or(first_panicked, second_completed, "static.keep.first")
-        .map_err(CodegenFailure::backend_library)?;
-
-    builder
-        .build_conditional_branch(keep, finished, replace)
-        .map_err(CodegenFailure::backend_library)?;
-
-    builder.position_at_end(replace);
-
-    builder
-        .build_store(destination, second)
-        .map_err(CodegenFailure::backend_library)?;
-
-    builder
-        .build_unconditional_branch(finished)
-        .map_err(CodegenFailure::backend_library)?;
-
-    builder.position_at_end(finished);
 
     Ok(())
 }

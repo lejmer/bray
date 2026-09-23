@@ -10,6 +10,43 @@ static FIRST_ONCE: std.sync.Once<i32> = std.sync.Once<i32>.empty();
 
 static SECOND_ONCE: std.sync.Once<i32> = std.sync.Once<i32>.empty();
 
+static RAW_BUFFER_CLEANUP_COUNT: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+
+internal struct PanickingBufferElement
+{
+    value: u8;
+
+    destruct()
+    {
+        let _: u32 = core.atomic.fetch_add<u32, 3>(&RAW_BUFFER_CLEANUP_COUNT, 1);
+
+        panic("raw buffer element cleanup panic");
+    }
+}
+
+trusted internal func initialized_panicking_buffer() -> std.memory.RawBuffer<PanickingBufferElement>
+    uses(raw_memory, unchecked_init)
+{
+    let mut buffer: std.memory.RawBuffer<PanickingBufferElement> = std.testing.assert_ok<
+        std.memory.RawBuffer<PanickingBufferElement>,
+        std.memory.MemoryLayoutError,
+    >(trusted std.memory.RawBuffer<PanickingBufferElement>(capacity = 1));
+
+    let element: RawPointer<PanickingBufferElement> = trusted std.memory.spare_pointer<PanickingBufferElement>(
+        &mut buffer
+    );
+
+    let value: PanickingBufferElement =
+    {
+        value = 1,
+    };
+
+    trusted std.memory.write<PanickingBufferElement>(element, value);
+    trusted std.memory.set_initialized_count<PanickingBufferElement>(&mut buffer, count = 1);
+
+    return buffer;
+}
+
 internal func initialize_first_once() -> i32
 {
     let _: &i32 = SECOND_ONCE.get_or_init(initialize_second_once);
@@ -66,6 +103,105 @@ trusted func owned_storage_then_panic_preserves_report()
 
     trusted std.memory.deallocate(allocation);
     panic("panic after owned allocation");
+}
+
+@test
+trusted func raw_buffer_release_preserves_destructor_panic()
+    uses(manual_alloc)
+{
+    let mut buffer: std.memory.RawBuffer<PanickingBufferElement> = trusted internal initialized_panicking_buffer();
+
+    trusted internal std.memory.raw_buffer_release<PanickingBufferElement>(&mut buffer);
+}
+
+@test
+trusted func raw_buffer_replace_preserves_destructor_panic()
+    uses(manual_alloc)
+{
+    let mut buffer: std.memory.RawBuffer<PanickingBufferElement> = trusted internal initialized_panicking_buffer();
+
+    let mut replacement: std.memory.RawBuffer<PanickingBufferElement> = std.testing.assert_ok<
+        std.memory.RawBuffer<PanickingBufferElement>,
+        std.memory.MemoryLayoutError,
+    >(trusted std.memory.RawBuffer<PanickingBufferElement>(capacity = 0));
+
+    trusted internal std.memory.raw_buffer_replace<PanickingBufferElement>(
+        destination = &mut buffer,
+        source = &mut replacement,
+    );
+}
+
+@test
+trusted func raw_buffer_implicit_release_preserves_destructor_panic()
+{
+    let _: std.memory.RawBuffer<PanickingBufferElement> = trusted internal initialized_panicking_buffer();
+}
+
+@test
+trusted func raw_buffer_release_preserves_deallocation_failure()
+    uses(manual_alloc)
+{
+    let mut buffer: std.memory.RawBuffer<u8> =
+    {
+        pointer = std.memory.null<u8>(),
+        capacity = 1,
+        initialized = 0,
+    };
+
+    trusted internal std.memory.raw_buffer_release<u8>(&mut buffer);
+}
+
+@test
+trusted func raw_buffer_release_finishes_each_element_once()
+    uses(manual_alloc, raw_memory, unchecked_init)
+{
+    core.atomic.store<u32, 4>(&RAW_BUFFER_CLEANUP_COUNT, 0);
+
+    let mut buffer: std.memory.RawBuffer<PanickingBufferElement> = std.testing.assert_ok<
+        std.memory.RawBuffer<PanickingBufferElement>,
+        std.memory.MemoryLayoutError,
+    >(trusted std.memory.RawBuffer<PanickingBufferElement>(capacity = 2));
+
+    let first: RawPointer<PanickingBufferElement> = trusted std.memory.spare_pointer<PanickingBufferElement>(
+        &mut buffer
+    );
+
+    trusted std.memory.write<PanickingBufferElement>(
+        first,
+        {
+            value = 1
+        }
+    );
+
+    trusted std.memory.set_initialized_count<PanickingBufferElement>(&mut buffer, count = 1);
+
+    let second: RawPointer<PanickingBufferElement> = trusted std.memory.spare_pointer<PanickingBufferElement>(
+        &mut buffer
+    );
+
+    trusted std.memory.write<PanickingBufferElement>(
+        second,
+        {
+            value = 2
+        }
+    );
+
+    trusted std.memory.set_initialized_count<PanickingBufferElement>(&mut buffer, count = 2);
+
+    let caught: Result<unit, PanicReport> = catch
+    {
+        trusted internal std.memory.raw_buffer_release<PanickingBufferElement>(&mut buffer);
+
+        yield unit;
+    };
+
+    let _: PanicReport = std.testing.assert_error<unit, PanicReport>(caught);
+
+    assert(core.atomic.load<u32, 1>(&RAW_BUFFER_CLEANUP_COUNT) == 2);
+    assert(std.memory.initialized_count<PanickingBufferElement>(&buffer) == 0);
+    assert(std.memory.capacity<PanickingBufferElement>(&buffer) == 0);
+
+    panic("raw buffer cleanup progress checked");
 }
 
 @test

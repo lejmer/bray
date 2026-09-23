@@ -11,7 +11,6 @@ pub(crate) fn build_compiler(root: &Path) -> Result<(), String> {
 
     command.current_dir(root).args([
         "build",
-        "--quiet",
         "--release",
         "--package",
         "brayc",
@@ -20,7 +19,14 @@ pub(crate) fn build_compiler(root: &Path) -> Result<(), String> {
     ]);
 
     crate::progress::run("Building Bray compiler tools", || {
-        crate::command::require_success(command, "building Bray tools").map(|_| ())
+        let output = crate::command::output_with_streamed_stderr(&mut command)
+            .map_err(|error| format!("could not start building Bray tools: {error}"))?;
+
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(crate::command::failure("building Bray tools", &output))
+        }
     })
 }
 

@@ -97,7 +97,7 @@ pub(crate) fn execute(
     prepare_command_cancellation()?;
 
     let hosts = load_hosts(hosts)?;
-    let report = execute_loaded(workspace_root, &hosts, options, worker_count, interactive)?;
+    let report = execute_loaded(workspace_root, &hosts, options, worker_count, interactive, false)?;
 
     let rendered = render_report(
         &report,
@@ -132,7 +132,7 @@ pub(crate) fn execute_batch(
             false,
         );
 
-        let report = execute_loaded(workspace_root, &hosts, &options, worker_count, interactive)?;
+        let report = execute_loaded(workspace_root, &hosts, &options, worker_count, interactive, true)?;
 
         reports.push((plan.identity().to_owned(), report));
     }
@@ -148,6 +148,7 @@ fn execute_loaded(
     options: &TackTestOptions,
     worker_count: usize,
     interactive: bool,
+    live_results: bool,
 ) -> Result<TestCommandReport, DiagnosticBag> {
     let query = selection_query(options)?;
 
@@ -194,7 +195,7 @@ fn execute_loaded(
 
     let locations = host_locations(&hosts);
 
-    let mut progress = TestProgress::new(&plan, interactive);
+    let mut progress = TestProgress::new(&plan, interactive, live_results);
     let started_at = Instant::now();
 
     let results = match run_schedule(workspace_root, plan, &locations, &mut progress) {

@@ -11,7 +11,7 @@ use bray_diagnostics::DiagnosticLlvmToolRole;
 use bray_emitter::{EmissionPlan, LinkStaging, StagedArtifact};
 use bray_native_artifact::{
     NativeArtifactIndex, NativeContentDigest, NativeIndexError, NativeUnit, NativeUnitKind, NativeUnitSummary,
-    scan_native_unit_summary,
+    scan_bitcode_unit_summary, scan_object_unit_summary,
 };
 use bray_package_interface::{
     CURRENT_TEMPLATE_SCHEMA_REVISION, ImplementationExternalSymbolIdentity, InterfaceArtifact,
@@ -212,32 +212,31 @@ fn inspect_staged_unit(
             .expect("reading an in-memory native unit cannot fail"),
     );
 
-    let symbols = run_inspector(
-        tools.symbols,
-        DiagnosticLlvmToolRole::SymbolInspector,
-        &["--format=posix", "--extern-only"],
-        staged.path(),
-    )
-    .map_err(ProductEmissionErrorKind::NativeInspection)?;
+    let summary = match kind {
+        NativeUnitKind::Object => scan_object_unit_summary(&bytes).unwrap_or_else(|error| {
+            panic!("compiler-produced object {} must be readable: {error}", staged.path().display())
+        }),
+        NativeUnitKind::Bitcode => {
+            let symbols = run_inspector(
+                tools.symbols,
+                DiagnosticLlvmToolRole::SymbolInspector,
+                &["--format=posix", "--extern-only"],
+                staged.path(),
+            )
+            .map_err(ProductEmissionErrorKind::NativeInspection)?;
 
-    let (tool, role, arguments): (&Path, DiagnosticLlvmToolRole, &[&str]) = match kind {
-        NativeUnitKind::Object => (
-            tools.objects,
-            DiagnosticLlvmToolRole::ObjectInspector,
-            &["--sections", "--symbols", "--relocations"],
-        ),
-        NativeUnitKind::Bitcode => (
-            tools.bitcode,
-            DiagnosticLlvmToolRole::BitcodeInspector,
-            &["-o", "-"],
-        ),
+            let structure = run_inspector(
+                tools.bitcode,
+                DiagnosticLlvmToolRole::BitcodeInspector,
+                &["-o", "-"],
+                staged.path(),
+            )
+            .map_err(ProductEmissionErrorKind::NativeInspection)?;
+
+            scan_bitcode_unit_summary(&symbols, &structure)
+        }
         NativeUnitKind::OpaqueArchive => unreachable!("backend linkable artifact is a unit"),
     };
-
-    let structure = run_inspector(tool, role, arguments, staged.path())
-        .map_err(ProductEmissionErrorKind::NativeInspection)?;
-
-    let summary = scan_native_unit_summary(kind, &symbols, &structure);
 
     // The published unit map must outlive this borrowed backend artifact identifier.
     let key = artifact.unit().clone();

@@ -1,6 +1,5 @@
 use std::collections::BTreeSet;
 use std::fs;
-use std::io::{BufRead, BufReader};
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -14,6 +13,10 @@ use bray_standard_library::{
     StandardLibraryOptimizationProducer, StandardLibraryOptimizationProducerKind,
 };
 use bray_target::{NativeTarget, ObjectFormat, TargetOutputKind, TargetOutputName};
+use inkwell::context::Context;
+use inkwell::memory_buffer::MemoryBuffer;
+use inkwell::module::Module;
+use rayon::prelude::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 
 use super::command::BuildError;
 
@@ -206,7 +209,7 @@ pub(super) fn from_bray_modules(
 ) -> Result<BuiltOptimizationArchive, BuildError> {
     let preservation_roots = preservation_roots.into_iter().collect::<BTreeSet<_>>();
 
-    build_archive(root, work, modules, preservation_roots, None)
+    build_archive(root, work, modules, preservation_roots, None, true)
 }
 
 pub(super) fn from_native_archive(
@@ -221,7 +224,7 @@ pub(super) fn from_native_archive(
         return Ok(None);
     }
 
-    let built = build_archive(root, work, modules, BTreeSet::new(), Some(target.as_str()))?;
+    let built = build_archive(root, work, modules, BTreeSet::new(), Some(target.as_str()), false)?;
 
     let preservation_roots = native_exports(root, &built.bytes, work, target.object_format())?;
 
@@ -237,6 +240,7 @@ fn build_archive(
     modules: impl IntoIterator<Item = Vec<u8>>,
     preservation_roots: BTreeSet<BinarySymbolName>,
     target_triple: Option<&str>,
+    compiler_summarized: bool,
 ) -> Result<BuiltOptimizationArchive, BuildError> {
     let staging = tempfile::Builder::new()
         .prefix("bray-thin-lto-")
@@ -257,26 +261,23 @@ fn build_archive(
     let mut contract = None;
     let mut lifecycle_roots = BTreeSet::new();
 
-    for (index, bytes) in modules.into_iter().enumerate() {
-        if !is_llvm_bitcode(&bytes) {
-            let signature = bytes
-                .iter()
-                .take(4)
-                .map(|byte| format!("{byte:02x}"))
-                .collect::<String>();
+    let prepare = |index, bytes| {
+        prepare_module(root, staging.path(), index, bytes, target_triple, compiler_summarized)
+    };
 
-            return Err(BuildError::NativeArchive(format!(
-                "optimization module {index} starts with 0x{signature} instead of LLVM bitcode magic"
-            )));
-        }
+    let prepared = if compiler_summarized {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(8)
+            .build()
+            .map_err(|error| BuildError::NativeArchive(format!("could not start optimization archive workers: {error}")))?;
 
-        let input = staging.path().join(format!("input_{index:04}.bc"));
-        let output = staging.path().join(format!("module_{index:04}.bc"));
+        pool.install(|| modules.into_par_iter().enumerate().map(|(index, bytes)| prepare(index, bytes)).collect::<Vec<_>>())
+    } else {
+        modules.into_iter().enumerate().map(|(index, bytes)| prepare(index, bytes)).collect::<Vec<_>>()
+    };
 
-        fs::write(&input, bytes).map_err(|error| BuildError::write(&input, error))?;
-        summarize_module(root, &input, &output, target_triple)?;
-
-        let (module_contract, module_lifecycle_roots) = inspect_module_contract(root, &output)?;
+    for item in prepared {
+        let (output, module_contract, module_lifecycle_roots) = item?;
 
         if contract
             .as_ref()
@@ -293,7 +294,10 @@ fn build_archive(
     }
 
     let archive = staging.path().join("optimization.a");
-    create_archive(root, &archive, &summarized)?;
+
+    crate::progress::run("Creating optimization archive", || {
+        create_archive(root, &archive, &summarized)
+    })?;
 
     let bytes = fs::read(&archive).map_err(|error| BuildError::read(&archive, error))?;
 
@@ -309,6 +313,48 @@ fn build_archive(
         triple,
         data_layout,
     })
+}
+
+fn prepare_module(
+    root: &Path,
+    staging: &Path,
+    index: usize,
+    bytes: Vec<u8>,
+    target_triple: Option<&str>,
+    compiler_summarized: bool,
+) -> Result<(PathBuf, (String, String), BTreeSet<StandardLibraryOptimizationLifecycleRoot>), BuildError> {
+    if !is_llvm_bitcode(&bytes) {
+        let signature = bytes
+            .iter()
+            .take(4)
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+
+        return Err(BuildError::NativeArchive(format!(
+            "optimization module {index} starts with 0x{signature} instead of LLVM bitcode magic"
+        )));
+    }
+
+    let output = staging.join(format!("module_{index:04}.bc"));
+
+    if compiler_summarized {
+        fs::write(&output, &bytes).map_err(|error| BuildError::write(&output, error))?;
+    } else {
+        let input = staging.join(format!("input_{index:04}.bc"));
+
+        fs::write(&input, &bytes).map_err(|error| BuildError::write(&input, error))?;
+        summarize_module(root, &input, &output, target_triple)?;
+    }
+
+    let summarized = if compiler_summarized {
+        bytes
+    } else {
+        fs::read(&output).map_err(|error| BuildError::read(&output, error))?
+    };
+
+    let (contract, lifecycle_roots) = inspect_module_contract(root, &summarized, compiler_summarized)?;
+
+    Ok((output, contract, lifecycle_roots))
 }
 
 fn summarize_module(
@@ -413,7 +459,8 @@ fn contains_checkout_path(llvm_ir: &str, root: &Path) -> bool {
 
 fn inspect_module_contract(
     root: &Path,
-    module: &Path,
+    bytes: &[u8],
+    check_checkout_path: bool,
 ) -> Result<
     (
         (String, String),
@@ -421,68 +468,50 @@ fn inspect_module_contract(
     ),
     BuildError,
 > {
-    let destination = module.with_extension("ll");
-    let mut disassemble = Command::new(bray_llvm_toolchain::tool_path(root, "llvm-dis"));
+    let mut terminated = Vec::with_capacity(bytes.len() + 1);
+    terminated.extend_from_slice(bytes);
+    terminated.push(0);
 
-    disassemble.arg(module).arg("-o").arg(&destination);
-    require_success(disassemble, "LLVM could not inspect an optimization module")?;
+    let context = Context::create();
+    let buffer = MemoryBuffer::create_from_memory_range(&terminated, "optimization module");
 
-    let file =
-        fs::File::open(&destination).map_err(|error| BuildError::read(&destination, error))?;
+    let module = Module::parse_bitcode_from_buffer(&buffer, &context).map_err(|error| {
+        BuildError::NativeArchive(format!("LLVM rejected an optimization module: {error}"))
+    })?;
 
-    let mut triple = None;
-    let mut data_layout = None;
+    let triple = module.get_triple().as_str().to_string_lossy().into_owned();
+    let data_layout = module.get_data_layout().as_str().to_string_lossy().into_owned();
+
+    if triple.is_empty() || data_layout.is_empty() {
+        return Err(BuildError::NativeArchive(
+            "optimization module target is incomplete".to_owned(),
+        ));
+    }
+
     let mut lifecycle_roots = BTreeSet::new();
 
-    for line in BufReader::new(file).lines() {
-        let line = line.map_err(|error| BuildError::read(&destination, error))?;
-
-        triple = triple.or_else(|| quoted_assignment(&line, "target triple"));
-        data_layout = data_layout.or_else(|| quoted_assignment(&line, "target datalayout"));
-        lifecycle_roots.extend(lifecycle_roots_for_line(&line));
+    if check_checkout_path && contains_checkout_path(&module.print_to_string().to_string(), root) {
+        return Err(BuildError::NativeArchive(
+            "compiler-produced optimization module retains the checkout path".to_owned(),
+        ));
     }
 
-    triple
-        .zip(data_layout)
-        .map(|contract| (contract, lifecycle_roots))
-        .ok_or_else(|| {
-            BuildError::NativeArchive("optimization module target is incomplete".to_owned())
-        })
-}
-
-fn lifecycle_roots_for_line(
-    line: &str,
-) -> impl Iterator<Item = StandardLibraryOptimizationLifecycleRoot> {
-    let mut roots = Vec::new();
-
-    if line.starts_with("@llvm.global_ctors =") {
-        roots.push(StandardLibraryOptimizationLifecycleRoot::GlobalConstructors);
+    if module.get_global("llvm.global_ctors").is_some() {
+        lifecycle_roots.insert(StandardLibraryOptimizationLifecycleRoot::GlobalConstructors);
     }
 
-    if line.starts_with("@llvm.global_dtors =") {
-        roots.push(StandardLibraryOptimizationLifecycleRoot::GlobalDestructors);
+    if module.get_global("llvm.global_dtors").is_some() {
+        lifecycle_roots.insert(StandardLibraryOptimizationLifecycleRoot::GlobalDestructors);
     }
 
-    if ["@atexit(", "@_atexit(", "@__cxa_atexit("]
+    if ["atexit", "_atexit", "__cxa_atexit"]
         .iter()
-        .any(|symbol| line.contains(symbol))
+        .any(|symbol| module.get_function(symbol).is_some())
     {
-        roots.push(StandardLibraryOptimizationLifecycleRoot::ExitRegistration);
+        lifecycle_roots.insert(StandardLibraryOptimizationLifecycleRoot::ExitRegistration);
     }
 
-    roots.into_iter()
-}
-
-fn quoted_assignment(line: &str, name: &str) -> Option<String> {
-    let value = line
-        .strip_prefix(name)?
-        .trim_start()
-        .strip_prefix('=')?
-        .trim();
-
-    let value = value.strip_prefix('"')?.strip_suffix('"')?;
-
-    (!value.is_empty()).then(|| value.to_owned())
+    Ok(((triple, data_layout), lifecycle_roots))
 }
 
 fn create_archive(root: &Path, archive: &Path, modules: &[PathBuf]) -> Result<(), BuildError> {
@@ -689,10 +718,12 @@ mod tests {
     use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
 
     use bray_standard_library::StandardLibraryOptimizationLifecycleRoot;
+    use inkwell::context::Context;
+    use inkwell::targets::{TargetData, TargetTriple};
 
     use super::{
         contains_checkout_path, inherit_native_links, is_llvm_bitcode, is_optimization_member,
-        lifecycle_roots_for_line, quoted_assignment, remap_checkout_path,
+        remap_checkout_path,
     };
 
     #[test]
@@ -768,43 +799,34 @@ mod tests {
     }
 
     #[test]
-    fn module_contract_assignments_require_quoted_values() {
+    fn llvm_module_contract_and_lifecycle_are_read_in_process() {
+        let context = Context::create();
+        let module = context.create_module("inspection.test");
+        module.set_triple(&TargetTriple::create("x86_64-pc-windows-msvc"));
+        module.set_data_layout(&TargetData::create("e-p:64:64").get_data_layout());
+        module.add_global(context.i32_type(), None, "llvm.global_ctors");
+        module.add_global(context.i32_type(), None, "llvm.global_dtors");
+        module.add_function("__cxa_atexit", context.i32_type().fn_type(&[], false), None);
+
+        let buffer = module.write_bitcode_to_memory();
+        let bytes = buffer.as_slice().strip_suffix(&[0]).unwrap();
+
+        let (contract, roots) =
+            super::inspect_module_contract(std::path::Path::new("C:\\workspace\\bray"), bytes, false)
+                .unwrap();
+
         assert_eq!(
-            quoted_assignment(
-                "target triple = \"x86_64-pc-windows-msvc\"",
-                "target triple"
-            ),
-            Some("x86_64-pc-windows-msvc".to_owned())
+            contract,
+            ("x86_64-pc-windows-msvc".to_owned(), "e-p:64:64-i128:128".to_owned())
         );
 
         assert_eq!(
-            quoted_assignment("target triple = empty", "target triple"),
-            None
-        );
-    }
-
-    #[test]
-    fn native_lifecycle_roots_cover_construction_and_termination() {
-        assert_eq!(
-            lifecycle_roots_for_line("@llvm.global_ctors = appending global []")
-                .collect::<Vec<_>>(),
-            [StandardLibraryOptimizationLifecycleRoot::GlobalConstructors]
-        );
-
-        assert_eq!(
-            lifecycle_roots_for_line("call i32 @atexit(ptr @close)").collect::<Vec<_>>(),
-            [StandardLibraryOptimizationLifecycleRoot::ExitRegistration]
-        );
-
-        assert_eq!(
-            lifecycle_roots_for_line("@llvm.global_dtors = appending global []")
-                .collect::<Vec<_>>(),
-            [StandardLibraryOptimizationLifecycleRoot::GlobalDestructors]
-        );
-
-        assert_eq!(
-            lifecycle_roots_for_line("call i32 @__cxa_atexit(ptr @close)").collect::<Vec<_>>(),
-            [StandardLibraryOptimizationLifecycleRoot::ExitRegistration]
+            roots.into_iter().collect::<Vec<_>>(),
+            [
+                StandardLibraryOptimizationLifecycleRoot::GlobalConstructors,
+                StandardLibraryOptimizationLifecycleRoot::GlobalDestructors,
+                StandardLibraryOptimizationLifecycleRoot::ExitRegistration,
+            ]
         );
     }
 

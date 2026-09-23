@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
 use bray_messages::{
@@ -20,12 +20,16 @@ use crate::tack::progress::{
 
 pub(super) struct TestProgress {
     terminal: Option<TerminalTestProgress>,
+    live_results: bool,
+    reported: BTreeSet<TestIdentity>,
 }
 
 impl TestProgress {
-    pub(super) fn new(plan: &TestExecutionPlan, interactive: bool) -> Self {
+    pub(super) fn new(plan: &TestExecutionPlan, interactive: bool, live_results: bool) -> Self {
         Self {
             terminal: interactive.then(|| TerminalTestProgress::new(plan)),
+            live_results: live_results && !interactive,
+            reported: BTreeSet::new(),
         }
     }
 
@@ -36,6 +40,18 @@ impl TestProgress {
     }
 
     pub(super) fn finish_result(&mut self, result: &TestInvocationResult) {
+        if self.live_results && self.reported.insert(result.identity().clone()) {
+            let milliseconds = result.duration().map(|duration| duration.duration().as_millis());
+
+            let line = TestReportMessageRenderer::english().live_result(
+                &identity_text(result.identity()),
+                report_outcome(result.outcome()),
+                milliseconds,
+            );
+
+            eprintln!("{line}");
+        }
+
         if let Some(terminal) = &mut self.terminal {
             terminal.finish_result(result);
         }

@@ -101,7 +101,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 Ok(None)
             }
             CheckedMemoryOperationKind::RawBufferRelease { element } => {
-                self.translate_raw_buffer_release(id, memory, element)?;
+                let [buffer] = memory.operands() else {
+                    panic!("checked MIR memory translation violated an established compiler contract");
+                };
+
+                let [buffer_type] = memory.operand_types() else {
+                    panic!("checked MIR memory translation violated an established compiler contract");
+                };
+
+                self.translate_raw_buffer_release(id, buffer, *buffer_type, element)?;
 
                 Ok(None)
             }
@@ -550,7 +558,7 @@ mod tests {
     use bray_ir::{
         MirAggregate, MirAggregateKind, MirBlockKind, MirCleanupPhase, MirHelperReference,
         MirCallPanicEdge, MirEdge, MirMemoryOperation, MirOperand, MirOperationCommit,
-        MirOperationId, MirOperationKind, MirPlace, MirSourceAnchor, MirStandardLibraryHelper,
+        MirOperationKind, MirPlace, MirSourceAnchor, MirStandardLibraryHelper,
         MirStorageKind, MirTargetContract, MirTerminatorKind, MirUnitBuilder, MirUnitKind, MirValueId,
     };
     use bray_runtime_interface::{BinarySymbolName, RuntimeAbiVersion};
@@ -669,7 +677,12 @@ mod tests {
         for intrinsic in ["@llvm.memcpy", "@llvm.memmove"] {
             let call = ir
                 .lines()
-                .find(|line| line.contains("call void") && line.contains(intrinsic))
+                .find(|line| {
+                    line.contains("call void")
+                        && line.contains(intrinsic)
+                        && line.contains("null")
+                        && line.contains("%storage.0")
+                })
                 .unwrap_or_else(|| panic!("missing generated call to {intrinsic}"));
 
             let destination = call
@@ -912,38 +925,8 @@ mod tests {
             Some(types.pointer),
         );
 
-        let completed = builder
-            .push_block(source.clone(), MirBlockKind::Ordinary)
-            .expect("checked allocation completion must be valid");
-
-        let panicked = builder
-            .push_block(source.clone(), MirBlockKind::Ordinary)
-            .expect("checked allocation panic must be valid");
-
-        let cancelled = builder
-            .push_block(source.clone(), MirBlockKind::Ordinary)
-            .expect("checked allocation cancellation must be valid");
-
-        let report = builder
-            .push_storage(source.clone(), MirStorageKind::Temporary, types.allocation)
-            .expect("checked allocation report storage must be valid");
-
-        builder.set_terminator(
-            entry,
-            source.clone(),
-            MirTerminatorKind::CheckCallOutcome {
-                completed: MirEdge::new(completed, []),
-                panicked: MirCallPanicEdge::new(
-                    panicked,
-                    MirPlace::new(report, [], types.allocation),
-                ),
-                cancelled: MirEdge::new(cancelled, []),
-            },
-        );
-
-        for block in [completed, panicked, cancelled] {
-            builder.set_terminator(block, source.clone(), MirTerminatorKind::Return(None));
-        }
+        let completed = checked_memory_continuation(&mut builder, entry, &source, types);
+        builder.set_terminator(completed, source.clone(), MirTerminatorKind::Return(None));
 
         let mir = builder.finish(entry);
         let allocation = helper_instance_key(172, 1, mir.target());
@@ -1370,9 +1353,10 @@ mod tests {
             None,
         );
 
-        push_buffer_and_byte_operations(&mut builder, entry, &source, types, address, null, size);
+        let completed =
+            push_buffer_and_byte_operations(&mut builder, entry, &source, types, address, null, size);
 
-        builder.set_terminator(entry, source.clone(), MirTerminatorKind::Return(None));
+        builder.set_terminator(completed, source.clone(), MirTerminatorKind::Return(None));
 
         let mir = builder.finish(entry);
 
@@ -1565,6 +1549,48 @@ mod tests {
         );
     }
 
+    fn checked_memory_continuation(
+        builder: &mut MirUnitBuilder,
+        block: bray_ir::MirBlockId,
+        source: &MirSourceAnchor,
+        types: MemoryTypes,
+    ) -> bray_ir::MirBlockId {
+        let completed = builder
+            .push_block(source.clone(), MirBlockKind::Ordinary)
+            .expect("checked memory completion must be valid");
+
+        let panicked = builder
+            .push_block(source.clone(), MirBlockKind::Ordinary)
+            .expect("checked memory panic must be valid");
+
+        let cancelled = builder
+            .push_block(source.clone(), MirBlockKind::Ordinary)
+            .expect("checked memory cancellation must be valid");
+
+        let report = builder
+            .push_storage(source.clone(), MirStorageKind::Temporary, types.allocation)
+            .expect("checked memory report storage must be valid");
+
+        builder.set_terminator(
+            block,
+            source.clone(),
+            MirTerminatorKind::CheckCallOutcome {
+                completed: MirEdge::new(completed, []),
+                panicked: MirCallPanicEdge::new(
+                    panicked,
+                    MirPlace::new(report, [], types.allocation),
+                ),
+                cancelled: MirEdge::new(cancelled, []),
+            },
+        );
+
+        for block in [panicked, cancelled] {
+            builder.set_terminator(block, source.clone(), MirTerminatorKind::Return(None));
+        }
+
+        completed
+    }
+
     fn push_buffer_and_byte_operations(
         builder: &mut MirUnitBuilder,
         block: bray_ir::MirBlockId,
@@ -1573,7 +1599,7 @@ mod tests {
         address: MirValueId,
         null: MirValueId,
         size: MirValueId,
-    ) -> Vec<MirOperationId> {
+    ) -> bray_ir::MirBlockId {
         let buffer = push_borrowed_storage(builder, block, source, types);
         let source_buffer = push_borrowed_storage(builder, block, source, types);
 
@@ -1710,7 +1736,7 @@ mod tests {
             Some(types.borrow),
         );
 
-        let release = push_memory(
+        push_memory(
             builder,
             block,
             source,
@@ -1721,6 +1747,8 @@ mod tests {
             [types.raw_buffer_borrow],
             None,
         );
+
+        let block = checked_memory_continuation(builder, block, source, types);
 
         let source_pointer = push_memory(
             builder,
@@ -1760,7 +1788,7 @@ mod tests {
             None,
         );
 
-        let replace = push_memory(
+        push_memory(
             builder,
             block,
             source,
@@ -1772,7 +1800,7 @@ mod tests {
             None,
         );
 
-        vec![release.operation(), replace.operation()]
+        checked_memory_continuation(builder, block, source, types)
     }
 
     fn push_borrowed_storage(

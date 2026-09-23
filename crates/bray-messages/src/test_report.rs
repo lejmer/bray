@@ -90,6 +90,21 @@ impl TestReportMessageRenderer {
         self.catalog.test_report_result_operation(outcome)
     }
 
+    /// Renders a completed invocation for a streamed batch report.
+    pub fn live_result(
+        self,
+        identity: &str,
+        outcome: TestReportOutcome,
+        milliseconds: Option<u128>,
+    ) -> String {
+        let result = self.result_operation(outcome);
+
+        match milliseconds {
+            Some(milliseconds) => format!("{result} {identity} ({})", self.duration(milliseconds)),
+            None => format!("{result} {identity}"),
+        }
+    }
+
     /// Renders the operation describing the complete command result.
     pub fn summary_operation(self, status: TestReportSummaryStatus) -> &'static str {
         self.catalog.test_report_summary_operation(status)
@@ -126,6 +141,11 @@ mod tests {
         assert_eq!(
             renderer.result_operation(TestReportOutcome::Passed),
             "Passed"
+        );
+
+        assert_eq!(
+            renderer.live_result("std::test", TestReportOutcome::Panicked, Some(1250)),
+            "Panicked std::test (1250 ms)"
         );
 
         assert_eq!(

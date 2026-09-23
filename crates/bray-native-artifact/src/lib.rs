@@ -6,7 +6,7 @@ mod model;
 mod wire;
 
 pub use index::{NativeArtifactIndex, NativeIndexError, ValidatedNativeArtifact};
-pub use inspection::scan_native_unit_summary;
+pub use inspection::{scan_bitcode_unit_summary, scan_object_unit_summary};
 pub use wire::WireError;
 pub use model::{
     NativeCoRetentionGroup, NativeComdatSelection, NativeContentDigest, NativeDefinition,

@@ -91,9 +91,7 @@ pub(in crate::compilation) struct CompilationState {
     pub(in crate::compilation) loaded_dependency_interfaces:
         Vec<FactCell<crate::compilation::imported::LoadedDependencyInterface>>,
     pub(in crate::compilation) loaded_dependency_implementations: Vec<
-        FactCell<
-            DiagnosticResult<Option<Arc<bray_package_interface::PackageImplementationArtifact>>>,
-        >,
+        FactCell<DiagnosticResult<Option<crate::compilation::imported::LoadedImplementation>>>,
     >,
     pub(in crate::compilation) imported_symbol_skeleton:
         FactCell<DiagnosticResult<Option<Arc<ImportedSymbolSkeleton>>>>,

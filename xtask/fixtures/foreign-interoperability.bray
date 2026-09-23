@@ -20,6 +20,8 @@ struct NativeRecord
     wide: u64;
 }
 
+internal callable NativeRecordTransform = @abi(c) trusted func(pos value: NativeRecord) -> NativeRecord;
+
 @symbol(name = "bray_foreign_counter")
 extern trusted static FOREIGN_COUNTER: i32;
 
@@ -398,7 +400,7 @@ trusted func audit_resources()
 }
 
 trusted func audit_callbacks()
-    uses(foreign_call, manual_alloc, raw_memory, unchecked_init)
+    uses(foreign_call)
 {
     let plain: @abi(c)
     trusted func(pos value: i32) -> i32 = plain_callback;
@@ -431,7 +433,6 @@ trusted func audit_callbacks()
 
 trusted func audit_dynamic_library()
     requires(blocking_execution())
-    uses(foreign_call, layout_reinterpret)
 {
     let path: std.path.Path = std.testing.assert_ok<std.path.Path, std.path.PathError>(
         std.path.Path.from_string(&"__SHARED_LIBRARY_PATH__"),
@@ -447,20 +448,11 @@ trusted func audit_dynamic_library()
     {
         let name: bytes = b"bray_foreign_transform_record";
 
-        let symbol: std.dynamic.DynamicSymbol<
-            @abi(c)
-            trusted func(pos value: NativeRecord) -> NativeRecord
-        > = std.testing.assert_ok<
-            std.dynamic.DynamicSymbol<
-                @abi(c)
-                trusted func(pos value: NativeRecord) -> NativeRecord
-            >,
+        let symbol: std.dynamic.DynamicSymbol<NativeRecordTransform> = std.testing.assert_ok<
+            std.dynamic.DynamicSymbol<NativeRecordTransform>,
             std.ffi.ForeignError
         >(
-            trusted library.symbol<
-                @abi(c)
-                trusted func(pos value: NativeRecord) -> NativeRecord
-            >(&name[..]),
+            trusted library.symbol<NativeRecordTransform>(&name[..]),
         );
 
         let _: &std.dynamic.DynamicLibrary = symbol.library();

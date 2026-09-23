@@ -1075,7 +1075,7 @@ mod tests {
         type Kind = CheckedMemoryOperationKind;
         type MemoryCase = (usize, fn(bray_symbols::TypeId) -> Kind);
 
-        let cases: [MemoryCase; 19] = [
+        let cases: [MemoryCase; 21] = [
             (1, |ty| Kind::Address {
                 kind: MemoryAddressKind::Shared,
                 pointee: ty,
@@ -1131,6 +1131,8 @@ mod tests {
             (3, |_| Kind::RawDeallocate),
             (1, |_| Kind::Allocate),
             (1, |_| Kind::Deallocate),
+            (1, |ty| Kind::RawBufferRelease { element: ty }),
+            (2, |ty| Kind::RawBufferReplace { element: ty }),
         ];
 
         for (index, (argument_count, kind)) in cases.into_iter().enumerate() {
@@ -1200,8 +1202,8 @@ mod tests {
                     mir.blocks()[0].terminator().kind(),
                     MirTerminatorKind::CheckCallOutcome { .. }
                 ),
-                kind.calls_allocator_boundary(),
-                "{kind:?} must use the checked allocator outcome exactly when it calls the helper"
+                kind.requires_checked_outcome(),
+                "{kind:?} must use the checked outcome exactly when it calls a fallible helper"
             );
         }
     }
