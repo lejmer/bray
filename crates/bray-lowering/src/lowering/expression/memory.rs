@@ -248,6 +248,19 @@ impl Lowerer<'_> {
             None => self.unit_operand(result_type),
         };
 
+        if kind.calls_allocator_boundary() {
+            let (completed, value) = self.finish_typed_call_panic_check(
+                id,
+                current,
+                &source,
+                &value,
+                result_type,
+                None,
+            )?;
+
+            return Ok(LoweredExpression::continuing(completed, Some(value), source));
+        }
+
         Ok(LoweredExpression::continuing(current, Some(value), source))
     }
 

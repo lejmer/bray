@@ -41,7 +41,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         );
 
         let pointer = self
-            .invoke_helper(helper, &[bytes.into(), alignment.into()])?
+            .invoke_operation_helper(operation_id, helper, &[bytes.into(), alignment.into()])?
             .and_then(pointer_value)
             .expect("checked MIR memory translation requires an established mapping or value");
 
@@ -71,7 +71,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         );
 
         if self
-            .invoke_helper(helper, &[pointer.into(), bytes.into(), alignment.into()])?
+            .invoke_operation_helper(
+                operation_id,
+                helper,
+                &[pointer.into(), bytes.into(), alignment.into()],
+            )?
             .is_some()
         {
             panic!("checked MIR memory translation violated an established compiler contract");
@@ -119,7 +123,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         );
 
         let pointer = self
-            .invoke_helper(helper, &[bytes.into(), alignment.into()])?
+            .invoke_operation_helper(operation_id, helper, &[bytes.into(), alignment.into()])?
             .and_then(pointer_value)
             .expect("checked MIR memory translation requires an established mapping or value");
 
@@ -167,7 +171,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         );
 
         if self
-            .invoke_helper(helper, &[pointer.into(), bytes.into(), alignment.into()])?
+            .invoke_operation_helper(
+                operation_id,
+                helper,
+                &[pointer.into(), bytes.into(), alignment.into()],
+            )?
             .is_some()
         {
             panic!("checked MIR memory translation violated an established compiler contract");

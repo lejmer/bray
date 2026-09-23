@@ -1,5 +1,6 @@
 module bray.standard_library_tests.outcomes;
 
+using std.memory;
 using std.run;
 using std.string;
 using std.sync;
@@ -41,6 +42,30 @@ trusted func allocation_size_overflow()
     uses(manual_alloc)
 {
     let _: RawPointer<u8> = trusted core.memory.allocate(bytes = ~0, align = 8);
+}
+
+@test
+trusted func allocation_then_panic_preserves_report()
+    uses(manual_alloc)
+{
+    let allocation: RawPointer<u8> = trusted core.memory.allocate(bytes = 8, align = 8);
+
+    trusted core.memory.deallocate(pointer = allocation, bytes = 8, align = 8);
+    panic("panic after valid allocation");
+}
+
+@test
+trusted func owned_storage_then_panic_preserves_report()
+    uses(manual_alloc)
+{
+    let layout: std.memory.MemoryLayout = std.testing.assert_ok<std.memory.MemoryLayout, std.memory.MemoryLayoutError>(
+        std.memory.layout_of<u8>(count = 8)
+    );
+
+    let allocation: std.memory.RawAllocation = trusted std.memory.allocate(layout);
+
+    trusted std.memory.deallocate(allocation);
+    panic("panic after owned allocation");
 }
 
 @test

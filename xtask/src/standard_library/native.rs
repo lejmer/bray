@@ -25,7 +25,7 @@ const API_TEST_COUNT: usize = 152;
 const API_FILTERED_TEST_COUNT: usize = 3;
 const CONCURRENCY_MODEL_TEST_COUNT: usize = 7;
 const CONCURRENCY_STRESS_TEST_COUNT: usize = 5;
-const OUTCOME_CASES: [OutcomeCase; 18] = [
+const OUTCOME_CASES: [OutcomeCase; 20] = [
     OutcomeCase::new(
         "assertion-failure",
         "assertion_failure",
@@ -124,6 +124,24 @@ const OUTCOME_CASES: [OutcomeCase; 18] = [
             cause: "assertion",
             message: "memory allocation size exceeds the target address range",
             source_available: false,
+        },
+    ),
+    OutcomeCase::new(
+        "allocation-then-panic-report",
+        "allocation_then_panic_preserves_report",
+        OutcomeExpectation::Panic {
+            cause: "message",
+            message: "panic after valid allocation",
+            source_available: true,
+        },
+    ),
+    OutcomeCase::new(
+        "owned-allocation-then-panic-report",
+        "owned_storage_then_panic_preserves_report",
+        OutcomeExpectation::Panic {
+            cause: "message",
+            message: "panic after owned allocation",
+            source_available: true,
         },
     ),
     OutcomeCase::new(

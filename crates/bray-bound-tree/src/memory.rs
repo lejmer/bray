@@ -1270,6 +1270,14 @@ impl CheckedMemoryOperationKind {
                 | Self::AtomicNotify { .. }
         )
     }
+
+    /// Returns whether this operation directly calls the standard-library allocator boundary.
+    pub const fn calls_allocator_boundary(self) -> bool {
+        matches!(
+            self,
+            Self::RawAllocate | Self::RawDeallocate | Self::Allocate | Self::Deallocate
+        )
+    }
 }
 
 #[cfg(test)]

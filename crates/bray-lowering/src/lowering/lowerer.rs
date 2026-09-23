@@ -1194,6 +1194,15 @@ mod tests {
                         && operation.operands().len() == argument_count
                         && operation.result_type().is_some() == kind.produces_value()
             ));
+
+            assert_eq!(
+                matches!(
+                    mir.blocks()[0].terminator().kind(),
+                    MirTerminatorKind::CheckCallOutcome { .. }
+                ),
+                kind.calls_allocator_boundary(),
+                "{kind:?} must use the checked allocator outcome exactly when it calls the helper"
+            );
         }
     }
 
