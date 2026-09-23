@@ -2,8 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use bray_codegen::{
-    CodegenInstanceKey, CodegenMappings, CodegenPartitionPolicy, CodegenTarget, CodegenUnit,
-    DebugInformationMode, partition_codegen_units,
+    CodegenInstanceKey, CodegenMappings, CodegenOptions, CodegenPartitionPolicy, CodegenTarget,
+    CodegenUnit, DebugInformationMode, partition_codegen_units,
 };
 use bray_runtime_interface::{ExecutableHostContract, RuntimeArtifact, RuntimeCapability};
 use bray_symbols::{ProductIdentity, ProductKind};
@@ -38,7 +38,7 @@ impl Compilation {
         runtime: Option<&RuntimeArtifact>,
         required_capabilities: impl IntoIterator<Item = RuntimeCapability>,
         target: &CodegenTarget,
-        debug_information: DebugInformationMode,
+        options: CodegenOptions,
         cancellation: &CancellationToken,
     ) -> Result<NativeCodegenPreparation, NativeProductPlanningError> {
         if source_roots.is_empty() && kind != ProductKind::Test {
@@ -51,7 +51,7 @@ impl Compilation {
             // Reachability owns its Arc-backed roots while preparation retains them for host MIR.
             let reachability = self.profile_native_product_operation(
                 crate::profile::ProfileOperation::NativeReachability,
-                || self.codegen_reachability(source_roots.clone(), None, target, cancellation),
+                || self.codegen_reachability(source_roots.clone(), None, target, options, cancellation),
             )?;
 
             Some(reachability)
@@ -160,6 +160,7 @@ impl Compilation {
                             )],
                             Some((host_mir, source_roots)),
                             target,
+                            options,
                             cancellation,
                         )
                     },
@@ -186,7 +187,7 @@ impl Compilation {
                     target,
                     &roots,
                     &reachability,
-                    debug_information != DebugInformationMode::None,
+                    options.debug_information() != DebugInformationMode::None,
                     cancellation,
                 )
             },

@@ -7,12 +7,12 @@ use bray_bound_tree::{
 };
 use bray_checker::ConstantReferenceResolution;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
-use bray_ir::MirTargetContract;
+use bray_ir::{MirOperand, MirTargetContract};
 use bray_lowering::{
     CompileTimeUnit, LoweredUnit, LoweringError, LoweringInput, executable_unit_kind, lower_unit,
 };
 use bray_symbols::{
-    AnySymbolId, ConstantValueId, GenericOwnerId, StaticInstanceTemplateId,
+    AnySymbolId, ConstantTermData, GenericOwnerId, StaticInstanceTemplateId,
     StaticReferenceSelection, TypeId,
 };
 
@@ -108,8 +108,12 @@ impl Compilation {
         let body = self.body_semantics_with_cancellation(key.clone(), cancellation)?;
         let behavior = self.body_behavior_with_cancellation(key.clone(), cancellation)?;
 
-        let (constant_reference_values, constant_reference_diagnostics) =
-            self.constant_reference_values(unit.result().value(), cancellation)?;
+        let (constant_reference_operands, constant_reference_diagnostics) =
+            self.constant_reference_operands(
+                unit.result().value(),
+                expressions.result().value().types(),
+                cancellation,
+            )?;
 
         let diagnostics = DiagnosticBag::merged_all([
             unit.result().diagnostics(),
@@ -170,7 +174,7 @@ impl Compilation {
             completed,
             behavior.result().value(),
             semantic_values,
-            &constant_reference_values,
+            &constant_reference_operands,
             unit_kind,
             target,
         );
@@ -323,18 +327,19 @@ impl Compilation {
         Ok(templates)
     }
 
-    fn constant_reference_values(
+    fn constant_reference_operands(
         &self,
         unit: &BoundUnit,
+        types: &CheckedExpressionTypes,
         cancellation: &CancellationToken,
     ) -> Result<
         (
-            Vec<(bray_bound_tree::BoundExpressionId, ConstantValueId)>,
+            Vec<(bray_bound_tree::BoundExpressionId, MirOperand)>,
             DiagnosticBag,
         ),
         FactQueryError,
     > {
-        let mut values = Vec::new();
+        let mut operands = Vec::new();
         let mut diagnostics = DiagnosticBag::new();
 
         for (expression, node) in unit.tree().expressions() {
@@ -346,26 +351,40 @@ impl Compilation {
                 continue;
             };
 
+            if let AnySymbolId::GenericConstParameter(parameter) = symbol {
+                let Some(ty) = types.expression(expression).map(|result| result.ty()) else {
+                    continue;
+                };
+
+                let term = self
+                    .semantic_value_store()?
+                    .intern_constant_term(ConstantTermData::Parameter(parameter))
+                    .map_err(FactQueryError::SemanticValueStore)?;
+
+                operands.push((expression, MirOperand::ConstantTerm { term, ty }));
+                continue;
+            }
+
             let resolved = self.resolve_surface_constant(symbol, cancellation, &mut diagnostics);
 
-            let Some((_, resolution)) = resolved? else {
+            let Some((ty, resolution)) = resolved? else {
                 continue;
             };
 
-            let value = match resolution {
-                ConstantReferenceResolution::Value(value) => value,
-                ConstantReferenceResolution::Evaluated(result) => result.value(),
-                ConstantReferenceResolution::Term(_)
-                | ConstantReferenceResolution::Cycle { .. }
+            let operand = match resolution {
+                ConstantReferenceResolution::Value(value) => MirOperand::Constant { value, ty },
+                ConstantReferenceResolution::Evaluated(result) => MirOperand::Constant { value: result.value(), ty },
+                ConstantReferenceResolution::Term(term) => MirOperand::ConstantTerm { term, ty },
+                ConstantReferenceResolution::Cycle { .. }
                 | ConstantReferenceResolution::Invalid => continue,
             };
 
-            values.push((expression, value));
+            operands.push((expression, operand));
         }
 
-        values.sort_unstable_by_key(|(expression, _)| *expression);
+        operands.sort_unstable_by_key(|(expression, _)| *expression);
 
-        Ok((values, diagnostics))
+        Ok((operands, diagnostics))
     }
 
     fn static_lowering_owner(

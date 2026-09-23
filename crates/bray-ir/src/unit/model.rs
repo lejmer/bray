@@ -346,7 +346,7 @@ pub(super) fn resolve_operand_type(
             .and_then(|index| values.get(index))
             .map(MirValue::ty),
         crate::MirOperand::Copy(place) | crate::MirOperand::Move(place) => Some(place.ty()),
-        crate::MirOperand::Constant { ty, .. } | crate::MirOperand::Immediate { ty, .. } => {
+        crate::MirOperand::Constant { ty, .. } | crate::MirOperand::ConstantTerm { ty, .. } | crate::MirOperand::Immediate { ty, .. } => {
             Some(*ty)
         }
     }

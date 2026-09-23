@@ -9,6 +9,7 @@ mod names;
 mod native_statics;
 mod operations;
 mod outgoing;
+mod optimization;
 mod runtime_signatures;
 mod runtime_source;
 mod signatures;

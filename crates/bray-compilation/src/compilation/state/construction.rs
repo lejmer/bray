@@ -243,6 +243,7 @@ impl Compilation {
                 lowered_units: UnitQueryCache::new(),
                 codegen,
                 codegen_artifacts: FactCellMap::new(),
+                optimized_mir: FactCellMap::new(),
                 native_products: FactCellMap::new(),
                 declared_units: FactCell::new(),
                 symbolic_constant_terms: UnitQueryCache::new(),

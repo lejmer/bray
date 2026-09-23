@@ -53,6 +53,12 @@ pub fn demanded_constant_terms(unit: &MirUnit) -> BTreeSet<ConstantTermId> {
     let mut terms = BTreeSet::new();
 
     for operation in unit.operations() {
+        operation.kind().for_each_operand(|operand| {
+            if let MirOperand::ConstantTerm { term, .. } = operand {
+                terms.insert(*term);
+            }
+        });
+
         if let MirOperationKind::Generator(MirGeneratorOperation::Begin {
             exact_count: Some(term),
             ..
@@ -63,6 +69,26 @@ pub fn demanded_constant_terms(unit: &MirUnit) -> BTreeSet<ConstantTermId> {
     }
 
     for block in unit.blocks() {
+        let mut terminator = block.terminator().kind().clone();
+
+        terminator.for_each_input(|operand| {
+            if let MirOperand::ConstantTerm { term, .. } = operand {
+                terms.insert(*term);
+            }
+        });
+
+        let _ = terminator.try_for_each_edge_mut::<()>(|edge| {
+            for argument in edge.arguments() {
+                argument.for_each_operand(|operand| {
+                    if let MirOperand::ConstantTerm { term, .. } = operand {
+                        terms.insert(*term);
+                    }
+                });
+            }
+
+            Ok(())
+        });
+
         if let Some(term) = block.terminator().kind().pattern_constant_term() {
             terms.insert(term);
         }
@@ -391,6 +417,6 @@ fn collect_operand_value(operand: &MirOperand, demands: &mut ConstantDemands) {
             demands.types.entry(*value).or_default().insert(*ty);
         }
         MirOperand::Copy(place) | MirOperand::Move(place) => collect_place_values(place, demands),
-        MirOperand::Value(_) | MirOperand::Immediate { .. } => {}
+        MirOperand::Value(_) | MirOperand::ConstantTerm { .. } | MirOperand::Immediate { .. } => {}
     }
 }

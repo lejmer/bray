@@ -13,4 +13,6 @@ pub use model::{
     MirExecutableTemplateId, MirGeneratedLifecycleKey, MirGeneratedLifecycleRole,
     MirImportedExecutableKey, MirUnit, MirUnitKey,
 };
-pub use reconstruction::{MirReconstructionMappings, reconstruct_reachable};
+pub use reconstruction::{
+    MirReconstructionMappings, reconstruct_reachable, reconstruct_with_edits,
+};

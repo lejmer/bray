@@ -503,7 +503,7 @@ fn collect_operands_types(operands: &[MirOperand], types: &mut BTreeSet<TypeId>)
 
 fn collect_operand_types(operand: &MirOperand, types: &mut BTreeSet<TypeId>) {
     match operand {
-        MirOperand::Constant { ty, .. } | MirOperand::Immediate { ty, .. } => {
+        MirOperand::Constant { ty, .. } | MirOperand::ConstantTerm { ty, .. } | MirOperand::Immediate { ty, .. } => {
             types.insert(*ty);
         }
         MirOperand::Copy(place) | MirOperand::Move(place) => collect_place_types(place, types),

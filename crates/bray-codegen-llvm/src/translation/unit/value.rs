@@ -54,6 +54,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 )
             }
             MirOperand::Constant { value, ty } => self.constant_as(*value, *ty),
+            MirOperand::ConstantTerm { term, ty } => {
+                let value = self
+                    .request
+                    .mappings()
+                    .constant_term(self.instance.key(), *term)
+                    .expect("checked MIR term operand requires a concrete mapping");
+
+                self.constant_as(value, *ty)
+            }
         }
     }
 
@@ -695,7 +704,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 .value(*value)
                 .map(bray_ir::MirValue::ty)
                 .expect("checked MIR operands must reference a value in their unit"),
-            MirOperand::Constant { ty, .. } | MirOperand::Immediate { ty, .. } => *ty,
+            MirOperand::Constant { ty, .. } | MirOperand::ConstantTerm { ty, .. } | MirOperand::Immediate { ty, .. } => *ty,
             MirOperand::Copy(place) | MirOperand::Move(place) => place.ty(),
         }
     }

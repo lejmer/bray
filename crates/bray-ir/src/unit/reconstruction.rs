@@ -1,6 +1,8 @@
+use std::collections::{BTreeMap, BTreeSet};
+
 use crate::{
-    MirBlockId, MirCapacityError, MirFrameDescriptor, MirOperationId, MirStorageId, MirUnit,
-    MirUnitBuilder, MirValueId, MirValueOrigin,
+    MirBlockId, MirCapacityError, MirFrameDescriptor, MirOperationId, MirStorageId,
+    MirTerminatorKind, MirUnit, MirUnitBuilder, MirValueId, MirValueOrigin,
 };
 
 use super::local_id_remap::{MirLocalIdMapping, remap_operation, remap_terminator};
@@ -75,13 +77,34 @@ impl MirLocalIdMapping for MirReconstructionMappings {
 pub fn reconstruct_reachable(
     unit: &MirUnit,
 ) -> Result<(MirUnit, MirReconstructionMappings), MirCapacityError> {
+    reconstruct_with_edits(unit, &BTreeMap::new(), &BTreeSet::new())
+}
+
+/// Rebuilds a unit after replacing terminators and omitting proven dead operations.
+///
+/// Callers must preserve effects and ensure no surviving operand refers to an omitted result.
+/// Replacement terminators must refer to existing blocks and satisfy their checked contracts.
+pub fn reconstruct_with_edits(
+    unit: &MirUnit,
+    terminators: &BTreeMap<MirBlockId, MirTerminatorKind>,
+    omitted_operations: &BTreeSet<MirOperationId>,
+) -> Result<(MirUnit, MirReconstructionMappings), MirCapacityError> {
     assert!(unit.is_valid(), "MIR reconstruction requires a valid unit");
 
-    let retained_blocks = retained_blocks(unit);
+    let retained_blocks = retained_blocks(unit, terminators);
     let operation_owners = operation_owners(unit);
-    let retained_operations = retained_operations(unit, &retained_blocks, &operation_owners);
+
+    let retained_operations =
+        retained_operations(unit, &retained_blocks, &operation_owners, omitted_operations);
+
     let retained_values = retained_values(unit, &retained_blocks, &retained_operations);
-    let retained_storages = retained_storages(unit, &retained_blocks);
+
+    let retained_storages = retained_storages(
+        unit,
+        &retained_blocks,
+        &retained_operations,
+        terminators,
+    );
 
     let mappings = build_mappings(
         unit,
@@ -91,7 +114,7 @@ pub fn reconstruct_reachable(
         &retained_values,
     );
 
-    let reconstructed = rebuild_unit(unit, &mappings, &operation_owners)?;
+    let reconstructed = rebuild_unit(unit, &mappings, &operation_owners, terminators)?;
 
     assert!(
         reconstructed.is_valid(),
@@ -101,7 +124,10 @@ pub fn reconstruct_reachable(
     Ok((reconstructed, mappings))
 }
 
-fn retained_blocks(unit: &MirUnit) -> Vec<bool> {
+fn retained_blocks(
+    unit: &MirUnit,
+    terminators: &BTreeMap<MirBlockId, MirTerminatorKind>,
+) -> Vec<bool> {
     let mut retained = vec![false; unit.blocks().len()];
     let mut pending = vec![unit.entry()];
 
@@ -118,23 +144,32 @@ fn retained_blocks(unit: &MirUnit) -> Vec<bool> {
 
         retained[index] = true;
 
-        unit.block(block)
-            .expect("reachable MIR block must resolve")
-            .terminator()
-            .kind()
-            .for_each_successor(|successor| pending.push(successor));
+        let terminator = terminators.get(&block).unwrap_or_else(|| {
+            unit.block(block)
+                .expect("reachable MIR block must resolve")
+                .terminator()
+                .kind()
+        });
+
+        terminator.for_each_successor(|successor| pending.push(successor));
     }
 
     retained
 }
 
-fn retained_operations(unit: &MirUnit, blocks: &[bool], owners: &[MirBlockId]) -> Vec<bool> {
+fn retained_operations(
+    unit: &MirUnit,
+    blocks: &[bool],
+    owners: &[MirBlockId],
+    omitted: &BTreeSet<MirOperationId>,
+) -> Vec<bool> {
     owners
         .iter()
-        .map(|owner| {
+        .enumerate()
+        .map(|(slot, owner)| {
             let index = local_index(unit, owner.unit(), owner.to_index(), blocks.len(), "block");
 
-            blocks[index]
+            blocks[index] && !omitted.contains(&operation_id(unit, slot))
         })
         .collect()
 }
@@ -163,7 +198,12 @@ fn retained_values(unit: &MirUnit, blocks: &[bool], operations: &[bool]) -> Vec<
         .collect()
 }
 
-fn retained_storages(unit: &MirUnit, blocks: &[bool]) -> Vec<bool> {
+fn retained_storages(
+    unit: &MirUnit,
+    blocks: &[bool],
+    operations: &[bool],
+    terminators: &BTreeMap<MirBlockId, MirTerminatorKind>,
+) -> Vec<bool> {
     let mut retained = vec![false; unit.storages().len()];
 
     for (block_index, block) in unit.blocks().iter().enumerate() {
@@ -172,6 +212,10 @@ fn retained_storages(unit: &MirUnit, blocks: &[bool]) -> Vec<bool> {
         }
 
         for operation in block.operations() {
+            if !operations[local_index(unit, operation.unit(), operation.to_index(), operations.len(), "operation")] {
+                continue;
+            }
+
             let kind = unit
                 .operation(*operation)
                 .expect("surviving MIR operation must resolve")
@@ -182,7 +226,13 @@ fn retained_storages(unit: &MirUnit, blocks: &[bool]) -> Vec<bool> {
             });
         }
 
-        for_each_terminator_storage(block.terminator().kind(), |storage| {
+        let block_id = MirBlockId::from_slot(unit.unit(), u32::try_from(block_index).expect("validated MIR block slot must fit its identity"));
+
+        let terminator = terminators
+            .get(&block_id)
+            .unwrap_or_else(|| block.terminator().kind());
+
+        for_each_terminator_storage(terminator, |storage| {
             retain_storage(unit, &mut retained, storage);
         });
     }
@@ -255,6 +305,7 @@ fn rebuild_unit(
     unit: &MirUnit,
     mappings: &MirReconstructionMappings,
     operation_owners: &[MirBlockId],
+    terminators: &BTreeMap<MirBlockId, MirTerminatorKind>,
 ) -> Result<MirUnit, MirCapacityError> {
     let mut builder = MirUnitBuilder::for_reconstruction(unit);
 
@@ -354,7 +405,11 @@ fn rebuild_unit(
             continue;
         };
 
-        let mut kind = block.terminator().kind().clone();
+        let mut kind = terminators
+            .get(&old)
+            .unwrap_or_else(|| block.terminator().kind())
+            .clone();
+
         remap_terminator(&mut kind, mappings);
 
         builder.set_terminator(mapped, block.terminator().source().clone(), kind);
@@ -479,6 +534,8 @@ fn local_index(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::{BTreeMap, BTreeSet};
+
     use bray_bound_tree::{
         InlineAssemblyContract, InlineAssemblyOperand, InlineAssemblyOperandKind,
         MAX_INLINE_ASSEMBLY_OPERANDS,
@@ -488,7 +545,7 @@ mod tests {
     };
     use bray_testing::test_bound_unit;
 
-    use super::reconstruct_reachable;
+    use super::{reconstruct_reachable, reconstruct_with_edits};
     use crate::{
         MirAsyncOperation, MirBlockKind, MirCleanupEdge, MirCleanupPhase, MirEdge,
         MirFrameDescriptor, MirFrameState, MirFrameStateId, MirImmediateValue,
@@ -558,6 +615,54 @@ mod tests {
                 .next()
                 .map(|pair| pair.0)
         );
+    }
+
+    #[test]
+    fn edited_branch_removes_the_unselected_loop_body() {
+        let (unit, _) = ordinary_unit(false);
+
+        let blocks = unit.blocks_with_ids().map(|(id, _)| id).collect::<Vec<_>>();
+
+        let [_, header, body, exit] = blocks.as_slice() else {
+            panic!("test MIR must have four blocks");
+        };
+
+        let header_value = unit.block(*header).expect("header must exist").parameters()[0];
+
+        let terminators = BTreeMap::from([(
+            *header,
+            MirTerminatorKind::Goto(MirEdge::new(*exit, [MirOperand::Value(header_value)])),
+        )]);
+
+        let (rewritten, mappings) = reconstruct_with_edits(&unit, &terminators, &BTreeSet::new())
+            .expect("edited MIR must reconstruct");
+
+        assert!(rewritten.is_valid());
+        assert_eq!(rewritten.blocks().len(), 3);
+        assert!(rewritten.operations().is_empty());
+        assert!(rewritten.storages().is_empty());
+        assert_eq!(mappings.block(*body), None);
+    }
+
+    #[test]
+    fn omitted_operation_removes_its_unused_storage() {
+        let (unit, _) = ordinary_unit(false);
+
+        let operation = unit.operations_with_ids().next().expect("body has a store").0;
+        let storage = unit.storages_with_ids().next().expect("body has storage").0;
+
+        let (rewritten, mappings) = reconstruct_with_edits(
+            &unit,
+            &BTreeMap::new(),
+            &BTreeSet::from([operation]),
+        )
+        .expect("MIR without the operation must reconstruct");
+
+        assert!(rewritten.is_valid());
+        assert!(rewritten.operations().is_empty());
+        assert!(rewritten.storages().is_empty());
+        assert_eq!(mappings.operation(operation), None);
+        assert_eq!(mappings.storage(storage), None);
     }
 
     #[test]

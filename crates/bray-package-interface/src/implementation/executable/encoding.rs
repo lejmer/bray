@@ -552,6 +552,11 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.constant_value(*value)?;
                 self.ty(*ty)?;
             }
+            MirOperand::ConstantTerm { term, ty } => {
+                self.wire.write_u32(5);
+                self.constant_term(*term)?;
+                self.ty(*ty)?;
+            }
             MirOperand::Immediate { value, ty } => {
                 self.wire.write_u32(2);
                 self.immediate(*value);

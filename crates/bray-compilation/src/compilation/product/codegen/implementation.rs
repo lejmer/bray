@@ -192,7 +192,7 @@ impl Compilation {
             runtime.as_ref(),
             required_capabilities,
             &target,
-            options.debug_information(),
+            options,
             cancellation,
         )?;
 
@@ -512,7 +512,7 @@ mod tests {
         BackendArtifactId, BackendArtifactKind, BackendArtifactRequest,
         BackendArtifactRequestEntry, BackendArtifactRequirement, BackendSerializationOptions,
         CodeGenerator, CodeGeneratorRegistry, CodegenConfiguration, CodegenGenericArgument,
-        CodegenLinkage, CodegenPartitionPolicy, CodegenRequest, CodegenResultMapping,
+        CodegenLinkage, CodegenOptions, CodegenPartitionPolicy, CodegenRequest, CodegenResultMapping,
         CodegenSpecialization, CodegenStatus, DebugInformationMode, LinkableArtifactKind,
         LinkableArtifactRequirement, OptimizationLevel, partition_codegen_units,
     };
@@ -2237,6 +2237,204 @@ mod tests {
     }
 
     #[test]
+    fn scalar_and_nullable_branches_prune_native_demand_only_when_enabled() {
+        let (_, compilation) = codegen_compilation(concat!(
+            "module app;\n",
+            "\n",
+            "func unused()\n",
+            "{\n",
+            "}\n",
+            "\n",
+            "func main()\n",
+            "{\n",
+            "    let enabled: bool = false;\n",
+            "    if enabled\n",
+            "    {\n",
+            "        unused();\n",
+            "    }\n",
+            "    let absent: i32? = none;\n",
+            "    if absent.is_present()\n",
+            "    {\n",
+            "        unused();\n",
+            "    }\n",
+            "}\n",
+        ));
+
+        let cancellation = CancellationToken::new();
+
+        let target = compilation
+            .selected_target()
+            .target()
+            .codegen_target()
+            .expect("test target must validate");
+
+        let semantic = compilation.product_semantics().expect("test product must resolve");
+
+        let roots = compilation
+            .product_root_instances(semantic.value(), None, &target, &cancellation)
+            .expect("test roots must resolve");
+
+        let none = compilation
+            .codegen_reachability(roots.clone(), None, &target, CodegenOptions::default(), &cancellation)
+            .expect("unoptimized reachability must close");
+
+        let basic = compilation
+            .codegen_reachability(
+                roots.clone(),
+                None,
+                &target,
+                crate::BuildConfiguration::Development.codegen_options(),
+                &cancellation,
+            )
+            .expect("development reachability must close");
+
+        let full = compilation
+            .codegen_reachability(
+                roots,
+                None,
+                &target,
+                crate::BuildConfiguration::Release.codegen_options(),
+                &cancellation,
+            )
+            .expect("release reachability must close");
+
+        assert_eq!(none.graph().instances().len(), 2);
+        assert_eq!(basic.graph().instances().len(), 1);
+        assert_eq!(full.graph().instances().len(), 1);
+        assert!(basic.graph().instances()[0].mir().is_valid());
+        assert_eq!(basic.graph().instances()[0].mir(), full.graph().instances()[0].mir());
+    }
+
+    #[test]
+    fn generic_scalar_branches_follow_each_concrete_substitution() {
+        let source = concat!(
+            "module app;\n",
+            "func unused() {}\n",
+            "func gate<const enabled: bool>()\n",
+            "{\n",
+            "    if enabled\n",
+            "    {\n",
+            "        unused();\n",
+            "    }\n",
+            "}\n",
+            "func main()\n",
+            "{\n",
+            "    gate<false>();\n",
+            "}\n",
+        );
+
+        let (_, compilation) = codegen_compilation(source);
+
+        let cancellation = CancellationToken::new();
+        let target = compilation.selected_target().target().codegen_target().unwrap();
+        let semantic = compilation.product_semantics().unwrap();
+
+        let roots = compilation
+            .product_root_instances(semantic.value(), None, &target, &cancellation)
+            .unwrap();
+
+        let none = compilation
+            .codegen_reachability(roots.clone(), None, &target, CodegenOptions::default(), &cancellation)
+            .unwrap();
+
+        let basic = compilation
+            .codegen_reachability(
+                roots,
+                None,
+                &target,
+                crate::BuildConfiguration::Development.codegen_options(),
+                &cancellation,
+            )
+            .unwrap();
+
+        assert_eq!(none.graph().instances().len(), 3);
+        assert_eq!(basic.graph().instances().len(), 2);
+        assert!(basic.graph().instances().iter().all(|instance| instance.mir().is_valid()));
+        realize_codegen_mappings(&compilation, &target, &none, &cancellation);
+
+        let (_, true_compilation) =
+            codegen_compilation(&source.replace("gate<false>()", "gate<true>()"));
+
+        let true_target = true_compilation.selected_target().target().codegen_target().unwrap();
+        let true_semantic = true_compilation.product_semantics().unwrap();
+
+        let true_roots = true_compilation
+            .product_root_instances(true_semantic.value(), None, &true_target, &cancellation)
+            .unwrap();
+
+        let true_graph = true_compilation
+            .codegen_reachability(
+                true_roots,
+                None,
+                &true_target,
+                crate::BuildConfiguration::Development.codegen_options(),
+                &cancellation,
+            )
+            .unwrap();
+
+        assert_eq!(true_graph.graph().instances().len(), 3);
+    }
+
+    #[test]
+    fn imported_generic_constant_prunes_its_transitive_native_dependency() {
+        let dependency = generic_dependency_from_fixture(
+            true,
+            false,
+            GenericDependencyFixture {
+                source: concat!(
+                    "module templates;\n",
+                    "func called() {}\n",
+                    "public func gate<const enabled: bool>()\n",
+                    "{\n",
+                    "    if enabled\n",
+                    "    {\n",
+                    "        called();\n",
+                    "    }\n",
+                    "}\n",
+                ),
+                runtime_frames: None,
+                executable_templates: 2,
+                platform_service: None,
+            },
+        );
+
+        let compilation = generic_consumer_for_target_with_source(
+            dependency,
+            SelectedTarget::baseline(),
+            "module app; using example.dependency.templates.gate; func main() { example.dependency.templates.gate<false>(); }",
+        );
+
+        assert!(compilation.check_diagnostics().is_empty());
+
+        let cancellation = CancellationToken::new();
+        let target = compilation.selected_target().target().codegen_target().unwrap();
+        let semantic = compilation.product_semantics().unwrap();
+
+        let roots = compilation
+            .product_root_instances(semantic.value(), None, &target, &cancellation)
+            .unwrap();
+
+        let none = compilation
+            .codegen_reachability(roots.clone(), None, &target, CodegenOptions::default(), &cancellation)
+            .unwrap();
+
+        let basic = compilation
+            .codegen_reachability(
+                roots,
+                None,
+                &target,
+                crate::BuildConfiguration::Development.codegen_options(),
+                &cancellation,
+            )
+            .unwrap();
+
+        assert_eq!(none.graph().instances().len(), 3);
+        assert_eq!(basic.graph().instances().len(), 2);
+        assert!(basic.graph().instances().iter().all(|instance| instance.mir().is_valid()));
+        realize_codegen_mappings(&compilation, &target, &none, &cancellation);
+    }
+
+    #[test]
     fn concrete_generic_instances_realize_signatures_and_layouts() {
         let compilation = crate::test_support::compilation(CONCRETE_GENERIC_SOURCE);
 
@@ -2263,7 +2461,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("test roots must resolve: {error:?}"));
 
         let reachability = compilation
-            .codegen_reachability(roots.clone(), None, &target, &cancellation)
+            .codegen_reachability(roots.clone(), None, &target, CodegenOptions::default(), &cancellation)
             .unwrap_or_else(|error| panic!("generic reachability must close: {error:?}"));
 
         let reversed_reachability = compilation
@@ -2271,6 +2469,7 @@ mod tests {
                 roots.clone().into_iter().rev(),
                 None,
                 &target,
+                CodegenOptions::default(),
                 &cancellation,
             )
             .unwrap_or_else(|error| panic!("reversed reachability must close: {error:?}"));
@@ -2577,7 +2776,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("trait default roots must resolve: {error:?}"));
 
         compilation
-            .codegen_reachability(roots, None, &target, &cancellation)
+            .codegen_reachability(roots, None, &target, CodegenOptions::default(), &cancellation)
             .unwrap_or_else(|error| panic!("trait default reachability must close: {error:?}"));
 
         let plan = compilation
@@ -2653,7 +2852,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("constrained trait roots must resolve: {error:?}"));
 
         compilation
-            .codegen_reachability(roots, None, &target, &cancellation)
+            .codegen_reachability(roots, None, &target, CodegenOptions::default(), &cancellation)
             .unwrap_or_else(|error| panic!("constrained trait reachability must close: {error:?}"));
 
         let plan = compilation
@@ -2793,7 +2992,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("consumer roots must resolve: {error:?}"));
 
         let reachability = compilation
-            .codegen_reachability(roots, None, &target, &cancellation)
+            .codegen_reachability(roots, None, &target, CodegenOptions::default(), &cancellation)
             .unwrap_or_else(|error| panic!("consumer reachability must close: {error:?}"));
 
         let imported = reachability
@@ -2893,7 +3092,7 @@ public func invoke<T>(pos value: T)
             .unwrap_or_else(|error| panic!("consumer roots must resolve: {error:?}"));
 
         let reachability = compilation
-            .codegen_reachability(roots, None, &target, &cancellation)
+            .codegen_reachability(roots, None, &target, CodegenOptions::default(), &cancellation)
             .unwrap_or_else(|error| panic!("consumer reachability must close: {error:?}"));
 
         let roles = reachability
@@ -2950,7 +3149,7 @@ public func invoke<T>(pos value: T)
             .unwrap_or_else(|error| panic!("consumer roots must resolve: {error:?}"));
 
         let reachability = compilation
-            .codegen_reachability(roots, None, &target, &cancellation)
+            .codegen_reachability(roots, None, &target, CodegenOptions::default(), &cancellation)
             .unwrap_or_else(|error| panic!("consumer reachability must close: {error:?}"));
 
         let imported_defaults = reachability
@@ -3015,7 +3214,7 @@ public func invoke<T>(pos value: T)
             .unwrap_or_else(|error| panic!("consumer roots must resolve: {error:?}"));
 
         let reachability = compilation
-            .codegen_reachability(roots, None, &target, &compilation.state.cancellation)
+            .codegen_reachability(roots, None, &target, CodegenOptions::default(), &compilation.state.cancellation)
             .unwrap_or_else(|error| panic!("consumer reachability must close: {error:?}"));
 
         let frames = reachability
@@ -3155,7 +3354,7 @@ public func invoke<T>(pos value: T)
             .product_root_instances(semantic.value(), None, &target, &cancellation)
             .unwrap_or_else(|error| panic!("consumer roots must resolve: {error:?}"));
 
-        let error = match compilation.codegen_reachability(roots, None, &target, &cancellation) {
+        let error = match compilation.codegen_reachability(roots, None, &target, CodegenOptions::default(), &cancellation) {
             Ok(_) => panic!("missing imported templates must stop code generation reachability"),
             Err(error) => error,
         };
@@ -3336,6 +3535,7 @@ public func invoke<T>(pos value: T)
                 ],
                 None,
                 &target,
+                CodegenOptions::default(),
                 &cancellation,
             )
             .unwrap_or_else(|error| panic!("generic reachability must close: {error:?}"));
@@ -5391,7 +5591,7 @@ public func invoke<T>(pos value: T)
             .unwrap_or_else(|error| panic!("test roots must resolve: {error:?}"));
 
         compilation
-            .codegen_reachability(roots, None, &target, &cancellation)
+            .codegen_reachability(roots, None, &target, CodegenOptions::default(), &cancellation)
             .unwrap_or_else(|error| panic!("generic reachability must close: {error:?}"))
             .graph()
             .instances()
