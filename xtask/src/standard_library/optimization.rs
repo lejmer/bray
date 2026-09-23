@@ -266,12 +266,7 @@ fn build_archive(
     };
 
     let prepared = if compiler_summarized {
-        let pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(8)
-            .build()
-            .map_err(|error| BuildError::NativeArchive(format!("could not start optimization archive workers: {error}")))?;
-
-        pool.install(|| modules.into_par_iter().enumerate().map(|(index, bytes)| prepare(index, bytes)).collect::<Vec<_>>())
+        modules.into_par_iter().enumerate().map(|(index, bytes)| prepare(index, bytes)).collect::<Vec<_>>()
     } else {
         modules.into_iter().enumerate().map(|(index, bytes)| prepare(index, bytes)).collect::<Vec<_>>()
     };
