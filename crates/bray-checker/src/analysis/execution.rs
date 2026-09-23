@@ -172,7 +172,12 @@ const fn implementation_hook_may_propagate_synchronous_panic(
     matches!(
         hook,
         None | Some(
-            ImplementationHook::NativeThreadStart | ImplementationHook::BranchingInlineAssembly
+            ImplementationHook::NativeThreadStart
+                | ImplementationHook::BranchingInlineAssembly
+                | ImplementationHook::RawAllocate
+                | ImplementationHook::RawDeallocate
+                | ImplementationHook::Allocate
+                | ImplementationHook::Deallocate
         )
     )
 }
@@ -184,7 +189,7 @@ mod tests {
     use super::implementation_hook_may_propagate_synchronous_panic;
 
     #[test]
-    fn native_thread_start_preserves_the_synchronous_call() {
+    fn fallible_compiler_hooks_preserve_synchronous_panics() {
         assert!(implementation_hook_may_propagate_synchronous_panic(Some(
             ImplementationHook::NativeThreadStart,
         )));
@@ -192,6 +197,15 @@ mod tests {
         assert!(implementation_hook_may_propagate_synchronous_panic(Some(
             ImplementationHook::BranchingInlineAssembly,
         )));
+
+        for hook in [
+            ImplementationHook::RawAllocate,
+            ImplementationHook::RawDeallocate,
+            ImplementationHook::Allocate,
+            ImplementationHook::Deallocate,
+        ] {
+            assert!(implementation_hook_may_propagate_synchronous_panic(Some(hook)));
+        }
 
         assert!(!implementation_hook_may_propagate_synchronous_panic(Some(
             ImplementationHook::FutureStart,

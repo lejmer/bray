@@ -549,9 +549,9 @@ mod tests {
     };
     use bray_ir::{
         MirAggregate, MirAggregateKind, MirBlockKind, MirCleanupPhase, MirHelperReference,
-        MirMemoryOperation, MirOperand, MirOperationCommit, MirOperationId, MirOperationKind,
-        MirPlace, MirSourceAnchor, MirStandardLibraryHelper, MirStorageKind, MirTargetContract,
-        MirTerminatorKind, MirUnitBuilder, MirUnitKind, MirValueId,
+        MirCallPanicEdge, MirEdge, MirMemoryOperation, MirOperand, MirOperationCommit,
+        MirOperationId, MirOperationKind, MirPlace, MirSourceAnchor, MirStandardLibraryHelper,
+        MirStorageKind, MirTargetContract, MirTerminatorKind, MirUnitBuilder, MirUnitKind, MirValueId,
     };
     use bray_runtime_interface::{BinarySymbolName, RuntimeAbiVersion};
     use bray_symbols::{
@@ -766,6 +766,39 @@ mod tests {
         assert!(!ir.contains(bray_runtime_abi::PERFORMANCE_INTERVAL_END_SYMBOL));
     }
 
+    #[test]
+    fn checked_allocation_observes_only_the_completed_outcome() {
+        let Ok(backend) = LlvmCodeGenerator::try_new() else {
+            panic!("LLVM backend constants must be valid");
+        };
+
+        let fixture = checked_allocation_fixture(&backend)
+            .with_runtime_observations(bray_codegen::RuntimeObservationMode::Memory);
+
+        let context = Context::create();
+
+        let (_machine, module) = backend
+            .prepare_module(fixture.request(), &context)
+            .unwrap_or_else(|error| panic!("checked allocation LLVM must generate: {error:?}"))
+            .unwrap_or_else(|| panic!("checked allocation LLVM must not be cancelled"));
+
+        let ir = module.print_to_string().to_string();
+
+        assert!(module.verify().is_ok(), "{ir}");
+
+        assert!(ir.contains(
+            "br i1 %memory.allocation.completed, label %memory.allocation.observe, label %memory.allocation.continue"
+        ));
+
+        let observed = ir
+            .split("memory.allocation.observe:")
+            .nth(1)
+            .and_then(|tail| tail.split("memory.allocation.continue:").next())
+            .expect("checked allocation must have a distinct observation block");
+
+        assert!(observed.contains(bray_runtime_abi::MEMORY_ALLOCATION_OBSERVATION_SYMBOL));
+    }
+
     fn position(ir: &str, symbol: &str) -> usize {
         ir.match_indices(symbol)
             .find(|(position, _)| {
@@ -833,6 +866,116 @@ mod tests {
         backend: &LlvmCodeGenerator,
     ) -> bray_codegen::test_support::CodegenRequestFixture {
         memory_operation_fixture_for_target(backend, memory_target(true, true))
+    }
+
+    fn checked_allocation_fixture(
+        backend: &LlvmCodeGenerator,
+    ) -> bray_codegen::test_support::CodegenRequestFixture {
+        let target = memory_target(true, true);
+        let types = memory_types();
+
+        let mir_target =
+            MirTargetContract::new(target.profile().clone(), RuntimeAbiVersion::new(1, 0));
+
+        let bound = bray_testing::test_bound_unit(175);
+        let source = MirSourceAnchor::from(bound.key().source());
+
+        let mut builder =
+            MirUnitBuilder::for_bound(bound.identity(), MirUnitKind::Synchronous, mir_target);
+
+        let entry = builder
+            .push_block(source.clone(), MirBlockKind::Ordinary)
+            .expect("checked allocation entry must be valid");
+
+        let size = push_memory(
+            &mut builder,
+            entry,
+            &source,
+            CheckedMemoryOperationKind::LayoutQuery {
+                ty: types.value,
+                kind: MemoryLayoutQueryKind::Size,
+            },
+            [],
+            [],
+            Some(types.usize),
+        )
+        .result()
+        .expect("checked allocation size must produce a value");
+
+        push_memory(
+            &mut builder,
+            entry,
+            &source,
+            CheckedMemoryOperationKind::RawAllocate,
+            [MirOperand::Value(size), MirOperand::Value(size)],
+            [types.usize, types.usize],
+            Some(types.pointer),
+        );
+
+        let completed = builder
+            .push_block(source.clone(), MirBlockKind::Ordinary)
+            .expect("checked allocation completion must be valid");
+
+        let panicked = builder
+            .push_block(source.clone(), MirBlockKind::Ordinary)
+            .expect("checked allocation panic must be valid");
+
+        let cancelled = builder
+            .push_block(source.clone(), MirBlockKind::Ordinary)
+            .expect("checked allocation cancellation must be valid");
+
+        let report = builder
+            .push_storage(source.clone(), MirStorageKind::Temporary, types.allocation)
+            .expect("checked allocation report storage must be valid");
+
+        builder.set_terminator(
+            entry,
+            source.clone(),
+            MirTerminatorKind::CheckCallOutcome {
+                completed: MirEdge::new(completed, []),
+                panicked: MirCallPanicEdge::new(
+                    panicked,
+                    MirPlace::new(report, [], types.allocation),
+                ),
+                cancelled: MirEdge::new(cancelled, []),
+            },
+        );
+
+        for block in [completed, panicked, cancelled] {
+            builder.set_terminator(block, source.clone(), MirTerminatorKind::Return(None));
+        }
+
+        let mir = builder.finish(entry);
+        let allocation = helper_instance_key(172, 1, mir.target());
+        let deallocation = helper_instance_key(173, 2, mir.target());
+        let cleanup = helper_instance_key(174, 3, mir.target());
+
+        let instance = CodegenInstance::try_new(
+            CodegenInstanceKey::non_generic(&mir),
+            mir,
+            [CodegenInstanceDependency::definition(allocation.clone())],
+        )
+        .expect("checked allocation instance must be valid");
+
+        let unit = CodegenUnit::try_from_instances(
+            bray_codegen::CodegenPartitionPolicy::NATIVE_BALANCED,
+            bray_codegen::test_support::codegen_partition_compatibility(),
+            [instance],
+        )
+        .expect("checked allocation codegen unit must be valid");
+
+        let mappings = memory_mappings(
+            &unit,
+            &target,
+            types,
+            source,
+            &allocation,
+            &deallocation,
+            &cleanup,
+            true,
+        );
+
+        codegen_request_for_unit(unit, target, mappings, backend.identity().clone())
     }
 
     fn memory_operation_fixture_for_target(
@@ -1263,6 +1406,7 @@ mod tests {
             &allocation,
             &deallocation,
             &cleanup,
+            false,
         );
 
         codegen_request_for_unit(unit, target, mappings, backend.identity().clone())
@@ -1986,6 +2130,7 @@ mod tests {
         allocation: &CodegenInstanceKey,
         deallocation: &CodegenInstanceKey,
         cleanup: &CodegenInstanceKey,
+        checked_allocation: bool,
     ) -> CodegenMappings {
         let align1 = NonZeroU64::MIN;
         let align8 = NonZeroU64::new(8).unwrap_or(NonZeroU64::MIN);
@@ -2212,18 +2357,24 @@ mod tests {
             CodegenCallableSignature::new([], CodegenResultMapping::Void, CallableAbi::Bray, false),
         );
 
+        let allocation_signature = CodegenCallableSignature::new(
+            [
+                CodegenParameterMapping::direct(types.usize, None, []),
+                CodegenParameterMapping::direct(types.usize, None, []),
+            ],
+            CodegenResultMapping::direct(types.pointer, None, []),
+            CallableAbi::Bray,
+            false,
+        );
+
         let allocation_symbol = helper_symbol(
             allocation,
             MEMORY_ALLOCATION_HELPER_SYMBOL,
-            CodegenCallableSignature::new(
-                [
-                    CodegenParameterMapping::direct(types.usize, None, []),
-                    CodegenParameterMapping::direct(types.usize, None, []),
-                ],
-                CodegenResultMapping::direct(types.pointer, None, []),
-                CallableAbi::Bray,
-                false,
-            ),
+            if checked_allocation {
+                allocation_signature.with_panic_report_context()
+            } else {
+                allocation_signature
+            },
         );
 
         let deallocation_symbol = helper_symbol(
