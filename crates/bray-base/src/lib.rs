@@ -18,7 +18,9 @@ pub use directory::{
     atomic_rename_exclusive, atomic_rename_exclusive_is_supported, retry_permission_denied,
     sync_directory,
 };
-pub use file_staging::{CompletedStagedFile, FileReplacementMode, StagedFile, is_staged_file_name};
+pub use file_staging::{
+    CompletedStagedFile, FileReplacementMode, StagedFile, is_staged_file_name, write_file_atomically,
+};
 pub use hex::{decode_lowercase_hex, is_lowercase_hex, lowercase_hex};
 pub use path::is_canonical_relative_path;
 pub use slice::{shared_slice, sorted_unique_shared_slice};

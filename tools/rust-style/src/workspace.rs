@@ -1,5 +1,6 @@
 //! Public workspace-wide style operations.
 
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use ra_ap_syntax::{AstNode, Edition, SourceFile};
@@ -43,7 +44,7 @@ fn fix_sources(paths: &[PathBuf]) -> Result<usize, String> {
                 .map_err(|error| format!("{}: {error}", path.display()))?;
 
             if source_fix_count > 0 {
-                std::fs::write(path, fixed)
+                replace_source(path, fixed.as_bytes())
                     .map_err(|error| source::io_error("write", path, error))?;
             }
 
@@ -52,6 +53,24 @@ fn fix_sources(paths: &[PathBuf]) -> Result<usize, String> {
         .collect::<Vec<Result<usize, String>>>();
 
     results.into_iter().try_fold(0, |total, result| result.map(|count| total + count))
+}
+
+fn replace_source(path: &Path, contents: &[u8]) -> io::Result<()> {
+    let permissions = std::fs::metadata(path)?.permissions();
+
+    let directory = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+
+    let mut temporary = tempfile::NamedTempFile::new_in(directory)?;
+
+    temporary.write_all(contents)?;
+    temporary.as_file().set_permissions(permissions)?;
+    temporary.as_file().sync_all()?;
+    temporary.persist(path).map_err(|error| error.error)?;
+
+    Ok(())
 }
 
 fn validate_workspace(root: &Path, paths: &[PathBuf]) -> Result<(), String> {
@@ -164,6 +183,82 @@ mod tests {
 
     use super::format_diagnostic;
     use crate::diagnostic::{Diagnostic, Rule};
+
+    #[test]
+    fn source_replacement_preserves_permissions_and_cleans_failed_staging() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("example.rs");
+
+        std::fs::write(&path, "original").unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
+        }
+
+        let permissions = std::fs::metadata(&path).unwrap().permissions();
+
+        super::replace_source(&path, b"replacement").unwrap();
+
+        assert_eq!(std::fs::read(&path).unwrap(), b"replacement");
+        assert_eq!(std::fs::metadata(&path).unwrap().permissions(), permissions);
+
+        let blocked = directory.path().join("directory.rs");
+
+        std::fs::create_dir(&blocked).unwrap();
+        std::fs::write(blocked.join("retained"), "original").unwrap();
+
+        assert!(super::replace_source(&blocked, b"replacement").is_err());
+        assert_eq!(std::fs::read(blocked.join("retained")).unwrap(), b"original");
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 2);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn locked_source_survives_failed_replacement() {
+        use std::fs::OpenOptions;
+        use std::os::windows::fs::OpenOptionsExt;
+
+        const FILE_SHARE_READ: u32 = 1;
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("example.rs");
+
+        std::fs::write(&path, "original").unwrap();
+
+        let permissions = std::fs::metadata(&path).unwrap().permissions();
+
+        let lock = OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ)
+            .open(&path)
+            .unwrap();
+
+        assert!(super::replace_source(&path, b"replacement").is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"original");
+        assert_eq!(std::fs::metadata(&path).unwrap().permissions(), permissions);
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
+
+        drop(lock);
+    }
+
+    #[test]
+    fn workspace_fixes_replace_source_and_are_idempotent() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("example.rs");
+        let source = "fn example() {\n    let value = 1;\n    return value;\n}\n";
+
+        std::fs::write(&path, source).unwrap();
+
+        let (expected, fixes) = crate::blank_line::fix_source(source).unwrap();
+
+        assert!(fixes > 0);
+        assert_eq!(super::fix_sources(&[path.clone()]).unwrap(), fixes);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), expected);
+        assert_eq!(super::fix_sources(&[path]).unwrap(), 0);
+    }
 
     #[test]
     fn diagnostics_use_compiler_style_locations_severity_and_help() {

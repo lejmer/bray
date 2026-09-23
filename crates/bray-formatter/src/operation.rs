@@ -1,12 +1,12 @@
 use std::fs;
-use std::io::{self, Write};
+use std::io;
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::thread;
 
-use bray_base::{FileReplacementMode, StagedFile};
+use bray_base::write_file_atomically;
 use bray_source::{
     SourceIdentity, SourceLoadError, SourceLoader, SourceOrigin, SourceUtf8Error, SourceVersion,
     TextSizeOverflow, leading_utf8_bom_len,
@@ -249,19 +249,7 @@ pub fn format_file(
         return Ok(FormatFileOutcome::WouldChange);
     }
 
-    let mut staging = StagedFile::create(path, FileReplacementMode::ReplaceExisting, None)
-        .map_err(|error| FormatFileError::io(FormatFileErrorKind::Write, path, &error))?;
-
-    staging
-        .write_all(formatted.text().as_bytes())
-        .map_err(|error| FormatFileError::io(FormatFileErrorKind::Write, path, &error))?;
-
-    let staging = staging
-        .finish()
-        .map_err(|error| FormatFileError::io(FormatFileErrorKind::Write, path, &error))?;
-
-    staging
-        .promote(path)
+    write_file_atomically(path, formatted.text().as_bytes())
         .map_err(|error| FormatFileError::io(FormatFileErrorKind::Write, path, &error))?;
 
     Ok(FormatFileOutcome::Written)
