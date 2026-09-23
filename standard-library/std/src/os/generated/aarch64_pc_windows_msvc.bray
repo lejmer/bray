@@ -935,7 +935,7 @@ trusted func dynamic_get_tick_count(
     requires(blocking_execution())
     uses(foreign_call, layout_reinterpret)
 {
-    let name: [u8; 14] = [71, 101, 116, 84, 105, 99, 107, 67, 111, 117, 110, 116, 54, 52];
+    let name: bytes = b"GetTickCount64";
 
     return trusted library.symbol<TickCountRoutine>(&name[..]);
 }

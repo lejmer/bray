@@ -796,7 +796,7 @@ trusted func dynamic_clock_gettime(
     requires(blocking_execution())
     uses(foreign_call, layout_reinterpret)
 {
-    let name: [u8; 13] = [99, 108, 111, 99, 107, 95, 103, 101, 116, 116, 105, 109, 101];
+    let name: bytes = b"clock_gettime";
 
     return trusted library.symbol<ClockGetTime>(&name[..]);
 }
@@ -810,7 +810,7 @@ trusted func dynamic_environ(
     requires(blocking_execution())
     uses(foreign_call, layout_reinterpret)
 {
-    let name: [u8; 7] = [101, 110, 118, 105, 114, 111, 110];
+    let name: bytes = b"environ";
 
     return trusted library.symbol<RawPointer<RawPointer<u8>>>(&name[..]);
 }

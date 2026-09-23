@@ -18,6 +18,8 @@ pub enum BoundLiteralKind {
     Character,
     /// A string literal.
     String,
+    /// A fixed byte-array literal.
+    ByteString,
 }
 
 /// A source literal awaiting or retaining its checked type.

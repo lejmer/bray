@@ -4,7 +4,7 @@ use bray_diagnostics::{
 };
 use bray_source::SourceSpan;
 use bray_symbols::{MemberLookupResult, SymbolName};
-use bray_syntax::SyntaxToken;
+use bray_syntax::{PathSyntax, SourceSyntaxNode, SyntaxToken};
 
 use crate::BindingQueryContext;
 use crate::binder::Binder;
@@ -19,6 +19,16 @@ pub(super) fn symbol_name(
     }
 
     SymbolName::try_new(token.text(source.text())?)
+}
+
+pub(super) fn is_bytes_type_path(path: &PathSyntax) -> bool {
+    let mut tokens = path.identifier_tokens();
+
+    let Some(token) = tokens.next() else {
+        return false;
+    };
+
+    tokens.next().is_none() && token.text(path.source().text()) == Some("bytes")
 }
 
 pub(super) fn name_is_available<C>(

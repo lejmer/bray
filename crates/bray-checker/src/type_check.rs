@@ -1,9 +1,11 @@
+mod array_length;
 mod cardinality;
 mod check;
 mod constraints;
 mod dependencies;
 mod inference;
 mod input;
+mod inferred_bytes;
 mod literal;
 mod propagation;
 mod region;

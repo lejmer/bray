@@ -27,7 +27,10 @@ where
         BoundLiteralKind::Integer => NumericRepresentationKind::Integer,
         BoundLiteralKind::Real => NumericRepresentationKind::Real,
         BoundLiteralKind::Imaginary => NumericRepresentationKind::Complex,
-        BoundLiteralKind::Boolean | BoundLiteralKind::Character | BoundLiteralKind::String => {
+        BoundLiteralKind::Boolean
+        | BoundLiteralKind::Character
+        | BoundLiteralKind::String
+        | BoundLiteralKind::ByteString => {
             return Ok(false);
         }
     };
@@ -154,7 +157,10 @@ where
             BoundLiteralKind::Integer => types.i32,
             BoundLiteralKind::Real => types.r64,
             BoundLiteralKind::Imaginary => types.c128,
-            BoundLiteralKind::Boolean | BoundLiteralKind::Character | BoundLiteralKind::String => {
+            BoundLiteralKind::Boolean
+            | BoundLiteralKind::Character
+            | BoundLiteralKind::String
+            | BoundLiteralKind::ByteString => {
                 continue;
             }
         };
@@ -273,7 +279,10 @@ where
         BoundLiteralKind::Integer => NumericRepresentationKind::Integer,
         BoundLiteralKind::Real => NumericRepresentationKind::Real,
         BoundLiteralKind::Imaginary => NumericRepresentationKind::Complex,
-        BoundLiteralKind::Boolean | BoundLiteralKind::Character | BoundLiteralKind::String => {
+        BoundLiteralKind::Boolean
+        | BoundLiteralKind::Character
+        | BoundLiteralKind::String
+        | BoundLiteralKind::ByteString => {
             return None;
         }
     };

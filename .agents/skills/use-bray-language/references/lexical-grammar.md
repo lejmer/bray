@@ -14,6 +14,7 @@ Consult the lexical grammar for spelling, trivia, token boundaries, and lexer fa
 - Identifiers are ASCII and case-sensitive, and they start with a letter. `_` alone is a discard token, and directive names are ordinary identifier spellings after `@`.
 - Integer literals can be decimal, binary, or hexadecimal. Real literals are decimal, digit separators must occur between digits, and type suffixes are invalid. Only trailing `i` forms an imaginary literal.
 - Character literals contain exactly one scalar after escape processing. Strings do not interpolate, cannot contain unescaped line breaks, and accept only the specified escapes.
+- `b"..."` is a byte string. Source scalars and Unicode escapes use UTF-8, while `\xHH` contributes one arbitrary byte. A terminator appears only when written, for example `b"text\0"`.
 - A decimal spelling after member access `.` is scanned as a tuple element index. Leading zeroes are invalid except for index `0`.
 - Lexically invalid text is rejected before parsing, including malformed literals, unknown escapes, non-ASCII identifiers, and unterminated strings or comments.
 

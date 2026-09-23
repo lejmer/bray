@@ -201,7 +201,7 @@ fn archive_member_symbols(
             continue;
         };
 
-        let Some(member) = source.rsplit(':').next() else {
+        let Some(member) = archive_member_name(source, archive) else {
             continue;
         };
 
@@ -222,6 +222,14 @@ fn archive_member_symbols(
     }
 
     Ok(members)
+}
+
+fn archive_member_name<'a>(source: &'a str, archive: &Path) -> Option<&'a str> {
+    let member = source
+        .strip_prefix(archive.to_str()?)?
+        .strip_prefix(':')?;
+
+    Path::new(member).file_name()?.to_str()
 }
 
 fn reachable_members(
@@ -362,8 +370,26 @@ fn write_archive(
 #[cfg(test)]
 mod tests {
     use std::collections::{BTreeMap, BTreeSet};
+    use std::path::Path;
 
-    use super::{MemberSymbols, reachable_members};
+    use super::{MemberSymbols, archive_member_name, reachable_members};
+
+    #[test]
+    fn archive_member_names_ignore_member_directory_and_drive_separators() {
+        assert_eq!(
+            archive_member_name("runtime.lib:objects/blake3.o", Path::new("runtime.lib")),
+            Some("blake3.o")
+        );
+
+        #[cfg(windows)]
+        assert_eq!(
+            archive_member_name(
+                r"runtime.lib:C:\build\objects\blake3.o",
+                Path::new("runtime.lib"),
+            ),
+            Some("blake3.o")
+        );
+    }
 
     #[test]
     fn member_reachability_keeps_only_transitive_support() {

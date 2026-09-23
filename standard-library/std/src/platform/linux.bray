@@ -22,7 +22,7 @@ trusted internal func environment_pointer() -> RawPointer<RawPointer<u8>>
 trusted internal func argument_storage() -> std.memory.RawBuffer<u8>
     uses(foreign_call)
 {
-    let path: [u8; 19] = [47, 112, 114, 111, 99, 47, 115, 101, 108, 102, 47, 99, 109, 100, 108, 105, 110, 101, 0];
+    let path: bytes = b"/proc/self/cmdline\0";
 
     return trusted internal read_process_file(std.memory.address_of<u8>(&path[0]));
 }

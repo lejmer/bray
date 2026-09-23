@@ -699,15 +699,20 @@ The fixed-size array type form is:
 
 `N` is part of the type.
 
-`N` must be greater than zero.
+`N` must be nonnegative.
 
-When `N` remains symbolic, the greater-than-zero requirement is checked for each concrete instantiation before the array
+When `N` remains symbolic, the nonnegative requirement is checked for each concrete instantiation before the array
 type is used as a materializable type.
 
 A fixed-size array contains exactly `N` elements of type `T`.
 
+`bytes<N>` spells the same type as `[u8; N]`. The two spellings have identical type identity, layout, ABI,
+copy and move rules, and operations. A local `let` annotation may use bare `bytes` when its initializer determines
+the fixed extent. An ordinary byte string literal or a fixed array initializer can supply that extent. Other
+declarations use `bytes<N>` or `[u8; N]` so their type is explicit.
+
 Every fixed-size array access path has compiler-provided `length() -> usize` and `is_empty() -> bool` methods.
-`length()` returns `N`, and `is_empty()` is false because materializable fixed-size arrays require `N > 0`.
+`length()` returns `N`, and `is_empty()` reports whether `N` is zero.
 
 Each element has its own initialization state while the array is being initialized or after a partial move.
 

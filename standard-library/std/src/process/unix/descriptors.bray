@@ -21,7 +21,7 @@ trusted internal func child_descriptors(
         }
         case 1
         {
-            let null_path: [u8; 10] = [47, 100, 101, 118, 47, 110, 117, 108, 108, 0];
+            let null_path: bytes = b"/dev/null\0";
 
             let flags: i32 = if reads
             {

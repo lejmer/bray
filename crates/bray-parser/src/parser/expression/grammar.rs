@@ -1,6 +1,6 @@
 use bray_syntax::SyntaxKind;
 
-pub(in crate::parser) const EXPRESSION_START_KINDS: [SyntaxKind; 45] = [
+pub(in crate::parser) const EXPRESSION_START_KINDS: [SyntaxKind; 46] = [
     SyntaxKind::AllKeyword,
     SyntaxKind::AmpersandToken,
     SyntaxKind::AnyKeyword,
@@ -10,6 +10,7 @@ pub(in crate::parser) const EXPRESSION_START_KINDS: [SyntaxKind; 45] = [
     SyntaxKind::AwaitKeyword,
     SyntaxKind::BangToken,
     SyntaxKind::BinaryIntegerLiteralToken,
+    SyntaxKind::ByteStringLiteralToken,
     SyntaxKind::BoxKeyword,
     SyntaxKind::BreakKeyword,
     SyntaxKind::CatchKeyword,

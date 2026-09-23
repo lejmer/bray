@@ -269,7 +269,8 @@ Numeric literal typing and adaptation belong to the scalar and literal rules.
 literal-token =
       numeric-literal
     | character-literal
-    | string-literal ;
+    | string-literal
+    | byte-string-literal ;
 
 numeric-literal =
       imaginary-literal
@@ -359,6 +360,11 @@ A line break cannot appear unescaped inside a string literal.
 
 String literals perform no interpolation.
 
+A byte string literal starts with `b"` and ends at the next unescaped `"`. It has no implicit trailing zero.
+Unescaped source characters and Unicode escapes contribute their UTF-8 bytes. `\xHH` contributes exactly one byte
+with two hexadecimal digits, including values that are not valid UTF-8. Byte strings also accept the ordinary
+string escapes. A byte string may be empty.
+
 ---
 
 ## Escapes
@@ -376,6 +382,12 @@ string-escape-sequence =
     | "\\t"
     | "\\0"
     | unicode-escape ;
+
+byte-string-literal =
+    "b\"" { string-literal-scalar | string-escape-sequence | byte-escape-sequence } "\"" ;
+
+byte-escape-sequence =
+    "\\x" hexadecimal-digit hexadecimal-digit ;
 
 unicode-escape =
     "\\u{" unicode-escape-digits "}" ;
@@ -399,6 +411,8 @@ The valid character-literal escape sequences are the string-literal escape seque
 A Unicode escape has one to six hexadecimal digits and must denote a valid Unicode scalar value.
 
 Unknown escape sequences are invalid.
+
+`\x` is valid only in a byte string and requires exactly two hexadecimal digits.
 
 ---
 

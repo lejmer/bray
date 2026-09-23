@@ -13,7 +13,7 @@ use bray_symbols::{
 };
 
 use super::state::{PatternChecker, PatternSubject, available_dependency};
-use crate::constant::check_constant_literal;
+use crate::constant::{check_byte_string_literal, check_constant_literal};
 use crate::diagnostic::{diagnostic_id, pattern_span};
 use crate::representation::type_representation;
 use crate::type_check::diagnostic_type;
@@ -177,16 +177,23 @@ where
             ));
         };
 
-        let Some(representation) = type_representation(self.request, input_type) else {
-            return Ok(None);
+        let value = if literal.kind() == bray_bound_tree::BoundLiteralKind::ByteString {
+            check_byte_string_literal(self.request.semantic_values(), input_type, spelling)
+                .map_err(CheckerInfrastructureError::SemanticValueStore)?
+        } else {
+            let Some(representation) = type_representation(self.request, input_type) else {
+                return Ok(None);
+            };
+
+            check_constant_literal(literal.kind(), spelling, representation, || {
+                self.request
+                    .selected_target()
+                    .machine()
+                    .pointer_width_bits()
+            })
         };
 
-        let Ok(value) = check_constant_literal(literal.kind(), spelling, representation, || {
-            self.request
-                .selected_target()
-                .machine()
-                .pointer_width_bits()
-        }) else {
+        let Ok(value) = value else {
             return Ok(None);
         };
 

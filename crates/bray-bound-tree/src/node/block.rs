@@ -66,6 +66,7 @@ pub struct BoundLocalBinding {
     pattern: BoundPatternId,
     bindings: Arc<[LocalBindingSymbolId]>,
     declared_type: Option<BoundTypeReference>,
+    inferred_bytes: bool,
     initializer: BoundExpressionId,
     is_recovered: bool,
 }
@@ -77,6 +78,7 @@ impl BoundLocalBinding {
         pattern: BoundPatternId,
         bindings: impl IntoIterator<Item = LocalBindingSymbolId>,
         declared_type: Option<BoundTypeReference>,
+        inferred_bytes: bool,
         initializer: BoundExpressionId,
         is_recovered: bool,
     ) -> Self {
@@ -85,6 +87,7 @@ impl BoundLocalBinding {
             pattern,
             bindings: shared_slice(bindings),
             declared_type,
+            inferred_bytes,
             initializer,
             is_recovered,
         }
@@ -108,6 +111,11 @@ impl BoundLocalBinding {
     /// Returns the explicit declared type when one was present.
     pub const fn declared_type(&self) -> Option<BoundTypeReference> {
         self.declared_type
+    }
+
+    /// Returns whether a bytes annotation infers its fixed extent from the initializer.
+    pub const fn infers_byte_extent(&self) -> bool {
+        self.inferred_bytes
     }
 
     /// Returns the bound initializer expression.

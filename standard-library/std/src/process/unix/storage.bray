@@ -280,7 +280,12 @@ trusted internal func copy_native_text(
     let length: usize = std.truncate_to<usize>(text.length);
 
     trusted internal std.memory.byte_buffer_copy(text.address, start, count = length);
-    trusted std.memory.write<u8>(std.memory.offset<u8>(start, elements = std.truncate_to<isize>(length)), value = 0);
+
+    trusted std.memory.write<u8>(
+        std.memory.offset<u8>(start, elements = std.truncate_to<isize>(length)),
+        value = b"\0"[0]
+    );
+
     return start;
 }
 
@@ -298,7 +303,7 @@ trusted internal func copy_environment_entry(
 
     trusted std.memory.write<u8>(
         std.memory.offset<u8>(start, elements = std.truncate_to<isize>(key_length)),
-        value = 61,
+        value = b"="[0],
     );
 
     trusted internal std.memory.byte_buffer_copy(
@@ -309,7 +314,7 @@ trusted internal func copy_environment_entry(
 
     trusted std.memory.write<u8>(
         std.memory.offset<u8>(start, elements = std.truncate_to<isize>(key_length + value_length + 1)),
-        value = 0,
+        value = b"\0"[0],
     );
 
     return start;

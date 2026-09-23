@@ -16,7 +16,7 @@ use crate::constant::diagnostic::ConstantDiagnostic;
 use crate::constant::input::ConstantEvaluationRoot;
 use crate::constant::integer::integer_to_usize;
 use crate::constant::limits::EvaluationBudget;
-use crate::constant::literal::{normalize_integer_literal, parse_literal};
+use crate::constant::literal::{check_byte_string_literal, normalize_integer_literal, parse_literal};
 use crate::constant::operation::negate_real;
 use crate::diagnostic::{diagnostic_id, expression_category, expression_span};
 use crate::representation::type_representation;
@@ -556,6 +556,16 @@ where
         };
 
         self.budget.charge_literal(expression, spelling.len())?;
+
+        if literal.kind() == bray_bound_tree::BoundLiteralKind::ByteString {
+            let kind = check_byte_string_literal(self.request.semantic_values(), ty, spelling)
+                .map_err(|error| {
+                    EvaluationFailure::Infrastructure(CheckerInfrastructureError::SemanticValueStore(error))
+                })?
+                .map_err(|error| EvaluationFailure::literal(expression, error))?;
+
+            return self.intern_value_term(ty, kind);
+        }
 
         let representation = type_representation(self.request, ty)
             .ok_or_else(|| EvaluationFailure::invalid_expression(expression))?;

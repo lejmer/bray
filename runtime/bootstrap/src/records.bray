@@ -34,7 +34,7 @@ internal struct ReportSegment
 {
     mut ordinal: u64;
     mut task: u64;
-    mut frame: [u8; 32];
+    mut frame: bytes<32>;
     mut state: u32;
 }
 

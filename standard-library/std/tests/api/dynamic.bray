@@ -30,7 +30,7 @@ trusted func dynamic_libraries_resolve_typed_symbols_and_close_owners() -> Resul
         policy = std.dynamic.LoadPolicy.PlatformDefault,
     );
 
-    let invalid: [u8; 1] = [0];
+    let invalid: bytes = b"\0";
 
     let invalid_result: Result<std.dynamic.DynamicSymbol<u8>, std.ffi.ForeignError> = trusted library.symbol<u8>(
         &invalid[..]
@@ -44,27 +44,7 @@ trusted func dynamic_libraries_resolve_typed_symbols_and_close_owners() -> Resul
     assert(invalid_error.kind() matches std.ffi.ForeignErrorKind.InvalidInput);
 
     {
-        let missing_name: [u8; 19] = [
-            98,
-            114,
-            97,
-            121,
-            95,
-            109,
-            105,
-            115,
-            115,
-            105,
-            110,
-            103,
-            95,
-            115,
-            121,
-            109,
-            98,
-            111,
-            108,
-        ];
+        let missing_name: bytes = b"bray_missing_symbol";
 
         let missing: Result<std.dynamic.DynamicSymbol<u8>, std.ffi.ForeignError> = trusted library.symbol<u8>(
             &missing_name[..]
@@ -77,7 +57,7 @@ trusted func dynamic_libraries_resolve_typed_symbols_and_close_owners() -> Resul
 
         assert(missing_error.kind() matches std.ffi.ForeignErrorKind.UnavailableSymbol);
 
-        let name: [u8; 6] = [115, 116, 114, 108, 101, 110];
+        let name: bytes = b"strlen";
         let _: std.dynamic.DynamicSymbol<u8> = try trusted library.symbol<u8>(&name[..]);
     }
 

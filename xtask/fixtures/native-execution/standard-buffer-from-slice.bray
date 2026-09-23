@@ -5,7 +5,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
     let first: u8 = 1;
     let second: u8 = 2;
     let third: u8 = 3;
-    let bytes: [u8; 3] = [first, second, third];
+    let bytes: bytes<3> = [first, second, third];
     let copied: Buffer = try Buffer.from_slice(&bytes[..]);
     let values: &[u8] = copied.as_slice();
 
@@ -14,8 +14,8 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
     assert(values[1] == 2);
     assert(values[2] == 3);
 
-    let different: [u8; 3] = [first, second, first];
-    let shorter: [u8; 2] = [first, second];
+    let different: bytes<3> = [first, second, first];
+    let shorter: bytes<2> = [first, second];
 
     assert(equals(values, &bytes[..]));
     assert(!equals(values, &different[..]));

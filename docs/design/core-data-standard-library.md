@@ -25,6 +25,8 @@ belong with their lowest semantic owner rather than being hidden behind module c
 Owning containers expose allocation and movement through their APIs. Borrowed views use existing structural forms when
 those forms already express the invariant, such as `&string` and slices. A wrapper needs a stronger contract than a new
 name. Views retain their source dependency, while transformations that allocate or transfer ownership say so.
+Fixed byte data uses ordinary fixed `u8` arrays. The `bytes` spelling and byte string literals introduce no separate
+storage or runtime type.
 
 Safe buffers and collections build on trusted memory operations with an initialized-storage invariant. Length and
 capacity remain distinct. Growth and element movement respect ordinary lifecycle rules, and consuming iteration owns

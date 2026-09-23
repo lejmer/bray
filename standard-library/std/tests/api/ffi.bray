@@ -90,7 +90,7 @@ trusted func callback_entries_recover_state() -> Result<unit, std.memory.MemoryL
 trusted func c_strings_validate_termination_and_ownership() -> Result<unit, std.ffi.c.StringError>
     uses(layout_reinterpret, manual_alloc, raw_memory, unchecked_init)
 {
-    let input: [u8; 3] = [65, 66, 67];
+    let input: bytes = b"ABC";
     let owned: std.ffi.c.OwnedNarrowString = try trusted std.ffi.c.OwnedNarrowString.from_bytes(&input[..]);
     let owned_text: std.ffi.c.OwnedNarrowString = try trusted std.ffi.c.OwnedNarrowString.from_utf8(&"ABC");
     let borrowed: std.ffi.c.BorrowedNarrowString = owned.as_borrowed();
@@ -103,7 +103,7 @@ trusted func c_strings_validate_termination_and_ownership() -> Result<unit, std.
     assert(terminated[3] == 0);
     assert(!std.memory.is_null<u8>(borrowed.pointer()));
 
-    let valid: [u8; 2] = [65, 0];
+    let valid: bytes = b"A\0";
     let from_terminated: std.ffi.c.BorrowedNarrowString = try std.ffi.c.borrow_string(&valid[..]);
 
     assert(from_terminated.as_bytes().length() == 1);
@@ -131,7 +131,7 @@ trusted func c_strings_validate_termination_and_ownership() -> Result<unit, std.
 @test
 trusted func c_strings_reject_invalid_contents() -> Result<unit, std.ffi.c.StringError>
 {
-    let invalid: [u8; 3] = [65, 0, 66];
+    let invalid: bytes = b"A\0B";
 
     assert(
         std.testing.assert_error<std.ffi.c.OwnedNarrowString, std.ffi.c.StringError>(
@@ -139,7 +139,7 @@ trusted func c_strings_reject_invalid_contents() -> Result<unit, std.ffi.c.Strin
         ) matches std.ffi.c.StringError.InteriorNul
     );
 
-    let invalid_utf8: [u8; 2] = [255, 0];
+    let invalid_utf8: bytes = b"\xFF\0";
     let encoded: std.ffi.c.BorrowedNarrowString = try std.ffi.c.borrow_string(&invalid_utf8[..]);
 
     assert(
@@ -147,7 +147,7 @@ trusted func c_strings_reject_invalid_contents() -> Result<unit, std.ffi.c.Strin
             std.ffi.c.StringError.InvalidEncoding
     );
 
-    let unterminated: [u8; 1] = [65];
+    let unterminated: bytes = b"A";
 
     assert(
         std.testing.assert_error<std.ffi.c.BorrowedNarrowString, std.ffi.c.StringError>(

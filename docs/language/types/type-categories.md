@@ -20,6 +20,10 @@ The type categories are:
 Scalar types are integers, real floating-point types, complex floating-point types, machine-sized integer types, `bool`,
 `char`, `unit`, and `never`.
 
+`char` contains exactly one Unicode scalar value: a code point from U+0000 through U+10FFFF excluding the surrogate
+range U+D800 through U+DFFF. Character literals and conversions from integer code points reject values outside this
+set. The scalar's UTF-8 encoding may occupy one to four bytes.
+
 Product types are named types with fields or bodyless named storage contracts. A bodyless product can be incomplete or
 explicitly sized and aligned opaque storage.
 

@@ -95,7 +95,7 @@ struct OwnedNarrowString
             case Error(_) { return Error(StringError.Allocation); }
         };
 
-        match trusted std.bytes.push(&mut storage, value = 0)
+        match trusted std.bytes.push(&mut storage, value = b"\0"[0])
         {
             case Ok(_) {}
             case Error(_) { return Error(StringError.Allocation); }

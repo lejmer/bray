@@ -10,7 +10,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
 
     while index < 64
     {
-        try trusted std.bytes.push(&mut buffer, value = 65);
+        try trusted std.bytes.push(&mut buffer, value = b"A"[0]);
         index += 1;
     }
 

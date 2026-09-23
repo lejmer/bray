@@ -12,6 +12,7 @@ use bray_compiler_known::RepresentationRole;
 use bray_symbols::{NamedTypeSymbolId, TypeData, TypeId};
 
 use crate::representation::representation_type;
+use super::array_length::array_length;
 
 use super::ExpressionTypeExpectation;
 use super::dependencies::ExpressionTypeDependencies;
@@ -58,7 +59,10 @@ pub(crate) fn intrinsic_representation_role(
             BoundLiteralKind::Boolean => Some(RepresentationRole::ScalarBool),
             BoundLiteralKind::Character => Some(RepresentationRole::ScalarChar),
             BoundLiteralKind::String => Some(RepresentationRole::String),
-            BoundLiteralKind::Integer | BoundLiteralKind::Real | BoundLiteralKind::Imaginary => {
+            BoundLiteralKind::Integer
+            | BoundLiteralKind::Real
+            | BoundLiteralKind::Imaginary
+            | BoundLiteralKind::ByteString => {
                 None
             }
         },
@@ -318,7 +322,7 @@ pub(super) fn add_operand_expectation(
 pub(super) fn block_expectations<C>(
     request: CheckerUnitView<'_, C>,
     blocks: &[BoundBlockId],
-) -> Option<Vec<ExpressionTypeExpectation>>
+) -> Result<Option<Vec<ExpressionTypeExpectation>>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -326,7 +330,7 @@ where
 
     for &block in blocks {
         if request.is_cancelled() {
-            return None;
+            return Ok(None);
         }
 
         let Some(block) = request.view().block(block) else {
@@ -336,7 +340,28 @@ where
         for item in block.items() {
             match item {
                 BoundBlockItem::LocalBinding(binding) => {
-                    let expected = binding.declared_type().and_then(|reference| reference.ty());
+                    let expected = if binding.infers_byte_extent() {
+                        match request.view().expression(binding.initializer()) {
+                            Some(BoundExpression::Structured(array))
+                                if array.kind() == BoundStructuredExpressionKind::Array =>
+                            {
+                                let element =
+                                    representation_type(request, RepresentationRole::ScalarU8)?;
+
+                                let length = array_length(request, array.operands().len())?;
+
+                                Some(
+                                    request
+                                        .semantic_values()
+                                        .intern_type(TypeData::Array { element, length })
+                                        .map_err(CheckerInfrastructureError::SemanticValueStore)?,
+                                )
+                            }
+                            _ => None,
+                        }
+                    } else {
+                        binding.declared_type().and_then(|reference| reference.ty())
+                    };
 
                     push_expected_initializer(&mut expectations, binding.initializer(), expected);
                 }
@@ -352,7 +377,7 @@ where
         }
     }
 
-    Some(expectations)
+    Ok(Some(expectations))
 }
 
 fn push_expected_initializer(

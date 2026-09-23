@@ -28,7 +28,7 @@ impl WriterFormattingSink = FormattingSink<Destination>(std.format.Sink<std.io.I
     mut func write_repeated(value: u8, count: usize) -> Result<unit, std.io.IoError>
         requires(blocking_execution())
     {
-        let chunk: [u8; 64] = [value; 64];
+        let chunk: bytes<64> = [value; 64];
         let mut written: usize = 0;
 
         while written < count

@@ -41,6 +41,7 @@ pub(in crate::standard_library) enum BuildError {
     TemporaryDirectory(std::io::Error),
     UnsupportedTarget(TargetIdentity),
     CompilerUnavailable(bray_tooling::LlvmCompilationLoadError),
+    InspectorUnavailable(bray_tooling::LlvmToolPathError),
     LinkerUnavailable {
         target: TargetIdentity,
         detail: String,
@@ -213,6 +214,9 @@ impl fmt::Display for BuildError {
             }
             Self::CompilerUnavailable(error) => {
                 write!(formatter, "LLVM compiler backend is unavailable: {error}")
+            }
+            Self::InspectorUnavailable(error) => {
+                write!(formatter, "native inspector is unavailable: {error}")
             }
             Self::LinkerUnavailable { target, detail } => {
                 write!(

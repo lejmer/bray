@@ -185,7 +185,9 @@ impl<'binding> DeclaredValueTypeBinding<'binding> {
                         pattern,
                     );
 
-                    if let Some(declared) = binding.declared_type() {
+                    if let Some(declared) = binding.declared_type()
+                        && !binding.infers_byte_extent()
+                    {
                         let template = self.bind_type_anchor(declared.syntax())?;
 
                         self.add_evidence(pattern, template);

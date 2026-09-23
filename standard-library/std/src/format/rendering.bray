@@ -11,7 +11,7 @@ internal func write_padding<Destination, Failure>(
     with(Destination: Sink<Failure>)
     requires(blocking_execution())
 {
-    return destination.write_repeated(value = 32, count = count);
+    return destination.write_repeated(value = b" "[0], count = count);
 }
 
 internal func write_leading_zeroes<Destination, Failure>(
@@ -21,7 +21,7 @@ internal func write_leading_zeroes<Destination, Failure>(
     with(Destination: Sink<Failure>)
     requires(blocking_execution())
 {
-    return destination.write_repeated(value = 48, count = count);
+    return destination.write_repeated(value = b"0"[0], count = count);
 }
 
 internal func write_aligned<Destination, Failure>(
@@ -76,17 +76,17 @@ internal func digit_offset(pos uppercase: bool) -> u8
 {
     if uppercase
     {
-        return 65;
+        return b"A"[0];
     }
 
-    return 97;
+    return b"a"[0];
 }
 
 internal func digit_byte(pos value: u128, pos uppercase: bool) -> u8
 {
     return match value
     {
-        case 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 { yield 48 + std.truncate_to<u8>(value); }
+        case 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 { yield b"0"[0] + std.truncate_to<u8>(value); }
         case 10 | 11 | 12 | 13 | 14 { yield digit_offset(uppercase) + std.truncate_to<u8>(value - 10); }
         case _ { yield digit_offset(uppercase) + 5; }
     };
@@ -214,7 +214,7 @@ internal func write_unsigned_digits<Destination, Failure>(
     with(Destination: Sink<Failure>)
     requires(blocking_execution())
 {
-    let mut digits: [u8; 128] = [0; 128];
+    let mut digits: bytes<128> = [0; 128];
     let mut start: usize = 128;
     let mut remaining: u128 = value;
 
@@ -240,7 +240,7 @@ internal func write_signed_digits<Destination, Failure>(
     with(Destination: Sink<Failure>)
     requires(blocking_execution())
 {
-    let mut digits: [u8; 128] = [0; 128];
+    let mut digits: bytes<128> = [0; 128];
     let mut start: usize = 128;
     let mut remaining: i128 = value;
 
@@ -265,9 +265,9 @@ internal func write_requested_sign<Destination, Failure>(
     with(Destination: Sink<Failure>)
     requires(blocking_execution())
 {
-    let minus: [u8; 1] = [45];
-    let plus: [u8; 1] = [43];
-    let space: [u8; 1] = [32];
+    let minus: bytes = b"-";
+    let plus: bytes = b"+";
+    let space: bytes = b" ";
 
     if negative
     {
@@ -346,7 +346,7 @@ internal func write_escape<Destination, Failure>(
     with(Destination: Sink<Failure>)
     requires(blocking_execution())
 {
-    let escaped: [u8; 2] = [92, value];
+    let escaped: bytes<2> = [b"\\"[0], value];
 
     return destination.write(&escaped[..]);
 }
@@ -355,11 +355,11 @@ internal func escape_code(pos value: u8) -> u8
 {
     return match value
     {
-        case 34 { yield 34; }
-        case 92 { yield 92; }
-        case 10 { yield 110; }
-        case 13 { yield 114; }
-        case 9 { yield 116; }
+        case 34 { yield b"\""[0]; }
+        case 92 { yield b"\\"[0]; }
+        case 10 { yield b"n"[0]; }
+        case 13 { yield b"r"[0]; }
+        case 9 { yield b"t"[0]; }
         case _ { yield 0; }
     };
 }
@@ -397,7 +397,7 @@ internal func write_escaped_string<Destination, Failure>(
     with(Destination: Sink<Failure>)
     requires(blocking_execution())
 {
-    let quote: [u8; 1] = [34];
+    let quote: bytes = b"\"";
 
     try destination.write(&quote[..]);
 
@@ -477,8 +477,8 @@ internal func write_boolean_value<Destination, Failure>(
     with(Destination: Sink<Failure>)
     requires(blocking_execution())
 {
-    let true_bytes: [u8; 4] = [116, 114, 117, 101];
-    let false_bytes: [u8; 5] = [102, 97, 108, 115, 101];
+    let true_bytes: bytes = b"true";
+    let false_bytes: bytes = b"false";
 
     if value
     {
@@ -501,12 +501,12 @@ internal func character_escape_byte(pos scalar: u32) -> u8
 {
     return match scalar
     {
-        case 0 { yield 48; }
-        case 9 { yield 116; }
-        case 10 { yield 110; }
-        case 13 { yield 114; }
-        case 39 { yield 39; }
-        case _ { yield 92; }
+        case 0 { yield b"0"[0]; }
+        case 9 { yield b"t"[0]; }
+        case 10 { yield b"n"[0]; }
+        case 13 { yield b"r"[0]; }
+        case 39 { yield b"'"[0]; }
+        case _ { yield b"\\"[0]; }
     };
 }
 
@@ -561,7 +561,7 @@ internal func write_character_value<Destination, Failure>(
 
     if quoted
     {
-        let quote: [u8; 1] = [39];
+        let quote: bytes = b"'";
 
         try destination.write(&quote[..]);
     }
@@ -577,7 +577,7 @@ internal func write_character_value<Destination, Failure>(
 
     if quoted
     {
-        let quote: [u8; 1] = [39];
+        let quote: bytes = b"'";
 
         try destination.write(&quote[..]);
     }

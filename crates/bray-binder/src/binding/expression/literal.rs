@@ -48,6 +48,7 @@ pub(in crate::binding) fn literal_kind(kind: SyntaxKind) -> Option<BoundLiteralK
         SyntaxKind::TrueKeyword | SyntaxKind::FalseKeyword => BoundLiteralKind::Boolean,
         SyntaxKind::CharacterLiteralToken => BoundLiteralKind::Character,
         SyntaxKind::StringLiteralToken => BoundLiteralKind::String,
+        SyntaxKind::ByteStringLiteralToken => BoundLiteralKind::ByteString,
         _ => return None,
     })
 }

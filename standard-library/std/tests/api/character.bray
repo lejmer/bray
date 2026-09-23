@@ -1,5 +1,6 @@
 module bray.standard_library_tests.character;
 
+using std.bytes;
 using std.character;
 using std.testing;
 
@@ -38,14 +39,13 @@ func character_boundaries()
     let supplementary_encoding: std.character.Utf8Encoding = supplementary.encode_utf8();
     let ascii_bytes: &[u8] = ascii_encoding.as_slice();
     let supplementary_bytes: &[u8] = supplementary_encoding.as_slice();
+    let ascii_expected: bytes = b"A";
+    let supplementary_expected: bytes = b"😀";
 
     assert(ascii_bytes.length() == 1);
-    assert(ascii_bytes[0] == 65);
+    assert(std.bytes.equals(ascii_bytes, &ascii_expected[..]));
     assert(supplementary_bytes.length() == 4);
-    assert(supplementary_bytes[0] == 240);
-    assert(supplementary_bytes[1] == 159);
-    assert(supplementary_bytes[2] == 152);
-    assert(supplementary_bytes[3] == 128);
+    assert(std.bytes.equals(supplementary_bytes, &supplementary_expected[..]));
     assert('7'.is_numeric());
     assert('٧'.is_numeric());
     assert('界'.is_alphabetic());

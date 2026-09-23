@@ -109,7 +109,7 @@ struct CountingReader
 
 struct RecoveringWriter
 {
-    mut bytes: [u8; 8];
+    mut bytes: bytes<8>;
     mut length: usize;
     mut fail_drain: bool;
     mut fail_flush: bool;
@@ -219,7 +219,7 @@ func standard_error_is_captured() -> Result<unit, std.io.IoError>
 @test
 func complete_transfers_preserve_partial_progress() -> Result<unit, std.io.IoError>
 {
-    let source: [u8; 5] = [1, 2, 3, 4, 5];
+    let source: bytes<5> = [1, 2, 3, 4, 5];
     let mut writer: CountingWriter = CountingWriter(limit = 2);
 
     try writer.write_all(&source[..]);
@@ -238,7 +238,7 @@ func complete_transfers_preserve_partial_progress() -> Result<unit, std.io.IoErr
     assert(write_error.transferred == 3);
 
     let mut exact: CountingReader = CountingReader(remaining = 5, limit = 2);
-    let mut destination: [u8; 5] = [0; 5];
+    let mut destination: bytes<5> = [0; 5];
 
     try exact.read_exact(&mut destination[..]);
     assert(exact.calls == 3);
@@ -265,8 +265,8 @@ func buffering_coalesces_small_writes_and_bypasses_large_transfers() -> Result<u
         capacity = 4
     );
 
-    let pair: [u8; 2] = [1, 2];
-    let single: [u8; 1] = [3];
+    let pair: bytes<2> = [1, 2];
+    let single: bytes<1> = [3];
 
     let _: usize = try writer(std.io.Writer).write(&pair[..]);
     let _: usize = try writer(std.io.Writer).write(&pair[..]);
@@ -285,7 +285,7 @@ func buffering_coalesces_small_writes_and_bypasses_large_transfers() -> Result<u
         capacity = 4
     );
 
-    let large: [u8; 8] = [7; 8];
+    let large: bytes<8> = [7; 8];
 
     let written: usize = try large_writer(std.io.Writer).write(&large[..]);
     let completed_large_sink: CountingWriter = try large_writer.into_sink();
@@ -302,7 +302,7 @@ func buffering_coalesces_small_writes_and_bypasses_large_transfers() -> Result<u
         capacity = 4
     );
 
-    let mut direct_destination: [u8; 8] = [0; 8];
+    let mut direct_destination: bytes<8> = [0; 8];
 
     let direct_read: usize = try direct_reader(std.io.Reader).read(&mut direct_destination[..]);
     let completed_direct_source: CountingReader = direct_reader.into_source();
@@ -318,7 +318,7 @@ func buffering_coalesces_small_writes_and_bypasses_large_transfers() -> Result<u
         capacity = 4
     );
 
-    let mut buffered_destination: [u8; 2] = [0; 2];
+    let mut buffered_destination: bytes<2> = [0; 2];
 
     let buffered_read: usize = try buffered_reader(std.io.Reader).read(&mut buffered_destination[..]);
     let completed_buffered_source: CountingReader = buffered_reader.into_source();
@@ -340,8 +340,8 @@ func buffering_coalesces_small_writes_and_bypasses_large_transfers() -> Result<u
         capacity = 4
     );
 
-    let full: [u8; 4] = [1, 2, 3, 4];
-    let trailing: [u8; 1] = [5];
+    let full: bytes<4> = [1, 2, 3, 4];
+    let trailing: bytes<1> = [5];
 
     let _: usize = try recovering(std.io.Writer).write(&full[..]);
 

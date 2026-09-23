@@ -11,6 +11,11 @@ let values: [i32; 4] = [1, 2, 3, 4];
 The array length is the number of element expressions.
 
 An array expression with no supplied elements is rejected.
+An empty byte string `b""` instead has the fixed array type `bytes<0>`.
+
+A byte string literal has the same value and ordinary array behavior as its encoded fixed `u8` array.
+For example, `b"lib\0"` is `[108, 105, 98, 0]`, while `b"lib"` has no terminator.
+Indexing returns `u8`; slicing and borrowing use the existing array and byte slice rules.
 
 The array element type is determined by the expected array type when one is available, or inferred from the element
 expressions when no expected array type is available.

@@ -20,6 +20,7 @@ use crate::{
 
 use super::ExpressionTypeInput;
 use super::cardinality::unproven_array_generators;
+use super::inferred_bytes::inferred_bytes_diagnostics;
 use super::session::{ExpressionTypeSession, SessionProgress};
 
 #[derive(Clone, Eq, Ord, PartialEq, PartialOrd)]
@@ -251,6 +252,11 @@ where
         Some(ty) => checked_types.with_callable_result_type(ty),
         None => checked_types,
     };
+
+    match inferred_bytes_diagnostics(request, &checked_types, diagnostics.len()) {
+        Ok(inferred) => diagnostics.extend(inferred),
+        Err(error) => return query_outcome(error),
+    }
 
     let unproven_generators =
         match unproven_array_generators(request, &checked_types, iteration_sources) {

@@ -438,7 +438,9 @@ const fn syntax_token_type(kind: SyntaxKind) -> Option<u32> {
     }
 
     match kind {
-        SyntaxKind::StringLiteralToken | SyntaxKind::CharacterLiteralToken => Some(16),
+        SyntaxKind::StringLiteralToken
+        | SyntaxKind::ByteStringLiteralToken
+        | SyntaxKind::CharacterLiteralToken => Some(16),
         SyntaxKind::DecimalIntegerLiteralToken
         | SyntaxKind::BinaryIntegerLiteralToken
         | SyntaxKind::HexadecimalIntegerLiteralToken

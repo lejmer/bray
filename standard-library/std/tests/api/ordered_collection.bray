@@ -44,7 +44,7 @@ impl OwnedOrderedValueComparable = OwnedOrderedValue(Comparable<OwnedOrderedValu
 
 func owned_ordered_value(pos identity: u64, pos byte: u8) -> Result<OwnedOrderedValue, std.memory.MemoryLayoutError>
 {
-    let bytes: [u8; 1] = [byte];
+    let bytes: bytes<1> = [byte];
 
     return Ok(
         {

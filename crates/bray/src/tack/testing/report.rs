@@ -771,7 +771,7 @@ mod tests {
 
         assert_eq!(
             report["products"][0]["tests"][0]["stdout"]["bytes"],
-            serde_json::json!([112, 114, 101, 102, 105, 120])
+            serde_json::json!(b"prefix")
         );
 
         assert_eq!(report["summary"]["failed"], 1);

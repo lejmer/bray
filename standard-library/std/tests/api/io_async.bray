@@ -89,7 +89,7 @@ impl AsyncCountingReaderIo = AsyncCountingReader(std.io.AsyncReader)
 
 struct AsyncRecoveringWriter
 {
-    mut bytes: [u8; 8];
+    mut bytes: bytes<8>;
     mut length: usize;
     mut fail_drain: bool;
     mut fail_flush: bool;
@@ -169,7 +169,7 @@ async func asynchronous_standard_output_is_captured()
 @test
 async func asynchronous_bulk_transfers_and_buffering_share_the_cost_model() -> Result<unit, std.io.IoError>
 {
-    let bytes: [u8; 5] = [1, 2, 3, 4, 5];
+    let bytes: bytes<5> = [1, 2, 3, 4, 5];
     let mut writer: AsyncCountingWriter = AsyncCountingWriter(limit = 2);
 
     try await writer.write_all_async(&bytes[..]);
@@ -184,7 +184,7 @@ async func asynchronous_bulk_transfers_and_buffering_share_the_cost_model() -> R
         capacity = 4
     );
 
-    let large: [u8; 8] = [9; 8];
+    let large: bytes<8> = [9; 8];
 
     let written: usize = try await buffered(std.io.AsyncWriter).write_async(&large[..]);
     let completed_sink: AsyncCountingWriter = try await buffered.into_sink_async();
@@ -201,7 +201,7 @@ async func asynchronous_bulk_transfers_and_buffering_share_the_cost_model() -> R
         capacity = 4
     );
 
-    let mut destination: [u8; 8] = [0; 8];
+    let mut destination: bytes<8> = [0; 8];
 
     try await reader.read_exact_async(&mut destination[..]);
 
@@ -223,8 +223,8 @@ async func asynchronous_bulk_transfers_and_buffering_share_the_cost_model() -> R
         capacity = 4
     );
 
-    let full: [u8; 4] = [1, 2, 3, 4];
-    let trailing: [u8; 1] = [5];
+    let full: bytes<4> = [1, 2, 3, 4];
+    let trailing: bytes<1> = [5];
 
     let _: usize = try await recovering(std.io.AsyncWriter).write_async(&full[..]);
 

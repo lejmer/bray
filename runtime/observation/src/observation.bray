@@ -118,8 +118,8 @@ trusted internal func record(pos kind: u8, pos value: u64)
         trusted internal fatal("performance observation record limit exceeded\n");
     }
 
-    let mut bytes: [u8; 9] = [0; 9];
-    let value_bytes: [u8; 8] = std.bytes.u64_little_endian(value);
+    let mut bytes: bytes<9> = [0; 9];
+    let value_bytes: bytes<8> = std.bytes.u64_little_endian(value);
     let mut index: usize = 0;
 
     bytes[0] = kind;
@@ -183,7 +183,7 @@ trusted internal func initialize()
 
     core.atomic.store<u64, 0>(&OUTPUT_HANDLE, value = handle);
 
-    let header: [u8; 8] = [66, 82, 65, 89, 80, 79, 48, 49];
+    let header: bytes = b"BRAYPO01";
 
     trusted internal write_bytes(&header[..]);
     core.atomic.store<u32, 2>(&INITIALIZATION_STATE, value = READY);
