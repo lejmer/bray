@@ -45,6 +45,7 @@ pub(super) struct FinishedExpressionTypes {
     pub(super) results: Vec<(BoundExpressionId, ExpressionTypeResult)>,
     pub(super) conflicts: Vec<TypeConflict>,
     pub(super) unresolved: Vec<BoundExpressionId>,
+    pub(super) inferred_byte_initializers: Vec<BoundExpressionId>,
     pub(super) callable_result_type: Option<TypeId>,
 }
 
@@ -55,6 +56,7 @@ where
 {
     request: CheckerUnitView<'view, C>,
     expressions: Vec<BoundExpressionId>,
+    inferred_byte_initializers: Vec<BoundExpressionId>,
     variables: BTreeMap<BoundExpressionId, InferenceTypeId>,
     block_variables: BTreeMap<BoundBlockId, InferenceTypeId>,
     regions: ExpressionTypeRegions,
@@ -135,7 +137,11 @@ where
 
         add_semantic_context_constraints(request, &variables, types.boolean, &mut inference);
 
-        let Some(local_expectations) = block_expectations(request, &nodes.blocks)? else {
+        let mut inferred_byte_initializers = Vec::new();
+
+        let Some(local_expectations) =
+            block_expectations(request, &nodes.blocks, &mut inferred_byte_initializers)?
+        else {
             return Ok(SessionProgress::Cancelled);
         };
 
@@ -146,6 +152,7 @@ where
         Ok(SessionProgress::Complete(Self {
             request,
             expressions: nodes.expressions,
+            inferred_byte_initializers,
             variables,
             block_variables,
             regions,
@@ -378,6 +385,7 @@ where
             results,
             conflicts,
             unresolved,
+            inferred_byte_initializers: self.inferred_byte_initializers,
             callable_result_type: self.callable_result_type,
         }
     }

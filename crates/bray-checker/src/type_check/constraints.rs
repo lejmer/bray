@@ -322,6 +322,7 @@ pub(super) fn add_operand_expectation(
 pub(super) fn block_expectations<C>(
     request: CheckerUnitView<'_, C>,
     blocks: &[BoundBlockId],
+    inferred_byte_initializers: &mut Vec<BoundExpressionId>,
 ) -> Result<Option<Vec<ExpressionTypeExpectation>>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
@@ -341,6 +342,8 @@ where
             match item {
                 BoundBlockItem::LocalBinding(binding) => {
                     let expected = if binding.infers_byte_extent() {
+                        inferred_byte_initializers.push(binding.initializer());
+
                         inferred_byte_array_type(request, binding.initializer())?
                     } else {
                         binding.declared_type().and_then(|reference| reference.ty())

@@ -1,6 +1,6 @@
 use bray_bound_tree::{
-    BoundBlockItem, BoundExpression, BoundExpressionId, BoundLiteralKind,
-    BoundStructuredExpressionKind, CheckedExpressionTypes,
+    BoundExpression, BoundExpressionId, BoundLiteralKind, BoundStructuredExpressionKind,
+    CheckedExpressionTypes,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{
@@ -102,63 +102,52 @@ where
     }
 }
 
-pub(super) fn inferred_bytes_diagnostics<C>(
+pub(super) fn append_inferred_bytes_diagnostics<C>(
     request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
-    first_diagnostic: usize,
-) -> Result<Vec<Diagnostic>, CheckerQueryError<C::UpstreamError>>
+    initializers: &[BoundExpressionId],
+    diagnostics: &mut Vec<Diagnostic>,
+) -> Result<(), CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let mut diagnostics = Vec::new();
+    for &initializer in initializers {
+        let result = types.expression(initializer).unwrap_or_else(|| {
+            panic!("inferred byte initializer {initializer:?} must have a checked type")
+        });
 
-    for (_, block) in request.unit().tree().blocks() {
-        for item in block.items() {
-            let BoundBlockItem::LocalBinding(binding) = item else {
-                continue;
-            };
-
-            if !binding.infers_byte_extent() {
-                continue;
-            }
-
-            let Some(result) = types.expression(binding.initializer()) else {
-                continue;
-            };
-
-            if result.is_recovered() {
-                continue;
-            }
-
-            let data = request.semantic_values().type_data(result.ty());
-
-            let (expected, actual) = match data.as_ref() {
-                TypeData::Array { element, .. }
-                    if type_representation(request, *element) == Some(RepresentationRole::ScalarU8) => continue,
-                TypeData::Array { element, .. } => {
-                    (DiagnosticType::U8, diagnostic_type(request, *element)?)
-                }
-                _ => (DiagnosticType::Array, diagnostic_type(request, result.ty())?),
-            };
-
-            let span = expression_span(request, binding.initializer())?;
-
-            diagnostics.push(
-                Diagnostic::new(
-                    diagnostic_id(first_diagnostic + diagnostics.len()),
-                    DiagnosticKind::CheckingIncompatibleExpressionType,
-                    SeverityKind::Error,
-                )
-                .with_primary_span(span)
-                .with_label(DiagnosticLabel::primary(
-                    DiagnosticLabelKind::IncompatibleExpressionType,
-                    span,
-                ))
-                .with_arg(DiagnosticArg::expected_type(expected))
-                .with_arg(DiagnosticArg::actual_type(actual)),
-            );
+        if result.is_recovered() {
+            continue;
         }
+
+        let data = request.semantic_values().type_data(result.ty());
+
+        let (expected, actual) = match data.as_ref() {
+            TypeData::Array { element, .. }
+                if type_representation(request, *element) == Some(RepresentationRole::ScalarU8) => continue,
+            TypeData::Array { element, .. } => {
+                (DiagnosticType::U8, diagnostic_type(request, *element)?)
+            }
+            _ => (DiagnosticType::Array, diagnostic_type(request, result.ty())?),
+        };
+
+        let span = expression_span(request, initializer)?;
+
+        diagnostics.push(
+            Diagnostic::new(
+                diagnostic_id(diagnostics.len()),
+                DiagnosticKind::CheckingIncompatibleExpressionType,
+                SeverityKind::Error,
+            )
+            .with_primary_span(span)
+            .with_label(DiagnosticLabel::primary(
+                DiagnosticLabelKind::IncompatibleExpressionType,
+                span,
+            ))
+            .with_arg(DiagnosticArg::expected_type(expected))
+            .with_arg(DiagnosticArg::actual_type(actual)),
+        );
     }
 
-    Ok(diagnostics)
+    Ok(())
 }
