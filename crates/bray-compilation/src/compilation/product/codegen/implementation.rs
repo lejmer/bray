@@ -201,7 +201,6 @@ impl Compilation {
             || {
                 self.codegen_product_host_mapping(
                     &product,
-                    &units,
                     &mappings,
                     &host_statics,
                     &target,
@@ -4398,6 +4397,20 @@ public func invoke<T>(pos value: T)
         let host = plan
             .product_host()
             .unwrap_or_else(|| panic!("lifecycle-bearing statics must retain a product host"));
+
+        let owner = plan
+            .mappings()
+            .iter()
+            .find(|mapping| {
+                mapping
+                    .static_storages()
+                    .iter()
+                    .any(bray_codegen::CodegenStaticStorageMapping::defines_storage)
+            })
+            .map(bray_codegen::CodegenMappings::unit)
+            .unwrap_or_else(|| panic!("lifecycle-bearing statics must define storage"));
+
+        assert_eq!(host.owner(), owner);
 
         let consumer = host
             .statics()
