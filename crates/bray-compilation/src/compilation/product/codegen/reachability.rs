@@ -1,17 +1,22 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::hash::Hash;
+use std::sync::Arc;
 
+use bray_base::StableDigestHasher;
 use bray_codegen::{
     CodegenInstance, CodegenInstanceDependency, CodegenInstanceKey, CodegenReachabilityBuilder,
-    CodegenTarget,
+    CodegenOptions, CodegenTarget, OptimizationLevel,
 };
 use bray_ir::{MirUnit, MirUnitId, MirUnitKey};
 
-use super::super::super::Compilation;
+use super::super::super::{CodegenPreparationError, Compilation};
 use super::super::error::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
 use super::super::specialization::{ConcreteCodegenInstance, ConcreteCodegenReachability};
 use super::{ConcreteCodegenDemand, ConcreteCodegenRoot, NativeDemand};
 use super::error::{NativeProductPlanningError, native_batch_error};
-use crate::fact::{BatchWork, CancellationToken, FactQueryError};
+use crate::fact::{
+    BatchWork, CancellationToken, CompilationFactKey, FactQueryError, OptimizedMirQueryKey,
+};
 
 enum ReachabilityEvaluation {
     External,
@@ -22,11 +27,51 @@ enum ReachabilityEvaluation {
 }
 
 impl Compilation {
+    fn optimized_mir_for_plan(
+        &self,
+        realization: &ConcreteCodegenInstance,
+        raw: &MirUnit,
+        options: CodegenOptions,
+        cancellation: &CancellationToken,
+    ) -> Result<MirUnit, CodegenPreparationError> {
+        let mut hasher = StableDigestHasher::new();
+        raw.hash(&mut hasher);
+
+        let key = OptimizedMirQueryKey::new(
+            realization.key().clone(),
+            raw.unit(),
+            options,
+            hasher.finalize(),
+        );
+
+        let cell = self.state.optimized_mir.cell(key.clone())?;
+
+        let result = cell.get_or_compute(
+            &self.state.fact_runtime,
+            CompilationFactKey::OptimizedMir(key),
+            cancellation,
+            || {
+                Ok(if options.optimization() != OptimizationLevel::None {
+                    self.simplify_concrete_mir(realization, raw, cancellation)
+                        .map(Arc::new)
+                } else {
+                    Ok(Arc::new(raw.clone()))
+                })
+            },
+        )?;
+
+        result
+            .as_ref()
+            .map(|mir| mir.as_ref().clone())
+            .map_err(Clone::clone)
+    }
+
     pub(super) fn codegen_reachability(
         &self,
         roots: impl IntoIterator<Item = ConcreteCodegenRoot>,
         generated_host: Option<(MirUnit, Vec<ConcreteCodegenRoot>)>,
         target: &CodegenTarget,
+        options: CodegenOptions,
         cancellation: &CancellationToken,
     ) -> Result<ConcreteCodegenReachability, NativeProductPlanningError> {
         let roots: Vec<_> = roots.into_iter().collect();
@@ -93,6 +138,9 @@ impl Compilation {
                                 ),
                             }?
                         };
+
+                        let mir =
+                            self.optimized_mir_for_plan(&realization, &mir, options, cancellation)?;
 
                         let mut concrete_dependencies = self
                             .concrete_codegen_dependencies_for_mir(
@@ -263,7 +311,7 @@ impl Compilation {
             self.product_root_instances(semantic.value(), None, &target, &self.state.cancellation)?;
 
         let reachability =
-            self.codegen_reachability(roots, None, &target, &self.state.cancellation)?;
+            self.codegen_reachability(roots, None, &target, CodegenOptions::default(), &self.state.cancellation)?;
 
         Ok(reachability
             .graph()

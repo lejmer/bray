@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_codegen::{
     CodegenLinkage, CodegenMappings, CodegenProductHostMapping, CodegenProductHostStatic,
-    CodegenTarget, CodegenUnit, demanded_runtime_references_for_mir,
+    CodegenTarget, demanded_runtime_references_for_mir,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_runtime_interface::{
@@ -23,7 +23,6 @@ impl Compilation {
     pub(super) fn codegen_product_host_mapping(
         &self,
         product: &ProductIdentity,
-        units: &[CodegenUnit],
         mappings: &[CodegenMappings],
         entries: &[super::super::realization::ProductStaticHostEntry],
         target: &CodegenTarget,
@@ -32,12 +31,16 @@ impl Compilation {
             return Ok(None);
         }
 
-        let owner = units.first().map(CodegenUnit::key).ok_or_else(|| {
-            FactQueryError::from(ProductQueryFailure::missing(
-                ProductQueryContext::Target(target.clone()),
-                ProductDataKind::ProductHostOwnerUnit,
-            ))
-        })?;
+        let owner = mappings
+            .iter()
+            .find(|mapping| {
+                mapping
+                    .static_storages()
+                    .iter()
+                    .any(bray_codegen::CodegenStaticStorageMapping::defines_storage)
+            })
+            .map(CodegenMappings::unit)
+            .expect("product host entries require a defined static storage");
 
         let mut realizations = BTreeMap::new();
 

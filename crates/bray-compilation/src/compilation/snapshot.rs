@@ -344,6 +344,10 @@ fn reuse_mapped_cells(
         CompilationFactKey::CodegenArtifact(key.clone())
     });
 
+    reuse!(optimized_mir, |key| {
+        CompilationFactKey::OptimizedMir(key.clone())
+    });
+
     updated.symbol_semantics = previous.symbol_semantics.updated(reusable);
     updated.discovery_symbol_semantics = previous.discovery_symbol_semantics.updated(reusable);
 

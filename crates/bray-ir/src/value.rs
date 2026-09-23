@@ -1,4 +1,4 @@
-use bray_symbols::{ConstantValueId, TypeId};
+use bray_symbols::{ConstantTermId, ConstantValueId, TypeId};
 
 use crate::{MirBlockId, MirOperationId, MirPlace, MirSourceAnchor};
 
@@ -63,6 +63,13 @@ pub enum MirOperand {
         /// The constant's checked type.
         ty: TypeId,
     },
+    /// A compile-time term resolved for each concrete generic instance.
+    ConstantTerm {
+        /// The open term in the reusable template.
+        term: ConstantTermId,
+        /// The term's checked type.
+        ty: TypeId,
+    },
     /// A deterministic compiler-defined immediate value.
     Immediate {
         /// The immediate value category.
@@ -84,14 +91,14 @@ impl MirOperand {
         match self {
             Self::Value(value) => *value = mappings.value(*value),
             Self::Copy(place) | Self::Move(place) => place.remap_local_ids(mappings),
-            Self::Constant { .. } | Self::Immediate { .. } => {}
+            Self::Constant { .. } | Self::ConstantTerm { .. } | Self::Immediate { .. } => {}
         }
     }
 
     /// Returns the operand's known type when it is carried directly by the operand.
     pub const fn explicit_type(&self) -> Option<TypeId> {
         match self {
-            Self::Constant { ty, .. } | Self::Immediate { ty, .. } => Some(*ty),
+            Self::Constant { ty, .. } | Self::ConstantTerm { ty, .. } | Self::Immediate { ty, .. } => Some(*ty),
             Self::Copy(place) | Self::Move(place) => Some(place.ty()),
             Self::Value(_) => None,
         }

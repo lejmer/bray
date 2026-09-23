@@ -69,13 +69,12 @@ impl Lowerer<'_> {
                 ))
             }
             BoundExpression::Name(name) => {
-                if let Some(value) = self.input.constant_reference_value(id) {
+                if let Some(operand) = self.input.constant_reference_operand(id) {
                     let source = self.source(expression.origin());
-                    let ty = self.expression_type(id);
 
                     Ok(LoweredExpression::continuing(
                         current,
-                        Some(MirOperand::Constant { value, ty }),
+                        Some(operand.clone()),
                         source,
                     ))
                 } else if let Some(callable) = self.declared_callable_reference(id, *name)? {

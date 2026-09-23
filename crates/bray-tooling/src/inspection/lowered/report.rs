@@ -636,6 +636,9 @@ fn operand_text(operand: &super::model::InspectionMirOperand) -> String {
         InspectionMirOperand::Constant { value, r#type } => {
             format!("constant {value}: {}", r#type.text())
         }
+        InspectionMirOperand::ConstantTerm { term, r#type } => {
+            format!("constant term {term}: {}", r#type.text())
+        }
         InspectionMirOperand::Immediate { value, r#type } => {
             format!("immediate {value}: {}", r#type.text())
         }

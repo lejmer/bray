@@ -155,11 +155,12 @@ impl InterfaceNativeBoundary {
     }
 }
 
-/// One exact source specialization bound to a physical native unit and target symbol.
+/// One source specialization bound to a native unit, symbol, and producer policy.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct InterfaceNativeBinding {
     owner: InterfaceSymbolId,
     key: super::PackageImplementationSpecializationKey,
+    producer_options: bray_codegen::CodegenOptions,
     unit: [u8; 32],
     symbol: bray_base::NonEmptySharedStr,
 }
@@ -169,10 +170,11 @@ impl InterfaceNativeBinding {
     pub const fn new(
         owner: InterfaceSymbolId,
         key: super::PackageImplementationSpecializationKey,
+        producer_options: bray_codegen::CodegenOptions,
         unit: [u8; 32],
         symbol: bray_base::NonEmptySharedStr,
     ) -> Self {
-        Self { owner, key, unit, symbol }
+        Self { owner, key, producer_options, unit, symbol }
     }
 
     /// Returns the owning interface declaration.
@@ -183,6 +185,11 @@ impl InterfaceNativeBinding {
     /// Returns the complete semantic and target specialization identity.
     pub const fn key(&self) -> &super::PackageImplementationSpecializationKey {
         &self.key
+    }
+
+    /// Returns the exact code generation policy used to produce this native definition.
+    pub const fn producer_options(&self) -> bray_codegen::CodegenOptions {
+        self.producer_options
     }
 
     /// Returns the native unit content identity.

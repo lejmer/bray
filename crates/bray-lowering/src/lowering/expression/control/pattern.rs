@@ -74,7 +74,7 @@ impl Lowerer<'_> {
 
         let place = match &subject {
             MirOperand::Copy(place) | MirOperand::Move(place) => place,
-            MirOperand::Value(_) | MirOperand::Immediate { .. } | MirOperand::Constant { .. } => {
+            MirOperand::Value(_) | MirOperand::Immediate { .. } | MirOperand::Constant { .. } | MirOperand::ConstantTerm { .. } => {
                 return Ok(subject);
             }
         };

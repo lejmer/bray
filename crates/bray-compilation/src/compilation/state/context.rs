@@ -181,6 +181,10 @@ pub(in crate::compilation) struct CompilationState {
     pub(in crate::compilation) codegen: Option<CodegenConfiguration>,
     pub(in crate::compilation) codegen_artifacts:
         FactCellMap<crate::fact::CodegenArtifactQueryKey, Arc<CodegenOutcome>>,
+    pub(in crate::compilation) optimized_mir: FactCellMap<
+        crate::fact::OptimizedMirQueryKey,
+        Result<Arc<bray_ir::MirUnit>, crate::compilation::CodegenPreparationError>,
+    >,
     pub(in crate::compilation) native_products: FactCellMap<
         crate::fact::NativeProductQueryKey,
         Result<

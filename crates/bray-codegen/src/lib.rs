@@ -52,7 +52,8 @@ pub use optimization::{
     BackendBitcodeOptimizationOutcome, BackendBitcodeOptimizer, BackendBitcodeTargetContract,
 };
 pub use options::{
-    CodegenOptions, DebugInformationMode, OptimizationLevel, RuntimeObservationMode, SizePreference,
+    CodegenOptions, DebugInformationMode, OptimizationLevel,
+    RuntimeObservationMode, SizePreference,
 };
 pub use outcome::{
     CodegenFailure, CodegenOutcome, CodegenStatus, codegen_failure_diagnostic,

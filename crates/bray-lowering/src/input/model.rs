@@ -8,8 +8,8 @@ use bray_bound_tree::{
     CheckedRefinements, CheckedSemanticSelections, Liveness, StorageAccessId, StorageExitPoint,
     StorageFlow, StorageIdentityId, StoragePlan, StorageReplacementPlan, StorageReplacementState,
 };
-use bray_ir::{MirTargetContract, MirUnitBuilder, MirUnitKind};
-use bray_symbols::{AvailableCompilerKnownSymbols, ConstantValueId, SemanticValueStore};
+use bray_ir::{MirOperand, MirTargetContract, MirUnitBuilder, MirUnitKind};
+use bray_symbols::{AvailableCompilerKnownSymbols, SemanticValueStore};
 
 use crate::result::requires_mir;
 
@@ -50,7 +50,7 @@ pub struct LoweringInput<'unit> {
     completed: BTreeSet<(AnyBoundNodeId, StorageAccessId)>,
     body_behavior: &'unit CheckedBodyBehavior,
     semantic_values: &'unit SemanticValueStore,
-    constant_reference_values: &'unit [(BoundExpressionId, ConstantValueId)],
+    constant_reference_operands: &'unit [(BoundExpressionId, MirOperand)],
     runtime_calls: &'unit [(
         bray_symbols::CallableDefinitionId,
         bray_runtime_interface::RuntimeAbiRole,
@@ -84,7 +84,7 @@ impl<'unit> LoweringInput<'unit> {
         completed: BTreeSet<(AnyBoundNodeId, StorageAccessId)>,
         body_behavior: &'unit CheckedBodyBehavior,
         semantic_values: &'unit SemanticValueStore,
-        constant_reference_values: &'unit [(BoundExpressionId, ConstantValueId)],
+        constant_reference_operands: &'unit [(BoundExpressionId, MirOperand)],
         unit_kind: MirUnitKind,
         target: MirTargetContract,
     ) -> Self {
@@ -245,7 +245,7 @@ impl<'unit> LoweringInput<'unit> {
             completed,
             body_behavior,
             semantic_values,
-            constant_reference_values,
+            constant_reference_operands,
             runtime_calls: &[],
             native_static_templates: &[],
             static_owner: None,
@@ -544,14 +544,14 @@ impl<'unit> LoweringInput<'unit> {
     }
 
     /// Returns the closed value reached by one constant reference occurrence.
-    pub fn constant_reference_value(
+    pub fn constant_reference_operand(
         &self,
         expression: BoundExpressionId,
-    ) -> Option<ConstantValueId> {
-        self.constant_reference_values
+    ) -> Option<&MirOperand> {
+        self.constant_reference_operands
             .binary_search_by_key(&expression, |(expression, _)| *expression)
             .ok()
-            .map(|index| self.constant_reference_values[index].1)
+            .map(|index| &self.constant_reference_operands[index].1)
     }
 
     /// Returns the MIR representation category selected for this source unit.

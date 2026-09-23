@@ -256,6 +256,9 @@ pub(super) fn operand_text(operand: &InspectionMirOperand) -> String {
         | InspectionMirOperand::Immediate { value, r#type } => {
             format!("{value}: {}", r#type.text())
         }
+        InspectionMirOperand::ConstantTerm { term, r#type } => {
+            format!("term {term}: {}", r#type.text())
+        }
         InspectionMirOperand::Copy { place } => format!("copy {}", place_text(place)),
         InspectionMirOperand::Move { place } => format!("move {}", place_text(place)),
     }

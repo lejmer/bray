@@ -410,6 +410,10 @@ pub(crate) enum InspectionMirOperand {
         value: String,
         r#type: InspectionType,
     },
+    ConstantTerm {
+        term: String,
+        r#type: InspectionType,
+    },
     Immediate {
         value: String,
         r#type: InspectionType,
@@ -1990,6 +1994,10 @@ fn inspection_operand(
         }),
         MirOperand::Constant { value, ty } => Ok(InspectionMirOperand::Constant {
             value: constant_text(*value, context.semantic_values),
+            r#type: InspectionType::from_type(context.semantic_values, context.symbols, *ty)?,
+        }),
+        MirOperand::ConstantTerm { term, ty } => Ok(InspectionMirOperand::ConstantTerm {
+            term: format!("{term:?}"),
             r#type: InspectionType::from_type(context.semantic_values, context.symbols, *ty)?,
         }),
         MirOperand::Immediate { value, ty } => Ok(InspectionMirOperand::Immediate {

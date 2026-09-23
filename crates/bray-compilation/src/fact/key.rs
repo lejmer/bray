@@ -2,7 +2,7 @@ use bray_bound_tree::{BoundExpressionId, BoundUnitKey};
 use bray_checker::TargetValidityRequest;
 use bray_codegen::{
     BackendArtifactRequest, BackendCapabilityRevision, BackendIdentity, CodegenMappings,
-    CodegenOptions, CodegenTarget, CodegenUnitKey,
+    CodegenInstanceKey, CodegenOptions, CodegenTarget, CodegenUnitKey,
 };
 use bray_declarations::ModulePartId;
 use bray_linker::LinkerDriverIdentity;
@@ -254,6 +254,39 @@ pub(crate) struct CodegenArtifactQueryKey {
     artifacts: BackendArtifactRequest,
 }
 
+/// One concrete body under the exact effective pass policy and raw template content.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) struct OptimizedMirQueryKey {
+    instance: CodegenInstanceKey,
+    unit: bray_ir::MirUnitId,
+    options: CodegenOptions,
+    raw_content: [u8; 32],
+}
+
+impl OptimizedMirQueryKey {
+    pub(crate) fn new(
+        instance: CodegenInstanceKey,
+        unit: bray_ir::MirUnitId,
+        options: CodegenOptions,
+        raw_content: [u8; 32],
+    ) -> Self {
+        Self {
+            instance,
+            unit,
+            options,
+            raw_content,
+        }
+    }
+
+    pub(crate) const fn instance(&self) -> &CodegenInstanceKey {
+        &self.instance
+    }
+
+    pub(crate) const fn options(&self) -> CodegenOptions {
+        self.options
+    }
+}
+
 impl CodegenArtifactQueryKey {
     pub(crate) fn new(
         unit: CodegenUnitKey,
@@ -467,6 +500,8 @@ pub(crate) enum CompilationFactKey {
     LoweredUnit(BoundUnitKey),
     /// One exact backend artifact contribution requested from a code generation unit.
     CodegenArtifact(CodegenArtifactQueryKey),
+    /// One optimized concrete MIR body for exact instance and generation policy.
+    OptimizedMir(OptimizedMirQueryKey),
     /// The complete native product for exact product and host selections.
     NativeProduct(NativeProductQueryKey),
     /// Source-declared value type templates and equality constraints for one bound unit.
@@ -621,6 +656,7 @@ impl CompilationFactKey {
             | Self::ConstantCall(_)
             | Self::ConstantCallCycle(_)
             | Self::CodegenArtifact(_)
+            | Self::OptimizedMir(_)
             | Self::DeclarationChunk(_)
             | Self::DeclarationTable
             | Self::ProductSourceGraph

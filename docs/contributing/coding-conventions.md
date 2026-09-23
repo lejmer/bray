@@ -92,6 +92,9 @@ For crate layout, crate ownership, and workspace structure, see the crate respon
 - Prefer adding a focused module over growing an already large module.
 - Target production modules under 500 lines of code.
 - If a file exceeds roughly 800 lines, add new functionality in a new module unless there is a strong reason not to.
+- Do not create a single-function module just to meet these size targets. Put the function in an existing owning module,
+  or split around a cohesive responsibility that will remain meaningful as the code evolves. A larger cohesive module
+  is preferable to a set of one-function files.
 - Prefer adding helpers over growing large functions.
 - Target functions under 100 lines of code.
 - If a function exceeds roughly 200 lines, add new behavior in a new helper or function unless there is a strong reason

@@ -131,6 +131,11 @@ fn push_mir_operand(fields: &mut Vec<DiagnosticFailureField>, operand: &bray_ir:
             fields.push(identity_field("call_target_callee_value", value));
             fields.push(identity_field("call_target_callee_type", ty));
         }
+        Operand::ConstantTerm { term, ty } => {
+            fields.push(text_field("call_target_callee_kind", "constant_term"));
+            fields.push(identity_field("call_target_callee_value", term));
+            fields.push(identity_field("call_target_callee_type", ty));
+        }
         Operand::Immediate { value, ty } => {
             fields.push(text_field(
                 "call_target_callee_kind",

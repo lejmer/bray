@@ -250,6 +250,14 @@ fn push_fact_context(
 
             "codegen_artifact"
         }
+        Fact::OptimizedMir(key) => {
+            fields.extend([
+                identity_field("codegen_instance", key.instance()),
+                identity_field("codegen_options", &key.options()),
+            ]);
+
+            "optimized_mir"
+        }
         Fact::NativeProduct(key) => {
             fields.extend([
                 identity_field("product", key.product()),

@@ -549,6 +549,7 @@ define_profile_query_kinds! {
     ExecutionCandidates = 1074 => "execution_candidates",
     CertifiedExecution = 1075 => "certified_execution",
     DeclaredUnits = 1076 => "declared_units",
+    OptimizedMir = 1077 => "optimized_mir",
 }
 
 impl ProfileQueryKind {
@@ -581,6 +582,7 @@ impl ProfileQueryKind {
             CompilationFactKey::CheckedBodyBehavior(_) => Self::CheckedBodyBehavior,
             CompilationFactKey::LoweredUnit(_) => Self::LoweredUnit,
             CompilationFactKey::CodegenArtifact(_) => Self::CodegenArtifact,
+            CompilationFactKey::OptimizedMir(_) => Self::OptimizedMir,
             CompilationFactKey::NativeProduct(_) => Self::NativeProduct,
             CompilationFactKey::DeclaredValueTypeTemplates(_) => Self::DeclaredValueTypeTemplates,
             CompilationFactKey::ExpressionSemantics(_) => Self::ExpressionSemantics,
@@ -678,6 +680,7 @@ mod tests {
                 1_039, 1_040, 1_041, 1_042, 1_043, 1_044, 1_045, 1_046, 1_047, 1_048, 1_049, 1_051,
                 1_052, 1_053, 1_054, 1_055, 1_056, 1_057, 1_058, 1_059, 1_060, 1_061, 1_062, 1_063,
                 1_064, 1_066, 1_067, 1_068, 1_069, 1_070, 1_071, 1_072, 1_073, 1_074, 1_075, 1_076,
+                1_077,
             ]
         );
     }

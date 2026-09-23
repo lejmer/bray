@@ -428,6 +428,7 @@ pub(super) fn compilation_fact_kind(value: &CompilationFactKey) -> &'static str 
         Value::CheckedBodyBehavior(_) => "checked_body_behavior",
         Value::LoweredUnit(_) => "lowered_unit",
         Value::CodegenArtifact(_) => "codegen_artifact",
+        Value::OptimizedMir(_) => "optimized_mir",
         Value::NativeProduct(_) => "native_product",
         Value::DeclaredValueTypeTemplates(_) => "declared_value_type_templates",
         Value::ExpressionSemantics(_) => "expression_semantics",

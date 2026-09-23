@@ -661,6 +661,10 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 value: self.constant_value()?,
                 ty: self.ty()?,
             }),
+            5 => Ok(MirOperand::ConstantTerm {
+                term: self.constant_term()?,
+                ty: self.ty()?,
+            }),
             2 => Ok(MirOperand::Immediate {
                 value: self.immediate()?,
                 ty: self.ty()?,
