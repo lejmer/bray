@@ -11102,6 +11102,48 @@ func other()
     }
 
     #[test]
+    fn byte_literal_patterns_reject_mismatched_fixed_extents() {
+        let compilation = pattern_compilation(concat!(
+            "    let value: bytes = b\"abc\";\n",
+            "    let mismatch: bool = value matches b\"abcd\";\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let analysis = compilation
+            .patterns(key)
+            .expect("byte literal pattern analysis must be available");
+
+        assert_eq!(
+            crate::test_support::diagnostic_kinds(analysis.diagnostics()),
+            [DiagnosticKind::CheckingIncompatiblePattern]
+        );
+
+        assert!(analysis.value().is_recovered());
+    }
+
+    #[test]
+    fn integer_literal_patterns_reject_values_outside_the_subject_range() {
+        let compilation = pattern_compilation(concat!(
+            "    let value: u8 = 1;\n",
+            "    let mismatch: bool = value matches 256;\n",
+        ));
+
+        let key = source_callable_body_key(&compilation);
+
+        let analysis = compilation
+            .patterns(key)
+            .expect("integer literal pattern analysis must be available");
+
+        assert_eq!(
+            crate::test_support::diagnostic_kinds(analysis.diagnostics()),
+            [DiagnosticKind::CheckingIncompatiblePattern]
+        );
+
+        assert!(analysis.value().is_recovered());
+    }
+
+    #[test]
     fn patterns_reject_refutable_declaration_patterns() {
         let compilation = pattern_compilation("    let true: bool = true;\n");
         let key = source_callable_body_key(&compilation);

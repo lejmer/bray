@@ -14,10 +14,15 @@ func byte_literals_use_fixed_array_storage()
     let array: [u8; 4] = b"lib\0";
     let numeric: bytes = [108, 105, 98, 0];
     let empty: bytes = b"";
+    let repeated: bytes = [b"A"[0]; 4];
+    let repeated_empty: bytes = [b"A"[0]; 0];
     let mixed: bytes = b"é\xFF\0";
 
     assert(text.length() == 4);
     assert(empty.is_empty());
+    assert(repeated.length() == 4);
+    assert(repeated[3] == b"A"[0]);
+    assert(repeated_empty.is_empty());
     assert(mixed.length() == 4);
     assert(mixed[0] == 0xC3);
     assert(mixed[1] == 0xA9);

@@ -389,6 +389,15 @@ where
         let kind = effective_pattern_kind(pattern, target);
         let only_union_variant = self.only_union_variant(type_data.as_ref(), target)?;
 
+        let predicate = self.pattern_predicate(
+            id,
+            pattern,
+            kind,
+            target,
+            matched_subject.ty,
+            type_data.as_ref(),
+        )?;
+
         let mut compatible = self.pattern_is_compatible(
             id,
             pattern,
@@ -397,6 +406,10 @@ where
             matched_subject.ty,
             type_data.as_ref(),
         )?;
+
+        if kind == BoundPatternKind::Literal {
+            compatible &= predicate.is_some();
+        }
 
         let tagless_variant_requires_fact = kind == BoundPatternKind::Variant
             && self.tagless_union(type_data.as_ref())?
@@ -506,15 +519,6 @@ where
         {
             self.report_refutable(id, subject.ty)?;
         }
-
-        let predicate = self.pattern_predicate(
-            id,
-            pattern,
-            kind,
-            target,
-            matched_subject.ty,
-            type_data.as_ref(),
-        )?;
 
         let entry = PatternCheckEntry::new(id, subject.ty, operation, refutability, target)
             .with_test((!is_recovered).then_some(predicate).flatten())
