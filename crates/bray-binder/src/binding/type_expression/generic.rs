@@ -12,6 +12,7 @@ use bray_syntax::{
 };
 
 use super::core::TypeExpressionBinder;
+use super::super::name::is_bytes_type_path;
 use crate::{BindingError, BindingQueryError, BindingQueryResult};
 
 impl<Upstream> TypeExpressionBinder<'_, Upstream> {
@@ -78,6 +79,30 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
         let Some(arguments) = syntax.generic_argument_lists().next() else {
             return Err(syntax_contract(syntax));
         };
+
+        if is_bytes_type_path(&path) {
+            let mut values = arguments.generic_arguments();
+
+            let Some(argument) = values.next() else {
+                return self.error_type_template();
+            };
+
+            if values.next().is_some() {
+                return self.error_type_template();
+            }
+
+            let Some(length) = argument.expressions().next() else {
+                return self.error_type_template();
+            };
+
+            let element = self.bind_compiler_known_type(RepresentationRole::ScalarU8)?;
+            let length = self.bind_array_length(&length)?;
+
+            return Ok(TypeExpressionTemplate::Array {
+                element: Arc::new(element),
+                length,
+            });
+        }
 
         self.bind_named_path(&path, Some(&arguments))
     }

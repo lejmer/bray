@@ -415,3 +415,4 @@ lexical shape is owned by `docs/language/lexical-grammar.ebnf`.
 | `imaginary-literal`   | literal expression and literal pattern token sets                                | Expression primary and pattern tests                                                                       |
 | `character-literal`   | literal expression and literal pattern token sets                                | Expression primary and pattern tests                                                                       |
 | `string-literal`      | literal expression and literal pattern token sets                                | Expression primary and pattern tests                                                                       |
+| `byte-string-literal` | literal expression and literal pattern token sets                                | Expression primary and pattern tests                                                                       |

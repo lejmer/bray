@@ -103,19 +103,19 @@ trusted func scalar_formatting_is_deterministic() -> Result<unit, std.memory.Mem
 
     try trusted std.format.write<i32>(&mut sink, std.format.Argument<i32>(&integer));
 
-    let expected_integer: [u8; 3] = [45, 52, 50];
+    let expected_integer: bytes = b"-42";
 
     assert(std.bytes.equals(std.format.bytes(&sink), &expected_integer[..]));
 
     try trusted std.format.write<bool>(&mut sink, std.format.Argument<bool>(&true));
 
-    let expected_boolean: [u8; 7] = [45, 52, 50, 116, 114, 117, 101];
+    let expected_boolean: bytes = b"-42true";
 
     assert(std.bytes.equals(std.format.bytes(&sink), &expected_boolean[..]));
 
     try trusted std.format.write<char>(&mut sink, std.format.Argument<char>(&character));
 
-    let expected: [u8; 8] = [45, 52, 50, 116, 114, 117, 101, 65];
+    let expected: bytes = b"-42trueA";
 
     assert(std.bytes.equals(std.format.bytes(&sink), &expected[..]));
 
@@ -141,7 +141,7 @@ trusted func formatting_options_control_output() -> Result<unit, std.memory.Memo
 
     try trusted std.format.write<u32>(&mut sink, argument);
 
-    let expected: [u8; 6] = [32, 43, 48, 48, 50, 65];
+    let expected: bytes = b" +002A";
 
     assert(std.bytes.equals(std.format.bytes(&sink), &expected[..]));
 
@@ -227,7 +227,7 @@ trusted func escaped_string_formatting() -> Result<unit, std.memory.MemoryLayout
 
     try trusted std.format.write<string>(&mut sink, argument);
 
-    let expected: [u8; 5] = [34, 65, 92, 110, 34];
+    let expected: bytes = b"\"A\\n\"";
 
     assert(std.bytes.equals(std.format.bytes(&sink), &expected[..]));
 
@@ -275,7 +275,7 @@ trusted func fixed_formatting_uses_borrowed_storage()
         escaping = std.format.Escaping.Raw,
     );
 
-    let mut storage: [u8; 8] = [0; 8];
+    let mut storage: bytes<8> = [0; 8];
     let mut sink: std.format.FixedSink = std.format.FixedSink(&mut storage[..]);
     let value: u32 = 255;
 
@@ -286,7 +286,7 @@ trusted func fixed_formatting_uses_borrowed_storage()
         )
     );
 
-    let expected: [u8; 8] = [32, 32, 32, 43, 48, 48, 70, 70];
+    let expected: bytes = b"   +00FF";
     let length: usize = std.format.finish_fixed(sink);
 
     assert(length == 8);
@@ -296,7 +296,7 @@ trusted func fixed_formatting_uses_borrowed_storage()
 @test
 trusted func fixed_formatting_accepts_zero_length_output()
 {
-    let mut storage: [u8; 0] = [0; 0];
+    let mut storage: bytes<0> = [0; 0];
     let mut sink: std.format.FixedSink = std.format.FixedSink(&mut storage[..]);
 
     std.testing.assert_ok<unit, std.format.FixedSinkError>(
@@ -314,7 +314,7 @@ trusted func fixed_formatting_accepts_zero_length_output()
 @test
 trusted func fixed_formatting_reports_capacity_without_partial_digit_output()
 {
-    let mut storage: [u8; 2] = [0; 2];
+    let mut storage: bytes<2> = [0; 2];
     let mut sink: std.format.FixedSink = std.format.FixedSink(&mut storage[..]);
     let value: u32 = 1024;
 
@@ -350,7 +350,7 @@ trusted func fixed_formatting_handles_maximum_width_without_arithmetic_overflow(
         escaping = std.format.Escaping.Raw,
     );
 
-    let mut storage: [u8; 0] = [0; 0];
+    let mut storage: bytes<0> = [0; 0];
     let mut sink: std.format.FixedSink = std.format.FixedSink(&mut storage[..]);
     let value: u32 = 0;
 
@@ -436,7 +436,7 @@ trusted func native_integer_zero_preserves_space_sign_precision_and_padding(
 
     try trusted std.format.write<u64>(&mut sink, std.format.Argument<u64>(&value, options = options));
 
-    let expected: [u8; 4] = [32, 48, 48, 32];
+    let expected: bytes = b" 00 ";
 
     assert(std.bytes.equals(std.format.bytes(&sink), &expected[..]));
 
@@ -457,7 +457,7 @@ trusted func fixed_formatting_handles_maximum_precision_and_sign_without_arithme
         escaping = std.format.Escaping.Raw,
     );
 
-    let mut storage: [u8; 0] = [0; 0];
+    let mut storage: bytes<0> = [0; 0];
     let mut sink: std.format.FixedSink = std.format.FixedSink(&mut storage[..]);
     let value: u32 = 0;
 

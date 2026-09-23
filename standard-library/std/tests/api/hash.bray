@@ -34,7 +34,7 @@ func stable_hashing_covers_scalar_values()
     let true_hash: u128 = std.hash.stable_hash(&true);
     let character_hash: u128 = std.hash.stable_hash(&'A');
 
-    let byte: u8 = 65;
+    let byte: u8 = b"A"[0];
     let wide: u128 = 65;
     let size: usize = 65;
 

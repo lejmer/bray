@@ -1,3 +1,4 @@
+mod array;
 mod cardinality;
 mod check;
 mod constraints;

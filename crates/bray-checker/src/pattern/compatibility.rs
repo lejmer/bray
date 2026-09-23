@@ -9,6 +9,7 @@ use bray_symbols::{
 
 use super::check::{PatternChecker, available_dependency};
 use crate::constant::integer_to_usize;
+use crate::representation::type_representation;
 use crate::{CheckerQueryError, CheckerRequestContext, CheckerSemanticQueryProvider};
 
 impl<C> PatternChecker<'_, '_, C>
@@ -233,6 +234,15 @@ where
         subject: &TypeData,
         literal: bray_bound_tree::BoundLiteralKind,
     ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
+        if literal == bray_bound_tree::BoundLiteralKind::ByteString {
+            return Ok(matches!(
+                subject,
+                TypeData::Array { element, .. }
+                    if type_representation(self.request, *element)
+                        == Some(RepresentationRole::ScalarU8)
+            ));
+        }
+
         let TypeData::Named {
             definition: NamedTypeSymbolId::Struct(structure),
             ..
@@ -253,6 +263,7 @@ where
             bray_bound_tree::BoundLiteralKind::Boolean => role == RepresentationRole::ScalarBool,
             bray_bound_tree::BoundLiteralKind::Character => role == RepresentationRole::ScalarChar,
             bray_bound_tree::BoundLiteralKind::String => role == RepresentationRole::String,
+            bray_bound_tree::BoundLiteralKind::ByteString => unreachable!("handled above"),
             bray_bound_tree::BoundLiteralKind::Integer => {
                 role.numeric_kind() == Some(NumericRepresentationKind::Integer)
             }

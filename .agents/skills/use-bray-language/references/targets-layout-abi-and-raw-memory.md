@@ -130,7 +130,7 @@ union Packet
     Empty;
 
     @tag(2)
-    Bytes(pos value: [u8; 16]);
+    Bytes(pos value: bytes<16>);
 }
 
 @copy

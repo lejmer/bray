@@ -5,14 +5,17 @@ use bray_bound_tree::{
     BoundWalkEvent, BoundWalkOutcome, CheckedExpressionTypes, ExpressionTypeEntry,
     ExpressionTypeResult, ExpressionTypeStatus, walk_bound_unit_view,
 };
-use bray_symbols::TypeId;
+use bray_symbols::{TypeData, TypeId};
 
+use crate::constant::parse_byte_string;
+use crate::representation::representation_type;
 use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
 use super::constraints::{
     add_expectations, add_intrinsic_constraints, add_relationship_constraints,
     add_semantic_context_constraints, block_expectations,
 };
+use super::array::array_length;
 use super::dependencies::ExpressionTypeDependencies;
 use super::inference::{InferenceTypeId, TypeConflict, TypeInferenceContext};
 use super::literal::{adapt_contextual_literals, apply_literal_defaults};
@@ -42,6 +45,7 @@ pub(super) struct FinishedExpressionTypes {
     pub(super) results: Vec<(BoundExpressionId, ExpressionTypeResult)>,
     pub(super) conflicts: Vec<TypeConflict>,
     pub(super) unresolved: Vec<BoundExpressionId>,
+    pub(super) inferred_byte_initializers: Vec<BoundExpressionId>,
     pub(super) callable_result_type: Option<TypeId>,
 }
 
@@ -52,6 +56,7 @@ where
 {
     request: CheckerUnitView<'view, C>,
     expressions: Vec<BoundExpressionId>,
+    inferred_byte_initializers: Vec<BoundExpressionId>,
     variables: BTreeMap<BoundExpressionId, InferenceTypeId>,
     block_variables: BTreeMap<BoundBlockId, InferenceTypeId>,
     regions: ExpressionTypeRegions,
@@ -132,7 +137,11 @@ where
 
         add_semantic_context_constraints(request, &variables, types.boolean, &mut inference);
 
-        let Some(local_expectations) = block_expectations(request, &nodes.blocks) else {
+        let mut inferred_byte_initializers = Vec::new();
+
+        let Some(local_expectations) =
+            block_expectations(request, &nodes.blocks, &mut inferred_byte_initializers)?
+        else {
             return Ok(SessionProgress::Cancelled);
         };
 
@@ -143,6 +152,7 @@ where
         Ok(SessionProgress::Complete(Self {
             request,
             expressions: nodes.expressions,
+            inferred_byte_initializers,
             variables,
             block_variables,
             regions,
@@ -375,6 +385,7 @@ where
             results,
             conflicts,
             unresolved,
+            inferred_byte_initializers: self.inferred_byte_initializers,
             callable_result_type: self.callable_result_type,
         }
     }
@@ -537,6 +548,35 @@ where
         }
 
         add_intrinsic_constraints(bound, expression, variable, types, inference);
+
+        if let BoundExpression::Literal(literal) = bound
+            && literal.kind() == bray_bound_tree::BoundLiteralKind::ByteString
+            && !bound.is_recovered()
+        {
+            let source = request.source(literal.origin().source_anchor())?;
+
+            let spelling = source.text_for_range(literal.spelling_range()).unwrap_or_else(|| {
+                panic!(
+                    "byte literal {:?} has an invalid source range {:?}",
+                    expression,
+                    literal.spelling_range()
+                )
+            });
+
+            let bytes = parse_byte_string(spelling).unwrap_or_else(|error| {
+                panic!("lexed byte literal {:?} must decode: {error:?}", expression)
+            });
+
+            let element = representation_type(request, bray_compiler_known::RepresentationRole::ScalarU8)?;
+            let length = array_length(request, bytes.len())?;
+
+            let ty = request
+                .semantic_values()
+                .intern_type(TypeData::Array { element, length })
+                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+
+            inference.add_evidence(variable, ty, expression);
+        }
     }
 
     Ok(())

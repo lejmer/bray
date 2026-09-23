@@ -41,15 +41,20 @@ pub(in crate::lexer) fn scan_character_literal(
 pub(in crate::lexer) fn scan_string_literal(
     snapshot: &SourceSnapshot,
     start: TextSize,
+    byte_string: bool,
 ) -> TokenScan {
-    let mut index = text_size_to_usize(start) + 1;
+    let mut index = text_size_to_usize(start) + 1 + usize::from(byte_string);
     let bytes = snapshot.bytes();
 
     loop {
         match bytes.get(index).copied() {
             Some(b'"') => {
                 return TokenScan::clean(make_token(
-                    SyntaxKind::StringLiteralToken,
+                    if byte_string {
+                        SyntaxKind::ByteStringLiteralToken
+                    } else {
+                        SyntaxKind::StringLiteralToken
+                    },
                     start,
                     text_size_from_usize(index + 1),
                 ));
@@ -61,7 +66,15 @@ pub(in crate::lexer) fn scan_string_literal(
                     StringLiteralError::Unterminated,
                 );
             }
-            Some(b'\\') => match scan_escape_sequence(snapshot, index, EscapeMode::String) {
+            Some(b'\\') => match scan_escape_sequence(
+                snapshot,
+                index,
+                if byte_string {
+                    EscapeMode::ByteString
+                } else {
+                    EscapeMode::String
+                },
+            ) {
                 EscapeScan::Valid(end_index) => {
                     index = end_index;
                 }
@@ -131,6 +144,7 @@ enum StringLiteralError {
 enum EscapeMode {
     Character,
     String,
+    ByteString,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -182,6 +196,16 @@ fn scan_escape_sequence(
     match bytes.get(backslash_index + 1).copied() {
         Some(b'"' | b'\\' | b'n' | b'r' | b't' | b'0') => EscapeScan::Valid(backslash_index + 2),
         Some(b'\'') if mode == EscapeMode::Character => EscapeScan::Valid(backslash_index + 2),
+        Some(b'x') if mode == EscapeMode::ByteString => {
+            if bytes
+                .get(backslash_index + 2..backslash_index + 4)
+                .is_some_and(|digits| digits.iter().all(|digit| hex_digit_value(*digit).is_some()))
+            {
+                EscapeScan::Valid(backslash_index + 4)
+            } else {
+                EscapeScan::Invalid(EscapeError::Unknown(Some('x')))
+            }
+        }
         Some(b'u') => scan_unicode_escape(bytes, backslash_index),
         Some(b'\n' | b'\r') | None => EscapeScan::Invalid(EscapeError::Unterminated),
         Some(_) => EscapeScan::Invalid(EscapeError::Unknown(first_character(
@@ -304,6 +328,10 @@ fn quoted_literal_recovery_end(snapshot: &SourceSnapshot, start: TextSize, quote
     let bytes = snapshot.bytes();
 
     let mut index = text_size_to_usize(start) + 1;
+
+    if quote == b'"' && bytes.get(text_size_to_usize(start)) == Some(&b'b') {
+        index += 1;
+    }
 
     while let Some(byte) = bytes.get(index).copied() {
         if matches!(byte, b'\n' | b'\r') {

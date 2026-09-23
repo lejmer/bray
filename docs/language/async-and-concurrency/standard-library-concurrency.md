@@ -558,7 +558,7 @@ are:
 ```bray
 struct ProtocolFingerprint
 {
-    internal bytes: [u8; 32];
+    internal bytes: bytes<32>;
 }
 
 union ProcessError
@@ -619,7 +619,7 @@ impl Program<Input, T>
     mut func standard_error(policy: ChildStreamPolicy) -> unit;
 }
 
-func protocol_fingerprint(pos bytes: [u8; 32]) -> ProtocolFingerprint;
+func protocol_fingerprint(pos bytes: bytes<32>) -> ProtocolFingerprint;
 func declared_product_dependency(pos name: string) -> Result<ProductDependency, ProcessError>;
 func executable_from_dependency(pos dependency: ProductDependency) -> Result<Executable, ProcessError>;
 

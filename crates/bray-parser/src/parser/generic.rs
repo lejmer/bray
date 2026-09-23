@@ -40,11 +40,12 @@ const GENERIC_CONST_PARAMETER_TYPE_BOUNDARY_KINDS: [SyntaxKind; 11] = [
     SyntaxKind::EndOfFileToken,
 ];
 
-const GENERIC_ARGUMENT_START_KINDS: [SyntaxKind; 25] = [
+const GENERIC_ARGUMENT_START_KINDS: [SyntaxKind; 26] = [
     SyntaxKind::AmpersandToken,
     SyntaxKind::AmpersandAmpersandToken,
     SyntaxKind::BangToken,
     SyntaxKind::BinaryIntegerLiteralToken,
+    SyntaxKind::ByteStringLiteralToken,
     SyntaxKind::BoxKeyword,
     SyntaxKind::CharacterLiteralToken,
     SyntaxKind::DecimalIntegerLiteralToken,

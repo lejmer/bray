@@ -8,6 +8,14 @@ use bray_parser::parse_source_unit;
 use bray_testing::test_source_snapshot;
 
 #[test]
+fn formats_byte_literals_without_changing_their_spelling() {
+    let output = formatted(r#"module app;func main(){let data:bytes=b"é\xFF\0";}"#);
+
+    assert!(output.text().contains(r#"let data: bytes = b"é\xFF\0";"#));
+    assert_valid_and_idempotent(&output);
+}
+
+#[test]
 fn formats_nested_borrow_capabilities_and_logical_conjunction() {
     for (input, expected) in [
         ("& &bool", "&&bool"),

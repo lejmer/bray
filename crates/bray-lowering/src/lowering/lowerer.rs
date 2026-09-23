@@ -194,7 +194,7 @@ impl<'unit> Lowerer<'unit> {
                 None => false,
             };
 
-            if required_result || !self.builder.is_reachable(entry, block) {
+            if required_result || !self.is_reachable(entry, block) {
                 self.set_terminator(block, completion.source, MirTerminatorKind::Unreachable)?;
             } else if self.input.unit_kind().protected_frame().is_some() {
                 let result_type = self
@@ -260,6 +260,14 @@ impl<'unit> Lowerer<'unit> {
         }
 
         Ok(self.builder.finish(entry))
+    }
+
+    pub(in crate::lowering) fn is_reachable(&self, entry: MirBlockId, target: MirBlockId) -> bool {
+        self.builder.is_reachable(entry, target, |block| {
+            self.abnormal_cleanup_machine
+                .iter()
+                .flat_map(move |machine| machine.pending_successors(block))
+        })
     }
 
     pub(super) fn source(&self, origin: BoundNodeOrigin) -> MirSourceAnchor {

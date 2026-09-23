@@ -2,12 +2,10 @@ use std::collections::BTreeMap;
 
 use bray_bound_tree::{BoundBlockId, BoundExpression, BoundExpressionId};
 use bray_compiler_known::RepresentationRole;
-use bray_symbols::{
-    ConstantTermData, GenericArgument, IntegerConstant, IntegerSign, TargetSizedIntegerType,
-    TypeData, TypeId,
-};
+use bray_symbols::{GenericArgument, TypeData, TypeId};
 
 use super::super::dependencies::ExpressionTypeDependencies;
+use super::super::array::array_length;
 use super::super::inference::{InferenceTypeId, TypeInferenceContext};
 use super::super::region::{ExpressionTypeRegions, ResultRegionKind};
 use crate::representation::{representation_type, representation_union_type, type_representation};
@@ -578,29 +576,4 @@ fn add_aggregate_evidence(
     if recovered {
         inference.mark_recovered(variable);
     }
-}
-
-fn array_length<C>(
-    request: CheckerUnitView<'_, C>,
-    length: usize,
-) -> Result<bray_symbols::ConstantTermId, CheckerInfrastructureError>
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    let magnitude = match u64::try_from(length) {
-        Ok(length) => length.to_be_bytes(),
-        Err(_) => {
-            return Err(CheckerInfrastructureError::ConstantArrayLengthCapacityExceeded { length });
-        }
-    };
-
-    let integer = IntegerConstant::new(IntegerSign::NonNegative, magnitude);
-
-    request
-        .semantic_values()
-        .intern_constant_term(ConstantTermData::IntegerLiteral {
-            ty: TargetSizedIntegerType::Usize,
-            value: integer,
-        })
-        .map_err(CheckerInfrastructureError::SemanticValueStore)
 }

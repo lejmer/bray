@@ -149,7 +149,7 @@ func required_output(pos output: std.process.ChildOutput?) -> std.process.ChildO
 
 func read_all(pos output: &mut std.process.ChildOutput) -> usize
 {
-    let mut buffer: [u8; 256] = [0; 256];
+    let mut buffer: bytes<256> = [0; 256];
     let mut observed: usize = 0;
 
     loop

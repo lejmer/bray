@@ -63,6 +63,28 @@ func testing_not_completed_assertion_accepts_a_panicked_run()
 }
 
 @test
+func testing_caught_panic_selects_a_conditional_branch()
+{
+    if match consume(catch
+    {
+        panic("expected panic");
+        yield unit;
+    }
+    )
+    {
+        case Ok(_) { yield false; }
+        case Error(_) { yield true; }
+    }
+    {
+        assert(true);
+    }
+    else
+    {
+        assert(false);
+    }
+}
+
+@test
 func testing_cancelled_assertions_accept_a_cancelled_run()
 {
     std.testing.assert_cancelled<unit>(RunResult.Cancelled);

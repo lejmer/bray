@@ -3,14 +3,14 @@ use bray_symbols::IntegerConstant;
 /// A semantic failure in a fixed-array length value.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ArrayLengthError {
-    /// The length is zero or negative.
-    NotPositive,
+    /// The length is negative.
+    Negative,
 }
 
 /// Checks a closed integer value against the fixed-array length contract.
 pub fn check_array_length(value: &IntegerConstant) -> Result<(), ArrayLengthError> {
-    if !value.is_positive() {
-        return Err(ArrayLengthError::NotPositive);
+    if value.sign() == bray_symbols::IntegerSign::Negative {
+        return Err(ArrayLengthError::Negative);
     }
 
     Ok(())
@@ -31,21 +31,18 @@ mod tests {
     use super::{ArrayLengthError, check_array_length};
 
     #[test]
-    fn array_lengths_must_be_positive() {
+    fn array_lengths_must_be_nonnegative() {
         let positive = IntegerConstant::new(IntegerSign::NonNegative, [1]);
         let zero = IntegerConstant::new(IntegerSign::NonNegative, []);
         let negative = IntegerConstant::new(IntegerSign::Negative, [1]);
 
         assert_eq!(check_array_length(&positive), Ok(()));
 
-        assert_eq!(
-            check_array_length(&zero),
-            Err(ArrayLengthError::NotPositive)
-        );
+        assert_eq!(check_array_length(&zero), Ok(()));
 
         assert_eq!(
             check_array_length(&negative),
-            Err(ArrayLengthError::NotPositive)
+            Err(ArrayLengthError::Negative)
         );
     }
 }

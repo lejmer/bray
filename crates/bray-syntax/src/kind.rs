@@ -356,6 +356,7 @@ pub enum SyntaxKind {
     ImaginaryLiteralToken,
     CharacterLiteralToken,
     StringLiteralToken,
+    ByteStringLiteralToken,
     AllKeyword,
     AnyKeyword,
     AsKeyword,
@@ -795,6 +796,7 @@ impl SyntaxKind {
                 | Self::ImaginaryLiteralToken
                 | Self::CharacterLiteralToken
                 | Self::StringLiteralToken
+                | Self::ByteStringLiteralToken
         )
     }
 
@@ -1056,6 +1058,7 @@ impl SyntaxKind {
             Self::ImaginaryLiteralToken => "imaginary_literal_token",
             Self::CharacterLiteralToken => "character_literal_token",
             Self::StringLiteralToken => "string_literal_token",
+            Self::ByteStringLiteralToken => "byte_string_literal_token",
             Self::AllKeyword => "all_keyword",
             Self::AnyKeyword => "any_keyword",
             Self::AsKeyword => "as_keyword",

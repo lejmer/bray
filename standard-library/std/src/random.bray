@@ -15,7 +15,7 @@ struct Generator
     internal mut state2: u64;
     internal mut state3: u64;
 
-    construct(pos seed: [u8; 32]) -> Self
+    construct(pos seed: bytes<32>) -> Self
     {
         let mut state0: u64 = seed_word(&seed, start = 0);
         let state1: u64 = seed_word(&seed, start = 8);
@@ -39,7 +39,7 @@ struct Generator
     static func from_entropy() -> Result<Self, EntropyError>
         requires(blocking_execution())
     {
-        let mut seed: [u8; 32] = [0; 32];
+        let mut seed: bytes<32> = [0; 32];
         let seed_bytes: &mut [u8] = &mut seed[0..SEED_BYTES];
 
         try fill_entropy(seed_bytes);
@@ -50,7 +50,7 @@ struct Generator
     static async func from_entropy_async() -> Result<Self, EntropyError>
         requires(blocking_execution())
     {
-        let mut seed: [u8; 32] = [0; 32];
+        let mut seed: bytes<32> = [0; 32];
         let seed_bytes: &mut [u8] = &mut seed[0..SEED_BYTES];
 
         try await fill_entropy_async(seed_bytes);
@@ -146,7 +146,7 @@ async func fill_entropy_async(pos destination: &mut [u8]) -> Result<unit, Entrop
     return fill_entropy(destination);
 }
 
-internal func seed_word(pos seed: &[u8; 32], start: usize) -> u64
+internal func seed_word(pos seed: &bytes<32>, start: usize) -> u64
 {
     let mut value: u128 = 0;
     let mut index: usize = 0;

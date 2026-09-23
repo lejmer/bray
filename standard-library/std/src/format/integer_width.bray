@@ -69,7 +69,7 @@ internal func write_unsigned_native_digits<Destination, Failure>(
     with(Destination: Sink<Failure>)
     requires(blocking_execution())
 {
-    let mut digits: [u8; 64] = [0; 64];
+    let mut digits: bytes<64> = [0; 64];
     let mut start: usize = 64;
     let mut remaining: u64 = value;
 
@@ -95,7 +95,7 @@ internal func write_signed_native_digits<Destination, Failure>(
     with(Destination: Sink<Failure>)
     requires(blocking_execution())
 {
-    let mut digits: [u8; 64] = [0; 64];
+    let mut digits: bytes<64> = [0; 64];
     let mut start: usize = 64;
     let mut remaining: i64 = value;
 

@@ -7,7 +7,7 @@ using std.testing;
 @test
 func deterministic_generators_repeat_the_seeded_sequence()
 {
-    let seed: [u8; 32] = [1; 32];
+    let seed: bytes<32> = [1; 32];
     let mut generator: std.random.Generator = std.random.Generator(seed = seed);
 
     assert(generator.next_u64() == 10851025925711500946);
@@ -19,10 +19,10 @@ func deterministic_generators_repeat_the_seeded_sequence()
 @test
 func deterministic_generators_fill_bytes_in_sequence_order()
 {
-    let seed: [u8; 32] = [1; 32];
+    let seed: bytes<32> = [1; 32];
     let mut generator: std.random.Generator = std.random.Generator(seed = seed);
-    let mut bytes: [u8; 10] = [0; 10];
-    let expected: [u8; 10] = [146, 150, 150, 150, 150, 150, 150, 150, 146, 150];
+    let mut bytes: bytes<10> = [0; 10];
+    let expected: bytes<10> = [146, 150, 150, 150, 150, 150, 150, 150, 146, 150];
 
     generator.fill(&mut bytes[..]);
 
@@ -32,7 +32,7 @@ func deterministic_generators_fill_bytes_in_sequence_order()
 @test
 func all_zero_seed_uses_the_specified_nonzero_state()
 {
-    let seed: [u8; 32] = [0; 32];
+    let seed: bytes<32> = [0; 32];
     let mut generator: std.random.Generator = std.random.Generator(seed = seed);
 
     assert(generator.next_u64() == 0);
@@ -43,7 +43,7 @@ func all_zero_seed_uses_the_specified_nonzero_state()
 @test
 func system_entropy_fills_caller_owned_storage()
 {
-    let mut bytes: [u8; 32] = [0; 32];
+    let mut bytes: bytes<32> = [0; 32];
 
     std.testing.assert_ok<unit, std.random.EntropyError>(std.random.fill_entropy(&mut bytes[..]));
 }

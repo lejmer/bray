@@ -1,5 +1,6 @@
 module bray.standard_library_tests.filesystem;
 
+using std.bytes;
 using std.fs;
 using internal std.fs.FileReader;
 using internal std.fs.FileWriter;
@@ -23,8 +24,8 @@ func files_and_directories_follow_the_portable_contract() -> Result<unit, std.io
     discard_existing_directory(&directory);
 
     try std.fs.create_directory(&directory);
-    try write_file(&zeta, value = 90);
-    try write_file(&alpha, value = 65);
+    try write_file(&zeta, value = b"Z"[0]);
+    try write_file(&alpha, value = b"A"[0]);
 
     let mut traversal: std.fs.Directory = try std.fs.Directory.open(&directory);
     let first: std.fs.DirectoryEntry? = try traversal.next();
@@ -60,8 +61,8 @@ func buffered_file_io_preserves_order_and_flushes() -> Result<unit, std.io.IoErr
     let opened: std.fs.File = try std.fs.File.open(&path, options = options);
     let mut writer: std.io.BufferedWriter<std.fs.File> = try std.io.BufferedWriter<std.fs.File>(opened, capacity = 2);
 
-    let first: [u8; 2] = [65, 66];
-    let second: [u8; 1] = [67];
+    let first: bytes = b"AB";
+    let second: bytes = b"C";
 
     let first_written: usize = try writer(std.io.Writer).write(&first[..]);
     let second_written: usize = try writer(std.io.Writer).write(&second[..]);
@@ -75,7 +76,7 @@ func buffered_file_io_preserves_order_and_flushes() -> Result<unit, std.io.IoErr
     assert(position == 0);
 
     let mut reader: std.io.BufferedReader<std.fs.File> = try std.io.BufferedReader<std.fs.File>(writable, capacity = 2);
-    let mut destination: [u8; 3] = [0; 3];
+    let mut destination: bytes<3> = [0; 3];
 
     let first_read: usize = try reader(std.io.Reader).read(&mut destination[0..1]);
     let second_read: usize = try reader(std.io.Reader).read(&mut destination[1..3]);
@@ -87,9 +88,9 @@ func buffered_file_io_preserves_order_and_flushes() -> Result<unit, std.io.IoErr
     assert(second_read == 1);
     assert(third_read == 1);
 
-    assert(destination[0] == 65);
-    assert(destination[1] == 66);
-    assert(destination[2] == 67);
+    let expected: bytes = b"ABC";
+
+    assert(std.bytes.equals(&destination[..], &expected[..]));
 
     try readable.close();
     try std.fs.remove_file(&path);
@@ -112,7 +113,7 @@ async func asynchronous_file_operations_preserve_data_and_metadata() -> Result<u
     );
 
     let mut file: std.fs.File = try std.fs.File.open(&source, options = options);
-    let bytes: [u8; 2] = [88, 89];
+    let bytes: bytes = b"XY";
     let written: usize = try await file.write_async(&bytes[..]);
 
     assert(written == 2);
@@ -123,7 +124,7 @@ async func asynchronous_file_operations_preserve_data_and_metadata() -> Result<u
 
     assert(position == 0);
 
-    let mut read: [u8; 2] = [0; 2];
+    let mut read: bytes<2> = [0; 2];
     let read_count: usize = try await file.read_async(&mut read[..]);
 
     assert(read_count == 2);
@@ -164,7 +165,7 @@ func create_or_truncate_replaces_existing_contents() -> Result<unit, std.io.IoEr
     let path: std.path.Path = test_path("bray-create-or-truncate-conformance");
 
     discard_existing_file(&path);
-    try write_file(&path, value = 65);
+    try write_file(&path, value = b"A"[0]);
 
     let options: std.fs.OpenOptions = std.fs.OpenOptions(
         access = std.fs.FileAccess.Write,
@@ -195,7 +196,7 @@ func write_file(pos path: &std.path.Path, value: u8) -> Result<unit, std.io.IoEr
     );
 
     let mut file: std.fs.File = try std.fs.File.open(path, options = options);
-    let bytes: [u8; 1] = [value];
+    let bytes: bytes<1> = [value];
     let written: usize = try file.write(&bytes[..]);
 
     assert(written == 1);
@@ -204,7 +205,7 @@ func write_file(pos path: &std.path.Path, value: u8) -> Result<unit, std.io.IoEr
 
     assert(position == 0);
 
-    let mut destination: [u8; 1] = [0];
+    let mut destination: bytes<1> = [0];
     let read: usize = try file.read(&mut destination[..]);
 
     assert(read == 1);

@@ -142,6 +142,7 @@ fn lexical_terminal_rows() -> BTreeSet<&'static str> {
         "imaginary-literal",
         "character-literal",
         "string-literal",
+        "byte-string-literal",
     ])
 }
 

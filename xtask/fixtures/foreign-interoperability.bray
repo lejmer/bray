@@ -323,7 +323,7 @@ trusted func audit_record_calls()
 trusted func audit_strings()
     uses(foreign_call)
 {
-    let narrow_bytes: [u8; 4] = [98, 114, 97, 121];
+    let narrow_bytes: bytes = b"bray";
 
     let narrow: std.ffi.c.OwnedNarrowString = std.testing.assert_ok<
         std.ffi.c.OwnedNarrowString,
@@ -445,11 +445,7 @@ trusted func audit_dynamic_library()
     );
 
     {
-        let name: [u8; 29] = [
-            98, 114, 97, 121, 95, 102, 111, 114, 101, 105,
-            103, 110, 95, 116, 114, 97, 110, 115, 102, 111,
-            114, 109, 95, 114, 101, 99, 111, 114, 100,
-        ];
+        let name: bytes = b"bray_foreign_transform_record";
 
         let symbol: std.dynamic.DynamicSymbol<
             @abi(c)
@@ -471,10 +467,7 @@ trusted func audit_dynamic_library()
     }
 
     {
-        let missing_name: [u8; 20] = [
-            98, 114, 97, 121, 95, 109, 105, 115, 115, 105,
-            110, 103, 95, 102, 105, 120, 116, 117, 114, 101,
-        ];
+        let missing_name: bytes = b"bray_missing_fixture";
 
         let error: std.ffi.ForeignError = std.testing.assert_error<
             std.dynamic.DynamicSymbol<u8>,

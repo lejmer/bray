@@ -92,7 +92,7 @@ impl OwnedHashValueHashable = OwnedHashValue(std.hash.Hashable<Sink>)
 
 func owned_hash_value(pos identity: u64, pos byte: u8) -> Result<OwnedHashValue, std.memory.MemoryLayoutError>
 {
-    let bytes: [u8; 1] = [byte];
+    let bytes: bytes<1> = [byte];
 
     return Ok(
         {
@@ -299,9 +299,9 @@ trusted func iterator_boundaries() -> Result<unit, std.memory.MemoryLayoutError>
 @test
 trusted func list_owned_values_survive_growth_and_removal() -> Result<unit, std.memory.MemoryLayoutError>
 {
-    let first_bytes: [u8; 1] = [11];
-    let second_bytes: [u8; 1] = [22];
-    let third_bytes: [u8; 1] = [33];
+    let first_bytes: bytes<1> = [11];
+    let second_bytes: bytes<1> = [22];
+    let third_bytes: bytes<1> = [33];
 
     let first: OwnedValue =
     {
@@ -501,8 +501,8 @@ trusted func deque_owned_zero_sized_and_overflow_edges() -> Result<unit, std.mem
     std.testing.assert_absent<i32>(trusted exact.pop_front());
     std.testing.assert_absent<i32>(trusted exact.pop_back());
 
-    let first_bytes: [u8; 1] = [31];
-    let second_bytes: [u8; 1] = [47];
+    let first_bytes: bytes<1> = [31];
+    let second_bytes: bytes<1> = [47];
     let mut owned: std.collection.Deque<OwnedValue> = try trusted std.collection.Deque<OwnedValue>(capacity = 1);
 
     try trusted owned.push_front(

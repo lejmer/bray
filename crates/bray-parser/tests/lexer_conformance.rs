@@ -1,7 +1,9 @@
 use bray_diagnostics::DiagnosticBag;
+use bray_diagnostics::DiagnosticKind;
 use bray_parser::{lex_source_unit, parse_compilation_unit, parse_source_unit};
 use bray_source::SourceSnapshot;
 use bray_syntax::SyntaxText;
+use bray_syntax::SyntaxKind;
 use bray_testing::{
     assert_single_final_eof, assert_tokens_cover_source_text, test_source_snapshot,
     test_source_store,
@@ -59,6 +61,43 @@ fn source_unit_parser_preserves_lexer_output_and_reconstructs_sources() {
     }
 }
 
+#[test]
+fn byte_string_literals_preserve_bytes_and_report_invalid_escapes() {
+    for spelling in [r#"b"""#, r#"b"a\0\x00\xFFé\u{1F600}""#] {
+        let snapshot = test_source_snapshot(spelling);
+        let result = lex_source_unit(&snapshot);
+
+        assert!(result.diagnostics().is_empty(), "{spelling}");
+        assert_eq!(result.tokens()[0].kind(), SyntaxKind::ByteStringLiteralToken);
+        assert_tokens_cover_source_text(&snapshot, result.tokens());
+    }
+
+    for (spelling, kind) in [
+        (r#"b"\xG0""#, DiagnosticKind::LexicalUnknownEscape),
+        (r#"b"\x0""#, DiagnosticKind::LexicalUnknownEscape),
+        (r#"b"\u{D800}""#, DiagnosticKind::LexicalInvalidUnicodeEscape),
+    ] {
+        let snapshot = test_source_snapshot(spelling);
+        let result = lex_source_unit(&snapshot);
+
+        assert_eq!(result.tokens()[0].kind(), SyntaxKind::InvalidToken);
+        assert!(result.diagnostics().iter().any(|diagnostic| diagnostic.kind() == kind));
+        assert_tokens_cover_source_text(&snapshot, result.tokens());
+    }
+}
+
+#[test]
+fn character_literals_reject_surrogate_code_points() {
+    let snapshot = test_source_snapshot(r"'\u{D800}'");
+    let result = lex_source_unit(&snapshot);
+
+    assert_eq!(result.tokens()[0].kind(), SyntaxKind::InvalidToken);
+
+    assert!(result.diagnostics().iter().any(|diagnostic| {
+        diagnostic.kind() == DiagnosticKind::LexicalInvalidUnicodeEscape
+    }));
+}
+
 fn assert_lexical_diagnostics_are_preserved(
     parse_diagnostics: &DiagnosticBag,
     lexical_diagnostics: &DiagnosticBag,
@@ -98,7 +137,7 @@ fn base_sources() -> [&'static str; 16] {
         "/// docs\n/** block docs */\nfunc main",
         "/* outer /* inner */ end */ value",
         "let value = 1_000\n0b1010 0xCAFE 1.25i\n",
-        r#"'a' '\'' '\n' '\u{1F600}' "text\n\u{41}""#,
+        r#"'a' '\'' '\n' '\u{1F600}' "text\n\u{41}" b"\xFFé""#,
         "$",
         "é aé",
         "_ _bad __ _1",

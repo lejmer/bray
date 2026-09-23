@@ -126,7 +126,7 @@ func once_indirect_reentry_panics()
 func recoverable_error() -> Result<unit, std.string.Utf8Error>
 {
     let invalid: u8 = 255;
-    let bytes: [u8; 1] = [invalid];
+    let bytes: bytes<1> = [invalid];
     let decoded: Result<string, std.string.Utf8Error> = string.from_utf8(&bytes[..]);
 
     match consume decoded

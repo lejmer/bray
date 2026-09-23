@@ -14,7 +14,7 @@ trusted internal func platform_dynamic_library_open_system(
         return internal std.platform.invalid_input_status();
     }
 
-    let library_name: [u8; 10] = [108, 105, 98, 99, 46, 115, 111, 46, 54, 0];
+    let library_name: bytes = b"libc.so.6\0";
 
     return trusted internal open_unix_library(
         std.memory.address_of<u8>(&library_name[0]),

@@ -4,10 +4,41 @@ using std.bytes;
 using std.memory;
 using std.testing;
 
+const LIB_NAME: bytes<4> = b"lib\0";
+
+@test
+func byte_literals_use_fixed_array_storage()
+{
+    let text: bytes = b"lib\0";
+    let explicit: bytes<4> = b"lib\0";
+    let array: [u8; 4] = b"lib\0";
+    let numeric: bytes = [108, 105, 98, 0];
+    let empty: bytes = b"";
+    let repeated: bytes = [b"A"[0]; 4];
+    let repeated_empty: bytes = [b"A"[0]; 0];
+    let mixed: bytes = b"é\xFF\0";
+
+    assert(text.length() == 4);
+    assert(empty.is_empty());
+    assert(repeated.length() == 4);
+    assert(repeated[3] == b"A"[0]);
+    assert(repeated_empty.is_empty());
+    assert(mixed.length() == 4);
+    assert(mixed[0] == 0xC3);
+    assert(mixed[1] == 0xA9);
+    assert(mixed[2] == 0xFF);
+    assert(mixed[3] == 0);
+    assert(std.bytes.equals(&text[..], &explicit[..]));
+    assert(std.bytes.equals(&text[..], &array[..]));
+    assert(std.bytes.equals(&text[..], &numeric[..]));
+    assert(std.bytes.equals(&text[..], &LIB_NAME[..]));
+    assert(numeric matches b"lib\0");
+}
+
 @test
 func unsigned_words_encode_in_little_endian_order()
 {
-    let bytes: [u8; 8] = std.bytes.u64_little_endian(0x0123456789abcdef);
+    let bytes: bytes<8> = std.bytes.u64_little_endian(0x0123456789abcdef);
 
     assert(bytes[0] == 0xef);
     assert(bytes[1] == 0xcd);
@@ -22,9 +53,9 @@ func unsigned_words_encode_in_little_endian_order()
 @test
 func byte_slice_operations()
 {
-    let first: u8 = 65;
-    let second: u8 = 66;
-    let bytes: [u8; 2] = [first, second];
+    let first: u8 = b"A"[0];
+    let second: u8 = b"B"[0];
+    let bytes: bytes<2> = [first, second];
     let length: usize = bytes[..].length();
     let equal: bool = std.bytes.equals(&bytes[..], &bytes[..]);
 
@@ -36,17 +67,17 @@ func byte_slice_operations()
 trusted func byte_buffer_mutation() -> Result<unit, std.memory.MemoryLayoutError>
 {
     let empty: std.bytes.Buffer = try std.bytes.Buffer();
-    let initial: [u8; 2] = [65, 66];
+    let initial: bytes = b"AB";
     let mut buffer: std.bytes.Buffer = try std.bytes.Buffer.from_slice(&initial[..]);
 
     assert(std.bytes.length(&empty) == 0);
     assert(std.bytes.length(&buffer) == 2);
     assert(std.bytes.capacity(&buffer) == 2);
 
-    try trusted std.bytes.push(&mut buffer, value = 67);
-    try trusted std.bytes.append(&mut buffer, 68, 2);
+    try trusted std.bytes.push(&mut buffer, value = b"C"[0]);
+    try trusted std.bytes.append(&mut buffer, b"D"[0], 2);
 
-    let appended: [u8; 2] = [69, 70];
+    let appended: bytes = b"EF";
 
     try trusted std.bytes.append(&mut buffer, bytes = &appended[..]);
 
@@ -55,30 +86,29 @@ trusted func byte_buffer_mutation() -> Result<unit, std.memory.MemoryLayoutError
     assert(std.bytes.length(&buffer) == 7);
     assert(std.bytes.capacity(&buffer) >= 7);
 
-    assert(values[0] == 65);
-    assert(values[2] == 67);
-    assert(values[4] == 68);
-    assert(values[6] == 70);
+    let expected: bytes = b"ABCDDEF";
+
+    assert(std.bytes.equals(values, &expected[..]));
 
     let removed: u8? = trusted std.bytes.pop(&mut buffer);
 
     let removed_value: u8 = std.testing.assert_present<u8>(removed);
 
-    assert(removed_value == 70);
+    assert(removed_value == b"F"[0]);
 
-    try trusted std.bytes.resize(&mut buffer, new_length = 8, fill = 90);
+    try trusted std.bytes.resize(&mut buffer, new_length = 8, fill = b"Z"[0]);
 
     let resized: &mut [u8] = buffer.as_slice_mut();
 
-    assert(resized[6] == 90);
-    assert(resized[7] == 90);
+    assert(resized[6] == b"Z"[0]);
+    assert(resized[7] == b"Z"[0]);
 
-    resized[0] = 97;
+    resized[0] = b"a"[0];
 
     trusted std.bytes.truncate(&mut buffer, new_length = 1);
 
     assert(std.bytes.length(&buffer) == 1);
-    assert(buffer.as_slice()[0] == 97);
+    assert(buffer.as_slice()[0] == b"a"[0]);
 
     std.bytes.clear(&mut buffer);
 
@@ -95,10 +125,10 @@ trusted func byte_buffer_mutation() -> Result<unit, std.memory.MemoryLayoutError
 @test
 func byte_slice_comparison_boundaries()
 {
-    let first: [u8; 2] = [1, 2];
-    let same: [u8; 2] = [1, 2];
-    let different_value: [u8; 2] = [1, 3];
-    let different_length: [u8; 1] = [1];
+    let first: bytes<2> = [1, 2];
+    let same: bytes<2> = [1, 2];
+    let different_value: bytes<2> = [1, 3];
+    let different_length: bytes<1> = [1];
 
     assert(std.bytes.equals(&first[..], &same[..]));
     assert(!std.bytes.equals(&first[..], &different_value[..]));

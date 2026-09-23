@@ -143,7 +143,8 @@ identifier =
 literal-token =
       numeric-literal
     | character-literal
-    | string-literal ;
+    | string-literal
+    | byte-string-literal ;
 
 numeric-literal =
       imaginary-literal
@@ -208,6 +209,12 @@ string-literal-item =
 
 string-literal-scalar =
     ? any Unicode scalar value except double quote, backslash, U+000A, or U+000D ? ;
+
+byte-string-literal =
+    "b\"" { string-literal-scalar | string-escape-sequence | byte-escape-sequence } "\"" ;
+
+byte-escape-sequence =
+    "\\x" hexadecimal-digit hexadecimal-digit ;
 
 character-escape-sequence =
       string-escape-sequence

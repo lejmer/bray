@@ -18,7 +18,7 @@ union Message
     Ready;
 
     @tag(2)
-    Data(bytes: [u8; 16]);
+    Data(bytes: bytes<16>);
 }
 ```
 

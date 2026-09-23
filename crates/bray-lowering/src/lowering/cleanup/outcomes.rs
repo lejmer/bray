@@ -27,6 +27,26 @@ pub(in crate::lowering) struct AbnormalCleanupMachine {
     cancellation_continuations: HashMap<MirBlockId, MirBlockId>,
 }
 
+impl AbnormalCleanupMachine {
+    pub(in crate::lowering) fn pending_successors(
+        &self,
+        block: MirBlockId,
+    ) -> impl Iterator<Item = MirBlockId> + '_ {
+        let panicking = block == self.panic_dispatcher;
+
+        let routes = if panicking || block == self.cancellation_dispatcher {
+            self.routes.as_slice()
+        } else {
+            &[]
+        };
+
+        routes
+            .iter()
+            .filter(move |route| route.panicking == panicking)
+            .map(|route| route.target)
+    }
+}
+
 struct AbnormalCleanupRoute {
     panicking: bool,
     destination: CleanupDestination,

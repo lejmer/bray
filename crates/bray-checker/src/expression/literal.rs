@@ -11,8 +11,8 @@ use bray_diagnostics::{
 use bray_symbols::{ConstantValueData, ConstantValueKind};
 
 use crate::constant::{
-    ConstantEvaluationLimits, ConstantLiteralError, check_constant_literal,
-    check_negated_integer_operand_literal, literal_diagnostic_kind,
+    ConstantEvaluationLimits, ConstantLiteralError, check_byte_string_literal,
+    check_constant_literal, check_negated_integer_operand_literal, literal_diagnostic_kind,
 };
 use crate::diagnostic::{diagnostic_id, diagnostic_type, expression_span};
 use crate::representation::type_representation;
@@ -273,6 +273,11 @@ fn check_literal<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
+    if literal.kind() == bray_bound_tree::BoundLiteralKind::ByteString {
+        return check_byte_string_literal(request.semantic_values(), ty, spelling)
+            .map_err(CheckerInfrastructureError::SemanticValueStore);
+    }
+
     let representation = type_representation(request, ty);
 
     let Some(representation) = representation else {

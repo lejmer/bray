@@ -6,9 +6,13 @@ use rustc_apfloat::ieee::{Double, Half, Quad, Single};
 use bray_bound_tree::BoundLiteralKind;
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::DiagnosticKind;
-use bray_symbols::{ConstantValueKind, IntegerConstant, IntegerSign, RealConstantBits};
+use bray_symbols::{
+    ConstantValueData, ConstantValueKind, IntegerConstant, IntegerSign, RealConstantBits,
+    SemanticValueStore, SemanticValueStoreError, TypeData, TypeId,
+};
 
 use super::integer::fits_integer_representation;
+use super::integer::integer_to_usize;
 
 /// Why a source literal cannot become a constant value of its selected representation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -61,6 +65,7 @@ pub fn check_constant_literal(
         BoundLiteralKind::Boolean => parse_boolean(text),
         BoundLiteralKind::Character => parse_character(text),
         BoundLiteralKind::String => parse_string(text),
+        BoundLiteralKind::ByteString => Err(ConstantLiteralError::Invalid),
     }
 }
 
@@ -289,7 +294,8 @@ fn parse_character(text: &str) -> Result<ConstantValueKind, ConstantLiteralError
         return Err(ConstantLiteralError::Invalid);
     };
 
-    let decoded = decode_quoted_content(content, BoundLiteralKind::Character)?;
+    let decoded = decode_quoted_bytes(content, BoundLiteralKind::Character)?;
+    let decoded = String::from_utf8(decoded).map_err(|_| ConstantLiteralError::Invalid)?;
 
     let mut characters = decoded.chars();
 
@@ -312,19 +318,70 @@ fn parse_string(text: &str) -> Result<ConstantValueKind, ConstantLiteralError> {
         return Err(ConstantLiteralError::Invalid);
     };
 
-    decode_quoted_content(content, BoundLiteralKind::String).map(ConstantValueKind::string)
+    let decoded = decode_quoted_bytes(content, BoundLiteralKind::String)?;
+    let decoded = String::from_utf8(decoded).map_err(|_| ConstantLiteralError::Invalid)?;
+
+    Ok(ConstantValueKind::string(decoded))
 }
 
-fn decode_quoted_content(
+/// Decodes a byte string; ordinary source scalars and Unicode escapes use UTF-8.
+pub(crate) fn parse_byte_string(text: &str) -> Result<Vec<u8>, ConstantLiteralError> {
+    let Some(content) = text
+        .strip_prefix("b\"")
+        .and_then(|text| text.strip_suffix('"'))
+    else {
+        return Err(ConstantLiteralError::Invalid);
+    };
+
+    decode_quoted_bytes(content, BoundLiteralKind::ByteString)
+}
+
+pub(crate) fn check_byte_string_literal(
+    values: &SemanticValueStore,
+    ty: TypeId,
+    text: &str,
+) -> Result<Result<ConstantValueKind, ConstantLiteralError>, SemanticValueStoreError> {
+    let bytes = match parse_byte_string(text) {
+        Ok(bytes) => bytes,
+        Err(error) => return Ok(Err(error)),
+    };
+
+    let TypeData::Array { element, length } = *values.type_data(ty) else {
+        return Ok(Err(ConstantLiteralError::Invalid));
+    };
+
+    if values
+        .constant_term_integer(length)
+        .as_ref()
+        .and_then(integer_to_usize)
+        != Some(bytes.len())
+    {
+        return Ok(Err(ConstantLiteralError::Invalid));
+    }
+
+    let elements = bytes
+        .into_iter()
+        .map(|byte| {
+            values.intern_constant_value(ConstantValueData::new(
+                element,
+                ConstantValueKind::Integer(IntegerConstant::from_u64(u64::from(byte))),
+            ))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(Ok(ConstantValueKind::array(elements)))
+}
+
+fn decode_quoted_bytes(
     content: &str,
     kind: BoundLiteralKind,
-) -> Result<String, ConstantLiteralError> {
-    let mut decoded = String::new();
+) -> Result<Vec<u8>, ConstantLiteralError> {
+    let mut decoded = Vec::new();
     let mut characters = content.chars();
 
     while let Some(character) = characters.next() {
         if character != '\\' {
-            decoded.push(character);
+            push_utf8(&mut decoded, character);
             continue;
         }
 
@@ -333,19 +390,37 @@ fn decode_quoted_content(
         };
 
         match escaped {
-            '"' => decoded.push('"'),
-            '\'' if kind == BoundLiteralKind::Character => decoded.push('\''),
-            '\\' => decoded.push('\\'),
-            'n' => decoded.push('\n'),
-            'r' => decoded.push('\r'),
-            't' => decoded.push('\t'),
-            '0' => decoded.push('\0'),
-            'u' => decoded.push(decode_unicode_escape(&mut characters)?),
+            '"' => decoded.push(b'"'),
+            '\'' if kind == BoundLiteralKind::Character => decoded.push(b'\''),
+            '\\' => decoded.push(b'\\'),
+            'n' => decoded.push(b'\n'),
+            'r' => decoded.push(b'\r'),
+            't' => decoded.push(b'\t'),
+            '0' => decoded.push(b'\0'),
+            'u' => push_utf8(&mut decoded, decode_unicode_escape(&mut characters)?),
+            'x' if kind == BoundLiteralKind::ByteString => {
+                let high = characters
+                    .next()
+                    .and_then(|digit| digit.to_digit(16))
+                    .ok_or(ConstantLiteralError::Invalid)?;
+
+                let low = characters
+                    .next()
+                    .and_then(|digit| digit.to_digit(16))
+                    .ok_or(ConstantLiteralError::Invalid)?;
+
+                decoded.push(u8::try_from(high * 16 + low).expect("two hex digits fit in u8"));
+            }
             _ => return Err(ConstantLiteralError::Invalid),
         }
     }
 
     Ok(decoded)
+}
+
+fn push_utf8(decoded: &mut Vec<u8>, character: char) {
+    let mut bytes = [0_u8; 4];
+    decoded.extend_from_slice(character.encode_utf8(&mut bytes).as_bytes());
 }
 
 fn decode_unicode_escape(

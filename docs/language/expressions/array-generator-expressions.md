@@ -53,7 +53,7 @@ A fixed-size array generator must yield exactly one array element per iteration.
 
 A fixed-size array generator must yield exactly `N` total elements, where `N` is the length of the resulting array type.
 
-The resulting array length must be greater than zero.
+The resulting array length may be zero when the source has zero iterations.
 
 The compiler must be able to prove the required cardinality.
 

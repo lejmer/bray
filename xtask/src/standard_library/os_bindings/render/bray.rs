@@ -440,8 +440,6 @@ fn render_static(source: &mut String, target: &TargetDescription, static_: &Stat
 }
 
 fn render_dynamic_symbol(source: &mut String, symbol: &DynamicSymbolDescription) {
-    let name = symbol.symbol.as_bytes();
-
     source.push('\n');
 
     writeln!(
@@ -484,12 +482,8 @@ fn render_dynamic_symbol(source: &mut String, symbol: &DynamicSymbolDescription)
 
     writeln!(
         source,
-        "    let name: [u8; {}] = [{}];",
-        name.len(),
-        name.iter()
-            .map(u8::to_string)
-            .collect::<Vec<_>>()
-            .join(", ")
+        "    let name: bytes = b{:?};",
+        symbol.symbol
     )
     .expect("writing to a string must succeed");
 

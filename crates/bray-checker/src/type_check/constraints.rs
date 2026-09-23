@@ -14,6 +14,7 @@ use bray_symbols::{NamedTypeSymbolId, TypeData, TypeId};
 use crate::representation::representation_type;
 
 use super::ExpressionTypeExpectation;
+use super::array::inferred_byte_array_type;
 use super::dependencies::ExpressionTypeDependencies;
 use super::inference::{InferenceTypeId, TypeInferenceContext};
 use super::region::{ExpressionTypeRegions, ResultRegionKind};
@@ -58,7 +59,10 @@ pub(crate) fn intrinsic_representation_role(
             BoundLiteralKind::Boolean => Some(RepresentationRole::ScalarBool),
             BoundLiteralKind::Character => Some(RepresentationRole::ScalarChar),
             BoundLiteralKind::String => Some(RepresentationRole::String),
-            BoundLiteralKind::Integer | BoundLiteralKind::Real | BoundLiteralKind::Imaginary => {
+            BoundLiteralKind::Integer
+            | BoundLiteralKind::Real
+            | BoundLiteralKind::Imaginary
+            | BoundLiteralKind::ByteString => {
                 None
             }
         },
@@ -318,7 +322,8 @@ pub(super) fn add_operand_expectation(
 pub(super) fn block_expectations<C>(
     request: CheckerUnitView<'_, C>,
     blocks: &[BoundBlockId],
-) -> Option<Vec<ExpressionTypeExpectation>>
+    inferred_byte_initializers: &mut Vec<BoundExpressionId>,
+) -> Result<Option<Vec<ExpressionTypeExpectation>>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -326,7 +331,7 @@ where
 
     for &block in blocks {
         if request.is_cancelled() {
-            return None;
+            return Ok(None);
         }
 
         let Some(block) = request.view().block(block) else {
@@ -336,7 +341,13 @@ where
         for item in block.items() {
             match item {
                 BoundBlockItem::LocalBinding(binding) => {
-                    let expected = binding.declared_type().and_then(|reference| reference.ty());
+                    let expected = if binding.infers_byte_extent() {
+                        inferred_byte_initializers.push(binding.initializer());
+
+                        inferred_byte_array_type(request, binding.initializer())?
+                    } else {
+                        binding.declared_type().and_then(|reference| reference.ty())
+                    };
 
                     push_expected_initializer(&mut expectations, binding.initializer(), expected);
                 }
@@ -352,7 +363,7 @@ where
         }
     }
 
-    Some(expectations)
+    Ok(Some(expectations))
 }
 
 fn push_expected_initializer(

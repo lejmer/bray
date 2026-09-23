@@ -11,7 +11,7 @@ use bray_syntax::{
 };
 
 use super::BindingResult;
-use super::name::{name_is_available, symbol_name};
+use super::name::{is_bytes_type_path, name_is_available, symbol_name};
 use crate::BindingQueryContext;
 use crate::binder::{Binder, ControlTarget, ControlTargetKind, PatternBindingMode};
 use crate::lookup::PathBindingContext;
@@ -153,7 +153,20 @@ where
         syntax: &LocalBindingDeclarationSyntax,
         operations: &mut impl BlockBindingOperations<C>,
     ) -> BindingResult<BoundLocalBinding, C::UpstreamError> {
+        let inferred_bytes = syntax
+            .type_annotation()
+            .is_some_and(|annotation| {
+                let ty = annotation.type_expression();
+
+                ty.path().is_some_and(|path| is_bytes_type_path(&path))
+                    && ty.generic_argument_lists().next().is_none()
+            });
+
         let declared_type = match syntax.type_annotation() {
+            Some(annotation) if inferred_bytes => Some(BoundTypeReference::new(
+                SyntaxAnchor::from_node(&annotation.type_expression()),
+                None,
+            )),
             Some(annotation) => {
                 operations.bind_type_expression(self, scope, Some(&annotation.type_expression()))?
             }
@@ -188,6 +201,7 @@ where
             pattern.pattern(),
             pattern.bindings().iter().copied(),
             declared_type,
+            inferred_bytes,
             initializer,
             syntax.is_recovered(),
         ))

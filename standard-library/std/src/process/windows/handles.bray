@@ -47,7 +47,7 @@ trusted internal func windows_child_handles(
         }
         case 1
         {
-            let null_name: [u8; 8] = [78, 0, 85, 0, 76, 0, 0, 0];
+            let null_name: bytes = b"N\0U\0L\0\0\0";
 
             let access: u32 = if reads
             {

@@ -103,6 +103,10 @@ func composed_types(
 Grouping parentheses do not create a type. A one-element tuple requires its trailing comma. The default `box T` is identical to `box[Heap] T`, while another storage policy changes type identity. Unsized slices and trait views must appear behind a borrow or owned indirection.
 
 Fixed arrays and slice access paths have compiler-provided `length() -> usize` and `is_empty() -> bool` methods. A fixed array returns its compile-time extent. A slice returns the runtime extent carried by its indirection.
+`bytes<N>` is identical to `[u8; N]`. Local `let` bindings can write `bytes` when a byte string, element-list array,
+integer-count repeated array, or already typed byte array supplies the extent. Other repeated counts need `bytes<N>`.
+A byte string has that fixed array type, including `bytes<0>` for `b""`. Indexing yields `u8`, and `&value[..]`
+borrows a byte slice. `char` is one Unicode scalar, excluding surrogates.
 
 ## Named types, generics, and copying
 

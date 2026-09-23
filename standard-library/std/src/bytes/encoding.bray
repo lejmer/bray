@@ -1,9 +1,9 @@
 module std.bytes;
 
 /// Encodes one unsigned 64-bit value in little-endian byte order.
-func u64_little_endian(pos value: u64) -> [u8; 8]
+func u64_little_endian(pos value: u64) -> bytes<8>
 {
-    let mut bytes: [u8; 8] = [0; 8];
+    let mut bytes: bytes<8> = [0; 8];
     let mut index: usize = 0;
 
     while index < 8

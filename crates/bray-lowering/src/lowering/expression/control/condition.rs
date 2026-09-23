@@ -65,8 +65,7 @@ impl Lowerer<'_> {
 
             self.lower_condition(right, next, matched, unmatched)?;
 
-            return Ok(self.builder.is_reachable(current, matched)
-                || self.builder.is_reachable(current, unmatched));
+            return Ok(self.is_reachable(current, matched) || self.is_reachable(current, unmatched));
         }
 
         if let BoundExpression::Structured(test) = expression

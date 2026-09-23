@@ -2,7 +2,7 @@ module std.character;
 
 struct Utf8Encoding
 {
-    internal bytes: [u8; 4];
+    internal bytes: bytes<4>;
     internal length: usize;
 
     func as_slice() -> &[u8]
@@ -26,7 +26,7 @@ impl char
     func encode_utf8() -> Utf8Encoding
     {
         let length: usize = internal utf8_length(self);
-        let mut bytes: [u8; 4] = [0; 4];
+        let mut bytes: bytes<4> = [0; 4];
         let mut index: usize = 0;
 
         while index < length

@@ -5,8 +5,8 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
     let first: u8 = 1;
     let second: u8 = 2;
     let third: u8 = 3;
-    let initial: [u8; 3] = [first, second, third];
-    let extra: [u8; 3] = [first, second, third];
+    let initial: bytes<3> = [first, second, third];
+    let extra: bytes<3> = [first, second, third];
     let mut buffer: Buffer = try Buffer.from_slice(&initial[..]);
 
     try append(bytes = &extra[..], buffer = &mut buffer);
