@@ -11,3 +11,4 @@ workspace = true
 [dependencies]
 ra_ap_syntax = "0.0.343"
 rayon = "1.11.0"
+tempfile = "3"

@@ -6,6 +6,17 @@ use tempfile::{Builder, NamedTempFile, TempPath};
 
 const STAGING_FILE_PREFIX: &str = ".bray-stage-";
 
+/// Writes complete file contents through atomic replacement, preserving existing file permissions.
+///
+/// Existing readers retain their original file. A failed write leaves the destination unchanged.
+pub fn write_file_atomically(destination: &Path, bytes: &[u8]) -> io::Result<()> {
+    let mut staging = StagedFile::create(destination, FileReplacementMode::ReplaceExisting, None)?;
+
+    staging.write_all(bytes)?;
+
+    staging.finish()?.promote(destination)
+}
+
 /// Returns whether a filename belongs to [`StagedFile`] private storage.
 pub fn is_staged_file_name(name: &str) -> bool {
     name.starts_with(STAGING_FILE_PREFIX)
@@ -180,10 +191,32 @@ fn replacement_permissions(
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
+    use std::io::{Read, Write};
     use std::path::{Path, PathBuf};
 
     use super::{FileReplacementMode, StagedFile};
+
+    #[test]
+    fn whole_file_replacement_preserves_open_readers_and_failed_destinations() {
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("source.rs");
+
+        super::write_file_atomically(&destination, b"original").unwrap();
+
+        let mut reader = std::fs::File::open(&destination).unwrap();
+
+        super::write_file_atomically(&destination, b"replacement").unwrap();
+
+        let mut original = Vec::new();
+
+        reader.read_to_end(&mut original).unwrap();
+
+        assert_eq!(original, b"original");
+        assert_eq!(file_bytes(&destination), b"replacement");
+        assert!(super::write_file_atomically(directory.path(), b"invalid").is_err());
+        assert!(directory.path().is_dir());
+        assert_eq!(file_bytes(&destination), b"replacement");
+    }
 
     #[test]
     fn staging_stays_private_until_atomic_replacement() {
@@ -196,6 +229,7 @@ mod tests {
         write(&destination, b"existing");
 
         let mut staging = stage(&destination, FileReplacementMode::ReplaceExisting);
+
         write_staging(&mut staging, b"replacement");
 
         let staging = finish(staging);
@@ -221,6 +255,7 @@ mod tests {
         write(&destination, b"existing");
 
         let mut staging = stage(&destination, FileReplacementMode::RequireAbsent);
+
         write_staging(&mut staging, b"replacement");
 
         let staging = finish(staging);
@@ -350,6 +385,7 @@ mod tests {
         }
 
         let mut staging = stage(&destination, FileReplacementMode::ReplaceExisting);
+
         write_staging(&mut staging, b"replacement");
 
         if finish(staging).promote(&destination).is_err() {
