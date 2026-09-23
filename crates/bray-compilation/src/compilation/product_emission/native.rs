@@ -160,7 +160,9 @@ pub(super) fn package_native_implementation(
                 bundle.surface().dependencies().iter().cloned(),
             );
 
-            bindings.push(InterfaceNativeBinding::new(owner, key, digest.bytes(), symbol));
+            bindings.push(InterfaceNativeBinding::new(
+                owner, key, *native.options(), digest.bytes(), symbol,
+            ));
         }
     }
 

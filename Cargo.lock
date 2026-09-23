@@ -479,6 +479,7 @@ dependencies = [
  "blake3",
  "bray-base",
  "bray-bound-tree",
+ "bray-codegen",
  "bray-compiler-known",
  "bray-diagnostics",
  "bray-ir",

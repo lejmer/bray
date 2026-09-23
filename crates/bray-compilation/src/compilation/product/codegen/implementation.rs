@@ -2306,6 +2306,44 @@ mod tests {
     }
 
     #[test]
+    fn unknown_join_and_loop_values_keep_reachable_calls() {
+        let (_, compilation) = codegen_compilation(concat!(
+            "module app;\n",
+            "func used() {}\n",
+            "func gate(flag: bool)\n",
+            "{\n",
+            "    let mut selected: bool = false;\n",
+            "    if flag\n",
+            "    {\n",
+            "        selected = true;\n",
+            "    }\n",
+            "    while flag\n",
+            "    {\n",
+            "        selected = true;\n",
+            "    }\n",
+            "    if selected\n",
+            "    {\n",
+            "        used();\n",
+            "    }\n",
+            "}\n",
+            "func main() { gate(flag = false); }\n",
+        ));
+
+        assert!(compilation.check_diagnostics().is_empty());
+        let cancellation = CancellationToken::new();
+        let target = compilation.selected_target().target().codegen_target().unwrap();
+        let semantic = compilation.product_semantics().unwrap();
+        let roots = compilation.product_root_instances(semantic.value(), None, &target, &cancellation).unwrap();
+
+        let basic = compilation.codegen_reachability(
+            roots, None, &target, crate::BuildConfiguration::Development.codegen_options(), &cancellation,
+        ).unwrap();
+
+        assert_eq!(basic.graph().instances().len(), 3);
+        assert!(basic.graph().instances().iter().all(|instance| instance.mir().is_valid()));
+    }
+
+    #[test]
     fn generic_scalar_branches_follow_each_concrete_substitution() {
         let source = concat!(
             "module app;\n",
@@ -2320,6 +2358,7 @@ mod tests {
             "func main()\n",
             "{\n",
             "    gate<false>();\n",
+            "    gate<true>();\n",
             "}\n",
         );
 
@@ -2347,32 +2386,20 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(none.graph().instances().len(), 3);
-        assert_eq!(basic.graph().instances().len(), 2);
+        assert_eq!(none.graph().instances().len(), 4);
+        assert_eq!(basic.graph().instances().len(), 4);
         assert!(basic.graph().instances().iter().all(|instance| instance.mir().is_valid()));
         realize_codegen_mappings(&compilation, &target, &none, &cancellation);
 
-        let (_, true_compilation) =
-            codegen_compilation(&source.replace("gate<false>()", "gate<true>()"));
+        let generic = basic.graph().instances().iter()
+            .filter(|instance| matches!(instance.key().specialization(), bray_codegen::CodegenSpecialization::Generic(_)))
+            .collect::<Vec<_>>();
 
-        let true_target = true_compilation.selected_target().target().codegen_target().unwrap();
-        let true_semantic = true_compilation.product_semantics().unwrap();
-
-        let true_roots = true_compilation
-            .product_root_instances(true_semantic.value(), None, &true_target, &cancellation)
-            .unwrap();
-
-        let true_graph = true_compilation
-            .codegen_reachability(
-                true_roots,
-                None,
-                &true_target,
-                crate::BuildConfiguration::Development.codegen_options(),
-                &cancellation,
-            )
-            .unwrap();
-
-        assert_eq!(true_graph.graph().instances().len(), 3);
+        assert_eq!(generic.len(), 2);
+        assert_eq!(generic[0].key().template(), generic[1].key().template());
+        assert_ne!(generic[0].key().specialization(), generic[1].key().specialization());
+        assert_ne!(generic[0].mir(), generic[1].mir());
+        assert_eq!(generic.iter().map(|instance| instance.dependencies().len()).sum::<usize>(), 1);
     }
 
     #[test]
@@ -2401,7 +2428,7 @@ mod tests {
         let compilation = generic_consumer_for_target_with_source(
             dependency,
             SelectedTarget::baseline(),
-            "module app; using example.dependency.templates.gate; func main() { example.dependency.templates.gate<false>(); }",
+            "module app; using example.dependency.templates.gate; func main() { example.dependency.templates.gate<false>(); example.dependency.templates.gate<true>(); }",
         );
 
         assert!(compilation.check_diagnostics().is_empty());
@@ -2428,10 +2455,19 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(none.graph().instances().len(), 3);
-        assert_eq!(basic.graph().instances().len(), 2);
+        assert_eq!(none.graph().instances().len(), 4);
+        assert_eq!(basic.graph().instances().len(), 4);
         assert!(basic.graph().instances().iter().all(|instance| instance.mir().is_valid()));
         realize_codegen_mappings(&compilation, &target, &none, &cancellation);
+
+        let generic = basic.graph().instances().iter()
+            .filter(|instance| matches!(instance.key().specialization(), bray_codegen::CodegenSpecialization::Generic(_)))
+            .collect::<Vec<_>>();
+
+        assert_eq!(generic.len(), 2);
+        assert_eq!(generic[0].key().template(), generic[1].key().template());
+        assert_ne!(generic[0].mir(), generic[1].mir());
+        assert_eq!(generic.iter().map(|instance| instance.dependencies().len()).sum::<usize>(), 1);
     }
 
     #[test]

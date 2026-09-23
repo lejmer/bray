@@ -3,6 +3,10 @@ use std::sync::Arc;
 
 use bray_base::NonEmptySharedStr;
 use bray_bound_tree::CheckedTemplateKind;
+use bray_codegen::{
+    CodegenOptions, DebugInformationMode, OptimizationLevel, ReproducibilityLevel,
+    RuntimeObservationMode, SizePreference,
+};
 use bray_native_artifact::{
     NativeArtifactIndex, NativeCoRetentionGroup, NativeContentDigest, NativeDefinition, NativeDefinitionSelection,
     NativeRoot,
@@ -62,8 +66,16 @@ fn native_package_units_round_trip_with_exact_source_binding() {
         fixture.bundle.surface().dependencies().iter().cloned(),
     );
 
+    let producer_options = CodegenOptions::new(
+        OptimizationLevel::Full, SizePreference::Size, DebugInformationMode::LineTables,
+        ReproducibilityLevel::ByteForByte,
+        RuntimeObservationMode::PerformanceInterval {
+            inner_iterations: std::num::NonZeroU64::new(3).expect("test interval must be nonzero"),
+        },
+    );
+
     let binding = InterfaceNativeBinding::new(
-        fixture.body.owner(), key, first_digest.bytes(), symbol.clone(),
+        fixture.body.owner(), key, producer_options, first_digest.bytes(), symbol.clone(),
     );
 
     let first_unit = NativeUnit::new(
@@ -118,7 +130,22 @@ fn native_package_units_round_trip_with_exact_source_binding() {
 
     assert_eq!(imported_index, index);
     assert_eq!(imported.native_bindings().unwrap_or_else(|error| panic!("bindings must decode: {error:?}")), vec![binding.clone()]);
+    assert_eq!(imported.native_binding(binding.owner(), binding.key(), producer_options), Ok(Some(binding.clone())));
+    assert_eq!(imported.native_binding(binding.owner(), binding.key(), CodegenOptions::default()), Ok(None));
     assert_eq!(imported.native_unit_bytes(first_digest.bytes()), Ok(Some(Arc::from(first.as_slice()))));
+
+    let other_policy = InterfaceNativeBinding::new(
+        binding.owner(), binding.key().clone(), CodegenOptions::default(), first_digest.bytes(),
+        NonEmptySharedStr::try_new(binding.symbol()).expect("test symbol must be nonempty"),
+    );
+
+    let other_artifact = PackageImplementationArtifact::try_from_export_bundle_with_native(
+        &encoded, &fixture.bundle, &index_bytes, &payloads, &[other_policy],
+        InterfaceValidationLimits::default(),
+    )
+    .unwrap_or_else(|error| panic!("other producer policy must encode: {error:?}"));
+
+    assert_ne!(artifact.content_hash(), other_artifact.content_hash());
 
     let wrong = PackageImplementationArtifact::try_from_export_bundle_with_native(
         &encoded, &fixture.bundle, &index_bytes,
@@ -131,7 +158,7 @@ fn native_package_units_round_trip_with_exact_source_binding() {
     assert!(matches!(wrong.native_artifact(), Err(super::native::PackageNativeArtifactError::Index(NativeIndexError::PayloadDigestMismatch { .. }))));
 
     let opaque_binding = InterfaceNativeBinding::new(
-        fixture.body.owner(), binding.key().clone(), second_digest.bytes(),
+        fixture.body.owner(), binding.key().clone(), producer_options, second_digest.bytes(),
         NonEmptySharedStr::try_new("bray_test_first")
             .unwrap_or_else(|| panic!("test native name must be valid")),
     );
@@ -178,7 +205,7 @@ fn native_package_units_round_trip_with_exact_source_binding() {
     );
 
     let wrong_binding = InterfaceNativeBinding::new(
-        fixture.body.owner(), wrong_key, first_digest.bytes(),
+        fixture.body.owner(), wrong_key, producer_options, first_digest.bytes(),
         NonEmptySharedStr::try_new("bray_test_first")
             .unwrap_or_else(|| panic!("test native name must be valid")),
     );

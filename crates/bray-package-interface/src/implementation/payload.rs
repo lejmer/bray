@@ -1,6 +1,10 @@
 use std::sync::Arc;
 
 use bray_base::NonEmptySharedStr;
+use bray_codegen::{
+    CodegenOptions, DebugInformationMode, OptimizationLevel, ReproducibilityLevel,
+    RuntimeObservationMode, SizePreference,
+};
 use bray_symbols::{
     ForeignCallableDirection, InterfaceSymbolId, NativeSymbolBinding, NativeSymbolContract,
     NativeSymbolIdentity, NativeSymbolPresence, StaticStorageDuration,
@@ -85,6 +89,7 @@ pub(super) fn encode_native_binding(binding: &InterfaceNativeBinding) -> Vec<u8>
     let mut encoder = WireEncoder::new();
 
     encode_specialization_key(binding.key(), &mut encoder);
+    encode_producer_options(binding.producer_options(), &mut encoder);
     encoder.write_bytes(&binding.unit());
     write_string(&mut encoder, binding.symbol());
 
@@ -98,6 +103,7 @@ pub(super) fn decode_native_binding(
 ) -> Result<InterfaceNativeBinding, InterfaceValidationError> {
     let mut reader = WireReader::new(payload);
     let key = decode_specialization_key(&mut reader, limits)?;
+    let producer_options = decode_producer_options(&mut reader)?;
 
     let unit = reader.read_array::<32>()
         .map_err(wire_error(InterfaceValidationField::Hash))?;
@@ -107,7 +113,93 @@ pub(super) fn decode_native_binding(
     reader.finish()
         .map_err(wire_error(InterfaceValidationField::RecordPayload))?;
 
-    Ok(InterfaceNativeBinding::new(owner, key, unit, symbol))
+    Ok(InterfaceNativeBinding::new(owner, key, producer_options, unit, symbol))
+}
+
+fn encode_producer_options(options: CodegenOptions, encoder: &mut WireEncoder) {
+    encoder.write_u8(match options.optimization() {
+        OptimizationLevel::None => 0,
+        OptimizationLevel::Basic => 1,
+        OptimizationLevel::Full => 2,
+    });
+
+    encoder.write_u8(match options.size_preference() {
+        SizePreference::None => 0,
+        SizePreference::Size => 1,
+        SizePreference::MinimumSize => 2,
+    });
+
+    encoder.write_u8(match options.debug_information() {
+        DebugInformationMode::None => 0,
+        DebugInformationMode::LineTables => 1,
+        DebugInformationMode::Full => 2,
+    });
+
+    encoder.write_u8(match options.reproducibility() {
+        ReproducibilityLevel::Semantic => 0,
+        ReproducibilityLevel::ByteForByte => 1,
+    });
+
+    match options.runtime_observations() {
+        RuntimeObservationMode::None => encoder.write_u8(0),
+        RuntimeObservationMode::Memory => encoder.write_u8(1),
+        RuntimeObservationMode::PerformanceInterval { inner_iterations } => {
+            encoder.write_u8(2);
+            encoder.write_u64(inner_iterations.get());
+        }
+    }
+}
+
+fn decode_producer_options(reader: &mut WireReader<'_>) -> Result<CodegenOptions, InterfaceValidationError> {
+    let read = |reader: &mut WireReader<'_>| {
+        reader.read_u8().map_err(wire_error(InterfaceValidationField::Discriminant))
+    };
+
+    let optimization = match read(reader)? {
+        0 => OptimizationLevel::None,
+        1 => OptimizationLevel::Basic,
+        2 => OptimizationLevel::Full,
+        actual => return Err(invalid_discriminant(actual)),
+    };
+
+    let size_preference = match read(reader)? {
+        0 => SizePreference::None,
+        1 => SizePreference::Size,
+        2 => SizePreference::MinimumSize,
+        actual => return Err(invalid_discriminant(actual)),
+    };
+
+    let debug_information = match read(reader)? {
+        0 => DebugInformationMode::None,
+        1 => DebugInformationMode::LineTables,
+        2 => DebugInformationMode::Full,
+        actual => return Err(invalid_discriminant(actual)),
+    };
+
+    let reproducibility = match read(reader)? {
+        0 => ReproducibilityLevel::Semantic,
+        1 => ReproducibilityLevel::ByteForByte,
+        actual => return Err(invalid_discriminant(actual)),
+    };
+
+    let runtime_observations = match read(reader)? {
+        0 => RuntimeObservationMode::None,
+        1 => RuntimeObservationMode::Memory,
+        2 => {
+            let iterations = reader.read_u64()
+                .map_err(wire_error(InterfaceValidationField::RecordPayload))?;
+
+            let inner_iterations = std::num::NonZeroU64::new(iterations)
+                .ok_or(crate::implementation::invalid_value(InterfaceValidationField::RecordPayload))?;
+
+            RuntimeObservationMode::PerformanceInterval { inner_iterations }
+        }
+        actual => return Err(invalid_discriminant(actual)),
+    };
+
+    Ok(CodegenOptions::new(
+        optimization, size_preference, debug_information, reproducibility, runtime_observations,
+    ))
 }
 
 pub(super) fn encode_native_boundary(boundary: &InterfaceNativeBoundary) -> Vec<u8> {

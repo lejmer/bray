@@ -13,6 +13,7 @@ blake3 = "1"
 bray-base = { path = "../bray-base" }
 bray-bound-tree = { path = "../bray-bound-tree" }
 bray-compiler-known = { path = "../bray-compiler-known" }
+bray-codegen = { path = "../bray-codegen" }
 bray-diagnostics = { path = "../bray-diagnostics" }
 bray-ir = { path = "../bray-ir" }
 bray-native-artifact = { path = "../bray-native-artifact" }

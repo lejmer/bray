@@ -79,11 +79,12 @@ impl PackageImplementationArtifact {
             .transpose()
     }
 
-    /// Resolves one optional source specialization to its native symbol and physical unit.
+    /// Resolves a native specialization only when its producer policy matches the request.
     pub fn native_binding(
         &self,
         owner: InterfaceSymbolId,
         key: &PackageImplementationSpecializationKey,
+        requested_options: bray_codegen::CodegenOptions,
     ) -> Result<Option<InterfaceNativeBinding>, InterfaceValidationError> {
         let Some((index, entry)) = self.entry(
             owner,
@@ -102,7 +103,7 @@ impl PackageImplementationArtifact {
             });
         }
 
-        Ok(Some(binding))
+        Ok((binding.producer_options() == requested_options).then_some(binding))
     }
 
     /// Decodes and validates only the requested checked body payload.
