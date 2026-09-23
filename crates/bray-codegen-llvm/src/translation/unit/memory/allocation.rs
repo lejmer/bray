@@ -4,12 +4,13 @@ use bray_codegen::{CodegenFailure, CodegenFieldLayout, CodegenTypeKind};
 use bray_ir::{
     MirHelperReference, MirMemoryOperation, MirOperation, MirOperationId, MirStandardLibraryHelper,
 };
+use bray_runtime_abi::NativeRunState;
 use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicValueEnum, IntValue, PointerValue};
 
 use super::super::core::UnitTranslator;
 use super::super::support::{
-    extract_value, insert_value, int_value, llvm, next_helper, pointer_value,
+    extract_value, insert_value, int_value, llvm, native_run_state_is, next_helper, pointer_value,
 };
 use super::support::LoadedMemoryAggregate;
 
@@ -275,11 +276,72 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &self,
         bytes: IntValue<'context>,
     ) -> Result<(), CodegenFailure> {
+        if self.request.options().runtime_observations()
+            != bray_codegen::RuntimeObservationMode::Memory
+        {
+            return Ok(());
+        }
+
+        let continued = if let Some(context) = self.pending_call_panic_report_context {
+            let ty = crate::native::run_outcome_type(self.types.context(), self.request.target());
+
+            let state_pointer = llvm(self.builder.build_struct_gep(
+                ty,
+                context,
+                0,
+                "memory.allocation.outcome.state",
+            ))?;
+
+            let state = llvm(self.builder.build_load(
+                self.types.context().i32_type(),
+                state_pointer,
+                "memory.allocation.outcome.state",
+            ))?
+            .into_int_value();
+
+            let completed = native_run_state_is(
+                &self.builder,
+                state,
+                NativeRunState::COMPLETED,
+                "memory.allocation.completed",
+            )?;
+
+            let function = self
+                .builder
+                .get_insert_block()
+                .and_then(inkwell::basic_block::BasicBlock::get_parent)
+                .expect("checked MIR memory translation requires an established mapping or value");
+
+            let observe = self
+                .types
+                .context()
+                .append_basic_block(function, "memory.allocation.observe");
+
+            let continued = self
+                .types
+                .context()
+                .append_basic_block(function, "memory.allocation.continue");
+
+            llvm(self.builder.build_conditional_branch(completed, observe, continued))?;
+            self.builder.position_at_end(observe);
+
+            Some(continued)
+        } else {
+            None
+        };
+
         self.observe_memory_operation(
             bray_runtime_abi::MEMORY_ALLOCATION_OBSERVATION_SYMBOL,
             bytes,
             "memory.observe.allocation",
-        )
+        )?;
+
+        if let Some(continued) = continued {
+            llvm(self.builder.build_unconditional_branch(continued))?;
+            self.builder.position_at_end(continued);
+        }
+
+        Ok(())
     }
 
     pub(super) fn observe_memory_copy(
