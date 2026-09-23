@@ -11,11 +11,10 @@ use bray_bound_tree::{
 use bray_compiler_known::RepresentationRole;
 use bray_symbols::{NamedTypeSymbolId, TypeData, TypeId};
 
-use crate::constant::{integer_to_usize, normalize_integer_literal};
 use crate::representation::representation_type;
-use super::array_length::array_length;
 
 use super::ExpressionTypeExpectation;
+use super::array::inferred_byte_array_type;
 use super::dependencies::ExpressionTypeDependencies;
 use super::inference::{InferenceTypeId, TypeInferenceContext};
 use super::region::{ExpressionTypeRegions, ResultRegionKind};
@@ -342,23 +341,7 @@ where
             match item {
                 BoundBlockItem::LocalBinding(binding) => {
                     let expected = if binding.infers_byte_extent() {
-                        let length = inferred_byte_array_length(request, binding.initializer())?;
-
-                        if let Some(length) = length {
-                            let element =
-                                representation_type(request, RepresentationRole::ScalarU8)?;
-
-                            let length = array_length(request, length)?;
-
-                            Some(
-                                request
-                                    .semantic_values()
-                                    .intern_type(TypeData::Array { element, length })
-                                    .map_err(CheckerInfrastructureError::SemanticValueStore)?,
-                            )
-                        } else {
-                            None
-                        }
+                        inferred_byte_array_type(request, binding.initializer())?
                     } else {
                         binding.declared_type().and_then(|reference| reference.ty())
                     };
@@ -378,47 +361,6 @@ where
     }
 
     Ok(Some(expectations))
-}
-
-fn inferred_byte_array_length<C>(
-    request: CheckerUnitView<'_, C>,
-    expression: BoundExpressionId,
-) -> Result<Option<usize>, CheckerInfrastructureError>
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    let Some(BoundExpression::Structured(array)) = request.view().expression(expression) else {
-        return Ok(None);
-    };
-
-    match array.kind() {
-        BoundStructuredExpressionKind::Array => Ok(Some(array.operands().len())),
-        BoundStructuredExpressionKind::RepeatedArray => {
-            let Some(count) = array.operands().get(1).copied() else {
-                return Ok(None);
-            };
-
-            let Some(BoundExpression::Literal(literal)) = request.view().expression(count) else {
-                return Ok(None);
-            };
-
-            if literal.kind() != BoundLiteralKind::Integer || literal.is_recovered() {
-                return Ok(None);
-            }
-
-            let source = request.source(literal.origin().source_anchor())?;
-
-            let spelling = source.text_for_range(literal.spelling_range()).unwrap_or_else(|| {
-                panic!("array count literal {:?} has an invalid source range", count)
-            });
-
-            Ok(normalize_integer_literal(spelling)
-                .ok()
-                .as_ref()
-                .and_then(integer_to_usize))
-        }
-        _ => Ok(None),
-    }
 }
 
 fn push_expected_initializer(

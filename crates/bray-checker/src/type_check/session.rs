@@ -15,7 +15,7 @@ use super::constraints::{
     add_expectations, add_intrinsic_constraints, add_relationship_constraints,
     add_semantic_context_constraints, block_expectations,
 };
-use super::array_length::array_length;
+use super::array::array_length;
 use super::dependencies::ExpressionTypeDependencies;
 use super::inference::{InferenceTypeId, TypeConflict, TypeInferenceContext};
 use super::literal::{adapt_contextual_literals, apply_literal_defaults};

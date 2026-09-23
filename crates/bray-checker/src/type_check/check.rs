@@ -20,7 +20,7 @@ use crate::{
 
 use super::ExpressionTypeInput;
 use super::cardinality::unproven_array_generators;
-use super::inferred_bytes::inferred_bytes_diagnostics;
+use super::array::inferred_bytes_diagnostics;
 use super::session::{ExpressionTypeSession, SessionProgress};
 
 #[derive(Clone, Eq, Ord, PartialEq, PartialOrd)]
