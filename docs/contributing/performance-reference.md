@@ -81,24 +81,23 @@ application definition may cause the linker to select a precompiled archive memb
 Retaining a dead call solely to get a smaller executable would hide that runtime cost. Attribute it and decide from a
 representative corpus.
 
-The [BRA-593 investigation](https://linear.app/bray-lang/issue/BRA-593) on Windows x86-64 found one such case. With
-the previous runtime artifact, the false-branch probe shrank its demand graph but grew from 629,760 B on `develop` to
-704,000 B on [BRA-577](https://linear.app/bray-lang/issue/BRA-577). The pruned program pulled in a native runtime
-bootstrap archive member that also defined a product host. The compiler assigned that host to the first codegen unit,
-even when the unit defined no static storage. Assigning the host to a unit with a static definition lets ordinary
-executables omit the unused host while retaining it for products with statics.
+An initial Windows x86-64 probe showed this pattern. After pruning a call in a false branch, its demand graph shrank
+but its executable grew from 629,760 B to 704,000 B. The pruned program pulled in a native runtime bootstrap archive
+member that also defined a product host. The compiler assigned that host to the first codegen unit, even when the unit
+defined no static storage. Assigning the host to a unit with a static definition lets ordinary executables omit the
+unused host while retaining it for products with statics.
 
-Five warm direct `brayc --release` samples per row alternated the `develop` and corrected compilers against the same
+Five warm direct `brayc --release` samples per row alternated the baseline and corrected compilers against the same
 rebuilt runtime and standard-library bundles, source and manifests:
 
-| Program | Develop median / size | Corrected median / size |
+| Program | Baseline median / size | Corrected median / size |
 | --- | ---: | ---: |
 | Minimal synchronous host | 422.20 ms / 266,752 B | 423.33 ms / 266,752 B |
 | Live `std.io.print` | 751.92 ms / 300,032 B | 751.65 ms / 300,032 B |
 | False branch containing `std.io.print` | 849.08 ms / 273,920 B | 438.86 ms / 266,752 B |
 
 All three programs preserve their exit status and output. The corrected artifact preserves the compile time gain from
-pruning and reduces the pruned executable below the develop size.
+pruning and reduces the pruned executable below the baseline size.
 
 ## Timing and memory observation
 
