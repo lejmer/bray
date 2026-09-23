@@ -73,32 +73,6 @@ observation hook with an inferred count.
 Section, dynamic-library, and retained-input collections have fixed entry limits and disclose omitted counts rather than
 allowing reports to grow without bound.
 
-## Interpreting a smaller demand graph with a larger executable
-
-Compare a dead dependency probe with a minimal host and a live dependency before treating its binary size change as
-growth in generated application code. Linker maps can reveal a different provider for the same symbol: removing an
-application definition may cause the linker to select a precompiled archive member with more transitive dependencies.
-Retaining a dead call solely to get a smaller executable would hide that runtime cost. Attribute it and decide from a
-representative corpus.
-
-An initial Windows x86-64 probe showed this pattern. After pruning a call in a false branch, its demand graph shrank
-but its executable grew from 629,760 B to 704,000 B. The pruned program pulled in a native runtime bootstrap archive
-member that also defined a product host. The compiler assigned that host to the first codegen unit, even when the unit
-defined no static storage. Assigning the host to a unit with a static definition lets ordinary executables omit the
-unused host while retaining it for products with statics.
-
-Five warm direct `brayc --release` samples per row alternated the baseline and corrected compilers against the same
-rebuilt runtime and standard-library bundles, source and manifests:
-
-| Program | Baseline median / size | Corrected median / size |
-| --- | ---: | ---: |
-| Minimal synchronous host | 422.20 ms / 266,752 B | 423.33 ms / 266,752 B |
-| Live `std.io.print` | 751.92 ms / 300,032 B | 751.65 ms / 300,032 B |
-| False branch containing `std.io.print` | 849.08 ms / 273,920 B | 438.86 ms / 266,752 B |
-
-All three programs preserve their exit status and output. The corrected artifact preserves the compile time gain from
-pruning and reduces the pruned executable below the baseline size.
-
 ## Timing and memory observation
 
 Every workload also runs a timing-only release artifact that records the root execution interval without memory
