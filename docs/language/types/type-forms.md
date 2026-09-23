@@ -707,9 +707,10 @@ type is used as a materializable type.
 A fixed-size array contains exactly `N` elements of type `T`.
 
 `bytes<N>` spells the same type as `[u8; N]`. The two spellings have identical type identity, layout, ABI,
-copy and move rules, and operations. A local `let` annotation may use bare `bytes` when its initializer determines
-the fixed extent. An ordinary byte string literal or a fixed array initializer can supply that extent. Other
-declarations use `bytes<N>` or `[u8; N]` so their type is explicit.
+copy and move rules, and operations. A local `let` annotation may use bare `bytes` when its initializer supplies
+the fixed extent through a byte string, an element-list array, a repeated array with an integer literal count,
+or a value that already has a fixed byte-array type. A repeated-array count computed from another expression
+requires an explicit extent. Other declarations use `bytes<N>` or `[u8; N]` so their type is explicit.
 
 Every fixed-size array access path has compiler-provided `length() -> usize` and `is_empty() -> bool` methods.
 `length()` returns `N`, and `is_empty()` reports whether `N` is zero.
