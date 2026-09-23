@@ -149,7 +149,7 @@ impl Lowerer<'_> {
                 };
             }
 
-            let mut then_completion = if self.builder.is_reachable(current, then_entry) {
+            let mut then_completion = if self.is_reachable(current, then_entry) {
                 self.lower_yielding_block(*then_block, then_entry, join, ty, depth)?
             } else {
                 self.finish_unreachable_blocks(&[then_entry], &source)?;

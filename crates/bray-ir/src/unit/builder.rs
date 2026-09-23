@@ -346,8 +346,16 @@ impl MirUnitBuilder {
         })
     }
 
-    /// Returns whether completed control flow can reach the target from the entry block.
-    pub fn is_reachable(&self, entry: MirBlockId, target: MirBlockId) -> bool {
+    /// Returns whether control flow can reach the target, including pending successors.
+    pub fn is_reachable<I>(
+        &self,
+        entry: MirBlockId,
+        target: MirBlockId,
+        mut additional_successors: impl FnMut(MirBlockId) -> I,
+    ) -> bool
+    where
+        I: IntoIterator<Item = MirBlockId>,
+    {
         let entry_index = self.block_index(entry);
         let target_index = self.block_index(target);
         let mut visited = vec![false; self.blocks.len()];
@@ -364,13 +372,22 @@ impl MirUnitBuilder {
 
             visited[index] = true;
 
-            let Some(terminator) = self.blocks[index].terminator.as_ref() else {
-                continue;
-            };
+            let block = MirBlockId::from_slot(
+                self.unit,
+                u32::try_from(index).expect("validated block index"),
+            );
 
-            terminator
-                .kind()
-                .for_each_successor(|successor| pending.push(self.block_index(successor)));
+            if let Some(terminator) = self.blocks[index].terminator.as_ref() {
+                terminator
+                    .kind()
+                    .for_each_successor(|successor| pending.push(self.block_index(successor)));
+            }
+
+            pending.extend(
+                additional_successors(block)
+                    .into_iter()
+                    .map(|successor| self.block_index(successor)),
+            );
         }
 
         false
@@ -675,8 +692,32 @@ mod tests {
         );
 
         assert!(builder.has_incoming_edge(join));
-        assert!(!builder.is_reachable(entry, join));
-        assert!(builder.is_reachable(disconnected, join));
+        assert!(!builder.is_reachable(entry, join, |_| std::iter::empty()));
+        assert!(builder.is_reachable(disconnected, join, |_| std::iter::empty()));
+    }
+
+    #[test]
+    fn builders_include_pending_successors_in_reachability() {
+        let bound = test_bound_unit(30);
+        let source = MirSourceAnchor::from(bound.key().source());
+        let mut builder = unit_builder(&bound, MirUnitKind::Synchronous);
+
+        let entry = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
+        let dispatcher = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
+        let join = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
+
+        set_terminator(
+            &mut builder,
+            entry,
+            source,
+            MirTerminatorKind::Goto(MirEdge::new(dispatcher, [])),
+        );
+
+        assert!(!builder.is_reachable(entry, join, |_| std::iter::empty()));
+
+        assert!(builder.is_reachable(entry, join, |block| {
+            (block == dispatcher).then_some(join)
+        }));
     }
 
     #[test]
