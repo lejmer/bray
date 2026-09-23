@@ -556,7 +556,7 @@ mod tests {
     use bray_target::{NativeTarget, TargetAddressSpaces, TargetProfile, TargetProperties};
     use bray_testing::TemporaryFile;
 
-    use super::super::super::specialization::ConcreteCodegenInstance;
+    use super::super::super::specialization::{ConcreteCodegenInstance, ConcreteCodegenReachability};
     use super::super::{ConcreteCodegenRoot, NativeDemandReason};
     use super::NativeProductPlanningError;
     use crate::compilation::CodegenPreparationError;
@@ -2391,15 +2391,7 @@ mod tests {
         assert!(basic.graph().instances().iter().all(|instance| instance.mir().is_valid()));
         realize_codegen_mappings(&compilation, &target, &none, &cancellation);
 
-        let generic = basic.graph().instances().iter()
-            .filter(|instance| matches!(instance.key().specialization(), bray_codegen::CodegenSpecialization::Generic(_)))
-            .collect::<Vec<_>>();
-
-        assert_eq!(generic.len(), 2);
-        assert_eq!(generic[0].key().template(), generic[1].key().template());
-        assert_ne!(generic[0].key().specialization(), generic[1].key().specialization());
-        assert_ne!(generic[0].mir(), generic[1].mir());
-        assert_eq!(generic.iter().map(|instance| instance.dependencies().len()).sum::<usize>(), 1);
+        assert_boolean_specialization_dependencies(&compilation, &basic);
     }
 
     #[test]
@@ -2460,14 +2452,7 @@ mod tests {
         assert!(basic.graph().instances().iter().all(|instance| instance.mir().is_valid()));
         realize_codegen_mappings(&compilation, &target, &none, &cancellation);
 
-        let generic = basic.graph().instances().iter()
-            .filter(|instance| matches!(instance.key().specialization(), bray_codegen::CodegenSpecialization::Generic(_)))
-            .collect::<Vec<_>>();
-
-        assert_eq!(generic.len(), 2);
-        assert_eq!(generic[0].key().template(), generic[1].key().template());
-        assert_ne!(generic[0].mir(), generic[1].mir());
-        assert_eq!(generic.iter().map(|instance| instance.dependencies().len()).sum::<usize>(), 1);
+        assert_boolean_specialization_dependencies(&compilation, &basic);
     }
 
     #[test]
@@ -5807,10 +5792,58 @@ public func invoke<T>(pos value: T)
         platform_service: None,
     };
 
+    fn assert_boolean_specialization_dependencies(
+        compilation: &crate::Compilation,
+        reachability: &ConcreteCodegenReachability,
+    ) {
+        let generic = reachability.graph().instances().iter()
+            .filter(|instance| matches!(instance.key().specialization(), CodegenSpecialization::Generic(_)))
+            .collect::<Vec<_>>();
+
+        assert_eq!(generic.len(), 2);
+        assert_eq!(generic[0].key().template(), generic[1].key().template());
+        assert_ne!(generic[0].mir(), generic[1].mir());
+
+        let values = compilation.semantic_value_store().unwrap();
+        let mut seen = BTreeSet::new();
+
+        for instance in generic {
+            let realization = reachability.instance(instance.key())
+                .expect("reachable specialization must have a concrete realization");
+
+            let substitution = values.generic_substitution_data(
+                realization.substitution().expect("generic callable must carry a substitution"),
+            );
+
+            let [binding] = substitution.bindings() else {
+                panic!("test gate must have exactly one constant argument");
+            };
+
+            let GenericArgument::Constant(term) = binding.argument() else {
+                panic!("test gate argument must be a constant");
+            };
+
+            let term_data = values.constant_term_data(term);
+
+            let ConstantTermData::Value(value) = term_data.as_ref() else {
+                panic!("concrete test argument must have a value");
+            };
+
+            let value_data = values.constant_value_data(*value);
+
+            let ConstantValueKind::Boolean(enabled) = value_data.kind() else {
+                panic!("test gate argument must be Boolean");
+            };
+
+            assert!(seen.insert(*enabled));
+            assert_eq!(instance.dependencies().len(), usize::from(*enabled));
+        }
+    }
+
     fn realize_codegen_mappings(
         compilation: &crate::Compilation,
         target: &bray_codegen::CodegenTarget,
-        reachability: &super::super::super::specialization::ConcreteCodegenReachability,
+        reachability: &ConcreteCodegenReachability,
         cancellation: &CancellationToken,
     ) {
         let roots = reachability
