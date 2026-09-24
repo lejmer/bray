@@ -267,49 +267,6 @@ fn checked_source_diagnostics(
     ])
 }
 
-pub(in crate::compilation::binder::symbol) fn checked_source_body_dependency_contracts(
-    context: &CompilationBindingContext<'_>,
-    key: BoundUnitKey,
-) -> BindingQueryResult<Vec<DependencyContractTemplateId>> {
-    let compilation = context.compilation();
-
-    let bound = compilation
-        .bound_unit_with_cancellation(key.clone(), context.cancellation)
-        .map_err(super::super::binding::binder_error)?;
-
-    let storage = compilation
-        .storage_plan_with_cancellation(key.clone(), context.cancellation)
-        .map_err(super::super::binding::binder_error)?;
-
-    let body = compilation
-        .body_semantics_with_cancellation(key, context.cancellation)
-        .map_err(super::super::binding::binder_error)?;
-
-    let dependencies = body.result().value().dependencies();
-
-    let mut contracts = Vec::new();
-
-    for (expression, _) in bound.result().value().tree().expressions() {
-        let Some(contract) = dependencies
-            .expression(expression)
-            .and_then(|contract| dependencies.contract(contract))
-        else {
-            continue;
-        };
-
-        contracts.push(portable_dependency_contract(
-            context,
-            storage.result().value(),
-            contract,
-        )?);
-    }
-
-    contracts.sort_unstable();
-    contracts.dedup();
-
-    Ok(contracts)
-}
-
 pub(super) fn syntax_diagnostics(
     context: &CompilationBindingContext<'_>,
     anchor: bray_declarations::SyntaxAnchor,

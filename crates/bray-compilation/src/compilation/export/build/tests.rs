@@ -1684,6 +1684,61 @@ fn execution_consumer(provider: &Compilation, source: &str) -> Compilation {
 }
 
 #[test]
+fn imported_callable_static_access_orders_local_cleanup() {
+    let provider = compilation(
+        r#"
+        module api;
+        public static ROOT: i32 = 1;
+        public func read_root()
+        {
+            let value = ROOT;
+            value;
+        }
+    "#,
+    );
+
+    let consumer = execution_consumer(
+        &provider,
+        r#"
+        module app;
+        using example.package.api;
+        struct Resource {}
+        impl Resource
+        {
+            finalize() { example.package.api.read_root(); }
+        }
+        static STORED: Resource = Resource {};
+    "#,
+    );
+
+    assert!(consumer.check_diagnostics().is_empty(), "{:#?}", consumer.check_diagnostics());
+
+    let imported = consumer
+        .imported_symbol_skeleton_result()
+        .unwrap_or_else(|error| panic!("imported skeleton must publish: {error:?}"));
+
+    let root = imported
+        .value()
+        .as_deref()
+        .unwrap_or_else(|| panic!("provider skeleton must exist"))
+        .statics()[0]
+        .id();
+
+    let stored = consumer
+        .symbol_graph()
+        .unwrap_or_else(|error| panic!("consumer symbols must publish: {error:?}"))
+        .statics()[0]
+        .id();
+
+    let template = consumer
+        .static_instance_template(stored)
+        .unwrap_or_else(|error| panic!("stored static template must publish: {error:?}"));
+
+    assert!(template.diagnostics().is_empty(), "{:#?}", template.diagnostics());
+    assert_eq!(template.value().lifecycle_dependencies(), [root]);
+}
+
+#[test]
 fn imported_finalizers_use_verified_entry_conditions() {
     let provider = compilation(
         r#"
@@ -4837,7 +4892,7 @@ fn indexed_constant_templates_evaluate_after_import() {
 
             assert_eq!(
                 result.kind(),
-                &bray_symbols::ConstantValueKind::Integer(IntegerConstant::from_u64(37))
+                &ConstantValueKind::Integer(IntegerConstant::from_u64(37))
             );
         }
     }

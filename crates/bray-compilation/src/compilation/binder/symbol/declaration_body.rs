@@ -7,7 +7,8 @@ mod predicate;
 mod shared;
 
 pub(super) use lookup::runtime_default_provider;
+pub(super) use dependency::static_dependency_root;
 pub(super) use shared::{
-    CheckedSourcePredicateSequence, checked_source_body_dependency_contracts,
+    CheckedSourcePredicateSequence,
     checked_source_expression, checked_source_predicate_sequence,
 };

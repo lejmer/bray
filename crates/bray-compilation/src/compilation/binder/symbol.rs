@@ -13,6 +13,7 @@ mod module_surface;
 mod result_dependencies;
 pub(in crate::compilation) use result_dependencies::expression_result_dependencies;
 mod static_storage;
+pub(in crate::compilation) use static_storage::static_dependencies_from_contract;
 mod surface;
 mod template;
 

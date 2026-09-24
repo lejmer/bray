@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
 
 use bray_symbols::{
-    DependencyContractTemplateId, GenericSubstitutionId, SemanticValueStore, TraitApplicationId,
+    DependencyContractTemplateId, DependencyRequirement, DependencyRequirementKind,
+    DependencySubjectRoot, GenericSubstitutionId, SemanticValueStore, TraitApplicationId,
     TraitTypeMemberSymbolId, TypeData, TypeExpressionTemplate, TypeId,
 };
 
@@ -230,6 +231,50 @@ pub(super) fn dependency_contracts_are_compatible(
     requirement: DependencyContractTemplateId,
     fulfillment: DependencyContractTemplateId,
 ) -> Result<bool, FactQueryError> {
+    let requirement = substituted_dependency_requirement(
+        values, trait_application, generic_substitution, requirement,
+    )?;
+
+    Ok(requirement == fulfillment)
+}
+
+/// Static storage reached by a concrete body is an environmental requirement, not a trait condition.
+pub(super) fn phase_dependencies_are_compatible(
+    values: &SemanticValueStore,
+    trait_application: TraitApplicationId,
+    generic_substitution: Option<GenericSubstitutionId>,
+    requirement: DependencyContractTemplateId,
+    fulfillment: DependencyContractTemplateId,
+) -> Result<bool, FactQueryError> {
+    let requirement = substituted_dependency_requirement(
+        values, trait_application, generic_substitution, requirement,
+    )?;
+
+    let required = values.dependency_contract_template_data(requirement);
+    let provided = values.dependency_contract_template_data(fulfillment);
+
+    Ok(required.requirements().iter().filter(|item| !is_static_access(item)).eq(
+        provided.requirements().iter().filter(|item| !is_static_access(item)),
+    ))
+}
+
+fn is_static_access(requirement: &DependencyRequirement) -> bool {
+    matches!(
+        requirement,
+        DependencyRequirement::Direct { subject, kind: DependencyRequirementKind::StorageAlive }
+            if matches!(
+                subject.subject_root(),
+                DependencySubjectRoot::ProductStatic(_) | DependencySubjectRoot::ExactThreadStatic(_)
+            )
+    )
+}
+
+fn substituted_dependency_requirement(
+    values: &SemanticValueStore,
+    trait_application: TraitApplicationId,
+    generic_substitution: Option<GenericSubstitutionId>,
+    requirement: DependencyContractTemplateId,
+) -> Result<DependencyContractTemplateId, FactQueryError> {
     let trait_substitution = values
         .trait_application_data(trait_application)
         .substitution();
@@ -238,12 +283,10 @@ pub(super) fn dependency_contracts_are_compatible(
         .substitute_dependency_contract(requirement, trait_substitution)
         .map_err(FactQueryError::SemanticValueStore)?;
 
-    let requirement = match generic_substitution {
+    match generic_substitution {
         Some(substitution) => values
             .substitute_dependency_contract(requirement, substitution)
-            .map_err(FactQueryError::SemanticValueStore)?,
-        None => requirement,
-    };
-
-    Ok(requirement == fulfillment)
+            .map_err(FactQueryError::SemanticValueStore),
+        None => Ok(requirement),
+    }
 }

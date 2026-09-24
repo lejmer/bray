@@ -99,7 +99,7 @@ fn guard_reaches_exact_thread(guard: &bray_symbols::DependencyGuard) -> bool {
     )
 }
 
-pub(super) fn static_dependencies_from_contract(
+pub(in crate::compilation) fn static_dependencies_from_contract(
     context: &CompilationBindingContext<'_>,
     contract: bray_symbols::DependencyContractTemplateId,
 ) -> BindingQueryResult<Vec<StaticSymbolId>> {

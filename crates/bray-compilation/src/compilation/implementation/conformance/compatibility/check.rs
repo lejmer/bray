@@ -26,7 +26,8 @@ use super::mismatch::{
     GenericSurfaceMismatch, TraitFulfillmentMismatch,
 };
 use super::types::{
-    dependency_contracts_are_compatible, substitute_requirement_type, type_templates_are_compatible,
+    dependency_contracts_are_compatible, phase_dependencies_are_compatible,
+    substitute_requirement_type, type_templates_are_compatible,
 };
 
 macro_rules! resolve_query {
@@ -940,7 +941,7 @@ fn phase_behavior_mismatch(
         return Ok(Some(CallableBehaviorComponent::LifecycleObligations));
     }
 
-    let dependencies_match = dependency_contracts_are_compatible(
+    let dependencies_match = phase_dependencies_are_compatible(
         values,
         trait_application,
         generic_substitution,

@@ -24,9 +24,7 @@ use bray_symbols::{
 
 use super::super::binding::CompilationSymbolQueryEvaluator;
 use super::super::cache::CompilationSymbolSemantics;
-use super::super::declaration_body::{
-    checked_source_body_dependency_contracts, checked_source_expression,
-};
+use super::super::declaration_body::checked_source_expression;
 use super::super::imported::imported_declaration_template;
 use super::super::initializer::validate_static_initializer_template;
 use crate::compilation::binder::{
@@ -430,39 +428,6 @@ fn static_type_lifecycle_dependencies(
                 .dependency_contract(),
         )?);
 
-        dependencies.extend(static_source_callable_dependencies(context, callable)?);
-    }
-
-    dependencies.sort_unstable();
-    dependencies.dedup();
-
-    Ok(dependencies)
-}
-
-fn static_source_callable_dependencies(
-    context: &CompilationBindingContext<'_>,
-    callable: CallableSymbolId,
-) -> BindingQueryResult<Vec<StaticSymbolId>> {
-    let definition =
-        bray_symbols::CallableDefinitionId::try_new(callable.into_any()).ok_or_else(|| {
-            binding_contract(
-                SemanticQueryContext::Symbol(callable.into_any()),
-                SemanticQueryViolation::Unsupported(SemanticDataKind::BoundUnit),
-            )
-        })?;
-
-    let Some(key) = context
-        .compilation()
-        .callable_body_key(definition)
-        .map_err(super::super::binding::binder_error)?
-    else {
-        return Ok(Vec::new());
-    };
-
-    let mut dependencies = Vec::new();
-
-    for contract in checked_source_body_dependency_contracts(context, key)? {
-        dependencies.extend(static_dependencies_from_contract(context, contract)?);
     }
 
     dependencies.sort_unstable();
@@ -1071,6 +1036,114 @@ mod tests {
     }
 
     #[test]
+    fn static_type_cleanup_retains_indirect_callable_dependencies() {
+        let compilation = compilation(
+            r#"
+            module app;
+            static Root: i32 = 1;
+            func read_root()
+            {
+                let value = Root;
+                value;
+            }
+            struct Resource {}
+            impl Resource
+            {
+                finalize() { read_root(); }
+                destruct() { read_root(); }
+            }
+            static Stored: Resource = Resource {};
+            "#,
+        );
+
+        let symbols = symbol_graph(&compilation);
+        let root = symbols.statics()[0].id();
+        let stored = symbols.statics()[1].id();
+
+        let template = compilation
+            .static_instance_template(stored)
+            .unwrap_or_else(|error| panic!("stored static template must publish: {error:?}"));
+
+        assert!(
+            template.diagnostics().is_empty(),
+            "unexpected diagnostics: {:?}",
+            template.diagnostics()
+        );
+
+        assert_eq!(template.value().lifecycle_dependencies(), [root]);
+    }
+
+    #[test]
+    fn static_type_cleanup_retains_recursive_callable_dependencies() {
+        let compilation = compilation(
+            r#"
+            module app;
+            static Root: i32 = 1;
+            func read_root(pos depth: i32)
+            {
+                if depth > 0 { read_root(depth - 1); }
+                let value = Root;
+                value;
+            }
+            struct Resource {}
+            impl Resource
+            {
+                finalize() { read_root(1); }
+            }
+            static Stored: Resource = Resource {};
+            "#,
+        );
+
+        let symbols = symbol_graph(&compilation);
+        let root = symbols.statics()[0].id();
+        let stored = symbols.statics()[1].id();
+
+        let template = compilation
+            .static_instance_template(stored)
+            .unwrap_or_else(|error| panic!("stored static template must publish: {error:?}"));
+
+        assert!(template.diagnostics().is_empty(), "{:#?}", template.diagnostics());
+        assert_eq!(template.value().lifecycle_dependencies(), [root]);
+    }
+
+    #[test]
+    fn static_type_cleanup_retains_selected_implementation_dependencies() {
+        let compilation = compilation(
+            r#"
+            module app;
+            static Root: i32 = 1;
+            trait Readable { func read(); }
+            struct Subject {}
+            impl Subject(Readable)
+            {
+                func read()
+                {
+                    let value = Root;
+                    value;
+                }
+            }
+            struct Resource {}
+            impl Resource
+            {
+                finalize() { Subject {}(Readable).read(); }
+            }
+            static Stored: Resource = Resource {};
+            "#,
+        );
+
+        let symbols = symbol_graph(&compilation);
+        let root = symbols.statics()[0].id();
+        let stored = symbols.statics()[1].id();
+
+        let template = compilation
+            .static_instance_template(stored)
+            .unwrap_or_else(|error| panic!("stored static template must publish: {error:?}"));
+
+        assert!(template.diagnostics().is_empty(), "{:#?}", template.diagnostics());
+        assert_eq!(template.value().lifecycle_dependencies(), [root]);
+    }
+
+    #[test]
     fn closed_generic_static_reference_checks_declaration_constraints() {
         let compilation = compilation(concat!(
             "module app;\n",
@@ -1101,6 +1174,43 @@ mod tests {
             "static First: &i32 = &Second;\n",
             "static Second: &i32 = &First;\n",
         ));
+
+        assert_eq!(
+            diagnostics_of_kind(
+                compilation.check_diagnostics(),
+                DiagnosticKind::CheckingStaticLifecycleCycle,
+            )
+            .len(),
+            2
+        );
+
+        assert_goal_state_diagnostic_kind(
+            compilation.check_diagnostics(),
+            DiagnosticKind::CheckingStaticLifecycleCycle,
+        );
+    }
+
+    #[test]
+    fn static_lifecycle_dependencies_through_helpers_report_cycles() {
+        let compilation = compilation(
+            r#"
+            module app;
+            static First: FirstResource = FirstResource {};
+            static Second: SecondResource = SecondResource {};
+            func read_first() { let value = First; value; }
+            func read_second() { let value = Second; value; }
+            struct FirstResource {}
+            impl FirstResource
+            {
+                finalize() { read_second(); }
+            }
+            struct SecondResource {}
+            impl SecondResource
+            {
+                finalize() { read_first(); }
+            }
+            "#,
+        );
 
         assert_eq!(
             diagnostics_of_kind(
