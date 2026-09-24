@@ -6,12 +6,40 @@ use bray_bound_tree::{
 };
 use bray_symbols::{
     DeclarationDirectivesQuery, DependencyContractTemplateData, DependencyContractTemplateId,
-    DependencyGuard, DependencyProjection, DependencyRequirement, DependencySubject,
-    DependencySubjectRoot, DirectiveKind, StaticInstanceTemplateQuery, StaticStorageDuration,
-    SymbolOrdinal, SymbolQueryRequest,
+    DependencyGuard, DependencyProjection, DependencyRequirement, DependencyRequirementKind,
+    DependencySubject, DependencySubjectRoot, DirectiveKind, StaticInstanceTemplateQuery,
+    StaticStorageDuration, StaticSymbolId, SymbolOrdinal, SymbolQueryRequest,
 };
 
 use crate::compilation::binder::CompilationBindingContext;
+
+pub(in crate::compilation::binder::symbol) fn with_static_dependencies(
+    context: &CompilationBindingContext<'_>,
+    contract: DependencyContractTemplateId,
+    dependencies: &[StaticSymbolId],
+) -> BindingQueryResult<DependencyContractTemplateId> {
+    if dependencies.is_empty() {
+        return Ok(contract);
+    }
+
+    let mut requirements = context
+        .semantic_values()
+        .dependency_contract_template_data(contract)
+        .requirements()
+        .to_vec();
+
+    for dependency in dependencies {
+        requirements.push(DependencyRequirement::direct(
+            DependencySubject::root(static_dependency_root(context, *dependency)?),
+            DependencyRequirementKind::StorageAlive,
+        ));
+    }
+
+    context
+        .semantic_values()
+        .intern_dependency_contract_template(DependencyContractTemplateData::new(requirements))
+        .map_err(crate::compilation::binder::semantic_value_binding_error)
+}
 
 pub(in crate::compilation::binder::symbol) fn portable_dependency_contract(
     context: &CompilationBindingContext<'_>,

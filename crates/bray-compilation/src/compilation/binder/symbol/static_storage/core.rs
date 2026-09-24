@@ -24,7 +24,7 @@ use bray_symbols::{
 
 use super::super::binding::CompilationSymbolQueryEvaluator;
 use super::super::cache::CompilationSymbolSemantics;
-use super::super::declaration_body::checked_source_expression;
+use super::super::declaration_body::{checked_source_expression, with_static_dependencies};
 use super::super::imported::imported_declaration_template;
 use super::super::initializer::validate_static_initializer_template;
 use crate::compilation::binder::{
@@ -285,19 +285,25 @@ fn static_initializer_behavior(
             ));
         }
 
+        let dependency_contract = with_static_dependencies(
+            context,
+            checked.dependency_contract,
+            behavior.result().value().static_dependencies(),
+        )?;
+
         diagnostics.add_range(validate_static_dependency_duration(
             context,
             source_duration,
-            checked.dependency_contract,
+            dependency_contract,
             &key,
         )?);
 
         return Ok((
             source_duration,
-            checked.dependency_contract,
+            dependency_contract,
             behavior.result().value().lifecycle_obligations().to_vec(),
-            witness_requirements_from_contract(context, checked.dependency_contract)?,
-            static_dependencies_from_contract(context, checked.dependency_contract)?,
+            witness_requirements_from_contract(context, dependency_contract)?,
+            static_dependencies_from_contract(context, dependency_contract)?,
         ));
     }
 
@@ -419,14 +425,17 @@ fn static_type_lifecycle_dependencies(
 
         *diagnostics = diagnostics.merged(contracts.diagnostics());
 
-        dependencies.extend(static_dependencies_from_contract(
-            context,
-            contracts
-                .value()
-                .phase_behaviors()
-                .invocation()
-                .dependency_contract(),
-        )?);
+        let phases = contracts.value().phase_behaviors();
+
+        for phase in [Some(phases.invocation()), phases.deferred_execution()]
+            .into_iter()
+            .flatten()
+        {
+            dependencies.extend(static_dependencies_from_contract(
+                context,
+                phase.dependency_contract(),
+            )?);
+        }
 
     }
 
@@ -710,6 +719,32 @@ mod tests {
         }));
 
         assert_eq!(template.value().lifecycle_dependencies(), &[*root]);
+    }
+
+    #[test]
+    fn static_initializer_retains_helper_static_access() {
+        let compilation = compilation(
+            r#"
+            module app;
+            static Root: i32 = 1;
+            const func read_root() -> i32
+            {
+                return Root;
+            }
+            static Copy: i32 = read_root();
+            "#,
+        );
+
+        let symbols = symbol_graph(&compilation);
+        let root = symbols.statics()[0].id();
+        let copy = symbols.statics()[1].id();
+
+        let template = compilation
+            .static_instance_template(copy)
+            .unwrap_or_else(|error| panic!("copy static template must publish: {error:?}"));
+
+        assert!(template.diagnostics().is_empty(), "{:#?}", template.diagnostics());
+        assert_eq!(template.value().lifecycle_dependencies(), [root]);
     }
 
     #[test]
@@ -1070,6 +1105,38 @@ mod tests {
             template.diagnostics()
         );
 
+        assert_eq!(template.value().lifecycle_dependencies(), [root]);
+    }
+
+    #[test]
+    fn async_static_cleanup_retains_deferred_callable_dependencies() {
+        let compilation = compilation(
+            r#"
+            module app;
+            static Root: i32 = 1;
+            func read_root()
+            {
+                let value = Root;
+                value;
+            }
+            struct Resource {}
+            impl Resource
+            {
+                async finalize() { read_root(); }
+            }
+            static Stored: Resource = Resource {};
+            "#,
+        );
+
+        let symbols = symbol_graph(&compilation);
+        let root = symbols.statics()[0].id();
+        let stored = symbols.statics()[1].id();
+
+        let template = compilation
+            .static_instance_template(stored)
+            .unwrap_or_else(|error| panic!("stored static template must publish: {error:?}"));
+
+        assert!(template.diagnostics().is_empty(), "{:#?}", template.diagnostics());
         assert_eq!(template.value().lifecycle_dependencies(), [root]);
     }
 

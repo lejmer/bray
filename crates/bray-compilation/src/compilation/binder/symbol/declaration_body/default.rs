@@ -25,6 +25,7 @@ use super::super::binding::CompilationSymbolQueryEvaluator;
 use super::super::cache::CompilationSymbolSemantics;
 use super::super::environment::visible_generic_parameters;
 use super::super::imported::{imported_declaration_template, missing_imported_template};
+use super::dependency::with_static_dependencies;
 use super::lookup::{
     callable_parameter, runtime_default_provider, struct_field, union_payload_field, union_variant,
 };
@@ -446,6 +447,7 @@ fn runtime_default_behavior(
     body: &bray_bound_tree::CheckedBodyBehavior,
 ) -> BindingQueryResult<RuntimeDefaultBehavior> {
     let ownership = runtime_default_ownership(context, result);
+    let dependency = with_static_dependencies(context, dependency, body.static_dependencies())?;
 
     Ok(RuntimeDefaultBehavior::new(
         ownership,

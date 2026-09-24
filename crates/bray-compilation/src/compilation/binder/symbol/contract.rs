@@ -15,10 +15,9 @@ use bray_symbols::{
     AnySymbolId, CallableContractClause, CallableContractClauseKind, CallableContractSet,
     CallableContractsQuery, CallableExecution, CallableExecutionRequirement, CallablePhaseBehavior,
     CallableSignatureQuery, CallableSymbolId, CallableTrust, CheckedConstraint,
-    CurrentRunCancellation, DependencyContractTemplateData, DependencyContractTemplateId,
-    DependencyRequirement, DependencyRequirementKind, DependencySubject, GenericConstraintSet,
+    CurrentRunCancellation, DependencyContractTemplateId, GenericConstraintSet,
     GenericConstraintsQuery, GenericDeclarationTemplateQuery, GenericOwnerId, SymbolOrigin,
-    StaticSymbolId, SymbolQueryContract, SymbolQueryRequest, TrustedCapabilityRequirement,
+    SymbolQueryContract, SymbolQueryRequest, TrustedCapabilityRequirement,
     TrustedCapabilitySymbolId, TypeData,
 };
 use bray_syntax::{
@@ -29,7 +28,7 @@ use bray_syntax::{
 use super::binding::CompilationSymbolQueryEvaluator;
 use super::cache::CompilationSymbolSemantics;
 use super::declaration_body::{
-    CheckedSourcePredicateSequence, checked_source_predicate_sequence, static_dependency_root,
+    CheckedSourcePredicateSequence, checked_source_predicate_sequence, with_static_dependencies,
 };
 use super::environment::type_binder;
 use super::surface::{symbol_ordinal, with_declaration_root};
@@ -334,8 +333,14 @@ fn bind_callable_contracts(
         None => None,
     };
 
-    let dependency = static_dependency_contract(
+    let empty_dependency = context
+        .semantic_values()
+        .empty_dependency_contract_template()
+        .map_err(crate::compilation::binder::semantic_value_binding_error)?;
+
+    let dependency = with_static_dependencies(
         context,
+        empty_dependency,
         body_behavior
             .as_ref()
             .map_or(&[], |body| body.result().value().static_dependencies()),
@@ -357,6 +362,7 @@ fn bind_callable_contracts(
             .iter()
             .map(|capability| capability.requirement()),
         dependency,
+        empty_dependency,
         declared_execution_requirements,
         body_behavior
             .as_ref()
@@ -493,33 +499,12 @@ impl DeclaredTrustedCapability {
     }
 }
 
-fn static_dependency_contract(
-    context: &CompilationBindingContext<'_>,
-    dependencies: &[StaticSymbolId],
-) -> BindingQueryResult<DependencyContractTemplateId> {
-    let requirements = dependencies
-        .iter()
-        .map(|dependency| {
-            static_dependency_root(context, *dependency).map(|root| {
-                DependencyRequirement::direct(
-                    DependencySubject::root(root),
-                    DependencyRequirementKind::StorageAlive,
-                )
-            })
-        })
-        .collect::<BindingQueryResult<Vec<_>>>()?;
-
-    context
-        .semantic_values()
-        .intern_dependency_contract_template(DependencyContractTemplateData::new(requirements))
-        .map_err(crate::compilation::binder::semantic_value_binding_error)
-}
-
 fn callable_phase_behaviors(
     execution: CallableExecution,
     properties: &[bray_symbols::ExecutionProperty],
     trusted_capabilities: impl IntoIterator<Item = TrustedCapabilityRequirement>,
     dependencies: DependencyContractTemplateId,
+    empty_dependencies: DependencyContractTemplateId,
     declared_execution_requirements: impl IntoIterator<Item = CallableExecutionRequirement>,
     body: Option<&bray_bound_tree::CheckedBodyBehavior>,
 ) -> (CallablePhaseBehavior, Option<CallablePhaseBehavior>) {
@@ -563,7 +548,7 @@ fn callable_phase_behaviors(
     match execution {
         CallableExecution::Synchronous => (body_behavior, None),
         CallableExecution::Asynchronous => (
-            CallablePhaseBehavior::empty(dependencies),
+            CallablePhaseBehavior::empty(empty_dependencies),
             Some(body_behavior),
         ),
     }
@@ -1355,6 +1340,42 @@ mod tests {
             .dependency_contract_template_data(predicate.dependency_contract());
 
         assert!(!dependency.requirements().is_empty());
+    }
+
+    #[test]
+    fn async_static_access_belongs_to_deferred_execution() {
+        let compilation = compilation(
+            r#"
+            module app;
+            static Root: i32 = 1;
+            async func read_root()
+            {
+                let value = Root;
+                value;
+            }
+            "#,
+        );
+
+        let contracts = callable_contracts(&compilation, "read_root");
+
+        let values = compilation
+            .semantic_value_store()
+            .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}"));
+
+        let invocation = values.dependency_contract_template_data(
+            contracts.value().invocation_behavior().dependency_contract(),
+        );
+
+        let deferred = contracts
+            .value()
+            .deferred_execution_behavior()
+            .unwrap_or_else(|| panic!("async callable must publish deferred behavior"));
+
+        let deferred = values.dependency_contract_template_data(deferred.dependency_contract());
+
+        assert!(contracts.diagnostics().is_empty(), "{:#?}", contracts.diagnostics());
+        assert!(invocation.requirements().is_empty());
+        assert_eq!(deferred.requirements().len(), 1);
     }
 
     #[test]
