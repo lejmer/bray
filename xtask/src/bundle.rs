@@ -1,6 +1,6 @@
 use std::ffi::OsString;
 use std::fmt;
-use std::fs::{self, OpenOptions};
+use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
@@ -264,7 +264,7 @@ pub(crate) fn rename_directory(source: &Path, destination: &Path) -> std::io::Re
 }
 
 struct PublicationLock {
-    path: PathBuf,
+    _file: File,
 }
 
 impl PublicationLock {
@@ -282,19 +282,20 @@ impl PublicationLock {
 
         let path = destination.with_file_name(lock_name);
 
-        match OpenOptions::new().write(true).create_new(true).open(&path) {
-            Ok(_) => Ok(Self { path }),
-            Err(error) if error.kind() == ErrorKind::AlreadyExists => {
-                Err(DirectoryPublicationError::InProgress(path))
-            }
-            Err(error) => Err(DirectoryPublicationError::write(&path, error)),
-        }
-    }
-}
+        let file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&path)
+            .map_err(|error| DirectoryPublicationError::write(&path, error))?;
 
-impl Drop for PublicationLock {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
+        match file.try_lock() {
+            Ok(()) => Ok(Self { _file: file }),
+            Err(TryLockError::WouldBlock) => Err(DirectoryPublicationError::InProgress(path)),
+            Err(TryLockError::Error(error)) => {
+                Err(DirectoryPublicationError::write(&path, error))
+            }
+        }
     }
 }
 
@@ -314,7 +315,7 @@ mod tests {
 
     use bray_target::NativeTarget;
 
-    use super::{DirectoryPublication, NativeBuildOptionsBuilder, NativeBuildOptionsError};
+    use super::{DirectoryPublication, DirectoryPublicationError, NativeBuildOptionsBuilder, NativeBuildOptionsError};
 
     #[test]
     fn native_build_options_require_an_output() {
@@ -368,6 +369,49 @@ mod tests {
             options.target_output(NativeTarget::X86_64WindowsMsvc),
             PathBuf::from("output").join("x86_64-pc-windows-msvc")
         );
+    }
+
+    #[test]
+    fn directory_publication_recovers_preexisting_lock_file() {
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("temporary root must exist: {error}"));
+
+        let output = directory.path().join("bundle");
+        let lock_path = directory.path().join("bundle.lock");
+
+        fs::write(&lock_path, b"")
+            .unwrap_or_else(|error| panic!("stale lock file must be created: {error}"));
+
+        let publication = DirectoryPublication::begin(&output, "bray-publication-test-")
+            .unwrap_or_else(|error| panic!("publication must recover stale lock: {error}"));
+
+        publication
+            .publish()
+            .unwrap_or_else(|error| panic!("publication must succeed: {error}"));
+
+        assert!(lock_path.exists());
+    }
+
+    #[test]
+    fn directory_publication_excludes_concurrent_publishers() {
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("temporary root must exist: {error}"));
+
+        let output = directory.path().join("bundle");
+        let lock_path = directory.path().join("bundle.lock");
+
+        let publication = DirectoryPublication::begin(&output, "bray-publication-test-")
+            .unwrap_or_else(|error| panic!("first publication must begin: {error}"));
+
+        assert!(matches!(
+            DirectoryPublication::begin(&output, "bray-publication-test-"),
+            Err(DirectoryPublicationError::InProgress(path)) if path == lock_path
+        ));
+
+        drop(publication);
+
+        DirectoryPublication::begin(&output, "bray-publication-test-")
+            .unwrap_or_else(|error| panic!("publication must resume after release: {error}"));
     }
 
     #[test]
