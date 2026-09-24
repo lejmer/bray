@@ -1,5 +1,4 @@
-use bray_bound_tree::CheckedMemoryOperationKind;
-use bray_codegen::CodegenFailure;
+use bray_codegen::{CodegenFailure, CodegenHelperMapping};
 use bray_ir::{
     MirHelperReference, MirMemoryOperation, MirOperation, MirOperationId, MirStandardLibraryHelper,
 };
@@ -104,18 +103,19 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     pub(super) fn translate_raw_buffer_release(
         &mut self,
         operation: MirOperationId,
-        memory: &MirMemoryOperation,
+        buffer: &bray_ir::MirOperand,
+        buffer_type: bray_symbols::TypeId,
         element: bray_symbols::TypeId,
     ) -> Result<(), CodegenFailure> {
-        let [buffer] = memory.operands() else {
-            panic!("checked MIR memory translation violated an established compiler contract");
-        };
+        assert!(
+            self.checked_call_operations.contains(&operation),
+            "raw-buffer release requires a checked MIR call outcome"
+        );
 
-        let [buffer_type] = memory.operand_types() else {
-            panic!("checked MIR memory translation violated an established compiler contract");
-        };
+        let outcome = self.checked_call_panic_report_context()?;
+        self.set_pending_call_context(outcome)?;
 
-        let (buffer, llvm_type, value, fields) = self.load_raw_buffer(buffer, *buffer_type)?;
+        let (buffer, llvm_type, value, fields) = self.load_raw_buffer(buffer, buffer_type)?;
 
         let pointer = self.memory_aggregate_pointer(value, &fields, 0)?;
         let capacity = self.memory_aggregate_integer(value, &fields, 1)?;
@@ -167,22 +167,31 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             },
         );
 
-        self.destroy_raw_buffer_elements(cleanup, pointer, initialized, stride)?;
+        // Deallocation can use the operation context directly when no element cleanup can fail first.
+        let has_destructor = cleanup.symbol().is_some();
+
+        self.destroy_raw_buffer_elements(
+            cleanup,
+            buffer,
+            llvm_type,
+            &fields,
+            pointer,
+            initialized,
+            stride,
+            outcome,
+        )?;
 
         let deallocate = next_helper(
             &mut helpers,
             &MirHelperReference::StandardLibrary(MirStandardLibraryHelper::MemoryDeallocate),
         );
 
-        if self
-            .invoke_helper(
-                deallocate,
-                &[pointer.into(), bytes.into(), alignment.into()],
-            )?
-            .is_some()
-        {
-            panic!("checked MIR memory translation violated an established compiler contract");
-        }
+        self.invoke_buffer_cleanup_helper(
+            deallocate,
+            &[pointer.into(), bytes.into(), alignment.into()],
+            outcome,
+            has_destructor,
+        )?;
 
         llvm(self.builder.build_unconditional_branch(done))?;
         self.builder.position_at_end(done);
@@ -206,14 +215,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             panic!("checked MIR memory translation violated an established compiler contract");
         };
 
-        let release = MirMemoryOperation::new(
-            CheckedMemoryOperationKind::RawBufferRelease { element },
-            [destination.clone()],
-            [*destination_type],
-            None,
-        );
-
-        self.translate_raw_buffer_release(operation, &release, element)?;
+        self.translate_raw_buffer_release(operation, destination, *destination_type, element)?;
 
         let destination = self.memory_pointer(destination)?;
 
@@ -315,10 +317,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
     fn destroy_raw_buffer_elements(
         &mut self,
-        helper: &bray_codegen::CodegenHelperMapping,
+        helper: &CodegenHelperMapping,
+        buffer: PointerValue<'context>,
+        llvm_type: BasicTypeEnum<'context>,
+        fields: &[bray_codegen::CodegenFieldLayout],
         pointer: PointerValue<'context>,
         initialized: IntValue<'context>,
         stride: u64,
+        outcome: PointerValue<'context>,
     ) -> Result<(), CodegenFailure> {
         if helper.symbol().is_none() {
             return Ok(());
@@ -374,7 +380,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let element = self.dynamic_offset_pointer(pointer, previous, stride)?;
 
-        self.invoke_helper(helper, &[element.into()])?;
+        self.store_raw_buffer_initialized_count(
+            buffer,
+            llvm_type,
+            fields,
+            previous.into(),
+            "memory.buffer.destroy.progress",
+        )?;
+
+        self.invoke_buffer_cleanup_helper(helper, &[element.into()], outcome, true)?;
 
         let body_end = self
             .builder
@@ -385,6 +399,52 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         index.add_incoming(&[(&previous, body_end)]);
 
         self.builder.position_at_end(done);
+
+        Ok(())
+    }
+
+    fn invoke_buffer_cleanup_helper(
+        &mut self,
+        helper: &CodegenHelperMapping,
+        arguments: &[BasicValueEnum<'context>],
+        outcome: PointerValue<'context>,
+        merge: bool,
+    ) -> Result<(), CodegenFailure> {
+        let Some(key) = helper.symbol() else {
+            return Ok(());
+        };
+
+        let symbol = self
+            .request
+            .mappings()
+            .symbol(key)
+            .expect("raw-buffer cleanup helper must have a mapped symbol");
+
+        if !symbol.signature().has_panic_report_context() {
+            self.invoke_helper(helper, arguments)?;
+
+            return Ok(());
+        }
+
+        let incident = if merge {
+            self.allocate_panic_report_context()?
+        } else {
+            outcome
+        };
+
+        self.invoke_helper_with_panic_report_context(helper, arguments, incident)?;
+
+        if merge {
+            crate::translation::merge_pending_outcomes(
+                self.module,
+                self.types.context(),
+                &self.builder,
+                self.request.target(),
+                self.unit.target().runtime_abi(),
+                outcome,
+                incident,
+            )?;
+        }
 
         Ok(())
     }

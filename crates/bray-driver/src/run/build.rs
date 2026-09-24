@@ -183,7 +183,6 @@ pub fn run_build_request(
     {
         let tools = [
             DiagnosticLlvmToolRole::SymbolInspector,
-            DiagnosticLlvmToolRole::ObjectInspector,
             DiagnosticLlvmToolRole::BitcodeInspector,
         ]
         .map(llvm_tool_path)
@@ -210,7 +209,7 @@ pub fn run_build_request(
     let mut inputs = ProductEmissionInputs::new(&target_outputs);
 
     if let Some(tools) = native_inspectors.as_ref() {
-        inputs = inputs.with_native_inspection(&tools[0], &tools[1], &tools[2]);
+        inputs = inputs.with_native_inspection(&tools[0], &tools[1]);
     }
 
     if let Some(test_catalog) = test_catalog.as_deref() {

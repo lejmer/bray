@@ -1271,11 +1271,16 @@ impl CheckedMemoryOperationKind {
         )
     }
 
-    /// Returns whether this operation directly calls the standard-library allocator boundary.
-    pub const fn calls_allocator_boundary(self) -> bool {
+    /// Returns whether this operation can propagate a helper's panic outcome.
+    pub const fn requires_checked_outcome(self) -> bool {
         matches!(
             self,
-            Self::RawAllocate | Self::RawDeallocate | Self::Allocate | Self::Deallocate
+            Self::RawAllocate
+                | Self::RawDeallocate
+                | Self::Allocate
+                | Self::Deallocate
+                | Self::RawBufferRelease { .. }
+                | Self::RawBufferReplace { .. }
         )
     }
 }

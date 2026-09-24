@@ -135,14 +135,13 @@ impl<'operation> ProductEmissionInputs<'operation> {
         self
     }
 
-    /// Supplies the selected LLVM tools used once when publishing native library units.
+    /// Supplies the selected LLVM tools for inspecting published bitcode units.
     pub const fn with_native_inspection(
         mut self,
         symbols: &'operation Path,
-        objects: &'operation Path,
         bitcode: &'operation Path,
     ) -> Self {
-        self.native_inspection = Some(NativeInspectionInputs { symbols, objects, bitcode });
+        self.native_inspection = Some(NativeInspectionInputs { symbols, bitcode });
 
         self
     }
@@ -161,7 +160,6 @@ impl<'operation> ProductEmissionInputs<'operation> {
 #[derive(Clone, Copy)]
 pub(super) struct NativeInspectionInputs<'operation> {
     pub(super) symbols: &'operation Path,
-    pub(super) objects: &'operation Path,
     pub(super) bitcode: &'operation Path,
 }
 
@@ -691,8 +689,13 @@ impl Compilation {
                 let package_implementation = package_implementation
                     .map(|(interface, bundle)| {
                         let artifact = match (native, inspection) {
-                            (Some(native), Some(inspection)) => package_native_implementation(
-                                self, plan, &staging, native, inspection, &interface, &bundle,
+                            (Some(native), Some(inspection)) => crate::profile::profile_operation(
+                                self.state.fact_runtime.profile(),
+                                crate::profile::ProfileOperation::NativeUnitInspection,
+                                || package_native_implementation(
+                                    self, plan, &staging, native, inspection, &interface, &bundle,
+                                ),
+                                crate::profile::result_outcome,
                             )?,
                             (Some(_), None) => return Err(ProductEmissionErrorKind::MissingNativeInspector),
                             (None, _) => bray_package_interface::PackageImplementationArtifact::try_from_export_bundle(

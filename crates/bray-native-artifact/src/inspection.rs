@@ -3,20 +3,13 @@ use std::sync::Arc;
 
 use bray_base::NonEmptySharedStr;
 use bray_symbols::{NativeSymbolContract, NativeSymbolPresence};
+use object::{Object, ObjectSection, ObjectSymbol, SectionFlags, SectionKind, SymbolKind, SymbolSection};
 
-use crate::{NativeDefinition, NativeDefinitionSelection, NativeRoot, NativeUnitKind, NativeUnitSummary};
+use crate::{NativeDefinition, NativeDefinitionSelection, NativeRoot, NativeUnitSummary};
 
-/// Summarizes an LLVM-inspected physical unit. Unknown selection or retention semantics
+/// Summarizes an LLVM-inspected bitcode unit. Unknown selection or retention semantics
 /// make the whole unit opaque instead of producing an incomplete exact graph.
-pub fn scan_native_unit_summary(
-    kind: NativeUnitKind,
-    symbols: &str,
-    structure: &str,
-) -> NativeUnitSummary {
-    if kind == NativeUnitKind::OpaqueArchive {
-        return NativeUnitSummary::Opaque;
-    }
-
+pub fn scan_bitcode_unit_summary(symbols: &str, structure: &str) -> NativeUnitSummary {
     let mut definitions = BTreeSet::new();
     let mut references = BTreeSet::new();
 
@@ -51,6 +44,122 @@ pub fn scan_native_unit_summary(
         }
     }
 
+    let Some(roots) = bitcode_roots(structure) else {
+        return NativeUnitSummary::Opaque;
+    };
+
+    exact_summary(definitions, references, roots)
+}
+
+/// Reads a compiler-produced object in process, retaining exact selection only for
+/// ordinary external symbols and sections with understood lifecycle behavior.
+pub fn scan_object_unit_summary(bytes: &[u8]) -> Result<NativeUnitSummary, object::Error> {
+    let file = object::File::parse(bytes)?;
+
+    if file.kind() != object::ObjectKind::Relocatable || file.comdats().next().is_some() {
+        return Ok(NativeUnitSummary::Opaque);
+    }
+
+    let mut roots = BTreeSet::new();
+
+    for section in file.sections() {
+        let Ok(name) = section.name() else {
+            return Ok(NativeUnitSummary::Opaque);
+        };
+
+        if matches!(section.kind(), SectionKind::Tls | SectionKind::UninitializedTls | SectionKind::TlsVariables | SectionKind::Linker)
+            || match section.flags() {
+                SectionFlags::Coff { characteristics } => {
+                    characteristics & object::pe::IMAGE_SCN_LNK_COMDAT != 0
+                }
+                SectionFlags::Elf { sh_flags } => {
+                    sh_flags & u64::from(object::elf::SHF_GROUP | object::elf::SHF_TLS) != 0
+                }
+                SectionFlags::MachO { flags } => {
+                    flags & (object::macho::S_ATTR_NO_DEAD_STRIP | object::macho::S_ATTR_LIVE_SUPPORT) != 0
+                }
+                SectionFlags::None => false,
+                _ => true,
+            }
+        {
+            return Ok(NativeUnitSummary::Opaque);
+        }
+
+        let lower = name.to_ascii_lowercase();
+
+        if lower == ".drectve"
+            || lower.contains("__thread_data")
+            || lower.contains("__thread_bss")
+            || lower == ".tdata"
+            || lower == ".tbss"
+        {
+            return Ok(NativeUnitSummary::Opaque);
+        }
+
+        if lower == ".init"
+            || lower.contains(".init_array")
+            || lower.contains(".preinit_array")
+            || lower.contains(".ctors")
+            || lower.contains("__mod_init_func")
+            || lower.contains(".crt$x") && !lower.contains(".crt$xt")
+        {
+            roots.insert(NativeRoot::Initialization);
+        }
+
+        if lower == ".fini"
+            || lower.contains(".fini_array")
+            || lower.contains(".dtors")
+            || lower.contains("__mod_term_func")
+            || lower.contains(".crt$xt")
+        {
+            roots.insert(NativeRoot::Finalization);
+        }
+    }
+
+    let mut definitions = BTreeSet::new();
+    let mut references = BTreeSet::new();
+
+    for symbol in file.symbols() {
+        if !symbol.is_global() && !symbol.is_weak() {
+            continue;
+        }
+
+        let undefined = symbol.is_undefined();
+
+        if symbol.is_weak()
+            || matches!(symbol.kind(), SymbolKind::Tls)
+            || !undefined && matches!(symbol.kind(), SymbolKind::Unknown)
+            || !matches!(symbol.section(), SymbolSection::Undefined | SymbolSection::Section(_))
+            || matches!(symbol.flags(), object::SymbolFlags::CoffSection { selection, .. } if selection != 0)
+        {
+            return Ok(NativeUnitSummary::Opaque);
+        }
+
+        let Ok(name) = symbol.name() else {
+            return Ok(NativeUnitSummary::Opaque);
+        };
+
+        let Some(name) = NonEmptySharedStr::try_new(name) else {
+            return Ok(NativeUnitSummary::Opaque);
+        };
+
+        let contract = NativeSymbolContract::required_name(name);
+
+        if undefined {
+            references.insert(contract);
+        } else {
+            definitions.insert(NativeDefinition::new(contract, NativeDefinitionSelection::Ordinary));
+        }
+    }
+
+    Ok(exact_summary(definitions, references, roots))
+}
+
+fn exact_summary(
+    definitions: BTreeSet<NativeDefinition>,
+    references: BTreeSet<NativeSymbolContract>,
+    roots: BTreeSet<NativeRoot>,
+) -> NativeUnitSummary {
     if definitions.iter().any(|definition| {
         references.iter().any(|reference| {
             reference.identity() == definition.symbol().identity()
@@ -61,16 +170,6 @@ pub fn scan_native_unit_summary(
         // resolution rules that this exact summary does not model.
         return NativeUnitSummary::Opaque;
     }
-
-    let roots = match kind {
-        NativeUnitKind::Bitcode => bitcode_roots(structure),
-        NativeUnitKind::Object => object_roots(structure),
-        NativeUnitKind::OpaqueArchive => unreachable!("opaque archives returned before inspection"),
-    };
-
-    let Some(roots) = roots else {
-        return NativeUnitSummary::Opaque;
-    };
 
     NativeUnitSummary::Exact {
         definitions: Arc::from(definitions.into_iter().collect::<Vec<_>>()),
@@ -120,71 +219,18 @@ fn bitcode_roots(ir: &str) -> Option<BTreeSet<NativeRoot>> {
     Some(roots)
 }
 
-fn object_roots(inventory: &str) -> Option<BTreeSet<NativeRoot>> {
-    let mut roots = BTreeSet::new();
-
-    for line in inventory.lines().map(str::trim) {
-        let lower = line.to_ascii_lowercase();
-
-        if lower.contains("comdat")
-            || lower.contains("weakexternal")
-            || lower.contains("alias")
-            || lower.contains("sht_group")
-            || lower.contains(".drectve")
-            || lower.contains("no_dead_strip")
-            || lower.contains("live_support")
-            || lower.contains("shf_tls")
-            || lower.contains("thread_local")
-            || lower.contains(".tdata")
-            || lower.contains(".tbss")
-            || lower.contains("__thread_data")
-            || lower.contains("__thread_bss")
-            || lower.contains("n_indr")
-            || (lower.starts_with("selection:") && !lower.ends_with("(0x0)"))
-        {
-            return None;
-        }
-
-        let Some(section) = lower
-            .strip_prefix("name:")
-            .or_else(|| lower.strip_prefix("section:"))
-            .and_then(|value| value.split_whitespace().next())
-        else {
-            continue;
-        };
-
-        if section == ".init"
-            || section.contains(".init_array")
-            || section.contains(".preinit_array")
-            || section.contains(".ctors")
-            || section.contains("__mod_init_func")
-            || section.contains(".crt$x") && !section.contains(".crt$xt")
-        {
-            roots.insert(NativeRoot::Initialization);
-        }
-
-        if section == ".fini"
-            || section.contains(".fini_array")
-            || section.contains(".dtors")
-            || section.contains("__mod_term_func")
-            || section.contains(".crt$xt")
-        {
-            roots.insert(NativeRoot::Finalization);
-        }
-    }
-
-    Some(roots)
-}
-
 #[cfg(test)]
 mod tests {
-    use super::scan_native_unit_summary;
-    use crate::{NativeRoot, NativeUnitKind, NativeUnitSummary};
+    use object::write::{Object, StandardSection, Symbol, SymbolSection};
+    use object::{Architecture, BinaryFormat, Endianness, SectionKind, SymbolFlags, SymbolKind, SymbolScope};
+
+    use super::{scan_bitcode_unit_summary, scan_object_unit_summary};
+    use crate::{NativeRoot, NativeUnitSummary};
 
     #[test]
     fn code_data_and_address_references_are_exact() {
         let symbols = "entry T 0 0\ncallback_table D 0 0\ncallback U\n";
-        let summary = scan_native_unit_summary(NativeUnitKind::Bitcode, symbols, "define @entry {}");
+        let summary = scan_bitcode_unit_summary(symbols, "define @entry {}");
 
         let NativeUnitSummary::Exact { definitions, references, roots } = summary else {
             panic!("ordinary bitcode must have an exact summary");
@@ -196,40 +242,21 @@ mod tests {
     }
 
     #[test]
-    fn real_object_format_inventories_preserve_address_references_and_initializers() {
-        let cases = [
-            ("callback U 0 0\ncallback_table D 0 0\nentry T 0 0\n", "Name: .CRT$XCU (2E 43 52 54 24 58 43 55)"),
-            ("callback U 0 0\ncallback_table D 0 8\nentry T 0 1d\n", "Name: .init_array (12)"),
-            ("_callback U 0 0\n_callback_table D 38 0\n_entry T 0 0\n", "Name: __mod_init_func (5F 5F 6D 6F 64)"),
-        ];
-
-        for (symbols, inventory) in cases {
-            let summary = scan_native_unit_summary(NativeUnitKind::Object, symbols, inventory);
+    fn object_symbols_and_lifecycle_sections_are_scanned_without_tools() {
+        for (format, section) in [
+            (BinaryFormat::Coff, ".CRT$XCU"),
+            (BinaryFormat::Elf, ".init_array"),
+        ] {
+            let bytes = object_fixture(format, section);
+            let summary = scan_object_unit_summary(&bytes).unwrap();
 
             assert!(matches!(summary, NativeUnitSummary::Exact { definitions, references, roots }
-                if definitions.len() == 2 && references.len() == 1
+                if definitions.len() == 1 && references.len() == 1
                 && roots.as_ref() == [NativeRoot::Initialization]));
         }
 
-        assert!(matches!(
-            scan_native_unit_summary(NativeUnitKind::Object, "entry T 0 0", "Name: .drectve"),
-            NativeUnitSummary::Opaque,
-        ));
-
-        assert!(matches!(
-            scan_native_unit_summary(NativeUnitKind::Object, "entry T 0 0", "Name: .CRT$XTU"),
-            NativeUnitSummary::Exact { roots, .. } if roots.as_ref() == [NativeRoot::Finalization],
-        ));
-
-        for (inventory, root) in [
-            ("Name: .init (2E 69 6E 69 74)", NativeRoot::Initialization),
-            ("Section: .fini (2E 66 69 6E 69)", NativeRoot::Finalization),
-        ] {
-            assert!(matches!(
-                scan_native_unit_summary(NativeUnitKind::Object, "entry T 0 0", inventory),
-                NativeUnitSummary::Exact { roots, .. } if roots.as_ref() == [root],
-            ));
-        }
+        let opaque = object_fixture(BinaryFormat::Coff, ".drectve");
+        assert!(matches!(scan_object_unit_summary(&opaque).unwrap(), NativeUnitSummary::Opaque));
     }
 
     #[test]
@@ -240,7 +267,7 @@ mod tests {
             "@dispatch = dso_local ifunc void (), ptr @resolver",
         ] {
             assert!(matches!(
-                scan_native_unit_summary(NativeUnitKind::Bitcode, "entry T 0 0", declaration),
+                scan_bitcode_unit_summary("entry T 0 0", declaration),
                 NativeUnitSummary::Opaque,
             ));
         }
@@ -248,8 +275,7 @@ mod tests {
 
     #[test]
     fn initialization_is_a_root_and_unsupported_selection_is_opaque() {
-        let summary = scan_native_unit_summary(
-            NativeUnitKind::Bitcode,
+        let summary = scan_bitcode_unit_summary(
             "entry T 0 0\n",
             "@llvm.global_ctors = appending global []\n",
         );
@@ -257,13 +283,41 @@ mod tests {
         assert!(matches!(summary, NativeUnitSummary::Exact { roots, .. } if roots.as_ref() == [NativeRoot::Initialization]));
 
         assert!(matches!(
-            scan_native_unit_summary(NativeUnitKind::Bitcode, "entry W 0 0", ""),
+            scan_bitcode_unit_summary("entry W 0 0", ""),
             NativeUnitSummary::Opaque
         ));
+    }
 
-        assert!(matches!(
-            scan_native_unit_summary(NativeUnitKind::Object, "entry T 0 0", "Selection: Any (0x2)"),
-            NativeUnitSummary::Opaque
-        ));
+    fn object_fixture(format: BinaryFormat, lifecycle_section: &str) -> Vec<u8> {
+        let mut object = Object::new(format, Architecture::X86_64, Endianness::Little);
+        let text = object.section_id(StandardSection::Text);
+        object.append_section_data(text, &[0xc3], 1);
+
+        object.add_symbol(Symbol {
+            name: b"entry".to_vec(),
+            value: 0,
+            size: 1,
+            kind: SymbolKind::Text,
+            scope: SymbolScope::Linkage,
+            weak: false,
+            section: SymbolSection::Section(text),
+            flags: SymbolFlags::None,
+        });
+
+        object.add_symbol(Symbol {
+            name: b"callback".to_vec(),
+            value: 0,
+            size: 0,
+            kind: SymbolKind::Text,
+            scope: SymbolScope::Linkage,
+            weak: false,
+            section: SymbolSection::Undefined,
+            flags: SymbolFlags::None,
+        });
+
+        let lifecycle = object.add_section(Vec::new(), lifecycle_section.as_bytes().to_vec(), SectionKind::Data);
+        object.append_section_data(lifecycle, &[0; 8], 8);
+
+        object.write().unwrap()
     }
 }

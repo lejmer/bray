@@ -317,15 +317,6 @@ fn validate_serialization_policy(
         .linkable_artifact()
         .is_some_and(|artifact| artifact.artifact_kind() == BackendArtifactKind::BackendBitcode);
 
-    if serialization.bitcode_semantics() != bray_codegen::BackendBitcodeSemantics::Plain
-        && bitcode.is_none()
-        && !links_bitcode
-    {
-        return Err(EmissionPlanningError::MissingSerializationArtifact(
-            BackendArtifactKind::BackendBitcode,
-        ));
-    }
-
     if (links_bitcode || bitcode.is_some())
         && !backend
             .capabilities()

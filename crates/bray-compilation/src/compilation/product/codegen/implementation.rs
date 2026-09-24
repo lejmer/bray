@@ -238,7 +238,9 @@ impl Compilation {
 
         let serialization =
             bray_codegen::BackendSerializationOptions::new(AssemblySyntaxKind::TargetDefault)
-                .with_bitcode_semantics(if configuration.uses_thin_lto() {
+                .with_bitcode_semantics(if configuration.uses_thin_lto()
+                    || configuration == crate::BuildConfiguration::ObjectRelease
+                {
                     bray_codegen::BackendBitcodeSemantics::ThinLto
                 } else {
                     bray_codegen::BackendBitcodeSemantics::Plain

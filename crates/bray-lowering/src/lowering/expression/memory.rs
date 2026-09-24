@@ -248,7 +248,7 @@ impl Lowerer<'_> {
             None => self.unit_operand(result_type),
         };
 
-        if kind.calls_allocator_boundary() {
+        if kind.requires_checked_outcome() {
             let (completed, value) = self.finish_typed_call_panic_check(
                 id,
                 current,

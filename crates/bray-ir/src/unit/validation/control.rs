@@ -316,7 +316,7 @@ fn validate_call_panic_check(
                 construction.target(),
                 crate::ConstructionTarget::TypeForm { .. }
             ),
-            crate::MirOperationKind::Memory(memory) => memory.kind().calls_allocator_boundary(),
+            crate::MirOperationKind::Memory(memory) => memory.kind().requires_checked_outcome(),
             crate::MirOperationKind::AdmitOutgoing { .. }
             | crate::MirOperationKind::Cleanup { .. }
             | crate::MirOperationKind::Finalize(_)

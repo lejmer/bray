@@ -178,6 +178,8 @@ const fn implementation_hook_may_propagate_synchronous_panic(
                 | ImplementationHook::RawDeallocate
                 | ImplementationHook::Allocate
                 | ImplementationHook::Deallocate
+                | ImplementationHook::RawBufferRelease
+                | ImplementationHook::RawBufferReplace
         )
     )
 }
@@ -203,6 +205,8 @@ mod tests {
             ImplementationHook::RawDeallocate,
             ImplementationHook::Allocate,
             ImplementationHook::Deallocate,
+            ImplementationHook::RawBufferRelease,
+            ImplementationHook::RawBufferReplace,
         ] {
             assert!(implementation_hook_may_propagate_synchronous_panic(Some(hook)));
         }

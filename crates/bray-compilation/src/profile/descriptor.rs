@@ -28,10 +28,11 @@ pub(crate) enum ProfileOperation {
     NativePlanFinalization,
     InterfaceFragmentDiscovery,
     InterfaceCommit,
+    NativeUnitInspection,
 }
 
 impl ProfileOperation {
-    pub(crate) const COUNT: usize = 21;
+    pub(crate) const COUNT: usize = 22;
 
     pub(crate) const fn index(self) -> usize {
         self as usize
@@ -60,6 +61,7 @@ impl ProfileOperation {
             Self::NativePartitioning => "compiler.native.partition",
             Self::NativeMapping => "compiler.native.mapping",
             Self::NativePlanFinalization => "compiler.native.finalize",
+            Self::NativeUnitInspection => "compiler.emit.native.inspect",
         }
     }
 
@@ -86,6 +88,7 @@ impl ProfileOperation {
             Self::NativePartitioning => 17,
             Self::NativeMapping => 18,
             Self::NativePlanFinalization => 19,
+            Self::NativeUnitInspection => 22,
         }
     }
 
@@ -110,7 +113,8 @@ impl ProfileOperation {
             | Self::NativeHostPreparation
             | Self::NativePartitioning
             | Self::NativeMapping
-            | Self::NativePlanFinalization => CompilationProfileCategory::Work,
+            | Self::NativePlanFinalization
+            | Self::NativeUnitInspection => CompilationProfileCategory::Work,
         }
     }
 
@@ -142,7 +146,8 @@ impl ProfileOperation {
             | Self::NativeHostPreparation
             | Self::NativePartitioning
             | Self::NativeMapping
-            | Self::NativePlanFinalization => &[Product],
+            | Self::NativePlanFinalization
+            | Self::NativeUnitInspection => &[Product],
             Self::Emission | Self::LinkInputStaging | Self::ArtifactPublication => {
                 &[Product, Artifact]
             }
@@ -172,6 +177,7 @@ impl ProfileOperation {
             Self::NativePlanFinalization,
             Self::InterfaceFragmentDiscovery,
             Self::InterfaceCommit,
+            Self::NativeUnitInspection,
         ]
     }
 }
@@ -659,7 +665,7 @@ mod tests {
         assert_eq!(
             ProfileOperation::all().map(ProfileOperation::id),
             [
-                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21
+                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22
             ]
         );
 

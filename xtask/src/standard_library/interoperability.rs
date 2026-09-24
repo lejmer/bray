@@ -34,8 +34,6 @@ pub(super) fn audit(
     runtime: &Path,
     target: NativeTarget,
 ) -> Result<(), BuildError> {
-    audit_target_modules(root)?;
-
     let output = output.join(FIXTURE_PRODUCT);
 
     fs::create_dir(&output).map_err(|error| BuildError::write(&output, error))?;
@@ -99,7 +97,9 @@ pub(super) fn audit(
 
     crate::command::require_success(command, "executing foreign interoperability fixture")
         .map(|_| ())
-        .map_err(|error| BuildError::conformance("foreign interoperability", error))
+        .map_err(|error| BuildError::conformance("foreign interoperability", error))?;
+
+    audit_target_modules(root)
 }
 
 fn profile_metric(report: &CompilationProfileReport, name: &str) -> u64 {
