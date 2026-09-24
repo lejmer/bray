@@ -1787,6 +1787,122 @@ mod tests {
     }
 
     #[test]
+    fn aggregate_static_borrows_emit_valid_native_units_in_either_declaration_order() {
+        let types = r#"
+            module app;
+            struct Counter { value: core.atomic.Atomic<usize>; }
+            struct Guard { count: usize; counter: &Counter; }
+        "#;
+
+        let counter = "static COUNTER: Counter = Counter { value = core.atomic.initialize<usize>(7) };";
+
+        let guards = r#"
+            static FIRST: Guard = Guard { count = 1, counter = &COUNTER };
+            static SECOND: Guard = Guard { count = 2, counter = &COUNTER };
+        "#;
+
+        let root = r#"
+            public func read() -> usize
+            {
+                return FIRST.count + SECOND.count + core.atomic.load<usize, 0>(&COUNTER.value);
+            }
+        "#;
+
+        for declarations in [format!("{guards}\n{counter}"), format!("{counter}\n{guards}")] {
+            let source = format!("{types}\n{declarations}\n{root}");
+
+            assert_source_emits_valid_native_units(&source, crate::BuildConfiguration::Development);
+        }
+    }
+
+    #[test]
+    fn imported_aggregate_static_borrows_emit_valid_native_units() {
+        let dependency = generic_dependency_from_fixture(
+            true,
+            false,
+            GenericDependencyFixture {
+                source: r#"
+                    module templates;
+                    public struct Counter { public value: core.atomic.Atomic<usize>; }
+                    public static COUNTER: Counter = Counter
+                    {
+                        value = core.atomic.initialize<usize>(7)
+                    };
+                "#,
+                runtime_frames: None,
+                executable_templates: 1,
+                platform_service: None,
+            },
+        );
+
+        let source = r#"
+            module app;
+            using example.dependency.templates;
+            struct Guard
+            {
+                count: usize;
+                counter: &example.dependency.templates.Counter;
+            }
+            static FIRST: Guard = Guard
+            {
+                count = 1,
+                counter = &example.dependency.templates.COUNTER
+            };
+            static SECOND: Guard = Guard
+            {
+                count = 2,
+                counter = &example.dependency.templates.COUNTER
+            };
+            public func read() -> usize
+            {
+                return FIRST.count + SECOND.count;
+            }
+        "#;
+
+        let backend = Arc::new(bray_codegen_llvm::LlvmCodeGenerator::try_new().unwrap());
+
+        let registry = CodeGeneratorRegistry::try_new([Arc::clone(&backend) as Arc<dyn CodeGenerator>])
+            .unwrap();
+
+        let codegen = CodegenConfiguration::try_new(registry, backend.identity().clone()).unwrap();
+        let target = SelectedTarget::baseline();
+
+        let request = CompilationRequest::with_options(
+            crate::test_support::package_identity(),
+            vec![crate::test_support::source_input(source, 0)],
+            CompilationOptions::new(WorkerBudget::serial(), ProductKind::Library, target.clone()),
+        )
+        .with_dependency_interfaces([
+            dependency,
+            crate::test_support::runtime_standard_library_dependency(&target),
+        ]);
+
+        let compilation = crate::Compilation::load_with_codegen(request, codegen).unwrap();
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let plan = compilation
+            .native_product_plan(
+                test_product_identity(),
+                crate::BuildConfiguration::Development,
+                None,
+                [],
+                None,
+            )
+            .unwrap();
+
+        assert!(
+            generated_artifacts(&backend, &plan)
+                .iter()
+                .all(|artifact| !artifact.is_empty())
+        );
+    }
+
+    #[test]
     fn never_calls_in_typed_return_paths_emit_valid_native_units() {
         assert_source_emits_valid_native_units(
             concat!(

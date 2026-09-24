@@ -102,9 +102,25 @@ fn declare_static_global<'context>(
 ) -> GlobalValue<'context> {
     let name = mapping.symbol().as_str();
 
-    let global = module
-        .get_global(name)
-        .unwrap_or_else(|| module.add_global(initializer.get_type(), None, name));
+    let global = match module.get_global(name) {
+        Some(existing)
+            if BasicTypeEnum::try_from(existing.get_value_type())
+                .expect("static global must have a basic value type")
+                != initializer.get_type() =>
+        {
+            existing.set_name(&format!("{name}.unresolved"));
+
+            let physical = module.add_global(initializer.get_type(), None, name);
+
+            existing
+                .as_pointer_value()
+                .replace_all_uses_with(physical.as_pointer_value());
+
+            physical
+        }
+        Some(existing) => existing,
+        None => module.add_global(initializer.get_type(), None, name),
+    };
 
     if let Some(binding) = mapping.native_binding() {
         if mapping.defines_storage() {

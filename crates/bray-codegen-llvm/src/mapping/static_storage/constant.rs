@@ -96,7 +96,7 @@ fn static_constant<'context>(
                 target
             } else {
                 let target = module.add_global(
-                    types.map(relocation.ty())?,
+                    types.context().i8_type(),
                     None,
                     relocation.symbol().as_str(),
                 );

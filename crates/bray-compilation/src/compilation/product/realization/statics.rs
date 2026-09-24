@@ -755,7 +755,6 @@ impl Compilation {
                         value,
                         realization.key,
                         realization.symbol,
-                        realization.ty,
                     );
 
                     if relocations.insert(value, relocation).is_some() {
