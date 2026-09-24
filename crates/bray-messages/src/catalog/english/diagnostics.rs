@@ -65,12 +65,6 @@ const CODEGEN_BACKEND_TOOL_EXITED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text(" exited unsuccessfully: "),
     MessageTemplatePart::Arg(DiagnosticArgName::ExternalToolExit),
 ];
-const CODEGEN_GENERATED_MODULE_INVALID: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("native-code generator "),
-    MessageTemplatePart::Arg(DiagnosticArgName::CodegenBackendIdentity),
-    MessageTemplatePart::Text(" rejected the generated module for target "),
-    MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
-];
 const CODEGEN_ARTIFACT_CONSTRUCTION_FAILED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("native-code generator "),
     MessageTemplatePart::Arg(DiagnosticArgName::CodegenBackendIdentity),
@@ -2886,9 +2880,6 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CodegenBackendToolExited => {
             MessageTemplate::new(CODEGEN_BACKEND_TOOL_EXITED)
-        }
-        DiagnosticKind::CodegenGeneratedModuleInvalid => {
-            MessageTemplate::new(CODEGEN_GENERATED_MODULE_INVALID)
         }
         DiagnosticKind::CodegenArtifactConstructionFailed => {
             MessageTemplate::new(CODEGEN_ARTIFACT_CONSTRUCTION_FAILED)
