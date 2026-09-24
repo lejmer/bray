@@ -1,0 +1,14 @@
+module async_task_panic_shutdown;
+
+async func child()
+{
+    panic("child panic");
+}
+
+async func main() -> i32
+{
+    let task = child().start();
+
+    assert((await task.join()) matches Panicked(_));
+    return 0;
+}

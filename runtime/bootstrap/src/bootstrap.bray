@@ -86,16 +86,16 @@ trusted internal func runtime_initialization(pos worker_capacity: usize, pos tim
 trusted internal func structured_shutdown() -> u32
     uses(foreign_call)
 {
-    if core.atomic.load<u64, 1>(&CONSTRUCTED_REPORTS) != core.atomic.load<u64, 1>(&CONSUMED_REPORTS)
-    {
-        return STATUS_RUNTIME_FAILURE;
-    }
-
     let status: u32 = trusted substrate_shutdown();
 
     if status == STATUS_SUCCESS || status == STATUS_NOT_INITIALIZED
     {
         core.atomic.store<u32, 2>(&SUBSTRATE_INITIALIZED, value = INITIALIZATION_EMPTY);
+    }
+
+    if core.atomic.load<u64, 1>(&CONSTRUCTED_REPORTS) != core.atomic.load<u64, 1>(&CONSUMED_REPORTS)
+    {
+        return STATUS_RUNTIME_FAILURE;
     }
 
     return status;

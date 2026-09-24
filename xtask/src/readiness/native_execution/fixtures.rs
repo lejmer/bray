@@ -21,6 +21,8 @@ pub(super) const ASYNC_I32_FIXTURE: &str = "xtask/fixtures/native-execution/asyn
 pub(super) const ASYNC_ERROR_FIXTURE: &str =
     "xtask/fixtures/native-execution/async-result-error.bray";
 pub(super) const ASYNC_TASKS_FIXTURE: &str = "xtask/fixtures/native-execution/async_tasks.bray";
+pub(super) const ASYNC_TASK_PANIC_SHUTDOWN_FIXTURE: &str =
+    "xtask/fixtures/native-execution/async-task-panic-shutdown.bray";
 pub(super) const STANDARD_RUN_SOURCE: &str = "standard-library/std/src/run.bray";
 pub(super) const STANDARD_TASK_SOURCE: &str = "standard-library/std/src/task.bray";
 pub(super) const STANDARD_TESTING_SOURCE: &str = "standard-library/std/src/testing.bray";
