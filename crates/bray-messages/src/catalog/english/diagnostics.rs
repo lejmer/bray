@@ -1669,6 +1669,12 @@ const CHECKING_INVALID_CONSTANT_EXPRESSION: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text(" cannot be evaluated as a compile-time constant"),
 ];
 
+const CHECKING_NON_MATERIALIZABLE_CONSTANT: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("a constant cannot materialize a value of type "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualType),
+    MessageTemplatePart::Text(" without runtime ownership"),
+];
+
 const CHECKING_INVALID_CONSTANT_OPERATION: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("compile-time "),
     MessageTemplatePart::Arg(DiagnosticArgName::ConstantOperation),
@@ -2399,6 +2405,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingInvalidConstantExpression => {
             MessageTemplate::new(CHECKING_INVALID_CONSTANT_EXPRESSION)
+        }
+        DiagnosticKind::CheckingNonMaterializableConstant => {
+            MessageTemplate::new(CHECKING_NON_MATERIALIZABLE_CONSTANT)
         }
         DiagnosticKind::CheckingInvalidConstantOperation => {
             MessageTemplate::new(CHECKING_INVALID_CONSTANT_OPERATION)

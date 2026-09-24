@@ -455,7 +455,7 @@ impl Compilation {
                 .map(|candidate| candidate.metadata().identity().as_str().to_owned())
                 .collect();
 
-            profile.add_runtime_artifact(bray_profile::CompilationProfileRuntimeArtifact {
+            let mut artifact = bray_profile::CompilationProfileRuntimeArtifact {
                 identity: identity.as_str().to_owned(),
                 bytes: component_bytes,
                 runtime_roles: metadata
@@ -474,7 +474,13 @@ impl Compilation {
                     .map(|role| role.as_str().to_owned())
                     .collect(),
                 retained_by,
-            });
+            };
+
+            artifact.runtime_roles.sort_unstable();
+            artifact.capabilities.sort_unstable();
+            artifact.platform_services.sort_unstable();
+            artifact.retained_by.sort_unstable();
+            profile.add_runtime_artifact(artifact);
         }
 
         profile.record_metric(
@@ -5998,9 +6004,16 @@ public func invoke<T>(pos value: T)
     fn native_profile(
         compilation: &crate::Compilation,
     ) -> bray_profile::CompilationProfileNativeCodegen {
-        compilation
+        let report = compilation
             .profile_report()
-            .and_then(|report| report.native_codegen)
+            .unwrap_or_else(|| panic!("native compilation profile must exist"));
+
+        report
+            .validate()
+            .unwrap_or_else(|error| panic!("native compilation profile must validate: {error:?}"));
+
+        report
+            .native_codegen
             .unwrap_or_else(|| panic!("native compilation profile must retain its inventory"))
     }
 

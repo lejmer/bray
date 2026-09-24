@@ -70,7 +70,7 @@ impl Compilation {
         let input = ConstantEvaluationInput::new(&types, semantics.result().value().selections())
             .with_references(references)
             .with_call_resolver(&resolver)
-            .with_static_address_borrows()
+            .for_static_initializer()
             .with_limits(limits);
 
         let unit =

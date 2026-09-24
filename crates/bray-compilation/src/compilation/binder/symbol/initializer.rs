@@ -50,7 +50,7 @@ pub(super) fn validate_static_initializer_template(
     )
     .with_references(references)
     .with_call_resolver(&resolver)
-    .with_static_address_borrows();
+    .for_static_initializer();
 
     let unit = bray_checker::CheckerUnitView::new(
         bound.result().value(),

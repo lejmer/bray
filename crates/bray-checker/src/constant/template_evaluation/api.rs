@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use super::super::call::{ConstantTemplateResolver, EvaluatedConstantCall};
 use super::super::limits::EvaluationBudget;
 use super::evaluator::TemplateEvaluator;
@@ -33,6 +35,7 @@ where
         limits,
         budget: EvaluationBudget::from_limits(limits),
         values: vec![None; template.nodes().len()],
+        checked_materialization: BTreeSet::new(),
         diagnostics: DiagnosticBag::new(),
         upstream_failure: None,
         static_initializer: false,
@@ -208,6 +211,7 @@ where
         limits,
         budget: EvaluationBudget::from_limits(limits),
         values: vec![None; template.nodes().len()],
+        checked_materialization: BTreeSet::new(),
         diagnostics: DiagnosticBag::new(),
         upstream_failure: None,
         static_initializer: false,
@@ -273,9 +277,11 @@ mod tests {
     };
     use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
     use bray_symbols::{
-        CallableInstanceData, ConstantField, ConstantTermData, ConstantValueData,
-        ConstantValueKind, CurrentRunCancellation, DependencyContractTemplateData,
+        CallableInstanceData, ConstantField, ConstantProjection, ConstantProjectionKind,
+        ConstantTermData, ConstantValueData, ConstantValueKind, CurrentRunCancellation,
+        DependencyContractTemplateData,
         FunctionSymbolId, GenericOwnerId, GenericSubstitutionData, ModulePathKey, PackageIdentity,
+        StaticInstanceKey, StaticInstanceTemplateId, StaticReferenceSelection, StaticSymbolId,
         StructFieldSymbolId, SymbolId, SymbolKey, SymbolKind, SymbolOrdinal, SymbolRootKey,
         TypeData,
     };
@@ -287,8 +293,8 @@ mod tests {
     };
     use super::super::super::limits::{ConstantEvaluationLimits, ConstantEvaluationUsage};
     use super::{
-        evaluate_constant_callable_template, evaluate_generic_constraint_template,
-        evaluate_static_initializer_template,
+        evaluate_constant_callable_template, evaluate_constant_definition_template,
+        evaluate_generic_constraint_template, evaluate_static_initializer_template,
     };
     use crate::test_support::{TestCheckerContext, semantic_values};
     use crate::{CheckerQueryResult, ConstantReferenceResolution};
@@ -836,6 +842,136 @@ mod tests {
 
         assert_eq!(fields[0].field(), &resolver.second_id());
         assert_eq!(fields[1].field(), &resolver.first_id());
+    }
+
+    #[test]
+    fn imported_definition_template_rejects_discarded_nested_static_borrow() {
+        let values = semantic_values();
+        let unit = values.intern_type(TypeData::tuple([])).unwrap();
+
+        let borrowed = values
+            .intern_type(TypeData::Borrow {
+                kind: bray_symbols::BorrowKind::Shared,
+                target: unit,
+            })
+            .unwrap();
+
+        let tuple = values.intern_type(TypeData::tuple([borrowed, unit])).unwrap();
+        let static_symbol = StaticSymbolId::from_symbol_id(SymbolId::new(998));
+        let owner = GenericOwnerId::try_new(static_symbol.into()).unwrap();
+
+        let substitution = values
+            .intern_generic_substitution(GenericSubstitutionData::try_new(owner, [], []).unwrap())
+            .unwrap();
+
+        let target = bray_target::TargetIdentity::try_new("test").unwrap();
+
+        let instance = StaticInstanceKey::new(
+            StaticInstanceTemplateId::new(static_symbol),
+            substitution,
+            [],
+            target,
+        );
+
+        let borrowed_value = values
+            .intern_constant_value(ConstantValueData::new(
+                borrowed,
+                ConstantValueKind::StaticAddress(StaticReferenceSelection::Closed(instance)),
+            ))
+            .unwrap();
+
+        let unit_value = values
+            .intern_constant_value(ConstantValueData::new(
+                unit,
+                ConstantValueKind::Tuple(Arc::from([])),
+            ))
+            .unwrap();
+
+        let tuple_value = values
+            .intern_constant_value(ConstantValueData::new(
+                tuple,
+                ConstantValueKind::Tuple(Arc::from([borrowed_value, unit_value])),
+            ))
+            .unwrap();
+
+        let term = values
+            .intern_constant_term(ConstantTermData::Value(tuple_value))
+            .unwrap();
+
+        let term = values
+            .intern_constant_term(ConstantTermData::typed(term, tuple))
+            .unwrap();
+
+        let term = values
+            .intern_constant_term(ConstantTermData::Projection(ConstantProjection::new(
+                term,
+                ConstantProjectionKind::TupleElement(SymbolOrdinal::new(1)),
+            )))
+            .unwrap();
+
+        let dependency_contract = values
+            .intern_dependency_contract_template(DependencyContractTemplateData::new([]))
+            .unwrap();
+
+        let behavior = CheckedTemplateBehavior::new(
+            [],
+            [],
+            [],
+            CheckedTemplateExecution::new([], CurrentRunCancellation::NotEntered),
+            [],
+            dependency_contract,
+            dependency_contract,
+            [],
+        );
+
+        let mut builder =
+            CheckedTemplateBuilder::new(CheckedTemplateKind::ConstantDefinition, behavior);
+
+        let result = builder
+            .push_node(CheckedTemplateNode::new(
+                CheckedTemplateOperation::Constant {
+                    term,
+                    usage: Default::default(),
+                },
+                unit,
+            ))
+            .unwrap();
+
+        let template = builder
+            .finish(result, CheckedTemplateCompletion::Complete)
+            .unwrap();
+
+        let span = SourceSpan::new(
+            SourceId::new(0),
+            TextRange::new(TextSize::new(0), TextSize::new(1)),
+        );
+
+        let outcome = evaluate_constant_definition_template(
+            &TestCheckerContext::new(false),
+            &template,
+            substitution,
+            unit,
+            &UnusedTemplateResolver,
+            Some(span),
+            ConstantEvaluationLimits::default(),
+        )
+        .into_result()
+        .unwrap();
+
+        assert!(outcome.value().is_none());
+
+        assert_goal_state_diagnostic_kind(
+            outcome.diagnostics(),
+            bray_diagnostics::DiagnosticKind::CheckingNonMaterializableConstant,
+        );
+
+        let diagnostic = outcome
+            .diagnostics()
+            .by_kind(bray_diagnostics::DiagnosticKind::CheckingNonMaterializableConstant)
+            .next()
+            .unwrap();
+
+        assert_eq!(diagnostic.primary_span(), Some(span));
     }
 
     struct UnusedTemplateResolver;

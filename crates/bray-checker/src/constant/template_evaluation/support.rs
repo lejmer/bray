@@ -1,4 +1,5 @@
 use bray_compiler_known::{IntegerRepresentation, RepresentationRole};
+use bray_bound_tree::CheckedTemplateKind;
 use bray_diagnostics::DiagnosticConstantOperation;
 use bray_symbols::{
     AnyConstantDefinitionId, AnySymbolId, ConstantValueId, ConstantValueKind, SemanticValueStore,
@@ -7,7 +8,32 @@ use bray_symbols::{
 
 use super::super::diagnostic::ConstantDiagnostic;
 use super::super::operation::ConstantOperationError;
+use super::evaluator::TemplateEvaluator;
 use crate::{CheckerInfrastructureError, CheckerRequestContext};
+
+pub(super) fn check_definition_materialization<C: CheckerRequestContext + ?Sized>(
+    evaluator: &mut TemplateEvaluator<'_, C>,
+    value: ConstantValueId,
+) -> Result<(), TemplateEvaluationFailure> {
+    if evaluator.template.kind() != CheckedTemplateKind::ConstantDefinition {
+        return Ok(());
+    }
+
+    let result = crate::constant::materialization::nonmaterializable_value_tree(
+        evaluator.context,
+        value,
+        &mut evaluator.checked_materialization,
+        &mut evaluator.diagnostics,
+    );
+
+    if let Some(ty) = result.map_err(|error| evaluator.record_query_failure(error))? {
+        return Err(TemplateEvaluationFailure::Diagnostic(
+            ConstantDiagnostic::NonMaterializable(ty),
+        ));
+    }
+
+    Ok(())
+}
 
 pub(super) enum TemplateEvaluationFailure {
     Cancelled,

@@ -928,6 +928,9 @@ impl DiagnosticKind {
                     DiagnosticNoteKind::ConstantExpressionMustBeEvaluable
                 ),
             ),
+            Self::CheckingNonMaterializableConstant => {
+                Self::quality_source(&[ActualType], primary_components!(&[ActualType]))
+            }
             Self::CheckingInvalidConstantOperation => Self::quality_source(
                 &[ConstantOperation],
                 note_components!(

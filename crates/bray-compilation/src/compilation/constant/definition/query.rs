@@ -369,7 +369,8 @@ impl Compilation {
                     semantics.result().value().selections(),
                 )
                 .with_references(references)
-                .with_call_resolver(&resolver);
+                .with_call_resolver(&resolver)
+                .for_definition();
 
                 let unit = bray_checker::CheckerUnitView::new(
                     bound.result().value(),
@@ -496,7 +497,8 @@ impl Compilation {
         let input = ConstantEvaluationInput::new(&types, semantics.result().value().selections())
             .with_references(references)
             .with_call_resolver(&resolver)
-            .with_limits(limits);
+            .with_limits(limits)
+            .for_definition();
 
         let unit =
             bray_checker::CheckerUnitView::new(bound.result().value(), &semantic_context, &context);
@@ -1012,6 +1014,97 @@ mod tests {
     use crate::fact::{ConstantCallQueryKey, ConstantInstanceQueryKey, FactCellTestEvent};
     use crate::test_support::{FactTestGate, compilation};
     use bray_checker::{ConstantCallRequest, ConstantEvaluationLimits};
+
+    #[test]
+    fn ordinary_constant_rejects_owned_lifecycle_value_but_static_accepts_it() {
+        let source = concat!(
+            "module app;\n",
+            "struct Guard\n",
+            "{\n",
+            "    value: i32;\n",
+            "    destruct() { panic(\"cleanup\"); }\n",
+            "}\n",
+            "const G: Guard = Guard { value = 1, };\n",
+            "static STORED: Guard = Guard { value = 2, };\n",
+            "func use_constant() { let value = G; }\n",
+        );
+
+        let compilation = compilation(source);
+        let diagnostics = compilation.check_diagnostics();
+
+        assert_goal_state_diagnostic_kind(
+            diagnostics,
+            DiagnosticKind::CheckingNonMaterializableConstant,
+        );
+
+        let rejected: Vec<_> = diagnostics
+            .by_kind(DiagnosticKind::CheckingNonMaterializableConstant)
+            .collect();
+
+        assert_eq!(rejected.len(), 1, "{diagnostics:?}");
+        assert!(rejected[0].primary_span().is_some());
+    }
+
+    #[test]
+    fn ordinary_constant_checks_active_values_and_const_calls() {
+        const COMMON: &str = r#"
+            module app;
+            struct Guard
+            {
+                value: i32;
+                destruct() { panic("cleanup"); }
+            }
+            union Choice
+            {
+                Empty;
+                Owned(value: Guard);
+            }
+        "#;
+
+        for definition in [
+            "const BAD: (Guard, i32) = (Guard { value = 1, }, 2);",
+            "const BAD: [Guard; 1] = [Guard { value = 1, }];",
+            "struct Wrapped { inner: Guard; } const BAD: Wrapped = Wrapped { inner = Guard { value = 1, }, };",
+            "const BAD: Guard? = Guard { value = 1, };",
+            "const BAD: Choice = .Owned(value = Guard { value = 1, });",
+            "const func take(pos value: Guard) -> i32 { return 1; } const BAD: i32 = take(Guard { value = 1, });",
+            "const func make() -> Guard { return Guard { value = 1, }; } const BAD: Guard = make();",
+            "const func same<T>(pos value: T) -> T { return value; } const BAD: Guard = same<Guard>(Guard { value = 1, });",
+            "struct Wrapped { inner: Guard; count: i32; } const func make() -> Wrapped { return Wrapped { inner = Guard { value = 1, }, count = 2, }; } const BAD: i32 = make().count;",
+            "const FIRST: Guard = Guard { value = 1, }; const BAD: Guard = FIRST;",
+        ] {
+            let source = format!("{COMMON}{definition}");
+            let compilation = compilation(&source);
+            let diagnostics = compilation.check_diagnostics();
+
+            assert_goal_state_diagnostic_kind(
+                diagnostics,
+                DiagnosticKind::CheckingNonMaterializableConstant,
+            );
+
+            assert!(
+                diagnostics
+                    .by_kind(DiagnosticKind::CheckingNonMaterializableConstant)
+                    .all(|diagnostic| diagnostic.primary_span().is_some()),
+                "{definition}: {diagnostics:?}"
+            );
+        }
+
+        for definition in [
+            "const GOOD: Choice = .Empty;",
+            "const GOOD: Guard? = none;",
+            "const GOOD: (string, i32) = (\"text\", 2);",
+        ] {
+            let source = format!("{COMMON}{definition}");
+            let compilation = compilation(&source);
+
+            assert!(
+                compilation.check_diagnostics().is_empty(),
+                "{definition}: {:?}",
+                compilation.check_diagnostics()
+            );
+        }
+    }
 
     #[test]
     fn constant_instances_demand_only_referenced_definitions_and_reuse_publications() {

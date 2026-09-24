@@ -4,6 +4,7 @@ use bray_diagnostics::{
     DiagnosticRelatedLocation, DiagnosticRelatedLocationKind,
 };
 use bray_source::SourceSpan;
+use bray_symbols::TypeId;
 
 use super::literal::ConstantLiteralError;
 use super::operation::ConstantOperationError;
@@ -11,6 +12,7 @@ use super::operation::ConstantOperationError;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum ConstantDiagnostic {
     InvalidExpression(Option<bray_diagnostics::DiagnosticExpressionCategory>),
+    NonMaterializable(TypeId),
     Literal(ConstantLiteralError),
     Operation {
         operation: DiagnosticConstantOperation,
@@ -55,6 +57,7 @@ impl ConstantDiagnostic {
             Self::InvalidExpression(_) | Self::Literal(ConstantLiteralError::Invalid) => {
                 DiagnosticKind::CheckingInvalidConstantExpression
             }
+            Self::NonMaterializable(_) => DiagnosticKind::CheckingNonMaterializableConstant,
             Self::Literal(ConstantLiteralError::NotRepresentable) => {
                 DiagnosticKind::CheckingConstantLiteralNotRepresentable
             }
@@ -130,6 +133,13 @@ impl ConstantDiagnostic {
 
                 Some(DiagnosticNoteKind::ConstantExpressionMustBeEvaluable)
             }
+            Self::NonMaterializable(ty) => {
+                diagnostic = diagnostic.with_arg(DiagnosticArg::actual_type(
+                    crate::diagnostic::diagnostic_type(context, ty)?,
+                ));
+
+                None
+            }
             Self::InvalidExpression(None) | Self::Literal(ConstantLiteralError::Invalid) => {
                 return Err(
                     crate::CheckerInfrastructureError::InvalidConstantEvaluationInput.into(),
@@ -196,7 +206,10 @@ impl ConstantDiagnostic {
                     definition,
                 ))
             }
-            Self::InvalidExpression(_) | Self::Literal(_) | Self::Cycle { .. } => diagnostic,
+            Self::InvalidExpression(_)
+            | Self::NonMaterializable(_)
+            | Self::Literal(_)
+            | Self::Cycle { .. } => diagnostic,
         }
     }
 }
