@@ -1401,9 +1401,7 @@ impl DiagnosticKind {
                 &[CodegenBackendIdentity, TargetTriple],
                 primary_components!(&[CodegenBackendIdentity, TargetTriple]),
             ),
-            Self::CodegenInvalidConfiguration
-            | Self::CodegenResourceExhausted
-            | Self::CodegenGeneratedModuleInvalid => Self::quality_artifact(
+            Self::CodegenInvalidConfiguration | Self::CodegenResourceExhausted => Self::quality_artifact(
                 &[CodegenBackendIdentity, TargetTriple],
                 compiler_defect_components!(&[CodegenBackendIdentity, TargetTriple]),
             ),
