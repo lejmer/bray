@@ -74,24 +74,28 @@ pub(in crate::standard_library) enum BuildError {
 }
 
 impl BuildError {
-    pub(in crate::standard_library) fn compilation_failed(
+    pub(in crate::standard_library) fn compilation_failed<'diagnostic>(
         target: TargetIdentity,
         internal: String,
-        diagnostics: &bray_diagnostics::DiagnosticBag,
+        diagnostics: impl IntoIterator<Item = &'diagnostic bray_diagnostics::DiagnosticBag>,
         sources: &bray_source::SourceStore,
     ) -> Self {
         Self::CompilationFailed {
             target,
-            detail: diagnostic_failure_detail(internal, diagnostics, sources),
+            detail: crate::diagnostic_output::failure_detail(internal, diagnostics, sources),
         }
     }
 
-    pub(in crate::standard_library) fn emission(
+    pub(in crate::standard_library) fn emission<'diagnostic>(
         internal: String,
-        diagnostics: &bray_diagnostics::DiagnosticBag,
+        diagnostics: impl IntoIterator<Item = &'diagnostic bray_diagnostics::DiagnosticBag>,
         sources: &bray_source::SourceStore,
     ) -> Self {
-        Self::Emission(diagnostic_failure_detail(internal, diagnostics, sources))
+        Self::Emission(crate::diagnostic_output::failure_detail(
+            internal,
+            diagnostics,
+            sources,
+        ))
     }
 
     pub(in crate::standard_library) fn conformance(
@@ -121,19 +125,6 @@ impl BuildError {
             source,
         }
     }
-}
-
-fn diagnostic_failure_detail(
-    internal: String,
-    diagnostics: &bray_diagnostics::DiagnosticBag,
-    sources: &bray_source::SourceStore,
-) -> String {
-    if diagnostics.is_empty() {
-        return internal;
-    }
-
-    crate::diagnostic_output::render_diagnostics(diagnostics, sources)
-        .map_or(internal, |rendered| format!("\n{rendered}"))
 }
 
 impl fmt::Display for BuildError {
@@ -307,11 +298,12 @@ mod tests {
         DiagnosticNoteKind, DiagnosticSourceInput, DiagnosticSourceInputOrigin, SeverityKind,
     };
     use bray_source::{SourceInputKind, SourceStore, TextSize};
+    use bray_target::TargetIdentity;
 
-    use super::diagnostic_failure_detail;
+    use super::BuildError;
 
     #[test]
-    fn diagnostic_failure_details_render_structured_diagnostics() {
+    fn compilation_failure_retains_cause_and_structured_diagnostics() {
         let diagnostic = Diagnostic::new(
             DiagnosticId::new(0),
             DiagnosticKind::SourceInvalidUtf8,
@@ -325,13 +317,16 @@ mod tests {
         .with_arg(DiagnosticArg::text_offset(TextSize::new(4)))
         .with_note(DiagnosticNote::new(DiagnosticNoteKind::SourceMustBeUtf8));
 
-        let rendered = diagnostic_failure_detail(
+        let failure = BuildError::compilation_failed(
+            TargetIdentity::try_new("x86_64-pc-windows-msvc").unwrap(),
             "internal diagnostic bag".to_owned(),
-            &DiagnosticBag::single(diagnostic),
+            [&DiagnosticBag::single(diagnostic)],
             &SourceStore::new(),
         );
 
+        let rendered = failure.to_string();
+
         assert!(rendered.contains("error E1002"));
-        assert!(!rendered.contains("internal diagnostic bag"));
+        assert!(rendered.contains("internal diagnostic bag"));
     }
 }

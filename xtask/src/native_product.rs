@@ -67,7 +67,15 @@ pub(crate) fn emit_executable_with_configuration(
             [],
             Some(linker.linker()),
         )
-        .map_err(|error| format!("could not build native fixture product: {error:?}"))?;
+        .map_err(|error| {
+            crate::diagnostic_output::failure_detail(
+                format!("could not build native fixture product: {error:?}"),
+                [Some(compilation.check_diagnostics()), error.diagnostics()]
+                    .into_iter()
+                    .flatten(),
+                compilation.sources(),
+            )
+        })?;
 
     let native = native
         .as_ref()
@@ -105,10 +113,10 @@ pub(crate) fn emit_executable_with_configuration(
     let outcome = compilation
         .emit_product(request, inputs)
         .map_err(|error| {
-            format!(
-                "native fixture emission failed: {:?}. Diagnostics: {:?}",
-                error.kind(),
-                compilation.check_diagnostics()
+            crate::diagnostic_output::failure_detail(
+                format!("native fixture emission failed: {:?}", error.kind()),
+                [compilation.check_diagnostics(), error.diagnostics()],
+                compilation.sources(),
             )
         })?;
 
@@ -116,10 +124,10 @@ pub(crate) fn emit_executable_with_configuration(
         return Ok(());
     }
 
-    Err(format!(
-        "native fixture emission did not complete: {:?}; diagnostics={:?}",
-        outcome.status(),
-        outcome.diagnostics()
+    Err(crate::diagnostic_output::failure_detail(
+        format!("native fixture emission did not complete: {:?}", outcome.status()),
+        [outcome.diagnostics()],
+        compilation.sources(),
     ))
 }
 
