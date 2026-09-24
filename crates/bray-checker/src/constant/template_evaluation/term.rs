@@ -12,8 +12,26 @@ use super::super::diagnostic::{ConstantDiagnostic, ConstantLimitKind, diagnostic
 use super::super::integer::fits_integer_representation;
 use super::super::operation::fold_binary;
 use super::evaluator::TemplateEvaluator;
-use super::support::{TemplateEvaluationFailure, integer_index, operation_failure};
+use super::support::{
+    TemplateEvaluationFailure, check_definition_materialization, integer_index, operation_failure,
+};
 use crate::CheckerRequestContext;
+
+impl<C> TemplateEvaluator<'_, C>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    pub(super) fn evaluate_term(
+        &mut self,
+        term: ConstantTermId,
+        ty: TypeId,
+    ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
+        let value = evaluate_term(self, term, ty)?;
+        check_definition_materialization(self, value, false)?;
+
+        Ok(value)
+    }
+}
 
 pub(super) fn evaluate_term<C>(
     evaluator: &mut TemplateEvaluator<'_, C>,

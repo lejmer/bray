@@ -18,6 +18,13 @@ pub(crate) enum ConstantEvaluationRoot {
     Block(BoundBlockId),
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ConstantDestination {
+    General,
+    Definition,
+    StaticInitializer,
+}
+
 /// The caller-resolved result of one constant reference dependency.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum ConstantReferenceResolution {
@@ -46,7 +53,7 @@ pub struct ConstantEvaluationInput<'input, Upstream = std::convert::Infallible> 
     references: BTreeMap<BoundExpressionId, ConstantReferenceResolution>,
     local_terms: BTreeMap<AnyLocalSymbolId, ConstantTermId>,
     call_resolver: Option<&'input dyn ConstantCallResolver<UpstreamError = Upstream>>,
-    allow_static_address_borrows: bool,
+    destination: ConstantDestination,
     retain_nested_term_types: bool,
     limits: ConstantEvaluationLimits,
 }
@@ -79,7 +86,7 @@ impl<'input, Upstream> ConstantEvaluationInput<'input, Upstream> {
             references: BTreeMap::new(),
             local_terms: BTreeMap::new(),
             call_resolver: None,
-            allow_static_address_borrows: false,
+            destination: ConstantDestination::General,
             retain_nested_term_types: false,
             limits: ConstantEvaluationLimits::default(),
         }
@@ -117,9 +124,16 @@ impl<'input, Upstream> ConstantEvaluationInput<'input, Upstream> {
         self
     }
 
-    /// Permits shared address formation for static storage in an initializer template.
-    pub const fn with_static_address_borrows(mut self) -> Self {
-        self.allow_static_address_borrows = true;
+    /// Requires every produced value to be freely materializable.
+    pub const fn for_definition(mut self) -> Self {
+        self.destination = ConstantDestination::Definition;
+
+        self
+    }
+
+    /// Selects owned static initialization and permits shared static addresses.
+    pub const fn for_static_initializer(mut self) -> Self {
+        self.destination = ConstantDestination::StaticInitializer;
 
         self
     }
@@ -211,8 +225,8 @@ impl<'input, Upstream> ConstantEvaluationInput<'input, Upstream> {
         self.call_resolver
     }
 
-    pub(crate) const fn allows_static_address_borrows(&self) -> bool {
-        self.allow_static_address_borrows
+    pub(crate) const fn destination(&self) -> ConstantDestination {
+        self.destination
     }
 
     pub(crate) const fn retains_nested_term_types(&self) -> bool {

@@ -321,6 +321,8 @@ define_diagnostic_kinds! {
     CheckingNoCompatiblePropagationBoundary,
     /// An expression is not permitted in compile-time constant context.
     CheckingInvalidConstantExpression,
+    /// A constant definition contains a value with runtime identity or lifecycle obligations.
+    CheckingNonMaterializableConstant,
     /// A compile-time operator is not defined for the evaluated operands.
     CheckingInvalidConstantOperation,
     /// A literal value cannot be represented by its selected type.
@@ -830,6 +832,7 @@ impl DiagnosticKind {
             Self::CheckingRangeElementTypeMustBeInteger => 7098,
             Self::CheckingNoCompatiblePropagationBoundary => 7082,
             Self::CheckingInvalidConstantExpression => 7003,
+            Self::CheckingNonMaterializableConstant => 7122,
             Self::CheckingInvalidConstantOperation => 7013,
             Self::CheckingConstantLiteralNotRepresentable => 7004,
             Self::CheckingConstantEvaluationStepLimitExceeded => 7005,
@@ -1199,6 +1202,7 @@ impl DiagnosticKind {
             }
             Self::CheckingNoCompatiblePropagationBoundary => CHECKING_PROPAGATION_BOUNDARY_KEY,
             Self::CheckingInvalidConstantExpression => "checking_invalid_constant_expression",
+            Self::CheckingNonMaterializableConstant => "checking_non_materializable_constant",
             Self::CheckingInvalidConstantOperation => "checking_invalid_constant_operation",
             Self::CheckingConstantLiteralNotRepresentable => {
                 "checking_constant_literal_not_representable"

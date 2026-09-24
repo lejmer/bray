@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
     BoundBlockId, BoundExpression, BoundExpressionId, BoundOperator, BoundStructuredExpressionKind,
+    SelectedOperation, SemanticSelection,
 };
 use bray_compiler_known::{IntegerRepresentation, NumericRepresentationKind};
 use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId};
@@ -13,7 +14,7 @@ use bray_symbols::{
 };
 
 use crate::constant::diagnostic::ConstantDiagnostic;
-use crate::constant::input::ConstantEvaluationRoot;
+use crate::constant::input::{ConstantDestination, ConstantEvaluationRoot};
 use crate::constant::integer::integer_to_usize;
 use crate::constant::limits::EvaluationBudget;
 use crate::constant::literal::{check_byte_string_literal, normalize_integer_literal, parse_literal};
@@ -462,6 +463,21 @@ where
         }
     }
 
+    pub(super) fn record_query_failure(
+        &mut self,
+        error: CheckerQueryError<C::UpstreamError>,
+    ) -> EvaluationFailure {
+        match error {
+            CheckerQueryError::Cancelled => EvaluationFailure::Cancelled,
+            CheckerQueryError::Infrastructure(error) => EvaluationFailure::Infrastructure(error),
+            CheckerQueryError::Upstream(error) => {
+                self.upstream_failure = Some(error);
+
+                EvaluationFailure::Upstream
+            }
+        }
+    }
+
     pub(super) fn evaluate_direct(
         &mut self,
         expression: BoundExpressionId,
@@ -507,6 +523,14 @@ where
             }
             BoundExpression::MemberAccess(member) => {
                 self.evaluate_member_projection(expression, member, ty)
+            }
+            BoundExpression::Call(_)
+                if matches!(
+                    self.input.semantic_selections().expression(expression),
+                    Some(SemanticSelection::Operation(SelectedOperation::Construction(_)))
+                ) =>
+            {
+                self.evaluate_construction(expression, ty)
             }
             BoundExpression::Call(_) => self.evaluate_selected_call(expression, ty),
             BoundExpression::StructConstruction(_)
@@ -706,7 +730,7 @@ where
                 Err(EvaluationFailure::invalid_expression(expression))
             }
             BoundStructuredExpressionKind::Borrow
-                if self.input.allows_static_address_borrows()
+                if self.input.destination() == ConstantDestination::StaticInitializer
                     && structured.borrow_kind() == Some(bray_symbols::BorrowKind::Shared)
                     && operands.len() == 1 =>
             {

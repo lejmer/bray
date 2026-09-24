@@ -9,6 +9,7 @@ mod input;
 mod integer;
 mod limits;
 mod literal;
+mod materialization;
 mod operation;
 pub(crate) mod operator;
 mod template;

@@ -1684,6 +1684,50 @@ fn execution_consumer(provider: &Compilation, source: &str) -> Compilation {
 }
 
 #[test]
+fn imported_constant_templates_preserve_materialization_checks() {
+    let provider = compilation(
+        r#"
+        module api;
+        public struct Guard
+        {
+            public value: i32;
+            destruct() { panic("cleanup"); }
+        }
+        public const TEXT: string = "ready";
+        public const func same<T>(pos value: T) -> T { return value; }
+    "#,
+    );
+
+    assert!(provider.check_diagnostics().is_empty(), "{:?}", provider.check_diagnostics());
+
+    let consumer = execution_consumer(
+        &provider,
+        r#"
+        module app;
+        using example.package.api;
+        const TEXT_COPY: string = example.package.api.TEXT;
+        const BAD: example.package.api.Guard =
+            example.package.api.same<example.package.api.Guard>(
+                example.package.api.Guard { value = 1, }
+            );
+    "#,
+    );
+
+    bray_testing::assert_goal_state_diagnostic_kind(
+        consumer.check_diagnostics(),
+        bray_diagnostics::DiagnosticKind::CheckingNonMaterializableConstant,
+    );
+
+    let rejected: Vec<_> = consumer
+        .check_diagnostics()
+        .by_kind(bray_diagnostics::DiagnosticKind::CheckingNonMaterializableConstant)
+        .collect();
+
+    assert_eq!(rejected.len(), 1, "{:?}", consumer.check_diagnostics());
+    assert!(rejected[0].primary_span().is_some());
+}
+
+#[test]
 fn imported_callable_static_access_orders_local_cleanup() {
     let provider = compilation(
         r#"

@@ -6,7 +6,7 @@ use bray_bound_tree::{
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
     AnySymbolId, CallableDefinitionId, CallableInstanceData, ConstantBinaryOperation,
-    ConstantField, ConstantInstanceKey, ConstantTermId, ConstantUnaryOperation, ConstantValueData,
+    ConstantField, ConstantInstanceKey, ConstantUnaryOperation, ConstantValueData,
     ConstantValueId, ConstantValueKind, GenericArgument, GenericParameterSymbolId,
     GenericSubstitutionId, ImplementationInstanceData, ImplementationSymbolId, TypeId,
 };
@@ -18,8 +18,8 @@ use super::super::diagnostic::{ConstantDiagnostic, ConstantLimitKind, diagnostic
 use super::super::limits::{ConstantEvaluationLimits, EvaluationBudget};
 use super::super::operation::{fold_binary, fold_unary};
 use super::support::{
-    TemplateEvaluationFailure, constant_definition, integer_index, operation_failure,
-    recovery_value, target_integer_width, template_index,
+    TemplateEvaluationFailure, check_definition_materialization, constant_definition,
+    integer_index, operation_failure, recovery_value, target_integer_width, template_index,
 };
 use crate::representation::type_representation_for_context;
 use crate::{CheckerQueryError, CheckerRequestContext};
@@ -69,6 +69,8 @@ where
             return Err(TemplateEvaluationFailure::invalid_input());
         }
 
+        check_definition_materialization(self, value, true)?;
+
         Ok(value)
     }
 
@@ -101,6 +103,8 @@ where
             .map_err(TemplateEvaluationFailure::semantic_value)?;
 
         let value = self.evaluate_operation(node.operation(), ty)?;
+
+        check_definition_materialization(self, value, false)?;
 
         let slot = self
             .values
@@ -730,13 +734,6 @@ where
         nodes.iter().map(|node| self.evaluate_node(*node)).collect()
     }
 
-    pub(super) fn evaluate_term(
-        &mut self,
-        term: ConstantTermId,
-        ty: TypeId,
-    ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
-        super::term::evaluate_term(self, term, ty)
-    }
     fn boolean(&self, value: ConstantValueId) -> Result<bool, TemplateEvaluationFailure> {
         let value = self.context.semantic_values().constant_value_data(value);
 

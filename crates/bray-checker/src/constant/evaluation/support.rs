@@ -204,7 +204,7 @@ where
     }
 
     pub(super) fn finalize_closed_value(
-        &self,
+        &mut self,
         term: ConstantTermId,
         expression: Option<BoundExpressionId>,
     ) -> Result<ConstantValueId, EvaluationFailure> {
@@ -223,11 +223,26 @@ where
     }
 
     fn validate_closed_value(
-        &self,
+        &mut self,
         value: ConstantValueId,
         expression: BoundExpressionId,
     ) -> Result<(), EvaluationFailure> {
         self.observe_cancellation()?;
+
+        if self.input.destination() == crate::constant::input::ConstantDestination::Definition {
+            let result = crate::constant::materialization::nonmaterializable_value(
+                self.request.context(),
+                value,
+                &mut self.diagnostics,
+            );
+
+            if let Some(ty) = result.map_err(|error| self.record_query_failure(error))? {
+                return Err(EvaluationFailure::Source {
+                    expression,
+                    diagnostic: ConstantDiagnostic::NonMaterializable(ty),
+                });
+            }
+        }
 
         let data = self.request.semantic_values().constant_value_data(value);
 

@@ -104,10 +104,49 @@ where
             _ => self.evaluate_direct(expression).map(EvaluationFlow::Value),
         };
 
-        match evaluated {
+        let evaluated = match evaluated {
             Err(EvaluationFailure::Propagate(value)) => Ok(EvaluationFlow::Propagate(value)),
             evaluated => evaluated,
+        }?;
+
+        if self.input.destination() == crate::constant::input::ConstantDestination::Definition {
+            let (term, known_type) = match evaluated {
+                EvaluationFlow::Value(term)
+                | EvaluationFlow::Propagate(term) => (term, None),
+                EvaluationFlow::Return(term) => (term, self.input.result_type()),
+                EvaluationFlow::Yield { term, source_type } => (term, Some(source_type)),
+            };
+
+            let result = if let Some(value) = self.term_value(term) {
+                crate::constant::materialization::nonmaterializable_value(
+                    self.request.context(),
+                    value,
+                    &mut self.diagnostics,
+                )
+            } else {
+                let ty = match known_type {
+                    Some(ty) => ty,
+                    None => self.expression_type(expression)?,
+                };
+
+                crate::constant::materialization::nonmaterializable_type(
+                    self.request.context(),
+                    ty,
+                    &mut self.diagnostics,
+                )
+            };
+
+            if let Some(ty) = result.map_err(|error| self.record_query_failure(error))? {
+                return Err(EvaluationFailure::Source {
+                    expression,
+                    diagnostic: crate::constant::diagnostic::ConstantDiagnostic::NonMaterializable(
+                        ty,
+                    ),
+                });
+            }
         }
+
+        Ok(evaluated)
     }
 
     pub(super) fn evaluate_block(
