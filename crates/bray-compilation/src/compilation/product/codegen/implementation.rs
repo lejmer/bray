@@ -1903,6 +1903,46 @@ mod tests {
     }
 
     #[test]
+    fn aggregate_static_relocation_preserves_native_export_names() {
+        let source = r#"
+            module app;
+            @layout(c)
+            struct Counter { value: usize; }
+            struct Guard { count: usize; counter: &Counter; }
+            static FIRST: Guard = Guard { count = 1, counter = &COUNTER };
+            @symbol(name = "counter")
+            static COUNTER: Counter = Counter { value = 7 };
+            @symbol(name = "counter.unresolved")
+            static OTHER: usize = 9;
+            public func read() -> usize
+            {
+                return FIRST.count + OTHER;
+            }
+        "#;
+
+        let (backend, compilation) = codegen_compilation_for_product(source, ProductKind::Library);
+
+        let plan = compilation
+            .native_product_plan(
+                test_product_identity(),
+                crate::BuildConfiguration::Development,
+                None,
+                [],
+                None,
+            )
+            .unwrap();
+
+        let ir = generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr);
+
+        assert!(
+            ir.iter().any(|artifact| {
+                String::from_utf8_lossy(artifact).contains("@counter.unresolved =")
+            }),
+            "the explicit native export must retain its exact symbol"
+        );
+    }
+
+    #[test]
     fn never_calls_in_typed_return_paths_emit_valid_native_units() {
         assert_source_emits_valid_native_units(
             concat!(
