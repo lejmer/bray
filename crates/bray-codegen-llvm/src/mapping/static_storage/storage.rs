@@ -102,9 +102,7 @@ fn declare_static_global<'context>(
 ) -> GlobalValue<'context> {
     let name = mapping.symbol().as_str();
 
-    let global = module
-        .get_global(name)
-        .unwrap_or_else(|| module.add_global(initializer.get_type(), None, name));
+    let global = physical_static_global(module, name, initializer);
 
     if let Some(binding) = mapping.native_binding() {
         if mapping.defines_storage() {
@@ -139,6 +137,32 @@ fn declare_static_global<'context>(
     }
 
     global
+}
+
+fn physical_static_global<'context>(
+    module: &Module<'context>,
+    name: &str,
+    initializer: BasicValueEnum<'context>,
+) -> GlobalValue<'context> {
+    match module.get_global(name) {
+        Some(existing)
+            if BasicTypeEnum::try_from(existing.get_value_type())
+                .expect("static global must have a basic value type")
+                != initializer.get_type() =>
+        {
+            existing.set_name("");
+
+            let physical = module.add_global(initializer.get_type(), None, name);
+
+            existing
+                .as_pointer_value()
+                .replace_all_uses_with(physical.as_pointer_value());
+
+            physical
+        }
+        Some(existing) => existing,
+        None => module.add_global(initializer.get_type(), None, name),
+    }
 }
 
 const fn native_static_definition_linkage(binding: bray_symbols::NativeSymbolBinding) -> Linkage {
@@ -609,9 +633,39 @@ pub(super) fn pointer_type<'context>(
 #[cfg(test)]
 mod tests {
     use bray_symbols::NativeSymbolBinding;
+    use inkwell::context::Context;
     use inkwell::module::Linkage;
 
-    use super::native_static_definition_linkage;
+    use super::{native_static_definition_linkage, physical_static_global};
+
+    #[test]
+    fn replacing_static_placeholder_preserves_later_native_symbol_names() {
+        let context = Context::create();
+        let module = context.create_module("static-placeholder");
+        let placeholder = module.add_global(context.i8_type(), None, "counter");
+        let reference = module.add_global(context.ptr_type(Default::default()), None, "reference");
+
+        reference.set_initializer(&placeholder.as_pointer_value());
+
+        let ty = context.struct_type(&[context.i64_type().into()], true);
+        let initializer = ty.const_named_struct(&[context.i64_type().const_int(7, false).into()]);
+        let physical = physical_static_global(&module, "counter", initializer.into());
+
+        physical.set_initializer(&initializer);
+
+        let exported = module.add_global(context.i64_type(), None, "counter.unresolved");
+
+        exported.set_initializer(&context.i64_type().const_int(9, false));
+
+        assert_eq!(exported.get_name().to_str().unwrap(), "counter.unresolved");
+
+        assert_eq!(
+            reference.get_initializer().unwrap().into_pointer_value(),
+            physical.as_pointer_value()
+        );
+
+        assert!(module.verify().is_ok());
+    }
 
     #[test]
     fn native_static_definitions_preserve_the_selected_binding_strength() {

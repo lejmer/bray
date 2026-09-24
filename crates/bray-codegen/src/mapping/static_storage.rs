@@ -48,7 +48,6 @@ pub struct CodegenStaticRelocation {
     value: ConstantValueId,
     instance: CodegenStaticInstanceKey,
     symbol: BinarySymbolName,
-    ty: bray_symbols::TypeId,
 }
 
 impl CodegenStaticRelocation {
@@ -57,13 +56,11 @@ impl CodegenStaticRelocation {
         value: ConstantValueId,
         instance: CodegenStaticInstanceKey,
         symbol: BinarySymbolName,
-        ty: bray_symbols::TypeId,
     ) -> Self {
         Self {
             value,
             instance,
             symbol,
-            ty,
         }
     }
 
@@ -80,11 +77,6 @@ impl CodegenStaticRelocation {
     /// Returns the target storage symbol.
     pub const fn symbol(&self) -> &BinarySymbolName {
         &self.symbol
-    }
-
-    /// Returns the target storage type.
-    pub const fn ty(&self) -> bray_symbols::TypeId {
-        self.ty
     }
 }
 
