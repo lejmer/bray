@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use super::super::call::{ConstantTemplateResolver, EvaluatedConstantCall};
 use super::super::limits::EvaluationBudget;
 use super::evaluator::TemplateEvaluator;
@@ -33,6 +35,7 @@ where
         limits,
         budget: EvaluationBudget::from_limits(limits),
         values: vec![None; template.nodes().len()],
+        checked_materialization: BTreeSet::new(),
         diagnostics: DiagnosticBag::new(),
         upstream_failure: None,
         static_initializer: false,
@@ -208,6 +211,7 @@ where
         limits,
         budget: EvaluationBudget::from_limits(limits),
         values: vec![None; template.nodes().len()],
+        checked_materialization: BTreeSet::new(),
         diagnostics: DiagnosticBag::new(),
         upstream_failure: None,
         static_initializer: false,
@@ -273,8 +277,9 @@ mod tests {
     };
     use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
     use bray_symbols::{
-        CallableInstanceData, ConstantField, ConstantTermData, ConstantValueData,
-        ConstantValueKind, CurrentRunCancellation, DependencyContractTemplateData,
+        CallableInstanceData, ConstantField, ConstantProjection, ConstantProjectionKind,
+        ConstantTermData, ConstantValueData, ConstantValueKind, CurrentRunCancellation,
+        DependencyContractTemplateData,
         FunctionSymbolId, GenericOwnerId, GenericSubstitutionData, ModulePathKey, PackageIdentity,
         StaticInstanceKey, StaticInstanceTemplateId, StaticReferenceSelection, StaticSymbolId,
         StructFieldSymbolId, SymbolId, SymbolKey, SymbolKind, SymbolOrdinal, SymbolRootKey,
@@ -840,7 +845,7 @@ mod tests {
     }
 
     #[test]
-    fn imported_definition_template_rejects_nested_static_borrow() {
+    fn imported_definition_template_rejects_discarded_nested_static_borrow() {
         let values = semantic_values();
         let unit = values.intern_type(TypeData::tuple([])).unwrap();
 
@@ -851,7 +856,7 @@ mod tests {
             })
             .unwrap();
 
-        let tuple = values.intern_type(TypeData::tuple([borrowed])).unwrap();
+        let tuple = values.intern_type(TypeData::tuple([borrowed, unit])).unwrap();
         let static_symbol = StaticSymbolId::from_symbol_id(SymbolId::new(998));
         let owner = GenericOwnerId::try_new(static_symbol.into()).unwrap();
 
@@ -875,15 +880,33 @@ mod tests {
             ))
             .unwrap();
 
+        let unit_value = values
+            .intern_constant_value(ConstantValueData::new(
+                unit,
+                ConstantValueKind::Tuple(Arc::from([])),
+            ))
+            .unwrap();
+
         let tuple_value = values
             .intern_constant_value(ConstantValueData::new(
                 tuple,
-                ConstantValueKind::Tuple(Arc::from([borrowed_value])),
+                ConstantValueKind::Tuple(Arc::from([borrowed_value, unit_value])),
             ))
             .unwrap();
 
         let term = values
             .intern_constant_term(ConstantTermData::Value(tuple_value))
+            .unwrap();
+
+        let term = values
+            .intern_constant_term(ConstantTermData::typed(term, tuple))
+            .unwrap();
+
+        let term = values
+            .intern_constant_term(ConstantTermData::Projection(ConstantProjection::new(
+                term,
+                ConstantProjectionKind::TupleElement(SymbolOrdinal::new(1)),
+            )))
             .unwrap();
 
         let dependency_contract = values
@@ -910,7 +933,7 @@ mod tests {
                     term,
                     usage: Default::default(),
                 },
-                tuple,
+                unit,
             ))
             .unwrap();
 
@@ -927,7 +950,7 @@ mod tests {
             &TestCheckerContext::new(false),
             &template,
             substitution,
-            tuple,
+            unit,
             &UnusedTemplateResolver,
             Some(span),
             ConstantEvaluationLimits::default(),

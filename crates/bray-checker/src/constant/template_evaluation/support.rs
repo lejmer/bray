@@ -14,25 +14,17 @@ use crate::{CheckerInfrastructureError, CheckerRequestContext};
 pub(super) fn check_definition_materialization<C: CheckerRequestContext + ?Sized>(
     evaluator: &mut TemplateEvaluator<'_, C>,
     value: ConstantValueId,
-    descendants: bool,
 ) -> Result<(), TemplateEvaluationFailure> {
     if evaluator.template.kind() != CheckedTemplateKind::ConstantDefinition {
         return Ok(());
     }
 
-    let result = if descendants {
-        crate::constant::materialization::nonmaterializable_value_tree(
-            evaluator.context,
-            value,
-            &mut evaluator.diagnostics,
-        )
-    } else {
-        crate::constant::materialization::nonmaterializable_value(
-            evaluator.context,
-            value,
-            &mut evaluator.diagnostics,
-        )
-    };
+    let result = crate::constant::materialization::nonmaterializable_value_tree(
+        evaluator.context,
+        value,
+        &mut evaluator.checked_materialization,
+        &mut evaluator.diagnostics,
+    );
 
     if let Some(ty) = result.map_err(|error| evaluator.record_query_failure(error))? {
         return Err(TemplateEvaluationFailure::Diagnostic(

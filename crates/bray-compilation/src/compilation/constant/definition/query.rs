@@ -1070,6 +1070,7 @@ mod tests {
             "const func take(pos value: Guard) -> i32 { return 1; } const BAD: i32 = take(Guard { value = 1, });",
             "const func make() -> Guard { return Guard { value = 1, }; } const BAD: Guard = make();",
             "const func same<T>(pos value: T) -> T { return value; } const BAD: Guard = same<Guard>(Guard { value = 1, });",
+            "struct Wrapped { inner: Guard; count: i32; } const func make() -> Wrapped { return Wrapped { inner = Guard { value = 1, }, count = 2, }; } const BAD: i32 = make().count;",
             "const FIRST: Guard = Guard { value = 1, }; const BAD: Guard = FIRST;",
         ] {
             let source = format!("{COMMON}{definition}");

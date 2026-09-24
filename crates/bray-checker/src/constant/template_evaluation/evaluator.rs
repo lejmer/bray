@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use crate::constant::operator::{binary_operator, unary_operator};
 use bray_bound_tree::{
     CheckedTemplate, CheckedTemplateInputKind, CheckedTemplateKind, CheckedTemplateNodeId,
@@ -38,6 +40,7 @@ where
     pub(super) limits: ConstantEvaluationLimits,
     pub(super) budget: EvaluationBudget,
     pub(super) values: Vec<Option<ConstantValueId>>,
+    pub(super) checked_materialization: BTreeSet<ConstantValueId>,
     pub(super) diagnostics: DiagnosticBag,
     pub(super) upstream_failure: Option<C::UpstreamError>,
     pub(super) static_initializer: bool,
@@ -68,8 +71,6 @@ where
         if data.ty() != result_type {
             return Err(TemplateEvaluationFailure::invalid_input());
         }
-
-        check_definition_materialization(self, value, true)?;
 
         Ok(value)
     }
@@ -104,7 +105,7 @@ where
 
         let value = self.evaluate_operation(node.operation(), ty)?;
 
-        check_definition_materialization(self, value, false)?;
+        check_definition_materialization(self, value)?;
 
         let slot = self
             .values

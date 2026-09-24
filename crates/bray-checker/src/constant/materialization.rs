@@ -79,10 +79,10 @@ pub(super) fn nonmaterializable_type<C: CheckerRequestContext + ?Sized>(
 pub(super) fn nonmaterializable_value_tree<C: CheckerRequestContext + ?Sized>(
     context: &C,
     root: ConstantValueId,
+    visited: &mut BTreeSet<ConstantValueId>,
     diagnostics: &mut DiagnosticBag,
 ) -> CheckerQueryResult<Option<TypeId>, C::UpstreamError> {
     let mut pending = vec![root];
-    let mut visited = BTreeSet::new();
 
     while let Some(value) = pending.pop() {
         if !visited.insert(value) {

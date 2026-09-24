@@ -118,9 +118,10 @@ where
             };
 
             let result = if let Some(value) = self.term_value(term) {
-                crate::constant::materialization::nonmaterializable_value(
+                crate::constant::materialization::nonmaterializable_value_tree(
                     self.request.context(),
                     value,
+                    &mut self.checked_materialization,
                     &mut self.diagnostics,
                 )
             } else {

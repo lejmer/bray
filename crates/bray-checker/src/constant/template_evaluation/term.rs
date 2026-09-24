@@ -27,7 +27,7 @@ where
         ty: TypeId,
     ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
         let value = evaluate_term(self, term, ty)?;
-        check_definition_materialization(self, value, false)?;
+        check_definition_materialization(self, value)?;
 
         Ok(value)
     }
