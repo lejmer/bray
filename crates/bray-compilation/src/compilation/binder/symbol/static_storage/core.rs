@@ -24,7 +24,9 @@ use bray_symbols::{
 
 use super::super::binding::CompilationSymbolQueryEvaluator;
 use super::super::cache::CompilationSymbolSemantics;
-use super::super::declaration_body::{checked_source_expression, with_static_dependencies};
+use super::super::declaration_body::{
+    checked_source_expression, extend_dependency_contract_with_statics,
+};
 use super::super::imported::imported_declaration_template;
 use super::super::initializer::validate_static_initializer_template;
 use crate::compilation::binder::{
@@ -285,7 +287,7 @@ fn static_initializer_behavior(
             ));
         }
 
-        let dependency_contract = with_static_dependencies(
+        let dependency_contract = extend_dependency_contract_with_statics(
             context,
             checked.dependency_contract,
             behavior.result().value().static_dependencies(),

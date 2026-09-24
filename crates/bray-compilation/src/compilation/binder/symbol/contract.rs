@@ -28,7 +28,8 @@ use bray_syntax::{
 use super::binding::CompilationSymbolQueryEvaluator;
 use super::cache::CompilationSymbolSemantics;
 use super::declaration_body::{
-    CheckedSourcePredicateSequence, checked_source_predicate_sequence, with_static_dependencies,
+    CheckedSourcePredicateSequence, checked_source_predicate_sequence,
+    extend_dependency_contract_with_statics,
 };
 use super::environment::type_binder;
 use super::surface::{symbol_ordinal, with_declaration_root};
@@ -338,7 +339,7 @@ fn bind_callable_contracts(
         .empty_dependency_contract_template()
         .map_err(crate::compilation::binder::semantic_value_binding_error)?;
 
-    let dependency = with_static_dependencies(
+    let dependency = extend_dependency_contract_with_statics(
         context,
         empty_dependency,
         body_behavior
