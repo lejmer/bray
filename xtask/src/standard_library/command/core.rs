@@ -594,12 +594,12 @@ fn build_target(
                 Some(linker.linker()),
             )
             .map_err(|error| {
-                let diagnostics = compilation.check_diagnostics();
-
                 BuildError::compilation_failed(
                     target.clone(),
                     format!("{error:?}"),
-                    diagnostics,
+                    [Some(compilation.check_diagnostics()), error.diagnostics()]
+                        .into_iter()
+                        .flatten(),
                     compilation.sources(),
                 )
             })
@@ -653,11 +653,9 @@ fn build_target(
 
     let outcome = crate::progress::run("Emitting standard library artifacts", || {
         compilation.emit_product(request, inputs).map_err(|error| {
-            let diagnostics = compilation.check_diagnostics();
-
             BuildError::emission(
                 format!("{:?}", error.kind()),
-                diagnostics,
+                [compilation.check_diagnostics(), error.diagnostics()],
                 compilation.sources(),
             )
         })
@@ -667,7 +665,7 @@ fn build_target(
         return Err(BuildError::compilation_failed(
             target.clone(),
             format!("{:?}", outcome.status()),
-            outcome.diagnostics(),
+            [outcome.diagnostics()],
             compilation.sources(),
         ));
     }

@@ -157,7 +157,7 @@ fn audit_target_module(
             BuildError::compilation_failed(
                 selected.profile().identity().clone(),
                 format!("{error:?}"),
-                standard_library.check_diagnostics(),
+                [standard_library.check_diagnostics()],
                 standard_library.sources(),
             )
         })?;

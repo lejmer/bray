@@ -70,7 +70,9 @@ pub(crate) fn emit_executable_with_configuration(
         .map_err(|error| {
             crate::diagnostic_output::failure_detail(
                 format!("could not build native fixture product: {error:?}"),
-                compilation.check_diagnostics(),
+                [Some(compilation.check_diagnostics()), error.diagnostics()]
+                    .into_iter()
+                    .flatten(),
                 compilation.sources(),
             )
         })?;
@@ -113,7 +115,7 @@ pub(crate) fn emit_executable_with_configuration(
         .map_err(|error| {
             crate::diagnostic_output::failure_detail(
                 format!("native fixture emission failed: {:?}", error.kind()),
-                compilation.check_diagnostics(),
+                [compilation.check_diagnostics(), error.diagnostics()],
                 compilation.sources(),
             )
         })?;
@@ -124,7 +126,7 @@ pub(crate) fn emit_executable_with_configuration(
 
     Err(crate::diagnostic_output::failure_detail(
         format!("native fixture emission did not complete: {:?}", outcome.status()),
-        outcome.diagnostics(),
+        [outcome.diagnostics()],
         compilation.sources(),
     ))
 }

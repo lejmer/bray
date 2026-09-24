@@ -79,7 +79,7 @@ fn verify_source_target(
         return Err(BuildError::compilation_failed(
             selected.profile().identity().clone(),
             format!("{error:?}"),
-            compilation.check_diagnostics(),
+            [compilation.check_diagnostics()],
             compilation.sources(),
         ));
     }

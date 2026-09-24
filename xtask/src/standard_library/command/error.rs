@@ -74,10 +74,10 @@ pub(in crate::standard_library) enum BuildError {
 }
 
 impl BuildError {
-    pub(in crate::standard_library) fn compilation_failed(
+    pub(in crate::standard_library) fn compilation_failed<'diagnostic>(
         target: TargetIdentity,
         internal: String,
-        diagnostics: &bray_diagnostics::DiagnosticBag,
+        diagnostics: impl IntoIterator<Item = &'diagnostic bray_diagnostics::DiagnosticBag>,
         sources: &bray_source::SourceStore,
     ) -> Self {
         Self::CompilationFailed {
@@ -86,9 +86,9 @@ impl BuildError {
         }
     }
 
-    pub(in crate::standard_library) fn emission(
+    pub(in crate::standard_library) fn emission<'diagnostic>(
         internal: String,
-        diagnostics: &bray_diagnostics::DiagnosticBag,
+        diagnostics: impl IntoIterator<Item = &'diagnostic bray_diagnostics::DiagnosticBag>,
         sources: &bray_source::SourceStore,
     ) -> Self {
         Self::Emission(crate::diagnostic_output::failure_detail(
@@ -320,7 +320,7 @@ mod tests {
         let failure = BuildError::compilation_failed(
             TargetIdentity::try_new("x86_64-pc-windows-msvc").unwrap(),
             "internal diagnostic bag".to_owned(),
-            &DiagnosticBag::single(diagnostic),
+            [&DiagnosticBag::single(diagnostic)],
             &SourceStore::new(),
         );
 

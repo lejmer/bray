@@ -28,12 +28,14 @@ pub(crate) fn render_diagnostics(
     (!rendered.is_empty()).then(|| rendered.to_owned())
 }
 
-pub(crate) fn failure_detail(
+pub(crate) fn failure_detail<'diagnostic>(
     cause: String,
-    diagnostics: &DiagnosticBag,
+    diagnostics: impl IntoIterator<Item = &'diagnostic DiagnosticBag>,
     sources: &SourceStore,
 ) -> String {
-    match render_diagnostics(diagnostics, sources) {
+    let diagnostics = DiagnosticBag::merged_all(diagnostics);
+
+    match render_diagnostics(&diagnostics, sources) {
         Some(rendered) => format!("{cause}\n{rendered}"),
         None => cause,
     }
@@ -66,14 +68,23 @@ mod tests {
 
         assert!(diagnostics.has_errors());
 
-        let failure = failure_detail("native plan failed: leaf cause".into(), diagnostics, compilation.sources());
+        let failure = failure_detail("native plan failed: leaf cause".into(), [diagnostics], compilation.sources());
 
         assert!(failure.contains("native plan failed: leaf cause"));
         assert!(failure.contains("fixture.bray"));
         assert!(failure.contains("error E"));
 
         assert_eq!(
-            failure_detail("leaf cause".into(), &DiagnosticBag::new(), compilation.sources()),
+            failure_detail(
+                "native plan failed: leaf cause".into(),
+                [diagnostics, diagnostics],
+                compilation.sources(),
+            ),
+            failure,
+        );
+
+        assert_eq!(
+            failure_detail("leaf cause".into(), [&DiagnosticBag::new()], compilation.sources()),
             "leaf cause"
         );
     }
