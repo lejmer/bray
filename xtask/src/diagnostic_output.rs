@@ -27,3 +27,54 @@ pub(crate) fn render_diagnostics(
 
     (!rendered.is_empty()).then(|| rendered.to_owned())
 }
+
+pub(crate) fn failure_detail(
+    cause: String,
+    diagnostics: &DiagnosticBag,
+    sources: &SourceStore,
+) -> String {
+    match render_diagnostics(diagnostics, sources) {
+        Some(rendered) => format!("{cause}\n{rendered}"),
+        None => cause,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_compilation::{Compilation, CompilationRequest};
+    use bray_diagnostics::DiagnosticBag;
+    use bray_source::{SourceIdentity, SourceInput};
+    use bray_symbols::PackageIdentity;
+
+    use super::failure_detail;
+
+    #[test]
+    fn failure_detail_preserves_cause_and_source_diagnostics() {
+        let package = PackageIdentity::try_new("fixture").unwrap();
+
+        let source = SourceInput::virtual_text(
+            SourceIdentity::new(0),
+            "fixture.bray",
+            1,
+            "module fixture;\nfunc broken( {\n",
+        );
+
+        let compilation = Compilation::load(CompilationRequest::new(package, vec![source]))
+            .expect("malformed source must still load for diagnostics");
+
+        let diagnostics = compilation.check_diagnostics();
+
+        assert!(diagnostics.has_errors());
+
+        let failure = failure_detail("native plan failed: leaf cause".into(), diagnostics, compilation.sources());
+
+        assert!(failure.contains("native plan failed: leaf cause"));
+        assert!(failure.contains("fixture.bray"));
+        assert!(failure.contains("error E"));
+
+        assert_eq!(
+            failure_detail("leaf cause".into(), &DiagnosticBag::new(), compilation.sources()),
+            "leaf cause"
+        );
+    }
+}
