@@ -74,6 +74,17 @@ mod tests {
         assert!(failure.contains("fixture.bray"));
         assert!(failure.contains("error E"));
 
+        let check_diagnostics = DiagnosticBag::new();
+
+        assert_eq!(
+            failure_detail(
+                "native plan failed: leaf cause".into(),
+                [&check_diagnostics, diagnostics],
+                compilation.sources(),
+            ),
+            failure,
+        );
+
         assert_eq!(
             failure_detail(
                 "native plan failed: leaf cause".into(),
