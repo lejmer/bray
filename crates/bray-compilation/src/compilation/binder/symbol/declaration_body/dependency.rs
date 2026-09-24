@@ -6,11 +6,40 @@ use bray_bound_tree::{
 };
 use bray_symbols::{
     DeclarationDirectivesQuery, DependencyContractTemplateData, DependencyContractTemplateId,
-    DependencyGuard, DependencyProjection, DependencyRequirement, DependencySubject,
-    DependencySubjectRoot, DirectiveKind, SymbolOrdinal, SymbolQueryRequest,
+    DependencyGuard, DependencyProjection, DependencyRequirement, DependencyRequirementKind,
+    DependencySubject, DependencySubjectRoot, DirectiveKind, StaticInstanceTemplateQuery,
+    StaticStorageDuration, StaticSymbolId, SymbolOrdinal, SymbolQueryRequest,
 };
 
 use crate::compilation::binder::CompilationBindingContext;
+
+pub(in crate::compilation::binder::symbol) fn extend_dependency_contract_with_statics(
+    context: &CompilationBindingContext<'_>,
+    contract: DependencyContractTemplateId,
+    dependencies: &[StaticSymbolId],
+) -> BindingQueryResult<DependencyContractTemplateId> {
+    if dependencies.is_empty() {
+        return Ok(contract);
+    }
+
+    let mut requirements = context
+        .semantic_values()
+        .dependency_contract_template_data(contract)
+        .requirements()
+        .to_vec();
+
+    for dependency in dependencies {
+        requirements.push(DependencyRequirement::direct(
+            DependencySubject::root(static_dependency_root(context, *dependency)?),
+            DependencyRequirementKind::StorageAlive,
+        ));
+    }
+
+    context
+        .semantic_values()
+        .intern_dependency_contract_template(DependencyContractTemplateData::new(requirements))
+        .map_err(crate::compilation::binder::semantic_value_binding_error)
+}
 
 pub(in crate::compilation::binder::symbol) fn portable_dependency_contract(
     context: &CompilationBindingContext<'_>,
@@ -242,22 +271,7 @@ fn portable_storage_identity(
             DependencySubjectRoot::Parameter(SymbolOrdinal::new(parameter.ordinal()))
         }
         StorageIdentity::Receiver(_) => DependencySubjectRoot::Receiver,
-        StorageIdentity::Static(id) => {
-            let directives = context.resolve_symbol_query(SymbolQueryRequest::<
-                DeclarationDirectivesQuery,
-            >::new(id.into()))?;
-
-            if directives
-                .value()
-                .directives()
-                .iter()
-                .any(|directive| directive.kind() == DirectiveKind::ThreadLocal)
-            {
-                DependencySubjectRoot::ExactThreadStatic(id)
-            } else {
-                DependencySubjectRoot::ProductStatic(id)
-            }
-        }
+        StorageIdentity::Static(id) => static_dependency_root(context, id)?,
         StorageIdentity::Result(_) | StorageIdentity::PostconditionResult(_) => {
             DependencySubjectRoot::Result
         }
@@ -274,6 +288,37 @@ fn portable_storage_identity(
     };
 
     Ok(Some(PortableSubject::root(root)))
+}
+
+pub(in crate::compilation::binder::symbol) fn static_dependency_root(
+    context: &CompilationBindingContext<'_>,
+    id: bray_symbols::StaticSymbolId,
+) -> BindingQueryResult<DependencySubjectRoot> {
+    if context.imported_semantic_address(id.into())?.is_some() {
+        let template = context.resolve_symbol_query(SymbolQueryRequest::<
+            StaticInstanceTemplateQuery,
+        >::new(id))?;
+
+        return Ok(match template.value().duration() {
+            StaticStorageDuration::Product => DependencySubjectRoot::ProductStatic(id),
+            StaticStorageDuration::ExactThread => DependencySubjectRoot::ExactThreadStatic(id),
+        });
+    }
+
+    let directives = context.resolve_symbol_query(SymbolQueryRequest::<
+        DeclarationDirectivesQuery,
+    >::new(id.into()))?;
+
+    Ok(if directives
+        .value()
+        .directives()
+        .iter()
+        .any(|directive| directive.kind() == DirectiveKind::ThreadLocal)
+    {
+        DependencySubjectRoot::ExactThreadStatic(id)
+    } else {
+        DependencySubjectRoot::ProductStatic(id)
+    })
 }
 
 struct PortableSubject {

@@ -42,6 +42,7 @@ where
 
     let mut calls = Vec::new();
     let mut defaults = Vec::new();
+    let mut static_dependencies = Vec::new();
     let mut enters_current_run_cancellation = false;
 
     for entry in selections.entries() {
@@ -114,9 +115,11 @@ where
                     }
                 }));
             }
+            SemanticSelection::StaticReference(reference) => {
+                static_dependencies.push(reference.template().declaration());
+            }
             SemanticSelection::Reference(_)
             | SemanticSelection::CallableReference(_)
-            | SemanticSelection::StaticReference(_)
             | SemanticSelection::Predicate(_)
             | SemanticSelection::Propagation(_) => {}
         }
@@ -149,6 +152,7 @@ where
             request.unit().key().kind(),
             calls,
             defaults,
+            static_dependencies,
             current_run_cancellation,
             is_recovered,
         ),

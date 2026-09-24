@@ -12,7 +12,7 @@ use bray_symbols::{
     CallableExecution, CallableExecutionRequirement, CallableParameterDefaultQuery,
     CallableParameterDefaultTemplateQuery, CallableParameterDefaultValue, CallablePhaseBehavior,
     CallableSymbolId, CurrentRunCancellation, LifecycleObligationKind, RuntimeDefaultBehavior,
-    StructFieldDefaultQuery, StructFieldDefaultTemplateQuery, StructFieldDefaultValue,
+    StaticSymbolId, StructFieldDefaultQuery, StructFieldDefaultTemplateQuery, StructFieldDefaultValue,
     SymbolOrigin, SymbolQueryRequest, TrustedCapabilitySymbolId, TypeData, TypeExpressionTemplate,
     UnevaluatedDefaultTemplate, UnionPayloadDefaultValue, UnionPayloadFieldDefaultQuery,
     UnionPayloadFieldDefaultTemplateQuery,
@@ -20,7 +20,7 @@ use bray_symbols::{
 
 use super::binder::{
     CompilationBindingContext, bind_declared_execution_requirements,
-    bind_declared_trusted_capabilities, binding_query_error,
+    bind_declared_trusted_capabilities, binding_query_error, static_dependencies_from_contract,
 };
 use super::state::Compilation;
 use crate::compilation::{
@@ -36,12 +36,17 @@ struct BodyBehaviorBuilder {
     trusted_capabilities: BTreeMap<TrustedCapabilitySymbolId, BTreeSet<BoundSourceAnchor>>,
     execution_requirements: BTreeSet<CallableExecutionRequirement>,
     lifecycle_obligations: BTreeSet<LifecycleObligationKind>,
+    static_dependencies: BTreeSet<StaticSymbolId>,
     current_run_cancellation: bool,
     is_recovered: bool,
 }
 
 impl BodyBehaviorBuilder {
-    fn merge_phase(&mut self, behavior: &CallablePhaseBehavior) {
+    fn merge_phase(
+        &mut self,
+        behavior: &CallablePhaseBehavior,
+        context: &CompilationBindingContext<'_>,
+    ) -> Result<(), FactQueryError> {
         self.effects.extend(behavior.effects().iter().copied());
 
         self.capabilities
@@ -54,9 +59,20 @@ impl BodyBehaviorBuilder {
             .extend(behavior.lifecycle_obligations().iter().copied());
 
         self.merge_cancellation(behavior.current_run_cancellation());
+
+        self.static_dependencies.extend(
+            static_dependencies_from_contract(context, behavior.dependency_contract())
+                .map_err(binding_query_error)?,
+        );
+
+        Ok(())
     }
 
-    fn merge_default(&mut self, behavior: &RuntimeDefaultBehavior) {
+    fn merge_default(
+        &mut self,
+        behavior: &RuntimeDefaultBehavior,
+        context: &CompilationBindingContext<'_>,
+    ) -> Result<(), FactQueryError> {
         self.effects.extend(
             behavior
                 .effects()
@@ -79,9 +95,17 @@ impl BodyBehaviorBuilder {
 
         self.lifecycle_obligations
             .extend(behavior.lifecycle_obligations().iter().copied());
+
+        self.static_dependencies.extend(
+            static_dependencies_from_contract(context, behavior.dependency_contract())
+                .map_err(binding_query_error)?,
+        );
+
+        Ok(())
     }
 
     fn merge_contributions(&mut self, contributions: &BodyBehaviorContributions) {
+        self.static_dependencies.extend(contributions.static_dependencies());
         self.merge_cancellation(contributions.current_run_cancellation());
         self.is_recovered |= contributions.is_recovered();
     }
@@ -120,6 +144,7 @@ impl BodyBehaviorBuilder {
                 self.lifecycle_obligations,
             )
             .with_trusted_capability_uses(capability_uses)
+            .with_static_dependencies(self.static_dependencies)
     }
 }
 
@@ -383,7 +408,7 @@ impl Compilation {
                 *diagnostics = diagnostics.merged(contract.diagnostics());
 
                 if let Some(phase) = phase_behavior(contract.value(), call.phase()) {
-                    builder.merge_phase(phase);
+                    builder.merge_phase(phase, binding_context)?;
                 }
             }
             BoundCallableTarget::Predicate(_) => {}
@@ -403,7 +428,7 @@ impl Compilation {
                 };
 
                 if let Some(phase) = phase_behavior_for(callable.phase_behaviors(), call.phase()) {
-                    builder.merge_phase(phase);
+                    builder.merge_phase(phase, binding_context)?;
                 }
             }
         }
@@ -456,7 +481,7 @@ impl Compilation {
 
                 match default.value().value() {
                     CallableParameterDefaultValue::Valid(surface) => {
-                        builder.merge_default(surface.behavior());
+                        builder.merge_default(surface.behavior(), binding_context)?;
                     }
                     CallableParameterDefaultValue::Error(_) => builder.is_recovered = true,
                 }
@@ -495,7 +520,7 @@ impl Compilation {
 
                 match default.value().value() {
                     StructFieldDefaultValue::Valid(surface) => {
-                        builder.merge_default(surface.behavior());
+                        builder.merge_default(surface.behavior(), binding_context)?;
                     }
                     StructFieldDefaultValue::Error(_) => builder.is_recovered = true,
                 }
@@ -536,7 +561,7 @@ impl Compilation {
 
                 match default.value().value() {
                     UnionPayloadDefaultValue::Valid(surface) => {
-                        builder.merge_default(surface.behavior());
+                        builder.merge_default(surface.behavior(), binding_context)?;
                     }
                     UnionPayloadDefaultValue::Error(_) => builder.is_recovered = true,
                 }

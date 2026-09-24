@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bray_base::{shared_slice, sorted_unique_shared_slice};
 use bray_symbols::{
     CallableCapabilityRequirement, CallableEffectRequirement, CallableExecutionRequirement,
-    CurrentRunCancellation, LifecycleObligationKind, TrustedCapabilitySymbolId,
+    CurrentRunCancellation, LifecycleObligationKind, StaticSymbolId, TrustedCapabilitySymbolId,
 };
 
 use crate::{
@@ -82,6 +82,7 @@ pub struct BodyBehaviorContributions {
     kind: BoundUnitKind,
     calls: Arc<[BodyBehaviorCall]>,
     defaults: Arc<[DefaultValueProvider]>,
+    static_dependencies: Arc<[StaticSymbolId]>,
     current_run_cancellation: CurrentRunCancellation,
     is_recovered: bool,
 }
@@ -123,6 +124,7 @@ impl BodyBehaviorContributions {
         kind: BoundUnitKind,
         calls: impl IntoIterator<Item = BodyBehaviorCall>,
         defaults: impl IntoIterator<Item = DefaultValueProvider>,
+        static_dependencies: impl IntoIterator<Item = StaticSymbolId>,
         current_run_cancellation: CurrentRunCancellation,
         is_recovered: bool,
     ) -> Self {
@@ -131,6 +133,7 @@ impl BodyBehaviorContributions {
             kind,
             calls: shared_slice(calls),
             defaults: shared_slice(defaults),
+            static_dependencies: sorted_unique_shared_slice(static_dependencies),
             current_run_cancellation,
             is_recovered,
         }
@@ -156,6 +159,11 @@ impl BodyBehaviorContributions {
         &self.defaults
     }
 
+    /// Returns static declarations selected directly in this unit.
+    pub fn static_dependencies(&self) -> &[StaticSymbolId] {
+        &self.static_dependencies
+    }
+
     /// Returns whether the current run can enter cancellation directly in this unit.
     pub const fn current_run_cancellation(&self) -> CurrentRunCancellation {
         self.current_run_cancellation
@@ -178,6 +186,7 @@ pub struct CheckedBodyBehavior {
     trusted_capability_uses: Arc<[TrustedCapabilityUse]>,
     execution_requirements: Arc<[CallableExecutionRequirement]>,
     lifecycle_obligations: Arc<[LifecycleObligationKind]>,
+    static_dependencies: Arc<[StaticSymbolId]>,
     current_run_cancellation: CurrentRunCancellation,
     is_recovered: bool,
 }
@@ -199,6 +208,7 @@ impl CheckedBodyBehavior {
             trusted_capability_uses: Arc::from([]),
             execution_requirements: Arc::from([]),
             lifecycle_obligations: Arc::from([]),
+            static_dependencies: Arc::from([]),
             current_run_cancellation,
             is_recovered,
         }
@@ -228,6 +238,16 @@ impl CheckedBodyBehavior {
         uses: impl IntoIterator<Item = TrustedCapabilityUse>,
     ) -> Self {
         self.trusted_capability_uses = uses.into_iter().collect();
+
+        self
+    }
+
+    /// Retains static storage needed by this body and its reachable calls.
+    pub fn with_static_dependencies(
+        mut self,
+        dependencies: impl IntoIterator<Item = StaticSymbolId>,
+    ) -> Self {
+        self.static_dependencies = sorted_unique_shared_slice(dependencies);
 
         self
     }
@@ -270,6 +290,11 @@ impl CheckedBodyBehavior {
     /// Returns retained lifecycle obligations in canonical semantic order.
     pub fn lifecycle_obligations(&self) -> &[LifecycleObligationKind] {
         &self.lifecycle_obligations
+    }
+
+    /// Returns every static declaration needed while this body executes.
+    pub fn static_dependencies(&self) -> &[StaticSymbolId] {
+        &self.static_dependencies
     }
 
     /// Returns whether execution can enter cancellation for its current run.

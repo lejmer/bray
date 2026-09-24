@@ -10,7 +10,8 @@ use super::buffer::{
 };
 use super::built_fixture::BuiltFixture;
 use super::fixtures::{
-    ABI_FIXTURE, ABI_HOST, ASYNC_ERROR_FIXTURE, ASYNC_I32_FIXTURE, ASYNC_TASKS_FIXTURE,
+    ABI_FIXTURE, ABI_HOST, ASYNC_ERROR_FIXTURE, ASYNC_I32_FIXTURE,
+    ASYNC_TASK_PANIC_SHUTDOWN_FIXTURE, ASYNC_TASKS_FIXTURE,
     ASYNC_UNIT_FIXTURE, ATOMIC_FIXTURE, CALL_REBORROWS_FIXTURE, ENTRY_RESULT_FIXTURE,
     GUARDED_PART_CLEANUP_FIXTURE, GUARDED_ROOT_CLEANUP_FIXTURE, HEAP_STORAGE_FIXTURE,
     MEMORY_FIXTURE, MEMORY_LAYOUT_FIXTURE, PATTERN_CONDITIONS_FIXTURE, PRODUCT_NAME, RANGE_FIXTURE,
@@ -122,6 +123,11 @@ pub(crate) fn audit(root: &Path) -> Result<(), String> {
     })?;
 
     for (fixture, prefix, name) in [
+        (
+            ASYNC_TASK_PANIC_SHUTDOWN_FIXTURE,
+            "bray-native-child-panic-shutdown-",
+            "joined child panic shutdown",
+        ),
         (
             VALUE_REPLACEMENT_FIXTURE,
             "bray-native-replacement-",

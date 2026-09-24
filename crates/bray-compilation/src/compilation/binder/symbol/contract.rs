@@ -27,7 +27,10 @@ use bray_syntax::{
 
 use super::binding::CompilationSymbolQueryEvaluator;
 use super::cache::CompilationSymbolSemantics;
-use super::declaration_body::{CheckedSourcePredicateSequence, checked_source_predicate_sequence};
+use super::declaration_body::{
+    CheckedSourcePredicateSequence, checked_source_predicate_sequence,
+    extend_dependency_contract_with_statics,
+};
 use super::environment::type_binder;
 use super::surface::{symbol_ordinal, with_declaration_root};
 use crate::compilation::binder::{
@@ -51,8 +54,8 @@ impl CompilationSymbolQueryEvaluator<GenericConstraintsQuery> for CompilationSym
         context: &CompilationBindingContext<'_>,
         request: SymbolQueryRequest<GenericConstraintsQuery>,
     ) -> BindingQueryResult<
-        bray_diagnostics::DiagnosticResult<
-            <GenericConstraintsQuery as bray_symbols::SymbolQueryContract>::Value,
+        DiagnosticResult<
+            <GenericConstraintsQuery as SymbolQueryContract>::Value,
         >,
     > {
         bind_generic_constraints(context, request.symbol())
@@ -69,8 +72,8 @@ impl CompilationSymbolQueryEvaluator<CallableContractsQuery> for CompilationSymb
         context: &CompilationBindingContext<'_>,
         request: SymbolQueryRequest<CallableContractsQuery>,
     ) -> BindingQueryResult<
-        bray_diagnostics::DiagnosticResult<
-            <CallableContractsQuery as bray_symbols::SymbolQueryContract>::Value,
+        DiagnosticResult<
+            <CallableContractsQuery as SymbolQueryContract>::Value,
         >,
     > {
         bind_callable_contracts(context, request.owner())
@@ -81,7 +84,7 @@ fn bind_generic_constraints(
     context: &CompilationBindingContext<'_>,
     owner: AnySymbolId,
 ) -> BindingQueryResult<
-    bray_diagnostics::DiagnosticResult<
+    DiagnosticResult<
         <GenericConstraintsQuery as bray_symbols::SymbolQueryContract>::Value,
     >,
 > {
@@ -204,7 +207,7 @@ fn bind_callable_contracts(
     context: &CompilationBindingContext<'_>,
     owner: CallableSymbolId,
 ) -> BindingQueryResult<
-    bray_diagnostics::DiagnosticResult<
+    DiagnosticResult<
         <CallableContractsQuery as bray_symbols::SymbolQueryContract>::Value,
     >,
 > {
@@ -257,11 +260,6 @@ fn bind_callable_contracts(
     let capabilities = bind_trusted_capability_clauses(context, owner, uses_clauses)?;
 
     diagnostics = diagnostics.merged(capabilities.diagnostics());
-
-    let dependency = context
-        .semantic_values
-        .empty_dependency_contract_template()
-        .map_err(crate::compilation::binder::semantic_value_binding_error)?;
 
     let signature =
         context.resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(owner))?;
@@ -336,6 +334,19 @@ fn bind_callable_contracts(
         None => None,
     };
 
+    let empty_dependency = context
+        .semantic_values()
+        .empty_dependency_contract_template()
+        .map_err(crate::compilation::binder::semantic_value_binding_error)?;
+
+    let dependency = extend_dependency_contract_with_statics(
+        context,
+        empty_dependency,
+        body_behavior
+            .as_ref()
+            .map_or(&[], |body| body.result().value().static_dependencies()),
+    )?;
+
     let used_capabilities = body_behavior
         .as_ref()
         .map(|behavior| behavior.result().value().trusted_capability_uses());
@@ -352,6 +363,7 @@ fn bind_callable_contracts(
             .iter()
             .map(|capability| capability.requirement()),
         dependency,
+        empty_dependency,
         declared_execution_requirements,
         body_behavior
             .as_ref()
@@ -493,6 +505,7 @@ fn callable_phase_behaviors(
     properties: &[bray_symbols::ExecutionProperty],
     trusted_capabilities: impl IntoIterator<Item = TrustedCapabilityRequirement>,
     dependencies: DependencyContractTemplateId,
+    empty_dependencies: DependencyContractTemplateId,
     declared_execution_requirements: impl IntoIterator<Item = CallableExecutionRequirement>,
     body: Option<&bray_bound_tree::CheckedBodyBehavior>,
 ) -> (CallablePhaseBehavior, Option<CallablePhaseBehavior>) {
@@ -536,7 +549,7 @@ fn callable_phase_behaviors(
     match execution {
         CallableExecution::Synchronous => (body_behavior, None),
         CallableExecution::Asynchronous => (
-            CallablePhaseBehavior::empty(dependencies),
+            CallablePhaseBehavior::empty(empty_dependencies),
             Some(body_behavior),
         ),
     }
@@ -728,7 +741,7 @@ fn bind_callable_predicates(
 ) -> BindingQueryResult<()> {
     let expressions = expressions.into_iter().collect::<Vec<_>>();
 
-    if context.symbols.symbol_origin(owner) != Some(bray_symbols::SymbolOrigin::Source) {
+    if context.symbols.symbol_origin(owner) != Some(SymbolOrigin::Source) {
         let result = bind_predicate_clause(
             context,
             owner,
@@ -867,7 +880,7 @@ fn resolve_type_equality_constraint(
 fn resolve_type_template(
     context: &CompilationBindingContext<'_>,
     template: &bray_symbols::TypeExpressionTemplate,
-    query_context: crate::compilation::SemanticQueryContext,
+    query_context: SemanticQueryContext,
     diagnostics: &mut DiagnosticBag,
 ) -> BindingQueryResult<bray_symbols::TypeId> {
     let mut terms = BTreeMap::new();
@@ -888,7 +901,7 @@ fn resolve_type_template(
     bray_checker::resolve_type_expression_template(context.semantic_values, template, &constants)
         .map_err(BindingQueryError::CheckerInfrastructure)?
         .ok_or_else(|| {
-            missing_semantic_data(query_context, crate::compilation::SemanticDataKind::Type)
+            missing_semantic_data(query_context, SemanticDataKind::Type)
         })
 }
 
@@ -896,7 +909,7 @@ fn resolve_trait_satisfaction_templates(
     context: &CompilationBindingContext<'_>,
     subject: &bray_symbols::TypeExpressionTemplate,
     application: &bray_symbols::TraitApplicationTemplate,
-    query_context: crate::compilation::SemanticQueryContext,
+    query_context: SemanticQueryContext,
     diagnostics: &mut DiagnosticBag,
 ) -> BindingQueryResult<(bray_symbols::TypeId, bray_symbols::TraitApplicationId)> {
     let mut terms = BTreeMap::new();
@@ -927,7 +940,7 @@ fn resolve_trait_satisfaction_templates(
     .ok_or_else(|| {
         missing_semantic_data(
             query_context.clone(),
-            crate::compilation::SemanticDataKind::Type,
+            SemanticDataKind::Type,
         )
     })?;
 
@@ -940,7 +953,7 @@ fn resolve_trait_satisfaction_templates(
     .ok_or_else(|| {
         missing_semantic_data(
             query_context,
-            crate::compilation::SemanticDataKind::TraitApplication,
+            SemanticDataKind::TraitApplication,
         )
     })?;
 
@@ -957,22 +970,22 @@ fn checked_constant_terms_binding_error(
 
 fn constraint_context(
     constraint: &bray_symbols::GenericConstraintTemplate,
-) -> crate::compilation::SemanticQueryContext {
+) -> SemanticQueryContext {
     constraint
         .unit_syntax()
-        .map(|unit| crate::compilation::SemanticQueryContext::Source(unit.source_id()))
-        .unwrap_or(crate::compilation::SemanticQueryContext::Fact(
+        .map(|unit| SemanticQueryContext::Source(unit.source_id()))
+        .unwrap_or(SemanticQueryContext::Fact(
             crate::fact::CompilationFactKey::CheckDiagnostics,
         ))
 }
 
 fn missing_semantic_data(
-    context: crate::compilation::SemanticQueryContext,
-    data: crate::compilation::SemanticDataKind,
+    context: SemanticQueryContext,
+    data: SemanticDataKind,
 ) -> BindingQueryError<crate::fact::FactQueryError> {
     crate::compilation::binder::semantic_contract_binding_error(
         context,
-        crate::compilation::SemanticQueryViolation::Missing(data),
+        SemanticQueryViolation::Missing(data),
     )
 }
 
@@ -1004,7 +1017,7 @@ fn bind_callable_static_constraints(
                 context,
                 subject.value(),
                 application,
-                crate::compilation::SemanticQueryContext::Symbol(owner),
+                SemanticQueryContext::Symbol(owner),
                 diagnostics,
             )?;
 
@@ -1328,6 +1341,42 @@ mod tests {
             .dependency_contract_template_data(predicate.dependency_contract());
 
         assert!(!dependency.requirements().is_empty());
+    }
+
+    #[test]
+    fn async_static_access_belongs_to_deferred_execution() {
+        let compilation = compilation(
+            r#"
+            module app;
+            static Root: i32 = 1;
+            async func read_root()
+            {
+                let value = Root;
+                value;
+            }
+            "#,
+        );
+
+        let contracts = callable_contracts(&compilation, "read_root");
+
+        let values = compilation
+            .semantic_value_store()
+            .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}"));
+
+        let invocation = values.dependency_contract_template_data(
+            contracts.value().invocation_behavior().dependency_contract(),
+        );
+
+        let deferred = contracts
+            .value()
+            .deferred_execution_behavior()
+            .unwrap_or_else(|| panic!("async callable must publish deferred behavior"));
+
+        let deferred = values.dependency_contract_template_data(deferred.dependency_contract());
+
+        assert!(contracts.diagnostics().is_empty(), "{:#?}", contracts.diagnostics());
+        assert!(invocation.requirements().is_empty());
+        assert_eq!(deferred.requirements().len(), 1);
     }
 
     #[test]

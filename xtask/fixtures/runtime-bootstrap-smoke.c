@@ -330,7 +330,7 @@ int main(void)
     if (bray_runtime_panic_report_destruction(&handled) != 0)
         return 4;
 
-    if (bray_runtime_structured_shutdown() != 0 || bray_runtime_structured_shutdown() != 1)
+    if (bray_runtime_structured_shutdown() != 1 || bray_runtime_structured_shutdown() != 1)
         return 5;
 
     if (bray_runtime_initialization(1, 1) != 0 || bray_runtime_structured_shutdown() != 0)
