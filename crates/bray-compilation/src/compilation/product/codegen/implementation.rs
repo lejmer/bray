@@ -2175,12 +2175,20 @@ mod tests {
             module app;
             struct Guard
             {
-                finalize() {}
+                id: i32;
+
+                destruct() {}
             }
-            func dispose<T>(pos value: T) {}
+            func make_guard(pos id: i32) -> Guard
+            {
+                return Guard { id = id };
+            }
             func main()
             {
-                dispose<[Guard; 2]>([Guard {}, Guard {}]);
+                let guards = box([
+                    [make_guard(1), make_guard(2)],
+                    [make_guard(3), make_guard(4)],
+                ]);
             }
         "#;
 
