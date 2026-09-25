@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use super::super::{
-    ConstantTermData, ConstantValueKind, GenericArgument, GenericSubstitutionId,
+    ConstantTermData, ConstantValueId, ConstantValueKind, GenericArgument, GenericSubstitutionId,
     SemanticValueStoreId, TraitApplicationId, TypeData, TypeId,
 };
 use super::table::SemanticTables;
@@ -38,7 +38,7 @@ pub(super) fn substitution_is_concrete(
                     TypeData::Array { element, length } => {
                         pending.push(ConcreteWork::Type(*element));
 
-                        if !append_closed_term_type(tables, store, *length, &mut pending) {
+                        if !append_closed_array_length_type(tables, store, *length, &mut pending) {
                             return false;
                         }
                     }
@@ -75,7 +75,12 @@ pub(super) fn substitution_is_concrete(
                     match binding.argument() {
                         GenericArgument::Type(ty) => pending.push(ConcreteWork::Type(ty)),
                         GenericArgument::Constant(term) => {
-                            if !append_closed_term_type(tables, store, term, &mut pending) {
+                            let ConstantTermData::Value(value) = tables.constant_terms.get(store, term)
+                            else {
+                                return false;
+                            };
+
+                            if !append_closed_value_type(tables, store, *value, &mut pending) {
                                 return false;
                             }
                         }
@@ -96,17 +101,34 @@ pub(super) fn substitution_is_concrete(
     true
 }
 
-fn append_closed_term_type(
+fn append_closed_array_length_type(
     tables: &SemanticTables,
     store: SemanticValueStoreId,
-    term: super::super::ConstantTermId,
+    mut term: super::super::ConstantTermId,
     pending: &mut Vec<ConcreteWork>,
 ) -> bool {
-    let ConstantTermData::Value(value) = tables.constant_terms.get(store, term) else {
-        return false;
-    };
+    loop {
+        match tables.constant_terms.get(store, term) {
+            ConstantTermData::IntegerLiteral { .. } => return true,
+            ConstantTermData::Typed { term: inner, ty } => {
+                pending.push(ConcreteWork::Type(*ty));
+                term = *inner;
+            }
+            ConstantTermData::Value(value) => {
+                return append_closed_value_type(tables, store, *value, pending);
+            }
+            _ => return false,
+        }
+    }
+}
 
-    let value = tables.constant_values.get(store, *value);
+fn append_closed_value_type(
+    tables: &SemanticTables,
+    store: SemanticValueStoreId,
+    value: ConstantValueId,
+    pending: &mut Vec<ConcreteWork>,
+) -> bool {
+    let value = tables.constant_values.get(store, value);
 
     if matches!(value.kind(), ConstantValueKind::Error) {
         return false;
