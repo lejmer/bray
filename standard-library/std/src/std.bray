@@ -1,3 +1,10 @@
 module std;
 
+/// Converts a value through its participating checked-conversion implementation.
+func convert<Target, Source>(pos source: Source) -> Result<Target, Source(CheckedConvertTo<Target>).Error>
+    with(Source: CheckedConvertTo<Target>)
+{
+    return source(CheckedConvertTo<Target>).convert_checked();
+}
+
 extern func truncate_to<Target, Source>(pos source: Source) -> Target;

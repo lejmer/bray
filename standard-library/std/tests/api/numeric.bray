@@ -1,6 +1,8 @@
 module bray.standard_library_tests.numeric;
 
+using std.convert;
 using std.numeric;
+using std.numeric.IntegerCheckedConversion;
 using std.numeric.I32Integer;
 using std.numeric.U8Integer;
 using std.testing;
@@ -91,4 +93,83 @@ func widest_integer_parsing()
     assert(
         std.testing.assert_error<i8, std.numeric.ParseError>(signed_overflow) matches std.numeric.ParseError.Overflow
     );
+}
+
+struct ConvertedNumber
+{
+    value: u8;
+}
+
+union NumberConversionError
+{
+    Invalid;
+}
+
+struct OwnedNumber
+{
+    value: u8;
+}
+
+impl OwnedNumberConversion = OwnedNumber(CheckedConvertTo<ConvertedNumber>)
+{
+    type Error = NumberConversionError;
+
+    consume func convert_checked() -> Result<ConvertedNumber, NumberConversionError>
+    {
+        if self.value == 0
+        {
+            return Error(NumberConversionError.Invalid);
+        }
+
+        return Ok(
+            {
+                value = self.value
+            }
+        );
+    }
+}
+
+@test
+func checked_conversion_uses_custom_error_and_transfers_source()
+{
+    let value: OwnedNumber =
+    {
+        value = 42
+    };
+
+    let converted: Result<ConvertedNumber, NumberConversionError> = std.convert<ConvertedNumber>(value);
+    let number: ConvertedNumber = std.testing.assert_ok<ConvertedNumber, NumberConversionError>(converted);
+
+    assert(number.value == 42);
+
+    let invalid: OwnedNumber =
+    {
+        value = 0
+    };
+
+    let rejected: Result<ConvertedNumber, NumberConversionError> = std.convert<ConvertedNumber>(invalid);
+
+    assert(
+        std.testing.assert_error<ConvertedNumber, NumberConversionError>(rejected) matches NumberConversionError.Invalid
+    );
+}
+
+@test
+func checked_integer_conversion_reports_out_of_range()
+{
+    let value: i32 = 42;
+    let converted: Result<u8, ConversionError> = std.convert<u8>(value);
+    let narrowed: u8 = std.testing.assert_ok<u8, ConversionError>(converted);
+
+    assert(narrowed == 42);
+
+    let too_large: i32 = 300;
+    let rejected: Result<u8, ConversionError> = std.convert<u8>(too_large);
+
+    assert(std.testing.assert_error<u8, ConversionError>(rejected) matches ConversionError.OutOfRange);
+
+    let negative: i32 = -1;
+    let rejected_negative: Result<u8, ConversionError> = std.convert<u8>(negative);
+
+    assert(std.testing.assert_error<u8, ConversionError>(rejected_negative) matches ConversionError.OutOfRange);
 }

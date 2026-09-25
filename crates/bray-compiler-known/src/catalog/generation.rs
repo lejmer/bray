@@ -710,7 +710,6 @@ mod tests {
             "StandardCharacterUtf8EncodingLength",
             "StandardCharacterUtf8LengthPrimitive",
             "StandardCharacterWhitespacePrimitive",
-            "StandardConvert",
             "StandardCurrentNativeThreadIdentity",
             "StandardMainNativeThreadIdentity",
             "StandardMemoryAddressOf",

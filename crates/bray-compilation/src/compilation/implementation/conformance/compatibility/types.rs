@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use bray_symbols::{
     DependencyContractTemplateId, DependencyRequirement, DependencyRequirementKind,
-    DependencySubjectRoot, GenericSubstitutionId, SemanticValueStore, TraitApplicationId,
+    DependencySubjectRoot, GenericArgument, GenericSubstitutionId, SemanticValueStore, TraitApplicationId,
     TraitTypeMemberSymbolId, TypeData, TypeExpressionTemplate, TypeId,
 };
 
@@ -44,6 +44,60 @@ pub(super) fn type_templates_are_compatible(
             )?;
 
             let requirement_data = values.type_data(requirement);
+
+            if let TypeData::Named {
+                definition: required_definition,
+                substitution: required_substitution,
+            } = requirement_data.as_ref()
+            {
+                let Some(fulfillment) = fulfillment.resolved_type() else {
+                    return Ok(false);
+                };
+
+                let fulfillment_data = values.type_data(fulfillment);
+
+                let TypeData::Named {
+                    definition: provided_definition,
+                    substitution: provided_substitution,
+                } = fulfillment_data.as_ref()
+                else {
+                    return Ok(false);
+                };
+
+                if required_definition != provided_definition {
+                    return Ok(false);
+                }
+
+                let required = values.generic_substitution_data(*required_substitution);
+                let provided = values.generic_substitution_data(*provided_substitution);
+
+                if required.bindings().len() != provided.bindings().len() {
+                    return Ok(false);
+                }
+
+                for (required, provided) in required.bindings().iter().zip(provided.bindings()) {
+                    match (required.argument(), provided.argument()) {
+                        (GenericArgument::Type(required), GenericArgument::Type(provided)) => {
+                            if !type_templates_are_compatible(
+                                values,
+                                subject,
+                                trait_application,
+                                fulfillment_context,
+                                generic_substitution,
+                                &TypeExpressionTemplate::Resolved(required),
+                                &TypeExpressionTemplate::Resolved(provided),
+                                type_bindings,
+                            )? {
+                                return Ok(false);
+                            }
+                        }
+                        (required, provided) if required == provided => {}
+                        _ => return Ok(false),
+                    }
+                }
+
+                return Ok(true);
+            }
 
             if let TypeData::Nullable(requirement) = requirement_data.as_ref() {
                 let Some(fulfillment) = fulfillment.resolved_type() else {

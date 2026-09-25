@@ -4,7 +4,7 @@ The standard library can provide operations whose contracts are known to the com
 
 The exact recognized identities are listed by the [conformance catalog](conformance-catalog.md).
 
-`std.convert<Target, Source>(source)` returns `Result<Target, Source(CheckedConvertTo<Target>).Error>`.
+`std.convert<Target, Source>(source)` is an ordinary standard-library facade over `CheckedConvertTo<Target>` and is not compiler-recognized.
 
 The recognized numeric-policy operations are `std.round_to`, `std.truncate_to`, `std.saturate_to`, and `std.wrap_to`.
 

@@ -164,12 +164,13 @@ The standard library fallible conversion operation is `std.convert<Target>(sourc
 [Compiler-known declarations and standard library recognition](../compiler-known-and-standard-library.md) defines
 visibility and compiler recognition for standard-library operations.
 
-For built-in fallible scalar conversions, `E` is the compiler-known `ConversionError` type.
+The participating `CheckedConvertTo<Target>` implementation selects `E` through its `Error` type member.
 
-`ConversionError` reports the built-in conversion failure category as `OutOfRange`, `NonFinite`, or `NonRepresentable`.
+The standard library provides `std.numeric.IntegerCheckedConversion` for integer sources and targets. Consumers make
+that implementation and the source and target `std.numeric.Integer` implementations visible with `using` declarations.
+It selects the compiler-known `ConversionError` type and returns `ConversionError.OutOfRange` when the value does not fit.
 
-For user-defined fallible conversions, `E` is the selected `Error` type from the `CheckedConvertTo<Target>`
-implementation.
+Other fallible conversions may select their own error types.
 
 User-defined fallible conversions are declared by implementing `CheckedConvertTo<Target>` for the source type.
 
@@ -196,15 +197,19 @@ impl TextToPort = string(CheckedConvertTo<Port>)
 For a source expression of type `S`, `source as T` selects `S(ConvertTo<T>)` when no built-in recursive conversion rule
 applies.
 
-For a source expression of type `S`, `std.convert<T>(source)` selects `S(CheckedConvertTo<T>)` when no built-in fallible
-conversion rule applies.
+For a source expression of type `S`, `std.convert<T>(source)` selects `S(CheckedConvertTo<T>)`.
 
 ```bray
+using std.numeric.I32Integer;
+using std.numeric.U8Integer;
+using std.numeric.IntegerCheckedConversion;
+
 let parsed: Result<Port, ParseError> = std.convert<Port>(text);
 let port: Port = try std.convert<Port>(text);
 
-let narrowed: Result<i32, ConversionError> = std.convert<i32>(value);
-let count: i32 = try std.convert<i32>(value);
+let value: i32 = 42;
+let narrowed: Result<u8, ConversionError> = std.convert<u8>(value);
+let count: u8 = try std.convert<u8>(value);
 ```
 
 `try` does not select a conversion.

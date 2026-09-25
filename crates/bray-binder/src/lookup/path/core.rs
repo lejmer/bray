@@ -1016,6 +1016,25 @@ mod tests {
     }
 
     #[test]
+    fn imported_package_root_module_exposes_its_direct_declarations() {
+        let imported = bray_symbols::testing::imported_lookup_fixture(
+            "dependency",
+            "dependency",
+            SymbolKind::Function,
+            "convert",
+        );
+
+        let (result, output) = bind_imported_surface_path(
+            &imported,
+            "module app; using dependency.convert; const ready: bool = true;",
+            "dependency.convert",
+        );
+
+        assert_eq!(result, MemberLookupResult::Found(imported.declaration));
+        assert!(output.diagnostics().is_empty());
+    }
+
+    #[test]
     fn imported_reexports_follow_the_exporting_module_lookup_edge() {
         let imported = bray_symbols::testing::imported_reexport_lookup_fixture(
             "dependency",
@@ -1038,7 +1057,7 @@ mod tests {
         );
 
         let (result, output) =
-            bind_imported_surface_path(&imported, "module app; const ready: bool = true;");
+            bind_imported_surface_path(&imported, "module app; const ready: bool = true;", "dependency.api.DisplayVec");
 
         assert_eq!(result, MemberLookupResult::NotFound);
 
@@ -1687,6 +1706,7 @@ mod tests {
                 "using dependency.api;\n",
                 "const ready: bool = true;",
             ),
+            "dependency.api.DisplayVec",
         );
 
         assert_eq!(result, MemberLookupResult::Found(imported.declaration));
@@ -1696,6 +1716,7 @@ mod tests {
     fn bind_imported_surface_path(
         imported: &bray_symbols::testing::ImportedLookupFixture,
         source: &str,
+        path_name: &str,
     ) -> (NameLookupResult<AnySymbolId>, crate::binder::BinderOutput) {
         let query_fixture = QueryFixture::from_source(source);
         let binding_context = query_fixture.context_with_imported(&imported.symbols);
@@ -1709,7 +1730,7 @@ mod tests {
         let context = PathBindingContext::new(root, module, owner, NameAccess::Public);
         let mut binder = Binder::new(&binding_context, unit);
 
-        let implementation_path = path("dependency.api.DisplayVec");
+        let implementation_path = path(path_name);
 
         let result = binder
             .bind_surface_path(context, &implementation_path)

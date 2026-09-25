@@ -7,6 +7,10 @@
 ```bray
 module conversion_example;
 
+using std.numeric.I32Integer;
+using std.numeric.U8Integer;
+using std.numeric.IntegerCheckedConversion;
+
 impl PortToU16 = Port(ConvertTo<u16>)
 {
     consume func convert() -> u16
@@ -50,19 +54,19 @@ func convert_structures(sources: ConversionSources)
     let constructed_complex: c128 = sources.complex_parts as c128;
 }
 
-func convert_with_policy(text: string, measured: r64) -> Result<Port, ParseError>
+func convert_with_policy(text: string, measured: i32, real: r64) -> Result<Port, ParseError>
 {
-    let narrowed: Result<i32, ConversionError> = std.convert<i32>(measured);
-    let rounded: r32 = std.round_to<r32>(measured, rule = NearestEven);
-    let truncated: i32 = std.truncate_to<i32>(measured);
-    let saturated: u8 = std.saturate_to<u8>(measured);
-    let wrapped: u8 = std.wrap_to<u8>(measured);
+    let narrowed: Result<u8, ConversionError> = std.convert<u8>(measured);
+    let rounded: r32 = std.round_to<r32>(real, rule = NearestEven);
+    let truncated: i32 = std.truncate_to<i32>(real);
+    let saturated: u8 = std.saturate_to<u8>(real);
+    let wrapped: u8 = std.wrap_to<u8>(real);
 
     return try std.convert<Port>(text);
 }
 ```
 
-Plain conversion recursively preserves tuple arity, array length, and nullable presence. A two-element tuple converts to a complex value as its real and imaginary components. User-defined `ConvertTo<Target>` and `CheckedConvertTo<Target>` implementations follow ordinary implementation selection.
+Plain conversion recursively preserves tuple arity, array length, and nullable presence. A two-element tuple converts to a complex value as its real and imaginary components. `ConvertTo<Target>` and `CheckedConvertTo<Target>` implementations follow ordinary implementation selection. Checked integer conversions require the named standard-library implementation and the matching `Integer` implementations to participate.
 
 A conversion consumes its source unless copying or explicit borrowing applies. The target is always written in the operation, expected types do not select it, and conversion never introduces implicit coercion for calls, assignment, operators, overloads, construction, or patterns.
 

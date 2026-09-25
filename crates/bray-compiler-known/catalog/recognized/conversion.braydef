@@ -1,15 +1,6 @@
 catalog recognized_standard_library revision 1;
 
 scope StandardRoot at std {
-    declaration StandardConvert {
-        identity name convert;
-
-        surface {
-            func convert<Target, Source>(
-                pos source: Source,
-            ) -> Result<Target, Source(CheckedConvertTo<Target>).Error>;
-        }
-    }
 
     declaration StandardRoundingRule {
         identity name RoundingRule;

@@ -178,3 +178,32 @@ internal func present<Value>(pos value: Value) -> Value?
 
     return result;
 }
+
+/// Converts between integer representations, reporting `OutOfRange` when the value does not fit.
+impl IntegerCheckedConversion = Source(CheckedConvertTo<Target>)
+    with(
+        Source: Integer,
+        Source: Comparable<Source>,
+        Source: Copyable,
+        Source: Equatable<Source>,
+        Target: Integer,
+        Target: Comparable<Target>,
+        Target: Copyable,
+    )
+{
+    type Error = ConversionError;
+
+    consume func convert_checked() -> Result<Target, ConversionError>
+    {
+        let converted: Target = std.truncate_to<Target>(self);
+        let source_negative: bool = self < self.bounds().zero;
+        let target_negative: bool = converted < converted.bounds().zero;
+
+        if source_negative != target_negative || std.truncate_to<Source>(converted) != self
+        {
+            return Error(ConversionError.OutOfRange);
+        }
+
+        return Ok(converted);
+    }
+}

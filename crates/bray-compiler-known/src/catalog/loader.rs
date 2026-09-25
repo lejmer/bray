@@ -535,7 +535,7 @@ mod tests {
 
         assert_eq!(
             catalog.recognized_standard_library_declarations().len(),
-            145
+            144
         );
 
         let raw_pointer = declaration(&catalog, "RawPointer");
@@ -681,16 +681,6 @@ mod tests {
                 ("UnitValue", RepresentationRole::UnitValue),
             ]
         );
-
-        let recognized = catalog
-            .recognized_standard_library_declarations()
-            .iter()
-            .find(|declaration| declaration.key().as_str() == "StandardConvert")
-            .unwrap_or_else(|| panic!("recognized catalog must contain StandardConvert"));
-
-        assert_eq!(recognized.key().as_str(), "StandardConvert");
-        assert_eq!(recognized.kind(), CatalogDeclarationKind::Function);
-        assert_eq!(recognized.identity().name(), Some("convert"));
     }
 
     #[test]
