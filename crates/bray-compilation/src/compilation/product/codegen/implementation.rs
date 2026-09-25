@@ -2359,13 +2359,14 @@ mod tests {
 
         assert_eq!(publish(&first_compilation, &first), publish(&second_compilation, &second));
 
-        let changed_source = CONCRETE_GENERIC_SOURCE.replace("repeat<2>()", "repeat<3>()");
+        let changed_source = CONCRETE_GENERIC_SOURCE.replace("return count;", "return 12345;");
 
         let (changed_backend, changed_compilation) =
             codegen_compilation_for_product(&changed_source, ProductKind::Library);
 
         let changed = plan(&changed_compilation);
 
+        assert_eq!(native_partition_recipe(&first), native_partition_recipe(&changed));
         assert_ne!(identities(&first), identities(&changed));
 
         assert_ne!(
