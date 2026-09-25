@@ -2170,6 +2170,41 @@ mod tests {
     }
 
     #[test]
+    fn concrete_literal_array_length_reaches_native_codegen() {
+        let source = r#"
+            module app;
+            struct Guard
+            {
+                id: i32;
+
+                destruct() {}
+            }
+            func make_guard(pos id: i32) -> Guard
+            {
+                return Guard { id = id };
+            }
+            func main()
+            {
+                let guards = box([
+                    [make_guard(1), make_guard(2)],
+                    [make_guard(3), make_guard(4)],
+                ]);
+            }
+        "#;
+
+        let (backend, plan) = runtime_native_plan(source);
+
+        let artifacts = generated_artifacts(&backend, &plan);
+        assert!(!artifacts.is_empty());
+
+        assert!(
+            artifacts
+                .iter()
+                .all(|artifact| !artifact.is_empty())
+        );
+    }
+
+    #[test]
     fn compile_only_emission_preserves_specialized_cleanup_mir() {
         let source = r#"
             module app;

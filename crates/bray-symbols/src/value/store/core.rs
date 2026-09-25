@@ -734,6 +734,108 @@ mod tests {
     }
 
     #[test]
+    fn only_array_lengths_accept_concrete_integer_literal_terms() {
+        let store = store();
+        let owner = generic_owner(StructSymbolId::from_symbol_id(SymbolId::new(70)).into());
+        let type_parameter = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(71));
+        let const_parameter = GenericConstParameterSymbolId::from_symbol_id(SymbolId::new(72));
+        let concrete = concrete_named_type(&store, 73);
+
+        let open = store
+            .intern_type(TypeData::TypeParameter(type_parameter))
+            .unwrap();
+
+        let literal = store
+            .intern_constant_term(ConstantTermData::IntegerLiteral {
+                ty: crate::TargetSizedIntegerType::Usize,
+                value: IntegerConstant::from_u64(2),
+            })
+            .unwrap();
+
+        let typed = store
+            .intern_constant_term(ConstantTermData::Typed {
+                term: literal,
+                ty: concrete,
+            })
+            .unwrap();
+
+        let open_typed = store
+            .intern_constant_term(ConstantTermData::Typed {
+                term: literal,
+                ty: open,
+            })
+            .unwrap();
+
+        let parameter = store
+            .intern_constant_term(ConstantTermData::Parameter(const_parameter))
+            .unwrap();
+
+        let value = store
+            .intern_constant_value(ConstantValueData::new(
+                concrete,
+                ConstantValueKind::Integer(IntegerConstant::from_u64(2)),
+            ))
+            .unwrap();
+
+        let materialized = store
+            .intern_constant_term(ConstantTermData::Value(value))
+            .unwrap();
+
+        let typed_materialized = store
+            .intern_constant_term(ConstantTermData::Typed {
+                term: materialized,
+                ty: concrete,
+            })
+            .unwrap();
+
+        let error_value = store
+            .intern_error_constant_value(concrete)
+            .unwrap();
+
+        let error = store
+            .intern_constant_term(ConstantTermData::Value(error_value))
+            .unwrap();
+
+        for (term, array_concrete, const_concrete) in [
+            (literal, true, false),
+            (typed, true, false),
+            (open_typed, false, false),
+            (parameter, false, false),
+            (materialized, true, true),
+            (typed_materialized, true, false),
+            (error, false, false),
+        ] {
+            let array = store
+                .intern_type(TypeData::Array {
+                    element: concrete,
+                    length: term,
+                })
+                .unwrap();
+
+            for (parameter, argument, expected) in [
+                (
+                    GenericParameterSymbolId::from(type_parameter),
+                    GenericArgument::Type(array),
+                    array_concrete,
+                ),
+                (
+                    GenericParameterSymbolId::from(const_parameter),
+                    GenericArgument::Constant(term),
+                    const_concrete,
+                ),
+            ] {
+                let substitution = store
+                    .intern_generic_substitution(
+                        GenericSubstitutionData::try_new(owner, [parameter], [argument]).unwrap(),
+                    )
+                    .unwrap();
+
+                assert_eq!(store.substitution_is_concrete(substitution), expected);
+            }
+        }
+    }
+
+    #[test]
     fn application_substitutions_must_belong_to_the_definition() {
         let store = store();
 
