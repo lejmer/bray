@@ -26,9 +26,10 @@ pub(in crate::compilation) fn structural_type_identity(
 }
 
 pub(super) struct StructuralValueEncoder<'binding_context, 'compilation> {
-    values: &'binding_context SemanticValueStore,
-    binding_context: &'binding_context CompilationBindingContext<'compilation>,
+    pub(super) values: &'binding_context SemanticValueStore,
+    pub(super) binding_context: &'binding_context CompilationBindingContext<'compilation>,
     pub(super) digest: StableDigestHasher,
+    pub(super) allow_static_address: bool,
 }
 
 impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'compilation> {
@@ -71,6 +72,7 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
             values,
             binding_context,
             digest: StableDigestHasher::new(),
+            allow_static_address: false,
         };
 
         encoder.bytes(domain);
@@ -88,7 +90,7 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
         })
     }
 
-    fn ty(&mut self, id: TypeId) -> Result<(), FactQueryError> {
+    pub(super) fn ty(&mut self, id: TypeId) -> Result<(), FactQueryError> {
         let data = self.values.type_data(id);
 
         match data.as_ref() {
@@ -318,19 +320,24 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
         Ok(())
     }
 
-    fn constant_value(&mut self, id: ConstantValueId) -> Result<(), FactQueryError> {
+    pub(super) fn constant_value(&mut self, id: ConstantValueId) -> Result<(), FactQueryError> {
         let data = self.values.constant_value_data(id);
 
         self.ty(data.ty())?;
 
         match data.kind() {
             ConstantValueKind::Error => self.tag(0),
-            ConstantValueKind::StaticAddress(_) => {
-                return Err(ProductQueryFailure::UnsupportedConstantValue {
-                    value: id,
-                    kind: data.kind().clone(),
+            ConstantValueKind::StaticAddress(reference) => {
+                if !self.allow_static_address {
+                    return Err(ProductQueryFailure::UnsupportedConstantValue {
+                        value: id,
+                        kind: data.kind().clone(),
+                    }
+                    .into());
                 }
-                .into());
+
+                self.tag(14);
+                super::content::static_reference(self, reference)?;
             }
             ConstantValueKind::Boolean(value) => {
                 self.tag(1);
@@ -395,7 +402,7 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
         Ok(())
     }
 
-    fn substitution(&mut self, id: GenericSubstitutionId) -> Result<(), FactQueryError> {
+    pub(super) fn substitution(&mut self, id: GenericSubstitutionId) -> Result<(), FactQueryError> {
         let data = self.values.generic_substitution_data(id);
 
         self.symbol(data.owner().symbol())?;
@@ -419,7 +426,7 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
         Ok(())
     }
 
-    fn trait_application(&mut self, id: TraitApplicationId) -> Result<(), FactQueryError> {
+    pub(super) fn trait_application(&mut self, id: TraitApplicationId) -> Result<(), FactQueryError> {
         let data = self.values.trait_application_data(id);
 
         self.symbol(data.definition().into())?;
@@ -453,7 +460,7 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
         }
     }
 
-    fn implementation_instance(
+    pub(super) fn implementation_instance(
         &mut self,
         id: ImplementationInstanceId,
     ) -> Result<(), FactQueryError> {
@@ -514,7 +521,7 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
         Ok(())
     }
 
-    fn dependency_contract(
+    pub(super) fn dependency_contract(
         &mut self,
         id: DependencyContractTemplateId,
     ) -> Result<(), FactQueryError> {
@@ -534,6 +541,7 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
                 values: self.values,
                 binding_context: self.binding_context,
                 digest: StableDigestHasher::new(),
+                allow_static_address: self.allow_static_address,
             };
 
             encoder.dependency_requirement(requirement)?;
@@ -860,6 +868,7 @@ mod tests {
                         values,
                         binding_context: &context,
                         digest: bray_base::StableDigestHasher::new(),
+                        allow_static_address: false,
                     };
 
                     combined.extend(
@@ -885,6 +894,7 @@ mod tests {
                 values,
                 binding_context: &context,
                 digest: bray_base::StableDigestHasher::new(),
+                allow_static_address: false,
             };
 
             encoder.dependency_contract(combined).unwrap();

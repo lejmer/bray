@@ -1,3 +1,6 @@
+use std::hash::Hash;
+
+use bray_base::StableDigestHasher;
 use bray_ir::{
     MirBlockKind, MirSourceAnchor, MirTargetContract, MirTerminatorKind, MirUnit, MirUnitBuilder,
     MirUnitKind,
@@ -13,6 +16,15 @@ use bray_symbols::{PackageIdentity, ProductIdentity, SemanticValueStore, TypeDat
 use bray_target::TargetIdentity;
 
 use crate::test_bound_unit_with_declaration;
+
+/// Hashes exact test MIR when no semantic value context is available.
+pub fn test_mir_content_identity(unit: &MirUnit) -> [u8; 32] {
+    let mut hasher = StableDigestHasher::new();
+
+    unit.hash(&mut hasher);
+
+    hasher.finalize()
+}
 
 /// Builds one valid single-block MIR unit with a deterministic semantic identity.
 pub fn test_mir_unit(unit: u32) -> MirUnit {

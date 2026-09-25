@@ -28,7 +28,7 @@ pub use mir_unit::{
     test_async_executable_host_contract, test_async_executable_host_contract_for,
     test_async_executable_host_contract_for_frame, test_executable_host_contract,
     test_executable_host_contract_for, test_executable_host_contract_with_result, test_mir_target,
-    test_mir_type, test_mir_unit, test_mir_unit_for_target, test_mir_unit_with_declaration,
+    test_mir_content_identity, test_mir_type, test_mir_unit, test_mir_unit_for_target, test_mir_unit_with_declaration,
     test_mir_unit_with_declaration_for_target,
 };
 pub use panic::panic_payload_text;

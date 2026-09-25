@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bray_codegen::{
@@ -84,7 +85,24 @@ impl Compilation {
             .into_iter()
             .collect::<Result<Vec<_>, _>>()?;
 
-        CodegenUnit::try_from_key(key, instances).map_err(CodegenPreparationError::InvalidUnit)
+        let mut identities = BTreeMap::new();
+
+        for instance in &instances {
+            let mir = instance.mir();
+
+            if !identities.contains_key(&mir.unit()) {
+                identities.insert(
+                    mir.unit(),
+                    super::product::mir_content_identity(self, mir)
+                        .map_err(CodegenPreparationError::Query)?,
+                );
+            }
+        }
+
+        CodegenUnit::try_from_key(key, instances, |mir| {
+            *identities.get(&mir.unit()).expect("planned MIR identity must be prepared")
+        })
+        .map_err(CodegenPreparationError::InvalidUnit)
     }
 
     pub(in crate::compilation) fn codegen_mir_for_plan(
@@ -516,6 +534,7 @@ mod tests {
             CodegenPartitionPolicy::NATIVE_BALANCED,
             codegen_partition_compatibility(),
             [mir],
+            |mir| crate::compilation::product::mir_content_identity(&compilation, mir).unwrap_or_else(|error| panic!("test MIR identity must resolve: {error:?}")),
         )
         .unwrap_or_else(|error| panic!("test codegen unit must validate: {error:?}"));
 

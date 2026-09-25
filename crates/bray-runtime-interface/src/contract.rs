@@ -1,4 +1,5 @@
 use std::num::NonZeroU32;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use bray_symbols::{ProductIdentity, TypeId, UnionVariantSymbolId};
@@ -289,6 +290,40 @@ impl ExecutableHostContractBuilder {
 }
 
 impl ExecutableHostContract {
+    /// Hashes the complete host contract with structural identities for semantic result types.
+    pub fn hash_with_structural_types<H: Hasher, E>(
+        &self,
+        state: &mut H,
+        mut type_identity: impl FnMut(TypeId) -> Result<[u8; 32], E>,
+    ) -> Result<(), E> {
+        self.data.product.hash(state);
+        self.data.native_entry.hash(state);
+        self.data.entries.len().hash(state);
+
+        for entry in self.data.entries.iter() {
+            entry.root.hash(state);
+            entry.root_frame_adapter.hash(state);
+
+            match entry.result {
+                ExecutableEntryResult::Unit => 0u8.hash(state),
+                ExecutableEntryResult::I32 => 1u8.hash(state),
+                ExecutableEntryResult::Fallible { ty, error, success_variant } => {
+                    2u8.hash(state);
+                    type_identity(ty)?.hash(state);
+                    type_identity(error)?.hash(state);
+                    success_variant.hash(state);
+                }
+            }
+        }
+
+        self.data.requirements.hash(state);
+        self.data.runtime.hash(state);
+        self.data.host_role_bindings.hash(state);
+        self.data.capacity_limits.hash(state);
+
+        Ok(())
+    }
+
     /// Returns the product owned and observed by this host stub.
     pub fn product(&self) -> &ProductIdentity {
         &self.data.product

@@ -15,6 +15,7 @@ pub fn partition_codegen_units(
     policy: CodegenPartitionPolicy,
     reachability: &CodegenReachability,
     compatibility: impl Fn(&CodegenInstance) -> Option<CodegenPartitionCompatibility>,
+    mir_content_identity: impl Fn(&bray_ir::MirUnit) -> [u8; 32],
 ) -> Result<Arc<[CodegenUnit]>, CodegenPartitionError> {
     let instances = reachability.instances();
 
@@ -62,9 +63,10 @@ pub fn partition_codegen_units(
                 &mut current_compatibility,
                 &mut current_target,
                 &mut units,
+                &mir_content_identity,
             )?;
 
-            units.push(group.into_indivisible_unit(policy)?);
+            units.push(group.into_indivisible_unit(policy, &mir_content_identity)?);
             continue;
         };
 
@@ -81,6 +83,7 @@ pub fn partition_codegen_units(
                 &mut current_compatibility,
                 &mut current_target,
                 &mut units,
+                &mir_content_identity,
             )?;
         }
 
@@ -89,6 +92,7 @@ pub fn partition_codegen_units(
                 policy,
                 group.instances.into_iter().cloned(),
                 |_| Some(group_compatibility.clone()),
+                &mir_content_identity,
             )
             .map_err(CodegenPartitionError::InvalidUnit)?;
 
@@ -111,6 +115,7 @@ pub fn partition_codegen_units(
                 &mut current_compatibility,
                 &mut current_target,
                 &mut units,
+                &mir_content_identity,
             )?;
         }
     }
@@ -122,6 +127,7 @@ pub fn partition_codegen_units(
         &mut current_compatibility,
         &mut current_target,
         &mut units,
+        &mir_content_identity,
     )?;
 
     Ok(shared_slice(units))
@@ -189,6 +195,7 @@ fn finish_unit(
     current_compatibility: &mut Option<CodegenPartitionCompatibility>,
     current_target: &mut Option<&bray_ir::MirTargetContract>,
     units: &mut Vec<CodegenUnit>,
+    mir_content_identity: &impl Fn(&bray_ir::MirUnit) -> [u8; 32],
 ) -> Result<(), CodegenPartitionError> {
     if current.is_empty() {
         return Ok(());
@@ -207,7 +214,7 @@ fn finish_unit(
     *current_target = None;
 
     units.push(
-        CodegenUnit::try_from_instances(policy, compatibility, instances)
+        CodegenUnit::try_from_instances(policy, compatibility, instances, mir_content_identity)
             .map_err(CodegenPartitionError::InvalidUnit)?,
     );
 
@@ -303,6 +310,7 @@ impl<'a> PartitionGroup<'a> {
     fn into_indivisible_unit(
         self,
         policy: CodegenPartitionPolicy,
+        mir_content_identity: &impl Fn(&bray_ir::MirUnit) -> [u8; 32],
     ) -> Result<CodegenUnit, CodegenPartitionError> {
         let compatibility: BTreeMap<_, _> = self
             .instances
@@ -321,6 +329,7 @@ impl<'a> PartitionGroup<'a> {
                     .get(instance.key())
                     .map(|value| (*value).clone())
             },
+            mir_content_identity,
         )
         .map_err(CodegenPartitionError::InvalidUnit)
     }
@@ -393,7 +402,7 @@ mod tests {
     use bray_runtime_interface::RuntimeAbiVersion;
     use bray_symbols::PackageIdentity;
     use bray_testing::{
-        test_mir_target, test_mir_unit, test_mir_unit_for_target, test_mir_unit_with_declaration,
+        test_mir_content_identity, test_mir_target, test_mir_unit, test_mir_unit_for_target, test_mir_unit_with_declaration,
     };
 
     use super::partition_codegen_units;
@@ -575,7 +584,7 @@ mod tests {
             };
 
             Some(compatibility(package, CodegenLinkage::Internal))
-        })
+        }, test_mir_content_identity)
         .unwrap_or_else(|error| panic!("required group must partition: {error:?}"));
 
         assert_eq!(units.len(), 1);
@@ -652,7 +661,7 @@ mod tests {
         let units =
             partition_codegen_units(CodegenPartitionPolicy::NATIVE_BALANCED, &graph, |_| {
                 Some(compatibility(1, CodegenLinkage::Internal))
-            })
+            }, test_mir_content_identity)
             .unwrap_or_else(|error| panic!("external dependency must partition: {error:?}"));
 
         assert_eq!(units.len(), 1);
@@ -737,7 +746,7 @@ mod tests {
         );
 
         let reconstructed =
-            crate::CodegenUnit::try_from_key(units[0].key(), units[0].instances().iter().cloned())
+            crate::CodegenUnit::try_from_key(units[0].key(), units[0].instances().iter().cloned(), test_mir_content_identity)
                 .unwrap_or_else(|error| panic!("oversized unit must reconstruct: {error:?}"));
 
         assert_eq!(reconstructed, units[0]);
@@ -750,7 +759,7 @@ mod tests {
     ) -> Arc<[crate::CodegenUnit]> {
         let graph = graph(instances);
 
-        partition_codegen_units(policy, &graph, |instance| Some(compatibility(instance)))
+        partition_codegen_units(policy, &graph, |instance| Some(compatibility(instance)), test_mir_content_identity)
             .unwrap_or_else(|error| panic!("test partitions must validate: {error:?}"))
     }
 

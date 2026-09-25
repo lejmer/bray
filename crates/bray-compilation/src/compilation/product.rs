@@ -11,7 +11,7 @@ mod visibility;
 
 pub use codegen::{NativeProductPlan, NativeProductPlanningError};
 pub(in crate::compilation) use codegen::{
-    codegen_preparation_failure_kind, native_product_preparation_diagnostic,
+    codegen_preparation_failure_kind, mir_content_identity, native_product_preparation_diagnostic,
 };
 pub(crate) use codegen::{NativeDemand, NativeDemandReason};
 pub(crate) use error::{

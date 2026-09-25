@@ -1,6 +1,9 @@
 // rust-style: allow(module-too-large, reason = "the executable MIR wire encoder keeps one exhaustive operation and terminator mapping")
 
 use std::sync::Arc;
+use std::hash::Hash;
+
+use bray_base::StableDigestHasher;
 
 use bray_bound_tree::{
     BoundCallResult, BoundUnitKey, CheckedMemoryOperationKind, ConstructionInputId,
@@ -10,7 +13,7 @@ use bray_bound_tree::{
 use bray_ir::{
     MirAggregateKind, MirBinaryOperator, MirBlockKind, MirCall, MirCallArgument, MirCallTarget,
     MirCleanupEdge, MirCleanupPhase, MirConstructionInput, MirEdge, MirGeneratorKind,
-    MirGeneratorOperation, MirImmediateValue, MirMemoryOperation, MirNumericConversionKind,
+    MirGeneratorOperation, MirHostOperation, MirImmediateValue, MirMemoryOperation, MirNumericConversionKind,
     MirOperand, MirOperationKind, MirPanicCause, MirPatternPredicate, MirPlace, MirProjectionKind,
     MirRuntimeReference, MirStorageKind, MirStoreKind, MirSwitchCase, MirTerminatorKind,
     MirTextOperation, MirTextOperationKind, MirUnaryOperator, MirUnit, MirUnitKind, MirValueOrigin,
@@ -102,12 +105,36 @@ pub fn encode_executable_template<C: ExecutableTemplateEncodeContext>(
     unit: &MirUnit,
     context: &mut C,
 ) -> Result<Arc<[u8]>, ExecutableTemplateEncodeError<C::Error>> {
+    encode_unit(unit, context, EncodingPurpose::InterfaceTemplate)
+}
+
+/// Encodes complete MIR structure using caller-supplied semantic reference identities.
+pub fn encode_codegen_mir<C: ExecutableTemplateEncodeContext>(
+    unit: &MirUnit,
+    context: &mut C,
+) -> Result<Arc<[u8]>, ExecutableTemplateEncodeError<C::Error>> {
+    encode_unit(unit, context, EncodingPurpose::CodegenContent)
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum EncodingPurpose {
+    InterfaceTemplate,
+    CodegenContent,
+}
+
+fn encode_unit<C: ExecutableTemplateEncodeContext>(
+    unit: &MirUnit,
+    context: &mut C,
+    purpose: EncodingPurpose,
+) -> Result<Arc<[u8]>, ExecutableTemplateEncodeError<C::Error>> {
     let mut encoder = Encoder {
         wire: WireEncoder::new(),
         context,
+        purpose,
     };
 
     encoder.wire.write_u32(FORMAT_VERSION);
+
     encoder.target(unit.target());
     encoder.unit_kind(unit.kind())?;
     encoder.wire.write_u32(unit.entry().slot());
@@ -180,6 +207,7 @@ pub(super) fn encode_projection_for_test<C: ExecutableTemplateEncodeContext>(
     let mut encoder = Encoder {
         wire: WireEncoder::new(),
         context,
+        purpose: EncodingPurpose::InterfaceTemplate,
     };
 
     encoder.projection_kind(projection)?;
@@ -204,6 +232,7 @@ pub fn encode_pre_specialized_mir<C: ExecutableTemplateEncodeContext>(
 struct Encoder<'context, C> {
     wire: WireEncoder,
     context: &'context mut C,
+    purpose: EncodingPurpose,
 }
 
 impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
@@ -317,6 +346,12 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.wire.write_u32(1);
                 self.wire.write_bytes(&frame.digest());
             }
+            MirUnitKind::ExecutableHost(_) if self.purpose == EncodingPurpose::CodegenContent => {
+                self.wire.write_u32(2);
+            }
+            MirUnitKind::GeneratedLifecycle(_) if self.purpose == EncodingPurpose::CodegenContent => {
+                self.wire.write_u32(3);
+            }
             MirUnitKind::ExecutableHost(_) | MirUnitKind::GeneratedLifecycle(_) => {
                 return Err(ExecutableTemplateEncodeError::InvalidUnitKind);
             }
@@ -361,6 +396,14 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             self.symbol(reference.template().declaration().into())?;
             self.substitution(reference.substitution())?;
 
+            if self.purpose == EncodingPurpose::CodegenContent {
+                let mut target_identity = StableDigestHasher::new();
+
+                reference.target().hash(&mut target_identity);
+
+                self.wire.write_bytes(&target_identity.finalize());
+            }
+
             let witnesses: &[ImplementationInstanceId] = match &reference {
                 bray_symbols::StaticReferenceSelection::Open {
                     selected_witnesses, ..
@@ -386,14 +429,34 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
     ) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
         match operation {
             MirOperationKind::AnonymousCallable(reference) => {
-                let bray_ir::MirAnonymousCallableReference::Bound(unit) = reference else {
-                    return Err(ExecutableTemplateEncodeError::InvalidUnitKind);
-                };
-
-                let identity = Self::semantic(self.context.nested_executable_id(unit))?;
-
                 self.wire.write_u32(20);
-                self.wire.write_u32(identity.raw());
+
+                match reference {
+                    bray_ir::MirAnonymousCallableReference::Bound(unit) => {
+                        if self.purpose == EncodingPurpose::CodegenContent {
+                            self.wire.write_u32(0);
+                        }
+
+                        let identity = Self::semantic(self.context.nested_executable_id(unit))?;
+
+                        self.wire.write_u32(identity.raw());
+                    }
+                    bray_ir::MirAnonymousCallableReference::Imported(key)
+                        if self.purpose == EncodingPurpose::CodegenContent =>
+                    {
+                        self.wire.write_u32(1);
+                        self.symbol(key.owner())?;
+                        self.wire.write_u32(key.template().raw());
+
+                        let mut role = StableDigestHasher::new();
+
+                        key.platform_service().hash(&mut role);
+                        self.wire.write_bytes(&role.finalize());
+                    }
+                    bray_ir::MirAnonymousCallableReference::Imported(_) => {
+                        return Err(ExecutableTemplateEncodeError::InvalidUnitKind);
+                    }
+                }
             }
             MirOperationKind::DeclaredCallable(callable) => {
                 self.wire.write_u32(19);
@@ -530,8 +593,77 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.ty(*ty)?;
                 self.runtime_reference(*runtime);
             }
+            MirOperationKind::Host(operation)
+                if self.purpose == EncodingPurpose::CodegenContent =>
+            {
+                self.wire.write_u32(24);
+                self.host_operation(operation)?;
+            }
             MirOperationKind::Host(_) => {
                 return Err(ExecutableTemplateEncodeError::InvalidUnitKind);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn host_operation(
+        &mut self,
+        operation: &MirHostOperation,
+    ) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
+        match operation {
+            MirHostOperation::MaterializeStatic { place } => {
+                self.wire.write_u32(0);
+                self.place(place)?;
+            }
+            MirHostOperation::SelectTestEntry { entry, runtime } => {
+                self.wire.write_u32(1);
+                self.wire.write_u32(entry.slot());
+                self.runtime_reference(*runtime);
+            }
+            MirHostOperation::ExecuteRoot { entry, root, execution, runtime } => {
+                self.wire.write_u32(2);
+                self.wire.write_u32(entry.slot());
+
+                let mut identity = StableDigestHasher::new();
+
+                root.hash(&mut identity);
+                execution.hash(&mut identity);
+                self.wire.write_bytes(&identity.finalize());
+                self.runtime_reference(*runtime);
+            }
+            MirHostOperation::ObserveRootTerminal { entry, runtime } => {
+                self.wire.write_u32(3);
+                self.wire.write_u32(entry.slot());
+                self.runtime_reference(*runtime);
+            }
+            MirHostOperation::ResolveRootTerminal {
+                entry,
+                error,
+                completion,
+                panic,
+                entry_failure,
+            } => {
+                self.wire.write_u32(4);
+                self.wire.write_u32(entry.slot());
+                write_bool(&mut self.wire, error.is_some());
+
+                if let Some(error) = error {
+                    self.ty(*error)?;
+                }
+
+                self.runtime_reference(*completion);
+                self.runtime_reference(*panic);
+                self.runtime_reference(*entry_failure);
+            }
+            MirHostOperation::BeginStaticCleanup => self.wire.write_u32(5),
+            MirHostOperation::ReportCleanupIncidents { runtime } => {
+                self.wire.write_u32(6);
+                self.runtime_reference(*runtime);
+            }
+            MirHostOperation::StructuredShutdown { runtime } => {
+                self.wire.write_u32(7);
+                self.runtime_reference(*runtime);
             }
         }
 

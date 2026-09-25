@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
@@ -17,7 +18,7 @@ struct CodegenUnitKeyData {
     oversized: Option<CodegenOversizedUnit>,
     target: MirTargetContract,
     recipe: Arc<CodegenUnitRecipe>,
-    // Distinct recipes sort before MIR hashes containing compilation-local value IDs.
+    // Distinct recipes sort before their content digests.
     content_identity: [u8; 32],
 }
 
@@ -25,12 +26,46 @@ struct CodegenUnitKeyData {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CodegenUnitKey(Arc<CodegenUnitKeyData>);
 
-#[derive(Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Debug)]
 struct CodegenUnitRecipe {
     instances: Arc<[CodegenInstanceKey]>,
     compatibilities: Arc<[CodegenPartitionCompatibility]>,
     mir_units: Arc<[MirUnitId]>,
     dependencies: Arc<[Arc<[CodegenInstanceDependency]>]>,
+}
+
+impl PartialEq for CodegenUnitRecipe {
+    fn eq(&self, other: &Self) -> bool {
+        self.instances == other.instances
+            && self.compatibilities == other.compatibilities
+            && self.dependencies == other.dependencies
+    }
+}
+
+impl Eq for CodegenUnitRecipe {}
+
+impl Hash for CodegenUnitRecipe {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.instances.hash(state);
+        self.compatibilities.hash(state);
+        self.dependencies.hash(state);
+    }
+}
+
+impl Ord for CodegenUnitRecipe {
+    fn cmp(&self, other: &Self) -> Ordering {
+        (&self.instances, &self.compatibilities, &self.dependencies).cmp(&(
+            &other.instances,
+            &other.compatibilities,
+            &other.dependencies,
+        ))
+    }
+}
+
+impl PartialOrd for CodegenUnitRecipe {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 impl CodegenUnitKey {
@@ -118,11 +153,13 @@ impl CodegenUnit {
         partition_policy: CodegenPartitionPolicy,
         compatibility: CodegenPartitionCompatibility,
         mir_units: impl IntoIterator<Item = MirUnit>,
+        mir_content_identity: impl Fn(&MirUnit) -> [u8; 32],
     ) -> Result<Self, CodegenUnitBuildError> {
         Self::try_from_instances(
             partition_policy,
             compatibility,
             mir_units.into_iter().map(CodegenInstance::non_generic),
+            mir_content_identity,
         )
     }
 
@@ -131,6 +168,7 @@ impl CodegenUnit {
         partition_policy: CodegenPartitionPolicy,
         compatibility: CodegenPartitionCompatibility,
         instances: impl IntoIterator<Item = CodegenInstance>,
+        mir_content_identity: impl Fn(&MirUnit) -> [u8; 32],
     ) -> Result<Self, CodegenUnitBuildError> {
         // Every recipe entry owns the Arc-backed package identity after this call returns.
         Self::try_from_partition(
@@ -138,6 +176,7 @@ impl CodegenUnit {
             instances,
             |_| Some(compatibility.clone()),
             false,
+            &mir_content_identity,
         )
     }
 
@@ -145,6 +184,7 @@ impl CodegenUnit {
     pub fn try_from_key(
         key: &CodegenUnitKey,
         instances: impl IntoIterator<Item = CodegenInstance>,
+        mir_content_identity: impl Fn(&MirUnit) -> [u8; 32],
     ) -> Result<Self, CodegenUnitBuildError> {
         let unit = Self::try_from_partition(
             key.partition_policy(),
@@ -152,6 +192,7 @@ impl CodegenUnit {
             // The reconstructed recipe owns compatibility independently of the plan key borrow.
             |instance| key.compatibility(instance.key()).cloned(),
             key.oversized().is_some(),
+            &mir_content_identity,
         )?;
 
         if unit.key() != key {
@@ -165,8 +206,15 @@ impl CodegenUnit {
         partition_policy: CodegenPartitionPolicy,
         instances: impl IntoIterator<Item = CodegenInstance>,
         compatibility: impl Fn(&CodegenInstance) -> Option<CodegenPartitionCompatibility>,
+        mir_content_identity: &impl Fn(&MirUnit) -> [u8; 32],
     ) -> Result<Self, CodegenUnitBuildError> {
-        Self::try_from_partition(partition_policy, instances, compatibility, true)
+        Self::try_from_partition(
+            partition_policy,
+            instances,
+            compatibility,
+            true,
+            mir_content_identity,
+        )
     }
 
     fn try_from_partition(
@@ -174,6 +222,7 @@ impl CodegenUnit {
         instances: impl IntoIterator<Item = CodegenInstance>,
         compatibility: impl Fn(&CodegenInstance) -> Option<CodegenPartitionCompatibility>,
         indivisible: bool,
+        mir_content_identity: &impl Fn(&MirUnit) -> [u8; 32],
     ) -> Result<Self, CodegenUnitBuildError> {
         let mut instances: Vec<_> = instances.into_iter().collect();
 
@@ -257,6 +306,7 @@ impl CodegenUnit {
             estimated_work,
             oversized,
             &instances,
+            mir_content_identity,
         );
 
         Ok(Self {
@@ -332,6 +382,7 @@ fn content_identity(
     estimated_work: CodegenWork,
     oversized: Option<CodegenOversizedUnit>,
     instances: &[CodegenInstance],
+    mir_content_identity: &impl Fn(&MirUnit) -> [u8; 32],
 ) -> [u8; 32] {
     let mut hasher = StableDigestHasher::new();
 
@@ -340,7 +391,13 @@ fn content_identity(
     compatibilities.hash(&mut hasher);
     estimated_work.hash(&mut hasher);
     oversized.hash(&mut hasher);
-    instances.hash(&mut hasher);
+    instances.len().hash(&mut hasher);
+
+    for instance in instances {
+        instance.key().hash(&mut hasher);
+        instance.dependencies().hash(&mut hasher);
+        mir_content_identity(instance.mir()).hash(&mut hasher);
+    }
 
     hasher.finalize()
 }
@@ -369,7 +426,7 @@ mod tests {
         MirUnitKind,
     };
     use bray_testing::{
-        test_bound_unit_with_declaration, test_mir_target, test_mir_type, test_mir_unit,
+        test_bound_unit_with_declaration, test_mir_content_identity, test_mir_target, test_mir_type, test_mir_unit,
         test_mir_unit_with_declaration,
     };
 
@@ -386,6 +443,7 @@ mod tests {
                 CodegenPartitionPolicy::NATIVE_BALANCED,
                 codegen_partition_compatibility(),
                 [],
+                test_mir_content_identity,
             ),
             Err(CodegenUnitBuildError::Empty)
         );
@@ -398,6 +456,7 @@ mod tests {
                 CodegenPartitionPolicy::NATIVE_BALANCED,
                 codegen_partition_compatibility(),
                 [first, duplicate],
+                test_mir_content_identity,
             ),
             Err(CodegenUnitBuildError::DuplicateInstance)
         );
@@ -409,12 +468,14 @@ mod tests {
             CodegenPartitionPolicy::NATIVE_BALANCED,
             codegen_partition_compatibility(),
             [test_mir_unit_with_declaration(8, 1), test_mir_unit(4)],
+            test_mir_content_identity,
         );
 
         let second = CodegenUnit::try_new(
             CodegenPartitionPolicy::NATIVE_BALANCED,
             codegen_partition_compatibility(),
             [test_mir_unit(4), test_mir_unit_with_declaration(8, 1)],
+            test_mir_content_identity,
         );
 
         assert_eq!(first, second);
@@ -426,6 +487,7 @@ mod tests {
             CodegenPartitionPolicy::NATIVE_BALANCED,
             codegen_partition_compatibility(),
             [test_mir_unit_with_declaration(40, 1)],
+            test_mir_content_identity,
         )
         .unwrap_or_else(|error| panic!("comparison unit must validate: {error:?}"));
 
@@ -434,6 +496,7 @@ mod tests {
                 CodegenPartitionPolicy::NATIVE_BALANCED,
                 codegen_partition_compatibility(),
                 [test_mir_unit_with_declaration(local_id, 0)],
+                test_mir_content_identity,
             )
             .unwrap_or_else(|error| panic!("renumbered unit must validate: {error:?}"));
 
@@ -456,6 +519,7 @@ mod tests {
             CodegenPartitionPolicy::NATIVE_BALANCED,
             codegen_partition_compatibility(),
             [without_storage],
+            test_mir_content_identity,
         )
         .unwrap_or_else(|error| panic!("storage-free unit must validate: {error:?}"));
 
@@ -463,6 +527,7 @@ mod tests {
             CodegenPartitionPolicy::NATIVE_BALANCED,
             codegen_partition_compatibility(),
             [with_storage],
+            test_mir_content_identity,
         )
         .unwrap_or_else(|error| panic!("storage-owning unit must validate: {error:?}"));
 
@@ -505,6 +570,7 @@ mod tests {
             CodegenPartitionPolicy::NATIVE_BALANCED,
             codegen_partition_compatibility(),
             [first, second],
+            test_mir_content_identity,
         ) else {
             panic!("test unit must validate");
         };

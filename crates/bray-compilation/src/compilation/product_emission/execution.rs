@@ -932,6 +932,7 @@ mod tests {
             CodegenPartitionPolicy::NATIVE_BALANCED,
             codegen_partition_compatibility(),
             [host_mir],
+            bray_testing::test_mir_content_identity,
         )
         .unwrap_or_else(|error| panic!("test codegen unit must be valid: {error:?}"));
 
