@@ -167,7 +167,8 @@ visibility and compiler recognition for standard-library operations.
 The participating `CheckedConvertTo<Target>` implementation selects `E` through its `Error` type member.
 
 The standard library provides `std.numeric.IntegerCheckedConversion` for integer sources and targets. Consumers make
-that implementation and the source and target `std.numeric.Integer` implementations visible with `using` declarations.
+that implementation, the source and target `std.numeric.Integer` and `std.numeric.IntegerBits` implementations,
+and the target `std.numeric.IntegerFromBits` implementation visible with `using` declarations.
 It selects the compiler-known `ConversionError` type and returns `ConversionError.OutOfRange` when the value does not fit.
 
 Other fallible conversions may select their own error types.
@@ -200,8 +201,12 @@ applies.
 For a source expression of type `S`, `std.convert<T>(source)` selects `S(CheckedConvertTo<T>)`.
 
 ```bray
+using std.convert;
 using std.numeric.I32Integer;
+using std.numeric.I32IntegerBits;
 using std.numeric.U8Integer;
+using std.numeric.U8IntegerBits;
+using std.numeric.U8IntegerFromBits;
 using std.numeric.IntegerCheckedConversion;
 
 let parsed: Result<Port, ParseError> = std.convert<Port>(text);

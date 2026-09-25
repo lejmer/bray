@@ -179,27 +179,251 @@ internal func present<Value>(pos value: Value) -> Value?
     return result;
 }
 
+/// Supplies the bit representation used by checked integer conversions.
+trait IntegerBits
+{
+    func to_bits() -> u128;
+}
+
+/// Decodes integer bits into a selected target representation.
+trait IntegerFromBits<Target>
+{
+    func into_integer() -> Target;
+}
+
+impl U8IntegerBits = u8(IntegerBits)
+{
+    func to_bits() -> u128
+    {
+        return std.truncate_to<u128>(self);
+    }
+}
+
+impl U8IntegerFromBits = u128(IntegerFromBits<u8>)
+{
+    func into_integer() -> u8
+    {
+        return std.truncate_to<u8>(self);
+    }
+}
+
+impl U16IntegerBits = u16(IntegerBits)
+{
+    func to_bits() -> u128
+    {
+        return std.truncate_to<u128>(self);
+    }
+}
+
+impl U16IntegerFromBits = u128(IntegerFromBits<u16>)
+{
+    func into_integer() -> u16
+    {
+        return std.truncate_to<u16>(self);
+    }
+}
+
+impl U32IntegerBits = u32(IntegerBits)
+{
+    func to_bits() -> u128
+    {
+        return std.truncate_to<u128>(self);
+    }
+}
+
+impl U32IntegerFromBits = u128(IntegerFromBits<u32>)
+{
+    func into_integer() -> u32
+    {
+        return std.truncate_to<u32>(self);
+    }
+}
+
+impl U64IntegerBits = u64(IntegerBits)
+{
+    func to_bits() -> u128
+    {
+        return std.truncate_to<u128>(self);
+    }
+}
+
+impl U64IntegerFromBits = u128(IntegerFromBits<u64>)
+{
+    func into_integer() -> u64
+    {
+        return std.truncate_to<u64>(self);
+    }
+}
+
+impl U128IntegerBits = u128(IntegerBits)
+{
+    func to_bits() -> u128
+    {
+        return std.truncate_to<u128>(self);
+    }
+}
+
+impl U128IntegerFromBits = u128(IntegerFromBits<u128>)
+{
+    func into_integer() -> u128
+    {
+        return std.truncate_to<u128>(self);
+    }
+}
+
+impl UsizeIntegerBits = usize(IntegerBits)
+{
+    func to_bits() -> u128
+    {
+        return std.truncate_to<u128>(self);
+    }
+}
+
+impl UsizeIntegerFromBits = u128(IntegerFromBits<usize>)
+{
+    func into_integer() -> usize
+    {
+        return std.truncate_to<usize>(self);
+    }
+}
+
+impl I8IntegerBits = i8(IntegerBits)
+{
+    func to_bits() -> u128
+    {
+        return std.truncate_to<u128>(self);
+    }
+}
+
+impl I8IntegerFromBits = u128(IntegerFromBits<i8>)
+{
+    func into_integer() -> i8
+    {
+        return std.truncate_to<i8>(self);
+    }
+}
+
+impl I16IntegerBits = i16(IntegerBits)
+{
+    func to_bits() -> u128
+    {
+        return std.truncate_to<u128>(self);
+    }
+}
+
+impl I16IntegerFromBits = u128(IntegerFromBits<i16>)
+{
+    func into_integer() -> i16
+    {
+        return std.truncate_to<i16>(self);
+    }
+}
+
+impl I32IntegerBits = i32(IntegerBits)
+{
+    func to_bits() -> u128
+    {
+        return std.truncate_to<u128>(self);
+    }
+}
+
+impl I32IntegerFromBits = u128(IntegerFromBits<i32>)
+{
+    func into_integer() -> i32
+    {
+        return std.truncate_to<i32>(self);
+    }
+}
+
+impl I64IntegerBits = i64(IntegerBits)
+{
+    func to_bits() -> u128
+    {
+        return std.truncate_to<u128>(self);
+    }
+}
+
+impl I64IntegerFromBits = u128(IntegerFromBits<i64>)
+{
+    func into_integer() -> i64
+    {
+        return std.truncate_to<i64>(self);
+    }
+}
+
+impl I128IntegerBits = i128(IntegerBits)
+{
+    func to_bits() -> u128
+    {
+        return std.truncate_to<u128>(self);
+    }
+}
+
+impl I128IntegerFromBits = u128(IntegerFromBits<i128>)
+{
+    func into_integer() -> i128
+    {
+        return std.truncate_to<i128>(self);
+    }
+}
+
+impl IsizeIntegerBits = isize(IntegerBits)
+{
+    func to_bits() -> u128
+    {
+        return std.truncate_to<u128>(self);
+    }
+}
+
+impl IsizeIntegerFromBits = u128(IntegerFromBits<isize>)
+{
+    func into_integer() -> isize
+    {
+        return std.truncate_to<isize>(self);
+    }
+}
+
+overload u128(IntegerFromBits) =
+{
+    U8IntegerFromBits,
+    U16IntegerFromBits,
+    U32IntegerFromBits,
+    U64IntegerFromBits,
+    U128IntegerFromBits,
+    UsizeIntegerFromBits,
+    I8IntegerFromBits,
+    I16IntegerFromBits,
+    I32IntegerFromBits,
+    I64IntegerFromBits,
+    I128IntegerFromBits,
+    IsizeIntegerFromBits,
+}
+
 /// Converts between integer representations, reporting `OutOfRange` when the value does not fit.
 impl IntegerCheckedConversion = Source(CheckedConvertTo<Target>)
     with(
         Source: Integer,
+        Source: IntegerBits,
         Source: Comparable<Source>,
         Source: Copyable,
         Source: Equatable<Source>,
         Target: Integer,
+        Target: IntegerBits,
         Target: Comparable<Target>,
         Target: Copyable,
+        u128: IntegerFromBits<Target>,
     )
 {
     type Error = ConversionError;
 
     consume func convert_checked() -> Result<Target, ConversionError>
     {
-        let converted: Target = std.truncate_to<Target>(self);
+        let bits: u128 = self(IntegerBits).to_bits();
+        let converted: Target = bits(IntegerFromBits<Target>).into_integer();
         let source_negative: bool = self < self.bounds().zero;
         let target_negative: bool = converted < converted.bounds().zero;
 
-        if source_negative != target_negative || std.truncate_to<Source>(converted) != self
+        if source_negative != target_negative || converted(IntegerBits).to_bits() != bits
         {
             return Error(ConversionError.OutOfRange);
         }

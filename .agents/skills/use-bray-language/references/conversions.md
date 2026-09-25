@@ -7,8 +7,12 @@
 ```bray
 module conversion_example;
 
+using std.convert;
 using std.numeric.I32Integer;
+using std.numeric.I32IntegerBits;
 using std.numeric.U8Integer;
+using std.numeric.U8IntegerBits;
+using std.numeric.U8IntegerFromBits;
 using std.numeric.IntegerCheckedConversion;
 
 impl PortToU16 = Port(ConvertTo<u16>)
@@ -66,7 +70,8 @@ func convert_with_policy(text: string, measured: i32, real: r64) -> Result<Port,
 }
 ```
 
-Plain conversion recursively preserves tuple arity, array length, and nullable presence. A two-element tuple converts to a complex value as its real and imaginary components. `ConvertTo<Target>` and `CheckedConvertTo<Target>` implementations follow ordinary implementation selection. Checked integer conversions require the named standard-library implementation and the matching `Integer` implementations to participate.
+Plain conversion recursively preserves tuple arity, array length, and nullable presence. A two-element tuple converts to a complex value as its real and imaginary components. `ConvertTo<Target>` and `CheckedConvertTo<Target>` implementations follow ordinary implementation selection.
+Checked integer conversions require the named standard-library implementation, matching Integer and IntegerBits implementations, and a target IntegerFromBits implementation to participate.
 
 A conversion consumes its source unless copying or explicit borrowing applies. The target is always written in the operation, expected types do not select it, and conversion never introduces implicit coercion for calls, assignment, operators, overloads, construction, or patterns.
 
