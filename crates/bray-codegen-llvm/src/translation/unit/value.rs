@@ -1041,6 +1041,7 @@ mod tests {
             bray_codegen::CodegenPartitionPolicy::NATIVE_BALANCED,
             bray_codegen::test_support::codegen_partition_compatibility(),
             [mir],
+            bray_testing::test_mir_content_identity,
         )
         .unwrap_or_else(|error| panic!("literal test codegen unit must validate: {error:?}"));
 
@@ -1159,6 +1160,7 @@ mod tests {
             bray_codegen::CodegenPartitionPolicy::NATIVE_BALANCED,
             bray_codegen::test_support::codegen_partition_compatibility(),
             [mir],
+            bray_testing::test_mir_content_identity,
         )
         .unwrap_or_else(|error| panic!("copy test codegen unit must validate: {error:?}"));
 
@@ -1244,6 +1246,7 @@ mod tests {
             bray_codegen::CodegenPartitionPolicy::NATIVE_BALANCED,
             bray_codegen::test_support::codegen_partition_compatibility(),
             [mir],
+            bray_testing::test_mir_content_identity,
         )
         .unwrap_or_else(|error| panic!("nullable query codegen unit must validate: {error:?}"));
 

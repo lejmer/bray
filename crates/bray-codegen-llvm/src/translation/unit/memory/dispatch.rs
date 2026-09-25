@@ -944,6 +944,7 @@ mod tests {
             bray_codegen::CodegenPartitionPolicy::NATIVE_BALANCED,
             bray_codegen::test_support::codegen_partition_compatibility(),
             [instance],
+            bray_testing::test_mir_content_identity,
         )
         .expect("checked allocation codegen unit must be valid");
 
@@ -1379,6 +1380,7 @@ mod tests {
             bray_codegen::CodegenPartitionPolicy::NATIVE_BALANCED,
             bray_codegen::test_support::codegen_partition_compatibility(),
             [instance],
+            bray_testing::test_mir_content_identity,
         )
         .unwrap_or_else(|error| panic!("memory test codegen unit must be valid: {error:?}"));
 

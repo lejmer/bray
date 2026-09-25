@@ -20,6 +20,7 @@ mir-unit = [
 ]
 
 [dependencies]
+bray-base = { path = "../bray-base" }
 bray-bound-tree = { path = "../bray-bound-tree", optional = true }
 bray-declarations = { path = "../bray-declarations", optional = true }
 bray-diagnostics = { path = "../bray-diagnostics" }

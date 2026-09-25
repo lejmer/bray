@@ -16,7 +16,7 @@ pub(crate) use family::invalid_executable_template_family;
 pub use artifact::{PackageImplementationArtifact, PackageNativeArtifactError};
 pub use executable::{
     ExecutableTemplateDecodeError, ExecutableTemplateEncodeContext, ExecutableTemplateEncodeError,
-    decode_executable_template, encode_executable_template, encode_pre_specialized_mir,
+    decode_executable_template, encode_codegen_mir, encode_executable_template, encode_pre_specialized_mir,
 };
 pub use identity::{
     CURRENT_TEMPLATE_SCHEMA_REVISION, ImplementationTemplateSchemaRevision,

@@ -672,6 +672,7 @@ dependencies = [
 name = "bray-testing"
 version = "0.0.0"
 dependencies = [
+ "bray-base",
  "bray-bound-tree",
  "bray-declarations",
  "bray-diagnostics",

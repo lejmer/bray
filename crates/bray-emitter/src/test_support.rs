@@ -101,6 +101,7 @@ pub(crate) fn codegen_unit_key(seed: u32) -> bray_codegen::CodegenUnitKey {
         CodegenPartitionPolicy::NATIVE_BALANCED,
         bray_codegen::test_support::codegen_partition_compatibility(),
         [test_mir_unit(seed)],
+        bray_testing::test_mir_content_identity,
     ) else {
         panic!("test codegen unit must be valid");
     };

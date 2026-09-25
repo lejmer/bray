@@ -293,10 +293,21 @@ impl Compilation {
             CodegenPartitionPolicy::NATIVE_BALANCED
         };
 
+        let mut identities = BTreeMap::new();
+
+        for instance in reachability.graph().instances() {
+            let mir = instance.mir();
+
+            if !identities.contains_key(&mir.unit()) {
+                identities.insert(mir.unit(), super::mir_content_identity(self, mir)?);
+            }
+        }
+
         partition_codegen_units(
             policy,
             reachability.graph(),
             |instance| compatibility.get(instance.key()).cloned(),
+            |mir| *identities.get(&mir.unit()).expect("partition MIR identity must be prepared"),
         )
         .map_err(NativeProductPlanningError::InvalidCodegenPartition)
     }

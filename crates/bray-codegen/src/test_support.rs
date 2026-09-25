@@ -396,6 +396,7 @@ fn codegen_unit(seed: u8, target: &CodegenTarget) -> CodegenUnit {
         CodegenPartitionPolicy::NATIVE_BALANCED,
         codegen_partition_compatibility(),
         [test_mir_unit_for_target(u32::from(seed), mir_target)],
+        bray_testing::test_mir_content_identity,
     ) else {
         panic!("test codegen unit must be valid");
     };

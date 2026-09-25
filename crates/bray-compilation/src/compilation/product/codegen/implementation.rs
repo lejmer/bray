@@ -2271,6 +2271,111 @@ mod tests {
     }
 
     #[test]
+    fn fresh_native_plans_ignore_unrelated_semantic_interning() {
+        let (first_backend, first_compilation) =
+            codegen_compilation_for_product(CONCRETE_GENERIC_SOURCE, ProductKind::Library);
+
+        let (second_backend, second_compilation) =
+            codegen_compilation_for_product(CONCRETE_GENERIC_SOURCE, ProductKind::Library);
+
+        second_compilation
+            .semantic_value_store()
+            .expect("second semantic store must exist")
+            .intern_type(TypeData::tuple([]))
+            .expect("unrelated type must intern");
+
+        let plan = |compilation: &crate::Compilation| {
+            compilation
+                .native_product_plan(
+                    test_product_identity(),
+                    crate::BuildConfiguration::Development,
+                    None,
+                    [],
+                    None,
+                )
+                .unwrap_or_else(|error| panic!("native plan must prepare: {error:?}"))
+        };
+
+        let first = plan(&first_compilation);
+        let second = plan(&second_compilation);
+
+        let identities = |plan: &super::NativeProductPlan| {
+            plan.units()
+                .iter()
+                .map(|unit| unit.key().content_identity())
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(native_partition_recipe(&first), native_partition_recipe(&second));
+        assert_eq!(identities(&first), identities(&second));
+
+        assert_eq!(
+            generated_artifacts(&first_backend, &first),
+            generated_artifacts(&second_backend, &second),
+        );
+
+        let profile = first_compilation.selected_target().target().profile().clone();
+
+        let name = bray_target::TargetOutputName::for_native(
+            profile.machine().object_format(),
+            bray_target::TargetOutputKind::RelocatableObject,
+        );
+
+        let outputs = bray_target::TargetOutputDescription::try_new(profile, [name])
+            .expect("native output names must validate");
+
+        let publish = |compilation: &crate::Compilation, native: &super::NativeProductPlan| {
+            let output = tempfile::tempdir().expect("managed output directory must exist");
+
+            let request = bray_emitter::EmissionRequest::try_new(
+                test_product_identity(),
+                ProductKind::Library,
+                None,
+                compilation.selected_target().target().profile().identity().clone(),
+                bray_emitter::RequestedArtifactDestination::FilesystemDirectory(
+                    output.path().to_path_buf().into(),
+                ),
+                [bray_emitter::RequestedArtifact::new(
+                    bray_emitter::ArtifactKind::RelocatableObject,
+                    bray_emitter::ArtifactRequirement::Required,
+                )],
+                bray_emitter::ReplacementPolicy::ReplaceExisting,
+            )
+            .expect("native emission request must validate");
+
+            let inputs = crate::ProductEmissionInputs::new(&outputs).with_native_codegen(native);
+
+            let result = compilation
+                .emit_product(request, inputs)
+                .unwrap_or_else(|error| panic!("native emission must complete: {error:?}"));
+
+            let generation = result.generation().expect("managed generation must publish");
+            let artifact = &result.artifacts().artifacts()[0];
+            let path = generation.artifact_path(artifact.id()).expect("artifact path must resolve");
+
+            std::fs::read(path.parent().expect("artifact must have a generation directory").join("manifest.json"))
+                .expect("generation manifest must be readable")
+        };
+
+        assert_eq!(publish(&first_compilation, &first), publish(&second_compilation, &second));
+
+        let changed_source = CONCRETE_GENERIC_SOURCE.replace("return count;", "return 12345;");
+
+        let (changed_backend, changed_compilation) =
+            codegen_compilation_for_product(&changed_source, ProductKind::Library);
+
+        let changed = plan(&changed_compilation);
+
+        assert_eq!(native_partition_recipe(&first), native_partition_recipe(&changed));
+        assert_ne!(identities(&first), identities(&changed));
+
+        assert_ne!(
+            generated_artifacts(&first_backend, &first),
+            generated_artifacts(&changed_backend, &changed),
+        );
+    }
+
+    #[test]
     fn cancelled_native_preparation_publishes_no_partial_plan() {
         let (_, compilation) = codegen_compilation_for_product_with_worker_budget(
             CONCRETE_GENERIC_SOURCE,
@@ -2792,6 +2897,7 @@ mod tests {
             CodegenPartitionPolicy::NATIVE_BALANCED,
             reachability.graph(),
             |instance| compatibility.get(instance.key()).cloned(),
+            |mir| crate::compilation::product::mir_content_identity(&compilation, mir).unwrap_or_else(|error| panic!("test MIR identity must resolve: {error:?}")),
         )
         .unwrap_or_else(|error| panic!("generic units must partition: {error:?}"));
 
@@ -6152,6 +6258,7 @@ public func invoke<T>(pos value: T)
             CodegenPartitionPolicy::NATIVE_BALANCED,
             reachability.graph(),
             |instance| compatibility.get(instance.key()).cloned(),
+            |mir| crate::compilation::product::mir_content_identity(&compilation, mir).unwrap_or_else(|error| panic!("test MIR identity must resolve: {error:?}")),
         )
         .unwrap_or_else(|error| panic!("consumer units must partition: {error:?}"));
 

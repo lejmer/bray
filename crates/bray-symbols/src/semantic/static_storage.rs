@@ -67,6 +67,14 @@ impl StaticReferenceSelection {
         }
     }
 
+    /// Returns the selected target profile for this static reference.
+    pub const fn target(&self) -> &TargetIdentity {
+        match self {
+            Self::Open { target, .. } => target,
+            Self::Closed(instance) => instance.target(),
+        }
+    }
+
     /// Returns the closed instance when all arguments are concrete.
     pub const fn closed_instance(&self) -> Option<&StaticInstanceKey> {
         match self {

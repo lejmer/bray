@@ -503,6 +503,7 @@ mod tests {
             CodegenPartitionPolicy::NATIVE_BALANCED,
             codegen_partition_compatibility(),
             [first, second],
+            bray_testing::test_mir_content_identity,
         )
         .unwrap_or_else(|error| panic!("test codegen unit must validate: {error:?}"));
 

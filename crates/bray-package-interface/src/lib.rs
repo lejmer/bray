@@ -59,7 +59,7 @@ pub use implementation::{
     PackageImplementationIdentity, PackageImplementationSpecializationKey,
     PackageImplementationTargetProperties, PackageImplementationTargetProperty,
     PackageImplementationTargetPropertyValue, PreSpecializedMirDecodeError,
-    decode_executable_template, encode_executable_template, encode_pre_specialized_mir,
+    decode_executable_template, encode_codegen_mir, encode_executable_template, encode_pre_specialized_mir,
 };
 pub use inspection::{
     InterfaceInspectionRecord, InterfaceInspectionRecordKind, InterfaceInspectionSection,
