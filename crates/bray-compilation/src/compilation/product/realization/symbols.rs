@@ -8,7 +8,7 @@ use bray_codegen::{
     CodegenOperationMapping, CodegenPartitionCompatibility, CodegenSymbolKey, CodegenSymbolMapping,
     CodegenTarget, CodegenUnit,
 };
-use bray_ir::{MirUnitKey, MirUnitKind};
+use bray_ir::{MirStorageKind, MirUnitKey, MirUnitKind};
 use bray_runtime_interface::{BinarySymbolName, ExecutableHostContract, ProtectedFrameOperation};
 use bray_symbols::{AnySymbolId, CallableAbi, PackageIdentity, ProductIdentity, SymbolKey, SymbolKeyData};
 
@@ -388,8 +388,18 @@ impl Compilation {
             | CodegenLinkage::Export => CodegenDefinitionVisibility::Public,
         };
 
+        // Imported anchors carry their producer namespace in MIR, but static
+        // mappings can still attach a consumer-local finalizer source.
+        let source_namespace = match instance.key().template() {
+            MirUnitKey::ImportedExecutable(_)
+                if !instance.mir().storages().iter().any(|storage| {
+                    matches!(storage.kind(), MirStorageKind::Static(_) | MirStorageKind::NativeStatic(_))
+                }) => [0; 32],
+            _ => product.source_namespace(),
+        };
+
         Ok(CodegenPartitionCompatibility::new(
-            package, product.source_namespace(), linkage, visibility,
+            package, source_namespace, linkage, visibility,
         ))
     }
 

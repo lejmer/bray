@@ -3451,6 +3451,24 @@ mod tests {
             })
         }));
 
+        let roots = reachability.graph().roots().iter().cloned().collect();
+        let first_product = test_product_identity();
+
+        let other_product = ProductIdentity::try_new(first_product.package().clone(), "other")
+            .expect("alternate test product identity must validate");
+
+        for instance in imported {
+            let first = compilation
+                .codegen_partition_compatibility(instance, &first_product, &roots, &cancellation)
+                .expect("imported compatibility must resolve");
+
+            let other = compilation
+                .codegen_partition_compatibility(instance, &other_product, &roots, &cancellation)
+                .expect("imported compatibility must resolve");
+
+            assert_eq!(first, other);
+        }
+
         realize_codegen_mappings(&compilation, &target, &reachability, &cancellation);
     }
 
