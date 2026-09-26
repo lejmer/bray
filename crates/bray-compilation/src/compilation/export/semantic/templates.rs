@@ -42,6 +42,10 @@ impl bray_package_interface::ExecutableTemplateEncodeContext
 {
     type Error = PackageInterfaceExportError;
 
+    fn source_namespace(&self) -> [u8; 32] {
+        self.semantic.compilation.source_namespace()
+    }
+
     fn type_id(&mut self, id: TypeId) -> Result<InterfaceTypeId, Self::Error> {
         self.semantic.type_id(id)
     }

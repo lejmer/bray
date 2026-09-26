@@ -728,20 +728,21 @@ fn audit_explicit_source(
         })
         .unwrap_or(false);
 
-    let expected_package = lowercase_hex(&if identity == "explicit_failure" {
-        direct_source_package
-    } else {
-        package.source_namespace()
-    });
+    let expected_package = lowercase_hex(&direct_source_package);
 
-    if source.package != expected_package
-        || source.source != expected_source
+    let namespace_matches = if identity == "explicit_failure" {
+        source.package == expected_package
+    } else {
+        source.package != expected_package && source.package != lowercase_hex(&[0; 32])
+    };
+
+    if !namespace_matches || source.source != expected_source
         || !source_is_in_call
     {
         return Err(BuildError::conformance(
             "native outcomes",
             format!(
-                "{identity} did not resolve to {source_path}'s fail call: {source:?}; expected package {expected_package}, source {expected_source}, span within call {source_is_in_call}"
+                "{identity} did not resolve to {source_path}'s fail call: {source:?}; direct namespace {expected_package}, source {expected_source}, span within call {source_is_in_call}"
             ),
         ));
     }

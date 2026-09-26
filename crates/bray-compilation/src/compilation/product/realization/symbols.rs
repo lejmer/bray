@@ -389,7 +389,7 @@ impl Compilation {
         };
 
         Ok(CodegenPartitionCompatibility::new(
-            package, linkage, visibility,
+            package, self.source_namespace(), linkage, visibility,
         ))
     }
 

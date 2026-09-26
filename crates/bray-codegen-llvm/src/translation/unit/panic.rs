@@ -33,12 +33,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .map(MirOperation::source)
             .expect("checked MIR effect translation requires an established mapping or value");
 
-        let package = self
+        let namespace = self
             .request
             .unit()
             .compatibility(self.instance.key())
             .expect("translated instance must have a package compatibility")
-            .package()
             .source_namespace();
 
         let source = match source {
@@ -48,16 +47,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let range = syntax.full_range();
 
                 bray_runtime_abi::NativeSourceAnchor::new(
-                    package,
+                    namespace,
                     syntax.source_id().raw(),
                     range.start().bytes(),
                     range.end().bytes(),
                     anchor.source_version().raw(),
                 )
             }
-            MirSourceAnchor::ImportedSource { span, version, .. } => {
+            MirSourceAnchor::ImportedSource { namespace, span, version, .. } => {
                 bray_runtime_abi::NativeSourceAnchor::new(
-                    package,
+                    *namespace,
                     span.source_id().raw(),
                     span.start().bytes(),
                     span.end().bytes(),

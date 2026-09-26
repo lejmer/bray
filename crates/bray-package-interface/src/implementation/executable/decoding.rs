@@ -314,14 +314,15 @@ enum ValueRecordOrigin {
 struct OperationRecord {
     result: Option<u32>,
     kind: MirOperationKind,
-    source: Option<(SourceSpan, SourceVersion)>,
+    source: Option<([u8; 32], SourceSpan, SourceVersion)>,
 }
 
 fn read_panic_source(
     reader: &mut WireReader<'_>,
-) -> Result<Option<(SourceSpan, SourceVersion)>, ExecutableTemplateDecodeError> {
+) -> Result<Option<([u8; 32], SourceSpan, SourceVersion)>, ExecutableTemplateDecodeError> {
     let raw = read_optional(reader, |reader| {
         Ok((
+            reader.read_array::<32>().map_err(map_wire_error)?,
             read_u32(reader)?,
             read_u32(reader)?,
             read_u32(reader)?,
@@ -329,7 +330,7 @@ fn read_panic_source(
         ))
     })?;
 
-    raw.map(|(source, start, end, version)| {
+    raw.map(|(namespace, source, start, end, version)| {
         let source = SourceId::stored(source).ok_or(ExecutableTemplateDecodeError::Malformed)?;
         let start = TextSize::new(start);
         let end = TextSize::new(end);
@@ -338,7 +339,7 @@ fn read_panic_source(
             return Err(ExecutableTemplateDecodeError::Malformed);
         }
 
-        Ok((SourceSpan::new(source, TextRange::new(start, end)), SourceVersion::new(version)))
+        Ok((namespace, SourceSpan::new(source, TextRange::new(start, end)), SourceVersion::new(version)))
     }).transpose()
 }
 
@@ -485,12 +486,12 @@ fn push_operation(
     )?;
 
     let source = match record.source {
-        Some((span, version)) => {
+        Some((namespace, span, version)) => {
             let MirSourceAnchor::ImportedExecutable(key) = source else {
                 panic!("imported operation must use its imported executable source");
             };
 
-            MirSourceAnchor::imported_source(key, span, version)
+            MirSourceAnchor::imported_source(key, namespace, span, version)
         }
         None => source,
     };
@@ -2706,6 +2707,10 @@ mod tests {
 
     impl super::super::encoding::ExecutableTemplateEncodeContext for ProjectionSymbols {
         type Error = ();
+
+        fn source_namespace(&self) -> [u8; 32] {
+            [0; 32]
+        }
 
         fn type_id(&mut self, _: bray_symbols::TypeId) -> Result<crate::InterfaceTypeId, ()> {
             Err(())

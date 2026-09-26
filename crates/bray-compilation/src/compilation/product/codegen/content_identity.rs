@@ -29,7 +29,7 @@ pub(in crate::compilation) fn mir_content_identity(
 ) -> Result<[u8; 32], FactQueryError> {
     let values = compilation.semantic_value_store()?;
     let binding_context = compilation.binding_context(&compilation.state.cancellation)?;
-    let mut context = MirContentContext::new(values, &binding_context);
+    let mut context = MirContentContext::new(values, &binding_context, compilation.source_namespace());
 
     let payload = match encode_codegen_mir(mir, &mut context) {
         Ok(payload) => payload,
@@ -135,9 +135,10 @@ fn hash_source_anchor(
             digest.write_u8(4);
             hash_imported_key(key, context, digest)?;
         }
-        MirSourceAnchor::ImportedSource { owner, span, version } => {
+        MirSourceAnchor::ImportedSource { owner, namespace, span, version } => {
             digest.write_u8(5);
             hash_imported_key(owner, context, digest)?;
+            digest.write(namespace);
             span.hash(digest);
             version.hash(digest);
         }
@@ -169,6 +170,7 @@ fn hash_imported_key(
 struct MirContentContext<'values, 'compilation> {
     values: &'values SemanticValueStore,
     binding_context: &'values CompilationBindingContext<'compilation>,
+    source_namespace: [u8; 32],
     references: Vec<[u8; 32]>,
     semantic: BTreeMap<StructuralSemanticValue, u32>,
     nested: BTreeMap<BoundUnitKey, u32>,
@@ -178,10 +180,12 @@ impl<'values, 'compilation> MirContentContext<'values, 'compilation> {
     fn new(
         values: &'values SemanticValueStore,
         binding_context: &'values CompilationBindingContext<'compilation>,
+        source_namespace: [u8; 32],
     ) -> Self {
         Self {
             values,
             binding_context,
+            source_namespace,
             references: Vec::new(),
             semantic: BTreeMap::new(),
             nested: BTreeMap::new(),
@@ -209,6 +213,10 @@ impl<'values, 'compilation> MirContentContext<'values, 'compilation> {
 
 impl ExecutableTemplateEncodeContext for MirContentContext<'_, '_> {
     type Error = FactQueryError;
+
+    fn source_namespace(&self) -> [u8; 32] {
+        self.source_namespace
+    }
 
     fn type_id(&mut self, id: TypeId) -> Result<InterfaceTypeId, Self::Error> {
         Ok(InterfaceTypeId::new(self.intern_semantic(StructuralSemanticValue::Type(id))?))

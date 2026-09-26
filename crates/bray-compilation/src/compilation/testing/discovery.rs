@@ -122,7 +122,7 @@ impl Compilation {
                 let identity = TestIdentity::new(product.clone(), declaration);
 
                 let source = TestSourceAnchor::new(
-                    self.package_identity().source_namespace(),
+                    self.source_namespace(),
                     SourceSpan::new(anchor.source_id(), anchor.full_range()),
                     source.version(),
                 );
@@ -352,8 +352,33 @@ mod tests {
 
         assert_eq!(
             discovery.value().catalog().entries()[0].source().package(),
-            compilation.package_identity().source_namespace(),
+            compilation.source_namespace(),
         );
+
+    }
+
+    #[test]
+    fn source_namespaces_distinguish_source_sets_and_survive_text_edits() {
+        let first = compilation_with_sources_product_and_worker_budget(
+            &["module tests;\n\n@test\nfunc works()\n{\n}\n"],
+            ProductKind::Test,
+            parallel_worker_budget(),
+        );
+
+        let other_sources = compilation_with_sources_product_and_worker_budget(
+            &["module tests;\n\n@test\nfunc works()\n{\n}\n", "module other;\n"],
+            ProductKind::Test,
+            parallel_worker_budget(),
+        );
+
+        let edited = compilation_with_sources_product_and_worker_budget(
+            &["module tests;\n\n@test\nfunc changed()\n{\n}\n"],
+            ProductKind::Test,
+            parallel_worker_budget(),
+        );
+
+        assert_ne!(first.source_namespace(), other_sources.source_namespace());
+        assert_eq!(first.source_namespace(), edited.source_namespace());
     }
 
     fn discovery(

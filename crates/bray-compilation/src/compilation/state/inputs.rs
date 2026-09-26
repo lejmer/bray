@@ -23,6 +23,14 @@ pub(super) fn shared_catalog() -> Arc<CompilerKnownSymbolProvider> {
 }
 
 impl Compilation {
+    /// Returns the identity of this package's ordered source IDs and origins.
+    pub(in crate::compilation) fn source_namespace(&self) -> [u8; 32] {
+        self.record_input(CompilationInputKey::PackageIdentity);
+        self.record_input(CompilationInputKey::SourceSet);
+
+        self.state.source_namespace
+    }
+
     /// Returns the source package identity selected for this compilation.
     pub fn package_identity(&self) -> &PackageIdentity {
         self.record_input(CompilationInputKey::PackageIdentity);

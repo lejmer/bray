@@ -66,7 +66,7 @@ impl TestSourceAnchor {
         Self { package, span, version }
     }
 
-    /// Returns the package namespace that qualifies the source ID.
+    /// Returns the package and source-set namespace that qualifies the source ID.
     pub const fn package(self) -> [u8; 32] {
         self.package
     }

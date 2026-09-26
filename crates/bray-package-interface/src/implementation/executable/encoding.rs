@@ -41,6 +41,9 @@ pub trait ExecutableTemplateEncodeContext {
     /// Error reported while completing a required interface semantic record.
     type Error;
 
+    /// Returns the namespace of source IDs in the local MIR.
+    fn source_namespace(&self) -> [u8; 32];
+
     /// Maps one semantic type.
     fn type_id(&mut self, id: TypeId) -> Result<InterfaceTypeId, Self::Error>;
 
@@ -198,15 +201,17 @@ fn encode_unit<C: ExecutableTemplateEncodeContext>(
                     let syntax = anchor.syntax();
 
                     Some((
+                        encoder.context.source_namespace(),
                         SourceSpan::new(syntax.source_id(), syntax.full_range()),
                         anchor.source_version(),
                     ))
                 }
-                MirSourceAnchor::ImportedSource { span, version, .. } => Some((*span, *version)),
+                MirSourceAnchor::ImportedSource { namespace, span, version, .. } => Some((*namespace, *span, *version)),
                 _ => None,
             };
 
-            write_optional(&mut encoder.wire, source, |wire, (span, version)| {
+            write_optional(&mut encoder.wire, source, |wire, (namespace, span, version)| {
+                wire.write_bytes(&namespace);
                 wire.write_u32(span.source_id().raw());
                 wire.write_u32(span.start().bytes());
                 wire.write_u32(span.end().bytes());

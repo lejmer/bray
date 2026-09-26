@@ -45,6 +45,7 @@ pub struct Compilation {
 
 pub(in crate::compilation) struct CompilationState {
     pub(in crate::compilation) package_identity: PackageIdentity,
+    pub(in crate::compilation) source_namespace: [u8; 32],
     pub(in crate::compilation) package_source_authority: crate::PackageSourceAuthority,
     pub(in crate::compilation) standard_library:
         Option<bray_standard_library::StandardLibraryResolver>,

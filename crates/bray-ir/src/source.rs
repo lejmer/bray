@@ -35,6 +35,7 @@ pub enum MirSourceAnchor {
     /// The exact source of an incident in an imported executable template.
     ImportedSource {
         owner: MirImportedExecutableKey,
+        namespace: [u8; 32],
         span: SourceSpan,
         version: SourceVersion,
     },
@@ -64,10 +65,11 @@ impl MirSourceAnchor {
     /// Retains a source occurrence from an imported executable template.
     pub const fn imported_source(
         owner: MirImportedExecutableKey,
+        namespace: [u8; 32],
         span: SourceSpan,
         version: SourceVersion,
     ) -> Self {
-        Self::ImportedSource { owner, span, version }
+        Self::ImportedSource { owner, namespace, span, version }
     }
 
     pub(crate) fn belongs_to(&self, owner: &MirSourceOrigin) -> bool {

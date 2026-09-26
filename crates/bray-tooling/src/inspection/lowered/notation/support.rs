@@ -346,8 +346,8 @@ pub(in crate::inspection::lowered) fn source_text(source: &InspectionMirSource) 
         InspectionMirSource::ImportedExecutable { owner, template } => {
             format!("imported {} template:{template}", owner.text())
         }
-        InspectionMirSource::ImportedSource { owner, template, source, start, end, version } => {
-            format!("imported {} template:{template} source:{source}@{version} {start}..{end}", owner.text())
+        InspectionMirSource::ImportedSource { owner, template, namespace, source, start, end, version } => {
+            format!("imported {} template:{template} source:{namespace:02x?}/{source}@{version} {start}..{end}", owner.text())
         }
     }
 }

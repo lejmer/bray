@@ -664,14 +664,14 @@ fn static_incident_value<'context>(
             .collect::<Vec<_>>(),
     );
 
-    let package = mapping
-        .instance()
-        .declaration()
-        .package_identity()
-        .expect("static storage declaration must belong to a package")
+    let namespace = types
+        .mappings()
+        .unit()
+        .compatibility(mapping.owner())
+        .expect("static storage owner must have a partition compatibility")
         .source_namespace();
 
-    let source = native_source_anchor_value(context, package, finalization.source());
+    let source = native_source_anchor_value(context, namespace, finalization.source());
     let incident_type = static_incident_type(context, usize, pointer);
     let incident = incident_type.const_zero();
 
@@ -737,7 +737,7 @@ fn static_incident_type<'context>(
 
 fn native_source_anchor_value<'context>(
     context: &'context inkwell::context::Context,
-    package: [u8; 32],
+    namespace: [u8; 32],
     source: Option<&bray_ir::MirSourceAnchor>,
 ) -> StructValue<'context> {
     let source = match source {
@@ -747,19 +747,27 @@ fn native_source_anchor_value<'context>(
             let range = syntax.full_range();
 
             bray_runtime_abi::NativeSourceAnchor::new(
-                package,
+                namespace,
                 syntax.source_id().raw(),
                 range.start().bytes(),
                 range.end().bytes(),
                 anchor.source_version().raw(),
             )
         }
+        Some(bray_ir::MirSourceAnchor::ImportedSource { namespace, span, version, .. }) => {
+            bray_runtime_abi::NativeSourceAnchor::new(
+                *namespace,
+                span.source_id().raw(),
+                span.start().bytes(),
+                span.end().bytes(),
+                version.raw(),
+            )
+        }
         Some(
             bray_ir::MirSourceAnchor::ExecutableHost(_)
             | bray_ir::MirSourceAnchor::GeneratedLifecycle(_)
             | bray_ir::MirSourceAnchor::CompilerProvidedCallable(_)
-            | bray_ir::MirSourceAnchor::ImportedExecutable(_)
-            | bray_ir::MirSourceAnchor::ImportedSource { .. },
+            | bray_ir::MirSourceAnchor::ImportedExecutable(_),
         )
         | None => bray_runtime_abi::NativeSourceAnchor::unavailable(),
     };
