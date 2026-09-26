@@ -2918,7 +2918,7 @@ mod tests {
                 compilation
                     .codegen_partition_compatibility(
                         instance,
-                        compilation.package_identity(),
+                        &test_product_identity(),
                         &roots,
                         &cancellation,
                     )
@@ -6280,7 +6280,7 @@ public func invoke<T>(pos value: T)
                 compilation
                     .codegen_partition_compatibility(
                         instance,
-                        compilation.package_identity(),
+                        &test_product_identity(),
                         &roots,
                         cancellation,
                     )

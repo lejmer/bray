@@ -2708,10 +2708,6 @@ mod tests {
     impl super::super::encoding::ExecutableTemplateEncodeContext for ProjectionSymbols {
         type Error = ();
 
-        fn source_namespace(&self) -> [u8; 32] {
-            [0; 32]
-        }
-
         fn type_id(&mut self, _: bray_symbols::TypeId) -> Result<crate::InterfaceTypeId, ()> {
             Err(())
         }

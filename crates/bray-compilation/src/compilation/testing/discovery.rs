@@ -122,7 +122,7 @@ impl Compilation {
                 let identity = TestIdentity::new(product.clone(), declaration);
 
                 let source = TestSourceAnchor::new(
-                    self.source_namespace(),
+                    product.source_namespace(),
                     SourceSpan::new(anchor.source_id(), anchor.full_range()),
                     source.version(),
                 );
@@ -352,13 +352,13 @@ mod tests {
 
         assert_eq!(
             discovery.value().catalog().entries()[0].source().package(),
-            compilation.source_namespace(),
+            product.source_namespace(),
         );
 
     }
 
     #[test]
-    fn source_namespaces_distinguish_source_sets_and_survive_text_edits() {
+    fn source_namespaces_survive_unrelated_source_additions_and_text_edits() {
         let first = compilation_with_sources_product_and_worker_budget(
             &["module tests;\n\n@test\nfunc works()\n{\n}\n"],
             ProductKind::Test,
@@ -377,8 +377,19 @@ mod tests {
             parallel_worker_budget(),
         );
 
-        assert_ne!(first.source_namespace(), other_sources.source_namespace());
-        assert_eq!(first.source_namespace(), edited.source_namespace());
+        let product = ProductIdentity::try_new(first.package_identity().clone(), "tests")
+            .expect("test product identity must be valid");
+
+        let first_catalog = discovery(&first, product.clone());
+        let other_catalog = discovery(&other_sources, product.clone());
+        let edited_catalog = discovery(&edited, product);
+
+        let source_namespace = |catalog: &super::TestDiscovery| {
+            catalog.catalog().entries()[0].source().package()
+        };
+
+        assert_eq!(source_namespace(first_catalog.value()), source_namespace(other_catalog.value()));
+        assert_eq!(source_namespace(first_catalog.value()), source_namespace(edited_catalog.value()));
     }
 
     fn discovery(

@@ -41,9 +41,6 @@ pub trait ExecutableTemplateEncodeContext {
     /// Error reported while completing a required interface semantic record.
     type Error;
 
-    /// Returns the namespace of source IDs in the local MIR.
-    fn source_namespace(&self) -> [u8; 32];
-
     /// Maps one semantic type.
     fn type_id(&mut self, id: TypeId) -> Result<InterfaceTypeId, Self::Error>;
 
@@ -108,9 +105,10 @@ pub enum ExecutableTemplateEncodeError<E> {
 /// Encodes one checked generic MIR unit using package-interface semantic references.
 pub fn encode_executable_template<C: ExecutableTemplateEncodeContext>(
     unit: &MirUnit,
+    source_namespace: [u8; 32],
     context: &mut C,
 ) -> Result<Arc<[u8]>, ExecutableTemplateEncodeError<C::Error>> {
-    encode_unit(unit, context, EncodingPurpose::InterfaceTemplate)
+    encode_unit(unit, source_namespace, context, EncodingPurpose::InterfaceTemplate)
 }
 
 /// Encodes complete MIR structure using caller-supplied semantic reference identities.
@@ -118,7 +116,7 @@ pub fn encode_codegen_mir<C: ExecutableTemplateEncodeContext>(
     unit: &MirUnit,
     context: &mut C,
 ) -> Result<Arc<[u8]>, ExecutableTemplateEncodeError<C::Error>> {
-    encode_unit(unit, context, EncodingPurpose::CodegenContent)
+    encode_unit(unit, [0; 32], context, EncodingPurpose::CodegenContent)
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -129,6 +127,7 @@ enum EncodingPurpose {
 
 fn encode_unit<C: ExecutableTemplateEncodeContext>(
     unit: &MirUnit,
+    source_namespace: [u8; 32],
     context: &mut C,
     purpose: EncodingPurpose,
 ) -> Result<Arc<[u8]>, ExecutableTemplateEncodeError<C::Error>> {
@@ -201,7 +200,7 @@ fn encode_unit<C: ExecutableTemplateEncodeContext>(
                     let syntax = anchor.syntax();
 
                     Some((
-                        encoder.context.source_namespace(),
+                        source_namespace,
                         SourceSpan::new(syntax.source_id(), syntax.full_range()),
                         anchor.source_version(),
                     ))
@@ -249,9 +248,10 @@ pub(super) fn encode_projection_for_test<C: ExecutableTemplateEncodeContext>(
 pub fn encode_pre_specialized_mir<C: ExecutableTemplateEncodeContext>(
     key: crate::PackageImplementationSpecializationKey,
     unit: &MirUnit,
+    source_namespace: [u8; 32],
     context: &mut C,
 ) -> Result<crate::InterfacePreSpecializedMir, ExecutableTemplateEncodeError<C::Error>> {
-    let payload = encode_executable_template(unit, context)?;
+    let payload = encode_executable_template(unit, source_namespace, context)?;
 
     Ok(
         crate::InterfacePreSpecializedMir::new(key, crate::CURRENT_MIR_SCHEMA_REVISION, payload)

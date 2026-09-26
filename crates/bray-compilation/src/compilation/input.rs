@@ -78,7 +78,7 @@ fn insert_source_inputs(
 ) {
     let source_set = sources
         .iter()
-        .map(|source| (source.source_id(), source.identity(), source.origin()))
+        .map(|source| (source.source_id(), source.identity()))
         .collect::<Vec<_>>();
 
     inputs.insert(CompilationInputKey::SourceSet, &source_set);

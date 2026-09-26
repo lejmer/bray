@@ -1,10 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::sync::{Arc, Mutex, OnceLock};
-use std::hash::{Hash, Hasher};
 
 use bray_binder::BinderDependency;
-use bray_base::StableDigestHasher;
 use bray_bound_tree::BoundUnitKey;
 use bray_codegen::CodegenConfiguration;
 use bray_declarations::{
@@ -125,19 +123,6 @@ impl Compilation {
         let (sources, diagnostics) =
             load_source_inputs(&package_identity, package_source_authority, source_inputs)?;
 
-        let mut namespace = StableDigestHasher::new();
-        namespace.write(b"bray.source-set.v1\0");
-        namespace.write(package_identity.as_str().as_bytes());
-        namespace.write_u64(u64::try_from(sources.len()).expect("source count must fit u64"));
-
-        for source in sources.iter() {
-            source.source_id().hash(&mut namespace);
-            source.identity().hash(&mut namespace);
-            source.origin().hash(&mut namespace);
-        }
-
-        let source_namespace = namespace.finalize();
-
         let source_count = sources.len();
         let dependency_count = dependency_interfaces.len();
 
@@ -186,7 +171,6 @@ impl Compilation {
         Ok(Self {
             state: Arc::new(CompilationState {
                 package_identity,
-                source_namespace,
                 package_source_authority,
                 standard_library,
                 standard_library_providers,

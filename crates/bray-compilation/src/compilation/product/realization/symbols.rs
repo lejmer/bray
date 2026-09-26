@@ -10,7 +10,7 @@ use bray_codegen::{
 };
 use bray_ir::{MirUnitKey, MirUnitKind};
 use bray_runtime_interface::{BinarySymbolName, ExecutableHostContract, ProtectedFrameOperation};
-use bray_symbols::{AnySymbolId, CallableAbi, PackageIdentity, SymbolKey, SymbolKeyData};
+use bray_symbols::{AnySymbolId, CallableAbi, PackageIdentity, ProductIdentity, SymbolKey, SymbolKeyData};
 
 use super::super::super::CodegenPreparationError;
 use super::super::super::Compilation;
@@ -358,12 +358,12 @@ impl Compilation {
     pub(in crate::compilation::product) fn codegen_partition_compatibility(
         &self,
         instance: &CodegenInstance,
-        product_package: &PackageIdentity,
+        product: &ProductIdentity,
         roots: &BTreeSet<bray_codegen::CodegenInstanceKey>,
         cancellation: &CancellationToken,
     ) -> Result<CodegenPartitionCompatibility, CodegenPreparationError> {
         let package =
-            self.codegen_instance_package(instance.key(), product_package, cancellation)?;
+            self.codegen_instance_package(instance.key(), product.package(), cancellation)?;
 
         let linkage = match instance.mir().kind() {
             MirUnitKind::ExecutableHost(_) => CodegenLinkage::Export,
@@ -389,7 +389,7 @@ impl Compilation {
         };
 
         Ok(CodegenPartitionCompatibility::new(
-            package, self.source_namespace(), linkage, visibility,
+            package, product.source_namespace(), linkage, visibility,
         ))
     }
 

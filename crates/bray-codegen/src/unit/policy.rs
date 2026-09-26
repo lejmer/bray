@@ -66,7 +66,7 @@ impl CodegenPartitionCompatibility {
         &self.package
     }
 
-    /// Returns the namespace of source IDs emitted by this compilation.
+    /// Returns the namespace of source IDs emitted by this product.
     pub const fn source_namespace(&self) -> [u8; 32] {
         self.source_namespace
     }
