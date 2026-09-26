@@ -49,12 +49,23 @@ pub(super) fn imported_path_prefix(
 ) -> PathPrefixLookup {
     let remaining = &references[root.consumed_components()..];
 
-    next_imported_module_prefix(root.symbols(), root.package(), None, remaining, access).map_or(
-        (
-            MemberLookupResult::Found(ResolvedName::Surface(root.package().into())),
-            root.consumed_components(),
-        ),
-        |(_, length, lookup)| (lookup, root.consumed_components() + length),
+    if let Some((_, length, lookup)) =
+        next_imported_module_prefix(root.symbols(), root.package(), None, remaining, access)
+    {
+        return (lookup, root.consumed_components() + length);
+    }
+
+    if !remaining.is_empty()
+        && let Some(package) = root.symbols().package(root.package())
+        && let Some(path) = ModulePathKey::try_new(package.identity().as_str().split('.'))
+        && let Some(module) = root.symbols().module_by_path(root.package(), &path)
+    {
+        return (module_name_lookup(module, access), root.consumed_components());
+    }
+
+    (
+        MemberLookupResult::Found(ResolvedName::Surface(root.package().into())),
+        root.consumed_components(),
     )
 }
 

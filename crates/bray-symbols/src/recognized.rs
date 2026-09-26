@@ -284,7 +284,7 @@ mod tests {
 
     #[test]
     fn exact_imported_identity_is_recognized_without_changing_the_symbol() {
-        let fixture = interface_fixture_at_module(1, "bray.std", ["std"], "convert");
+        let fixture = interface_fixture_at_module(1, "bray.std", ["std"], "truncate_to");
         let function_key = fixture.function_key.clone();
         let imported = Arc::new(build_skeleton([fixture.input]));
         let standard_library_package = package_identity("bray.std");
@@ -307,8 +307,8 @@ mod tests {
         assert_eq!(recognized.declarations().len(), 1);
 
         let descriptor = bray_compiler_known::COMPILER_KNOWN_CATALOG
-            .recognized_standard_library_declaration_by_key(&recognized_key("StandardConvert"))
-            .unwrap_or_else(|| panic!("recognized catalog must contain StandardConvert"));
+            .recognized_standard_library_declaration_by_key(&recognized_key("StandardTruncateTo"))
+            .unwrap_or_else(|| panic!("recognized catalog must contain StandardTruncateTo"));
 
         assert_eq!(
             recognized.descriptor(function.into()),
@@ -320,7 +320,7 @@ mod tests {
         assert_eq!(recognized.imported(), imported.as_ref());
 
         assert_eq!(
-            recognized.declaration_symbol::<StructSymbolId>(&recognized_key("StandardConvert")),
+            recognized.declaration_symbol::<StructSymbolId>(&recognized_key("StandardTruncateTo")),
             None
         );
     }
@@ -351,8 +351,8 @@ mod tests {
 
     #[test]
     fn selected_package_identity_excludes_same_shaped_declarations_from_other_packages() {
-        let standard = interface_fixture_at_module(1, "bray.std", ["std"], "convert");
-        let imitation = interface_fixture_at_module(2, "user.package", ["std"], "convert");
+        let standard = interface_fixture_at_module(1, "bray.std", ["std"], "truncate_to");
+        let imitation = interface_fixture_at_module(2, "user.package", ["std"], "truncate_to");
         let standard_key = standard.function_key.clone();
         let imitation_key = imitation.function_key.clone();
         let imported = Arc::new(build_skeleton([standard.input, imitation.input]));
@@ -363,7 +363,7 @@ mod tests {
 
         assert_eq!(recognized.declarations().len(), 1);
 
-        let key = recognized_key("StandardConvert");
+        let key = recognized_key("StandardTruncateTo");
 
         let Some(symbol) = recognized.declaration_symbol::<FunctionSymbolId>(&key) else {
             panic!("selected standard-library identity must resolve");
@@ -383,7 +383,7 @@ mod tests {
 
     #[test]
     fn exported_lookup_names_do_not_participate_in_recognition() {
-        let fixture = interface_fixture_with_lookup(1, "bray.std", ["std"], "convert", "renamed");
+        let fixture = interface_fixture_with_lookup(1, "bray.std", ["std"], "truncate_to", "renamed");
         let imported = Arc::new(build_skeleton([fixture.input]));
         let standard_library_package = package_identity("bray.std");
 
@@ -395,7 +395,7 @@ mod tests {
 
     #[test]
     fn unavailable_recognized_declarations_are_excluded_deterministically() {
-        let fixture = interface_fixture_at_module(1, "bray.std", ["std"], "convert");
+        let fixture = interface_fixture_at_module(1, "bray.std", ["std"], "truncate_to");
         let imported = Arc::new(build_skeleton([fixture.input]));
         let standard_library_package = package_identity("bray.std");
 

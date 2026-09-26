@@ -1081,7 +1081,7 @@ mod tests {
             Err(error),
         );
     }
-    use crate::test_support::{compilation, source_callable_body_key, source_input};
+    use crate::test_support::{compilation, source_callable_body_key, source_function_body_key, source_input};
 
     #[test]
     fn contexts_resolve_only_the_source_range_named_by_a_bound_anchor() {
@@ -1288,6 +1288,94 @@ mod tests {
 
         assert!(is_public_standard_library_source(&public));
         assert!(!is_public_standard_library_source(&support));
+    }
+
+    #[test]
+    fn standard_library_source_facade_selects_checked_conversion() {
+        let package = PackageIdentity::try_new("std")
+            .unwrap_or_else(|| panic!("standard library identity must be valid"));
+
+        let request = CompilationRequest::new(
+            package,
+            vec![
+                source_input(include_str!("../../../../standard-library/std/src/std.bray"), 0),
+                source_input(
+                    r#"module std;
+struct Number
+{
+    value: u8;
+}
+
+impl NumberConversion = Number(CheckedConvertTo<u8>)
+{
+    type Error = ConversionError;
+
+    consume func convert_checked() -> Result<u8, ConversionError>
+    {
+        return Ok(self.value);
+    }
+}
+
+func exercise(pos value: Number) -> Result<u8, ConversionError>
+{
+    return std.convert<u8>(value);
+}
+"#,
+                    1,
+                ),
+            ],
+        )
+        .with_standard_library_source_authority();
+
+        let compilation = Compilation::load(request)
+            .unwrap_or_else(|error| panic!("standard library compilation must load: {error:?}"));
+
+        let lowered = compilation
+            .lowered_unit(source_function_body_key(&compilation, "exercise"))
+            .unwrap_or_else(|error| panic!("source checked conversion must lower: {error:?}"));
+
+        assert!(lowered.diagnostics().is_empty(), "{:#?}", lowered.diagnostics());
+        assert!(lowered.value().is_some());
+    }
+
+    #[test]
+    fn standard_library_source_facade_reports_unavailable_conversion() {
+        let package = PackageIdentity::try_new("std")
+            .unwrap_or_else(|| panic!("standard library identity must be valid"));
+
+        let request = CompilationRequest::new(
+            package,
+            vec![
+                source_input(include_str!("../../../../standard-library/std/src/std.bray"), 0),
+                source_input(
+                    r#"module std;
+struct Missing {}
+
+func exercise(pos value: Missing) -> Result<u8, ConversionError>
+{
+    return std.convert<u8>(value);
+}
+"#,
+                    1,
+                ),
+            ],
+        )
+        .with_standard_library_source_authority();
+
+        let compilation = Compilation::load(request)
+            .unwrap_or_else(|error| panic!("standard library compilation must load: {error:?}"));
+
+        let selections = compilation
+            .semantic_selections(source_function_body_key(&compilation, "exercise"))
+            .unwrap_or_else(|error| panic!("unavailable conversion must be checked: {error:?}"));
+
+        let diagnostic = selections
+            .diagnostics()
+            .by_kind(DiagnosticKind::CheckingNoApplicableCandidate)
+            .next()
+            .unwrap_or_else(|| panic!("missing conversion must reject the call"));
+
+        assert!(diagnostic.primary_span().is_some(), "{diagnostic:#?}");
     }
 
     #[test]

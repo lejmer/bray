@@ -658,7 +658,7 @@ match result
 panic message and source context carried by a panic and owns any ordered suppressed reports and cleanup incidents
 attached during cleanup. Its synchronous infallible destruction resolves all attached type-erased payloads.
 
-`ConversionError` is the compiler-known error type used by built-in fallible conversions.
+`ConversionError` is the compiler-known error type selected by standard-library checked integer conversions and other implementations that choose it.
 
 Its semantic declaration is:
 

@@ -1,8 +1,20 @@
 module bray.standard_library_tests.numeric;
 
+using std.convert;
 using std.numeric;
+using std.numeric.IntegerCheckedConversion;
+using std.numeric.I8Integer;
+using std.numeric.I8IntegerBits;
+using std.numeric.I128Integer;
+using std.numeric.I128IntegerBits;
+using std.numeric.I128IntegerFromBits;
+using std.numeric.U128Integer;
+using std.numeric.U128IntegerBits;
 using std.numeric.I32Integer;
+using std.numeric.I32IntegerBits;
 using std.numeric.U8Integer;
+using std.numeric.U8IntegerBits;
+using std.numeric.U8IntegerFromBits;
 using std.testing;
 
 @test
@@ -91,4 +103,93 @@ func widest_integer_parsing()
     assert(
         std.testing.assert_error<i8, std.numeric.ParseError>(signed_overflow) matches std.numeric.ParseError.Overflow
     );
+}
+
+struct ConvertedNumber
+{
+    value: u8;
+}
+
+union NumberConversionError
+{
+    Invalid;
+}
+
+struct OwnedNumber
+{
+    value: u8;
+}
+
+impl OwnedNumberConversion = OwnedNumber(CheckedConvertTo<ConvertedNumber>)
+{
+    type Error = NumberConversionError;
+
+    consume func convert_checked() -> Result<ConvertedNumber, NumberConversionError>
+    {
+        if self.value == 0
+        {
+            return Error(NumberConversionError.Invalid);
+        }
+
+        return Ok(
+            {
+                value = self.value
+            }
+        );
+    }
+}
+
+@test
+func checked_conversion_uses_custom_error_and_transfers_source()
+{
+    let value: OwnedNumber =
+    {
+        value = 42
+    };
+
+    let converted: Result<ConvertedNumber, NumberConversionError> = std.convert<ConvertedNumber>(value);
+    let number: ConvertedNumber = std.testing.assert_ok<ConvertedNumber, NumberConversionError>(converted);
+
+    assert(number.value == 42);
+
+    let invalid: OwnedNumber =
+    {
+        value = 0
+    };
+
+    let rejected: Result<ConvertedNumber, NumberConversionError> = std.convert<ConvertedNumber>(invalid);
+
+    assert(
+        std.testing.assert_error<ConvertedNumber, NumberConversionError>(rejected) matches NumberConversionError.Invalid
+    );
+}
+
+@test
+func checked_integer_conversion_preserves_values_and_rejects_out_of_range()
+{
+    let value: i32 = 42;
+    let converted: Result<u8, ConversionError> = std.convert<u8>(value);
+    let narrowed: u8 = std.testing.assert_ok<u8, ConversionError>(converted);
+
+    assert(narrowed == 42);
+
+    let too_large: i32 = 300;
+    let rejected: Result<u8, ConversionError> = std.convert<u8>(too_large);
+
+    assert(std.testing.assert_error<u8, ConversionError>(rejected) matches ConversionError.OutOfRange);
+
+    let negative: i32 = -1;
+    let rejected_negative: Result<u8, ConversionError> = std.convert<u8>(negative);
+
+    assert(std.testing.assert_error<u8, ConversionError>(rejected_negative) matches ConversionError.OutOfRange);
+
+    let signed_small: i8 = -1;
+    let signed_wide: Result<i128, ConversionError> = std.convert<i128>(signed_small);
+
+    assert(std.testing.assert_ok<i128, ConversionError>(signed_wide) == -1);
+
+    let unsigned_maximum: u128 = std.numeric.U128_MAX;
+    let rejected_signed: Result<i128, ConversionError> = std.convert<i128>(unsigned_maximum);
+
+    assert(std.testing.assert_error<i128, ConversionError>(rejected_signed) matches ConversionError.OutOfRange);
 }

@@ -852,8 +852,7 @@ trait CheckedConvertTo<Target>
 `CheckedConvertTo<Target>` is the compiler-known trait application used by the standard-library
 `std.convert<Target>(source)` operation.
 
-`convert_checked` is the member called by `std.convert<Target>(source)` when no built-in fallible conversion rule
-applies.
+`convert_checked` is the member called by `std.convert<Target>(source)`.
 
 The selected `Error` type becomes the error type of the `std.convert<Target>(source)` result.
 
