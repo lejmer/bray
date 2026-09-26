@@ -2,7 +2,7 @@ use super::abi::runtime_function_type;
 use bray_codegen::{
     CodegenFailure, CodegenInstance, CodegenRequest, CodegenSymbolKey, CodegenTarget,
 };
-use bray_runtime_interface::{ProtectedFrameOperation, RuntimeAbiRole, RuntimeAbiType};
+use bray_runtime_interface::{NATIVE_PANIC_REPORT_FIELDS, ProtectedFrameOperation, RuntimeAbiRole, RuntimeAbiType};
 use bray_target::{ObjectFormat, TargetArchitecture};
 use inkwell::AddressSpace;
 use inkwell::attributes::{Attribute, AttributeLoc};
@@ -332,32 +332,16 @@ pub(crate) fn frame_progress_type(context: &Context) -> StructType<'_> {
 }
 
 pub(crate) fn panic_report_type(context: &Context) -> StructType<'_> {
-    let u32 = context.i32_type();
-    let u64 = context.i64_type();
-    let pointer = context.ptr_type(AddressSpace::default());
+    context.struct_type(&NATIVE_PANIC_REPORT_FIELDS.map(|field| panic_field_type(context, field)), false)
+}
 
-    context.struct_type(
-        &[
-            u32.into(),
-            u32.into(),
-            u32.into(),
-            u32.into(),
-            u64.into(),
-            u32.into(),
-            // Match the explicit field padding used by the semantic aggregate mapping.
-            context.i8_type().array_type(4).into(),
-            u64.into(),
-            u64.into(),
-            pointer.into(),
-            pointer.into(),
-            u64.into(),
-            u64.into(),
-            u64.into(),
-            u64.into(),
-            pointer.into(),
-        ],
-        false,
-    )
+fn panic_field_type(context: &Context, field: RuntimeAbiType) -> BasicTypeEnum<'_> {
+    match field {
+        RuntimeAbiType::U32 => context.i32_type().into(),
+        RuntimeAbiType::U64 | RuntimeAbiType::Usize => context.i64_type().into(),
+        RuntimeAbiType::Pointer => context.ptr_type(AddressSpace::default()).into(),
+        _ => panic!("panic report field has an unsupported native ABI type"),
+    }
 }
 
 pub(crate) fn run_outcome_type<'context>(
@@ -442,13 +426,9 @@ pub(crate) fn string_view_type<'context>(
 
 pub(crate) fn source_anchor_type(context: &Context) -> StructType<'_> {
     context.struct_type(
-        &[
-            context.i32_type().into(),
-            context.i32_type().into(),
-            context.i32_type().into(),
-            context.i32_type().into(),
-            context.i64_type().into(),
-        ],
+        &std::array::from_fn::<_, 9, _>(|index| {
+            panic_field_type(context, NATIVE_PANIC_REPORT_FIELDS[index])
+        }),
         false,
     )
 }
@@ -457,6 +437,19 @@ pub(crate) fn source_anchor_value(
     context: &Context,
     source: bray_runtime_abi::NativeSourceAnchor,
 ) -> StructValue<'_> {
+    let package = source.package();
+
+    let [word0, word1, word2, word3] = [0, 8, 16, 24].map(|offset| {
+        let bytes = package[offset..offset + 8]
+            .try_into()
+            .expect("package digest has four words");
+
+        context
+            .i64_type()
+            .const_int(u64::from_le_bytes(bytes), false)
+            .into()
+    });
+
     source_anchor_type(context).const_named_struct(&[
         context
             .i32_type()
@@ -475,6 +468,10 @@ pub(crate) fn source_anchor_value(
             .const_int(u64::from(source.end()), false)
             .into(),
         context.i64_type().const_int(source.version(), false).into(),
+        word0,
+        word1,
+        word2,
+        word3,
     ])
 }
 
@@ -611,7 +608,7 @@ mod tests {
     use inkwell::context::Context;
 
     #[test]
-    fn panic_report_fields_keep_semantic_padding_and_native_offsets() {
+    fn panic_report_fields_keep_native_offsets() {
         let context = Context::create();
         let report = super::panic_report_type(&context);
 
@@ -623,10 +620,10 @@ mod tests {
 
             let data = machine.target_data();
 
-            assert_eq!(data.get_store_size(&report), 104);
+            assert_eq!(data.get_store_size(&report), 136);
             assert_eq!(data.get_abi_alignment(&report), 8);
 
-            for (element, offset) in [(5, 24), (6, 28), (7, 32), (10, 56), (15, 96)] {
+            for (element, offset) in [(5, 24), (8, 48), (9, 56), (10, 64), (18, 128)] {
                 assert_eq!(data.offset_of_element(&report, element), Some(offset));
             }
         }
@@ -904,7 +901,7 @@ mod tests {
         )
         .unwrap_or_else(|| panic!("panic report construction must have a native ABI"));
 
-        assert_eq!(panic.count_param_types(), 9);
+        assert_eq!(panic.count_param_types(), 13);
 
         assert_eq!(
             panic.get_param_types(),
@@ -915,6 +912,10 @@ mod tests {
                 context.i32_type().into(),
                 context.i32_type().into(),
                 context.i32_type().into(),
+                context.i64_type().into(),
+                context.i64_type().into(),
+                context.i64_type().into(),
+                context.i64_type().into(),
                 context.i64_type().into(),
                 context.ptr_type(inkwell::AddressSpace::default()).into(),
                 context.i64_type().into(),
@@ -950,7 +951,7 @@ mod tests {
         )
         .unwrap_or_else(|| panic!("panic report construction must have a native ABI"));
 
-        assert_eq!(panic.count_param_types(), 9);
+        assert_eq!(panic.count_param_types(), 13);
 
         assert_eq!(
             panic.get_param_types(),
@@ -961,6 +962,10 @@ mod tests {
                 context.i32_type().into(),
                 context.i32_type().into(),
                 context.i32_type().into(),
+                context.i64_type().into(),
+                context.i64_type().into(),
+                context.i64_type().into(),
+                context.i64_type().into(),
                 context.i64_type().into(),
                 context.ptr_type(inkwell::AddressSpace::default()).into(),
                 context.i64_type().into(),

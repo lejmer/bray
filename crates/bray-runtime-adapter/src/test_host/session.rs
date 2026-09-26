@@ -149,9 +149,6 @@ pub(super) fn record_panic(cause: NativePanicCause, source: NativeSourceAnchor, 
 
         let panic_cause = match cause {
             cause if cause == NativePanicCause::ASSERTION => TestPanicCause::Assertion,
-            cause if cause == NativePanicCause::EXPLICIT_TEST_FAILURE => {
-                TestPanicCause::ExplicitFailure
-            }
             cause if cause == NativePanicCause::RUNTIME_PANIC => TestPanicCause::RuntimePanic,
             cause if cause == NativePanicCause::ALLOCATION_FAILURE => {
                 TestPanicCause::AllocationFailure
@@ -160,6 +157,9 @@ pub(super) fn record_panic(cause: NativePanicCause, source: NativeSourceAnchor, 
         };
 
         session.outcome = Some(match (cause, source) {
+            (cause, source) if cause == NativePanicCause::EXPLICIT_TEST_FAILURE => {
+                TestOutcome::ExplicitFailure(ExplicitTestFailure::new(source, message))
+            }
             (cause, Some(source)) if cause == NativePanicCause::ASSERTION => {
                 let failure = if message.is_empty() {
                     AssertionFailure::without_message(source)
@@ -168,9 +168,6 @@ pub(super) fn record_panic(cause: NativePanicCause, source: NativeSourceAnchor, 
                 };
 
                 TestOutcome::AssertionFailure(failure)
-            }
-            (cause, Some(source)) if cause == NativePanicCause::EXPLICIT_TEST_FAILURE => {
-                TestOutcome::ExplicitFailure(ExplicitTestFailure::new(source, message))
             }
             _ => TestOutcome::Panicked(TestPanicReport::new(panic_cause, source, message)),
         });
@@ -393,6 +390,7 @@ fn completed_stream(
 fn test_source(source: NativeSourceAnchor) -> Option<TestSourceAnchor> {
     source.is_available().then(|| {
         TestSourceAnchor::new(
+            source.package(),
             SourceSpan::new(
                 SourceId::new(source.source()),
                 TextRange::new(TextSize::new(source.start()), TextSize::new(source.end())),

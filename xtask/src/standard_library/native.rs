@@ -4,20 +4,23 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-use bray_base::is_lowercase_hex;
-use bray_symbols::TestExecutionConstraint;
+use bray_base::{is_lowercase_hex, lowercase_hex};
+use bray_project::{ProjectGraph, load_standard_library_project_graph};
+use bray_symbols::{PackageIdentity, TestExecutionConstraint};
 use bray_target::{NativeTarget, TargetOutputKind, TargetOutputName};
 use bray_test_protocol::{TestBatchPlan, TestBatchRequest, decode_test_catalog};
 use serde::Deserialize;
 
 use super::command::BuildError;
 use crate::native_test_report::{
-    NativeOutcome, NativeStream, NativeTestBuildProvenance, NativeTestReport, NativeTestResult,
+    NativeOutcome, NativeSourceAnchor, NativeStream, NativeTestBuildProvenance, NativeTestReport,
+    NativeTestResult,
 };
 #[cfg(test)]
 use crate::native_test_report::{NativeProductReport, NativeSelection, NativeSummary};
 
 const PACKAGE_IDENTITY: &str = "std";
+const LIBRARY_PRODUCT: &str = "library";
 const API_PRODUCT: &str = "api";
 const OUTCOME_PRODUCT: &str = "outcomes";
 const CHILD_EXECUTABLE_ENVIRONMENT_VARIABLE: &str = "BRAY_STANDARD_LIBRARY_TEST_EXECUTABLE";
@@ -29,101 +32,85 @@ const OUTCOME_CASES: [OutcomeCase; 25] = [
     OutcomeCase::new(
         "assertion-failure",
         "assertion_failure",
-        OutcomeExpectation::Assertion,
+        OutcomeExpectation::Assertion {
+            message: "expected assertion failure",
+        },
     ),
     OutcomeCase::new(
         "explicit-failure",
         "explicit_failure",
-        OutcomeExpectation::Explicit,
+        OutcomeExpectation::Explicit {
+            message: "expected explicit failure",
+        },
     ),
     OutcomeCase::new(
         "assert-ok-rejects-error",
         "assert_ok_rejects_an_error",
-        OutcomeExpectation::Panic {
-            cause: "explicit_failure",
+        OutcomeExpectation::Explicit {
             message: "expected Result.Ok",
-            source_available: false,
         },
     ),
     OutcomeCase::new(
         "assert-error-rejects-success",
         "assert_error_rejects_success",
-        OutcomeExpectation::Panic {
-            cause: "explicit_failure",
+        OutcomeExpectation::Explicit {
             message: "expected Result.Error",
-            source_available: false,
         },
     ),
     OutcomeCase::new(
         "assert-present-rejects-absence",
         "assert_present_rejects_absence",
-        OutcomeExpectation::Panic {
-            cause: "explicit_failure",
+        OutcomeExpectation::Explicit {
             message: "expected a present nullable value",
-            source_available: false,
         },
     ),
     OutcomeCase::new(
         "assert-absent-rejects-presence",
         "assert_absent_rejects_presence",
-        OutcomeExpectation::Panic {
-            cause: "explicit_failure",
+        OutcomeExpectation::Explicit {
             message: "expected an absent nullable value",
-            source_available: false,
         },
     ),
     OutcomeCase::new(
         "assert-completed-rejects-cancellation",
         "assert_completed_rejects_cancellation",
-        OutcomeExpectation::Panic {
-            cause: "explicit_failure",
+        OutcomeExpectation::Explicit {
             message: "expected RunResult.Completed",
-            source_available: false,
         },
     ),
     OutcomeCase::new(
         "assert-panicked-rejects-completion",
         "assert_panicked_rejects_completion",
-        OutcomeExpectation::Panic {
-            cause: "explicit_failure",
+        OutcomeExpectation::Explicit {
             message: "expected RunResult.Panicked",
-            source_available: false,
         },
     ),
     OutcomeCase::new(
         "assert-cancelled-rejects-completion",
         "assert_cancelled_rejects_completion",
-        OutcomeExpectation::Panic {
-            cause: "explicit_failure",
+        OutcomeExpectation::Explicit {
             message: "expected RunResult.Cancelled",
-            source_available: false,
         },
     ),
     OutcomeCase::new(
         "assert-not-completed-rejects-completion",
         "assert_not_completed_rejects_completion",
-        OutcomeExpectation::Panic {
-            cause: "explicit_failure",
+        OutcomeExpectation::Explicit {
             message: "expected RunResult.Panicked or RunResult.Cancelled",
-            source_available: false,
         },
     ),
     OutcomeCase::new(
         "invalid-allocation-alignment",
         "invalid_allocation_alignment",
-        OutcomeExpectation::Panic {
-            cause: "assertion",
+        OutcomeExpectation::Assertion {
             message: "memory allocation alignment must be a nonzero power of two",
-            source_available: false,
         },
     ),
     OutcomeCase::new(
         "allocation-size-overflow",
         "allocation_size_overflow",
-        OutcomeExpectation::Panic {
-            cause: "assertion",
+        OutcomeExpectation::Assertion {
             message: "memory allocation size exceeds the target address range",
-            source_available: false,
         },
     ),
     OutcomeCase::new(
@@ -174,10 +161,8 @@ const OUTCOME_CASES: [OutcomeCase; 25] = [
     OutcomeCase::new(
         "raw-buffer-release-deallocation-failure",
         "raw_buffer_release_preserves_deallocation_failure",
-        OutcomeExpectation::Panic {
-            cause: "assertion",
+        OutcomeExpectation::Assertion {
             message: "memory deallocation received an invalid allocation",
-            source_available: false,
         },
     ),
     OutcomeCase::new(
@@ -213,7 +198,7 @@ const OUTCOME_CASES: [OutcomeCase; 25] = [
         OutcomeExpectation::Panic {
             cause: "message",
             message: "Once initialization reentered",
-            source_available: false,
+            source_available: true,
         },
     ),
     OutcomeCase::new(
@@ -579,13 +564,37 @@ fn audit_outcomes(
 
     let batch = parse_batch_report("native outcomes", &output, &request)?;
 
-    for case in OUTCOME_CASES {
-        audit_outcome(batch.report(case.plan_identity)?, case)?;
-    }
+    let graph = load_standard_library_project_graph(workspace).map_err(|error| {
+        BuildError::conformance("native outcomes", format!("could not load source graph: {error:?}"))
+    })?;
 
     let catalog = product_catalog(workspace, target, OUTCOME_PRODUCT)?;
+    let catalog = read_artifact(&catalog)?;
+    require_catalog_separation(&catalog)?;
 
-    require_catalog_separation(&read_artifact(&catalog)?)
+    let (catalog, _) = decode_test_catalog(&catalog).map_err(|error| {
+        BuildError::conformance("native outcomes", format!("could not decode test catalog: {error:?}"))
+    })?;
+
+    let direct_source_package = catalog
+        .entries()
+        .iter()
+        .find(|entry| entry.identity().declaration().name().as_str() == "explicit_failure")
+        .expect("outcomes catalog must contain the direct failure test")
+        .source()
+        .package();
+
+    for case in OUTCOME_CASES {
+        audit_outcome(
+            batch.report(case.plan_identity)?,
+            case,
+            workspace,
+            &graph,
+            direct_source_package,
+        )?;
+    }
+
+    Ok(())
 }
 
 fn outcome_batch_request() -> Result<TestBatchRequest, BuildError> {
@@ -604,7 +613,13 @@ fn outcome_batch_request() -> Result<TestBatchRequest, BuildError> {
     test_batch_request(plans)
 }
 
-fn audit_outcome(report: &NativeTestReport, case: OutcomeCase) -> Result<(), BuildError> {
+fn audit_outcome(
+    report: &NativeTestReport,
+    case: OutcomeCase,
+    workspace: &Path,
+    graph: &ProjectGraph,
+    direct_source_package: [u8; 32],
+) -> Result<(), BuildError> {
     require_product(report, OUTCOME_PRODUCT)?;
     require_selection(report, OUTCOME_CASES.len(), 1, OUTCOME_CASES.len() - 1)?;
 
@@ -634,6 +649,20 @@ fn audit_outcome(report: &NativeTestReport, case: OutcomeCase) -> Result<(), Bui
     case.expectation
         .validate(case.test_identity, &test.outcome)?;
 
+    if let (
+        OutcomeExpectation::Explicit { message },
+        NativeOutcome::ExplicitFailure { source: Some(source), .. },
+    ) = (case.expectation, &test.outcome) {
+        audit_explicit_source(
+            workspace,
+            graph,
+            case.test_identity,
+            message,
+            source,
+            direct_source_package,
+        )?;
+    }
+
     require_stream(
         case.plan_identity,
         &test.identity,
@@ -649,6 +678,75 @@ fn audit_outcome(report: &NativeTestReport, case: OutcomeCase) -> Result<(), Bui
         &test.stderr,
         &[],
     )
+}
+
+fn audit_explicit_source(
+    workspace: &Path,
+    graph: &ProjectGraph,
+    identity: &str,
+    message: &str,
+    source: &crate::native_test_report::NativeSourceAnchor,
+    direct_source_package: [u8; 32],
+) -> Result<(), BuildError> {
+    let package = PackageIdentity::try_new(PACKAGE_IDENTITY).expect("standard library package identity is valid");
+    let product_name = if identity == "explicit_failure" { OUTCOME_PRODUCT } else { LIBRARY_PRODUCT };
+
+    let source_path = if identity == "explicit_failure" {
+        "std/tests/outcomes/outcomes.bray"
+    } else {
+        "std/src/testing.bray"
+    };
+
+    let product = graph
+        .package(&package)
+        .and_then(|package| package.products().iter().find(|product| product.identity().name() == product_name))
+        .expect("standard library outcome sources must have known products");
+
+    let expected_source = product
+        .sources()
+        .iter()
+        .position(|path| path.as_str() == source_path)
+        .expect("standard library outcome source must belong to its product");
+
+    let expected_source = u32::try_from(expected_source).expect("source index must fit u32");
+    let source_file = workspace.join(source_path);
+    let contents = fs::read_to_string(&source_file).map_err(|error| BuildError::read(&source_file, error))?;
+
+    let expected_call = format!("fail(&\"{message}\")");
+    let start = source.start as usize;
+    let end = source.end as usize;
+
+    let source_is_in_call = contents
+        .get(..start)
+        .zip(contents.get(end..))
+        .and_then(|(before, after)| {
+            let line_start = before.rfind('\n').map_or(0, |index| index + 1);
+            let line_end = after.find('\n').map_or(contents.len(), |index| end + index);
+            let call_start = contents.get(line_start..line_end)?.find(&expected_call)? + line_start;
+
+            Some(start >= call_start && end <= call_start + expected_call.len())
+        })
+        .unwrap_or(false);
+
+    let expected_package = lowercase_hex(&if identity == "explicit_failure" {
+        direct_source_package
+    } else {
+        package.source_namespace()
+    });
+
+    if source.package != expected_package
+        || source.source != expected_source
+        || !source_is_in_call
+    {
+        return Err(BuildError::conformance(
+            "native outcomes",
+            format!(
+                "{identity} did not resolve to {source_path}'s fail call: {source:?}; expected package {expected_package}, source {expected_source}, span within call {source_is_in_call}"
+            ),
+        ));
+    }
+
+    Ok(())
 }
 
 fn validate_api_report(plan: &str, report: &NativeTestReport) -> Result<(), BuildError> {
@@ -1147,8 +1245,12 @@ impl OutcomeCase {
 
 #[derive(Clone, Copy)]
 enum OutcomeExpectation {
-    Assertion,
-    Explicit,
+    Assertion {
+        message: &'static str,
+    },
+    Explicit {
+        message: &'static str,
+    },
     Panic {
         cause: &'static str,
         message: &'static str,
@@ -1162,11 +1264,20 @@ enum OutcomeExpectation {
 impl OutcomeExpectation {
     fn validate(self, identity: &str, outcome: &NativeOutcome) -> Result<(), BuildError> {
         let valid = match (self, outcome) {
-            (Self::Assertion, NativeOutcome::AssertionFailure { source, message }) => {
-                source.is_valid() && message.as_deref() == Some("expected assertion failure")
+            (
+                Self::Assertion { message: expected_message },
+                NativeOutcome::AssertionFailure { source, message },
+            ) => {
+                source.is_valid() && message.as_deref() == Some(expected_message)
             }
-            (Self::Explicit, NativeOutcome::ExplicitFailure { source, message }) => {
-                source.is_valid() && message == "expected explicit failure"
+            (
+                Self::Explicit {
+                    message: expected_message,
+                },
+                NativeOutcome::ExplicitFailure { source, message },
+            ) => {
+                source.as_ref().is_some_and(NativeSourceAnchor::is_valid)
+                    && message == expected_message
             }
             (
                 Self::Panic {

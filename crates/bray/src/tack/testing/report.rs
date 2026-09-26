@@ -487,7 +487,7 @@ enum JsonTestOutcome<'report> {
         formatted_value: Option<&'report str>,
     },
     ExplicitFailure {
-        source: JsonSourceAnchor,
+        source: Option<JsonSourceAnchor>,
         message: &'report str,
     },
     AssertionFailure {
@@ -523,7 +523,7 @@ impl<'report> From<&'report TestOutcome> for JsonTestOutcome<'report> {
                 formatted_value: formatted_value.as_deref(),
             },
             TestOutcome::ExplicitFailure(failure) => Self::ExplicitFailure {
-                source: failure.source().into(),
+                source: failure.source().map(Into::into),
                 message: failure.message(),
             },
             TestOutcome::AssertionFailure(failure) => Self::AssertionFailure {
@@ -579,8 +579,9 @@ struct JsonStreamFailure {
     platform_code: Option<i64>,
 }
 
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Serialize)]
 struct JsonSourceAnchor {
+    package: String,
     source: u32,
     start: u32,
     end: u32,
@@ -592,6 +593,7 @@ impl From<TestSourceAnchor> for JsonSourceAnchor {
         let span = source.span();
 
         Self {
+            package: lowercase_hex(&source.package()),
             source: span.source_id().raw(),
             start: span.start().bytes(),
             end: span.end().bytes(),
@@ -604,7 +606,6 @@ const fn panic_cause(cause: TestPanicCause) -> &'static str {
     match cause {
         TestPanicCause::Message => "message",
         TestPanicCause::Assertion => "assertion",
-        TestPanicCause::ExplicitFailure => "explicit_failure",
         TestPanicCause::RuntimePanic => "runtime_panic",
         TestPanicCause::AllocationFailure => "allocation_failure",
     }
@@ -807,6 +808,7 @@ mod tests {
 
     fn source() -> TestSourceAnchor {
         TestSourceAnchor::new(
+            [0; 32],
             SourceSpan::new(
                 SourceId::new(4),
                 TextRange::new(TextSize::new(8), TextSize::new(13)),

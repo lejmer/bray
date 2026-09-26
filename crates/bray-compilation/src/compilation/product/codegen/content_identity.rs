@@ -135,6 +135,12 @@ fn hash_source_anchor(
             digest.write_u8(4);
             hash_imported_key(key, context, digest)?;
         }
+        MirSourceAnchor::ImportedSource { owner, span, version } => {
+            digest.write_u8(5);
+            hash_imported_key(owner, context, digest)?;
+            span.hash(digest);
+            version.hash(digest);
+        }
     }
 
     Ok(())

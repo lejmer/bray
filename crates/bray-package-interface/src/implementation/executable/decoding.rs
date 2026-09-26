@@ -24,6 +24,7 @@ use bray_runtime_interface::{
     ExecutionLaneRequirement, ProtectedAsyncFrameId, ProtectedFrameAbiOperation,
     ProtectedFrameAbiVersions, RuntimeAbiRole, RuntimeAbiVersion,
 };
+use bray_source::{SourceId, SourceSpan, SourceVersion, TextRange, TextSize};
 use bray_symbols::{
     AnySymbolId, CallableCapabilityRequirement, CallableDefinitionId, CallableEffectRequirement,
     CallableExecutionRequirement, CallableInstanceData, CallablePhaseBehavior,
@@ -157,7 +158,13 @@ pub fn decode_executable_template(
         let result = read_optional(&mut decoder.reader, read_u32)?;
         let kind = decoder.operation()?;
 
-        operations.push(OperationRecord { result, kind });
+        let source = if matches!(kind, MirOperationKind::PanicReport(_)) {
+            read_panic_source(&mut decoder.reader)?
+        } else {
+            None
+        };
+
+        operations.push(OperationRecord { result, kind, source });
     }
 
     let mut terminators = decoder.items(block_count)?;
@@ -307,6 +314,32 @@ enum ValueRecordOrigin {
 struct OperationRecord {
     result: Option<u32>,
     kind: MirOperationKind,
+    source: Option<(SourceSpan, SourceVersion)>,
+}
+
+fn read_panic_source(
+    reader: &mut WireReader<'_>,
+) -> Result<Option<(SourceSpan, SourceVersion)>, ExecutableTemplateDecodeError> {
+    let raw = read_optional(reader, |reader| {
+        Ok((
+            read_u32(reader)?,
+            read_u32(reader)?,
+            read_u32(reader)?,
+            reader.read_u64().map_err(map_wire_error)?,
+        ))
+    })?;
+
+    raw.map(|(source, start, end, version)| {
+        let source = SourceId::stored(source).ok_or(ExecutableTemplateDecodeError::Malformed)?;
+        let start = TextSize::new(start);
+        let end = TextSize::new(end);
+
+        if start > end {
+            return Err(ExecutableTemplateDecodeError::Malformed);
+        }
+
+        Ok((SourceSpan::new(source, TextRange::new(start, end)), SourceVersion::new(version)))
+    }).transpose()
 }
 
 #[derive(Clone, Copy)]
@@ -450,6 +483,17 @@ fn push_operation(
             .get(operation)
             .ok_or(ExecutableTemplateDecodeError::Malformed)?,
     )?;
+
+    let source = match record.source {
+        Some((span, version)) => {
+            let MirSourceAnchor::ImportedExecutable(key) = source else {
+                panic!("imported operation must use its imported executable source");
+            };
+
+            MirSourceAnchor::imported_source(key, span, version)
+        }
+        None => source,
+    };
 
     let commit = builder
         .push_operation(owner, source, record.kind.clone(), result_type)

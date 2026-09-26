@@ -122,6 +122,7 @@ impl Compilation {
                 let identity = TestIdentity::new(product.clone(), declaration);
 
                 let source = TestSourceAnchor::new(
+                    self.package_identity().source_namespace(),
                     SourceSpan::new(anchor.source_id(), anchor.full_range()),
                     source.version(),
                 );
@@ -347,6 +348,11 @@ mod tests {
                 .identity()
                 .product(),
             &product,
+        );
+
+        assert_eq!(
+            discovery.value().catalog().entries()[0].source().package(),
+            compilation.package_identity().source_namespace(),
         );
     }
 

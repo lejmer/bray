@@ -99,7 +99,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &mut self,
         edge: &MirCallPanicEdge,
         context: PointerValue<'context>,
-        source: Option<BasicValueEnum<'context>>,
         name: &str,
         pending_moves: &[MirPlace],
     ) -> Result<BasicBlock<'context>, CodegenFailure> {
@@ -125,26 +124,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             2,
             "call.outcome.report",
         ))?;
-
-        if let Some(source) = source {
-            let report_type = crate::native::panic_report_type(self.types.context());
-
-            let source_field_count =
-                crate::native::source_anchor_type(self.types.context()).count_fields();
-
-            for index in 0..source_field_count {
-                let value = super::support::extract_value(&self.builder, source, index)?;
-
-                let field = super::support::llvm(self.builder.build_struct_gep(
-                    report_type,
-                    report,
-                    index,
-                    "call.panic.report.source",
-                ))?;
-
-                super::support::llvm(self.builder.build_store(field, value))?;
-            }
-        }
 
         super::support::llvm(self.builder.build_memcpy(
             destination,

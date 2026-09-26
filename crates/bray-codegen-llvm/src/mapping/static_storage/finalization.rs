@@ -457,7 +457,7 @@ fn declare_static_finalizer_resolver<'context>(
         types,
     )?;
 
-    let incident = static_incident_value(&builder, finalization, payload, report, destroy, types)?;
+    let incident = static_incident_value(&builder, mapping, finalization, payload, report, destroy, types)?;
 
     let incident_destination = builder
         .build_int_to_ptr(
@@ -642,6 +642,7 @@ fn declare_static_incident_destroyer<'context>(
 
 fn static_incident_value<'context>(
     builder: &Builder<'context>,
+    mapping: &CodegenStaticStorageMapping,
     finalization: &bray_codegen::CodegenStaticFinalization,
     payload: PointerValue<'context>,
     report: FunctionValue<'context>,
@@ -663,7 +664,14 @@ fn static_incident_value<'context>(
             .collect::<Vec<_>>(),
     );
 
-    let source = native_source_anchor_value(context, finalization.source());
+    let package = mapping
+        .instance()
+        .declaration()
+        .package_identity()
+        .expect("static storage declaration must belong to a package")
+        .source_namespace();
+
+    let source = native_source_anchor_value(context, package, finalization.source());
     let incident_type = static_incident_type(context, usize, pointer);
     let incident = incident_type.const_zero();
 
@@ -729,6 +737,7 @@ fn static_incident_type<'context>(
 
 fn native_source_anchor_value<'context>(
     context: &'context inkwell::context::Context,
+    package: [u8; 32],
     source: Option<&bray_ir::MirSourceAnchor>,
 ) -> StructValue<'context> {
     let source = match source {
@@ -738,6 +747,7 @@ fn native_source_anchor_value<'context>(
             let range = syntax.full_range();
 
             bray_runtime_abi::NativeSourceAnchor::new(
+                package,
                 syntax.source_id().raw(),
                 range.start().bytes(),
                 range.end().bytes(),
@@ -748,7 +758,8 @@ fn native_source_anchor_value<'context>(
             bray_ir::MirSourceAnchor::ExecutableHost(_)
             | bray_ir::MirSourceAnchor::GeneratedLifecycle(_)
             | bray_ir::MirSourceAnchor::CompilerProvidedCallable(_)
-            | bray_ir::MirSourceAnchor::ImportedExecutable(_),
+            | bray_ir::MirSourceAnchor::ImportedExecutable(_)
+            | bray_ir::MirSourceAnchor::ImportedSource { .. },
         )
         | None => bray_runtime_abi::NativeSourceAnchor::unavailable(),
     };

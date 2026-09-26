@@ -9,11 +9,11 @@ rust-version.workspace = true
 bray-base = { path = "../bray-base" }
 bray-bound-tree = { path = "../bray-bound-tree" }
 bray-runtime-interface = { path = "../bray-runtime-interface" }
+bray-source = { path = "../bray-source" }
 bray-symbols = { path = "../bray-symbols" }
 bray-target = { path = "../bray-target" }
 
 [dev-dependencies]
-bray-source = { path = "../bray-source" }
 bray-target = { path = "../bray-target", features = ["test-support"] }
 bray-testing = { path = "../bray-testing", features = ["bound-unit"] }
 

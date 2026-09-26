@@ -16,8 +16,10 @@ use bray_ir::{
     MirGeneratorOperation, MirHostOperation, MirImmediateValue, MirMemoryOperation, MirNumericConversionKind,
     MirOperand, MirOperationKind, MirPanicCause, MirPatternPredicate, MirPlace, MirProjectionKind,
     MirRuntimeReference, MirStorageKind, MirStoreKind, MirSwitchCase, MirTerminatorKind,
-    MirTextOperation, MirTextOperationKind, MirUnaryOperator, MirUnit, MirUnitKind, MirValueOrigin,
+    MirSourceAnchor, MirTextOperation, MirTextOperationKind, MirUnaryOperator, MirUnit,
+    MirUnitKind, MirValueOrigin,
 };
+use bray_source::SourceSpan;
 use bray_symbols::{
     AnySymbolId, CallableInstanceData, CallablePhaseBehavior, CallablePhaseBehaviors,
     ConstantTermId, ConstantValueId, DependencyContractTemplateId, GenericSubstitutionId,
@@ -188,6 +190,29 @@ fn encode_unit<C: ExecutableTemplateEncodeContext>(
         });
 
         encoder.operation(operation.kind())?;
+
+        if matches!(operation.kind(), MirOperationKind::PanicReport(_)) {
+            let source = match operation.source() {
+                MirSourceAnchor::Source(origin) => {
+                    let anchor = origin.source_anchor();
+                    let syntax = anchor.syntax();
+
+                    Some((
+                        SourceSpan::new(syntax.source_id(), syntax.full_range()),
+                        anchor.source_version(),
+                    ))
+                }
+                MirSourceAnchor::ImportedSource { span, version, .. } => Some((*span, *version)),
+                _ => None,
+            };
+
+            write_optional(&mut encoder.wire, source, |wire, (span, version)| {
+                wire.write_u32(span.source_id().raw());
+                wire.write_u32(span.start().bytes());
+                wire.write_u32(span.end().bytes());
+                wire.write_u64(version.raw());
+            });
+        }
     }
 
     for block in unit.blocks() {

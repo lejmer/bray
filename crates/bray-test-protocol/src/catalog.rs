@@ -202,6 +202,7 @@ mod tests {
         let start = TextSize::new(start);
 
         let source = TestSourceAnchor::new(
+            [0; 32],
             SourceSpan::new(SourceId::new(0), TextRange::new(start, start)),
             SourceVersion::new(0),
         );

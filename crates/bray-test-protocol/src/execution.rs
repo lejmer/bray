@@ -120,8 +120,6 @@ pub enum TestPanicCause {
     Message,
     /// A failed built-in assertion.
     Assertion,
-    /// An explicit `std.testing.fail` call.
-    ExplicitFailure,
     /// A panic caught at a runtime callback boundary.
     RuntimePanic,
     /// Storage could not be admitted.

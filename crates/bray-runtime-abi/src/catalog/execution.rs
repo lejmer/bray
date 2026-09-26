@@ -658,7 +658,7 @@ macro_rules! runtime_role_catalog {
             }
             PanicReportConstruction {
                 "Construct one owned panic report.", "panic_report_construction",
-                native: (PANIC_REPORT_CONSTRUCTION_SYMBOL = "bray_runtime_panic_report_construction", [U32, U32, U32, U32, U32, U64, Pointer, Usize] -> PanicReport),
+                native: (PANIC_REPORT_CONSTRUCTION_SYMBOL = "bray_runtime_panic_report_construction", [U32, U32, U32, U32, U32, U64, U64, U64, U64, U64, Pointer, Usize] -> PanicReport),
                 call_hook: (),
                 compiler: Bray [] -> Void,
                 owner: Host, availability: All, bootstrap: ("panic_report_construction"), host_control: false,

@@ -57,6 +57,7 @@ typedef struct SourceAnchor
     uint32_t start;
     uint32_t end;
     uint64_t version;
+    uint8_t package[32];
 } SourceAnchor;
 
 typedef struct PanicReport PanicReport;
@@ -84,8 +85,8 @@ struct RunOutcome
     PanicReport report;
 };
 
-_Static_assert(sizeof(PanicReport) == 104, "native report layout");
-_Static_assert(sizeof(RunOutcome) == 120, "native outcome layout");
+_Static_assert(sizeof(PanicReport) == 136, "native report layout");
+_Static_assert(sizeof(RunOutcome) == 152, "native outcome layout");
 
 extern uint32_t bray_runtime_initialization(uintptr_t worker_capacity, uintptr_t timer_capacity);
 
@@ -178,6 +179,10 @@ extern PanicReport bray_runtime_panic_report_construction(
     uint32_t source_start,
     uint32_t source_end,
     uint64_t source_version,
+    uint64_t source_package_0,
+    uint64_t source_package_1,
+    uint64_t source_package_2,
+    uint64_t source_package_3,
     const uint8_t* message,
     uintptr_t message_length
 );
@@ -225,6 +230,10 @@ static PanicReport panic_report(void)
     static const uint8_t message[] = "bootstrap panic";
 
     return bray_runtime_panic_report_construction(
+        0,
+        0,
+        0,
+        0,
         0,
         0,
         0,

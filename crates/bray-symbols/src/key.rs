@@ -1,6 +1,7 @@
 use std::sync::Arc;
+use std::hash::Hasher;
 
-use bray_base::{NonEmptySharedStr, shared_slice};
+use bray_base::{NonEmptySharedStr, StableDigestHasher, shared_slice};
 use bray_compiler_known::CompilerKnownDeclarationKey;
 use bray_declarations::DeclarationId;
 
@@ -22,6 +23,15 @@ impl PackageIdentity {
     /// Returns the opaque canonical package identity.
     pub fn as_str(&self) -> &str {
         self.0.as_str()
+    }
+
+    /// Returns the source namespace shared by all snapshots from this package.
+    pub fn source_namespace(&self) -> [u8; 32] {
+        let mut digest = StableDigestHasher::new();
+        digest.write(b"bray.package-source.v1\0");
+        digest.write(self.as_str().as_bytes());
+
+        digest.finalize()
     }
 }
 
