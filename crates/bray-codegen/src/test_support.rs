@@ -411,6 +411,7 @@ pub fn codegen_partition_compatibility() -> CodegenPartitionCompatibility {
 
     CodegenPartitionCompatibility::new(
         package,
+        [0; 32],
         CodegenLinkage::Internal,
         CodegenDefinitionVisibility::Product,
     )

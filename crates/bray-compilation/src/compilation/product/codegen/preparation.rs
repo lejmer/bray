@@ -271,7 +271,7 @@ impl Compilation {
                             let compatibility = self
                                 .codegen_partition_compatibility(
                                     instance,
-                                    product.package(),
+                                    product,
                                     roots,
                                     cancellation,
                                 )

@@ -1,4 +1,5 @@
 use bray_bound_tree::{BoundNodeOrigin, BoundSourceAnchor};
+use bray_source::{SourceSpan, SourceVersion};
 use bray_symbols::{CallableDefinitionId, ProductIdentity};
 
 use crate::{MirHelperReference, MirImportedExecutableKey};
@@ -31,6 +32,13 @@ pub enum MirSourceAnchor {
     GeneratedLifecycle(MirHelperReference),
     /// Provenance retained by an imported checked executable template.
     ImportedExecutable(MirImportedExecutableKey),
+    /// The exact source of an incident in an imported executable template.
+    ImportedSource {
+        owner: MirImportedExecutableKey,
+        namespace: [u8; 32],
+        span: SourceSpan,
+        version: SourceVersion,
+    },
 }
 
 impl MirSourceAnchor {
@@ -52,6 +60,16 @@ impl MirSourceAnchor {
     /// Creates provenance for a checked body imported from a compiled dependency.
     pub const fn imported_executable(key: MirImportedExecutableKey) -> Self {
         Self::ImportedExecutable(key)
+    }
+
+    /// Retains a source occurrence from an imported executable template.
+    pub const fn imported_source(
+        owner: MirImportedExecutableKey,
+        namespace: [u8; 32],
+        span: SourceSpan,
+        version: SourceVersion,
+    ) -> Self {
+        Self::ImportedSource { owner, namespace, span, version }
     }
 
     pub(crate) fn belongs_to(&self, owner: &MirSourceOrigin) -> bool {
@@ -77,6 +95,9 @@ impl MirSourceAnchor {
             (Self::ImportedExecutable(anchor), MirSourceOrigin::ImportedExecutable(owner)) => {
                 anchor == owner
             }
+            (Self::ImportedSource { owner: anchor, .. }, MirSourceOrigin::ImportedExecutable(owner)) => {
+                anchor == owner
+            }
             (Self::Source(_), MirSourceOrigin::ExecutableHost(_))
             | (Self::Source(_), MirSourceOrigin::GeneratedLifecycle(_))
             | (Self::Source(_), MirSourceOrigin::ImportedExecutable(_))
@@ -89,6 +110,7 @@ impl MirSourceAnchor {
             | (Self::ImportedExecutable(_), MirSourceOrigin::Source(_))
             | (Self::ImportedExecutable(_), MirSourceOrigin::ExecutableHost(_))
             | (Self::ImportedExecutable(_), MirSourceOrigin::GeneratedLifecycle(_)) => false,
+            (Self::ImportedSource { .. }, _) => false,
         }
     }
 }

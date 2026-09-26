@@ -16,8 +16,10 @@ use bray_ir::{
     MirGeneratorOperation, MirHostOperation, MirImmediateValue, MirMemoryOperation, MirNumericConversionKind,
     MirOperand, MirOperationKind, MirPanicCause, MirPatternPredicate, MirPlace, MirProjectionKind,
     MirRuntimeReference, MirStorageKind, MirStoreKind, MirSwitchCase, MirTerminatorKind,
-    MirTextOperation, MirTextOperationKind, MirUnaryOperator, MirUnit, MirUnitKind, MirValueOrigin,
+    MirSourceAnchor, MirTextOperation, MirTextOperationKind, MirUnaryOperator, MirUnit,
+    MirUnitKind, MirValueOrigin,
 };
+use bray_source::SourceSpan;
 use bray_symbols::{
     AnySymbolId, CallableInstanceData, CallablePhaseBehavior, CallablePhaseBehaviors,
     ConstantTermId, ConstantValueId, DependencyContractTemplateId, GenericSubstitutionId,
@@ -103,9 +105,10 @@ pub enum ExecutableTemplateEncodeError<E> {
 /// Encodes one checked generic MIR unit using package-interface semantic references.
 pub fn encode_executable_template<C: ExecutableTemplateEncodeContext>(
     unit: &MirUnit,
+    source_namespace: [u8; 32],
     context: &mut C,
 ) -> Result<Arc<[u8]>, ExecutableTemplateEncodeError<C::Error>> {
-    encode_unit(unit, context, EncodingPurpose::InterfaceTemplate)
+    encode_unit(unit, source_namespace, context, EncodingPurpose::InterfaceTemplate)
 }
 
 /// Encodes complete MIR structure using caller-supplied semantic reference identities.
@@ -113,7 +116,7 @@ pub fn encode_codegen_mir<C: ExecutableTemplateEncodeContext>(
     unit: &MirUnit,
     context: &mut C,
 ) -> Result<Arc<[u8]>, ExecutableTemplateEncodeError<C::Error>> {
-    encode_unit(unit, context, EncodingPurpose::CodegenContent)
+    encode_unit(unit, [0; 32], context, EncodingPurpose::CodegenContent)
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -124,6 +127,7 @@ enum EncodingPurpose {
 
 fn encode_unit<C: ExecutableTemplateEncodeContext>(
     unit: &MirUnit,
+    source_namespace: [u8; 32],
     context: &mut C,
     purpose: EncodingPurpose,
 ) -> Result<Arc<[u8]>, ExecutableTemplateEncodeError<C::Error>> {
@@ -188,6 +192,31 @@ fn encode_unit<C: ExecutableTemplateEncodeContext>(
         });
 
         encoder.operation(operation.kind())?;
+
+        if matches!(operation.kind(), MirOperationKind::PanicReport(_)) {
+            let source = match operation.source() {
+                MirSourceAnchor::Source(origin) => {
+                    let anchor = origin.source_anchor();
+                    let syntax = anchor.syntax();
+
+                    Some((
+                        source_namespace,
+                        SourceSpan::new(syntax.source_id(), syntax.full_range()),
+                        anchor.source_version(),
+                    ))
+                }
+                MirSourceAnchor::ImportedSource { namespace, span, version, .. } => Some((*namespace, *span, *version)),
+                _ => None,
+            };
+
+            write_optional(&mut encoder.wire, source, |wire, (namespace, span, version)| {
+                wire.write_bytes(&namespace);
+                wire.write_u32(span.source_id().raw());
+                wire.write_u32(span.start().bytes());
+                wire.write_u32(span.end().bytes());
+                wire.write_u64(version.raw());
+            });
+        }
     }
 
     for block in unit.blocks() {
@@ -219,9 +248,10 @@ pub(super) fn encode_projection_for_test<C: ExecutableTemplateEncodeContext>(
 pub fn encode_pre_specialized_mir<C: ExecutableTemplateEncodeContext>(
     key: crate::PackageImplementationSpecializationKey,
     unit: &MirUnit,
+    source_namespace: [u8; 32],
     context: &mut C,
 ) -> Result<crate::InterfacePreSpecializedMir, ExecutableTemplateEncodeError<C::Error>> {
-    let payload = encode_executable_template(unit, context)?;
+    let payload = encode_executable_template(unit, source_namespace, context)?;
 
     Ok(
         crate::InterfacePreSpecializedMir::new(key, crate::CURRENT_MIR_SCHEMA_REVISION, payload)

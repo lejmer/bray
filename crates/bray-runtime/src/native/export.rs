@@ -2391,7 +2391,7 @@ mod tests {
     extern "C-unwind" fn propagate_test_panic(_: usize, outcome: &mut NativeRunOutcome) {
         let report = crate::frame::native_report(bray_runtime_abi::NativePanicPrimary::new(
             NativePanicCause::MESSAGE,
-            bray_runtime_abi::NativeSourceAnchor::new(0, 0, 1, 0),
+            bray_runtime_abi::NativeSourceAnchor::new([0; 32], 0, 0, 1, 0),
             bray_runtime_abi::NativePanicMessage::empty(),
         ));
 

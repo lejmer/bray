@@ -23,6 +23,7 @@ impl PackageIdentity {
     pub fn as_str(&self) -> &str {
         self.0.as_str()
     }
+
 }
 
 impl AsRef<str> for PackageIdentity {

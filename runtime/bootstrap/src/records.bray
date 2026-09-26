@@ -12,6 +12,10 @@ internal struct ReportPrimary
     mut source_start: u32;
     mut source_end: u32;
     mut source_version: u64;
+    mut source_package_0: u64;
+    mut source_package_1: u64;
+    mut source_package_2: u64;
+    mut source_package_3: u64;
     mut cause: u32;
     mut message: usize;
     mut message_length: usize;

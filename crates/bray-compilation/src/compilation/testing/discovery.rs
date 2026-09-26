@@ -122,6 +122,7 @@ impl Compilation {
                 let identity = TestIdentity::new(product.clone(), declaration);
 
                 let source = TestSourceAnchor::new(
+                    product.source_namespace(),
                     SourceSpan::new(anchor.source_id(), anchor.full_range()),
                     source.version(),
                 );
@@ -348,6 +349,47 @@ mod tests {
                 .product(),
             &product,
         );
+
+        assert_eq!(
+            discovery.value().catalog().entries()[0].source().package(),
+            product.source_namespace(),
+        );
+
+    }
+
+    #[test]
+    fn source_namespaces_survive_unrelated_source_additions_and_text_edits() {
+        let first = compilation_with_sources_product_and_worker_budget(
+            &["module tests;\n\n@test\nfunc works()\n{\n}\n"],
+            ProductKind::Test,
+            parallel_worker_budget(),
+        );
+
+        let other_sources = compilation_with_sources_product_and_worker_budget(
+            &["module tests;\n\n@test\nfunc works()\n{\n}\n", "module other;\n"],
+            ProductKind::Test,
+            parallel_worker_budget(),
+        );
+
+        let edited = compilation_with_sources_product_and_worker_budget(
+            &["module tests;\n\n@test\nfunc changed()\n{\n}\n"],
+            ProductKind::Test,
+            parallel_worker_budget(),
+        );
+
+        let product = ProductIdentity::try_new(first.package_identity().clone(), "tests")
+            .expect("test product identity must be valid");
+
+        let first_catalog = discovery(&first, product.clone());
+        let other_catalog = discovery(&other_sources, product.clone());
+        let edited_catalog = discovery(&edited, product);
+
+        let source_namespace = |catalog: &super::TestDiscovery| {
+            catalog.catalog().entries()[0].source().package()
+        };
+
+        assert_eq!(source_namespace(first_catalog.value()), source_namespace(other_catalog.value()));
+        assert_eq!(source_namespace(first_catalog.value()), source_namespace(edited_catalog.value()));
     }
 
     fn discovery(

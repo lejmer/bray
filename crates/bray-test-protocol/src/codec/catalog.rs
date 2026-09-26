@@ -96,6 +96,7 @@ fn encode_entry(encoder: &mut Encoder, entry: &TestEntryMetadata) -> Result<(), 
     let source = entry.source();
     let span = source.span();
 
+    encoder.bytes(&source.package())?;
     encoder.u32(span.source_id().raw());
     encoder.u32(span.start().bytes());
     encoder.u32(span.end().bytes());
@@ -137,6 +138,7 @@ fn decode_entry(
 
     let module = ModulePathKey::try_new(segments).ok_or(TestProtocolError::Malformed)?;
     let name = SymbolName::try_new(decoder.string()?).ok_or(TestProtocolError::Malformed)?;
+    let package: [u8; 32] = decoder.bytes()?.try_into().map_err(|_| TestProtocolError::Malformed)?;
     let source = SourceId::stored(decoder.u32()?).ok_or(TestProtocolError::Malformed)?;
     let start = TextSize::new(decoder.u32()?);
     let end = TextSize::new(decoder.u32()?);
@@ -170,8 +172,11 @@ fn decode_entry(
     let declaration = TestDeclarationPath::new(module, name);
     let identity = TestIdentity::new(product.clone(), declaration);
 
-    let source =
-        TestSourceAnchor::new(SourceSpan::new(source, TextRange::new(start, end)), version);
+    let source = TestSourceAnchor::new(
+        package,
+        SourceSpan::new(source, TextRange::new(start, end)),
+        version,
+    );
 
     Ok(TestEntryMetadata::new(
         identity, source, execution, constraint, result, error_type,
@@ -235,6 +240,7 @@ mod tests {
         let identity = TestIdentity::new(product, TestDeclarationPath::new(module, name));
 
         let source = TestSourceAnchor::new(
+            [7; 32],
             SourceSpan::new(
                 SourceId::new(2),
                 TextRange::new(TextSize::new(3), TextSize::new(9)),

@@ -536,6 +536,14 @@ fn export_executable_template_family(
     let mut templates = Vec::with_capacity(family.len());
     let mut family_requirements = Vec::new();
     let mut frames = BTreeSet::new();
+    let interface = export.surface.identity();
+
+    let source_namespace = bray_symbols::ProductIdentity::try_new(
+        interface.package().clone(),
+        interface.product().as_str(),
+    )
+    .expect("validated interface product identity must be nonempty")
+    .source_namespace();
 
     for key in family {
         let identity = identities
@@ -601,7 +609,7 @@ fn export_executable_template_family(
 
         let mut context = ExecutableTemplateExporter::new(export, &identities);
 
-        let payload = bray_package_interface::encode_executable_template(mir, &mut context)
+        let payload = bray_package_interface::encode_executable_template(mir, source_namespace, &mut context)
             .map_err(|error| match error {
                 bray_package_interface::ExecutableTemplateEncodeError::Semantic(error) => error,
                 bray_package_interface::ExecutableTemplateEncodeError::InvalidUnitKind => {

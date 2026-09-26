@@ -40,19 +40,22 @@ pub enum CodegenDefinitionVisibility {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CodegenPartitionCompatibility {
     package: PackageIdentity,
+    source_namespace: [u8; 32],
     linkage: CodegenLinkage,
     visibility: CodegenDefinitionVisibility,
 }
 
 impl CodegenPartitionCompatibility {
-    /// Creates one exact package, linkage, and visibility compatibility class.
+    /// Creates one exact package, source, linkage, and visibility compatibility class.
     pub const fn new(
         package: PackageIdentity,
+        source_namespace: [u8; 32],
         linkage: CodegenLinkage,
         visibility: CodegenDefinitionVisibility,
     ) -> Self {
         Self {
             package,
+            source_namespace,
             linkage,
             visibility,
         }
@@ -61,6 +64,11 @@ impl CodegenPartitionCompatibility {
     /// Returns the package whose generated definitions are being partitioned.
     pub const fn package(&self) -> &PackageIdentity {
         &self.package
+    }
+
+    /// Returns the namespace of source IDs emitted by this product.
+    pub const fn source_namespace(&self) -> [u8; 32] {
+        self.source_namespace
     }
 
     /// Returns the selected linkage shared by the definitions.

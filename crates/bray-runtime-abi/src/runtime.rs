@@ -754,7 +754,7 @@ mod tests {
             timer_capacity: 8,
         });
 
-        assert_abi_layout!(NativeRunOutcome, size: 120, align: 8, fields: {
+        assert_abi_layout!(NativeRunOutcome, size: 152, align: 8, fields: {
             state: 0,
             payload: 8,
             report: 16,
@@ -780,7 +780,7 @@ mod tests {
             lane_requirements: 4,
         });
 
-        assert_abi_layout!(NativeFrameProgress, size: 120, align: 8, fields: {
+        assert_abi_layout!(NativeFrameProgress, size: 152, align: 8, fields: {
             kind: 0,
             state: 4,
             payload: 8,

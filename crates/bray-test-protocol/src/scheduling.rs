@@ -674,6 +674,7 @@ mod tests {
         let identity = TestIdentity::new(product, TestDeclarationPath::new(module, name));
 
         let source = TestSourceAnchor::new(
+            [0; 32],
             SourceSpan::new(
                 SourceId::new(0),
                 TextRange::new(TextSize::ZERO, TextSize::ZERO),

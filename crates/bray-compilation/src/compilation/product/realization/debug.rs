@@ -74,6 +74,7 @@ impl Compilation {
                     CodegenDebugLocation::new(anchor, file.clone(), line, column)
                 }
                 MirSourceAnchor::ImportedExecutable(_)
+                | MirSourceAnchor::ImportedSource { .. }
                 | MirSourceAnchor::CompilerProvidedCallable(_)
                 | MirSourceAnchor::ExecutableHost(_)
                 | MirSourceAnchor::GeneratedLifecycle(_) => {

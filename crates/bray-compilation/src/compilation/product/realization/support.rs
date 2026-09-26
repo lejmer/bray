@@ -1757,6 +1757,22 @@ mod tests {
     }
 
     #[test]
+    fn panic_report_semantic_layout_matches_the_native_report() {
+        let compilation = compilation("module app; func main() {}");
+        let target = codegen_target(&compilation);
+
+        let report = compilation
+            .codegen_representation_type(RepresentationRole::PanicReport)
+            .expect("panic report representation must realize");
+
+        let mappings = realized_types(&compilation, &target, [report]);
+        let layout = mappings[&report].layout().expect("panic report must be sized");
+
+        assert_eq!(layout.size(), std::mem::size_of::<bray_runtime_abi::NativePanicReport>() as u64);
+        assert_eq!(layout.alignment().get(), std::mem::align_of::<bray_runtime_abi::NativePanicReport>() as u64);
+    }
+
+    #[test]
     fn task_cleanup_checks_completed_payload_before_releasing_the_task() {
         let compilation = compilation("module app;");
         let target = codegen_target(&compilation);

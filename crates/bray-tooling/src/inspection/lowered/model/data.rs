@@ -250,6 +250,15 @@ pub(crate) enum InspectionMirSource {
         owner: InspectionSymbolIdentity,
         template: u32,
     },
+    ImportedSource {
+        owner: InspectionSymbolIdentity,
+        template: u32,
+        namespace: [u8; 32],
+        source: u32,
+        start: u32,
+        end: u32,
+        version: u64,
+    },
 }
 
 #[derive(Serialize)]
@@ -2158,6 +2167,17 @@ fn inspection_source_anchor(
             owner: InspectionSymbolIdentity::from_symbol(symbols, key.owner()),
             template: key.template().raw(),
         }),
+        MirSourceAnchor::ImportedSource { owner, namespace, span, version } => {
+            Ok(InspectionMirSource::ImportedSource {
+                owner: InspectionSymbolIdentity::from_symbol(symbols, owner.owner()),
+                template: owner.template().raw(),
+                namespace: *namespace,
+                source: span.source_id().raw(),
+                start: span.start().bytes(),
+                end: span.end().bytes(),
+                version: version.raw(),
+            })
+        }
     }
 }
 

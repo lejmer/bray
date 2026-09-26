@@ -55,14 +55,20 @@ impl TestIdentity {
 /// Exact source revision and range that declares one test entry.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct TestSourceAnchor {
+    package: [u8; 32],
     span: SourceSpan,
     version: SourceVersion,
 }
 
 impl TestSourceAnchor {
     /// Creates a source anchor from an exact span and source revision.
-    pub const fn new(span: SourceSpan, version: SourceVersion) -> Self {
-        Self { span, version }
+    pub const fn new(package: [u8; 32], span: SourceSpan, version: SourceVersion) -> Self {
+        Self { package, span, version }
+    }
+
+    /// Returns the product namespace that qualifies the source ID.
+    pub const fn package(self) -> [u8; 32] {
+        self.package
     }
 
     /// Returns the declaring source span.
