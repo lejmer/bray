@@ -132,7 +132,7 @@ mod tests {
     }
 
     #[test]
-    fn current_executable_template_format_is_version_two() {
+    fn current_executable_template_format_is_version_one() {
         assert_eq!(FORMAT_VERSION, 1);
     }
 }

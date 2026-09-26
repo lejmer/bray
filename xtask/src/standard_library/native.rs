@@ -584,13 +584,27 @@ fn audit_outcomes(
         .source()
         .package();
 
+    let package = PackageIdentity::try_new(PACKAGE_IDENTITY)
+        .expect("standard library package identity is valid");
+
+    let outcome_product = graph
+        .package(&package)
+        .and_then(|package| package.products().iter().find(|product| product.identity().name() == OUTCOME_PRODUCT))
+        .expect("standard library outcomes product must exist");
+
+    if direct_source_package != outcome_product.identity().source_namespace() {
+        return Err(BuildError::conformance(
+            "native outcomes",
+            "the direct test catalog source namespace does not match its product",
+        ));
+    }
+
     for case in OUTCOME_CASES {
         audit_outcome(
             batch.report(case.plan_identity)?,
             case,
             workspace,
             &graph,
-            direct_source_package,
         )?;
     }
 
@@ -618,7 +632,6 @@ fn audit_outcome(
     case: OutcomeCase,
     workspace: &Path,
     graph: &ProjectGraph,
-    direct_source_package: [u8; 32],
 ) -> Result<(), BuildError> {
     require_product(report, OUTCOME_PRODUCT)?;
     require_selection(report, OUTCOME_CASES.len(), 1, OUTCOME_CASES.len() - 1)?;
@@ -659,7 +672,6 @@ fn audit_outcome(
             case.test_identity,
             message,
             source,
-            direct_source_package,
         )?;
     }
 
@@ -686,7 +698,6 @@ fn audit_explicit_source(
     identity: &str,
     message: &str,
     source: &crate::native_test_report::NativeSourceAnchor,
-    direct_source_package: [u8; 32],
 ) -> Result<(), BuildError> {
     let package = PackageIdentity::try_new(PACKAGE_IDENTITY).expect("standard library package identity is valid");
     let product_name = if identity == "explicit_failure" { OUTCOME_PRODUCT } else { LIBRARY_PRODUCT };
@@ -728,21 +739,15 @@ fn audit_explicit_source(
         })
         .unwrap_or(false);
 
-    let expected_package = lowercase_hex(&direct_source_package);
+    let expected_package = lowercase_hex(&product.identity().source_namespace());
 
-    let namespace_matches = if identity == "explicit_failure" {
-        source.package == expected_package
-    } else {
-        source.package != expected_package && source.package != lowercase_hex(&[0; 32])
-    };
-
-    if !namespace_matches || source.source != expected_source
+    if source.package != expected_package || source.source != expected_source
         || !source_is_in_call
     {
         return Err(BuildError::conformance(
             "native outcomes",
             format!(
-                "{identity} did not resolve to {source_path}'s fail call: {source:?}; direct namespace {expected_package}, source {expected_source}, span within call {source_is_in_call}"
+                "{identity} did not resolve to {source_path}'s fail call: {source:?}; expected namespace {expected_package}, source {expected_source}, span within call {source_is_in_call}"
             ),
         ));
     }
