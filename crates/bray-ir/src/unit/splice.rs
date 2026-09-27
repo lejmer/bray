@@ -1,8 +1,10 @@
 use std::collections::BTreeMap;
 
+use bray_symbols::TypeId;
+
 use crate::{
     MirBlockId, MirBlockKind, MirCapacityError, MirCallArgument, MirEdge, MirOperand,
-    MirOperationId, MirOperationKind, MirSourceAnchor, MirStorageId, MirStorageKind,
+    MirOperationId, MirOperationKind, MirStorageId, MirStorageKind,
     MirTerminatorKind, MirUnit, MirUnitBuilder, MirUnitId, MirUnitKind, MirValueId,
 };
 
@@ -12,11 +14,12 @@ use super::local_id_remap::{MirLocalIdMapping, remap_operation, remap_terminator
 ///
 /// The caller must supply a synchronous callee whose operations cannot panic, suspend, access
 /// addresses, or require cleanup. Ineligible call shapes are left unchanged. The resulting body
-/// keeps the caller's semantic identity and uses the call site for imported source provenance.
+/// keeps the caller's semantic identity and each callee node's source provenance.
 pub fn inline_scalar_call(
     caller: &MirUnit,
     site: MirOperationId,
     callee: &MirUnit,
+    concrete_types: &BTreeMap<TypeId, TypeId>,
 ) -> Result<Option<MirUnit>, MirCapacityError> {
     let Some((call_block_id, call_block)) = caller
         .blocks_with_ids()
@@ -61,7 +64,8 @@ pub fn inline_scalar_call(
         || call.arguments().iter().any(|argument| match argument {
             MirCallArgument::Explicit { ordinal, value, .. } => parameters
                 .get(ordinal)
-                .is_none_or(|id| callee.storage(*id).expect("parameter storage").ty() != caller.operand_type(value).expect("valid call argument")),
+                .is_none_or(|id| concrete_type(callee.storage(*id).expect("parameter storage").ty(), concrete_types)
+                    != caller.operand_type(value).expect("valid call argument")),
             MirCallArgument::Receiver { .. } => true,
         })
     {
@@ -72,7 +76,7 @@ pub fn inline_scalar_call(
 
     if !callee.blocks().iter().any(|block| matches!(block.terminator().kind(), MirTerminatorKind::Return(_)))
         || callee.blocks().iter().any(|block| match block.terminator().kind() {
-            MirTerminatorKind::Return(value) => value.as_ref().map(|value| callee.operand_type(value).expect("valid return")) != result_type,
+            MirTerminatorKind::Return(value) => value.as_ref().map(|value| concrete_type(callee.operand_type(value).expect("valid return"), concrete_types)) != result_type,
             MirTerminatorKind::Goto(_) | MirTerminatorKind::Branch { .. } | MirTerminatorKind::Switch { .. } => false,
             _ => true,
         })
@@ -83,8 +87,9 @@ pub fn inline_scalar_call(
     // The builder owns its MIR nodes; cloning from the immutable inputs preserves their source
     // and semantic payloads while the two local identity maps rewrite only unit-local IDs.
     let mut builder = MirUnitBuilder::for_reconstruction(caller);
-    let mut caller_ids = LocalIds::new(caller);
-    let mut callee_ids = LocalIds::new(callee);
+    let caller_types = BTreeMap::new();
+    let mut caller_ids = LocalIds::new(caller, &caller_types);
+    let mut callee_ids = LocalIds::new(callee, concrete_types);
     let source = operation.source().clone();
 
     for (old, block) in caller.blocks_with_ids() {
@@ -92,8 +97,7 @@ pub fn inline_scalar_call(
     }
 
     for (old, block) in callee.blocks_with_ids() {
-        let anchor = inlined_source(block.source(), &source, caller);
-        callee_ids.blocks[old.to_index().expect("valid block")] = Some(builder.push_block(anchor, block.kind())?);
+        callee_ids.blocks[old.to_index().expect("valid block")] = Some(builder.push_block(block.source().clone(), block.kind())?);
     }
 
     let join = builder.push_block(source.clone(), MirBlockKind::Ordinary)?;
@@ -108,8 +112,9 @@ pub fn inline_scalar_call(
             kind => kind.clone(),
         };
 
-        let anchor = inlined_source(storage.source(), &source, caller);
-        callee_ids.storages[old.to_index().expect("valid storage")] = Some(builder.push_storage(anchor, kind, storage.ty())?);
+        callee_ids.storages[old.to_index().expect("valid storage")] = Some(builder.push_storage(
+            storage.source().clone(), kind, concrete_type(storage.ty(), concrete_types),
+        )?);
     }
 
     for (old, block) in caller.blocks_with_ids() {
@@ -122,13 +127,15 @@ pub fn inline_scalar_call(
     for (old, block) in callee.blocks_with_ids() {
         for parameter in block.parameters() {
             let value = callee.value(*parameter).expect("valid parameter");
-            let anchor = inlined_source(value.source(), &source, caller);
-            callee_ids.values[parameter.to_index().expect("valid value")] = Some(builder.push_block_parameter(callee_ids.block(old), anchor, value.ty())?);
+
+            callee_ids.values[parameter.to_index().expect("valid value")] = Some(builder.push_block_parameter(
+                callee_ids.block(old), value.source().clone(), concrete_type(value.ty(), concrete_types),
+            )?);
         }
     }
 
     for storage in parameters.values() {
-        let ty = callee.storage(*storage).expect("parameter storage").ty();
+        let ty = concrete_type(callee.storage(*storage).expect("parameter storage").ty(), concrete_types);
         let value = builder.push_block_parameter(callee_ids.block(callee.entry()), source.clone(), ty)?;
         callee_ids.parameters.insert(*storage, value);
     }
@@ -165,9 +172,8 @@ pub fn inline_scalar_call(
             let original = callee.operation(*operation_id).expect("valid operation");
             let mut kind = original.kind().clone();
             remap_operation(&mut kind, &callee_ids);
-            let ty = original.result().map(|value| callee.value(value).expect("result").ty());
-            let anchor = inlined_source(original.source(), &source, caller);
-            let commit = builder.push_operation(callee_ids.block(old), anchor, kind, ty)?;
+            let ty = original.result().map(|value| concrete_type(callee.value(value).expect("result").ty(), concrete_types));
+            let commit = builder.push_operation(callee_ids.block(old), original.source().clone(), kind, ty)?;
             assert_eq!(commit.result(), original.result().map(|value| callee_ids.value(value)));
         }
     }
@@ -217,8 +223,7 @@ pub fn inline_scalar_call(
             }
         };
 
-        let anchor = inlined_source(block.terminator().source(), &source, caller);
-        builder.set_terminator(callee_ids.block(old), anchor, kind);
+        builder.set_terminator(callee_ids.block(old), block.terminator().source().clone(), kind);
     }
 
     let mut normal = MirTerminatorKind::Goto(completed.clone());
@@ -231,8 +236,8 @@ pub fn inline_scalar_call(
     Ok(Some(inlined))
 }
 
-fn inlined_source(source: &MirSourceAnchor, callsite: &MirSourceAnchor, caller: &MirUnit) -> MirSourceAnchor {
-    if source.belongs_to(caller.source()) { source.clone() } else { callsite.clone() }
+fn concrete_type(ty: TypeId, types: &BTreeMap<TypeId, TypeId>) -> TypeId {
+    types.get(&ty).copied().unwrap_or(ty)
 }
 
 fn predict_results(
@@ -259,18 +264,20 @@ fn predict_results(
     Ok(())
 }
 
-struct LocalIds {
+struct LocalIds<'a> {
     unit: MirUnitId,
+    concrete_types: &'a BTreeMap<TypeId, TypeId>,
     blocks: Vec<Option<MirBlockId>>,
     storages: Vec<Option<MirStorageId>>,
     values: Vec<Option<MirValueId>>,
     parameters: BTreeMap<MirStorageId, MirValueId>,
 }
 
-impl LocalIds {
-    fn new(unit: &MirUnit) -> Self {
+impl<'a> LocalIds<'a> {
+    fn new(unit: &MirUnit, concrete_types: &'a BTreeMap<TypeId, TypeId>) -> Self {
         Self {
             unit: unit.unit(),
+            concrete_types,
             blocks: vec![None; unit.blocks().len()],
             storages: vec![None; unit.storages().len()],
             values: vec![None; unit.values().len()],
@@ -285,7 +292,7 @@ impl LocalIds {
     }
 }
 
-impl MirLocalIdMapping for LocalIds {
+impl MirLocalIdMapping for LocalIds<'_> {
     fn block(&self, old: MirBlockId) -> MirBlockId {
         self.resolve(old.unit(), old.to_index(), &self.blocks)
     }
@@ -308,5 +315,12 @@ impl MirLocalIdMapping for LocalIds {
         }
 
         super::local_id_remap::remap_operand_ids(operand, self);
+
+        if let MirOperand::Constant { ty, .. }
+        | MirOperand::ConstantTerm { ty, .. }
+        | MirOperand::Immediate { ty, .. } = operand
+        {
+            *ty = concrete_type(*ty, self.concrete_types);
+        }
     }
 }

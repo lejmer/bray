@@ -1,7 +1,9 @@
+use std::collections::BTreeMap;
+
 use bray_bound_tree::BoundCallResult;
 use bray_codegen::{
     CodegenCallSite, CodegenOptions, CodegenParameterMapping, CodegenResultMapping, CodegenTarget,
-    DebugInformationMode, OptimizationLevel, RuntimeObservationMode,
+    DebugInformationMode, OptimizationLevel, RuntimeObservationMode, SizePreference,
     demanded_callable_instance_for_call,
 };
 use bray_compiler_known::RepresentationRole;
@@ -32,6 +34,7 @@ impl Compilation {
         if options.optimization() != OptimizationLevel::Full
             || options.debug_information() == DebugInformationMode::Full
             || options.runtime_observations() != RuntimeObservationMode::None
+            || options.size_preference() == SizePreference::MinimumSize
             || !matches!(base.key(), MirUnitKey::Bound(_) | MirUnitKey::ImportedExecutable(_))
             || !matches!(base.kind(), MirUnitKind::Synchronous)
             || base.frame_descriptor().is_some()
@@ -81,6 +84,14 @@ impl Compilation {
                         continue;
                     };
 
+                    if options.size_preference() == SizePreference::Size
+                        && (call.arguments().is_empty() || call.arguments().iter().any(|argument| {
+                            !matches!(argument.value(), MirOperand::Constant { .. } | MirOperand::Immediate { .. })
+                        }))
+                    {
+                        continue;
+                    }
+
                     let Some(callee) = self.scalar_callee(owner, &body, *operation_id, call, target, cancellation)? else {
                         continue;
                     };
@@ -127,11 +138,11 @@ impl Compilation {
                         expanded
                     };
 
-                    if !self.scalar_body_is_eligible(&callee, &expanded, cancellation)? {
+                    let Some(concrete_types) = self.scalar_body_is_eligible(&callee, &expanded, cancellation)? else {
                         continue;
-                    }
+                    };
 
-                    let Some(spliced) = inline_scalar_call(&body, *operation_id, &expanded)
+                    let Some(spliced) = inline_scalar_call(&body, *operation_id, &expanded, &concrete_types)
                         .map_err(CodegenPreparationError::MirCapacity)? else {
                         continue;
                     };
@@ -171,8 +182,10 @@ impl Compilation {
             return Ok(None);
         }
 
+        let mut caller_types = BTreeMap::new();
+
         for argument in call.arguments() {
-            if !self.scalar_operand(body, argument.value())? {
+            if !self.scalar_operand(body, argument.value(), owner, &mut caller_types, cancellation)? {
                 return Ok(None);
             }
         }
@@ -181,9 +194,11 @@ impl Compilation {
             return Ok(None);
         };
 
-        if !self.scalar_type(body.value(result).expect("call result").ty())? {
+        let Some(result_type) = self.concrete_scalar_type(
+            body.value(result).expect("call result").ty(), owner, cancellation,
+        )? else {
             return Ok(None);
-        }
+        };
 
         let demand = demanded_callable_instance_for_call(CodegenCallSite::Operation(operation_id), call)
             .expect("direct call has a concrete demand");
@@ -219,7 +234,7 @@ impl Compilation {
             return Ok(None);
         };
 
-        if !self.scalar_type(*ty)? || *ty != body.value(result).expect("call result").ty() {
+        if !self.scalar_type(*ty)? || *ty != result_type {
             return Ok(None);
         }
 
@@ -231,19 +246,27 @@ impl Compilation {
         instance: &ConcreteCodegenInstance,
         body: &MirUnit,
         cancellation: &CancellationToken,
-    ) -> Result<bool, CodegenPreparationError> {
+    ) -> Result<Option<BTreeMap<TypeId, TypeId>>, CodegenPreparationError> {
+        let mut types = BTreeMap::new();
+
         for (_, storage) in body.storages_with_ids() {
-            if !matches!(storage.kind(), MirStorageKind::Parameter(_) | MirStorageKind::Local | MirStorageKind::Temporary | MirStorageKind::Return)
-                || !self.closed_scalar_type(storage.ty(), instance, cancellation)?
-            {
-                return Ok(false);
+            let Some(concrete) = self.concrete_scalar_type(storage.ty(), instance, cancellation)? else {
+                return Ok(None);
+            };
+
+            if !matches!(storage.kind(), MirStorageKind::Parameter(_) | MirStorageKind::Local | MirStorageKind::Temporary | MirStorageKind::Return) {
+                return Ok(None);
             }
+
+            types.insert(storage.ty(), concrete);
         }
 
         for value in body.values() {
-            if !self.closed_scalar_type(value.ty(), instance, cancellation)? {
-                return Ok(false);
-            }
+            let Some(concrete) = self.concrete_scalar_type(value.ty(), instance, cancellation)? else {
+                return Ok(None);
+            };
+
+            types.insert(value.ty(), concrete);
         }
 
         for operation in body.operations() {
@@ -251,45 +274,47 @@ impl Compilation {
                 MirOperationKind::Store { destination, value, .. } => {
                     destination.projections().is_empty()
                         && !matches!(body.storage(destination.storage()).expect("valid storage").kind(), MirStorageKind::Parameter(_))
-                        && self.scalar_operand(body, value)?
+                        && self.scalar_operand(body, value, instance, &mut types, cancellation)?
                 }
                 MirOperationKind::Unary { operator: MirUnaryOperator::Not | MirUnaryOperator::BitwiseNot, operand }
-                | MirOperationKind::NumericConversion { operand, .. } => self.scalar_operand(body, operand)?,
+                | MirOperationKind::NumericConversion { operand, .. } => {
+                    self.scalar_operand(body, operand, instance, &mut types, cancellation)?
+                }
                 MirOperationKind::Binary { operator, left, right } => {
                     matches!(operator, MirBinaryOperator::Equal | MirBinaryOperator::NotEqual
                         | MirBinaryOperator::LessThan | MirBinaryOperator::LessThanOrEqual
                         | MirBinaryOperator::GreaterThan | MirBinaryOperator::GreaterThanOrEqual
                         | MirBinaryOperator::BitwiseAnd | MirBinaryOperator::BitwiseOr
                         | MirBinaryOperator::BitwiseXor)
-                        && self.scalar_operand(body, left)?
-                        && self.scalar_operand(body, right)?
+                        && self.scalar_operand(body, left, instance, &mut types, cancellation)?
+                        && self.scalar_operand(body, right, instance, &mut types, cancellation)?
                 }
                 _ => false,
             };
 
             if !allowed {
-                return Ok(false);
+                return Ok(None);
             }
         }
 
         for block in body.blocks() {
             let allowed = match block.terminator().kind() {
-                MirTerminatorKind::Goto(edge) => self.scalar_edge(body, edge)?,
+                MirTerminatorKind::Goto(edge) => self.scalar_edge(body, edge, instance, &mut types, cancellation)?,
                 MirTerminatorKind::Return(value) => match value {
-                    Some(value) => self.scalar_operand(body, value)?,
+                    Some(value) => self.scalar_operand(body, value, instance, &mut types, cancellation)?,
                     None => true,
                 },
                 MirTerminatorKind::Branch { condition, then_edge, else_edge } => {
-                    self.scalar_operand(body, condition)?
-                        && self.scalar_edge(body, then_edge)?
-                        && self.scalar_edge(body, else_edge)?
+                    self.scalar_operand(body, condition, instance, &mut types, cancellation)?
+                        && self.scalar_edge(body, then_edge, instance, &mut types, cancellation)?
+                        && self.scalar_edge(body, else_edge, instance, &mut types, cancellation)?
                 }
                 MirTerminatorKind::Switch { discriminant, cases, otherwise } => {
-                    let mut allowed = self.scalar_operand(body, discriminant)?
-                        && self.scalar_edge(body, otherwise)?;
+                    let mut allowed = self.scalar_operand(body, discriminant, instance, &mut types, cancellation)?
+                        && self.scalar_edge(body, otherwise, instance, &mut types, cancellation)?;
 
                     for case in cases.iter() {
-                        allowed &= self.scalar_edge(body, case.edge())?;
+                        allowed &= self.scalar_edge(body, case.edge(), instance, &mut types, cancellation)?;
                     }
 
                     allowed
@@ -298,26 +323,34 @@ impl Compilation {
             };
 
             if !allowed {
-                return Ok(false);
+                return Ok(None);
             }
         }
 
-        Ok(true)
+        Ok(Some(types))
     }
 
-    fn closed_scalar_type(
+    fn concrete_scalar_type(
         &self,
         ty: TypeId,
         instance: &ConcreteCodegenInstance,
         cancellation: &CancellationToken,
-    ) -> Result<bool, CodegenPreparationError> {
-        Ok(self.scalar_type(ty)?
-            && self.substitute_codegen_type(ty, instance.substitution(), cancellation)? == ty)
+    ) -> Result<Option<TypeId>, CodegenPreparationError> {
+        let concrete = self.substitute_codegen_type(ty, instance.substitution(), cancellation)?;
+
+        Ok(self.scalar_type(concrete)?.then_some(concrete))
     }
 
-    fn scalar_edge(&self, body: &MirUnit, edge: &MirEdge) -> Result<bool, CodegenPreparationError> {
+    fn scalar_edge(
+        &self,
+        body: &MirUnit,
+        edge: &MirEdge,
+        instance: &ConcreteCodegenInstance,
+        types: &mut BTreeMap<TypeId, TypeId>,
+        cancellation: &CancellationToken,
+    ) -> Result<bool, CodegenPreparationError> {
         for argument in edge.arguments() {
-            if !self.scalar_operand(body, argument)? {
+            if !self.scalar_operand(body, argument, instance, types, cancellation)? {
                 return Ok(false);
             }
         }
@@ -325,12 +358,25 @@ impl Compilation {
         Ok(true)
     }
 
-    fn scalar_operand(&self, body: &MirUnit, operand: &MirOperand) -> Result<bool, CodegenPreparationError> {
+    fn scalar_operand(
+        &self,
+        body: &MirUnit,
+        operand: &MirOperand,
+        instance: &ConcreteCodegenInstance,
+        types: &mut BTreeMap<TypeId, TypeId>,
+        cancellation: &CancellationToken,
+    ) -> Result<bool, CodegenPreparationError> {
         let Some(ty) = body.operand_type(operand) else {
             return Ok(false);
         };
 
-        Ok(self.scalar_type(ty)? && match operand {
+        let Some(concrete) = self.concrete_scalar_type(ty, instance, cancellation)? else {
+            return Ok(false);
+        };
+
+        types.insert(ty, concrete);
+
+        Ok(match operand {
             MirOperand::Value(_) | MirOperand::Constant { .. } | MirOperand::Immediate { .. } => true,
             MirOperand::Copy(place) | MirOperand::Move(place) => place.projections().is_empty(),
             MirOperand::ConstantTerm { .. } => false,
@@ -358,9 +404,10 @@ impl Compilation {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::sync::Arc;
 
-    use bray_codegen::{CodegenOptions, DebugInformationMode, OptimizationLevel};
+    use bray_codegen::{CodegenOptions, DebugInformationMode, OptimizationLevel, SizePreference};
     use bray_ir::{MirOperationKind, MirUnitKey, inline_scalar_call};
     use bray_package_interface::{
         InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceProductKind,
@@ -661,6 +708,75 @@ mod tests {
     }
 
     #[test]
+    fn concrete_generic_scalar_wrapper_inlines() {
+        let source = r#"
+            module app;
+
+            func unused() {}
+
+            func identity<T>(pos value: T) -> T
+            {
+                return value;
+            }
+
+            func main()
+            {
+                if identity<bool>(false)
+                {
+                    unused();
+                }
+            }
+        "#;
+
+        let basic = reachability(source, crate::BuildConfiguration::Development.codegen_options());
+        let full = reachability(source, crate::BuildConfiguration::Release.codegen_options());
+
+        assert!(direct_calls(&basic) > 0);
+        assert_eq!(direct_calls(&full), 0);
+        assert_eq!(full.graph().instances().len(), 1);
+        assert!(full.graph().instances().iter().all(|instance| instance.mir().is_valid()));
+    }
+
+    #[test]
+    fn size_preferences_keep_repeated_dynamic_calls() {
+        let source = r#"
+            module app;
+
+            func enabled(pos value: bool) -> bool
+            {
+                return value;
+            }
+
+            public func repeated(pos value: bool) -> bool
+            {
+                let first: bool = enabled(value);
+                let second: bool = enabled(value);
+                return first && second;
+            }
+        "#;
+
+        let compilation = crate::test_support::compilation_with_product(
+            source, bray_symbols::ProductKind::Library,
+        );
+
+        let release = crate::BuildConfiguration::Release.codegen_options();
+
+        let options = |size| CodegenOptions::new(
+            release.optimization(), size, release.debug_information(), release.reproducibility(),
+            release.runtime_observations(),
+        );
+
+        let default = reachability_for_compilation(&compilation, options(SizePreference::None));
+        let size = reachability_for_compilation(&compilation, options(SizePreference::Size));
+        let minimum = reachability_for_compilation(&compilation, options(SizePreference::MinimumSize));
+
+        assert_eq!(direct_calls(&default), 0);
+        assert_eq!(direct_calls(&size), 2);
+        assert_eq!(direct_calls(&minimum), 2);
+        assert!(size.graph().instances().iter().all(|instance| instance.mir().is_valid()));
+    }
+
+    #[test]
     fn async_boundary_does_not_inline() {
         let source = r#"
             module app;
@@ -681,7 +797,50 @@ mod tests {
     }
 
     #[test]
-    fn imported_scalar_template_inlines_at_concrete_call() {
+    fn cross_file_splice_preserves_callee_source() {
+        let compilation = crate::Compilation::load(crate::CompilationRequest::with_options(
+            crate::test_support::package_identity(),
+            vec![
+                crate::test_support::source_input(
+                    "module app; func identity(pos value: bool) -> bool { return value; }", 0,
+                ),
+                crate::test_support::source_input(
+                    "module app; func main() { if identity(false) {} }", 1,
+                ),
+            ],
+            crate::CompilationOptions::new(
+                crate::WorkerBudget::serial(),
+                bray_symbols::ProductKind::Executable,
+                crate::SelectedTarget::baseline(),
+            ),
+        )).expect("cross-file compilation");
+
+        assert!(compilation.check_diagnostics().is_empty(), "{:#?}", compilation.check_diagnostics());
+
+        let basic = reachability_for_compilation(
+            &compilation, crate::BuildConfiguration::Development.codegen_options(),
+        );
+
+        let caller = basic.graph().instances().iter().find(|instance| {
+            instance.mir().operations().iter().any(|operation| matches!(operation.kind(), MirOperationKind::Call(_)))
+        }).expect("caller instance");
+
+        let callee = basic.graph().instances().iter().find(|instance| instance.key() != caller.key())
+            .expect("callee instance");
+
+        let (site, operation) = caller.mir().operations_with_ids().find(|(_, operation)| {
+            matches!(operation.kind(), MirOperationKind::Call(_))
+        }).expect("call site");
+
+        let inlined = inline_scalar_call(caller.mir(), site, callee.mir(), &BTreeMap::new())
+            .expect("MIR capacity").expect("scalar splice");
+
+        assert_ne!(operation.source(), callee.mir().blocks()[0].source());
+        assert!(inlined.blocks().iter().any(|block| block.source() == callee.mir().blocks()[0].source()));
+        assert!(inlined.is_valid());
+    }
+
+    fn imported_consumer(library_source: &str, consumer_source: &str) -> crate::Compilation {
         let package = PackageIdentity::try_new("example.dependency").expect("package identity");
         let product = InterfaceProductIdentity::try_new("library").expect("product identity");
 
@@ -700,14 +859,7 @@ mod tests {
             crate::CompilationRequest::with_options(
                 package.clone(),
                 vec![crate::test_support::source_input(
-                    r#"
-                        module templates;
-
-                        public func identity(pos value: bool) -> bool
-                        {
-                            return value;
-                        }
-                    "#,
+                    library_source,
                     0,
                 )],
                 crate::CompilationOptions::new(
@@ -752,16 +904,7 @@ mod tests {
         let consumer = crate::Compilation::load(
             crate::CompilationRequest::with_options(
                 crate::test_support::package_identity(),
-                vec![crate::test_support::source_input(r#"
-                    module app;
-
-                    using example.dependency.templates.identity;
-
-                    func main()
-                    {
-                        if example.dependency.templates.identity(false) {}
-                    }
-                "#, 0)],
+                vec![crate::test_support::source_input(consumer_source, 0)],
                 crate::CompilationOptions::new(
                     crate::WorkerBudget::serial(),
                     bray_symbols::ProductKind::Executable,
@@ -771,6 +914,32 @@ mod tests {
         ).expect("consumer compilation");
 
         assert!(consumer.check_diagnostics().is_empty(), "{:#?}", consumer.check_diagnostics());
+
+        consumer
+    }
+
+    #[test]
+    fn imported_scalar_template_inlines_at_concrete_call() {
+        let consumer = imported_consumer(
+            r#"
+                module templates;
+
+                public func identity(pos value: bool) -> bool
+                {
+                    return value;
+                }
+            "#,
+            r#"
+                module app;
+
+                using example.dependency.templates.identity;
+
+                func main()
+                {
+                    if example.dependency.templates.identity(false) {}
+                }
+            "#,
+        );
 
         let basic = reachability_for_compilation(
             &consumer, crate::BuildConfiguration::Development.codegen_options(),
@@ -796,13 +965,51 @@ mod tests {
             matches!(operation.kind(), MirOperationKind::Call(_))
         }).expect("imported call site");
 
-        let inlined = inline_scalar_call(caller.mir(), site, imported.mir())
+        let inlined = inline_scalar_call(caller.mir(), site, imported.mir(), &BTreeMap::new())
             .expect("MIR capacity").expect("scalar splice");
 
         assert!(inlined.is_valid());
-        assert!(inlined.blocks().iter().any(|block| block.source() == operation.source()));
+        assert_ne!(imported.mir().blocks()[0].source(), operation.source());
+        assert!(inlined.blocks().iter().any(|block| block.source() == imported.mir().blocks()[0].source()));
 
         assert_eq!(full.graph().instances().len(), 1);
         assert_eq!(direct_calls(&full), 0);
+    }
+
+    #[test]
+    fn imported_concrete_generic_wrapper_inlines() {
+        let consumer = imported_consumer(
+            r#"
+                module templates;
+
+                public func identity<T>(pos value: T) -> T
+                {
+                    return value;
+                }
+            "#,
+            r#"
+                module app;
+
+                using example.dependency.templates.identity;
+
+                func main()
+                {
+                    if example.dependency.templates.identity<bool>(false) {}
+                }
+            "#,
+        );
+
+        let basic = reachability_for_compilation(
+            &consumer, crate::BuildConfiguration::Development.codegen_options(),
+        );
+
+        let full = reachability_for_compilation(
+            &consumer, crate::BuildConfiguration::Release.codegen_options(),
+        );
+
+        assert!(direct_calls(&basic) > 0);
+        assert_eq!(direct_calls(&full), 0);
+        assert_eq!(full.graph().instances().len(), 1);
+        assert!(full.graph().instances().iter().all(|instance| instance.mir().is_valid()));
     }
 }
