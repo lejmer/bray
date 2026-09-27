@@ -1053,6 +1053,66 @@ func last() {}
     assert_valid_and_idempotent(&output);
 }
 
+#[test]
+fn keeps_boxed_binding_pattern_closers_together() {
+    let source = "module app;\nfunc boxed(pos pair: box Pair)\n{\n    let box(Pair { left, .. }) = pair;\n}\n";
+
+    for ending in ["\n", "\r\n"] {
+        let input = source.replace('\n', ending);
+        let output = formatted(&input);
+
+        assert!(
+            output.text().contains(&format!("    }}) = pair;{ending}")),
+            "{}",
+            output.text()
+        );
+
+        assert_eq!(syntax_tokens(&input), syntax_tokens(output.text()));
+        assert_valid_and_idempotent(&output);
+    }
+}
+
+#[test]
+fn keeps_boxed_match_pattern_closers_together() {
+    let source = "module app;\nfunc observe(pos pair: box Pair)\n{\n    match pair\n    {\n        case box(Pair { left, .. }) { return; }\n    }\n}\n";
+
+    for ending in ["\n", "\r\n"] {
+        let input = source.replace('\n', ending);
+        let output = formatted(&input);
+
+        assert!(
+            output.text().contains(&format!("        }}){ending}        {{")),
+            "{}",
+            output.text()
+        );
+
+        assert_eq!(syntax_tokens(&input), syntax_tokens(output.text()));
+        assert_valid_and_idempotent(&output);
+    }
+}
+
+fn syntax_tokens(source: &str) -> Vec<(bray_syntax::SyntaxKind, String)> {
+    let snapshot = test_source_snapshot(source);
+    let parsed = parse_source_unit(&snapshot);
+
+    assert!(parsed.diagnostics().is_empty(), "{:#?}", parsed.diagnostics());
+
+    parsed
+        .source_unit()
+        .tokens()
+        .filter(|token| token.is_present())
+        .map(|token| {
+            (
+                token.kind(),
+                token
+                    .text(source)
+                    .expect("parsed token must be covered by its source")
+                    .to_owned(),
+            )
+        })
+        .collect()
+}
+
 fn formatted(source: &str) -> FormattedSource {
     formatted_with_configuration(source, &FormatterConfiguration::default())
 }

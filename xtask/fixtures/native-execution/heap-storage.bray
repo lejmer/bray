@@ -36,8 +36,7 @@ func take_partial(pos pair: box Pair)
     let box(Pair
     {
         left,..
-    }
-    ) = pair;
+    }) = pair;
 
     take_guard(left);
 }
@@ -47,8 +46,7 @@ func panic_partial(pos pair: box Pair)
     let box(Pair
     {
         left,..
-    }
-    ) = pair;
+    }) = pair;
 
     take_guard(left);
     panic("heap partial cleanup");
@@ -61,8 +59,7 @@ func observe(pos guard: &box Guard) -> i32
         case box(Guard
         {
             counter,..
-        }
-        )
+        })
         {
             return counter.value;
         }
