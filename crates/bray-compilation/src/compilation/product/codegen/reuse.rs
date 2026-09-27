@@ -8,10 +8,11 @@ use bray_codegen::{
     CodegenSpecialization,
 };
 use bray_ir::{MirExecutableTemplateId, MirUnitKey};
-use bray_native_artifact::{NativeContentDigest, NativeUnitKind, NativeUnitSummary};
+use bray_native_artifact::{NativeContentDigest, NativeIndexError, NativeUnitKind, NativeUnitSummary};
 use bray_package_interface::{
     CURRENT_TEMPLATE_SCHEMA_REVISION, ImplementationExternalSymbolIdentity,
     PackageImplementationConfiguration, PackageImplementationSpecializationKey,
+    PackageNativeArtifactError,
 };
 use bray_runtime_interface::BinarySymbolName;
 use bray_symbols::{PackageIdentity, SymbolKeyData};
@@ -142,27 +143,35 @@ impl Compilation {
             return Ok(None);
         };
 
+        let native_failure = |error| {
+            NativeProductPlanningError::Codegen(
+                crate::compilation::CodegenPreparationError::Diagnostics(
+                    crate::compilation::imported::native_artifact_diagnostics(error, input),
+                ),
+            )
+        };
+
         let index = implementation
             .native_artifact()
-            .map_err(|error| {
-                NativeProductPlanningError::Codegen(
-                    crate::compilation::CodegenPreparationError::Diagnostics(
-                        crate::compilation::imported::native_artifact_diagnostics(error, input),
-                    ),
-                )
-            })?
+            .map_err(native_failure)?
             .expect("selected native binding must have an index");
 
-        if let Some(codegen) = &self.state.codegen
-            && index.producer()
-                != native_producer_identity(
-                    codegen.selected(),
-                    &options,
-                    implementation.identity().configuration(),
-                    index.target(),
-                )
-        {
-            return Ok(None);
+        if let Some(codegen) = &self.state.codegen {
+            let expected = native_producer_identity(
+                codegen.selected(),
+                &options,
+                implementation.identity().configuration(),
+                index.target(),
+            );
+
+            if index.producer() != expected {
+                return Err(native_failure(PackageNativeArtifactError::Index(
+                    NativeIndexError::WrongProducer {
+                        expected,
+                        actual: index.producer(),
+                    },
+                )));
+            }
         }
 
         let digest = NativeContentDigest::new(binding.unit());

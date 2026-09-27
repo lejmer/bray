@@ -3719,17 +3719,81 @@ public func hot(pos value: i32) -> i32 { return value + 1; }
         ));
     }
 
+    #[test]
+    fn selected_native_binding_with_wrong_producer_reports_exact_import_failure() {
+        let fixture = GenericDependencyFixture {
+            source: "module templates;
+public func hot(pos value: i32) -> i32 { return value + 1; }
+",
+            runtime_frames: None,
+            executable_templates: 1,
+            platform_service: None,
+        };
+
+        let backend = Arc::new(
+            bray_codegen_llvm::LlvmCodeGenerator::try_new()
+                .expect("LLVM backend must initialize"),
+        );
+
+        let registry = CodeGeneratorRegistry::try_new([
+            Arc::clone(&backend) as Arc<dyn CodeGenerator>,
+        ]).expect("LLVM backend must register");
+
+        let codegen = CodegenConfiguration::try_new(registry, backend.identity().clone())
+            .expect("LLVM backend must select");
+
+        let dependency = dependency_from_fixture_with_native(
+            true, false, fixture, Some((CodegenOptions::default(), false)),
+        );
+
+        let error = native_fixture_reachability_with_codegen(dependency, Some(codegen))
+            .err().expect("mismatched selected producer must fail planning");
+
+        let NativeProductPlanningError::Codegen(CodegenPreparationError::Diagnostics(diagnostics)) = error else {
+            panic!("wrong native producer must retain structured diagnostics: {error:?}");
+        };
+
+        assert!(diagnostics.iter().flat_map(|diagnostic| diagnostic.args()).any(|arg| {
+            matches!(
+                arg.value(),
+                bray_diagnostics::DiagnosticArgValue::InterfaceValidationFailure(
+                    bray_diagnostics::DiagnosticInterfaceValidationFailure::NativeArtifact {
+                        cause: bray_diagnostics::DiagnosticNativeArtifactCause::WrongProducer,
+                        ..
+                    }
+                )
+            )
+        }));
+    }
+
     fn native_fixture_reachability(
         dependency: DependencyInterfaceInput,
     ) -> Result<ConcreteCodegenReachability, NativeProductPlanningError> {
-        let compilation = generic_consumer_for_target_with_source(
-            dependency,
-            SelectedTarget::baseline(),
-            "module application;
+        native_fixture_reachability_with_codegen(dependency, None)
+    }
+
+    fn native_fixture_reachability_with_codegen(
+        dependency: DependencyInterfaceInput,
+        codegen: Option<CodegenConfiguration>,
+    ) -> Result<ConcreteCodegenReachability, NativeProductPlanningError> {
+        let request = CompilationRequest::with_options(
+            crate::test_support::package_identity(),
+            vec![crate::test_support::source_input(
+                "module application;
 using example.dependency.templates.hot;
 func main() { let value: i32 = example.dependency.templates.hot(1); }
 ",
-        );
+                0,
+            )],
+            CompilationOptions::new(
+                WorkerBudget::serial(), ProductKind::Executable, SelectedTarget::baseline(),
+            ),
+        ).with_dependency_interfaces([dependency]);
+
+        let compilation = match codegen {
+            Some(codegen) => crate::Compilation::load_with_codegen(request, codegen),
+            None => crate::Compilation::load(request),
+        }.expect("consumer compilation must load");
 
         assert!(compilation.check_diagnostics().is_empty(), "{:#?}", compilation.check_diagnostics());
         let cancellation = CancellationToken::new();
