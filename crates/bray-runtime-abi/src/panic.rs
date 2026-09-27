@@ -43,17 +43,25 @@ pub struct NativeSourceAnchor {
     start: u32,
     end: u32,
     version: u64,
+    namespace: [u8; 32],
 }
 
 impl NativeSourceAnchor {
     /// Creates one source anchor from its stable scalar ABI fields.
-    pub const fn new(source: u32, start: u32, end: u32, version: u64) -> Self {
+    pub const fn new(
+        namespace: [u8; 32],
+        source: u32,
+        start: u32,
+        end: u32,
+        version: u64,
+    ) -> Self {
         Self {
             present: 1,
             source,
             start,
             end,
             version,
+            namespace,
         }
     }
 
@@ -65,6 +73,7 @@ impl NativeSourceAnchor {
             start: 0,
             end: 0,
             version: 0,
+            namespace: [0; 32],
         }
     }
 
@@ -93,10 +102,27 @@ impl NativeSourceAnchor {
         self.version
     }
 
+    /// Returns the product namespace that qualifies the source ID.
+    pub const fn namespace(self) -> [u8; 32] {
+        self.namespace
+    }
+
     /// Returns whether the half-open source range is ordered.
     pub const fn is_valid(&self) -> bool {
         match self.present {
-            0 => self.source == 0 && self.start == 0 && self.end == 0 && self.version == 0,
+            0 => {
+                let mut index = 0;
+
+                while index < self.namespace.len() {
+                    if self.namespace[index] != 0 {
+                        return false;
+                    }
+
+                    index += 1;
+                }
+
+                self.source == 0 && self.start == 0 && self.end == 0 && self.version == 0
+            }
             1 => self.start <= self.end,
             _ => false,
         }
@@ -369,12 +395,13 @@ mod tests {
 
     #[test]
     fn source_anchor_has_native_layout() {
-        assert_abi_layout!(NativeSourceAnchor, size: 24, align: 8, fields: {
+        assert_abi_layout!(NativeSourceAnchor, size: 56, align: 8, fields: {
             present: 0,
             source: 4,
             start: 8,
             end: 12,
             version: 16,
+            namespace: 24,
         });
     }
 
@@ -384,12 +411,12 @@ mod tests {
             address: 0, length: 8, copy: 16, release: 24,
         });
 
-        assert_abi_layout!(NativePanicPrimary, size: 64, align: 8, fields: {
-            source: 0, cause: 24, message: 32,
+        assert_abi_layout!(NativePanicPrimary, size: 96, align: 8, fields: {
+            source: 0, cause: 56, message: 64,
         });
 
-        assert_abi_layout!(NativePanicReport, size: 104, align: 8, fields: {
-            primary: 0, head: 64, tail: 72, count: 80, reserved: 88, consume: 96,
+        assert_abi_layout!(NativePanicReport, size: 136, align: 8, fields: {
+            primary: 0, head: 96, tail: 104, count: 112, reserved: 120, consume: 128,
         });
     }
 }

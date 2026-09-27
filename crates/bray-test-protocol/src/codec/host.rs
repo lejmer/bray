@@ -195,12 +195,20 @@ fn encode_outcome(encoder: &mut Encoder, outcome: &TestOutcome) -> Result<(), Te
         }
         TestOutcome::ExplicitFailure(failure) => {
             encoder.u8(2);
-            encode_source(encoder, failure.source());
+
+            match failure.source() {
+                Some(source) => {
+                    encoder.u8(1);
+                    encode_source(encoder, source)?;
+                }
+                None => encoder.u8(0),
+            }
+
             encoder.string(failure.message())?;
         }
         TestOutcome::AssertionFailure(failure) => {
             encoder.u8(3);
-            encode_source(encoder, failure.source());
+            encode_source(encoder, failure.source())?;
             encode_optional_string(encoder, failure.message())?;
         }
         TestOutcome::Panicked(report) => {
@@ -209,7 +217,6 @@ fn encode_outcome(encoder: &mut Encoder, outcome: &TestOutcome) -> Result<(), Te
             encoder.u8(match report.cause() {
                 TestPanicCause::Message => 0,
                 TestPanicCause::Assertion => 1,
-                TestPanicCause::ExplicitFailure => 2,
                 TestPanicCause::RuntimePanic => 3,
                 TestPanicCause::AllocationFailure => 4,
             });
@@ -217,7 +224,7 @@ fn encode_outcome(encoder: &mut Encoder, outcome: &TestOutcome) -> Result<(), Te
             match report.source() {
                 Some(source) => {
                     encoder.u8(1);
-                    encode_source(encoder, source);
+                    encode_source(encoder, source)?;
                 }
                 None => encoder.u8(0),
             }
@@ -259,10 +266,18 @@ fn decode_outcome(decoder: &mut Decoder<'_>) -> Result<TestOutcome, TestProtocol
                 formatted_value,
             })
         }
-        2 => Ok(TestOutcome::ExplicitFailure(ExplicitTestFailure::new(
-            decode_source(decoder)?,
-            decoder.string()?,
-        ))),
+        2 => {
+            let source = match decoder.u8()? {
+                0 => None,
+                1 => Some(decode_source(decoder)?),
+                _ => return Err(TestProtocolError::Malformed),
+            };
+
+            Ok(TestOutcome::ExplicitFailure(ExplicitTestFailure::new(
+                source,
+                decoder.string()?,
+            )))
+        }
         3 => {
             let source = decode_source(decoder)?;
 
@@ -279,7 +294,6 @@ fn decode_outcome(decoder: &mut Decoder<'_>) -> Result<TestOutcome, TestProtocol
             let cause = match decoder.u8()? {
                 0 => TestPanicCause::Message,
                 1 => TestPanicCause::Assertion,
-                2 => TestPanicCause::ExplicitFailure,
                 3 => TestPanicCause::RuntimePanic,
                 4 => TestPanicCause::AllocationFailure,
                 _ => return Err(TestProtocolError::Malformed),
@@ -382,16 +396,21 @@ fn decode_stream(decoder: &mut Decoder<'_>) -> Result<CapturedStream, TestProtoc
     }
 }
 
-fn encode_source(encoder: &mut Encoder, source: TestSourceAnchor) {
+fn encode_source(encoder: &mut Encoder, source: TestSourceAnchor) -> Result<(), TestProtocolError> {
     let span = source.span();
 
+    encoder.bytes(&source.package())?;
     encoder.u32(span.source_id().raw());
     encoder.u32(span.start().bytes());
     encoder.u32(span.end().bytes());
     encoder.u64(source.version().raw());
+
+    Ok(())
 }
 
 fn decode_source(decoder: &mut Decoder<'_>) -> Result<TestSourceAnchor, TestProtocolError> {
+    let package = decoder.bytes()?;
+    let package: [u8; 32] = package.try_into().map_err(|_| TestProtocolError::Malformed)?;
     let source = SourceId::stored(decoder.u32()?).ok_or(TestProtocolError::Malformed)?;
     let start = TextSize::new(decoder.u32()?);
     let end = TextSize::new(decoder.u32()?);
@@ -401,6 +420,7 @@ fn decode_source(decoder: &mut Decoder<'_>) -> Result<TestSourceAnchor, TestProt
     }
 
     Ok(TestSourceAnchor::new(
+        package,
         SourceSpan::new(source, TextRange::new(start, end)),
         SourceVersion::new(decoder.u64()?),
     ))
@@ -508,6 +528,7 @@ mod tests {
         assert_eq!(decoded_command, command);
 
         let source = TestSourceAnchor::new(
+            [0; 32],
             SourceSpan::new(
                 SourceId::new(3),
                 TextRange::new(TextSize::new(4), TextSize::new(9)),
@@ -518,7 +539,7 @@ mod tests {
         let result = TestHostResult::after_cleanup(
             command.id(),
             command.catalog_digest(),
-            TestOutcome::ExplicitFailure(ExplicitTestFailure::new(source, "failed")),
+            TestOutcome::ExplicitFailure(ExplicitTestFailure::new(Some(source), "failed")),
             CapturedStream::captured(b"out".iter().copied(), 2, None),
             CapturedStream::discarded(),
         );
@@ -532,6 +553,24 @@ mod tests {
             .unwrap_or_else(|error| panic!("test result must decode: {error:?}"));
 
         assert_eq!(decoded_result, result);
+
+        let source_free = TestHostResult::after_cleanup(
+            command.id(),
+            command.catalog_digest(),
+            TestOutcome::ExplicitFailure(ExplicitTestFailure::new(None, "source unavailable")),
+            CapturedStream::discarded(),
+            CapturedStream::discarded(),
+        );
+
+        let mut source_free_bytes = Vec::new();
+
+        super::write_host_result(&mut source_free_bytes, &source_free)
+            .expect("source-free explicit failure must encode");
+
+        let decoded = super::read_host_result(&mut Cursor::new(source_free_bytes))
+            .expect("source-free explicit failure must decode");
+
+        assert_eq!(decoded, source_free);
     }
 
     #[test]
@@ -539,7 +578,6 @@ mod tests {
         for cause in [
             TestPanicCause::Message,
             TestPanicCause::Assertion,
-            TestPanicCause::ExplicitFailure,
             TestPanicCause::RuntimePanic,
             TestPanicCause::AllocationFailure,
         ] {

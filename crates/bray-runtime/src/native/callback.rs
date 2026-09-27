@@ -281,7 +281,7 @@ mod tests {
     extern "C-unwind" fn write_then_unwind(_: usize, outcome: &mut NativeRunOutcome) {
         let primary = bray_runtime_abi::NativePanicPrimary::new(
             bray_runtime_abi::NativePanicCause::ASSERTION,
-            bray_runtime_abi::NativeSourceAnchor::new(7, 11, 19, 23),
+            bray_runtime_abi::NativeSourceAnchor::new([0; 32], 7, 11, 19, 23),
             bray_runtime_abi::NativePanicMessage::new(0, 0, None, Some(release_written_incident)),
         );
 

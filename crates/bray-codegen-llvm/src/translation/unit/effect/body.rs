@@ -5,7 +5,7 @@ use super::super::support::{
 use bray_codegen::{CodegenFailure, CodegenSymbolKey, CodegenTypeBehavior, CodegenTypeKind};
 use bray_ir::{
     MirAsyncOperation, MirFrameInitializer, MirHelperReference, MirOperation, MirOperationKind,
-    MirPlace, MirSourceAnchor,
+    MirPlace,
 };
 use inkwell::values::BasicValueEnum;
 
@@ -350,40 +350,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .collect::<Vec<_>>();
 
         self.invoke_native_runtime(*runtime, &arguments)
-    }
-
-    pub(in crate::translation::unit) fn native_source_anchor(
-        &self,
-        operation: bray_ir::MirOperationId,
-    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        let source = self
-            .unit
-            .operation(operation)
-            .map(MirOperation::source)
-            .expect("checked MIR effect translation requires an established mapping or value");
-
-        let source = match source {
-            MirSourceAnchor::Source(origin) => {
-                let anchor = origin.source_anchor();
-                let syntax = anchor.syntax();
-                let range = syntax.full_range();
-
-                bray_runtime_abi::NativeSourceAnchor::new(
-                    syntax.source_id().raw(),
-                    range.start().bytes(),
-                    range.end().bytes(),
-                    anchor.source_version().raw(),
-                )
-            }
-            MirSourceAnchor::ExecutableHost(_)
-            | MirSourceAnchor::GeneratedLifecycle(_)
-            | MirSourceAnchor::CompilerProvidedCallable(_)
-            | MirSourceAnchor::ImportedExecutable(_) => {
-                bray_runtime_abi::NativeSourceAnchor::unavailable()
-            }
-        };
-
-        Ok(crate::native::source_anchor_value(self.types.context(), source).into())
     }
 
     fn native_string_view(

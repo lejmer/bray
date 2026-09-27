@@ -35,6 +35,29 @@ pub enum RuntimeAbiType {
     ProductObservation,
 }
 
+/// Native field order shared by panic report type realization and source binding checks.
+pub const NATIVE_PANIC_REPORT_FIELDS: [RuntimeAbiType; 19] = [
+    RuntimeAbiType::U32,
+    RuntimeAbiType::U32,
+    RuntimeAbiType::U32,
+    RuntimeAbiType::U32,
+    RuntimeAbiType::U64,
+    RuntimeAbiType::U64,
+    RuntimeAbiType::U64,
+    RuntimeAbiType::U64,
+    RuntimeAbiType::U64,
+    RuntimeAbiType::U32,
+    RuntimeAbiType::Usize,
+    RuntimeAbiType::Usize,
+    RuntimeAbiType::Pointer,
+    RuntimeAbiType::Pointer,
+    RuntimeAbiType::Usize,
+    RuntimeAbiType::Usize,
+    RuntimeAbiType::Usize,
+    RuntimeAbiType::Usize,
+    RuntimeAbiType::Pointer,
+];
+
 /// Exact native parameter and result kinds for an execution-runtime role.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct RuntimeNativeSignature {

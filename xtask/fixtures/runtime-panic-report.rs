@@ -3,6 +3,7 @@
 struct PanicReport {
     source: [u32; 4],
     source_version: u64,
+    source_package: [u8; 32],
     cause: u32,
     message: usize,
     message_length: usize,
@@ -20,6 +21,7 @@ impl PanicReport {
         Self {
             source: [0; 4],
             source_version: 0,
+            source_package: [0; 32],
             cause: 0,
             message: 0,
             message_length: 0,

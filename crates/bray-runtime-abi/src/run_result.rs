@@ -182,7 +182,7 @@ mod tests {
         panicked_offset: usize,
     ) -> NativeRunResultLayout {
         NativeRunResultLayout::new(
-            112,
+            8 + std::mem::size_of::<crate::NativePanicReport>(),
             8,
             1,
             completed_tag,

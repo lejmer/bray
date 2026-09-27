@@ -74,7 +74,7 @@ impl CodegenUnitKey {
         self.0.partition_policy
     }
 
-    /// Returns the package, linkage, and visibility class of one contained definition.
+    /// Returns the package, source, linkage, and visibility class of one definition.
     pub fn compatibility(
         &self,
         instance: &CodegenInstanceKey,
@@ -342,7 +342,7 @@ impl CodegenUnit {
         &self.key
     }
 
-    /// Returns the package, linkage, and visibility class of one contained definition.
+    /// Returns the package, source, linkage, and visibility class of one definition.
     pub fn compatibility(
         &self,
         instance: &CodegenInstanceKey,

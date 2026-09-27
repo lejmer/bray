@@ -40,7 +40,7 @@ mod tests {
     fn outcome(id: usize) -> NativeRunOutcome {
         NativeRunOutcome::panicked(crate::frame::native_report(NativePanicPrimary::new(
             NativePanicCause::ASSERTION,
-            NativeSourceAnchor::new(1, 2, 3, 4),
+            NativeSourceAnchor::new([0; 32], 1, 2, 3, 4),
             NativePanicMessage::new(id, 0, None, Some(release)),
         )))
     }

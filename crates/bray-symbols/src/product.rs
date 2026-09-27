@@ -1,7 +1,8 @@
 use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use bray_base::{NonEmptySharedStr, shared_slice};
+use bray_base::{NonEmptySharedStr, StableDigestHasher, shared_slice};
 
 use crate::{
     AnySymbolId, CallableExecution, FunctionSymbolId, ModulePathKey, PackageIdentity, SymbolName,
@@ -30,6 +31,15 @@ impl ProductIdentity {
     /// Returns the package-local canonical product name.
     pub fn name(&self) -> &str {
         self.name.as_str()
+    }
+
+    /// Returns a stable namespace for this product's source coordinates.
+    pub fn source_namespace(&self) -> [u8; 32] {
+        let mut digest = StableDigestHasher::new();
+        digest.write(b"bray.product-source.v1\0");
+        self.hash(&mut digest);
+
+        digest.finalize()
     }
 }
 
@@ -224,5 +234,13 @@ mod tests {
 
         assert_eq!(product.package(), &package);
         assert_eq!(product.name(), "application");
+        assert_eq!(product.source_namespace(), product.clone().source_namespace());
+
+        assert_ne!(
+            product.source_namespace(),
+            ProductIdentity::try_new(package, "other")
+                .expect("test product identity must be valid")
+                .source_namespace()
+        );
     }
 }

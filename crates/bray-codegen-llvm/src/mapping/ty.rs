@@ -46,6 +46,10 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
         self.context
     }
 
+    pub(crate) const fn mappings(&self) -> &'mappings CodegenMappings {
+        self.mappings
+    }
+
     pub(crate) const fn target_data(&self) -> &'mappings TargetData {
         self.target_data
     }

@@ -42,13 +42,13 @@ impl AssertionFailure {
 /// Structured data produced by `std.testing.fail`.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ExplicitTestFailure {
-    source: TestSourceAnchor,
+    source: Option<TestSourceAnchor>,
     message: Arc<str>,
 }
 
 impl ExplicitTestFailure {
     /// Creates an explicit failure from its call source and consumed message.
-    pub fn new(source: TestSourceAnchor, message: impl Into<Arc<str>>) -> Self {
+    pub fn new(source: Option<TestSourceAnchor>, message: impl Into<Arc<str>>) -> Self {
         Self {
             source,
             message: shared_str(message),
@@ -56,7 +56,7 @@ impl ExplicitTestFailure {
     }
 
     /// Returns the `std.testing.fail` call that produced the failure.
-    pub const fn source(&self) -> TestSourceAnchor {
+    pub const fn source(&self) -> Option<TestSourceAnchor> {
         self.source
     }
 
@@ -76,6 +76,7 @@ mod tests {
     #[test]
     fn failures_retain_structured_source_and_messages() {
         let source = TestSourceAnchor::new(
+            [0; 32],
             SourceSpan::new(
                 SourceId::new(3),
                 TextRange::new(TextSize::new(7), TextSize::new(12)),
@@ -85,12 +86,16 @@ mod tests {
 
         let assertion = AssertionFailure::with_message(source, "expected equality");
         let message_free_assertion = AssertionFailure::without_message(source);
-        let explicit = ExplicitTestFailure::new(source, "fixture setup failed");
+        let explicit = ExplicitTestFailure::new(Some(source), "fixture setup failed");
 
         assert_eq!(assertion.source(), source);
         assert_eq!(assertion.message(), Some("expected equality"));
         assert_eq!(message_free_assertion.message(), None);
-        assert_eq!(explicit.source(), source);
+        assert_eq!(explicit.source(), Some(source));
         assert_eq!(explicit.message(), "fixture setup failed");
+
+        let source_free = ExplicitTestFailure::new(None, "source unavailable");
+        assert_eq!(source_free.source(), None);
+        assert_eq!(source_free.message(), "source unavailable");
     }
 }

@@ -624,7 +624,8 @@ fn source_text(source: &InspectionMirSource) -> String {
         }
         InspectionMirSource::CompilerProvidedCallable { .. }
         | InspectionMirSource::GeneratedLifecycle { .. }
-        | InspectionMirSource::ImportedExecutable { .. } => super::notation::source_text(source),
+        | InspectionMirSource::ImportedExecutable { .. }
+        | InspectionMirSource::ImportedSource { .. } => super::notation::source_text(source),
     }
 }
 

@@ -788,7 +788,7 @@ mod tests {
         let package = PackageIdentity::try_new(format!("test.package.{package}"))
             .unwrap_or_else(|| panic!("test package identity must be valid"));
 
-        CodegenPartitionCompatibility::new(package, linkage, CodegenDefinitionVisibility::Product)
+        CodegenPartitionCompatibility::new(package, [0; 32], linkage, CodegenDefinitionVisibility::Product)
     }
 
     fn tiny_policy() -> CodegenPartitionPolicy {

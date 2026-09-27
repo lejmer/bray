@@ -135,6 +135,13 @@ fn hash_source_anchor(
             digest.write_u8(4);
             hash_imported_key(key, context, digest)?;
         }
+        MirSourceAnchor::ImportedSource { owner, namespace, span, version } => {
+            digest.write_u8(5);
+            hash_imported_key(owner, context, digest)?;
+            digest.write(namespace);
+            span.hash(digest);
+            version.hash(digest);
+        }
     }
 
     Ok(())
@@ -265,12 +272,17 @@ mod tests {
     use bray_testing::{test_bound_unit_with_declaration, test_mir_target};
 
     use super::mir_content_identity;
-    use crate::test_support::compilation;
+    use crate::test_support::{compilation, compilation_with_sources_and_worker_budget};
 
     #[test]
     fn equal_mir_ignores_semantic_store_and_interning_order() {
         let first = compilation("module app; func main() {}");
-        let second = compilation("module app; func main() {}");
+
+        let second = compilation_with_sources_and_worker_budget(
+            &["module app; func main() {}", "module unrelated;"],
+            crate::WorkerBudget::serial(),
+        );
+
         let first_values = first.semantic_value_store().expect("first semantic store must exist");
         let second_values = second.semantic_value_store().expect("second semantic store must exist");
 

@@ -24,6 +24,10 @@ internal func empty_panic_report() -> PanicReportData
         source_start = 0,
         source_end = 0,
         source_version = 0,
+        source_namespace_word_0 = 0,
+        source_namespace_word_1 = 0,
+        source_namespace_word_2 = 0,
+        source_namespace_word_3 = 0,
         cause = 0,
         message = 0,
         message_length = 0,
@@ -45,6 +49,10 @@ trusted internal func panic_report_construction(
     pos source_start: u32,
     pos source_end: u32,
     pos source_version: u64,
+    pos source_namespace_word_0: u64,
+    pos source_namespace_word_1: u64,
+    pos source_namespace_word_2: u64,
+    pos source_namespace_word_3: u64,
     pos message: RawPointer<u8>,
     pos message_length: usize,
 ) -> PanicReportData
@@ -68,6 +76,10 @@ trusted internal func panic_report_construction(
     report.source_start = source_start;
     report.source_end = source_end;
     report.source_version = source_version;
+    report.source_namespace_word_0 = source_namespace_word_0;
+    report.source_namespace_word_1 = source_namespace_word_1;
+    report.source_namespace_word_2 = source_namespace_word_2;
+    report.source_namespace_word_3 = source_namespace_word_3;
     report.cause = cause;
 
     if message_length != 0

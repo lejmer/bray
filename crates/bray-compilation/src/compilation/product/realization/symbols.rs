@@ -8,9 +8,9 @@ use bray_codegen::{
     CodegenOperationMapping, CodegenPartitionCompatibility, CodegenSymbolKey, CodegenSymbolMapping,
     CodegenTarget, CodegenUnit,
 };
-use bray_ir::{MirUnitKey, MirUnitKind};
+use bray_ir::{MirStorageKind, MirUnitKey, MirUnitKind};
 use bray_runtime_interface::{BinarySymbolName, ExecutableHostContract, ProtectedFrameOperation};
-use bray_symbols::{AnySymbolId, CallableAbi, PackageIdentity, SymbolKey, SymbolKeyData};
+use bray_symbols::{AnySymbolId, CallableAbi, PackageIdentity, ProductIdentity, SymbolKey, SymbolKeyData};
 
 use super::super::super::CodegenPreparationError;
 use super::super::super::Compilation;
@@ -358,12 +358,12 @@ impl Compilation {
     pub(in crate::compilation::product) fn codegen_partition_compatibility(
         &self,
         instance: &CodegenInstance,
-        product_package: &PackageIdentity,
+        product: &ProductIdentity,
         roots: &BTreeSet<bray_codegen::CodegenInstanceKey>,
         cancellation: &CancellationToken,
     ) -> Result<CodegenPartitionCompatibility, CodegenPreparationError> {
         let package =
-            self.codegen_instance_package(instance.key(), product_package, cancellation)?;
+            self.codegen_instance_package(instance.key(), product.package(), cancellation)?;
 
         let linkage = match instance.mir().kind() {
             MirUnitKind::ExecutableHost(_) => CodegenLinkage::Export,
@@ -388,8 +388,18 @@ impl Compilation {
             | CodegenLinkage::Export => CodegenDefinitionVisibility::Public,
         };
 
+        // Imported anchors carry their producer namespace in MIR, but static
+        // mappings can still attach a consumer-local finalizer source.
+        let source_namespace = match instance.key().template() {
+            MirUnitKey::ImportedExecutable(_)
+                if !instance.mir().storages().iter().any(|storage| {
+                    matches!(storage.kind(), MirStorageKind::Static(_) | MirStorageKind::NativeStatic(_))
+                }) => [0; 32],
+            _ => product.source_namespace(),
+        };
+
         Ok(CodegenPartitionCompatibility::new(
-            package, linkage, visibility,
+            package, source_namespace, linkage, visibility,
         ))
     }
 

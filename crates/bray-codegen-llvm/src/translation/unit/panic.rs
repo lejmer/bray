@@ -1,6 +1,6 @@
 use bray_codegen::{CodegenCallableSignature, CodegenFailure, CodegenResultMapping};
-use bray_ir::{MirEdge, MirOperand};
-use inkwell::values::{FunctionValue, PointerValue};
+use bray_ir::{MirEdge, MirOperand, MirOperation, MirSourceAnchor};
+use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue};
 
 use super::core::UnitTranslator;
 use super::support::{llvm, native_run_outcome_value, native_run_state_is, pointer_value};
@@ -23,6 +23,57 @@ pub(super) fn incoming_panic_report_context<'context>(
 }
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
+    pub(in crate::translation::unit) fn native_source_anchor(
+        &self,
+        operation: bray_ir::MirOperationId,
+    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+        let source = self
+            .unit
+            .operation(operation)
+            .map(MirOperation::source)
+            .expect("checked MIR effect translation requires an established mapping or value");
+
+        let namespace = self
+            .request
+            .unit()
+            .compatibility(self.instance.key())
+            .expect("translated instance must have a package compatibility")
+            .source_namespace();
+
+        let source = match source {
+            MirSourceAnchor::Source(origin) => {
+                let anchor = origin.source_anchor();
+                let syntax = anchor.syntax();
+                let range = syntax.full_range();
+
+                bray_runtime_abi::NativeSourceAnchor::new(
+                    namespace,
+                    syntax.source_id().raw(),
+                    range.start().bytes(),
+                    range.end().bytes(),
+                    anchor.source_version().raw(),
+                )
+            }
+            MirSourceAnchor::ImportedSource { namespace, span, version, .. } => {
+                bray_runtime_abi::NativeSourceAnchor::new(
+                    *namespace,
+                    span.source_id().raw(),
+                    span.start().bytes(),
+                    span.end().bytes(),
+                    version.raw(),
+                )
+            }
+            MirSourceAnchor::ExecutableHost(_)
+            | MirSourceAnchor::GeneratedLifecycle(_)
+            | MirSourceAnchor::CompilerProvidedCallable(_)
+            | MirSourceAnchor::ImportedExecutable(_) => {
+                bray_runtime_abi::NativeSourceAnchor::unavailable()
+            }
+        };
+
+        Ok(crate::native::source_anchor_value(self.types.context(), source).into())
+    }
+
     pub(super) fn translate_panic_propagation(
         &mut self,
         report: &MirOperand,
@@ -138,10 +189,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         ))?
         .into_int_value();
 
-        let report_source = admission
-            .map(|operation| self.native_source_anchor(operation))
-            .transpose()?;
-
         let cancelled = native_run_state_is(
             &self.builder,
             state,
@@ -198,7 +245,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let panicked_route = self.route_call_panic(
             panicked,
             context,
-            report_source,
             "call.panicked",
             &pending_moves,
         )?;

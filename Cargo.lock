@@ -487,6 +487,7 @@ dependencies = [
  "bray-messages",
  "bray-native-artifact",
  "bray-runtime-interface",
+ "bray-source",
  "bray-symbols",
  "bray-target",
  "zstd",

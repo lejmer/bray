@@ -1,6 +1,6 @@
 use bray_codegen::{CodegenCallableSignature, CodegenParameterMapping, CodegenResultMapping};
 use bray_compiler_known::RepresentationRole;
-use bray_runtime_interface::RuntimeAbiRole;
+use bray_runtime_interface::{NATIVE_PANIC_REPORT_FIELDS, RuntimeAbiRole, RuntimeAbiType};
 use bray_symbols::CallableAbi;
 
 use super::super::super::Compilation;
@@ -11,23 +11,25 @@ const BYTE_POINTER: AbiField = AbiField::Pointer(RepresentationRole::ScalarU8);
 const U32: AbiField = AbiField::Scalar(RepresentationRole::ScalarU32);
 const U64: AbiField = AbiField::Scalar(RepresentationRole::ScalarU64);
 const USIZE: AbiField = AbiField::Scalar(RepresentationRole::ScalarUsize);
-const PANIC_REPORT: AbiField = AbiField::Struct(&[
-    U32,
-    U32,
-    U32,
-    U32,
-    U64,
-    U32,
-    USIZE,
-    USIZE,
-    BYTE_POINTER,
-    BYTE_POINTER,
-    USIZE,
-    USIZE,
-    USIZE,
-    USIZE,
-    BYTE_POINTER,
-]);
+const PANIC_REPORT_FIELDS: [AbiField; 19] = {
+    let mut fields = [AbiField::RawPointer; NATIVE_PANIC_REPORT_FIELDS.len()];
+    let mut index = 0;
+
+    while index < fields.len() {
+        fields[index] = match NATIVE_PANIC_REPORT_FIELDS[index] {
+            RuntimeAbiType::U32 => U32,
+            RuntimeAbiType::U64 => U64,
+            RuntimeAbiType::Usize => USIZE,
+            RuntimeAbiType::Pointer => BYTE_POINTER,
+            _ => panic!("panic report field has an unsupported native ABI type"),
+        };
+
+        index += 1;
+    }
+
+    fields
+};
+const PANIC_REPORT: AbiField = AbiField::Struct(&PANIC_REPORT_FIELDS);
 macro_rules! define_runtime_source_fields {
     ($( $role:ident {
         $documentation:literal, $name:literal,

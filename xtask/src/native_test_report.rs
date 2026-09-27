@@ -64,7 +64,7 @@ pub(crate) enum NativeOutcome {
         formatted_value: Option<String>,
     },
     ExplicitFailure {
-        source: NativeSourceAnchor,
+        source: Option<NativeSourceAnchor>,
         message: String,
     },
     AssertionFailure {
@@ -89,8 +89,9 @@ pub(crate) enum NativeOutcome {
     },
 }
 
-#[derive(Clone, Copy, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub(crate) struct NativeSourceAnchor {
+    pub(crate) package: String,
     pub(crate) source: u32,
     pub(crate) start: u32,
     pub(crate) end: u32,
@@ -98,8 +99,11 @@ pub(crate) struct NativeSourceAnchor {
 }
 
 impl NativeSourceAnchor {
-    pub(crate) const fn is_valid(self) -> bool {
-        self.source == 0 && self.start < self.end && self.version == 0
+    pub(crate) fn is_valid(&self) -> bool {
+        self.package.len() == 64
+            && bray_base::is_lowercase_hex(&self.package)
+            && self.start < self.end
+            && self.version == 0
     }
 }
 
