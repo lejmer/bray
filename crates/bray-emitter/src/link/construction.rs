@@ -156,6 +156,7 @@ impl<'plan> LinkPlanConstructor<'plan> {
     fn build(mut self) -> Result<LinkPlan, LinkPlanConstructionError> {
         self.push_startup_inputs()?;
         self.push_staged_inputs()?;
+        self.push_direct_native_inputs()?;
         self.validate_native_inputs()?;
         self.push_runtime_input()?;
         self.push_native_inputs_matching(is_ordinary_archive_input)?;
@@ -229,6 +230,18 @@ impl<'plan> LinkPlanConstructor<'plan> {
         Ok(())
     }
 
+    fn push_direct_native_inputs(&mut self) -> Result<(), LinkPlanConstructionError> {
+        for input in self.inputs.native_inputs.iter()
+            .filter(|input| matches!(input.kind(), LinkInputKind::RelocatableObject | LinkInputKind::Bitcode))
+            .cloned()
+            .collect::<Vec<_>>()
+        {
+            self.push_input(input)?;
+        }
+
+        Ok(())
+    }
+
     fn push_runtime_input(&mut self) -> Result<(), LinkPlanConstructionError> {
         if self.product_kind == LinkedProductKind::StaticLibrary {
             return Ok(());
@@ -255,7 +268,7 @@ impl<'plan> LinkPlanConstructor<'plan> {
         for input in self.inputs.native_inputs.iter() {
             if !matches!(
                 input.kind(),
-                LinkInputKind::Archive | LinkInputKind::NativeLibrary | LinkInputKind::Framework
+                LinkInputKind::RelocatableObject | LinkInputKind::Bitcode | LinkInputKind::Archive | LinkInputKind::NativeLibrary | LinkInputKind::Framework
             ) {
                 return Err(LinkPlanConstructionError::InvalidNativeInputKind(
                     input.kind(),
@@ -593,6 +606,18 @@ mod tests {
                 ),
                 native_library("pthread"),
             ])
+            .with_additional_native_inputs([
+                file_input(
+                    LinkInputKind::RelocatableObject,
+                    "stage/imported.o",
+                    LinkInputProvenance::Package(product_identity().package().clone()),
+                ),
+                file_input(
+                    LinkInputKind::Bitcode,
+                    "stage/imported.bc",
+                    LinkInputProvenance::Package(product_identity().package().clone()),
+                ),
+            ])
             .with_termination_inputs([file_input(
                 LinkInputKind::TerminationObject,
                 "crt/end.o",
@@ -624,11 +649,23 @@ mod tests {
                 LinkInputKind::StartupObject,
                 LinkInputKind::RelocatableObject,
                 LinkInputKind::RelocatableObject,
+                LinkInputKind::RelocatableObject,
+                LinkInputKind::Bitcode,
                 LinkInputKind::Archive,
                 LinkInputKind::NativeLibrary,
                 LinkInputKind::TerminationObject,
             ]
         );
+
+        assert!(matches!(
+            link_plan.inputs()[3].provenance(),
+            LinkInputProvenance::Package(_)
+        ));
+
+        assert!(matches!(
+            link_plan.inputs()[4].provenance(),
+            LinkInputProvenance::Package(_)
+        ));
 
         assert_eq!(
             link_plan.exported_symbols(),
@@ -661,6 +698,51 @@ mod tests {
                 LinkInputSource::File(path)
                     if path.extension().is_some_and(|extension| extension == "brayi")
             )
+        }));
+    }
+
+    #[test]
+    fn static_library_retains_imported_native_units() {
+        let request = EmissionRequest::try_new(
+            product_identity(),
+            ProductKind::Library,
+            None,
+            target_identity(),
+            RequestedArtifactDestination::FilesystemDirectory("out".into()),
+            [RequestedArtifact::new(
+                ArtifactKind::StaticLibrary,
+                ArtifactRequirement::Required,
+            )],
+            ReplacementPolicy::RequireAbsent,
+        )
+        .expect("static library request must validate");
+
+        let plan = emission_planner(None).plan(request)
+            .expect("static library emission must plan");
+
+        let package = product_identity().package().clone();
+
+        let inputs = product_link_inputs().with_additional_native_inputs([
+            file_input(
+                LinkInputKind::RelocatableObject,
+                "stage/dependency.o",
+                LinkInputProvenance::Package(package.clone()),
+            ),
+        ]);
+
+        let link_plan = construct_link_plan(
+            &plan,
+            staged_artifacts(&plan),
+            output_staging(&plan),
+            &inputs,
+            &linker_for(LinkStartupMode::NotApplicable),
+        ).expect("imported unit must enter the static library link plan");
+
+        assert_eq!(link_plan.product_kind(), LinkedProductKind::StaticLibrary);
+
+        assert!(link_plan.inputs().iter().any(|input| {
+            input.kind() == LinkInputKind::RelocatableObject
+                && input.provenance() == &LinkInputProvenance::Package(package.clone())
         }));
     }
 
@@ -1189,8 +1271,10 @@ mod tests {
             target.object_format(),
             [
                 LinkPlanCapability::Product(LinkedProductKind::SharedLibrary),
+                LinkPlanCapability::Product(LinkedProductKind::StaticLibrary),
                 LinkPlanCapability::Product(LinkedProductKind::Executable),
                 LinkPlanCapability::Input(LinkInputKind::RelocatableObject),
+                LinkPlanCapability::Input(LinkInputKind::Bitcode),
                 LinkPlanCapability::Input(LinkInputKind::StartupObject),
                 LinkPlanCapability::Input(LinkInputKind::TerminationObject),
                 LinkPlanCapability::Input(LinkInputKind::Archive),
@@ -1198,6 +1282,7 @@ mod tests {
                 LinkPlanCapability::Input(LinkInputKind::RuntimeComponent),
                 LinkPlanCapability::InputMode(LinkInputMode::Ordinary),
                 LinkPlanCapability::Output(LinkedArtifactKind::SharedLibrary),
+                LinkPlanCapability::Output(LinkedArtifactKind::StaticLibrary),
                 LinkPlanCapability::Output(LinkedArtifactKind::Executable),
                 LinkPlanCapability::Output(LinkedArtifactKind::PlatformCompanion),
                 LinkPlanCapability::SearchPath(LinkSearchPathKind::Library),

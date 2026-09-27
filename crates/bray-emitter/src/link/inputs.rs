@@ -42,9 +42,19 @@ impl ProductLinkInputs {
         self
     }
 
-    /// Supplies native archives, libraries, and frameworks in resolved order.
+    /// Supplies native units, archives, libraries, and frameworks in resolved order.
     pub fn with_native_inputs(mut self, inputs: impl IntoIterator<Item = LinkInputSpec>) -> Self {
         self.native_inputs = inputs.into_iter().collect::<Vec<_>>().into();
+
+        self
+    }
+
+    /// Adds selected package object and bitcode units to the resolved native input set.
+    pub fn with_additional_native_inputs(
+        mut self,
+        inputs: impl IntoIterator<Item = LinkInputSpec>,
+    ) -> Self {
+        self.native_inputs = self.native_inputs.iter().cloned().chain(inputs).collect::<Vec<_>>().into();
 
         self
     }

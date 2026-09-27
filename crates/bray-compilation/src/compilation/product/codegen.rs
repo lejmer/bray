@@ -8,6 +8,7 @@ mod link;
 mod plan;
 mod preparation;
 mod reachability;
+pub(in crate::compilation) mod reuse;
 mod roots;
 
 pub use error::NativeProductPlanningError;
@@ -16,6 +17,7 @@ pub(in crate::compilation) use error::{
 };
 pub use plan::NativeProductPlan;
 pub(in crate::compilation) use content_identity::mir_content_identity;
+pub(in crate::compilation) use reuse::native_producer_identity;
 pub(crate) use demand::{
     ConcreteCodegenDemand, ConcreteCodegenRoot, NativeDemand, NativeDemandReason,
 };

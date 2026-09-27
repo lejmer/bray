@@ -13,13 +13,14 @@ use super::super::super::{CodegenPreparationError, Compilation};
 use super::super::error::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
 use super::super::specialization::{ConcreteCodegenInstance, ConcreteCodegenReachability};
 use super::error::{NativeProductPlanningError, native_batch_error};
+use super::reuse::SelectedNativeUnit;
 use super::{ConcreteCodegenDemand, ConcreteCodegenRoot, NativeDemand};
 use crate::fact::{
     BatchWork, CancellationToken, CompilationFactKey, FactQueryError, OptimizedMirQueryKey,
 };
 
 enum ReachabilityEvaluation {
-    External,
+    External(Option<SelectedNativeUnit>),
     Instance {
         instance: CodegenInstance,
         demands: Vec<ConcreteCodegenDemand>,
@@ -32,9 +33,9 @@ fn finish_codegen_reachability(
     roots: &[ConcreteCodegenRoot],
     completed: Vec<(ConcreteCodegenInstance, ReachabilityEvaluation)>,
 ) -> Result<ConcreteCodegenReachability, NativeProductPlanningError> {
-    let (mut realizations, mut demands) = match previous {
+    let (mut realizations, mut demands, mut selected_native) = match previous {
         Some(previous) => {
-            let (_, realizations, previous_demands) = previous.into_parts();
+            let (_, realizations, previous_demands, selected_native) = previous.into_parts();
 
             let demands = previous_demands
                 .iter()
@@ -42,9 +43,9 @@ fn finish_codegen_reachability(
                 .cloned()
                 .collect::<BTreeSet<_>>();
 
-            (realizations, demands)
+            (realizations, demands, selected_native)
         }
-        None => (BTreeMap::new(), BTreeSet::new()),
+        None => (BTreeMap::new(), BTreeSet::new(), BTreeMap::new()),
     };
 
     let mut evaluations = BTreeMap::new();
@@ -108,7 +109,13 @@ fn finish_codegen_reachability(
             })?;
 
             match evaluation {
-                ReachabilityEvaluation::External => builder.push_external(key.clone()),
+                ReachabilityEvaluation::External(selected) => {
+                    if let Some(selected) = selected {
+                        selected_native.insert(key.clone(), selected);
+                    }
+
+                    builder.push_external(key.clone())
+                },
                 ReachabilityEvaluation::Instance { instance, .. } => {
                     builder.push_instance(instance)
                 }
@@ -133,6 +140,7 @@ fn finish_codegen_reachability(
         graph,
         realizations,
         demands.into_iter().collect::<Vec<_>>(),
+        selected_native,
     ))
 }
 
@@ -282,7 +290,11 @@ impl Compilation {
                             key.template(),
                             MirUnitKey::ExternalCallable(_) | MirUnitKey::ExternalRuntimeDefault(_)
                         ) {
-                            return Ok(BatchWork::leaf(ReachabilityEvaluation::External));
+                            return Ok(BatchWork::leaf(ReachabilityEvaluation::External(None)));
+                        }
+
+                        if let Some(selected) = self.selected_imported_native_unit(key, options, cancellation)? {
+                            return Ok(BatchWork::leaf(ReachabilityEvaluation::External(Some(selected))));
                         }
 
                         let mir = if let Some((host_key, host_mir, _)) = &generated_host

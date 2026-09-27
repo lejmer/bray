@@ -23,7 +23,27 @@ pub(super) fn validation_diagnostics(
     ))
 }
 
-pub(super) fn implementation_validation_diagnostics(
+pub(in crate::compilation) fn native_artifact_diagnostics(
+    error: bray_package_interface::PackageNativeArtifactError,
+    input: &DependencyInterfaceInput,
+) -> DiagnosticBag {
+    let diagnostic = Diagnostic::new(
+        DiagnosticId::new(0),
+        DiagnosticKind::InterfaceValidationFailed,
+        SeverityKind::Error,
+    )
+    .with_arg(DiagnosticArg::interface_validation_failure(
+        error.into_diagnostic_failure(),
+    ));
+
+    DiagnosticBag::single(with_dependency_context_path(
+        diagnostic,
+        input,
+        input.implementation_artifact_path().unwrap_or_else(|| input.artifact_path()),
+    ))
+}
+
+pub(in crate::compilation) fn implementation_validation_diagnostics(
     error: InterfaceValidationError,
     input: &DependencyInterfaceInput,
 ) -> DiagnosticBag {

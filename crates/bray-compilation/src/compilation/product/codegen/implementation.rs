@@ -184,7 +184,7 @@ impl Compilation {
             .as_ref()
             .map(|discovery| discovery.value().catalog().clone());
 
-        let (host, units, mappings, host_statics) = self.prepare_native_codegen(
+        let (host, units, mappings, host_statics, selected_native) = self.prepare_native_codegen(
             &product,
             semantic.value().kind(),
             source_roots,
@@ -321,6 +321,7 @@ impl Compilation {
             mappings: shared_slice(mappings),
             static_instances: shared_slice(static_instances),
             product_host,
+            selected_native: shared_slice(selected_native),
         })
     }
 
@@ -514,6 +515,7 @@ mod tests {
     use std::sync::Arc;
 
     use bray_base::NonEmptySharedStr;
+    use bray_native_artifact::{NativeArtifactIndex, NativeContentDigest, NativeDefinition, NativeDefinitionSelection, NativeUnit, NativeUnitKind, NativeUnitSummary};
     use bray_bound_tree::BoundCallResult;
     use bray_codegen::{
         BackendArtifactId, BackendArtifactKind, BackendArtifactRequest,
@@ -536,7 +538,9 @@ mod tests {
     use bray_package_interface::{
         ImportedSemanticRecord, InterfaceExecutableTemplate, InterfaceLanguageRevision,
         InterfaceProductIdentity, InterfaceProductKind, InterfaceSemanticRecordKind,
-        InterfaceValidationLimits, InterfaceValidationPolicy, PackageImplementationArtifact,
+        InterfaceNativeBinding, InterfaceValidationLimits, InterfaceValidationPolicy,
+        ImplementationExternalSymbolIdentity, PackageImplementationSpecializationKey,
+        CURRENT_TEMPLATE_SCHEMA_REVISION, PackageImplementationArtifact,
         PackageInterfaceIdentity, ValidatedPackageInterface, encode_package_interface,
     };
     use bray_runtime_interface::{
@@ -556,7 +560,7 @@ mod tests {
         CallableDefinitionId, CallableInstanceData, ConstantTermData, ConstantValueData,
         ConstantValueKind, GenericArgument, GenericOwnerId, GenericParameterSymbolId,
         GenericSubstitutionData, ImplementationRequirementKey, ImplementationSelection,
-        NamedTypeSymbolId, NativeLinkKind, NativeLinkRequirement, NativeSymbolBinding,
+        NamedTypeSymbolId, NativeLinkKind, NativeLinkRequirement, NativeSymbolBinding, NativeSymbolContract,
         PackageIdentity, ProductIdentity, ProductKind, StaticStorageDuration, SymbolOrigin,
         TraitApplicationData, TypeData,
     };
@@ -3634,6 +3638,109 @@ mod tests {
                 .iter()
                 .all(|artifact| !artifact.is_empty())
         );
+    }
+
+    #[test]
+    fn exact_native_binding_replaces_imported_mir_and_missing_binding_falls_back() {
+        let fixture = GenericDependencyFixture {
+            source: "module templates;
+public func hot(pos value: i32) -> i32 { return value + 1; }
+",
+            runtime_frames: None,
+            executable_templates: 1,
+            platform_service: None,
+        };
+
+        let selected = native_fixture_reachability(
+            dependency_from_fixture_with_native(true, false, fixture, Some((CodegenOptions::default(), false))),
+        ).expect("exact native dependency must plan");
+
+        let imported = selected.graph().external_instances().iter()
+            .filter(|key| matches!(key.template(), MirUnitKey::ImportedExecutable(_)))
+            .collect::<Vec<_>>();
+
+        let [imported] = imported.as_slice() else {
+            panic!("one imported definition must become an external native demand");
+        };
+
+        assert_eq!(
+            selected.selected_native(imported).expect("native unit must be selected").symbol.as_str(),
+            "bray_test_precompiled",
+        );
+
+        assert!(selected.graph().instances().iter().all(|instance|
+            !matches!(instance.key().template(), MirUnitKey::ImportedExecutable(_))
+        ));
+
+        for dependency in [
+            generic_dependency_from_fixture(true, false, fixture),
+            dependency_from_fixture_with_native(
+                true, false, fixture,
+                Some((CodegenOptions::default().with_optimization(OptimizationLevel::Full), false)),
+            ),
+        ] {
+            let fallback = native_fixture_reachability(dependency)
+                .expect("missing native specialization must use imported MIR");
+
+            assert!(fallback.graph().instances().iter().any(|instance|
+                matches!(instance.key().template(), MirUnitKey::ImportedExecutable(_))
+            ));
+
+            assert_eq!(fallback.selected_native_units().count(), 0);
+        }
+    }
+
+    #[test]
+    fn selected_corrupt_native_payload_reports_dependency_validation_failure() {
+        let fixture = GenericDependencyFixture {
+            source: "module templates;
+public func hot(pos value: i32) -> i32 { return value + 1; }
+",
+            runtime_frames: None,
+            executable_templates: 1,
+            platform_service: None,
+        };
+
+        let dependency = dependency_from_fixture_with_native(
+            true, false, fixture, Some((CodegenOptions::default(), true)),
+        );
+
+        let error = native_fixture_reachability(dependency)
+            .err().expect("corrupt selected unit must fail planning");
+
+        let NativeProductPlanningError::Codegen(CodegenPreparationError::Diagnostics(diagnostics)) = error else {
+            panic!("corrupt native unit must retain structured validation diagnostics: {error:?}");
+        };
+
+        assert!(diagnostics.has_errors());
+
+        assert!(diagnostics.iter().any(|diagnostic|
+            diagnostic.kind() == bray_diagnostics::DiagnosticKind::InterfaceValidationFailed
+        ));
+    }
+
+    fn native_fixture_reachability(
+        dependency: DependencyInterfaceInput,
+    ) -> Result<ConcreteCodegenReachability, NativeProductPlanningError> {
+        let compilation = generic_consumer_for_target_with_source(
+            dependency,
+            SelectedTarget::baseline(),
+            "module application;
+using example.dependency.templates.hot;
+func main() { let value: i32 = example.dependency.templates.hot(1); }
+",
+        );
+
+        assert!(compilation.check_diagnostics().is_empty(), "{:#?}", compilation.check_diagnostics());
+        let cancellation = CancellationToken::new();
+
+        let target = compilation.selected_target().target().codegen_target()
+            .expect("test target must support codegen");
+
+        let semantic = compilation.product_semantics()?;
+        let roots = compilation.product_root_instances(semantic.value(), None, &target, &cancellation)?;
+
+        compilation.codegen_reachability(roots, None, &target, CodegenOptions::default(), &cancellation)
     }
 
     #[test]
@@ -6738,6 +6845,15 @@ public func invoke<T>(pos value: T)
         malformed_templates: bool,
         fixture: GenericDependencyFixture,
     ) -> DependencyInterfaceInput {
+        dependency_from_fixture_with_native(include_implementation, malformed_templates, fixture, None)
+    }
+
+    fn dependency_from_fixture_with_native(
+        include_implementation: bool,
+        malformed_templates: bool,
+        fixture: GenericDependencyFixture,
+        native: Option<(CodegenOptions, bool)>,
+    ) -> DependencyInterfaceInput {
         let package = PackageIdentity::try_new("example.dependency")
             .unwrap_or_else(|| panic!("dependency package identity must be valid"));
 
@@ -6823,18 +6939,85 @@ public func invoke<T>(pos value: T)
             })
             .collect::<Vec<_>>();
 
-        let implementation = PackageImplementationArtifact::try_new(
-            &validated,
-            bundle.surface(),
-            bundle.semantics(),
-            bundle.implementation_configuration().clone(),
-            [],
-            templates,
-            [],
-            [],
-            InterfaceValidationLimits::default(),
-        )
-        .unwrap_or_else(|error| panic!("dependency implementation must encode: {error:?}"));
+        let implementation = if let Some((producer_options, corrupt)) = native {
+            let [template] = bundle.executable_templates() else {
+                panic!("native fixture must publish exactly one executable template");
+            };
+
+            let owner = template.owner();
+
+            let owner_symbol = bundle.surface().symbols().symbol(owner)
+                .expect("native fixture owner must be exported");
+
+            let symbol = NonEmptySharedStr::try_new("bray_test_precompiled")
+                .expect("test native symbol must be valid");
+
+            let bytes: Arc<[u8]> = Arc::from(b"test object bytes".as_slice());
+
+            let digest = NativeContentDigest::new(
+                bray_base::sha256_reader(bytes.as_ref()).expect("in-memory hash cannot fail"),
+            );
+
+            let unit = NativeUnit::new(
+                digest,
+                NativeUnitKind::Object,
+                NativeUnitSummary::Exact {
+                    definitions: Arc::from([NativeDefinition::new(
+                        NativeSymbolContract::required_name(symbol.clone()),
+                        NativeDefinitionSelection::Ordinary,
+                    )]),
+                    references: Arc::from([]),
+                    roots: Arc::from([]),
+                },
+                [],
+                [],
+            );
+
+            let target = NativeTarget::for_identity(bundle.implementation_configuration().target())
+                .expect("test target must have a native artifact kind");
+
+            let index = NativeArtifactIndex::try_new(
+                target, NativeContentDigest::new([1; 32]), [unit], [],
+            ).expect("test native index must validate");
+
+            let index_bytes = index.encode().expect("test native index must encode");
+
+            let binding = InterfaceNativeBinding::new(
+                owner,
+                PackageImplementationSpecializationKey::new(
+                    ImplementationExternalSymbolIdentity::new(owner_symbol.key()),
+                    [],
+                    [],
+                    bundle.implementation_configuration().clone(),
+                    CURRENT_TEMPLATE_SCHEMA_REVISION,
+                    bundle.surface().dependencies().iter().cloned(),
+                ),
+                producer_options,
+                digest.bytes(),
+                symbol,
+            );
+
+            let payload = if corrupt { Arc::from(b"corrupt object".as_slice()) } else { bytes };
+
+            PackageImplementationArtifact::try_from_export_bundle_with_native(
+                &interface, bundle, &index_bytes, &[(digest.bytes(), payload)], &[binding],
+                InterfaceValidationLimits::default(),
+            )
+            .expect("native dependency implementation must encode")
+        } else {
+            PackageImplementationArtifact::try_new(
+                &validated,
+                bundle.surface(),
+                bundle.semantics(),
+                bundle.implementation_configuration().clone(),
+                [],
+                templates,
+                [],
+                [],
+                InterfaceValidationLimits::default(),
+            )
+            .expect("dependency implementation must encode")
+        };
 
         assert_eq!(
             bundle.executable_templates().len(),

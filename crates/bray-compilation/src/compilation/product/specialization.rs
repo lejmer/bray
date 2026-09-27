@@ -53,6 +53,7 @@ pub(super) struct ConcreteCodegenReachability {
     graph: CodegenReachability,
     instances: BTreeMap<CodegenInstanceKey, ConcreteCodegenInstance>,
     demands: Arc<[super::codegen::NativeDemand]>,
+    selected_native: BTreeMap<CodegenInstanceKey, super::codegen::reuse::SelectedNativeUnit>,
 }
 
 pub(super) enum ConcreteCodegenCallee {
@@ -65,11 +66,13 @@ impl ConcreteCodegenReachability {
         graph: CodegenReachability,
         instances: BTreeMap<CodegenInstanceKey, ConcreteCodegenInstance>,
         demands: impl Into<Arc<[super::codegen::NativeDemand]>>,
+        selected_native: BTreeMap<CodegenInstanceKey, super::codegen::reuse::SelectedNativeUnit>,
     ) -> Self {
         Self {
             graph,
             instances,
             demands: demands.into(),
+            selected_native,
         }
     }
 
@@ -79,6 +82,14 @@ impl ConcreteCodegenReachability {
 
     pub(super) fn instance(&self, key: &CodegenInstanceKey) -> Option<&ConcreteCodegenInstance> {
         self.instances.get(key)
+    }
+
+    pub(super) fn selected_native(&self, key: &CodegenInstanceKey) -> Option<&super::codegen::reuse::SelectedNativeUnit> {
+        self.selected_native.get(key)
+    }
+
+    pub(super) fn selected_native_units(&self) -> impl Iterator<Item = &super::codegen::reuse::SelectedNativeUnit> {
+        self.selected_native.values()
     }
 
     pub(super) fn demands(&self) -> &[super::codegen::NativeDemand] {
@@ -106,8 +117,9 @@ impl ConcreteCodegenReachability {
         CodegenReachability,
         BTreeMap<CodegenInstanceKey, ConcreteCodegenInstance>,
         Arc<[super::codegen::NativeDemand]>,
+        BTreeMap<CodegenInstanceKey, super::codegen::reuse::SelectedNativeUnit>,
     ) {
-        (self.graph, self.instances, self.demands)
+        (self.graph, self.instances, self.demands, self.selected_native)
     }
 }
 

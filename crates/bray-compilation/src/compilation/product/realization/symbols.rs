@@ -211,17 +211,23 @@ impl Compilation {
                 )
             })?;
 
-            let boundary =
-                self.codegen_native_boundary(instance, platform_overrides, cancellation)?;
+            let (name, linkage, native_entry) = match reachability.selected_native(instance) {
+                // The mapping owns the published symbol after reachability is released.
+                Some(selected) => (selected.symbol.clone(), CodegenLinkage::Import, None),
+                None => {
+                    let boundary =
+                        self.codegen_native_boundary(instance, platform_overrides, cancellation)?;
 
-            let (name, linkage, native_entry) = self.codegen_callable_symbol_boundary(
-                product,
-                target,
-                realization,
-                boundary,
-                CodegenLinkage::Import,
-                cancellation,
-            )?;
+                    self.codegen_callable_symbol_boundary(
+                        product,
+                        target,
+                        realization,
+                        boundary,
+                        CodegenLinkage::Import,
+                        cancellation,
+                    )?
+                }
+            };
 
             let signature = self.codegen_instance_signature(realization, cancellation)?;
 
