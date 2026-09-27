@@ -293,6 +293,10 @@ impl<'a> LocalIds<'a> {
 }
 
 impl MirLocalIdMapping for LocalIds<'_> {
+    fn ty(&self, old: TypeId) -> TypeId {
+        concrete_type(old, self.concrete_types)
+    }
+
     fn block(&self, old: MirBlockId) -> MirBlockId {
         self.resolve(old.unit(), old.to_index(), &self.blocks)
     }

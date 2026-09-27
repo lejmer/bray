@@ -708,7 +708,7 @@ mod tests {
     }
 
     #[test]
-    fn concrete_generic_scalar_wrapper_inlines() {
+    fn concrete_generic_scalar_wrapper_with_local_store_inlines() {
         let source = r#"
             module app;
 
@@ -716,7 +716,8 @@ mod tests {
 
             func identity<T>(pos value: T) -> T
             {
-                return value;
+                let copy: T = value;
+                return copy;
             }
 
             func main()
@@ -977,14 +978,15 @@ mod tests {
     }
 
     #[test]
-    fn imported_concrete_generic_wrapper_inlines() {
+    fn imported_concrete_generic_wrapper_with_local_store_inlines() {
         let consumer = imported_consumer(
             r#"
                 module templates;
 
                 public func identity<T>(pos value: T) -> T
                 {
-                    return value;
+                    let copy: T = value;
+                    return copy;
                 }
             "#,
             r#"
