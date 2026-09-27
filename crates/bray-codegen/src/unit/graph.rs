@@ -75,6 +75,47 @@ impl CodegenReachabilityBuilder {
         })
     }
 
+    /// Continues a closed graph with new roots without reopening completed definitions.
+    ///
+    /// The new roots must retain the previous roots through their dependencies.
+    pub fn try_extend(
+        existing: &CodegenReachability,
+        roots: impl IntoIterator<Item = CodegenInstanceKey>,
+    ) -> Result<Self, CodegenReachabilityBuildError> {
+        let roots: BTreeSet<_> = roots.into_iter().collect();
+
+        if roots.is_empty() {
+            return Err(CodegenReachabilityBuildError::EmptyRoots);
+        }
+
+        // Arc-backed MIR stays shared while the prior graph and this builder coexist.
+        let instances = existing
+            .instances()
+            .iter()
+            .map(|instance| (instance.key().clone(), instance.clone()))
+            .collect::<BTreeMap<_, _>>();
+
+        let external = existing
+            .external_instances()
+            .iter()
+            .cloned()
+            .collect::<BTreeSet<_>>();
+
+        let pending = roots
+            .iter()
+            .filter(|key| !instances.contains_key(*key) && !external.contains(*key))
+            .cloned()
+            .collect();
+
+        Ok(Self {
+            roots,
+            pending,
+            demanded: BTreeSet::new(),
+            instances,
+            external,
+        })
+    }
+
     /// Claims every newly discovered unresolved instance in canonical order.
     pub fn take_frontier(&mut self) -> Arc<[CodegenInstanceKey]> {
         let frontier: Vec<_> = std::mem::take(&mut self.pending).into_iter().collect();
@@ -167,6 +208,51 @@ mod tests {
 
     use super::{CodegenReachabilityBuildError, CodegenReachabilityBuilder};
     use crate::{CodegenInstance, CodegenInstanceDependency, CodegenInstanceKey};
+
+    #[test]
+    fn extending_a_closed_graph_only_demands_new_definitions() {
+        let source_mir = test_mir_unit(4);
+        let host_mir = test_mir_unit_with_declaration(8, 1);
+        let source_key = CodegenInstanceKey::non_generic(&source_mir);
+        let host_key = CodegenInstanceKey::non_generic(&host_mir);
+
+        let source = CodegenInstance::try_new(source_key.clone(), source_mir, [])
+            .expect("source test instance must validate");
+
+        let host = CodegenInstance::try_new(
+            host_key.clone(),
+            host_mir,
+            [CodegenInstanceDependency::definition(source_key.clone())],
+        )
+        .expect("host test instance must validate");
+
+        let mut source_builder = CodegenReachabilityBuilder::try_new([source_key.clone()])
+            .expect("source root must validate");
+
+        assert_eq!(
+            source_builder.take_frontier().as_ref(),
+            &[source_key.clone()]
+        );
+
+        source_builder
+            .push_instance(source)
+            .expect("source is demanded");
+
+        let source_graph = source_builder.finish().expect("source graph closes");
+
+        let mut host_builder =
+            CodegenReachabilityBuilder::try_extend(&source_graph, [host_key.clone()])
+                .expect("host root must validate");
+
+        assert_eq!(host_builder.take_frontier().as_ref(), &[host_key.clone()]);
+        host_builder.push_instance(host).expect("host is demanded");
+        assert!(host_builder.take_frontier().is_empty());
+
+        let graph = host_builder.finish().expect("host graph closes");
+        assert_eq!(graph.roots(), &[host_key]);
+        assert_eq!(graph.instances().len(), 2);
+        assert!(graph.instance(&source_key).is_some());
+    }
 
     #[test]
     fn recursive_dependencies_close_without_repeated_demand() {

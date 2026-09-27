@@ -4,16 +4,16 @@ use std::sync::Arc;
 
 use bray_base::StableDigestHasher;
 use bray_codegen::{
-    CodegenInstance, CodegenInstanceDependency, CodegenInstanceKey, CodegenReachabilityBuilder,
-    CodegenOptions, CodegenTarget, OptimizationLevel,
+    CodegenInstance, CodegenInstanceDependency, CodegenInstanceKey, CodegenOptions,
+    CodegenReachabilityBuilder, CodegenTarget, OptimizationLevel,
 };
 use bray_ir::{MirUnit, MirUnitId, MirUnitKey};
 
 use super::super::super::{CodegenPreparationError, Compilation};
 use super::super::error::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
 use super::super::specialization::{ConcreteCodegenInstance, ConcreteCodegenReachability};
-use super::{ConcreteCodegenDemand, ConcreteCodegenRoot, NativeDemand};
 use super::error::{NativeProductPlanningError, native_batch_error};
+use super::{ConcreteCodegenDemand, ConcreteCodegenRoot, NativeDemand};
 use crate::fact::{
     BatchWork, CancellationToken, CompilationFactKey, FactQueryError, OptimizedMirQueryKey,
 };
@@ -24,6 +24,116 @@ enum ReachabilityEvaluation {
         instance: CodegenInstance,
         demands: Vec<ConcreteCodegenDemand>,
     },
+}
+
+fn finish_codegen_reachability(
+    mut builder: CodegenReachabilityBuilder,
+    previous: Option<ConcreteCodegenReachability>,
+    roots: &[ConcreteCodegenRoot],
+    completed: Vec<(ConcreteCodegenInstance, ReachabilityEvaluation)>,
+) -> Result<ConcreteCodegenReachability, NativeProductPlanningError> {
+    let (mut realizations, mut demands) = match previous {
+        Some(previous) => {
+            let (_, realizations, previous_demands) = previous.into_parts();
+
+            let demands = previous_demands
+                .iter()
+                .filter(|demand| demand.predecessor().is_some())
+                .cloned()
+                .collect::<BTreeSet<_>>();
+
+            (realizations, demands)
+        }
+        None => (BTreeMap::new(), BTreeSet::new()),
+    };
+
+    let mut evaluations = BTreeMap::new();
+
+    demands.extend(
+        roots
+            .iter()
+            .map(|root| NativeDemand::root(root.key().clone(), root.reason())),
+    );
+
+    for (realization, evaluation) in completed {
+        let key = realization.key().clone();
+
+        match realizations.entry(key.clone()) {
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(realization);
+            }
+            std::collections::btree_map::Entry::Occupied(entry) => {
+                if entry.get() != &realization {
+                    return Err(FactQueryError::from(ProductQueryFailure::Conflict {
+                        context: ProductQueryContext::Instance(key),
+                        data: ProductDataKind::ReachabilityRealization,
+                    })
+                    .into());
+                }
+            }
+        }
+
+        if let ReachabilityEvaluation::Instance {
+            demands: dependencies,
+            ..
+        } = &evaluation
+        {
+            demands.extend(dependencies.iter().map(|dependency| {
+                NativeDemand::dependency(key.clone(), dependency.key().clone(), dependency.reason())
+            }));
+        }
+
+        if evaluations.insert(key.clone(), evaluation).is_some() {
+            return Err(FactQueryError::from(ProductQueryFailure::Conflict {
+                context: ProductQueryContext::Instance(key),
+                data: ProductDataKind::ReachabilityEvaluation,
+            })
+            .into());
+        }
+    }
+
+    loop {
+        let frontier = builder.take_frontier();
+
+        if frontier.is_empty() {
+            break;
+        }
+
+        for key in frontier.iter() {
+            let evaluation = evaluations.remove(key).ok_or_else(|| {
+                FactQueryError::from(ProductQueryFailure::missing(
+                    ProductQueryContext::Instance(key.clone()),
+                    ProductDataKind::ReachabilityEvaluation,
+                ))
+            })?;
+
+            match evaluation {
+                ReachabilityEvaluation::External => builder.push_external(key.clone()),
+                ReachabilityEvaluation::Instance { instance, .. } => {
+                    builder.push_instance(instance)
+                }
+            }
+            .map_err(NativeProductPlanningError::InvalidReachability)?;
+        }
+    }
+
+    if let Some(key) = evaluations.keys().next() {
+        return Err(FactQueryError::from(ProductQueryFailure::Conflict {
+            context: ProductQueryContext::Instance(key.clone()),
+            data: ProductDataKind::ReachabilityEvaluation,
+        })
+        .into());
+    }
+
+    let graph = builder
+        .finish()
+        .map_err(NativeProductPlanningError::InvalidReachability)?;
+
+    Ok(ConcreteCodegenReachability::new(
+        graph,
+        realizations,
+        demands.into_iter().collect::<Vec<_>>(),
+    ))
 }
 
 impl Compilation {
@@ -63,14 +173,22 @@ impl Compilation {
                         self.optimized_mir_for_plan(realization, raw, basic, target, cancellation)
                             .and_then(|base| {
                                 self.inline_concrete_mir(
-                                    realization, &base, options, target, cancellation,
+                                    realization,
+                                    &base,
+                                    options,
+                                    target,
+                                    cancellation,
                                 )
-                                .and_then(|inlined| match inlined {
-                                    Some(inlined) => self.simplify_concrete_mir(
-                                        realization, &inlined, cancellation,
-                                    ),
-                                    None => Ok(base),
-                                })
+                                .and_then(
+                                    |inlined| match inlined {
+                                        Some(inlined) => self.simplify_concrete_mir(
+                                            realization,
+                                            &inlined,
+                                            cancellation,
+                                        ),
+                                        None => Ok(base),
+                                    },
+                                )
                             })
                     }
                 };
@@ -93,6 +211,37 @@ impl Compilation {
         options: CodegenOptions,
         cancellation: &CancellationToken,
     ) -> Result<ConcreteCodegenReachability, NativeProductPlanningError> {
+        self.codegen_reachability_from(roots, generated_host, None, target, options, cancellation)
+    }
+
+    pub(super) fn extend_codegen_reachability(
+        &self,
+        previous: ConcreteCodegenReachability,
+        roots: impl IntoIterator<Item = ConcreteCodegenRoot>,
+        generated_host: (MirUnit, Vec<ConcreteCodegenRoot>),
+        target: &CodegenTarget,
+        options: CodegenOptions,
+        cancellation: &CancellationToken,
+    ) -> Result<ConcreteCodegenReachability, NativeProductPlanningError> {
+        self.codegen_reachability_from(
+            roots,
+            Some(generated_host),
+            Some(previous),
+            target,
+            options,
+            cancellation,
+        )
+    }
+
+    fn codegen_reachability_from(
+        &self,
+        roots: impl IntoIterator<Item = ConcreteCodegenRoot>,
+        generated_host: Option<(MirUnit, Vec<ConcreteCodegenRoot>)>,
+        previous: Option<ConcreteCodegenReachability>,
+        target: &CodegenTarget,
+        options: CodegenOptions,
+        cancellation: &CancellationToken,
+    ) -> Result<ConcreteCodegenReachability, NativeProductPlanningError> {
         let roots: Vec<_> = roots.into_iter().collect();
 
         let root_instances = roots
@@ -111,6 +260,12 @@ impl Compilation {
 
         let generated_host = generated_host
             .map(|(mir, source_roots)| (CodegenInstanceKey::non_generic(&mir), mir, source_roots));
+
+        let builder = match previous.as_ref() {
+            Some(previous) => CodegenReachabilityBuilder::try_extend(previous.graph(), root_keys),
+            None => CodegenReachabilityBuilder::try_new(root_keys),
+        }
+        .map_err(NativeProductPlanningError::InvalidReachability)?;
 
         let completed = self
             .state
@@ -158,8 +313,13 @@ impl Compilation {
                             }?
                         };
 
-                        let mir =
-                            self.optimized_mir_for_plan(&realization, &mir, options, target, cancellation)?;
+                        let mir = self.optimized_mir_for_plan(
+                            &realization,
+                            &mir,
+                            options,
+                            target,
+                            cancellation,
+                        )?;
 
                         let mut concrete_dependencies = self
                             .concrete_codegen_dependencies_for_mir(
@@ -200,6 +360,11 @@ impl Compilation {
 
                         let scheduled = concrete_dependencies
                             .iter()
+                            .filter(|dependency| {
+                                previous.as_ref().is_none_or(|previous| {
+                                    previous.instance(dependency.key()).is_none()
+                                })
+                            })
                             .map(ConcreteCodegenDemand::instance)
                             .cloned()
                             .collect::<BTreeSet<_>>()
@@ -218,100 +383,7 @@ impl Compilation {
             })
             .map_err(native_batch_error)?;
 
-        let mut realizations = BTreeMap::new();
-        let mut evaluations = BTreeMap::new();
-
-        let mut demands = roots
-            .iter()
-            .map(|root| NativeDemand::root(root.key().clone(), root.reason()))
-            .collect::<BTreeSet<_>>();
-
-        for (realization, evaluation) in completed {
-            let key = realization.key().clone();
-
-            match realizations.entry(key.clone()) {
-                std::collections::btree_map::Entry::Vacant(entry) => {
-                    entry.insert(realization);
-                }
-                std::collections::btree_map::Entry::Occupied(entry) => {
-                    if entry.get() != &realization {
-                        return Err(FactQueryError::from(ProductQueryFailure::Conflict {
-                            context: ProductQueryContext::Instance(key),
-                            data: ProductDataKind::ReachabilityRealization,
-                        })
-                        .into());
-                    }
-                }
-            }
-
-            if let ReachabilityEvaluation::Instance {
-                demands: dependencies,
-                ..
-            } = &evaluation
-            {
-                demands.extend(dependencies.iter().map(|dependency| {
-                    NativeDemand::dependency(
-                        key.clone(),
-                        dependency.key().clone(),
-                        dependency.reason(),
-                    )
-                }));
-            }
-
-            if evaluations.insert(key.clone(), evaluation).is_some() {
-                return Err(FactQueryError::from(ProductQueryFailure::Conflict {
-                    context: ProductQueryContext::Instance(key),
-                    data: ProductDataKind::ReachabilityEvaluation,
-                })
-                .into());
-            }
-        }
-
-        let mut builder = CodegenReachabilityBuilder::try_new(root_keys)
-        .map_err(NativeProductPlanningError::InvalidReachability)?;
-
-        loop {
-            let frontier = builder.take_frontier();
-
-            if frontier.is_empty() {
-                break;
-            }
-
-            for key in frontier.iter() {
-                let evaluation = evaluations.remove(key).ok_or_else(|| {
-                    FactQueryError::from(ProductQueryFailure::missing(
-                        ProductQueryContext::Instance(key.clone()),
-                        ProductDataKind::ReachabilityEvaluation,
-                    ))
-                })?;
-
-                match evaluation {
-                    ReachabilityEvaluation::External => builder.push_external(key.clone()),
-                    ReachabilityEvaluation::Instance { instance, .. } => {
-                        builder.push_instance(instance)
-                    }
-                }
-                .map_err(NativeProductPlanningError::InvalidReachability)?;
-            }
-        }
-
-        if let Some(key) = evaluations.keys().next() {
-            return Err(FactQueryError::from(ProductQueryFailure::Conflict {
-                context: ProductQueryContext::Instance(key.clone()),
-                data: ProductDataKind::ReachabilityEvaluation,
-            })
-            .into());
-        }
-
-        let graph = builder
-            .finish()
-            .map_err(NativeProductPlanningError::InvalidReachability)?;
-
-        Ok(ConcreteCodegenReachability::new(
-            graph,
-            realizations,
-            demands.into_iter().collect::<Vec<_>>(),
-        ))
+        finish_codegen_reachability(builder, previous, &roots, completed)
     }
 
     #[cfg(test)]
@@ -329,8 +401,13 @@ impl Compilation {
         let roots =
             self.product_root_instances(semantic.value(), None, &target, &self.state.cancellation)?;
 
-        let reachability =
-            self.codegen_reachability(roots, None, &target, CodegenOptions::default(), &self.state.cancellation)?;
+        let reachability = self.codegen_reachability(
+            roots,
+            None,
+            &target,
+            CodegenOptions::default(),
+            &self.state.cancellation,
+        )?;
 
         Ok(reachability
             .graph()

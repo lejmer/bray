@@ -4,12 +4,14 @@ use bray_profile::{
     CompilationProfileCodegenDependency, CompilationProfileCodegenInstance,
     CompilationProfileCodegenUnit, CompilationProfileNativeCodegen,
     CompilationProfileNativeDemand, CompilationProfileNativeDemandKind,
+    CompilationProfileNativeRuntimeDemand,
 };
 
 pub(super) fn set_native_codegen_plan(
     inventory: &mut CompilationProfileNativeCodegen,
     reachability: &bray_codegen::CodegenReachability,
     demands: &[crate::compilation::NativeDemand],
+    host: Option<&bray_runtime_interface::ExecutableHostContract>,
     units: &[bray_codegen::CodegenUnit],
     mappings: &[bray_codegen::CodegenMappings],
 ) {
@@ -49,12 +51,37 @@ pub(super) fn set_native_codegen_plan(
 
     inventory.demands = demands
         .iter()
-        .map(|demand| CompilationProfileNativeDemand {
-            predecessor: demand.predecessor().map(|key| identities[key]),
-            target: identities[demand.target()],
-            kind: demand_kind(demand.reason()),
+        .filter_map(|demand| {
+            demand.instance_target().map(|target| CompilationProfileNativeDemand {
+                predecessor: demand.predecessor().map(|key| identities[key]),
+                target: identities[target],
+                kind: demand_kind(demand.reason()),
+            })
         })
         .collect();
+
+    inventory.runtime_demands = demands
+        .iter()
+        .filter_map(|demand| {
+            demand.role().map(|role| CompilationProfileNativeRuntimeDemand {
+                predecessor: identities[demand
+                    .predecessor()
+                    .expect("runtime demand must have a retaining instance")],
+                role: role.as_str().to_owned(),
+                provider: bray_runtime_interface::selected_runtime_role_symbol(host, role)
+                    .unwrap_or_else(|| panic!("selected runtime role {role:?} must have a provider"))
+                    .as_str()
+                    .to_owned(),
+            })
+        })
+        .collect();
+
+    inventory.runtime_demands.sort_unstable_by(|left, right| {
+        (&left.predecessor, &left.role, &left.provider)
+            .cmp(&(&right.predecessor, &right.role, &right.provider))
+    });
+
+    inventory.runtime_demands.dedup();
 
     let inclusion_paths = canonical_inclusion_paths(keys.len(), &inventory.demands);
 

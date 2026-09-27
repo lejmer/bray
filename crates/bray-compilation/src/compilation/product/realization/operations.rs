@@ -3,13 +3,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use bray_codegen::{
     CodegenCallSite, CodegenHelperMapping, CodegenInstance, CodegenOperationMapping,
     CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget, CodegenTypeMapping, CodegenUnit,
-    demanded_callable_instance_for_call,
+    demanded_callable_instance_for_call, frame_creation_runtime_role,
 };
 use bray_ir::{
     MirAsyncOperation, MirCallTarget, MirFrameInitializer, MirHelperReference, MirOperationId,
     MirOperationKind, MirUnit, MirUnitId, MirUnitKey,
 };
-use bray_runtime_interface::RuntimeAbiRole;
 use bray_symbols::TypeId;
 
 use super::super::super::CodegenPreparationError;
@@ -297,42 +296,28 @@ impl Compilation {
         };
 
         match initializer {
-            MirFrameInitializer::Callable(call) => match call.target() {
-                MirCallTarget::Direct(_) => {
-                    let demand = demanded_callable_instance_for_call(
-                        CodegenCallSite::Operation(operation_id),
-                        call,
-                    )
-                    .ok_or_else(|| {
-                        CodegenPreparationError::MissingHelperInstance(reference.clone())
-                    })?;
+            MirFrameInitializer::Callable(call)
+                if matches!(call.target(), MirCallTarget::Direct(_)) =>
+            {
+                let demand = demanded_callable_instance_for_call(
+                    CodegenCallSite::Operation(operation_id),
+                    call,
+                )
+                .ok_or_else(|| CodegenPreparationError::MissingHelperInstance(reference.clone()))?;
 
-                    let ConcreteCodegenCallee::Instance(dependency) = self
-                        .concrete_codegen_callee(
-                            owner_realization,
-                            &demand,
-                            target,
-                            cancellation,
-                        )?
-                    else {
-                        return Err(CodegenPreparationError::MissingHelperInstance(
-                            reference.clone(),
-                        ));
-                    };
+                let ConcreteCodegenCallee::Instance(dependency) =
+                    self.concrete_codegen_callee(owner_realization, &demand, target, cancellation)?
+                else {
+                    return Err(CodegenPreparationError::MissingHelperInstance(
+                        reference.clone(),
+                    ));
+                };
 
-                    dependency_symbol(owner, dependency.key(), reference)
-                }
-                MirCallTarget::Indirect { .. } => {
-                    Ok(helper_runtime_symbol(owner, RuntimeAbiRole::FrameCreation))
-                }
-                MirCallTarget::Runtime(_) | MirCallTarget::DefaultValue { .. } => Err(
-                    CodegenPreparationError::MissingHelperInstance(reference.clone()),
-                ),
-            },
-            MirFrameInitializer::TaskObservation { .. } => Ok(helper_runtime_symbol(
-                owner,
-                RuntimeAbiRole::TaskObservationCreation,
-            )),
+                dependency_symbol(owner, dependency.key(), reference)
+            }
+            _ => frame_creation_runtime_role(initializer)
+                .map(|role| helper_runtime_symbol(owner, role))
+                .ok_or_else(|| CodegenPreparationError::MissingHelperInstance(reference.clone())),
         }
     }
 

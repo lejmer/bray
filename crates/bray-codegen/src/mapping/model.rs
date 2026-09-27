@@ -9,5 +9,5 @@ pub use callable_demand::{
 pub use core::CodegenMappings;
 pub use validation::{
     demanded_debug_sources, demanded_runtime_references, demanded_runtime_references_for_mir,
-    mapped_runtime_references,
+    frame_creation_runtime_role, mapped_runtime_references, mapped_symbol_runtime_roles,
 };

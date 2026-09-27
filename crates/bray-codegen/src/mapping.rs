@@ -15,7 +15,8 @@ pub use demand::{ConstantDemands, child_constants, demanded_constant_terms, dema
 pub use model::{
     CodegenMappings, DemandedCallableInstance, demanded_callable_instance_for_call,
     demanded_callable_instances, demanded_callable_instances_for_mir, demanded_debug_sources,
-    demanded_runtime_references, demanded_runtime_references_for_mir, mapped_runtime_references,
+    demanded_runtime_references, demanded_runtime_references_for_mir, frame_creation_runtime_role,
+    mapped_runtime_references, mapped_symbol_runtime_roles,
 };
 pub use native_static::CodegenNativeStaticMapping;
 pub use product_host::{

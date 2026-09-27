@@ -6,7 +6,7 @@ use bray_binder::BindingQueryContext;
 use bray_codegen::{
     CodegenDefinitionVisibility, CodegenInstance, CodegenLinkage, CodegenNativeEntryMapping,
     CodegenOperationMapping, CodegenPartitionCompatibility, CodegenSymbolKey, CodegenSymbolMapping,
-    CodegenTarget, CodegenUnit,
+    CodegenTarget, CodegenUnit, mapped_runtime_references,
 };
 use bray_ir::{MirStorageKind, MirUnitKey, MirUnitKind};
 use bray_runtime_interface::{BinarySymbolName, ExecutableHostContract, ProtectedFrameOperation};
@@ -20,7 +20,7 @@ use super::names::{
     binary_symbol_name, generated_frame_symbol_name, generated_instance_symbol_name,
 };
 use super::support::{
-    codegen_runtime_references, native_boundary_mapping, source_backed_symbol_key, void_signature,
+    native_boundary_mapping, source_backed_symbol_key, void_signature,
 };
 use crate::compilation::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
 use crate::fact::{CancellationToken, FactQueryError};
@@ -240,7 +240,7 @@ impl Compilation {
             symbols.push(symbol);
         }
 
-        for reference in codegen_runtime_references(unit, operations, &symbols) {
+        for reference in mapped_runtime_references(unit, &symbols) {
             let symbol_name = bray_runtime_interface::selected_runtime_role_symbol(
                 executable_host,
                 reference.role(),

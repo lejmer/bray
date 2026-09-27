@@ -14,7 +14,7 @@ use super::super::realization::ProductStaticHostEntry;
 use super::super::specialization::{ConcreteCodegenInstance, ConcreteCodegenReachability};
 use super::error::{NativeProductPlanningError, native_batch_error};
 use super::implementation::{GENERATED_HOST_UNIT, bound_template, runtime_artifact_purpose};
-use super::{ConcreteCodegenRoot, NativeDemandReason};
+use super::{ConcreteCodegenRoot, NativeDemand, NativeDemandReason};
 use crate::fact::{BatchWork, CancellationToken, FactQueryError};
 
 type NativeCodegenPreparation = (
@@ -51,10 +51,20 @@ impl Compilation {
             // Reachability owns its Arc-backed roots while preparation retains them for host MIR.
             let reachability = self.profile_native_product_operation(
                 crate::profile::ProfileOperation::NativeReachability,
-                || self.codegen_reachability(source_roots.clone(), None, target, options, cancellation),
+                || {
+                    self.codegen_reachability(
+                        source_roots.clone(),
+                        None,
+                        target,
+                        options,
+                        cancellation,
+                    )
+                },
             )?;
 
-            Some(reachability)
+            let runtime_demands = self.mapped_product_runtime_demands(&reachability, cancellation)?;
+
+            Some(reachability.with_demands(runtime_demands))
         };
 
         let host_statics = match source_reachability.as_ref() {
@@ -68,14 +78,6 @@ impl Compilation {
             None => Vec::new(),
         };
 
-        let foreign_callback_roles = if kind == ProductKind::Library {
-            BTreeSet::new()
-        } else if let Some(reachability) = source_reachability.as_ref() {
-            self.foreign_callback_runtime_roles(reachability, cancellation)?
-        } else {
-            BTreeSet::new()
-        };
-
         let host = self.profile_native_product_operation(
             crate::profile::ProfileOperation::NativeHostPreparation,
             || {
@@ -83,12 +85,9 @@ impl Compilation {
                     product,
                     kind,
                     entry_roots,
-                    source_reachability
-                        .as_ref()
-                        .map(ConcreteCodegenReachability::graph),
+                    source_reachability.as_ref(),
                     &host_statics,
                     runtime,
-                    foreign_callback_roles,
                     required_capabilities,
                     target,
                     cancellation,
@@ -152,8 +151,19 @@ impl Compilation {
 
                 self.profile_native_product_operation(
                     crate::profile::ProfileOperation::NativeReachability,
-                    || {
-                        self.codegen_reachability(
+                    || match source_reachability {
+                        Some(source) => self.extend_codegen_reachability(
+                            source,
+                            [ConcreteCodegenRoot::new(
+                                host,
+                                NativeDemandReason::HostedRoot,
+                            )],
+                            (host_mir, source_roots),
+                            target,
+                            options,
+                            cancellation,
+                        ),
+                        None => self.codegen_reachability(
                             [ConcreteCodegenRoot::new(
                                 host,
                                 NativeDemandReason::HostedRoot,
@@ -162,11 +172,29 @@ impl Compilation {
                             target,
                             options,
                             cancellation,
-                        )
+                        ),
                     },
                 )?
             }
             None => source_reachability.ok_or(NativeProductPlanningError::MissingProductRoot)?,
+        };
+
+        let reachability = match host.as_ref() {
+            Some(host) => {
+                let host_root = reachability
+                    .graph()
+                    .roots()
+                    .first()
+                    .expect("generated executable host must be the reachability root")
+                    .clone();
+
+                let host_demands = host.requirements().roles().iter().copied().map(|role| {
+                    NativeDemand::runtime_role(host_root.clone(), role)
+                });
+
+                reachability.with_demands(host_demands)
+            }
+            None => reachability,
         };
 
         let roots: BTreeSet<_> = reachability.graph().roots().iter().cloned().collect();
@@ -197,6 +225,7 @@ impl Compilation {
             profile.set_native_codegen_plan(
                 reachability.graph(),
                 reachability.demands(),
+                host.as_ref(),
                 &units,
                 &mappings,
             );
@@ -217,26 +246,6 @@ impl Compilation {
         }
 
         Ok((host, units, mappings, host_statics))
-    }
-
-    fn foreign_callback_runtime_roles(
-        &self,
-        reachability: &ConcreteCodegenReachability,
-        cancellation: &CancellationToken,
-    ) -> Result<BTreeSet<bray_runtime_interface::RuntimeAbiRole>, NativeProductPlanningError> {
-        for instance in reachability.graph().instances() {
-            let Some(boundary) =
-                self.codegen_native_boundary(instance.key(), &BTreeSet::new(), cancellation)?
-            else {
-                continue;
-            };
-
-            if boundary.is_callback() {
-                return Ok(BTreeSet::from(bray_codegen::FOREIGN_CALLBACK_RUNTIME_ROLES));
-            }
-        }
-
-        Ok(BTreeSet::new())
     }
 
     fn partition_native_codegen(
@@ -307,7 +316,11 @@ impl Compilation {
             policy,
             reachability.graph(),
             |instance| compatibility.get(instance.key()).cloned(),
-            |mir| *identities.get(&mir.unit()).expect("partition MIR identity must be prepared"),
+            |mir| {
+                *identities
+                    .get(&mir.unit())
+                    .expect("partition MIR identity must be prepared")
+            },
         )
         .map_err(NativeProductPlanningError::InvalidCodegenPartition)
     }

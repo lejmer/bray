@@ -3,9 +3,8 @@ use std::num::{NonZeroU16, NonZeroU64};
 
 use bray_codegen::{
     CodegenCallableSignature, CodegenIndirectParameterKind, CodegenInstance, CodegenLinkage,
-    CodegenOperationMapping, CodegenParameterMapping, CodegenResultMapping, CodegenSymbolKey,
-    CodegenSymbolMapping, CodegenTarget, CodegenTypeKind, CodegenTypeMapping, CodegenUnit,
-    TargetAddressSpaceKind, mapped_runtime_references,
+    CodegenParameterMapping, CodegenResultMapping, CodegenSymbolKey, CodegenTarget,
+    CodegenTypeKind, CodegenTypeMapping, TargetAddressSpaceKind,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{MirFrameReference, MirHelperReference, MirOperation, MirRuntimeReference, MirUnit};
@@ -534,14 +533,6 @@ pub(super) fn direct_helper_symbol(
     };
 
     Some(symbol)
-}
-
-pub(super) fn codegen_runtime_references(
-    unit: &CodegenUnit,
-    operations: &[CodegenOperationMapping],
-    symbols: &[CodegenSymbolMapping],
-) -> BTreeSet<MirRuntimeReference> {
-    mapped_runtime_references(unit, operations, symbols)
 }
 
 pub(super) fn dependency_symbol(

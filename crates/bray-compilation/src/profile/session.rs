@@ -392,6 +392,7 @@ impl ProfileSession {
         &self,
         reachability: &bray_codegen::CodegenReachability,
         demands: &[crate::compilation::NativeDemand],
+        host: Option<&bray_runtime_interface::ExecutableHostContract>,
         units: &[bray_codegen::CodegenUnit],
         mappings: &[bray_codegen::CodegenMappings],
     ) {
@@ -404,6 +405,7 @@ impl ProfileSession {
             &mut inventory,
             reachability,
             demands,
+            host,
             units,
             mappings,
         );

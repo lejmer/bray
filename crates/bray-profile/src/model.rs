@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Current compiler profile schema revision.
-pub const COMPILATION_PROFILE_SCHEMA_REVISION: u32 = 1;
+pub const COMPILATION_PROFILE_SCHEMA_REVISION: u32 = 2;
 
 /// Profiling detail requested for one compiler invocation.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
@@ -394,6 +394,8 @@ pub struct CompilationProfileNativeCodegen {
     pub instances: Vec<CompilationProfileCodegenInstance>,
     /// Every reason that retained an instance, including root demands and predecessor edges.
     pub demands: Vec<CompilationProfileNativeDemand>,
+    /// Runtime roles retained by concrete instances and their selected provider symbols.
+    pub runtime_demands: Vec<CompilationProfileNativeRuntimeDemand>,
     /// Every typed reachability edge in source and target identity order.
     pub dependencies: Vec<CompilationProfileCodegenDependency>,
     /// Every generated unit in emission order.
@@ -466,6 +468,17 @@ pub struct CompilationProfileNativeDemand {
     pub target: u32,
     /// Why the target is retained.
     pub kind: CompilationProfileNativeDemandKind,
+}
+
+/// One retained runtime role and its selected native provider.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CompilationProfileNativeRuntimeDemand {
+    /// Report-local identity of the instance requiring the role.
+    pub predecessor: u32,
+    /// Private runtime ABI role.
+    pub role: String,
+    /// Selected native symbol implementing the role.
+    pub provider: String,
 }
 
 /// One typed reachability edge between report-local instance identities.

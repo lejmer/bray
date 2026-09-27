@@ -46,7 +46,8 @@ pub use mapping::{
     demanded_callable_instance_for_call, demanded_callable_instances,
     demanded_callable_instances_for_mir, demanded_constant_terms, demanded_constants,
     demanded_debug_sources, demanded_runtime_references, demanded_runtime_references_for_mir,
-    mapped_runtime_references, static_host_section_name,
+    frame_creation_runtime_role, mapped_runtime_references, mapped_symbol_runtime_roles,
+    static_host_section_name,
 };
 pub use optimization::{
     BackendBitcodeOptimizationOutcome, BackendBitcodeOptimizer, BackendBitcodeTargetContract,

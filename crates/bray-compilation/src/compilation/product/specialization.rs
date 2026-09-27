@@ -84,6 +84,31 @@ impl ConcreteCodegenReachability {
     pub(super) fn demands(&self) -> &[super::codegen::NativeDemand] {
         &self.demands
     }
+
+    pub(super) fn with_demands(
+        mut self,
+        added: impl IntoIterator<Item = super::codegen::NativeDemand>,
+    ) -> Self {
+        // Existing Arc-backed demands remain shared while the planning phase extends them.
+        let mut demands = self.demands.iter().cloned().chain(added).collect::<Vec<_>>();
+
+        demands.sort_unstable();
+        demands.dedup();
+
+        self.demands = demands.into();
+
+        self
+    }
+
+    pub(super) fn into_parts(
+        self,
+    ) -> (
+        CodegenReachability,
+        BTreeMap<CodegenInstanceKey, ConcreteCodegenInstance>,
+        Arc<[super::codegen::NativeDemand]>,
+    ) {
+        (self.graph, self.instances, self.demands)
+    }
 }
 
 impl ConcreteCodegenInstance {

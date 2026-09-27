@@ -1682,6 +1682,19 @@ mod tests {
                 .iter()
                 .any(|demand| demand.kind == Kind::StaticLifecycle)
         );
+
+        let host_root = hosted
+            .demands
+            .iter()
+            .find(|demand| demand.kind == Kind::HostedRoot)
+            .expect("hosted product must retain a generated root")
+            .target;
+
+        assert!(hosted.runtime_demands.iter().any(|demand| {
+            demand.predecessor == host_root
+                && demand.role == RuntimeAbiRole::ProductHostControl.as_str()
+                && !demand.provider.is_empty()
+        }));
     }
 
     #[test]
@@ -4224,7 +4237,7 @@ public func invoke<T>(pos value: T)
             reachability
                 .demands()
                 .iter()
-                .filter(|demand| demand.predecessor().is_none() && demand.target() == &root_key)
+                .filter(|demand| demand.predecessor().is_none() && demand.instance_target() == Some(&root_key))
                 .map(crate::compilation::NativeDemand::reason)
                 .collect::<Vec<_>>(),
             [
