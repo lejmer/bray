@@ -57,7 +57,7 @@ typedef struct SourceAnchor
     uint32_t start;
     uint32_t end;
     uint64_t version;
-    uint8_t package[32];
+    uint8_t namespace[32];
 } SourceAnchor;
 
 typedef struct PanicReport PanicReport;
@@ -179,10 +179,10 @@ extern PanicReport bray_runtime_panic_report_construction(
     uint32_t source_start,
     uint32_t source_end,
     uint64_t source_version,
-    uint64_t source_package_0,
-    uint64_t source_package_1,
-    uint64_t source_package_2,
-    uint64_t source_package_3,
+    uint64_t source_namespace_word_0,
+    uint64_t source_namespace_word_1,
+    uint64_t source_namespace_word_2,
+    uint64_t source_namespace_word_3,
     const uint8_t* message,
     uintptr_t message_length
 );

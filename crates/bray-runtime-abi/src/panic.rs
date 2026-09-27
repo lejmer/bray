@@ -43,13 +43,13 @@ pub struct NativeSourceAnchor {
     start: u32,
     end: u32,
     version: u64,
-    package: [u8; 32],
+    namespace: [u8; 32],
 }
 
 impl NativeSourceAnchor {
     /// Creates one source anchor from its stable scalar ABI fields.
     pub const fn new(
-        package: [u8; 32],
+        namespace: [u8; 32],
         source: u32,
         start: u32,
         end: u32,
@@ -61,7 +61,7 @@ impl NativeSourceAnchor {
             start,
             end,
             version,
-            package,
+            namespace,
         }
     }
 
@@ -73,7 +73,7 @@ impl NativeSourceAnchor {
             start: 0,
             end: 0,
             version: 0,
-            package: [0; 32],
+            namespace: [0; 32],
         }
     }
 
@@ -103,8 +103,8 @@ impl NativeSourceAnchor {
     }
 
     /// Returns the product namespace that qualifies the source ID.
-    pub const fn package(self) -> [u8; 32] {
-        self.package
+    pub const fn namespace(self) -> [u8; 32] {
+        self.namespace
     }
 
     /// Returns whether the half-open source range is ordered.
@@ -113,8 +113,8 @@ impl NativeSourceAnchor {
             0 => {
                 let mut index = 0;
 
-                while index < self.package.len() {
-                    if self.package[index] != 0 {
+                while index < self.namespace.len() {
+                    if self.namespace[index] != 0 {
                         return false;
                     }
 
@@ -401,7 +401,7 @@ mod tests {
             start: 8,
             end: 12,
             version: 16,
-            package: 24,
+            namespace: 24,
         });
     }
 

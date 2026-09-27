@@ -576,7 +576,7 @@ fn audit_outcomes(
         BuildError::conformance("native outcomes", format!("could not decode test catalog: {error:?}"))
     })?;
 
-    let direct_source_package = catalog
+    let direct_source_namespace = catalog
         .entries()
         .iter()
         .find(|entry| entry.identity().declaration().name().as_str() == "explicit_failure")
@@ -592,7 +592,7 @@ fn audit_outcomes(
         .and_then(|package| package.products().iter().find(|product| product.identity().name() == OUTCOME_PRODUCT))
         .expect("standard library outcomes product must exist");
 
-    if direct_source_package != outcome_product.identity().source_namespace() {
+    if direct_source_namespace != outcome_product.identity().source_namespace() {
         return Err(BuildError::conformance(
             "native outcomes",
             "the direct test catalog source namespace does not match its product",

@@ -390,7 +390,7 @@ fn completed_stream(
 fn test_source(source: NativeSourceAnchor) -> Option<TestSourceAnchor> {
     source.is_available().then(|| {
         TestSourceAnchor::new(
-            source.package(),
+            source.namespace(),
             SourceSpan::new(
                 SourceId::new(source.source()),
                 TextRange::new(TextSize::new(source.start()), TextSize::new(source.end())),

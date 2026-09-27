@@ -437,12 +437,12 @@ pub(crate) fn source_anchor_value(
     context: &Context,
     source: bray_runtime_abi::NativeSourceAnchor,
 ) -> StructValue<'_> {
-    let package = source.package();
+    let namespace = source.namespace();
 
     let [word0, word1, word2, word3] = [0, 8, 16, 24].map(|offset| {
-        let bytes = package[offset..offset + 8]
+        let bytes = namespace[offset..offset + 8]
             .try_into()
-            .expect("package digest has four words");
+            .expect("source namespace has four words");
 
         context
             .i64_type()
