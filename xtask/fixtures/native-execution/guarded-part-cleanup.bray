@@ -144,8 +144,7 @@ func boxed(pos pair: box[PairStorage] Pair)
     let box(Pair
     {
         left,..
-    }
-    ) = pair;
+    }) = pair;
 
     take(left);
 }
@@ -157,8 +156,7 @@ func boxed_panic(pos pair: box[PairStorage] Pair)
     let box(Pair
     {
         left,..
-    }
-    ) = pair;
+    }) = pair;
 
     take(left);
     panic("partial owned cleanup");
@@ -171,8 +169,7 @@ func observe_box(pos pair: box[PairStorage] Pair) -> i32
         case box(Pair
         {
             left,..
-        }
-        )
+        })
         {
             return left.counter.value;
         }
@@ -195,8 +192,7 @@ func observe_borrowed_box(pos pair: &box[PairStorage] Pair) -> i32
         case box(Pair
         {
             left,..
-        }
-        )
+        })
         {
             return left.counter.value;
         }
