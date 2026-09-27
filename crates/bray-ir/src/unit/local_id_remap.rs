@@ -1,8 +1,10 @@
 use std::sync::Arc;
 
+use bray_symbols::TypeId;
+
 use crate::{
     MirAsyncOperation, MirBlockId, MirCleanupEdge, MirEdge, MirFrameInitializer,
-    MirGeneratorOperation, MirHostOperation, MirOperationKind, MirPanicCause, MirStorageId,
+    MirGeneratorOperation, MirHostOperation, MirOperand, MirOperationKind, MirPanicCause, MirStorageId,
     MirTaskTerminalState, MirTerminatorKind, MirValueId,
 };
 
@@ -10,6 +12,22 @@ pub(crate) trait MirLocalIdMapping {
     fn block(&self, old: MirBlockId) -> MirBlockId;
     fn storage(&self, old: MirStorageId) -> MirStorageId;
     fn value(&self, old: MirValueId) -> MirValueId;
+
+    fn ty(&self, old: TypeId) -> TypeId {
+        old
+    }
+
+    fn remap_operand(&self, operand: &mut MirOperand) where Self: Sized {
+        remap_operand_ids(operand, self);
+    }
+}
+
+pub(crate) fn remap_operand_ids(operand: &mut MirOperand, mappings: &impl MirLocalIdMapping) {
+    match operand {
+        MirOperand::Value(value) => *value = mappings.value(*value),
+        MirOperand::Copy(place) | MirOperand::Move(place) => place.remap_local_ids(mappings),
+        MirOperand::Constant { .. } | MirOperand::ConstantTerm { .. } | MirOperand::Immediate { .. } => {}
+    }
 }
 
 pub(super) fn remap_operation(

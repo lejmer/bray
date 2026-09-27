@@ -155,8 +155,12 @@ impl MirPlace {
         mappings: &impl crate::unit::local_id_remap::MirLocalIdMapping,
     ) {
         self.storage = mappings.storage(self.storage);
+        self.ty = mappings.ty(self.ty);
 
         for projection in Arc::make_mut(&mut self.projections) {
+            projection.source_type = mappings.ty(projection.source_type);
+            projection.result_type = mappings.ty(projection.result_type);
+
             match &mut projection.kind {
                 MirProjectionKind::Index(operand) => operand.remap_local_ids(mappings),
                 MirProjectionKind::Slice { start, end } => {

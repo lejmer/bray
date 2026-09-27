@@ -88,11 +88,7 @@ impl MirOperand {
         &mut self,
         mappings: &impl crate::unit::local_id_remap::MirLocalIdMapping,
     ) {
-        match self {
-            Self::Value(value) => *value = mappings.value(*value),
-            Self::Copy(place) | Self::Move(place) => place.remap_local_ids(mappings),
-            Self::Constant { .. } | Self::ConstantTerm { .. } | Self::Immediate { .. } => {}
-        }
+        mappings.remap_operand(self);
     }
 
     /// Returns the operand's known type when it is carried directly by the operand.

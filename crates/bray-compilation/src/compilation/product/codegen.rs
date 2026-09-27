@@ -3,6 +3,7 @@ mod demand;
 mod error;
 mod host;
 mod implementation;
+mod inlining;
 mod link;
 mod plan;
 mod preparation;

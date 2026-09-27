@@ -26,6 +26,7 @@ pub struct MirUnitBuilder {
     key: MirUnitKey,
     unit: MirUnitId,
     source: MirSourceOrigin,
+    allow_foreign_sources: bool,
     target: MirTargetContract,
     kind: MirUnitKind,
     frame_descriptor: Option<MirFrameDescriptor>,
@@ -37,11 +38,13 @@ pub struct MirUnitBuilder {
 
 impl MirUnitBuilder {
     pub(super) fn for_reconstruction(unit: &MirUnit) -> Self {
-        // The reconstructed unit must own the same immutable semantic identity and target contract.
+        // Reconstructed bodies may carry source anchors from checked inlined callees.
+        // The reconstructed unit keeps its caller's semantic identity and target contract.
         Self {
             key: unit.key.clone(),
             unit: unit.unit,
             source: unit.source.clone(),
+            allow_foreign_sources: true,
             target: unit.target.clone(),
             kind: unit.kind.clone(),
             frame_descriptor: None,
@@ -67,6 +70,7 @@ impl MirUnitBuilder {
             key: MirUnitKey::CompilerProvidedCallable(definition),
             unit,
             source: MirSourceOrigin::CompilerProvidedCallable(definition),
+            allow_foreign_sources: false,
             target,
             kind: MirUnitKind::Synchronous,
             frame_descriptor: None,
@@ -88,6 +92,7 @@ impl MirUnitBuilder {
             key: MirUnitKey::ImportedExecutable(key),
             unit,
             source: MirSourceOrigin::ImportedExecutable(key),
+            allow_foreign_sources: false,
             target,
             kind,
             frame_descriptor: None,
@@ -113,6 +118,7 @@ impl MirUnitBuilder {
             key: MirUnitKey::Bound(key),
             unit: MirUnitId::new(identity.unit().raw()),
             source: MirSourceOrigin::Source(source),
+            allow_foreign_sources: false,
             target,
             kind,
             frame_descriptor: None,
@@ -136,6 +142,7 @@ impl MirUnitBuilder {
             key: MirUnitKey::ExecutableHost(product.clone()),
             unit,
             source: MirSourceOrigin::ExecutableHost(product),
+            allow_foreign_sources: false,
             target,
             kind: MirUnitKind::ExecutableHost(host),
             frame_descriptor: None,
@@ -157,6 +164,7 @@ impl MirUnitBuilder {
             key,
             unit,
             source: MirSourceOrigin::GeneratedLifecycle(reference.clone()),
+            allow_foreign_sources: false,
             target,
             kind: MirUnitKind::GeneratedLifecycle(reference),
             frame_descriptor: None,
@@ -447,7 +455,7 @@ impl MirUnitBuilder {
 
     fn assert_source(&self, source: &MirSourceAnchor) {
         assert!(
-            source.belongs_to(&self.source),
+            self.allow_foreign_sources || source.belongs_to(&self.source),
             "MIR source anchor belongs to another unit"
         );
     }

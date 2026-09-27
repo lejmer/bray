@@ -173,7 +173,7 @@ impl Compilation {
         Ok(ty)
     }
 
-    pub(super) fn substitute_codegen_type(
+    pub(in crate::compilation::product) fn substitute_codegen_type(
         &self,
         ty: TypeId,
         substitution: Option<GenericSubstitutionId>,
