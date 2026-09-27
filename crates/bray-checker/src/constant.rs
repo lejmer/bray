@@ -9,6 +9,7 @@ mod input;
 mod integer;
 mod limits;
 mod literal;
+mod machine;
 mod materialization;
 mod operation;
 pub(crate) mod operator;
@@ -28,6 +29,7 @@ pub use input::{ConstantEvaluationInput, ConstantReferenceResolution};
 pub(crate) use integer::{fits_integer_representation, integer_to_usize, significant_bits};
 pub use limits::{ConstantEvaluationLimits, ConstantEvaluationUsage};
 pub use literal::{ConstantLiteralError, check_constant_literal, normalize_integer_literal};
+pub use machine::{fold_machine_integer_binary, fold_machine_integer_truncate, fold_machine_integer_unary};
 pub(crate) use literal::{
     check_byte_string_literal, check_negated_integer_operand_literal, literal_diagnostic_kind,
     parse_byte_string,

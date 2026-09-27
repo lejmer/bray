@@ -16,6 +16,7 @@ pub struct MirReconstructionMappings {
     operations: Vec<Option<MirOperationId>>,
     storages: Vec<Option<MirStorageId>>,
     values: Vec<Option<MirValueId>>,
+    aliases: BTreeMap<MirValueId, MirValueId>,
 }
 
 impl MirReconstructionMappings {
@@ -65,7 +66,13 @@ impl MirLocalIdMapping for MirReconstructionMappings {
     }
 
     fn value(&self, old: MirValueId) -> MirValueId {
-        MirReconstructionMappings::value(self, old)
+        let mut source = old;
+
+        while let Some(next) = self.aliases.get(&source) {
+            source = *next;
+        }
+
+        MirReconstructionMappings::value(self, source)
             .expect("surviving MIR must not reference a removed value")
     }
 }
@@ -77,17 +84,19 @@ impl MirLocalIdMapping for MirReconstructionMappings {
 pub fn reconstruct_reachable(
     unit: &MirUnit,
 ) -> Result<(MirUnit, MirReconstructionMappings), MirCapacityError> {
-    reconstruct_with_edits(unit, &BTreeMap::new(), &BTreeSet::new())
+    reconstruct_with_edits(unit, &BTreeMap::new(), &BTreeSet::new(), &BTreeMap::new())
 }
 
 /// Rebuilds a unit after replacing terminators and omitting proven dead operations.
 ///
 /// Callers must preserve effects and ensure no surviving operand refers to an omitted result.
 /// Replacement terminators must refer to existing blocks and satisfy their checked contracts.
+/// Value aliases must point to earlier dominating definitions that remain semantically equal.
 pub fn reconstruct_with_edits(
     unit: &MirUnit,
     terminators: &BTreeMap<MirBlockId, MirTerminatorKind>,
     omitted_operations: &BTreeSet<MirOperationId>,
+    value_aliases: &BTreeMap<MirValueId, MirValueId>,
 ) -> Result<(MirUnit, MirReconstructionMappings), MirCapacityError> {
     assert!(unit.is_valid(), "MIR reconstruction requires a valid unit");
 
@@ -106,13 +115,15 @@ pub fn reconstruct_with_edits(
         terminators,
     );
 
-    let mappings = build_mappings(
+    let mut mappings = build_mappings(
         unit,
         &retained_blocks,
         &retained_operations,
         &retained_storages,
         &retained_values,
     );
+
+    mappings.aliases = value_aliases.clone();
 
     let reconstructed = rebuild_unit(unit, &mappings, &operation_owners, terminators)?;
 
@@ -277,6 +288,7 @@ fn build_mappings(
             MirStorageId::from_slot(unit.unit(), slot)
         }),
         values: compact_mapping(values, |slot| MirValueId::from_slot(unit.unit(), slot)),
+        aliases: BTreeMap::new(),
     }
 }
 
@@ -551,7 +563,7 @@ mod tests {
         MirFrameDescriptor, MirFrameState, MirFrameStateId, MirImmediateValue,
         MirInlineAssemblyTerminator, MirOperand, MirOperationKind, MirPlace, MirRuntimeReference,
         MirStorageKind, MirStoreKind, MirSuspensionKind, MirTerminatorKind, MirUnit,
-        MirUnitBuilder, MirUnitKind,
+        MirUnaryOperator, MirUnitBuilder, MirUnitKind,
     };
 
     #[test]
@@ -634,7 +646,7 @@ mod tests {
             MirTerminatorKind::Goto(MirEdge::new(*exit, [MirOperand::Value(header_value)])),
         )]);
 
-        let (rewritten, mappings) = reconstruct_with_edits(&unit, &terminators, &BTreeSet::new())
+        let (rewritten, mappings) = reconstruct_with_edits(&unit, &terminators, &BTreeSet::new(), &BTreeMap::new())
             .expect("edited MIR must reconstruct");
 
         assert!(rewritten.is_valid());
@@ -655,6 +667,7 @@ mod tests {
             &unit,
             &BTreeMap::new(),
             &BTreeSet::from([operation]),
+            &BTreeMap::new(),
         )
         .expect("MIR without the operation must reconstruct");
 
@@ -663,6 +676,59 @@ mod tests {
         assert!(rewritten.storages().is_empty());
         assert_eq!(mappings.operation(operation), None);
         assert_eq!(mappings.storage(storage), None);
+    }
+
+    #[test]
+    fn omitted_duplicate_result_remaps_its_uses_to_the_dominating_value() {
+        let bound = test_bound_unit(79);
+        let source = crate::MirSourceAnchor::from(bound.key().source());
+        let ty = crate::test_support::test_type();
+
+        let mut builder = MirUnitBuilder::for_bound(
+            bound.identity(), MirUnitKind::Synchronous, crate::test_support::test_target(),
+        );
+
+        let entry = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
+
+        let operation = MirOperationKind::Unary {
+            operator: MirUnaryOperator::Not,
+            operand: MirOperand::Immediate { value: MirImmediateValue::Boolean(false), ty },
+        };
+
+        let first = builder.push_operation(entry, source.clone(), operation.clone(), Some(ty))
+            .expect("first result must fit");
+
+        let second = builder.push_operation(entry, source.clone(), operation, Some(ty))
+            .expect("second result must fit");
+
+        builder.set_terminator(
+            entry, source, MirTerminatorKind::Return(Some(MirOperand::Value(
+                second.result().expect("duplicate has a result"),
+            ))),
+        );
+
+        let unit = builder.finish(entry);
+
+        let aliases = BTreeMap::from([(
+            second.result().expect("duplicate has a result"),
+            first.result().expect("first has a result"),
+        )]);
+
+        let (rewritten, mappings) = reconstruct_with_edits(
+            &unit, &BTreeMap::new(), &BTreeSet::from([second.operation()]), &aliases,
+        ).expect("value alias must reconstruct");
+
+        assert!(rewritten.is_valid());
+        assert_eq!(rewritten.operations().len(), 1);
+        assert_eq!(mappings.operation(second.operation()), None);
+
+        let MirTerminatorKind::Return(Some(MirOperand::Value(returned))) =
+            rewritten.block(rewritten.entry()).expect("entry exists").terminator().kind()
+        else {
+            panic!("rebuilt return must use a value");
+        };
+
+        assert_eq!(Some(*returned), mappings.value(first.result().expect("first has a result")));
     }
 
     #[test]

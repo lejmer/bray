@@ -525,7 +525,7 @@ mod tests {
     };
     use bray_compiler_known::RepresentationRole;
     use bray_ir::{
-        MirCallTarget, MirHelperReference, MirHostOperation, MirOperand, MirOperationKind,
+        MirBinaryOperator, MirCallTarget, MirHelperReference, MirHostOperation, MirOperand, MirOperationKind,
         MirProjectionKind, MirTerminatorKind, MirUnitKey, MirUnitKind,
     };
     use bray_linker::{
@@ -2710,6 +2710,169 @@ mod tests {
     }
 
     #[test]
+    fn numeric_constant_branch_removes_its_native_dependency() {
+        let (_, compilation) = codegen_compilation(concat!(
+            "module app;\n",
+            "func unused() {}\n",
+            "func main()\n",
+            "{\n",
+            "    let seed: i32 = 6;\n",
+            "    let value: i32 = seed * 7;\n",
+            "    if value != 42\n",
+            "    {\n",
+            "        unused();\n",
+            "    }\n",
+            "}\n",
+        ));
+
+        assert!(compilation.check_diagnostics().is_empty());
+
+        let cancellation = CancellationToken::new();
+        let target = compilation.selected_target().target().codegen_target().unwrap();
+        let semantic = compilation.product_semantics().unwrap();
+
+        let roots = compilation
+            .product_root_instances(semantic.value(), None, &target, &cancellation)
+            .unwrap();
+
+        let none = compilation
+            .codegen_reachability(roots.clone(), None, &target, CodegenOptions::default(), &cancellation)
+            .unwrap();
+
+        let basic = compilation
+            .codegen_reachability(
+                roots.clone(), None, &target,
+                crate::BuildConfiguration::Development.codegen_options(), &cancellation,
+            )
+            .unwrap();
+
+        let full = compilation
+            .codegen_reachability(
+                roots, None, &target,
+                crate::BuildConfiguration::Release.codegen_options(), &cancellation,
+            )
+            .unwrap();
+
+        assert_eq!(none.graph().instances().len(), 2);
+        assert_eq!(basic.graph().instances().len(), 1);
+        assert_eq!(full.graph().instances().len(), 1);
+        assert_eq!(basic.graph().instances()[0].mir(), full.graph().instances()[0].mir());
+        assert!(basic.graph().instances()[0].mir().is_valid());
+    }
+
+    #[test]
+    fn repeated_scalar_expression_uses_one_dominating_result() {
+        let (_, compilation) = codegen_compilation(concat!(
+            "module app;\n",
+            "func main() -> i32\n",
+            "{\n",
+            "    return (6 * 7) + (6 * 7);\n",
+            "}\n",
+        ));
+
+        assert!(compilation.check_diagnostics().is_empty());
+
+        let cancellation = CancellationToken::new();
+        let target = compilation.selected_target().target().codegen_target().unwrap();
+        let semantic = compilation.product_semantics().unwrap();
+
+        let roots = compilation
+            .product_root_instances(semantic.value(), None, &target, &cancellation)
+            .unwrap();
+
+        let none = compilation
+            .codegen_reachability(roots.clone(), None, &target, CodegenOptions::default(), &cancellation)
+            .unwrap();
+
+        let basic = compilation
+            .codegen_reachability(
+                roots, None, &target,
+                crate::BuildConfiguration::Development.codegen_options(), &cancellation,
+            )
+            .unwrap();
+
+        let multiply_count = |graph: &bray_codegen::CodegenReachability| {
+            graph.instances().iter().flat_map(|instance| instance.mir().operations()).filter(|operation| {
+                matches!(operation.kind(), MirOperationKind::Binary {
+                    operator: MirBinaryOperator::Multiply, ..
+                })
+            }).count()
+        };
+
+        assert_eq!(multiply_count(none.graph()), 2);
+        assert_eq!(multiply_count(basic.graph()), 1);
+        assert!(basic.graph().instances().iter().all(|instance| instance.mir().is_valid()));
+    }
+
+    #[test]
+    fn repeated_scalar_expressions_in_one_large_block_share_one_result() {
+        let mut source = String::from("module app;\nfunc main() -> i32 {\n");
+
+        for index in 0..256 {
+            source.push_str(&format!("let value{index}: i32 = 6 * 7;\n"));
+        }
+
+        source.push_str("return value255;\n}\n");
+
+        let (_, compilation) = codegen_compilation(&source);
+
+        assert!(compilation.check_diagnostics().is_empty());
+
+        let cancellation = CancellationToken::new();
+        let target = compilation.selected_target().target().codegen_target().unwrap();
+        let semantic = compilation.product_semantics().unwrap();
+        let roots = compilation.product_root_instances(semantic.value(), None, &target, &cancellation).unwrap();
+
+        let start = std::time::Instant::now();
+
+        let basic = compilation.codegen_reachability(
+            roots, None, &target,
+            crate::BuildConfiguration::Development.codegen_options(), &cancellation,
+        ).unwrap();
+
+        eprintln!("256 repeated scalar expressions: {:?}", start.elapsed());
+
+        let multiply_count = basic.graph().instances().iter().flat_map(|instance| instance.mir().operations())
+            .filter(|operation| matches!(operation.kind(), MirOperationKind::Binary {
+                operator: MirBinaryOperator::Multiply, ..
+            })).count();
+
+        assert_eq!(multiply_count, 1);
+        assert!(basic.graph().instances().iter().all(|instance| instance.mir().is_valid()));
+    }
+
+    #[test]
+    fn runtime_division_by_zero_remains_in_optimized_mir() {
+        let (_, compilation) = codegen_compilation(concat!(
+            "module app;\n",
+            "func main() -> i32\n",
+            "{\n",
+            "    let numerator: i32 = 6;\n",
+            "    let denominator: i32 = 0;\n",
+            "    return numerator / denominator;\n",
+            "}\n",
+        ));
+
+        assert!(compilation.check_diagnostics().is_empty());
+
+        let cancellation = CancellationToken::new();
+        let target = compilation.selected_target().target().codegen_target().unwrap();
+        let semantic = compilation.product_semantics().unwrap();
+        let roots = compilation.product_root_instances(semantic.value(), None, &target, &cancellation).unwrap();
+
+        for options in [CodegenOptions::default(), crate::BuildConfiguration::Development.codegen_options()] {
+            let reachability = compilation.codegen_reachability(
+                roots.clone(), None, &target, options, &cancellation,
+            ).unwrap();
+
+            assert!(reachability.graph().instances().iter().flat_map(|instance| instance.mir().operations())
+                .any(|operation| matches!(operation.kind(), MirOperationKind::Binary {
+                    operator: MirBinaryOperator::Divide, ..
+                })));
+        }
+    }
+
+    #[test]
     fn unknown_join_and_loop_values_keep_reachable_calls() {
         let (_, compilation) = codegen_compilation(concat!(
             "module app;\n",
@@ -2734,6 +2897,7 @@ mod tests {
         ));
 
         assert!(compilation.check_diagnostics().is_empty());
+
         let cancellation = CancellationToken::new();
         let target = compilation.selected_target().target().codegen_target().unwrap();
         let semantic = compilation.product_semantics().unwrap();
@@ -2793,6 +2957,7 @@ mod tests {
         assert_eq!(none.graph().instances().len(), 4);
         assert_eq!(basic.graph().instances().len(), 4);
         assert!(basic.graph().instances().iter().all(|instance| instance.mir().is_valid()));
+
         realize_codegen_mappings(&compilation, &target, &none, &cancellation);
 
         assert_boolean_specialization_dependencies(&compilation, &basic);
@@ -2854,9 +3019,76 @@ mod tests {
         assert_eq!(none.graph().instances().len(), 4);
         assert_eq!(basic.graph().instances().len(), 4);
         assert!(basic.graph().instances().iter().all(|instance| instance.mir().is_valid()));
+
         realize_codegen_mappings(&compilation, &target, &none, &cancellation);
 
         assert_boolean_specialization_dependencies(&compilation, &basic);
+    }
+
+    #[test]
+    fn imported_numeric_generic_constant_prunes_only_its_false_branch() {
+        let dependency = generic_dependency_from_fixture(
+            true,
+            false,
+            GenericDependencyFixture {
+                source: concat!(
+                    "module templates;\n",
+                    "func called() {}\n",
+                    "public func gate<const seed: i32>()\n",
+                    "{\n",
+                    "    if seed * 7 != 42\n",
+                    "    {\n",
+                    "        called();\n",
+                    "    }\n",
+                    "}\n",
+                ),
+                runtime_frames: None,
+                executable_templates: 2,
+                platform_service: None,
+            },
+        );
+
+        let compilation = generic_consumer_for_target_with_source(
+            dependency,
+            SelectedTarget::baseline(),
+            "module app; using example.dependency.templates.gate; func main() { example.dependency.templates.gate<6>(); example.dependency.templates.gate<7>(); }",
+        );
+
+        assert!(compilation.check_diagnostics().is_empty());
+
+        let cancellation = CancellationToken::new();
+        let target = compilation.selected_target().target().codegen_target().unwrap();
+        let semantic = compilation.product_semantics().unwrap();
+
+        let roots = compilation
+            .product_root_instances(semantic.value(), None, &target, &cancellation)
+            .unwrap();
+
+        let none = compilation
+            .codegen_reachability(roots.clone(), None, &target, CodegenOptions::default(), &cancellation)
+            .unwrap();
+
+        let basic = compilation
+            .codegen_reachability(
+                roots, None, &target,
+                crate::BuildConfiguration::Development.codegen_options(), &cancellation,
+            )
+            .unwrap();
+
+        assert_eq!(none.graph().instances().len(), 4);
+        assert_eq!(basic.graph().instances().len(), 4);
+
+        let generic = basic.graph().instances().iter()
+            .filter(|instance| matches!(instance.key().specialization(), CodegenSpecialization::Generic(_)))
+            .collect::<Vec<_>>();
+
+        assert_eq!(generic.len(), 2);
+        assert_ne!(generic[0].mir(), generic[1].mir());
+
+        assert_eq!(
+            generic.iter().map(|instance| instance.dependencies().len()).collect::<BTreeSet<_>>(),
+            BTreeSet::from([0, 1]),
+        );
     }
 
     #[test]
