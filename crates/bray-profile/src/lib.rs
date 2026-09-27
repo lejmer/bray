@@ -18,7 +18,7 @@ pub use model::{
     CompilationProfileConfiguration, CompilationProfileContext,
     CompilationProfileCodegenDependency, CompilationProfileCodegenInstance,
     CompilationProfileCodegenUnit, CompilationProfileNativeDemand,
-    CompilationProfileNativeDemandKind,
+    CompilationProfileNativeDemandKind, CompilationProfileNativeRuntimeDemand,
     CompilationProfileCountDistribution, CompilationProfileDescriptorCatalog,
     CompilationProfileDurationDistribution, CompilationProfileEvent, CompilationProfileMetric,
     CompilationProfileMetricDescriptor, CompilationProfileMode,

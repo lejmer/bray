@@ -1,5 +1,6 @@
 use bray_codegen::{CodegenCallSite, CodegenInstanceDependencyKind, CodegenInstanceKey};
 use bray_ir::MirHelperReference;
+use bray_runtime_interface::RuntimeAbiRole;
 
 use super::super::specialization::ConcreteCodegenInstance;
 
@@ -40,9 +41,15 @@ impl NativeDemandReason {
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum NativeDemandTarget {
+    Instance(CodegenInstanceKey),
+    RuntimeRole(RuntimeAbiRole),
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) struct NativeDemand {
     predecessor: Option<CodegenInstanceKey>,
-    target: CodegenInstanceKey,
+    target: NativeDemandTarget,
     reason: NativeDemandReason,
 }
 
@@ -50,7 +57,7 @@ impl NativeDemand {
     pub(crate) fn root(target: CodegenInstanceKey, reason: NativeDemandReason) -> Self {
         Self {
             predecessor: None,
-            target,
+            target: NativeDemandTarget::Instance(target),
             reason,
         }
     }
@@ -62,8 +69,16 @@ impl NativeDemand {
     ) -> Self {
         Self {
             predecessor: Some(predecessor),
-            target,
+            target: NativeDemandTarget::Instance(target),
             reason,
+        }
+    }
+
+    pub(crate) fn runtime_role(predecessor: CodegenInstanceKey, role: RuntimeAbiRole) -> Self {
+        Self {
+            predecessor: Some(predecessor),
+            target: NativeDemandTarget::RuntimeRole(role),
+            reason: NativeDemandReason::RuntimeRole,
         }
     }
 
@@ -71,8 +86,18 @@ impl NativeDemand {
         self.predecessor.as_ref()
     }
 
-    pub(crate) const fn target(&self) -> &CodegenInstanceKey {
-        &self.target
+    pub(crate) const fn instance_target(&self) -> Option<&CodegenInstanceKey> {
+        match &self.target {
+            NativeDemandTarget::Instance(key) => Some(key),
+            NativeDemandTarget::RuntimeRole(_) => None,
+        }
+    }
+
+    pub(crate) const fn role(&self) -> Option<RuntimeAbiRole> {
+        match self.target {
+            NativeDemandTarget::RuntimeRole(role) => Some(role),
+            NativeDemandTarget::Instance(_) => None,
+        }
     }
 
     pub(crate) const fn reason(&self) -> NativeDemandReason {

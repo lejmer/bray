@@ -221,6 +221,17 @@ fn valid_native_codegen_inventory(inventory: &crate::CompilationProfileNativeCod
         return false;
     }
 
+    if inventory.runtime_demands.windows(2).any(|entries| {
+        (&entries[0].predecessor, &entries[0].role, &entries[0].provider)
+            >= (&entries[1].predecessor, &entries[1].role, &entries[1].provider)
+    }) || inventory.runtime_demands.iter().any(|demand| {
+        usize::try_from(demand.predecessor).map_or(true, |id| id >= instance_count)
+            || demand.role.trim().is_empty()
+            || demand.provider.trim().is_empty()
+    }) {
+        return false;
+    }
+
     let demand_edges = inventory
         .demands
         .iter()
@@ -706,6 +717,11 @@ mod tests {
                     kind: crate::CompilationProfileNativeDemandKind::NativeReference,
                 },
             ],
+            runtime_demands: vec![crate::CompilationProfileNativeRuntimeDemand {
+                predecessor: 0,
+                role: "panic_reporting".to_owned(),
+                provider: "bray_panic_reporting".to_owned(),
+            }],
             dependencies: vec![crate::CompilationProfileCodegenDependency {
                 source: 0,
                 target: 1,
@@ -733,6 +749,22 @@ mod tests {
         valid.native_codegen = Some(inventory.clone());
 
         assert_eq!(valid.validate(), Ok(()));
+
+        let mut invalid_role_provider = report(1_000_000);
+        invalid_role_provider.native_codegen = Some(inventory.clone());
+
+        invalid_role_provider
+            .native_codegen
+            .as_mut()
+            .expect("test inventory must exist")
+            .runtime_demands[0]
+            .provider
+            .clear();
+
+        assert_eq!(
+            invalid_role_provider.validate(),
+            Err(CompilationProfileValidationError::InvalidNativeCodegenInventory)
+        );
 
         let mut fabricated_demand = report(1_000_000);
         fabricated_demand.native_codegen = Some(inventory.clone());

@@ -14,7 +14,7 @@ use super::super::realization::ProductStaticHostEntry;
 use super::super::specialization::{ConcreteCodegenInstance, ConcreteCodegenReachability};
 use super::error::{NativeProductPlanningError, native_batch_error};
 use super::implementation::{GENERATED_HOST_UNIT, bound_template, runtime_artifact_purpose};
-use super::{ConcreteCodegenRoot, NativeDemandReason};
+use super::{ConcreteCodegenRoot, NativeDemand, NativeDemandReason};
 use crate::fact::{BatchWork, CancellationToken, FactQueryError};
 
 type NativeCodegenPreparation = (
@@ -62,7 +62,9 @@ impl Compilation {
                 },
             )?;
 
-            Some(reachability)
+            let runtime_demands = self.mapped_product_runtime_demands(&reachability, cancellation)?;
+
+            Some(reachability.with_demands(runtime_demands))
         };
 
         let host_statics = match source_reachability.as_ref() {
@@ -177,6 +179,24 @@ impl Compilation {
             None => source_reachability.ok_or(NativeProductPlanningError::MissingProductRoot)?,
         };
 
+        let reachability = match host.as_ref() {
+            Some(host) => {
+                let host_root = reachability
+                    .graph()
+                    .roots()
+                    .first()
+                    .expect("generated executable host must be the reachability root")
+                    .clone();
+
+                let host_demands = host.requirements().roles().iter().copied().map(|role| {
+                    NativeDemand::runtime_role(host_root.clone(), role)
+                });
+
+                reachability.with_demands(host_demands)
+            }
+            None => reachability,
+        };
+
         let roots: BTreeSet<_> = reachability.graph().roots().iter().cloned().collect();
 
         let units = self.profile_native_product_operation(
@@ -205,6 +225,7 @@ impl Compilation {
             profile.set_native_codegen_plan(
                 reachability.graph(),
                 reachability.demands(),
+                host.as_ref(),
                 &units,
                 &mappings,
             );

@@ -16,6 +16,7 @@ use super::super::super::Compilation;
 use super::super::error::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
 use super::super::specialization::{ConcreteCodegenInstance, ConcreteCodegenReachability};
 use super::error::NativeProductPlanningError;
+use super::NativeDemand;
 use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
@@ -191,10 +192,11 @@ impl Compilation {
 
         let runtime_contract = runtime.map(RuntimeArtifact::contract);
 
-        let mut runtime_roles = match reachability {
-            Some(reachability) => self.mapped_product_runtime_roles(reachability, cancellation)?,
-            None => BTreeSet::new(),
-        };
+        let mut runtime_roles: BTreeSet<_> = reachability
+            .into_iter()
+            .flat_map(ConcreteCodegenReachability::demands)
+            .filter_map(NativeDemand::role)
+            .collect();
 
         if !statics.is_empty() {
             runtime_roles.insert(RuntimeAbiRole::ProductHostControl);
@@ -346,15 +348,23 @@ impl Compilation {
             .map_err(NativeProductPlanningError::InvalidExecutableHost)
     }
 
-    fn mapped_product_runtime_roles(
+    pub(super) fn mapped_product_runtime_demands(
         &self,
         reachability: &ConcreteCodegenReachability,
         cancellation: &CancellationToken,
-    ) -> Result<BTreeSet<RuntimeAbiRole>, NativeProductPlanningError> {
+    ) -> Result<BTreeSet<NativeDemand>, NativeProductPlanningError> {
         let graph = reachability.graph();
-        let mut roles = demanded_product_runtime_roles(graph);
-        let mut native_entry = false;
-        let mut panic_report_context = false;
+        let mut demands = BTreeSet::new();
+
+        for instance in graph.instances() {
+            let key = instance.key();
+
+            demands.extend(
+                demanded_runtime_references_for_mir(instance.mir())
+                    .into_iter()
+                    .map(|reference| NativeDemand::runtime_role(key.clone(), reference.role())),
+            );
+        }
 
         for key in graph
             .instances()
@@ -362,36 +372,30 @@ impl Compilation {
             .map(bray_codegen::CodegenInstance::key)
             .chain(graph.external_instances())
         {
-            if !native_entry && graph.instance(key).is_some() {
-                native_entry = self
+            let native_entry = graph.instance(key).is_some()
+                && self
                     .codegen_native_boundary(key, &BTreeSet::new(), cancellation)?
                     .is_some_and(|boundary| boundary.is_callback());
-            }
 
-            if !panic_report_context {
-                let realization = reachability.instance(key).ok_or_else(|| {
-                    FactQueryError::from(ProductQueryFailure::missing(
-                        ProductQueryContext::Instance(key.clone()),
-                        ProductDataKind::ConcreteInstance,
-                    ))
-                })?;
+            let realization = reachability.instance(key).ok_or_else(|| {
+                FactQueryError::from(ProductQueryFailure::missing(
+                    ProductQueryContext::Instance(key.clone()),
+                    ProductDataKind::ConcreteInstance,
+                ))
+            })?;
 
-                panic_report_context = self
-                    .codegen_instance_signature(realization, cancellation)?
-                    .has_panic_report_context();
-            }
+            let panic_report_context = self
+                .codegen_instance_signature(realization, cancellation)?
+                .has_panic_report_context();
 
-            if native_entry && panic_report_context {
-                break;
-            }
+            demands.extend(
+                mapped_symbol_runtime_roles(native_entry, panic_report_context)
+                    .into_iter()
+                    .map(|role| NativeDemand::runtime_role(key.clone(), role)),
+            );
         }
 
-        roles.extend(mapped_symbol_runtime_roles(
-            native_entry,
-            panic_report_context,
-        ));
-
-        Ok(roles)
+        Ok(demands)
     }
 
     fn executable_entry_result(
@@ -477,15 +481,4 @@ impl Compilation {
             _ => Err(NativeProductPlanningError::InvalidEntryResult),
         }
     }
-}
-
-fn demanded_product_runtime_roles(
-    reachability: &bray_codegen::CodegenReachability,
-) -> BTreeSet<RuntimeAbiRole> {
-    reachability
-        .instances()
-        .iter()
-        .flat_map(|instance| demanded_runtime_references_for_mir(instance.mir()))
-        .map(|reference| reference.role())
-        .collect()
 }
