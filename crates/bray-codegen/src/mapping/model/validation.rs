@@ -1,13 +1,11 @@
 use std::collections::BTreeSet;
 
-use crate::{
-    CodegenOperationMapping, CodegenSymbolKey, CodegenSymbolMapping, CodegenUnit,
-    FOREIGN_CALLBACK_RUNTIME_ROLES,
-};
+use crate::{CodegenSymbolKey, CodegenSymbolMapping, CodegenUnit, FOREIGN_CALLBACK_RUNTIME_ROLES};
 use bray_ir::{
-    MirAsyncOperation, MirGeneratorOperation, MirHostOperation, MirOperationKind,
-    MirRuntimeReference, MirSourceAnchor, MirTerminatorKind,
+    MirAsyncOperation, MirCallTarget, MirFrameInitializer, MirGeneratorOperation, MirHostOperation,
+    MirOperationKind, MirRuntimeReference, MirSourceAnchor, MirTerminatorKind,
 };
+use bray_runtime_interface::RuntimeAbiRole;
 
 /// Returns source anchors directly demanded by one code generation unit.
 pub fn demanded_debug_sources(unit: &CodegenUnit) -> BTreeSet<MirSourceAnchor> {
@@ -53,6 +51,17 @@ pub fn demanded_runtime_references_for_mir(
                 .filter_map(|helper| helper.runtime_role())
                 .map(|role| MirRuntimeReference::new(role, runtime_abi))
                 .map(Some),
+        )
+        .chain(
+            mir.operations()
+                .iter()
+                .filter_map(|operation| match operation.kind() {
+                    MirOperationKind::Async(MirAsyncOperation::CreateFrame {
+                        initializer, ..
+                    }) => frame_creation_runtime_role(initializer),
+                    _ => None,
+                })
+                .map(|role| Some(MirRuntimeReference::new(role, runtime_abi))),
         )
         .chain(boundary_panic_propagation_is_demanded(mir).then_some(Some(
             MirRuntimeReference::new(
@@ -102,50 +111,63 @@ fn boundary_panic_propagation_is_demanded(mir: &bray_ir::MirUnit) -> bool {
     })
 }
 
-/// Returns direct MIR roles plus runtime helpers selected by operation mappings.
+/// Returns runtime roles required by an operation's frame initializer mapping.
+pub fn frame_creation_runtime_role(initializer: &MirFrameInitializer) -> Option<RuntimeAbiRole> {
+    match initializer {
+        MirFrameInitializer::Callable(call) => match call.target() {
+            MirCallTarget::Indirect { .. } => Some(RuntimeAbiRole::FrameCreation),
+            MirCallTarget::Direct(_)
+            | MirCallTarget::Runtime(_)
+            | MirCallTarget::DefaultValue { .. } => None,
+        },
+        MirFrameInitializer::TaskObservation { .. } => {
+            Some(RuntimeAbiRole::TaskObservationCreation)
+        }
+    }
+}
+
+/// Returns runtime roles required by a mapped callable symbol.
+pub fn mapped_symbol_runtime_roles(
+    native_entry: bool,
+    panic_report_context: bool,
+) -> impl Iterator<Item = RuntimeAbiRole> {
+    FOREIGN_CALLBACK_RUNTIME_ROLES
+        .into_iter()
+        .filter(move |_| native_entry)
+        .chain(
+            [
+                RuntimeAbiRole::PanicPropagation,
+                RuntimeAbiRole::CurrentRunCancellationPropagation,
+            ]
+            .into_iter()
+            .filter(move |_| panic_report_context),
+        )
+}
+
+/// Returns runtime symbols demanded by the unit and its mapped callable symbols.
 pub fn mapped_runtime_references(
     unit: &CodegenUnit,
-    operations: &[CodegenOperationMapping],
     symbols: &[CodegenSymbolMapping],
 ) -> BTreeSet<MirRuntimeReference> {
     let mut references = demanded_runtime_references(unit);
 
-    references.extend(operations.iter().flat_map(|operation| {
-        operation.helpers().iter().filter_map(|helper| {
-            let Some(CodegenSymbolKey::Runtime(reference)) = helper.symbol() else {
-                return None;
-            };
-
-            Some(*reference)
-        })
-    }));
-
-    if symbols.iter().any(|symbol| {
+    let native_entry = symbols.iter().any(|symbol| {
         symbol.native_entry().is_some()
             && matches!(
                 symbol.key(),
                 CodegenSymbolKey::Instance(instance)
                     if unit.instances().iter().any(|member| member.key() == instance)
             )
-    }) {
-        references.extend(
-            FOREIGN_CALLBACK_RUNTIME_ROLES
-                .map(|role| MirRuntimeReference::new(role, unit.target().runtime_abi())),
-        );
-    }
+    });
 
-    if symbols
+    let panic_report_context = symbols
         .iter()
-        .any(|symbol| symbol.signature().has_panic_report_context())
-    {
-        references.extend(
-            [
-                bray_runtime_interface::RuntimeAbiRole::PanicPropagation,
-                bray_runtime_interface::RuntimeAbiRole::CurrentRunCancellationPropagation,
-            ]
+        .any(|symbol| symbol.signature().has_panic_report_context());
+
+    references.extend(
+        mapped_symbol_runtime_roles(native_entry, panic_report_context)
             .map(|role| MirRuntimeReference::new(role, unit.target().runtime_abi())),
-        );
-    }
+    );
 
     references
 }
@@ -291,6 +313,31 @@ mod tests {
     };
 
     #[test]
+    fn indirect_frame_creation_demands_the_mapped_runtime_role() {
+        let call = bray_ir::MirCall::imported(
+            bray_ir::MirCallTarget::Indirect {
+                callee: bray_ir::MirOperand::Value(bray_ir::MirValueId::from_slot(
+                    bray_ir::MirUnitId::new(0),
+                    0,
+                )),
+                abi: bray_symbols::CallableAbi::Bray,
+            },
+            bray_bound_tree::BoundCallResult::Immediate(bray_testing::test_mir_type()),
+            [],
+            None,
+            [],
+            None,
+            None,
+            [],
+        );
+
+        assert_eq!(
+            super::frame_creation_runtime_role(&bray_ir::MirFrameInitializer::Callable(call)),
+            Some(RuntimeAbiRole::FrameCreation),
+        );
+    }
+
+    #[test]
     fn callback_runtime_roles_follow_explicit_native_entry() {
         let fixture = codegen_request();
         let request = fixture.request();
@@ -308,7 +355,7 @@ mod tests {
             symbol.signature().clone(),
         );
 
-        let references = mapped_runtime_references(request.unit(), &[], &[direct.clone()]);
+        let references = mapped_runtime_references(request.unit(), &[direct.clone()]);
 
         assert!(
             !references
@@ -322,7 +369,7 @@ mod tests {
             CodegenLinkage::Export,
         ));
 
-        let references = mapped_runtime_references(request.unit(), &[], &[callback]);
+        let references = mapped_runtime_references(request.unit(), &[callback]);
 
         for role in crate::FOREIGN_CALLBACK_RUNTIME_ROLES {
             assert!(references.iter().any(|reference| reference.role() == role));
@@ -347,7 +394,7 @@ mod tests {
             symbol.signature().clone().with_panic_report_context(),
         );
 
-        let references = mapped_runtime_references(request.unit(), &[], &[direct]);
+        let references = mapped_runtime_references(request.unit(), &[direct]);
 
         assert!(
             references

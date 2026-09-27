@@ -2,20 +2,19 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_codegen::{
     CodegenLinkage, CodegenMappings, CodegenProductHostMapping, CodegenProductHostStatic,
-    CodegenTarget, demanded_runtime_references_for_mir,
+    CodegenTarget, demanded_runtime_references_for_mir, mapped_symbol_runtime_roles,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_runtime_interface::{
     BinarySymbolName, ExecutableEntryResult, ExecutableHostContract, ExecutableHostContractBuilder,
-    ExecutableHostEntry, RootExecution, RuntimeAbiRole, RuntimeArtifact,
-    RuntimeCapability, RuntimeRequirements, RuntimeRoleBinding, RuntimeRoleImplementation,
-    RuntimeServiceClass,
+    ExecutableHostEntry, RootExecution, RuntimeAbiRole, RuntimeArtifact, RuntimeCapability,
+    RuntimeRequirements, RuntimeRoleBinding, RuntimeRoleImplementation, RuntimeServiceClass,
 };
 use bray_symbols::{GenericArgument, ProductIdentity, ProductKind};
 
 use super::super::super::Compilation;
 use super::super::error::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
-use super::super::specialization::ConcreteCodegenInstance;
+use super::super::specialization::{ConcreteCodegenInstance, ConcreteCodegenReachability};
 use super::error::NativeProductPlanningError;
 use crate::fact::{CancellationToken, FactQueryError};
 
@@ -140,10 +139,9 @@ impl Compilation {
         product: &ProductIdentity,
         kind: ProductKind,
         roots: &[ConcreteCodegenInstance],
-        reachability: Option<&bray_codegen::CodegenReachability>,
+        reachability: Option<&ConcreteCodegenReachability>,
         statics: &[super::super::realization::ProductStaticHostEntry],
         runtime: Option<&RuntimeArtifact>,
-        required_roles: impl IntoIterator<Item = RuntimeAbiRole>,
         required_capabilities: impl IntoIterator<Item = RuntimeCapability>,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
@@ -156,7 +154,7 @@ impl Compilation {
 
         for root_realization in roots {
             let root = reachability
-                .and_then(|reachability| reachability.instance(root_realization.key()))
+                .and_then(|reachability| reachability.graph().instance(root_realization.key()))
                 .ok_or(NativeProductPlanningError::MissingProductRoot)?;
 
             let entry_result_type = root
@@ -193,11 +191,10 @@ impl Compilation {
 
         let runtime_contract = runtime.map(RuntimeArtifact::contract);
 
-        let mut runtime_roles: BTreeSet<_> = required_roles.into_iter().collect();
-
-        if let Some(reachability) = reachability {
-            runtime_roles.extend(demanded_product_runtime_roles(reachability));
-        }
+        let mut runtime_roles = match reachability {
+            Some(reachability) => self.mapped_product_runtime_roles(reachability, cancellation)?,
+            None => BTreeSet::new(),
+        };
 
         if !statics.is_empty() {
             runtime_roles.insert(RuntimeAbiRole::ProductHostControl);
@@ -347,6 +344,54 @@ impl Compilation {
             .finish()
             .map(Some)
             .map_err(NativeProductPlanningError::InvalidExecutableHost)
+    }
+
+    fn mapped_product_runtime_roles(
+        &self,
+        reachability: &ConcreteCodegenReachability,
+        cancellation: &CancellationToken,
+    ) -> Result<BTreeSet<RuntimeAbiRole>, NativeProductPlanningError> {
+        let graph = reachability.graph();
+        let mut roles = demanded_product_runtime_roles(graph);
+        let mut native_entry = false;
+        let mut panic_report_context = false;
+
+        for key in graph
+            .instances()
+            .iter()
+            .map(bray_codegen::CodegenInstance::key)
+            .chain(graph.external_instances())
+        {
+            if !native_entry && graph.instance(key).is_some() {
+                native_entry = self
+                    .codegen_native_boundary(key, &BTreeSet::new(), cancellation)?
+                    .is_some_and(|boundary| boundary.is_callback());
+            }
+
+            if !panic_report_context {
+                let realization = reachability.instance(key).ok_or_else(|| {
+                    FactQueryError::from(ProductQueryFailure::missing(
+                        ProductQueryContext::Instance(key.clone()),
+                        ProductDataKind::ConcreteInstance,
+                    ))
+                })?;
+
+                panic_report_context = self
+                    .codegen_instance_signature(realization, cancellation)?
+                    .has_panic_report_context();
+            }
+
+            if native_entry && panic_report_context {
+                break;
+            }
+        }
+
+        roles.extend(mapped_symbol_runtime_roles(
+            native_entry,
+            panic_report_context,
+        ));
+
+        Ok(roles)
     }
 
     fn executable_entry_result(

@@ -84,6 +84,16 @@ impl ConcreteCodegenReachability {
     pub(super) fn demands(&self) -> &[super::codegen::NativeDemand] {
         &self.demands
     }
+
+    pub(super) fn into_parts(
+        self,
+    ) -> (
+        CodegenReachability,
+        BTreeMap<CodegenInstanceKey, ConcreteCodegenInstance>,
+        Arc<[super::codegen::NativeDemand]>,
+    ) {
+        (self.graph, self.instances, self.demands)
+    }
 }
 
 impl ConcreteCodegenInstance {

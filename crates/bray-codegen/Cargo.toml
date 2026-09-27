@@ -22,6 +22,7 @@ bray-target = { path = "../bray-target" }
 bray-testing = { path = "../bray-testing", features = ["mir-unit"], optional = true }
 
 [dev-dependencies]
+bray-bound-tree = { path = "../bray-bound-tree" }
 bray-target = { path = "../bray-target", features = ["test-support"] }
 bray-testing = { path = "../bray-testing", features = ["mir-unit"] }
 
