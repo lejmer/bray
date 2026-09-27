@@ -547,7 +547,13 @@ impl<'a> ScalarAnalysis<'a> {
         let arguments = edge
             .arguments()
             .iter()
-            .map(|argument| self.operand(argument, local))
+            .map(|argument| match argument {
+                MirOperand::Move(place) if place.projections().is_empty() => local
+                    .get(&place.storage())
+                    .copied()
+                    .unwrap_or(Scalar::Overdefined),
+                _ => self.operand(argument, local),
+            })
             .collect::<Vec<_>>();
 
         self.enter_successor(edge.target(), Some(&arguments));

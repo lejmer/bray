@@ -82,6 +82,13 @@ impl CodegenOptions {
         self.optimization
     }
 
+    /// Returns the same generation policy with a different optimization level.
+    pub const fn with_optimization(mut self, optimization: OptimizationLevel) -> Self {
+        self.optimization = optimization;
+
+        self
+    }
+
     /// Returns the requested code-size preference.
     pub const fn size_preference(self) -> SizePreference {
         self.size_preference

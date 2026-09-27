@@ -27,11 +27,12 @@ enum ReachabilityEvaluation {
 }
 
 impl Compilation {
-    fn optimized_mir_for_plan(
+    pub(super) fn optimized_mir_for_plan(
         &self,
         realization: &ConcreteCodegenInstance,
         raw: &MirUnit,
         options: CodegenOptions,
+        target: &CodegenTarget,
         cancellation: &CancellationToken,
     ) -> Result<MirUnit, CodegenPreparationError> {
         let mut hasher = StableDigestHasher::new();
@@ -51,12 +52,30 @@ impl Compilation {
             CompilationFactKey::OptimizedMir(key),
             cancellation,
             || {
-                Ok(if options.optimization() != OptimizationLevel::None {
-                    self.simplify_concrete_mir(realization, raw, cancellation)
-                        .map(Arc::new)
-                } else {
-                    Ok(Arc::new(raw.clone()))
-                })
+                let optimized = match options.optimization() {
+                    OptimizationLevel::None => Ok(raw.clone()),
+                    OptimizationLevel::Basic => {
+                        self.simplify_concrete_mir(realization, raw, cancellation)
+                    }
+                    OptimizationLevel::Full => {
+                        let basic = options.with_optimization(OptimizationLevel::Basic);
+
+                        self.optimized_mir_for_plan(realization, raw, basic, target, cancellation)
+                            .and_then(|base| {
+                                self.inline_concrete_mir(
+                                    realization, &base, options, target, cancellation,
+                                )
+                                .and_then(|inlined| match inlined {
+                                    Some(inlined) => self.simplify_concrete_mir(
+                                        realization, &inlined, cancellation,
+                                    ),
+                                    None => Ok(base),
+                                })
+                            })
+                    }
+                };
+
+                Ok(optimized.map(Arc::new))
             },
         )?;
 
@@ -140,7 +159,7 @@ impl Compilation {
                         };
 
                         let mir =
-                            self.optimized_mir_for_plan(&realization, &mir, options, cancellation)?;
+                            self.optimized_mir_for_plan(&realization, &mir, options, target, cancellation)?;
 
                         let mut concrete_dependencies = self
                             .concrete_codegen_dependencies_for_mir(
