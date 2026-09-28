@@ -16,7 +16,7 @@ use bray_package_interface::{
     PackageNativeArtifactError,
 };
 use bray_runtime_interface::BinarySymbolName;
-use bray_symbols::{NativeSymbolContract, PackageIdentity, SymbolKeyData};
+use bray_symbols::{NativeSymbolContract, PackageIdentity, ProductKind, SymbolKeyData};
 use bray_target::NativeTarget;
 
 use super::super::super::Compilation;
@@ -209,12 +209,18 @@ impl Compilation {
             return Ok(None);
         }
 
+        let static_library = self.product_kind() == ProductKind::Library;
         let mut units = Vec::with_capacity(selection.units().len());
 
         for &digest in selection.units() {
             let unit = &index.units()[index.units()
                 .binary_search_by_key(&digest, |unit| unit.digest())
                 .expect("resolved unit must be in its validated index")];
+
+            if static_library && unit.kind() == NativeUnitKind::OpaqueArchive {
+                // Static libraries archive object inputs and cannot retain an input archive.
+                return Ok(None);
+            }
 
             if !unit.link_options().is_empty() {
                 return Ok(None);

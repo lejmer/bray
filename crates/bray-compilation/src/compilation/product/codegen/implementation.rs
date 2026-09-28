@@ -3652,7 +3652,7 @@ public func hot(pos value: i32) -> i32 { return value + 1; }
         };
 
         let selected = native_fixture_reachability(
-            dependency_from_fixture_with_native(true, false, fixture, Some((CodegenOptions::default(), false, false, false))),
+            dependency_from_fixture_with_native(true, false, fixture, Some((CodegenOptions::default(), false, false, None))),
         ).expect("exact native dependency must plan");
 
         let imported = selected.graph().external_instances().iter()
@@ -3676,7 +3676,7 @@ public func hot(pos value: i32) -> i32 { return value + 1; }
             generic_dependency_from_fixture(true, false, fixture),
             dependency_from_fixture_with_native(
                 true, false, fixture,
-                Some((CodegenOptions::default().with_optimization(OptimizationLevel::Full), false, false, false)),
+                Some((CodegenOptions::default().with_optimization(OptimizationLevel::Full), false, false, None)),
             ),
         ] {
             let fallback = native_fixture_reachability(dependency)
@@ -3703,7 +3703,7 @@ public func hot(pos value: i32) -> i32 { return value + 1; }
 
         let reachability = native_fixture_reachability(
             dependency_from_fixture_with_native(
-                true, false, fixture, Some((CodegenOptions::default(), false, true, false)),
+                true, false, fixture, Some((CodegenOptions::default(), false, true, None)),
             ),
         ).expect("referenced native unit must be selected");
 
@@ -3740,9 +3740,42 @@ public func hot(pos value: i32) -> i32 { return value + 1; }
 
         let reachability = native_fixture_reachability(
             dependency_from_fixture_with_native(
-                true, false, fixture, Some((CodegenOptions::default(), false, false, true)),
+                true, false, fixture, Some((CodegenOptions::default(), false, false, Some(NativeUnitKind::Bitcode))),
             ),
         ).expect("opaque package code must use its source template");
+
+        assert_eq!(reachability.selected_native_units().count(), 0);
+
+        assert!(reachability.graph().instances().iter().any(|instance|
+            matches!(instance.key().template(), MirUnitKey::ImportedExecutable(_))
+        ));
+    }
+
+    #[test]
+    fn static_library_uses_imported_template_when_package_closure_contains_archive() {
+        let fixture = GenericDependencyFixture {
+            source: "module templates;
+public func hot(pos value: i32) -> i32 { return value + 1; }
+",
+            runtime_frames: None,
+            executable_templates: 1,
+            platform_service: None,
+        };
+
+        let dependency = dependency_from_fixture_with_native(
+            true, false, fixture,
+            Some((CodegenOptions::default(), false, false, Some(NativeUnitKind::OpaqueArchive))),
+        );
+
+        let executable = native_fixture_reachability(dependency.clone())
+            .expect("executable must select its opaque archive input");
+
+        assert!(executable.selected_native_units().any(|selected|
+            selected.units.iter().any(|unit| unit.kind == NativeUnitKind::OpaqueArchive)
+        ));
+
+        let reachability = native_fixture_reachability_for_product(dependency, ProductKind::Library)
+            .expect("static library must retain imported source");
 
         assert_eq!(reachability.selected_native_units().count(), 0);
 
@@ -3763,7 +3796,7 @@ public func hot(pos value: i32) -> i32 { return value + 1; }
         };
 
         let dependency = dependency_from_fixture_with_native(
-            true, false, fixture, Some((CodegenOptions::default(), true, false, false)),
+            true, false, fixture, Some((CodegenOptions::default(), true, false, None)),
         );
 
         let error = native_fixture_reachability(dependency)
@@ -3804,7 +3837,7 @@ public func hot(pos value: i32) -> i32 { return value + 1; }
             .expect("LLVM backend must select");
 
         let dependency = dependency_from_fixture_with_native(
-            true, false, fixture, Some((CodegenOptions::default(), false, false, false)),
+            true, false, fixture, Some((CodegenOptions::default(), false, false, None)),
         );
 
         let error = native_fixture_reachability_with_codegen(dependency, Some(codegen))
@@ -3837,17 +3870,40 @@ public func hot(pos value: i32) -> i32 { return value + 1; }
         dependency: DependencyInterfaceInput,
         codegen: Option<CodegenConfiguration>,
     ) -> Result<ConcreteCodegenReachability, NativeProductPlanningError> {
-        let request = CompilationRequest::with_options(
-            crate::test_support::package_identity(),
-            vec![crate::test_support::source_input(
-                "module application;
+        native_fixture_reachability_for_product_with_codegen(dependency, ProductKind::Executable, codegen)
+    }
+
+    fn native_fixture_reachability_for_product(
+        dependency: DependencyInterfaceInput,
+        product_kind: ProductKind,
+    ) -> Result<ConcreteCodegenReachability, NativeProductPlanningError> {
+        native_fixture_reachability_for_product_with_codegen(dependency, product_kind, None)
+    }
+
+    fn native_fixture_reachability_for_product_with_codegen(
+        dependency: DependencyInterfaceInput,
+        product_kind: ProductKind,
+        codegen: Option<CodegenConfiguration>,
+    ) -> Result<ConcreteCodegenReachability, NativeProductPlanningError> {
+        let source = match product_kind {
+            ProductKind::Library => "module application;
+using example.dependency.templates.hot;
+public func forwarded(pos value: i32) -> i32 {
+    return example.dependency.templates.hot(value);
+}
+",
+            ProductKind::Executable => "module application;
 using example.dependency.templates.hot;
 func main() { let value: i32 = example.dependency.templates.hot(1); }
 ",
-                0,
-            )],
+            ProductKind::Test => unreachable!("native fixture only exercises libraries and executables"),
+        };
+
+        let request = CompilationRequest::with_options(
+            crate::test_support::package_identity(),
+            vec![crate::test_support::source_input(source, 0)],
             CompilationOptions::new(
-                WorkerBudget::serial(), ProductKind::Executable, SelectedTarget::baseline(),
+                WorkerBudget::serial(), product_kind, SelectedTarget::baseline(),
             ),
         ).with_dependency_interfaces([dependency]);
 
@@ -6977,7 +7033,7 @@ public func invoke<T>(pos value: T)
         include_implementation: bool,
         malformed_templates: bool,
         fixture: GenericDependencyFixture,
-        native: Option<(CodegenOptions, bool, bool, bool)>,
+        native: Option<(CodegenOptions, bool, bool, Option<NativeUnitKind>)>,
     ) -> DependencyInterfaceInput {
         let package = PackageIdentity::try_new("example.dependency")
             .unwrap_or_else(|| panic!("dependency package identity must be valid"));
@@ -7171,7 +7227,7 @@ public func invoke<T>(pos value: T)
                 payloads.push((unused_digest.bytes(), unused_bytes));
             }
 
-            if opaque {
+            if let Some(kind) = opaque {
                 let opaque_bytes: Arc<[u8]> = Arc::from(b"opaque package bitcode".as_slice());
 
                 let opaque_digest = NativeContentDigest::new(
@@ -7180,7 +7236,7 @@ public func invoke<T>(pos value: T)
                 );
 
                 units.push(NativeUnit::new(
-                    opaque_digest, NativeUnitKind::Bitcode, NativeUnitSummary::Opaque, [], [],
+                    opaque_digest, kind, NativeUnitSummary::Opaque, [], [],
                 ));
 
                 payloads.push((opaque_digest.bytes(), opaque_bytes));

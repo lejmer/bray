@@ -59,11 +59,7 @@ pub(super) fn stage_selected_native_inputs(
                 kind,
                 LinkInputSource::file(path),
                 LinkInputProvenance::Package(unit.package.clone()),
-                if unit.kind == NativeUnitKind::OpaqueArchive {
-                    LinkInputMode::WholeArchive
-                } else {
-                    LinkInputMode::Ordinary
-                },
+                LinkInputMode::Ordinary,
             ).map_err(|error| ProductEmissionErrorKind::LinkPlan(
                 bray_emitter::LinkPlanConstructionError::InvalidInput(error),
             ))
