@@ -262,6 +262,7 @@ impl PackageImplementationArtifact {
             artifact_hash,
             directory: directory.into(),
             decoded,
+            native_resolver: Arc::new(OnceLock::new()),
             limits,
         })
     }

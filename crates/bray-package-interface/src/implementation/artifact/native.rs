@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use bray_native_artifact::{
     NativeArtifactIndex, NativeContentDigest, NativeIndexError, NativeUnit, NativeUnitSummary,
-    WireError,
+    NativeUnitResolver, WireError,
 };
 use bray_symbols::InterfaceSymbolId;
 
@@ -13,6 +13,20 @@ use crate::InterfaceValidationError;
 use super::{ImplementationPayloadKind, PackageImplementationArtifact};
 
 impl PackageImplementationArtifact {
+    /// Reuses the validated provider index and demand closure for this artifact identity.
+    pub fn native_resolver(&self) -> Result<Option<&NativeUnitResolver>, PackageNativeArtifactError> {
+        if let Some(cached) = self.native_resolver.get() {
+            return Ok(cached.as_ref());
+        }
+
+        let resolver = self.native_artifact()?.map(NativeUnitResolver::new);
+        let _ = self.native_resolver.set(resolver);
+
+        Ok(self.native_resolver.get()
+            .expect("successful native resolver construction must be cached")
+            .as_ref())
+    }
+
     /// Authenticates the optional native index and every embedded physical unit.
     pub fn native_artifact(&self) -> Result<Option<NativeArtifactIndex>, PackageNativeArtifactError> {
         let Some(bytes) = self.native_index_bytes()? else {

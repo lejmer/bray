@@ -50,7 +50,8 @@ fn is_excluded_directory(root: &Path, path: &Path) -> bool {
         return false;
     };
 
-    EXCLUDED_DIRECTORIES.contains(&name)
+    (name == "scratch" && path.parent().is_some_and(|parent| parent == root))
+        || EXCLUDED_DIRECTORIES.contains(&name)
         && (name != "target" || path.parent().is_some_and(|parent| parent == root))
 }
 
@@ -237,7 +238,7 @@ mod tests {
     fn source_discovery_excludes_repository_metadata_and_build_workspaces() {
         let root = Path::new("workspace");
 
-        for directory in [".cargo-targets", ".git", ".worktrees", "target"] {
+        for directory in [".cargo-targets", ".git", ".worktrees", "scratch", "target"] {
             assert!(is_excluded_directory(root, &root.join(directory)));
         }
 

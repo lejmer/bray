@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use bray_base::Cancellation;
 use bray_linker::{LinkInputKind, LinkedArtifactKind, StagingPathKey};
+use bray_target::{NativeTarget, TargetOutputKind, TargetOutputName};
 use tempfile::{Builder, TempDir};
 
 use crate::artifact::content::{open_content, validate_staged_content};
@@ -124,16 +125,22 @@ impl LinkStaging {
         &self,
         ordinal: usize,
         kind: LinkInputKind,
+        target: NativeTarget,
         bytes: &[u8],
         cancellation: &dyn Cancellation,
     ) -> Result<PathBuf, LinkStagingError> {
-        assert!(
-            matches!(kind, LinkInputKind::RelocatableObject | LinkInputKind::Bitcode),
-            "imported package unit must be a linkable object or bitcode"
-        );
+        let output_kind = match kind {
+            LinkInputKind::RelocatableObject => TargetOutputKind::RelocatableObject,
+            LinkInputKind::Bitcode => TargetOutputKind::BackendBitcode,
+            LinkInputKind::Archive => TargetOutputKind::StaticLibrary,
+            _ => panic!("imported package unit must be an object, bitcode, or archive"),
+        };
 
-        let suffix = if kind == LinkInputKind::Bitcode { "bc" } else { "obj" };
-        let path = self._transaction.path().join(format!("imported-{ordinal}.{suffix}"));
+        let name = TargetOutputName::for_native(target.object_format(), output_kind)
+            .file_name(&format!("imported-{ordinal}"))
+            .expect("generated imported unit name must be valid");
+
+        let path = self._transaction.path().join(name);
 
         let mut file = OpenOptions::new().write(true).create_new(true).open(&path)
             .map_err(|error| LinkStagingError::Storage(Box::new(
@@ -637,6 +644,7 @@ mod tests {
         let imported_path = first.stage_imported_native_unit(
             0,
             bray_linker::LinkInputKind::RelocatableObject,
+            bray_target::NativeTarget::X86_64LinuxGnu,
             b"precompiled bytes",
             &never_cancelled,
         ).unwrap_or_else(|error| panic!("imported unit must stage: {error:?}"));
@@ -646,6 +654,16 @@ mod tests {
                 .unwrap_or_else(|error| panic!("imported unit must be readable: {error:?}")),
             b"precompiled bytes",
         );
+
+        let archive_path = first.stage_imported_native_unit(
+            1,
+            bray_linker::LinkInputKind::Archive,
+            bray_target::NativeTarget::X86_64WindowsMsvc,
+            b"opaque archive bytes",
+            &never_cancelled,
+        ).unwrap_or_else(|error| panic!("opaque archive must stage: {error:?}"));
+
+        assert_eq!(archive_path.extension().and_then(std::ffi::OsStr::to_str), Some("lib"));
 
         let output_path = first.outputs()[0].path().to_owned();
         let output_key = first.outputs()[0].path_key().clone();
