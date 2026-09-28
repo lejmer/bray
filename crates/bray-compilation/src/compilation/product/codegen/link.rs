@@ -716,7 +716,7 @@ pub(super) const fn product_link_model(object_format: bray_target::ObjectFormat)
     }
 }
 
-fn native_link_input(
+pub(super) fn native_link_input(
     requirement: &NativeLinkRequirement,
     provenance: LinkInputProvenance,
 ) -> Result<LinkInputSpec, NativeProductPlanningError> {

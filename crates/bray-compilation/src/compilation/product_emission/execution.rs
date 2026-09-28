@@ -3,17 +3,16 @@ use bray_diagnostics::DiagnosticBag;
 use bray_emitter::{
     ArtifactContribution, ArtifactKind, ArtifactProducer, BackendContributionSet, EmissionBackend,
     EmissionOutcome, EmissionPlan, EmissionPlanner, EmissionRequest, EmissionStatus, LinkStaging,
-    LinkStagingError, OutputSinkResolver, ProductLinkInputs, PublicationValidator,
+    OutputSinkResolver, ProductLinkInputs, PublicationValidator,
     construct_link_plan,
 };
-use bray_linker::{LinkInputKind, LinkInputMode, LinkInputProvenance, LinkInputSource, LinkInputSpec, Linker};
-use bray_native_artifact::NativeUnitKind;
+use bray_linker::Linker;
 use bray_package_interface::encode_package_interface;
 use bray_target::TargetOutputDescription;
 use std::path::Path;
 use std::sync::Arc;
 
-use super::native::package_native_implementation;
+use super::native::{package_native_implementation, product_staging_error, stage_selected_native_inputs};
 use super::publishing::{
     package_implementation_contribution, publisher, test_catalog_contribution,
 };
@@ -688,37 +687,9 @@ impl Compilation {
                 let mut link_inputs = linking.inputs.clone();
 
                 if let Some(native) = native {
-                    let mut seen = std::collections::BTreeSet::new();
-
-                    let imported = native.selected_native_units().iter()
-                        .filter(|unit| seen.insert(unit.digest))
-                        .enumerate()
-                        .map(|(ordinal, unit)| {
-                            let kind = match unit.kind {
-                                NativeUnitKind::Object => LinkInputKind::RelocatableObject,
-                                NativeUnitKind::Bitcode => LinkInputKind::Bitcode,
-                                NativeUnitKind::OpaqueArchive => unreachable!(
-                                    "selected package unit must be an object or bitcode"
-                                ),
-                            };
-
-                            let path = staging.stage_imported_native_unit(
-                                ordinal, kind, &unit.bytes, cancellation,
-                            ).map_err(product_staging_error)?;
-
-                            LinkInputSpec::try_new(
-                                kind,
-                                LinkInputSource::file(path),
-                                // The immutable link plan owns the imported package identity.
-                                LinkInputProvenance::Package(unit.package.clone()),
-                                LinkInputMode::Ordinary,
-                            ).map_err(|error| ProductEmissionErrorKind::LinkPlan(
-                                bray_emitter::LinkPlanConstructionError::InvalidInput(error),
-                            ))
-                        })
-                        .collect::<Result<Vec<_>, _>>()?;
-
-                    link_inputs = link_inputs.with_additional_native_inputs(imported);
+                    link_inputs = link_inputs.with_additional_native_inputs(
+                        stage_selected_native_inputs(native, &staging, cancellation)?,
+                    );
                 }
 
                 let link_plan = construct_link_plan(
@@ -771,14 +742,6 @@ enum ProductEmissionInput {
 struct ProductEmissionContributions {
     backend: Option<BackendContributionSet>,
     diagnostics: DiagnosticBag,
-}
-
-fn product_staging_error(error: LinkStagingError) -> ProductEmissionErrorKind {
-    if error == LinkStagingError::Cancelled {
-        ProductEmissionErrorKind::Cancelled
-    } else {
-        ProductEmissionErrorKind::Staging(error)
-    }
 }
 
 fn product_query_error(error: FactQueryError) -> ProductEmissionErrorKind {

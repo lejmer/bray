@@ -3652,7 +3652,7 @@ public func hot(pos value: i32) -> i32 { return value + 1; }
         };
 
         let selected = native_fixture_reachability(
-            dependency_from_fixture_with_native(true, false, fixture, Some((CodegenOptions::default(), false))),
+            dependency_from_fixture_with_native(true, false, fixture, Some((CodegenOptions::default(), false, false, false))),
         ).expect("exact native dependency must plan");
 
         let imported = selected.graph().external_instances().iter()
@@ -3676,7 +3676,7 @@ public func hot(pos value: i32) -> i32 { return value + 1; }
             generic_dependency_from_fixture(true, false, fixture),
             dependency_from_fixture_with_native(
                 true, false, fixture,
-                Some((CodegenOptions::default().with_optimization(OptimizationLevel::Full), false)),
+                Some((CodegenOptions::default().with_optimization(OptimizationLevel::Full), false, false, false)),
             ),
         ] {
             let fallback = native_fixture_reachability(dependency)
@@ -3691,6 +3691,67 @@ public func hot(pos value: i32) -> i32 { return value + 1; }
     }
 
     #[test]
+    fn imported_native_binding_retains_references_but_excludes_disconnected_package_units() {
+        let fixture = GenericDependencyFixture {
+            source: "module templates;
+public func hot(pos value: i32) -> i32 { return value + 1; }
+",
+            runtime_frames: None,
+            executable_templates: 1,
+            platform_service: None,
+        };
+
+        let reachability = native_fixture_reachability(
+            dependency_from_fixture_with_native(
+                true, false, fixture, Some((CodegenOptions::default(), false, true, false)),
+            ),
+        ).expect("referenced native unit must be selected");
+
+        let selected = reachability.selected_native_units().collect::<Vec<_>>();
+
+        let [selected] = selected.as_slice() else {
+            panic!("one imported definition must select native units");
+        };
+
+        assert_eq!(selected.units.len(), 2);
+        assert_eq!(selected.symbol.as_str(), "bray_test_precompiled");
+        assert!(selected.units.iter().all(|unit| unit.bytes.as_ref() != b"disconnected object"));
+
+        assert!(selected.units.iter().any(|unit| unit.native_links.iter().any(|link|
+            link.source() == &LinkInputSource::try_native_library("native_support")
+                .expect("test native library name")
+        )));
+
+        assert!(reachability.graph().instances().iter().all(|instance|
+            !matches!(instance.key().template(), MirUnitKey::ImportedExecutable(_))
+        ));
+    }
+
+    #[test]
+    fn opaque_package_code_uses_source_template_to_preserve_support_demand() {
+        let fixture = GenericDependencyFixture {
+            source: "module templates;
+public func hot(pos value: i32) -> i32 { return value + 1; }
+",
+            runtime_frames: None,
+            executable_templates: 1,
+            platform_service: None,
+        };
+
+        let reachability = native_fixture_reachability(
+            dependency_from_fixture_with_native(
+                true, false, fixture, Some((CodegenOptions::default(), false, false, true)),
+            ),
+        ).expect("opaque package code must use its source template");
+
+        assert_eq!(reachability.selected_native_units().count(), 0);
+
+        assert!(reachability.graph().instances().iter().any(|instance|
+            matches!(instance.key().template(), MirUnitKey::ImportedExecutable(_))
+        ));
+    }
+
+    #[test]
     fn selected_corrupt_native_payload_reports_dependency_validation_failure() {
         let fixture = GenericDependencyFixture {
             source: "module templates;
@@ -3702,7 +3763,7 @@ public func hot(pos value: i32) -> i32 { return value + 1; }
         };
 
         let dependency = dependency_from_fixture_with_native(
-            true, false, fixture, Some((CodegenOptions::default(), true)),
+            true, false, fixture, Some((CodegenOptions::default(), true, false, false)),
         );
 
         let error = native_fixture_reachability(dependency)
@@ -3743,7 +3804,7 @@ public func hot(pos value: i32) -> i32 { return value + 1; }
             .expect("LLVM backend must select");
 
         let dependency = dependency_from_fixture_with_native(
-            true, false, fixture, Some((CodegenOptions::default(), false)),
+            true, false, fixture, Some((CodegenOptions::default(), false, false, false)),
         );
 
         let error = native_fixture_reachability_with_codegen(dependency, Some(codegen))
@@ -6916,7 +6977,7 @@ public func invoke<T>(pos value: T)
         include_implementation: bool,
         malformed_templates: bool,
         fixture: GenericDependencyFixture,
-        native: Option<(CodegenOptions, bool)>,
+        native: Option<(CodegenOptions, bool, bool, bool)>,
     ) -> DependencyInterfaceInput {
         let package = PackageIdentity::try_new("example.dependency")
             .unwrap_or_else(|| panic!("dependency package identity must be valid"));
@@ -7003,7 +7064,7 @@ public func invoke<T>(pos value: T)
             })
             .collect::<Vec<_>>();
 
-        let implementation = if let Some((producer_options, corrupt)) = native {
+        let implementation = if let Some((producer_options, corrupt, linked, opaque)) = native {
             let [template] = bundle.executable_templates() else {
                 panic!("native fixture must publish exactly one executable template");
             };
@@ -7030,7 +7091,14 @@ public func invoke<T>(pos value: T)
                         NativeSymbolContract::required_name(symbol.clone()),
                         NativeDefinitionSelection::Ordinary,
                     )]),
-                    references: Arc::from([]),
+                    references: if linked {
+                        Arc::from([NativeSymbolContract::required_name(
+                            NonEmptySharedStr::try_new("bray_test_dependency")
+                                .expect("test dependency symbol must validate"),
+                        )])
+                    } else {
+                        Arc::from([])
+                    },
                     roots: Arc::from([]),
                 },
                 [],
@@ -7040,8 +7108,86 @@ public func invoke<T>(pos value: T)
             let target = NativeTarget::for_identity(bundle.implementation_configuration().target())
                 .expect("test target must have a native artifact kind");
 
+            let mut units = vec![unit];
+            let mut payloads = vec![(digest.bytes(), if corrupt { Arc::from(b"corrupt object".as_slice()) } else { bytes })];
+
+            if linked {
+                let dependency_bytes: Arc<[u8]> = Arc::from(b"test dependency object".as_slice());
+
+                let dependency_digest = NativeContentDigest::new(
+                    bray_base::sha256_reader(dependency_bytes.as_ref())
+                        .expect("in-memory dependency hash cannot fail"),
+                );
+
+                units.push(NativeUnit::new(
+                    dependency_digest,
+                    NativeUnitKind::Object,
+                    NativeUnitSummary::Exact {
+                        definitions: Arc::from([NativeDefinition::new(
+                            NativeSymbolContract::required_name(
+                                NonEmptySharedStr::try_new("bray_test_dependency")
+                                    .expect("test dependency symbol must validate"),
+                            ),
+                            NativeDefinitionSelection::Ordinary,
+                        )]),
+                        references: Arc::from([]),
+                        roots: Arc::from([]),
+                    },
+                    [NativeLinkRequirement::new(
+                        NonEmptySharedStr::try_new("native_support")
+                            .expect("test native library name must validate"),
+                        NativeLinkKind::System,
+                    )],
+                    [],
+                ));
+
+                payloads.push((dependency_digest.bytes(), dependency_bytes));
+
+                let unused_bytes: Arc<[u8]> = Arc::from(b"disconnected object".as_slice());
+
+                let unused_digest = NativeContentDigest::new(
+                    bray_base::sha256_reader(unused_bytes.as_ref())
+                        .expect("in-memory unused hash cannot fail"),
+                );
+
+                units.push(NativeUnit::new(
+                    unused_digest,
+                    NativeUnitKind::Object,
+                    NativeUnitSummary::Exact {
+                        definitions: Arc::from([NativeDefinition::new(
+                            NativeSymbolContract::required_name(
+                                NonEmptySharedStr::try_new("bray_test_disconnected")
+                                    .expect("test unused symbol must validate"),
+                            ),
+                            NativeDefinitionSelection::Ordinary,
+                        )]),
+                        references: Arc::from([]),
+                        roots: Arc::from([]),
+                    },
+                    [],
+                    [],
+                ));
+
+                payloads.push((unused_digest.bytes(), unused_bytes));
+            }
+
+            if opaque {
+                let opaque_bytes: Arc<[u8]> = Arc::from(b"opaque package bitcode".as_slice());
+
+                let opaque_digest = NativeContentDigest::new(
+                    bray_base::sha256_reader(opaque_bytes.as_ref())
+                        .expect("in-memory opaque hash cannot fail"),
+                );
+
+                units.push(NativeUnit::new(
+                    opaque_digest, NativeUnitKind::Bitcode, NativeUnitSummary::Opaque, [], [],
+                ));
+
+                payloads.push((opaque_digest.bytes(), opaque_bytes));
+            }
+
             let index = NativeArtifactIndex::try_new(
-                target, NativeContentDigest::new([1; 32]), [unit], [],
+                target, NativeContentDigest::new([1; 32]), units, [],
             ).expect("test native index must validate");
 
             let index_bytes = index.encode().expect("test native index must encode");
@@ -7061,10 +7207,8 @@ public func invoke<T>(pos value: T)
                 symbol,
             );
 
-            let payload = if corrupt { Arc::from(b"corrupt object".as_slice()) } else { bytes };
-
             PackageImplementationArtifact::try_from_export_bundle_with_native(
-                &interface, bundle, &index_bytes, &[(digest.bytes(), payload)], &[binding],
+                &interface, bundle, &index_bytes, &payloads, &[binding],
                 InterfaceValidationLimits::default(),
             )
             .expect("native dependency implementation must encode")

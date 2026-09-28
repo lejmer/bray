@@ -129,6 +129,18 @@ fn native_package_units_round_trip_with_exact_source_binding() {
         .unwrap_or_else(|| panic!("native index must be present"));
 
     assert_eq!(imported_index, index);
+
+    let resolver = imported.native_resolver()
+        .unwrap_or_else(|error| panic!("native resolver must authenticate: {error:?}"))
+        .expect("native resolver must be present");
+
+    let cloned = imported.clone();
+
+    let reused = cloned.native_resolver()
+        .unwrap_or_else(|error| panic!("cloned artifact must reuse resolver: {error:?}"))
+        .expect("cloned native resolver must be present");
+
+    assert!(std::ptr::eq(resolver, reused));
     assert_eq!(imported.native_bindings().unwrap_or_else(|error| panic!("bindings must decode: {error:?}")), vec![binding.clone()]);
     assert_eq!(imported.native_binding(binding.owner(), binding.key(), producer_options), Ok(Some(binding.clone())));
     assert_eq!(imported.native_binding(binding.owner(), binding.key(), CodegenOptions::default()), Ok(None));

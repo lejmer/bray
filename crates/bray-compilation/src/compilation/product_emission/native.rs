@@ -7,7 +7,8 @@ use std::sync::Arc;
 use bray_base::NonEmptySharedStr;
 use bray_codegen::{BackendArtifactKind, CodegenSpecialization, CodegenSymbolKey, CodegenUnitKey};
 use bray_diagnostics::DiagnosticLlvmToolRole;
-use bray_emitter::{EmissionPlan, LinkStaging, StagedArtifact};
+use bray_emitter::{EmissionPlan, LinkStaging, LinkStagingError, StagedArtifact};
+use bray_linker::{LinkInputKind, LinkInputMode, LinkInputProvenance, LinkInputSource, LinkInputSpec};
 use bray_native_artifact::{
     NativeArtifactIndex, NativeContentDigest, NativeIndexError, NativeUnit, NativeUnitKind, NativeUnitSummary,
     scan_bitcode_unit_summary, scan_object_unit_summary,
@@ -24,6 +25,63 @@ use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use super::diagnostics::ProductEmissionErrorKind;
 use super::execution::NativeInspectionInputs;
 use crate::compilation::{Compilation, NativeProductPlan};
+use crate::fact::CancellationToken;
+
+pub(super) fn stage_selected_native_inputs(
+    native: &NativeProductPlan,
+    staging: &LinkStaging,
+    cancellation: &CancellationToken,
+) -> Result<Vec<LinkInputSpec>, ProductEmissionErrorKind> {
+    let target = NativeTarget::for_identity(native.target().identity())
+        .expect("selected native product target must be supported");
+
+    let mut seen = std::collections::BTreeSet::new();
+
+    let selected = native.selected_native_units().iter()
+        .flat_map(|selection| selection.units.iter())
+        .filter(|unit| seen.insert((unit.package.clone(), unit.digest)))
+        .collect::<Vec<_>>();
+
+    let imported = selected.iter().copied()
+        .enumerate()
+        .map(|(ordinal, unit)| {
+            let kind = match unit.kind {
+                NativeUnitKind::Object => LinkInputKind::RelocatableObject,
+                NativeUnitKind::Bitcode => LinkInputKind::Bitcode,
+                NativeUnitKind::OpaqueArchive => LinkInputKind::Archive,
+            };
+
+            let path = staging.stage_imported_native_unit(
+                ordinal, kind, target, &unit.bytes, cancellation,
+            ).map_err(product_staging_error)?;
+
+            LinkInputSpec::try_new(
+                kind,
+                LinkInputSource::file(path),
+                LinkInputProvenance::Package(unit.package.clone()),
+                if unit.kind == NativeUnitKind::OpaqueArchive {
+                    LinkInputMode::WholeArchive
+                } else {
+                    LinkInputMode::Ordinary
+                },
+            ).map_err(|error| ProductEmissionErrorKind::LinkPlan(
+                bray_emitter::LinkPlanConstructionError::InvalidInput(error),
+            ))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let native_links = selected.iter().flat_map(|unit| unit.native_links.iter().cloned());
+
+    Ok(imported.into_iter().chain(native_links).collect())
+}
+
+pub(super) fn product_staging_error(error: LinkStagingError) -> ProductEmissionErrorKind {
+    if error == LinkStagingError::Cancelled {
+        ProductEmissionErrorKind::Cancelled
+    } else {
+        ProductEmissionErrorKind::Staging(error)
+    }
+}
 
 pub(super) fn package_native_implementation(
     compilation: &Compilation,
