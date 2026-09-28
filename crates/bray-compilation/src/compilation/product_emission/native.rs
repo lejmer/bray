@@ -1,12 +1,11 @@
 use std::collections::BTreeMap;
-use std::hash::Hash;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 
-use bray_base::{NonEmptySharedStr, StableDigestHasher};
-use bray_codegen::{BackendArtifactKind, CodegenPartitionPolicy, CodegenSpecialization, CodegenSymbolKey, CodegenUnitKey};
+use bray_base::NonEmptySharedStr;
+use bray_codegen::{BackendArtifactKind, CodegenSpecialization, CodegenSymbolKey, CodegenUnitKey};
 use bray_diagnostics::DiagnosticLlvmToolRole;
 use bray_emitter::{EmissionPlan, LinkStaging, StagedArtifact};
 use bray_native_artifact::{
@@ -62,16 +61,12 @@ pub(super) fn package_native_implementation(
         }
     }
 
-    let mut hasher = StableDigestHasher::new();
-
-    "bray native publication v1".hash(&mut hasher);
-    native.backend().identity().hash(&mut hasher);
-    native.options().hash(&mut hasher);
-    CodegenPartitionPolicy::NATIVE_LIBRARY_PUBLICATION.hash(&mut hasher);
-    bundle.implementation_configuration().hash(&mut hasher);
-    target.hash(&mut hasher);
-
-    let producer = NativeContentDigest::new(hasher.finalize());
+    let producer = crate::compilation::product::native_producer_identity(
+        native.backend().identity(),
+        native.options(),
+        bundle.implementation_configuration(),
+        target,
+    );
 
     let index = NativeArtifactIndex::try_new(target, producer, units, [])
         .expect("compiler-produced native unit set must form a valid index");

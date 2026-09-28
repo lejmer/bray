@@ -22,6 +22,7 @@ type NativeCodegenPreparation = (
     Arc<[CodegenUnit]>,
     Vec<CodegenMappings>,
     Vec<ProductStaticHostEntry>,
+    Vec<super::reuse::SelectedNativeUnit>,
 );
 
 impl Compilation {
@@ -42,7 +43,7 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<NativeCodegenPreparation, NativeProductPlanningError> {
         if source_roots.is_empty() && kind != ProductKind::Test {
-            return Ok((None, Arc::from([]), Vec::new(), Vec::new()));
+            return Ok((None, Arc::from([]), Vec::new(), Vec::new(), Vec::new()));
         }
 
         let source_reachability = if source_roots.is_empty() {
@@ -245,7 +246,10 @@ impl Compilation {
             profile.add_native_product_contract(runtime_roles, native_callback_entries);
         }
 
-        Ok((host, units, mappings, host_statics))
+        // The native product plan owns authenticated unit bytes beyond reachability.
+        let selected_native = reachability.selected_native_units().cloned().collect();
+
+        Ok((host, units, mappings, host_statics, selected_native))
     }
 
     fn partition_native_codegen(

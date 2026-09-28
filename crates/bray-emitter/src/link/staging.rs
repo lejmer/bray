@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use bray_base::Cancellation;
-use bray_linker::{LinkedArtifactKind, StagingPathKey};
+use bray_linker::{LinkInputKind, LinkedArtifactKind, StagingPathKey};
 use tempfile::{Builder, TempDir};
 
 use crate::artifact::content::{open_content, validate_staged_content};
@@ -117,6 +117,44 @@ impl LinkStaging {
             inputs: inputs.into(),
             outputs: outputs.into(),
         })
+    }
+
+    /// Writes one authenticated package unit into this link transaction.
+    pub fn stage_imported_native_unit(
+        &self,
+        ordinal: usize,
+        kind: LinkInputKind,
+        bytes: &[u8],
+        cancellation: &dyn Cancellation,
+    ) -> Result<PathBuf, LinkStagingError> {
+        assert!(
+            matches!(kind, LinkInputKind::RelocatableObject | LinkInputKind::Bitcode),
+            "imported package unit must be a linkable object or bitcode"
+        );
+
+        let suffix = if kind == LinkInputKind::Bitcode { "bc" } else { "obj" };
+        let path = self._transaction.path().join(format!("imported-{ordinal}.{suffix}"));
+
+        let mut file = OpenOptions::new().write(true).create_new(true).open(&path)
+            .map_err(|error| LinkStagingError::Storage(Box::new(
+                crate::StorageError::io(&path, crate::StorageOperation::Create, error),
+            )))?;
+
+        for chunk in bytes.chunks(64 * 1024) {
+            if cancellation.is_cancelled() {
+                return Err(LinkStagingError::Cancelled);
+            }
+
+            file.write_all(chunk).map_err(|error| LinkStagingError::Storage(Box::new(
+                crate::StorageError::io(&path, crate::StorageOperation::Write, error),
+            )))?;
+        }
+
+        file.flush().map_err(|error| LinkStagingError::Storage(Box::new(
+            crate::StorageError::io(&path, crate::StorageOperation::Flush, error),
+        )))?;
+
+        Ok(path)
     }
 
     /// Returns completed staged inputs in deterministic plan order.
@@ -595,6 +633,20 @@ mod tests {
             .unwrap_or_else(|error| panic!("first link staging must complete: {error:?}"));
 
         let input_path = first.inputs()[0].path().to_owned();
+
+        let imported_path = first.stage_imported_native_unit(
+            0,
+            bray_linker::LinkInputKind::RelocatableObject,
+            b"precompiled bytes",
+            &never_cancelled,
+        ).unwrap_or_else(|error| panic!("imported unit must stage: {error:?}"));
+
+        assert_eq!(
+            std::fs::read(&imported_path)
+                .unwrap_or_else(|error| panic!("imported unit must be readable: {error:?}")),
+            b"precompiled bytes",
+        );
+
         let output_path = first.outputs()[0].path().to_owned();
         let output_key = first.outputs()[0].path_key().clone();
 
@@ -639,6 +691,7 @@ mod tests {
         drop(first);
 
         assert!(!input_path.exists());
+        assert!(!imported_path.exists());
         assert!(!output_path.exists());
         assert!(second.inputs()[0].path().exists());
         assert!(!second.outputs()[0].path().exists());

@@ -4,7 +4,9 @@ mod model;
 mod query;
 
 pub(in crate::compilation) use diagnostic::{
-    standard_library_failure_diagnostic, with_standard_library_product_context,
+    implementation_validation_diagnostics, native_artifact_diagnostics,
+    standard_library_failure_diagnostic,
+    with_standard_library_product_context,
 };
 pub(in crate::compilation) use body::LoadedImplementation;
 pub(super) use model::LoadedDependencyInterface;
