@@ -18,7 +18,7 @@ const FORMAT: &str = "bray_native_units";
 const REVISION: u16 = 1;
 
 /// Invalid or unsupported native index wire field.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum WireError {
     /// Schema marker or revision is incompatible.
     UnsupportedSchema,

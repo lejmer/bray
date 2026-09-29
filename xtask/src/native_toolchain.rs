@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -88,20 +87,11 @@ fn install_runtime(
 
     copy_file(runtime, &runtime_directory.join("bray-runtime.brayrt"))?;
 
-    let archive_names: BTreeSet<_> = metadata
-        .components()
-        .iter()
-        .map(bray_runtime_interface::RuntimeArtifactComponentMetadata::archive_file_name)
-        .collect();
-
-    for archive_name in archive_names {
-        copy_file(
-            &source_directory.join(archive_name),
-            &runtime_directory.join(archive_name),
-        )?;
+    for index in metadata.native_indexes() {
+        copy_file(&source_directory.join(index.file_name()), &runtime_directory.join(index.file_name()))?;
     }
 
-    Ok(())
+    copy_directory(&source_directory.join("native"), &runtime_directory.join("native"))
 }
 
 pub(crate) fn runtime_artifact_metadata(runtime: &Path) -> Result<RuntimeArtifactMetadata, String> {

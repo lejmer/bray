@@ -23,7 +23,7 @@ pub use model::{
     CompilationProfileDurationDistribution, CompilationProfileEvent, CompilationProfileMetric,
     CompilationProfileMetricDescriptor, CompilationProfileMode,
     CompilationProfileOperationDescriptor, CompilationProfileOperationStatistics,
-    CompilationProfileNativeCodegen, CompilationProfileOptimizationArtifact,
+    CompilationProfileNativeCodegen, CompilationProfileStandardLibraryArtifact,
     CompilationProfileOutcome, CompilationProfileQueryDescriptor,
     CompilationProfileQueryStatistics, CompilationProfileReport, CompilationProfileRuntimeArtifact,
     CompilationProfileSchedulerStatistics, CompilationProfileSchedulingWaveStatistics,

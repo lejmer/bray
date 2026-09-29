@@ -21,7 +21,7 @@ use bray_tooling::{
 };
 
 use super::execute::{DriverRunResult, compilation_request, driver_result_from_compilation};
-use super::runtime::{resolve_runtime, runtime_selection_diagnostics};
+use super::runtime::resolve_runtime;
 use crate::command::{
     DriverBackend, DriverOptions, DriverProductConfiguration, DriverRuntimeSelection,
 };
@@ -607,15 +607,6 @@ fn native_product_failure_result(
         bray_compilation::NativeProductPlanningError::StandardLibrary { cause, .. } => compilation
             .check_diagnostics()
             .merged(&compilation.standard_library_load_diagnostics(cause)),
-        bray_compilation::NativeProductPlanningError::InvalidRuntimeSelection(selection_error) => {
-            let runtime = runtime_selection_diagnostics(selection_error).unwrap_or_else(|| {
-                error.diagnostic(product, target).unwrap_or_else(|| {
-                    panic!("runtime selection failure must publish an exact diagnostic")
-                })
-            });
-
-            compilation.check_diagnostics().merged(&runtime)
-        }
         error if let Some(diagnostics) = error.diagnostics() => {
             compilation.check_diagnostics().merged(diagnostics)
         }

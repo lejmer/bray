@@ -1,6 +1,5 @@
 //! Target runtime artifact catalogs and exact product selections.
 
-mod archive;
 mod catalog;
 mod selection;
 
@@ -8,8 +7,9 @@ pub use catalog::{
     RuntimeArtifactComponentMetadata, RuntimeArtifactDigest, RuntimeArtifactMetadata,
     RuntimeArtifactMetadataBuildError, RuntimeArtifactMetadataDecodeError,
     RuntimeArtifactMetadataEncodeError, RuntimeArtifactPurpose,
+    RuntimeNativeIndexMetadata,
 };
 pub use selection::{
-    RuntimeArtifact, RuntimeArtifactBuildError, RuntimeArtifactComponent, RuntimeArtifactSelection,
-    RuntimeArtifactSelectionError,
+    RuntimeArtifact, RuntimeArtifactBuildError, RuntimeArtifactSelection,
+    RuntimeArtifactSelectionError, RuntimeNativeUnit,
 };

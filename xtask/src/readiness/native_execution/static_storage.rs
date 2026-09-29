@@ -315,34 +315,32 @@ fn compile_archive_host(
 }
 
 fn runtime_archives(runtime: &Path) -> Result<Vec<PathBuf>, String> {
-    let metadata = runtime_metadata(runtime)?;
+    let artifact = runtime_artifact(runtime)?;
+    let index = &artifact.native_indexes()[0];
 
-    let directory = runtime
-        .parent()
-        .ok_or_else(|| "native runtime metadata has no parent directory".to_owned())?;
-
-    Ok(metadata
-        .components()
-        .iter()
-        .map(|component| directory.join(component.archive_file_name()))
+    Ok(index.index().units().iter()
+        .filter(|unit| unit.kind() == bray_native_artifact::NativeUnitKind::OpaqueArchive)
+        .map(|unit| index.payload(unit.digest()).expect("authenticated runtime unit must have a path").to_path_buf())
         .collect())
 }
 
 fn runtime_native_links(
     runtime: &Path,
 ) -> Result<BTreeSet<bray_symbols::NativeLinkRequirement>, String> {
-    Ok(runtime_metadata(runtime)?
-        .components()
+    Ok(runtime_artifact(runtime)?.native_indexes()[0].index().units()
         .iter()
-        .flat_map(bray_runtime_interface::RuntimeArtifactComponentMetadata::native_links)
+        .flat_map(bray_native_artifact::NativeUnit::native_links)
         .cloned()
         .collect())
 }
 
-fn runtime_metadata(
+fn runtime_artifact(
     runtime: &Path,
-) -> Result<bray_runtime_interface::RuntimeArtifactMetadata, String> {
-    crate::native_toolchain::runtime_artifact_metadata(runtime)
+) -> Result<bray_runtime_interface::RuntimeArtifact, String> {
+    let metadata = crate::native_toolchain::runtime_artifact_metadata(runtime)?;
+
+    bray_tooling::load_runtime_artifact(runtime, metadata.contract().target(), metadata.contract().abi_version())
+        .map_err(|error| format!("could not load runtime native units: {error:?}"))
 }
 
 fn shared_library_path(

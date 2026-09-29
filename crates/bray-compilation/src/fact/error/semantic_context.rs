@@ -266,7 +266,7 @@ fn push_fact_context(
             ]);
 
             push_build_configuration(fields, key.configuration());
-            push_runtime_components(fields, key.runtime());
+            push_runtime_indexes(fields, key.runtime());
 
             fields.push(text_list_field(
                 "required_runtime_capabilities",
@@ -563,9 +563,9 @@ fn push_build_configuration(
     fields.push(text_field("build_configuration", configuration.as_str()));
 }
 
-fn push_runtime_components(
+fn push_runtime_indexes(
     fields: &mut Vec<DiagnosticFailureField>,
-    runtime: Option<&[crate::fact::RuntimeComponentQueryIdentity]>,
+    runtime: Option<&[crate::fact::RuntimeNativeIndexQueryIdentity]>,
 ) {
     fields.push(boolean_field("runtime_selected", runtime.is_some()));
 
@@ -575,27 +575,27 @@ fn push_runtime_components(
 
     fields.extend([
         count_field(
-            "runtime_component_count",
+            "runtime_native_index_count",
             u64::try_from(runtime.len()).unwrap_or(u64::MAX),
         ),
         text_list_field(
-            "runtime_component_identities",
+            "runtime_native_index_artifacts",
             runtime
                 .iter()
-                .map(|component| component.component().as_str()),
+                .map(|index| index.artifact().as_str()),
         ),
         text_list_field(
-            "runtime_component_purposes",
-            runtime.iter().map(|component| component.purpose().as_str()),
+            "runtime_native_index_purposes",
+            runtime.iter().map(|index| index.purpose().as_str()),
         ),
         text_list_field(
-            "runtime_component_digests",
-            runtime.iter().map(|component| component.digest().to_hex()),
+            "runtime_native_index_digests",
+            runtime.iter().map(|index| index.digest().to_hex()),
         ),
     ]);
 
-    for component in runtime {
-        fields.push(path_field("runtime_component_archive", component.archive()));
+    for index in runtime {
+        fields.push(path_field("runtime_native_index_path", index.path()));
     }
 }
 
@@ -687,12 +687,12 @@ mod tests {
         let product = bray_symbols::ProductIdentity::try_new(package, "application")
             .unwrap_or_else(|| panic!("test product identity must be valid"));
 
-        let runtime_component = crate::fact::RuntimeComponentQueryIdentity::new(
+        let runtime_index = crate::fact::RuntimeNativeIndexQueryIdentity::new(
             bray_runtime_interface::RuntimeArtifactId::try_new("runtime.product")
                 .unwrap_or_else(|| panic!("test runtime identity must be valid")),
             bray_runtime_interface::RuntimeArtifactPurpose::Product,
             bray_runtime_interface::RuntimeArtifactDigest::new([9; 32]),
-            std::path::PathBuf::from("runtime/product.lib"),
+            std::path::PathBuf::from("runtime/runtime-product-native-index.json"),
         );
 
         let linker = bray_linker::LinkerDriverIdentity::try_new(
@@ -709,7 +709,7 @@ mod tests {
                 inner_iterations: std::num::NonZeroU64::new(3)
                     .unwrap_or_else(|| panic!("test iteration count must be nonzero")),
             },
-            Some(vec![runtime_component].into()),
+            Some(vec![runtime_index].into()),
             [bray_runtime_interface::RuntimeCapability::Reactor],
             [linker],
         );
@@ -727,10 +727,10 @@ mod tests {
             "build_configuration",
             "build_inner_iterations",
             "runtime_selected",
-            "runtime_component_identities",
-            "runtime_component_purposes",
-            "runtime_component_digests",
-            "runtime_component_archive",
+            "runtime_native_index_artifacts",
+            "runtime_native_index_purposes",
+            "runtime_native_index_digests",
+            "runtime_native_index_path",
             "required_runtime_capabilities",
             "linker_drivers",
             "linker_driver_kinds",

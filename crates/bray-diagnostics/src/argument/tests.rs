@@ -201,15 +201,6 @@ fn native_product_failure_keys_are_unique_and_domain_named() {
         Kind::RuntimeSelectionMissingCapabilityOwner(native_product_detail(
             "runtime_selection_missing_capability_owner",
         )),
-        Kind::RuntimeSelectionUnreadableArchive(native_product_detail(
-            "runtime_selection_unreadable_archive",
-        )),
-        Kind::RuntimeSelectionInvalidArchive(native_product_detail(
-            "runtime_selection_invalid_archive",
-        )),
-        Kind::RuntimeSelectionArchiveDigestMismatch(native_product_detail(
-            "runtime_selection_archive_digest_mismatch",
-        )),
         Kind::StandardLibraryUnavailable,
         Kind::LinkTargetEmptyTriple,
         Kind::CodegenBackendUnsupportedTarget,

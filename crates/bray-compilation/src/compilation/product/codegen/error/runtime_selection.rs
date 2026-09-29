@@ -1,11 +1,8 @@
-use bray_diagnostics::{
-    DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm, DiagnosticFailureField,
-    DiagnosticFailureValue, DiagnosticIoErrorKind, DiagnosticNativeProductFailureKind,
-};
+use bray_diagnostics::DiagnosticNativeProductFailureKind;
 use bray_runtime_interface::RuntimeArtifactSelectionError;
 
 use super::context::{
-    failure_detail, path_failure_field, protected_frame_abi_operation, text_failure_field,
+    failure_detail, protected_frame_abi_operation, text_failure_field,
 };
 
 pub(super) fn runtime_selection_failure_kind(
@@ -54,58 +51,21 @@ pub(super) fn runtime_selection_failure_kind(
                 [text_failure_field("capability", capability.as_str())],
             ))
         }
-        RuntimeArtifactSelectionError::UnreadableArchive {
-            component,
-            path,
-            kind,
-        } => Kind::RuntimeSelectionUnreadableArchive(failure_detail(
-            "runtime_selection_unreadable_archive",
-            [
-                text_failure_field("component", component.as_str()),
-                // The diagnostic outlives this borrowed selection error and owns its path.
-                path_failure_field("path", path.clone()),
-                DiagnosticFailureField::new(
-                    "io_error",
-                    DiagnosticFailureValue::IoErrorKind(DiagnosticIoErrorKind::from(*kind)),
-                ),
-            ],
-        )),
-        RuntimeArtifactSelectionError::InvalidArchive { component, path } => {
-            Kind::RuntimeSelectionInvalidArchive(failure_detail(
-                "runtime_selection_invalid_archive",
-                [
-                    text_failure_field("component", component.as_str()),
-                    // The diagnostic outlives this borrowed selection error and owns its path.
-                    path_failure_field("path", path.clone()),
-                ],
+        RuntimeArtifactSelectionError::NativeResolution(error) => {
+            let (reason, symbol) = match error {
+                bray_native_artifact::NativeResolutionError::Unresolved(symbol) =>
+                    ("runtime_native_symbol_unresolved", symbol),
+                bray_native_artifact::NativeResolutionError::DuplicateStrong(symbol) =>
+                    ("runtime_native_symbol_duplicate", symbol),
+            };
+
+            Kind::RuntimeSelectionIncompatible(failure_detail(
+                reason,
+                [text_failure_field("symbol", symbol.identity().name()
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| symbol.identity().ordinal()
+                        .expect("native symbol must have a name or ordinal").to_string()))],
             ))
         }
-        RuntimeArtifactSelectionError::ArchiveDigestMismatch {
-            component,
-            path,
-            expected,
-            actual,
-        } => Kind::RuntimeSelectionArchiveDigestMismatch(failure_detail(
-            "runtime_selection_archive_digest_mismatch",
-            [
-                text_failure_field("component", component.as_str()),
-                // The diagnostic outlives this borrowed selection error and owns its path.
-                path_failure_field("path", path.clone()),
-                DiagnosticFailureField::new(
-                    "expected_digest",
-                    DiagnosticFailureValue::ArtifactDigest(DiagnosticArtifactDigest::new(
-                        DiagnosticArtifactDigestAlgorithm::Sha256,
-                        expected.bytes(),
-                    )),
-                ),
-                DiagnosticFailureField::new(
-                    "actual_digest",
-                    DiagnosticFailureValue::ArtifactDigest(DiagnosticArtifactDigest::new(
-                        DiagnosticArtifactDigestAlgorithm::Sha256,
-                        actual.bytes(),
-                    )),
-                ),
-            ],
-        )),
     }
 }

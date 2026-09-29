@@ -13,7 +13,7 @@ use crate::wire::{IndexWire, WireError};
 const MAXIMUM_INDEX_BYTES: usize = 16 * 1024 * 1024;
 
 /// Immutable, target-specific description of independently selectable native units.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct NativeArtifactIndex {
     target: NativeTarget,
     producer: NativeContentDigest,
@@ -193,25 +193,29 @@ impl NativeArtifactIndex {
             });
         }
 
-        let mut payloads = Vec::with_capacity(index.units.len());
+        let workers = std::thread::available_parallelism().map_or(1, usize::from).min(4);
 
-        for unit in index.units() {
-            let path = payload_directory.join(unit.kind().file_name(unit.digest(), index.target()));
+        let payloads = if index.units.len() < 16 || workers == 1 {
+            index.units().iter()
+                .map(|unit| authenticate_payload(unit, index.target(), payload_directory))
+                .collect::<Result<Vec<_>, _>>()?
+        } else {
+            let chunk_size = index.units.len().div_ceil(workers);
+            let target = index.target();
+            let units = index.units();
 
-            let actual = match bray_base::sha256_file(&path) {
-                Ok(actual) => actual,
-                Err(error) => return Err(NativeIndexError::Read { path, error }),
-            };
+            std::thread::scope(|scope| {
+                let tasks = units.chunks(chunk_size).map(|chunk| {
+                    scope.spawn(move || chunk.iter()
+                        .map(|unit| authenticate_payload(unit, target, payload_directory))
+                        .collect::<Vec<_>>())
+                }).collect::<Vec<_>>();
 
-            if NativeContentDigest::new(actual) != unit.digest() {
-                return Err(NativeIndexError::PayloadDigestMismatch {
-                    expected: unit.digest(),
-                    actual: NativeContentDigest::new(actual),
-                });
-            }
-
-            payloads.push(path);
-        }
+                tasks.into_iter()
+                    .flat_map(|task| task.join().expect("native payload validation worker panicked"))
+                    .collect::<Result<Vec<_>, _>>()
+            })?
+        };
 
         Ok(ValidatedNativeArtifact {
             index,
@@ -245,8 +249,28 @@ impl NativeArtifactIndex {
     }
 }
 
+fn authenticate_payload(
+    unit: &NativeUnit,
+    target: NativeTarget,
+    payload_directory: &Path,
+) -> Result<PathBuf, NativeIndexError> {
+    let path = payload_directory.join(unit.kind().file_name(unit.digest(), target));
+
+    let actual = bray_base::sha256_file(&path)
+        .map_err(|error| NativeIndexError::Read { path: path.clone(), kind: error.kind() })?;
+
+    if NativeContentDigest::new(actual) != unit.digest() {
+        return Err(NativeIndexError::PayloadDigestMismatch {
+            expected: unit.digest(),
+            actual: NativeContentDigest::new(actual),
+        });
+    }
+
+    Ok(path)
+}
+
 /// Authenticated index and payload paths in the index's stable order.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ValidatedNativeArtifact {
     index: NativeArtifactIndex,
     payloads: Arc<[PathBuf]>,
@@ -271,7 +295,7 @@ impl ValidatedNativeArtifact {
 }
 
 /// Typed native artifact import or construction failure.
-#[derive(Debug)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum NativeIndexError {
     /// Index exceeds its bounded wire limit.
     SizeLimitExceeded,
@@ -312,7 +336,7 @@ pub enum NativeIndexError {
         /// Exact content-addressed payload path.
         path: PathBuf,
         /// Filesystem failure.
-        error: io::Error,
+        kind: io::ErrorKind,
     },
     /// Two payloads have the same content identity.
     DuplicateUnit(NativeContentDigest),
@@ -486,6 +510,55 @@ mod tests {
     }
 
     #[test]
+    fn parallel_import_authenticates_all_units_and_reports_first_invalid_payload() {
+        let target = NativeTarget::X86_64LinuxGnu;
+        let producer = digest(b"test producer");
+
+        let payloads = (0..20).map(|index| {
+            let bytes = format!("native unit {index}").into_bytes();
+
+            (digest(&bytes), bytes)
+        }).collect::<Vec<_>>();
+
+        let units = payloads.iter().map(|(digest, _)| NativeUnit::new(
+            *digest,
+            NativeUnitKind::Object,
+            NativeUnitSummary::Exact { definitions: [].into(), references: [].into(), roots: [].into() },
+            [], [],
+        ));
+
+        let index = NativeArtifactIndex::try_new(target, producer, units, [])
+            .expect("test index must validate");
+
+        let bytes = index.encode().expect("test index must encode");
+        let index_digest = digest(&bytes);
+        let directory = tempfile::tempdir().expect("test directory must exist");
+
+        for (digest, bytes) in &payloads {
+            std::fs::write(directory.path().join(NativeUnitKind::Object.file_name(*digest, target)), bytes)
+                .expect("test payload must be written");
+        }
+
+        let imported = NativeArtifactIndex::import(&bytes, index_digest, target, producer, directory.path())
+            .expect("all test payloads must authenticate");
+
+        assert_eq!(imported.index().units().len(), 20);
+
+        let first = index.units()[0].digest();
+        let last = index.units()[19].digest();
+
+        for digest in [first, last] {
+            std::fs::write(directory.path().join(NativeUnitKind::Object.file_name(digest, target)), b"corrupted")
+                .expect("test payload must be changed");
+        }
+
+        assert!(matches!(
+            NativeArtifactIndex::import(&bytes, index_digest, target, producer, directory.path()),
+            Err(NativeIndexError::PayloadDigestMismatch { expected, .. }) if expected == first,
+        ));
+    }
+
+    #[test]
     fn round_trip_duplicate_providers_cycles_roots_and_opaque_units() {
         let (index, payloads) = index();
 
@@ -635,9 +708,9 @@ mod tests {
                 index.producer(),
                 directory.path(),
             ),
-            Err(NativeIndexError::Read { path, error })
+            Err(NativeIndexError::Read { path, kind })
                 if path.parent() == Some(directory.path())
-                    && error.kind() == std::io::ErrorKind::NotFound
+                    && kind == std::io::ErrorKind::NotFound
         ));
 
         for unit in index.units() {

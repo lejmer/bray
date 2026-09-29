@@ -301,27 +301,6 @@ const RUNTIME_ARTIFACT_ABI_MISMATCH: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::ExpectedRuntimeAbi),
 ];
 
-const RUNTIME_ARTIFACT_ARCHIVE_READ_FAILED: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("could not read runtime archive "),
-    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactPath),
-    MessageTemplatePart::Text(": "),
-    MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
-];
-
-const RUNTIME_ARTIFACT_ARCHIVE_INVALID: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("runtime archive is invalid: "),
-    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactPath),
-];
-
-const RUNTIME_ARTIFACT_ARCHIVE_DIGEST_MISMATCH: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("runtime archive "),
-    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactPath),
-    MessageTemplatePart::Text(" has digest "),
-    MessageTemplatePart::Arg(DiagnosticArgName::ActualArtifactDigest),
-    MessageTemplatePart::Text(" but expected "),
-    MessageTemplatePart::Arg(DiagnosticArgName::ExpectedArtifactDigest),
-];
-
 const PROJECT_MANIFEST_READ_FAILED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("could not read Bray project manifest "),
     MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
@@ -2140,15 +2119,6 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::RuntimeArtifactAbiMismatch => {
             MessageTemplate::new(RUNTIME_ARTIFACT_ABI_MISMATCH)
-        }
-        DiagnosticKind::RuntimeArtifactArchiveReadFailed => {
-            MessageTemplate::new(RUNTIME_ARTIFACT_ARCHIVE_READ_FAILED)
-        }
-        DiagnosticKind::RuntimeArtifactArchiveInvalid => {
-            MessageTemplate::new(RUNTIME_ARTIFACT_ARCHIVE_INVALID)
-        }
-        DiagnosticKind::RuntimeArtifactArchiveDigestMismatch => {
-            MessageTemplate::new(RUNTIME_ARTIFACT_ARCHIVE_DIGEST_MISMATCH)
         }
         DiagnosticKind::ProjectManifestReadFailed => {
             MessageTemplate::new(PROJECT_MANIFEST_READ_FAILED)

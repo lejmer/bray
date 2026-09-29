@@ -5,6 +5,7 @@ mod host;
 mod implementation;
 mod inlining;
 mod link;
+mod native_standard_library;
 mod plan;
 mod preparation;
 mod reachability;

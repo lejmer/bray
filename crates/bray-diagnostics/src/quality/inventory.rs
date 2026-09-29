@@ -257,7 +257,7 @@ impl DiagnosticKind {
                 &[TargetTriple, UnsupportedEmissionReason],
                 primary_components!(&[TargetTriple, UnsupportedEmissionReason]),
             ),
-            Self::RuntimeArtifactMetadataReadFailed | Self::RuntimeArtifactArchiveReadFailed => {
+            Self::RuntimeArtifactMetadataReadFailed => {
                 Self::quality_artifact(
                     &[ArtifactPath, IoErrorKind],
                     note_components!(&[ArtifactPath, IoErrorKind], RuntimeArtifactMustBeUsable),
@@ -281,17 +281,6 @@ impl DiagnosticKind {
                 &[ArtifactPath, ExpectedRuntimeAbi, ActualRuntimeAbi],
                 note_components!(
                     &[ArtifactPath, ExpectedRuntimeAbi, ActualRuntimeAbi],
-                    RuntimeArtifactMustBeUsable
-                ),
-            ),
-            Self::RuntimeArtifactArchiveInvalid => Self::quality_artifact(
-                &[ArtifactPath],
-                note_components!(&[ArtifactPath], RuntimeArtifactMustBeUsable),
-            ),
-            Self::RuntimeArtifactArchiveDigestMismatch => Self::quality_artifact(
-                &[ArtifactPath, ExpectedArtifactDigest, ActualArtifactDigest],
-                note_components!(
-                    &[ArtifactPath, ExpectedArtifactDigest, ActualArtifactDigest],
                     RuntimeArtifactMustBeUsable
                 ),
             ),

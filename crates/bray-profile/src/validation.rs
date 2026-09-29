@@ -111,13 +111,7 @@ impl CompilationProfileReport {
         if let Some(index) = self
             .runtime_artifacts
             .iter()
-            .position(|artifact| {
-                artifact.identity.trim().is_empty()
-                    || !valid_canonical_strings(&artifact.runtime_roles)
-                    || !valid_canonical_strings(&artifact.capabilities)
-                    || !valid_canonical_strings(&artifact.platform_services)
-                    || !valid_canonical_strings(&artifact.retained_by)
-            })
+            .position(|artifact| artifact.identity.trim().is_empty())
         {
             return Err(
                 CompilationProfileValidationError::InvalidRuntimeArtifactIdentity { index },
@@ -134,22 +128,6 @@ impl CompilationProfileReport {
                     first: entries[0].identity.clone(),
                     second: entries[1].identity.clone(),
                 },
-            );
-        }
-
-        let runtime_identities = self
-            .runtime_artifacts
-            .iter()
-            .map(|artifact| artifact.identity.as_str())
-            .collect::<BTreeSet<_>>();
-
-        if let Some(index) = self.runtime_artifacts.iter().position(|artifact| {
-            artifact.retained_by.iter().any(|identity| {
-                identity == &artifact.identity || !runtime_identities.contains(identity.as_str())
-            })
-        }) {
-            return Err(
-                CompilationProfileValidationError::InvalidRuntimeArtifactIdentity { index },
             );
         }
 
@@ -317,13 +295,7 @@ fn valid_native_codegen_inventory(inventory: &crate::CompilationProfileNativeCod
 
     inventory.standard_library_artifacts.iter().all(|artifact| {
         !artifact.path.trim().is_empty()
-            && artifact.bytes != 0
-            && artifact
-                .partition
-                .as_ref()
-                .is_none_or(|partition| !partition.trim().is_empty())
-            && (artifact.modules == 0) == artifact.partition.is_none()
-            && valid_canonical_strings(&artifact.platform_services)
+            && (artifact.modules == 0) == (artifact.bytes == 0)
     })
 }
 
@@ -592,10 +564,6 @@ mod tests {
         invalid.runtime_artifacts = vec![crate::CompilationProfileRuntimeArtifact {
             identity: " ".to_owned(),
             bytes: 1,
-            runtime_roles: Vec::new(),
-            capabilities: Vec::new(),
-            platform_services: Vec::new(),
-            retained_by: Vec::new(),
         }];
 
         assert_eq!(
@@ -609,18 +577,10 @@ mod tests {
             crate::CompilationProfileRuntimeArtifact {
                 identity: "runtime.host".to_owned(),
                 bytes: 1,
-                runtime_roles: Vec::new(),
-                capabilities: Vec::new(),
-                platform_services: Vec::new(),
-                retained_by: Vec::new(),
             },
             crate::CompilationProfileRuntimeArtifact {
                 identity: "runtime.host".to_owned(),
                 bytes: 1,
-                runtime_roles: Vec::new(),
-                capabilities: Vec::new(),
-                platform_services: Vec::new(),
-                retained_by: Vec::new(),
             },
         ];
 
@@ -736,12 +696,10 @@ mod tests {
                 linkages: vec!["export".to_owned()],
                 visibilities: vec!["public".to_owned()],
             }],
-            standard_library_artifacts: vec![crate::CompilationProfileOptimizationArtifact {
+            standard_library_artifacts: vec![crate::CompilationProfileStandardLibraryArtifact {
                 path: "targets/test/std.bc".to_owned(),
-                partition: Some("std".to_owned()),
                 modules: 1,
                 bytes: 1,
-                platform_services: Vec::new(),
             }],
         };
 
@@ -749,6 +707,28 @@ mod tests {
         valid.native_codegen = Some(inventory.clone());
 
         assert_eq!(valid.validate(), Ok(()));
+
+        let mut object = report(1_000_000);
+        let mut object_inventory = inventory.clone();
+
+        object_inventory.standard_library_artifacts[0].path =
+            "targets/test/native-object-index.json".to_owned();
+
+        object_inventory.standard_library_artifacts[0].modules = 0;
+        object_inventory.standard_library_artifacts[0].bytes = 0;
+        object.native_codegen = Some(object_inventory);
+
+        assert_eq!(object.validate(), Ok(()));
+
+        let mut invalid_bytes = report(1_000_000);
+        let mut invalid_inventory = inventory.clone();
+        invalid_inventory.standard_library_artifacts[0].bytes = 0;
+        invalid_bytes.native_codegen = Some(invalid_inventory);
+
+        assert_eq!(
+            invalid_bytes.validate(),
+            Err(CompilationProfileValidationError::InvalidNativeCodegenInventory)
+        );
 
         let mut invalid_role_provider = report(1_000_000);
         invalid_role_provider.native_codegen = Some(inventory.clone());

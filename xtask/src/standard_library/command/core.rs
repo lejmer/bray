@@ -2,7 +2,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use bray_codegen::{BackendIdentity, CodegenTarget};
 use bray_diagnostics::DiagnosticLlvmToolRole;
 use bray_compilation::{
     BuildConfiguration, CompilationProfileReport, ProductEmissionInputs, SelectedTarget,
@@ -327,8 +326,6 @@ fn build_bundle(
         let BuiltTarget {
             selected,
             native,
-            backend,
-            codegen_target,
             interface_bytes,
             implementation_bytes,
             archive_bytes,
@@ -423,25 +420,25 @@ fn build_bundle(
         )
         .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
 
-        let optimization_publication = super::super::optimization::OptimizationPublication::new(
+        let [native_index, native_object_index] = super::super::native_index::publish(
+            &root,
             bundle,
             &target_path,
             native,
-            abi,
-            &backend,
-            &codegen_target,
+            &implementation_bytes,
+            &archive,
+            &compiler_support,
             &optimization,
-        );
-
-        let optimization_artifact =
-            optimization_publication.publish_bray(&archive, optimization)?;
+            &platform_archives,
+        )?;
 
         let mut artifacts = vec![
             interface,
             implementation,
             archive,
             compiler_support,
-            optimization_artifact,
+            native_index,
+            native_object_index,
         ];
 
         for platform in platform_archives {
@@ -458,24 +455,6 @@ fn build_bundle(
             .map(|artifact| artifact.with_platform_services(platform.roles.iter().copied()))
             .map(|artifact| artifact.with_native_links(platform.native_links))
             .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
-
-            if let Some(optimization) = platform.optimization {
-                let dependencies = if platform.uses_temporal_dependency_metadata {
-                    std::slice::from_ref(&provenance)
-                } else {
-                    &[]
-                };
-
-                let artifact = optimization_publication.publish_native(
-                    platform.name,
-                    &platform.roles,
-                    dependencies,
-                    &platform_archive,
-                    optimization,
-                )?;
-
-                artifacts.push(artifact);
-            }
 
             artifacts.push(platform_archive);
         }
@@ -498,13 +477,11 @@ fn build_bundle(
 struct BuiltTarget {
     selected: SelectedTarget,
     native: NativeTarget,
-    backend: BackendIdentity,
-    codegen_target: CodegenTarget,
     interface_bytes: Vec<u8>,
     implementation_bytes: Vec<u8>,
     archive_bytes: Vec<u8>,
     native_links: Vec<NativeLinkRequirement>,
-    optimization: super::super::optimization::BuiltOptimizationArchive,
+    optimization: super::super::optimization::BuiltNativeModules,
     platform_archives: Vec<super::platform::BuiltPlatformArchive>,
     compiler_profile: Option<CompilationProfileReport>,
 }
@@ -706,23 +683,17 @@ fn build_target(
         .map(|path| fs::read(path).map_err(|error| BuildError::read(path, error)))
         .collect::<Result<Vec<_>, _>>()?;
 
-    let optimization = crate::progress::run("Preparing the standard library optimization archive", || {
+    let optimization = crate::progress::run("Preparing standard library native modules", || {
         super::super::optimization::from_bray_modules(
             &root,
             work,
             bitcode_modules,
-            native_plan.preservation_roots().cloned(),
         )
     })?;
-
-    let backend = native_plan.backend().identity().clone();
-    let codegen_target = native_plan.target().clone();
 
     Ok(BuiltTarget {
         selected,
         native,
-        backend,
-        codegen_target,
         interface_bytes,
         implementation_bytes,
         archive_bytes,

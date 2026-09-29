@@ -17,47 +17,31 @@ use super::{
 use crate::fact::FactQueryError;
 
 #[test]
-fn runtime_selection_failures_preserve_component_path_io_and_digests() {
+fn runtime_selection_reports_unresolved_native_symbol() {
     let error = NativeProductPlanningError::InvalidRuntimeSelection(
-        bray_runtime_interface::RuntimeArtifactSelectionError::ArchiveDigestMismatch {
-            component: bray_runtime_interface::RuntimeArtifactId::try_new(
-                "runtime.product.execution",
-            )
-            .unwrap_or_else(|| panic!("test runtime component identity must be valid")),
-            path: std::path::PathBuf::from("runtime/product.lib"),
-            expected: bray_runtime_interface::RuntimeArtifactDigest::new([3; 32]),
-            actual: bray_runtime_interface::RuntimeArtifactDigest::new([5; 32]),
-        },
+        bray_runtime_interface::RuntimeArtifactSelectionError::NativeResolution(
+            bray_native_artifact::NativeResolutionError::Unresolved(
+                bray_symbols::NativeSymbolContract::required_name(
+                    bray_base::NonEmptySharedStr::try_new("runtime_missing")
+                        .expect("test symbol must be nonempty"),
+                ),
+            ),
+        ),
     );
 
     let failure = native_product_failure_kind(&error)
         .unwrap_or_else(|| panic!("runtime selection failure must diagnose"));
 
-    let DiagnosticNativeProductFailureKind::RuntimeSelectionArchiveDigestMismatch(detail) = failure
+    let DiagnosticNativeProductFailureKind::RuntimeSelectionIncompatible(detail) = failure
     else {
-        panic!("archive authentication must retain its exact diagnostic leaf");
+        panic!("native resolution must retain its exact diagnostic leaf");
     };
 
-    assert_eq!(detail.reason(), "runtime_selection_archive_digest_mismatch");
+    assert_eq!(detail.reason(), "runtime_native_symbol_unresolved");
 
     assert!(matches!(
         detail.context()[0].value(),
-        DiagnosticFailureValue::Text(component) if component == "runtime.product.execution"
-    ));
-
-    assert!(matches!(
-        detail.context()[1].value(),
-        DiagnosticFailureValue::Path(path) if path == std::path::Path::new("runtime/product.lib")
-    ));
-
-    assert!(matches!(
-        detail.context()[2].value(),
-        DiagnosticFailureValue::ArtifactDigest(digest) if digest.bytes() == &[3; 32]
-    ));
-
-    assert!(matches!(
-        detail.context()[3].value(),
-        DiagnosticFailureValue::ArtifactDigest(digest) if digest.bytes() == &[5; 32]
+        DiagnosticFailureValue::Text(symbol) if symbol == "runtime_missing"
     ));
 }
 

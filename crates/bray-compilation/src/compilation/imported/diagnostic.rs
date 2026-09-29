@@ -2,13 +2,12 @@ use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm,
     DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind, DiagnosticLabel,
     DiagnosticLabelKind, DiagnosticNote, DiagnosticNoteKind, DiagnosticRuntimeAbiVersion,
-    DiagnosticStandardLibraryManifestProblem, DiagnosticStandardLibraryOptimizationMetadataProblem,
+    DiagnosticStandardLibraryManifestProblem,
     SeverityKind,
 };
 use bray_package_interface::InterfaceValidationError;
 use bray_standard_library::{
     StandardLibraryArtifactDigest, StandardLibraryLoadError, StandardLibraryManifestError,
-    StandardLibraryOptimizationMetadataProblem,
 };
 
 use crate::request::DependencyInterfaceInput;
@@ -196,6 +195,39 @@ pub(in crate::compilation) fn standard_library_failure_diagnostic(
             .with_arg(DiagnosticArg::target_triple(target.as_str())),
             None,
         ),
+        StandardLibraryLoadError::NativeIndex { path, cause } => {
+            let problem = native_index_problem(&cause);
+
+            let diagnostic = Diagnostic::new(
+                DiagnosticId::new(0),
+                DiagnosticKind::StandardLibraryManifestInvalid,
+                SeverityKind::Error,
+            )
+            .with_arg(DiagnosticArg::file_path(path.clone()))
+            .with_arg(DiagnosticArg::standard_library_manifest_problem(problem));
+
+            (diagnostic, Some(path))
+        }
+        StandardLibraryLoadError::NativeResolution { path, cause } => {
+            let problem = match cause {
+                bray_native_artifact::NativeResolutionError::Unresolved(_) => {
+                    bray_diagnostics::DiagnosticStandardLibraryManifestProblem::NativeDemandUnresolved
+                }
+                bray_native_artifact::NativeResolutionError::DuplicateStrong(_) => {
+                    bray_diagnostics::DiagnosticStandardLibraryManifestProblem::NativeProviderConflict
+                }
+            };
+
+            let diagnostic = Diagnostic::new(
+                DiagnosticId::new(0),
+                DiagnosticKind::StandardLibraryManifestInvalid,
+                SeverityKind::Error,
+            )
+            .with_arg(DiagnosticArg::file_path(path.clone()))
+            .with_arg(DiagnosticArg::standard_library_manifest_problem(problem));
+
+            (diagnostic, Some(path))
+        }
         StandardLibraryLoadError::Infrastructure { path } => {
             let diagnostic = Diagnostic::new(
                 DiagnosticId::new(0),
@@ -210,6 +242,48 @@ pub(in crate::compilation) fn standard_library_failure_diagnostic(
             (diagnostic, Some(path))
         }
     }
+}
+
+fn native_index_problem(
+    error: &bray_native_artifact::NativeIndexError,
+) -> bray_diagnostics::DiagnosticStandardLibraryManifestProblem {
+    bray_diagnostics::DiagnosticStandardLibraryManifestProblem::InvalidNativeArtifact(
+        diagnostic_native_artifact_cause(error),
+    )
+}
+
+/// Maps the shared native-index error to its locale-neutral diagnostic cause.
+pub fn diagnostic_native_artifact_cause(
+    error: &bray_native_artifact::NativeIndexError,
+) -> bray_diagnostics::DiagnosticNativeArtifactCause {
+    use bray_diagnostics::DiagnosticNativeArtifactCause as Cause;
+    use bray_native_artifact::{NativeIndexError as Error, WireError};
+
+    let cause = match error {
+        Error::SizeLimitExceeded => Cause::IndexSizeLimitExceeded,
+        Error::Malformed => Cause::IndexMalformed,
+        Error::Wire(WireError::UnsupportedSchema) => Cause::IndexUnsupportedSchema,
+        Error::Wire(WireError::InvalidTarget) => Cause::IndexInvalidTarget,
+        Error::Wire(WireError::InvalidDigest) => Cause::IndexInvalidDigest,
+        Error::Wire(WireError::InvalidSymbol) => Cause::IndexInvalidSymbol,
+        Error::Wire(WireError::InvalidLink) => Cause::IndexInvalidLink,
+        Error::IndexDigestMismatch { .. } => Cause::IndexDigestMismatch,
+        Error::PayloadDigestMismatch { .. } => Cause::PayloadDigestMismatch,
+        Error::WrongTarget { .. } => Cause::WrongTarget,
+        Error::WrongProducer { .. } => Cause::WrongProducer,
+        Error::Read { .. } => Cause::ReadFailure,
+        Error::DuplicateUnit(_) => Cause::DuplicateUnit,
+        Error::InvalidSummary(_) => Cause::InvalidSummary,
+        Error::DuplicateDefinition(_) => Cause::DuplicateDefinition,
+        Error::InvalidAssociation(_) => Cause::InvalidAssociation,
+        Error::InvalidLinkOption(_) => Cause::InvalidLinkOption,
+        Error::NoncanonicalSummary(_) => Cause::NoncanonicalSummary,
+        Error::MissingCoRetentionMember(_) => Cause::MissingCoRetentionMember,
+        Error::DuplicateCoRetentionGroup => Cause::DuplicateCoRetentionGroup,
+        Error::InvalidCoRetentionGroup => Cause::InvalidCoRetentionGroup,
+    };
+
+    cause
 }
 
 const fn manifest_problem(
@@ -264,104 +338,11 @@ const fn manifest_problem(
         StandardLibraryManifestError::DuplicatePlatformService => {
             DiagnosticStandardLibraryManifestProblem::DuplicatePlatformService
         }
-        StandardLibraryManifestError::InvalidOptimizationMetadata(problem) => {
-            DiagnosticStandardLibraryManifestProblem::InvalidOptimizationMetadata(
-                optimization_metadata_problem(problem),
-            )
-        }
-        StandardLibraryManifestError::InvalidOptimizationFallback => {
-            DiagnosticStandardLibraryManifestProblem::InvalidOptimizationFallback
-        }
         StandardLibraryManifestError::BundleDigestMismatch => {
             DiagnosticStandardLibraryManifestProblem::BundleDigestMismatch
         }
         StandardLibraryManifestError::LengthExceeded => {
             DiagnosticStandardLibraryManifestProblem::LengthExceeded
-        }
-    }
-}
-
-const fn optimization_metadata_problem(
-    problem: StandardLibraryOptimizationMetadataProblem,
-) -> DiagnosticStandardLibraryOptimizationMetadataProblem {
-    match problem {
-        StandardLibraryOptimizationMetadataProblem::MissingForArchive => {
-            DiagnosticStandardLibraryOptimizationMetadataProblem::MissingForArchive
-        }
-        StandardLibraryOptimizationMetadataProblem::AttachedToUnsupportedArtifact => {
-            DiagnosticStandardLibraryOptimizationMetadataProblem::AttachedToUnsupportedArtifact
-        }
-        StandardLibraryOptimizationMetadataProblem::UnsupportedSemantics => {
-            DiagnosticStandardLibraryOptimizationMetadataProblem::UnsupportedSemantics
-        }
-        StandardLibraryOptimizationMetadataProblem::UnsupportedProducerKind => {
-            DiagnosticStandardLibraryOptimizationMetadataProblem::UnsupportedProducerKind
-        }
-        StandardLibraryOptimizationMetadataProblem::MissingProducerImplementation => {
-            DiagnosticStandardLibraryOptimizationMetadataProblem::MissingProducerImplementation
-        }
-        StandardLibraryOptimizationMetadataProblem::MissingProducerImplementationRevision => {
-            DiagnosticStandardLibraryOptimizationMetadataProblem::MissingProducerImplementationRevision
-        }
-        StandardLibraryOptimizationMetadataProblem::MissingToolchain => {
-            DiagnosticStandardLibraryOptimizationMetadataProblem::MissingToolchain
-        }
-        StandardLibraryOptimizationMetadataProblem::MissingToolchainRevision => {
-            DiagnosticStandardLibraryOptimizationMetadataProblem::MissingToolchainRevision
-        }
-        StandardLibraryOptimizationMetadataProblem::MissingTargetTriple => {
-            DiagnosticStandardLibraryOptimizationMetadataProblem::MissingTargetTriple
-        }
-        StandardLibraryOptimizationMetadataProblem::MissingDataLayout => {
-            DiagnosticStandardLibraryOptimizationMetadataProblem::MissingDataLayout
-        }
-        StandardLibraryOptimizationMetadataProblem::UnsupportedRelocationModel => {
-            DiagnosticStandardLibraryOptimizationMetadataProblem::UnsupportedRelocationModel
-        }
-        StandardLibraryOptimizationMetadataProblem::UnsupportedCodeModel => {
-            DiagnosticStandardLibraryOptimizationMetadataProblem::UnsupportedCodeModel
-        }
-        StandardLibraryOptimizationMetadataProblem::NonCanonicalFallbackPath => {
-            DiagnosticStandardLibraryOptimizationMetadataProblem::NonCanonicalFallbackPath
-        }
-        StandardLibraryOptimizationMetadataProblem::ZeroModuleCount => {
-            DiagnosticStandardLibraryOptimizationMetadataProblem::ZeroModuleCount
-        }
-        StandardLibraryOptimizationMetadataProblem::InvalidPreservationRoot => {
-            DiagnosticStandardLibraryOptimizationMetadataProblem::InvalidPreservationRoot
-        }
-        StandardLibraryOptimizationMetadataProblem::UnsupportedLifecycleRoot => {
-            DiagnosticStandardLibraryOptimizationMetadataProblem::UnsupportedLifecycleRoot
-        }
-        StandardLibraryOptimizationMetadataProblem::UnknownPlatformService => {
-            DiagnosticStandardLibraryOptimizationMetadataProblem::UnknownPlatformService
-        }
-        StandardLibraryOptimizationMetadataProblem::NonCanonicalDependencyPath => {
-            DiagnosticStandardLibraryOptimizationMetadataProblem::NonCanonicalDependencyPath
-        }
-        StandardLibraryOptimizationMetadataProblem::InvalidPartition => {
-            DiagnosticStandardLibraryOptimizationMetadataProblem::InvalidPartition
-        }
-        StandardLibraryOptimizationMetadataProblem::DuplicatePartition => {
-            DiagnosticStandardLibraryOptimizationMetadataProblem::DuplicatePartition
-        }
-        StandardLibraryOptimizationMetadataProblem::RuntimeAbiMismatch => {
-            DiagnosticStandardLibraryOptimizationMetadataProblem::RuntimeAbiMismatch
-        }
-        StandardLibraryOptimizationMetadataProblem::TargetMismatch => {
-            DiagnosticStandardLibraryOptimizationMetadataProblem::TargetMismatch
-        }
-        StandardLibraryOptimizationMetadataProblem::CompatibilityMismatch => {
-            DiagnosticStandardLibraryOptimizationMetadataProblem::CompatibilityMismatch
-        }
-        StandardLibraryOptimizationMetadataProblem::ToolchainMismatch => {
-            DiagnosticStandardLibraryOptimizationMetadataProblem::ToolchainMismatch
-        }
-        StandardLibraryOptimizationMetadataProblem::MissingDependencyArtifact => {
-            DiagnosticStandardLibraryOptimizationMetadataProblem::MissingDependencyArtifact
-        }
-        StandardLibraryOptimizationMetadataProblem::MissingBrayPartition => {
-            DiagnosticStandardLibraryOptimizationMetadataProblem::MissingBrayPartition
         }
     }
 }
@@ -480,8 +461,6 @@ mod tests {
 
     use bray_diagnostics::{
         DiagnosticArg, DiagnosticKind, DiagnosticRuntimeAbiVersion,
-        DiagnosticStandardLibraryManifestProblem,
-        DiagnosticStandardLibraryOptimizationMetadataProblem,
     };
     use bray_package_interface::{
         InterfaceArtifactHash, InterfaceFormatRevision, InterfaceLanguageRevision, InterfaceLimit,
@@ -491,13 +470,12 @@ mod tests {
     };
     use bray_runtime_interface::RuntimeAbiVersion;
     use bray_standard_library::{
-        StandardLibraryArtifactDigest, StandardLibraryLoadError, StandardLibraryManifestError,
-        StandardLibraryOptimizationMetadataProblem,
+        StandardLibraryArtifactDigest, StandardLibraryLoadError,
     };
     use bray_symbols::PackageIdentity;
     use bray_target::TargetIdentity;
 
-    use super::{manifest_problem, standard_library_diagnostics, validation_diagnostics};
+    use super::{standard_library_diagnostics, validation_diagnostics};
     use crate::request::DependencyInterfaceInput;
 
     #[test]
@@ -616,20 +594,6 @@ mod tests {
         bray_testing::assert_goal_state_diagnostic_kind(
             &infrastructure_bag,
             DiagnosticKind::StandardLibraryInfrastructureFailure,
-        );
-    }
-
-    #[test]
-    fn optimization_metadata_diagnostics_preserve_the_failed_contract() {
-        let problem = manifest_problem(StandardLibraryManifestError::InvalidOptimizationMetadata(
-            StandardLibraryOptimizationMetadataProblem::MissingDependencyArtifact,
-        ));
-
-        assert_eq!(
-            problem,
-            DiagnosticStandardLibraryManifestProblem::InvalidOptimizationMetadata(
-                DiagnosticStandardLibraryOptimizationMetadataProblem::MissingDependencyArtifact,
-            )
         );
     }
 

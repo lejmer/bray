@@ -12,7 +12,7 @@ pub(in crate::output::diagnostic::json) struct DiagnosticRuntimeArtifactProblemJ
     #[serde(skip_serializing_if = "Option::is_none")]
     component: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    dependency: Option<String>,
+    native_cause: Option<&'static str>,
 }
 
 impl DiagnosticRuntimeArtifactProblemJson {
@@ -27,7 +27,7 @@ impl DiagnosticRuntimeArtifactProblemJson {
             role: None,
             capability: None,
             component: None,
-            dependency: None,
+            native_cause: None,
         };
 
         match problem {
@@ -39,18 +39,9 @@ impl DiagnosticRuntimeArtifactProblemJson {
             Problem::UnknownComponentCapability(capability) => {
                 output.capability = Some(capability.to_owned());
             }
-            Problem::UnreferencedSupportComponent(component)
-            | Problem::DuplicateComponent(component)
-            | Problem::ComponentDependencyCycle(component)
+            Problem::DuplicateComponent(component)
             | Problem::TestRoleInProductComponent(component) => {
                 output.component = Some(component.to_owned());
-            }
-            Problem::InvalidComponentDependency {
-                component,
-                dependency,
-            } => {
-                output.component = Some(component.to_owned());
-                output.dependency = Some(dependency.to_owned());
             }
             Problem::MissingRoleOwner { purpose, role }
             | Problem::DuplicateRoleOwner { purpose, role } => {
@@ -71,6 +62,9 @@ impl DiagnosticRuntimeArtifactProblemJson {
             Problem::DuplicatePlatformServiceOwner { purpose } => {
                 output.purpose = Some(purpose.as_str());
             }
+            Problem::InvalidNativeArtifact(cause) => {
+                output.native_cause = Some(cause.as_str());
+            }
             Problem::MetadataSizeLimitExceeded
             | Problem::MalformedMetadata
             | Problem::UnsupportedFormat
@@ -83,16 +77,14 @@ impl DiagnosticRuntimeArtifactProblemJson {
             | Problem::UnknownPlatformService
             | Problem::InvalidRoleSymbol
             | Problem::UnknownRoleImplementation
-            | Problem::InvalidNativeLinkName
-            | Problem::UnknownNativeLinkKind
             | Problem::UnknownComponentPurpose
             | Problem::InvalidComponentIdentity
-            | Problem::InvalidArchiveDigest
+            | Problem::InvalidNativeIndexDigest
             | Problem::MissingCooperativeExecution
-            | Problem::InvalidArchiveFileName
-            | Problem::MissingComponent
-            | Problem::UnexpectedComponent
-            | Problem::ArchiveFileNameMismatch => {}
+            | Problem::InvalidNativeIndexFileName
+            | Problem::InvalidNativeIndexes
+            | Problem::InvalidNativeTarget
+            | Problem::IncompatibleIndexTarget => {}
         }
 
         output

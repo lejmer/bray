@@ -13,5 +13,6 @@ pub(super) use core::{
 };
 pub(crate) use core::{build_target_bundle, run};
 pub(super) use error::BuildError;
+pub(super) use platform::BuiltPlatformArchive;
 pub(crate) use reuse::current_target_bundle;
 pub(super) use source::request as standard_library_source_request;

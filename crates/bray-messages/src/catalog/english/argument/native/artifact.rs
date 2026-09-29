@@ -246,11 +246,6 @@ fn format_english_native_product_failure_detail(
         Kind::RuntimeSelectionMissingCapabilityOwner(_) => {
             "the selected runtime has no owner for a required capability"
         }
-        Kind::RuntimeSelectionUnreadableArchive(_) => "a selected runtime archive cannot be read",
-        Kind::RuntimeSelectionInvalidArchive(_) => "a selected runtime archive is invalid",
-        Kind::RuntimeSelectionArchiveDigestMismatch(_) => {
-            "a selected runtime archive does not match its declared digest"
-        }
         Kind::StandardLibraryUnavailable => {
             "the configured standard library cannot supply a required native artifact"
         }
@@ -342,11 +337,9 @@ pub(crate) fn format_english_runtime_artifact_problem(
         Problem::UnknownPlatformService => "unknown native operation".to_owned(),
         Problem::InvalidRoleSymbol => "invalid runtime role symbol".to_owned(),
         Problem::UnknownRoleImplementation => "unknown runtime role implementation".to_owned(),
-        Problem::InvalidNativeLinkName => "invalid native link name".to_owned(),
-        Problem::UnknownNativeLinkKind => "unknown native link kind".to_owned(),
         Problem::UnknownComponentPurpose => "unknown runtime component purpose".to_owned(),
         Problem::InvalidComponentIdentity => "invalid runtime component identity".to_owned(),
-        Problem::InvalidArchiveDigest => "invalid archive digest".to_owned(),
+        Problem::InvalidNativeIndexDigest => "invalid runtime native-index digest".to_owned(),
         Problem::DuplicateContractRole(role) => format!("duplicate runtime contract role `{role}`"),
         Problem::CompilerOwnedRole(role) => {
             format!("compiler-owned role `{role}` is published by the runtime")
@@ -354,19 +347,11 @@ pub(crate) fn format_english_runtime_artifact_problem(
         Problem::MissingCooperativeExecution => {
             "runtime contract omits cooperative execution".to_owned()
         }
-        Problem::InvalidArchiveFileName => "invalid runtime component archive file name".to_owned(),
-        Problem::UnreferencedSupportComponent(component) => {
-            format!("support component `{component}` is unreferenced")
-        }
+        Problem::InvalidNativeIndexFileName => "invalid runtime native-index file name".to_owned(),
+        Problem::InvalidNativeIndexes => "runtime native indexes do not cover each product category once".to_owned(),
+        Problem::InvalidNativeArtifact(cause) => super::standard_library::format_english_native_artifact_problem(*cause).to_owned(),
         Problem::DuplicateComponent(component) => {
             format!("duplicate runtime component `{component}`")
-        }
-        Problem::InvalidComponentDependency {
-            component,
-            dependency,
-        } => format!("component `{component}` has invalid dependency `{dependency}`"),
-        Problem::ComponentDependencyCycle(component) => {
-            format!("component dependency cycle includes `{component}`")
         }
         Problem::UnknownComponentRole(role) => {
             format!("component claims unknown runtime role `{role}`")
@@ -403,9 +388,8 @@ pub(crate) fn format_english_runtime_artifact_problem(
             "the same native operation is provided more than once for {} programs",
             format_english_runtime_artifact_purpose(*purpose),
         ),
-        Problem::MissingComponent => "missing runtime component".to_owned(),
-        Problem::UnexpectedComponent => "unexpected runtime component".to_owned(),
-        Problem::ArchiveFileNameMismatch => "archive file name does not match metadata".to_owned(),
+        Problem::InvalidNativeTarget => "runtime target has no native representation".to_owned(),
+        Problem::IncompatibleIndexTarget => "runtime native index targets another platform".to_owned(),
     }
 }
 

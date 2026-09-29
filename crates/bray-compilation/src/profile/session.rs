@@ -21,7 +21,7 @@ use crate::fact::CompilationFactKey;
 use bray_profile::{
     COMPILATION_PROFILE_SCHEMA_REVISION, CompilationProfileConfiguration,
     CompilationProfileContext, CompilationProfileNativeCodegen,
-    CompilationProfileOptimizationArtifact, CompilationProfileOutcome, CompilationProfileReport,
+    CompilationProfileStandardLibraryArtifact, CompilationProfileOutcome, CompilationProfileReport,
     CompilationProfileRuntimeArtifact,
 };
 
@@ -413,7 +413,7 @@ impl ProfileSession {
 
     pub(crate) fn set_standard_library_artifacts(
         &self,
-        artifacts: Vec<CompilationProfileOptimizationArtifact>,
+        artifacts: Vec<CompilationProfileStandardLibraryArtifact>,
     ) {
         let mut inventory = self
             .native_codegen

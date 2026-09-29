@@ -63,12 +63,6 @@ define_diagnostic_kinds! {
     RuntimeArtifactTargetMismatch,
     /// Selected runtime artifact metadata implements another runtime ABI.
     RuntimeArtifactAbiMismatch,
-    /// A selected runtime archive could not be read.
-    RuntimeArtifactArchiveReadFailed,
-    /// A selected runtime archive is not a valid native archive.
-    RuntimeArtifactArchiveInvalid,
-    /// A selected runtime archive does not match its published digest.
-    RuntimeArtifactArchiveDigestMismatch,
     /// A required Bray project manifest could not be read.
     ProjectManifestReadFailed,
     /// A Bray project manifest does not match the serialized schema.
@@ -690,9 +684,6 @@ impl DiagnosticKind {
             Self::RuntimeArtifactMetadataInvalid => 1117,
             Self::RuntimeArtifactTargetMismatch => 1118,
             Self::RuntimeArtifactAbiMismatch => 1119,
-            Self::RuntimeArtifactArchiveReadFailed => 1120,
-            Self::RuntimeArtifactArchiveInvalid => 1121,
-            Self::RuntimeArtifactArchiveDigestMismatch => 1122,
             Self::RequestUnsupportedProductEmission => 1106,
             Self::RequestReservedPackageIdentity => 1107,
             Self::RequestStandardLibraryPackageIdentityRequired => 1108,
@@ -1044,11 +1035,6 @@ impl DiagnosticKind {
             Self::RuntimeArtifactMetadataInvalid => "runtime_artifact_metadata_invalid",
             Self::RuntimeArtifactTargetMismatch => "runtime_artifact_target_mismatch",
             Self::RuntimeArtifactAbiMismatch => "runtime_artifact_abi_mismatch",
-            Self::RuntimeArtifactArchiveReadFailed => "runtime_artifact_archive_read_failed",
-            Self::RuntimeArtifactArchiveInvalid => "runtime_artifact_archive_invalid",
-            Self::RuntimeArtifactArchiveDigestMismatch => {
-                "runtime_artifact_archive_digest_mismatch"
-            }
             Self::ProjectManifestReadFailed => "project_manifest_read_failed",
             Self::ProjectManifestParseFailed => "project_manifest_parse_failed",
             Self::ProjectManifestUnsupportedFormat => "project_manifest_unsupported_format",

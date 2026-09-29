@@ -4,8 +4,12 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use bray_runtime_interface::{PlatformServiceRole, RuntimeAbiVersion};
-use bray_target::TargetIdentity;
+use bray_native_artifact::{
+    NativeArtifactIndex, NativeContentDigest, NativeIndexError, NativeResolutionError,
+    ValidatedNativeArtifact,
+};
+use bray_runtime_interface::RuntimeAbiVersion;
+use bray_target::{NativeTarget, TargetIdentity};
 
 use crate::{
     STANDARD_LIBRARY_MANIFEST_FILE_NAME, StandardLibraryArtifact, StandardLibraryArtifactDigest,
@@ -130,53 +134,76 @@ impl StandardLibraryResolver {
             .map(Arc::from)
     }
 
-    /// Returns native link artifacts after selecting providers for the required platform roles.
-    pub fn link_artifacts_for_platform_services(
+    /// Authenticates compatible optimized units, or returns None for another producer policy.
+    pub fn native_artifact(
         &self,
         target: &TargetIdentity,
         runtime_abi: RuntimeAbiVersion,
-        platform_services: &[PlatformServiceRole],
-    ) -> Result<Arc<[ResolvedStandardLibraryArtifact]>, StandardLibraryLoadError> {
-        let manifest = self.manifest()?;
-        let selected = target_inventory(&manifest, target, runtime_abi)?;
-
-        selected
-            .artifacts()
-            .iter()
-            .filter(|artifact| match artifact.kind() {
-                crate::StandardLibraryArtifactKind::RelocatableObject
-                | crate::StandardLibraryArtifactKind::StaticLibrary
-                | crate::StandardLibraryArtifactKind::SharedLibrary => true,
-                crate::StandardLibraryArtifactKind::PlatformServiceLibrary => artifact
-                    .platform_services()
-                    .iter()
-                    .any(|role| platform_services.contains(role)),
-                crate::StandardLibraryArtifactKind::PackageInterface
-                | crate::StandardLibraryArtifactKind::PackageImplementation
-                | crate::StandardLibraryArtifactKind::DependencyMetadata
-                | crate::StandardLibraryArtifactKind::OptimizationArchive
-                | crate::StandardLibraryArtifactKind::RuntimeArtifact => false,
-            })
-            .map(|artifact| self.resolve(artifact))
-            .collect::<Result<Vec<_>, _>>()
-            .map(Arc::from)
+        expected_producer: NativeContentDigest,
+    ) -> Result<Option<(PathBuf, ValidatedNativeArtifact)>, StandardLibraryLoadError> {
+        self.native_artifact_for_kind(target, runtime_abi, crate::StandardLibraryArtifactKind::NativeIndex, Some(expected_producer))
     }
 
-    /// Returns the platform-service roles available for one target and runtime ABI.
-    pub fn target_platform_services(
+    /// Authenticates object units published for configurations without cross-module optimization.
+    pub fn native_object_artifact(
         &self,
         target: &TargetIdentity,
         runtime_abi: RuntimeAbiVersion,
-    ) -> Result<Arc<[PlatformServiceRole]>, StandardLibraryLoadError> {
+    ) -> Result<Option<(PathBuf, ValidatedNativeArtifact)>, StandardLibraryLoadError> {
+        self.native_artifact_for_kind(target, runtime_abi, crate::StandardLibraryArtifactKind::NativeObjectIndex, None)
+    }
+
+    fn native_artifact_for_kind(
+        &self,
+        target: &TargetIdentity,
+        runtime_abi: RuntimeAbiVersion,
+        kind: crate::StandardLibraryArtifactKind,
+        expected_producer: Option<NativeContentDigest>,
+    ) -> Result<Option<(PathBuf, ValidatedNativeArtifact)>, StandardLibraryLoadError> {
         let manifest = self.manifest()?;
         let selected = target_inventory(&manifest, target, runtime_abi)?;
 
-        Ok(selected
-            .artifacts()
-            .iter()
-            .flat_map(StandardLibraryArtifact::platform_services)
-            .copied()
-            .collect())
+        let Some(record) = selected.artifacts().iter().find(|artifact| {
+            artifact.kind() == kind
+        }) else {
+            return Ok(None);
+        };
+
+        let resolved = self.resolve(record)?;
+        let path = resolved.path().to_path_buf();
+
+        let native_target = NativeTarget::for_identity(target)
+            .expect("validated standard library target must have a native representation");
+
+        let index_digest = NativeContentDigest::new(
+            bray_base::sha256_reader(resolved.bytes())
+                .expect("hashing an in-memory native index cannot fail"),
+        );
+
+        let payloads = path.parent()
+            .expect("native index artifact must have a parent")
+            .join("native");
+
+        let producer = match expected_producer {
+            Some(producer) => producer,
+            None => NativeArtifactIndex::decode(
+                resolved.bytes(), index_digest, native_target,
+            ).map_err(|cause| StandardLibraryLoadError::NativeIndex {
+                path: path.clone(), cause,
+            })?.producer(),
+        };
+
+        match NativeArtifactIndex::import(
+            resolved.bytes(),
+            index_digest,
+            native_target,
+            producer,
+            &payloads,
+        ) {
+            Ok(artifact) => Ok(Some((path, artifact))),
+            Err(NativeIndexError::WrongProducer { .. }) if expected_producer.is_some() => Ok(None),
+            Err(cause) => Err(StandardLibraryLoadError::NativeIndex { path, cause }),
+        }
     }
 
     fn resolve(
@@ -325,10 +352,24 @@ pub enum StandardLibraryLoadError {
         /// ABI recorded by the bundle.
         actual: RuntimeAbiVersion,
     },
-    /// The bundle has no optimization archive compatible with the selected compiler contract.
+    /// The bundle has no native index for the selected target and configuration.
     OptimizationUnavailable {
         /// Exact selected target identity.
         target: TargetIdentity,
+    },
+    /// The published native index or one indexed payload is invalid.
+    NativeIndex {
+        /// Validated manifest path for the native index.
+        path: PathBuf,
+        /// Exact native index or payload failure.
+        cause: NativeIndexError,
+    },
+    /// Native demands cannot close over the published unit set.
+    NativeResolution {
+        /// Validated manifest path for the native index.
+        path: PathBuf,
+        /// Exact unresolved or conflicting native symbol.
+        cause: NativeResolutionError,
     },
     /// Resolver cache coordination failed for one exact selected artifact.
     Infrastructure {
@@ -343,7 +384,8 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use bray_runtime_interface::RuntimeAbiVersion;
-    use bray_target::TargetIdentity;
+    use bray_native_artifact::{NativeArtifactIndex, NativeContentDigest};
+    use bray_target::{NativeTarget, TargetIdentity};
     use tempfile::TempDir;
 
     use super::{StandardLibraryLoadError, StandardLibraryResolver};
@@ -410,6 +452,58 @@ mod tests {
             resolver.target_artifacts(&missing, RuntimeAbiVersion::new(1, 0)),
             Err(StandardLibraryLoadError::TargetUnavailable(missing))
         );
+    }
+
+    #[test]
+    fn optimized_index_with_another_producer_is_optional() {
+        let fixture = Fixture::new();
+        fixture.write();
+
+        let producer = NativeContentDigest::new([1; 32]);
+
+        let index = NativeArtifactIndex::try_new(
+            NativeTarget::X86_64LinuxGnu,
+            producer,
+            [],
+            [],
+        )
+        .expect("fixture index must be valid");
+
+        let bytes = index.encode().expect("fixture index must encode");
+
+        let artifact = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::NativeIndex,
+            "targets/x86_64-unknown-linux-gnu/1.0/native-index.json",
+            &bytes,
+        )
+        .expect("fixture artifact must be valid");
+
+        fs::write(artifact.beneath(fixture.directory.path()), bytes)
+            .expect("fixture index must be written");
+
+        let mut artifacts = fixture.manifest.targets()[0].artifacts().to_vec();
+        artifacts.push(artifact);
+
+        let target = target_artifacts_for_test(fixture.target(), RuntimeAbiVersion::new(1, 0), artifacts)
+            .expect("fixture target must be valid");
+
+        let manifest = StandardLibraryBundleManifest::try_new([target])
+            .expect("fixture manifest must be valid");
+
+        let bytes = encode_standard_library_manifest(&manifest)
+            .expect("fixture manifest must encode");
+
+        fs::write(fixture.manifest_path(), bytes).expect("fixture manifest must be written");
+
+        let resolver = StandardLibraryResolver::new(fixture.root());
+        let target = fixture.target();
+        let abi = RuntimeAbiVersion::new(1, 0);
+
+        assert!(resolver.native_artifact(&target, abi, NativeContentDigest::new([2; 32]))
+            .expect("other producer must be treated as absent").is_none());
+
+        assert!(resolver.native_artifact(&target, abi, producer)
+            .expect("matching producer must resolve").is_some());
     }
 
     #[test]
@@ -599,15 +693,6 @@ mod tests {
 
             let archive = self.archive_path();
 
-            let optimization = target
-                .artifacts()
-                .iter()
-                .find(|artifact| {
-                    artifact.kind() == StandardLibraryArtifactKind::OptimizationArchive
-                })
-                .unwrap_or_else(|| panic!("fixture must contain its optimization archive"))
-                .beneath(self.directory.path());
-
             fs::create_dir_all(
                 interface
                     .parent()
@@ -630,12 +715,6 @@ mod tests {
 
             fs::write(archive, b"archive")
                 .unwrap_or_else(|error| panic!("archive must be written: {error}"));
-
-            fs::write(
-                optimization,
-                crate::manifest::TEST_OPTIMIZATION_ARTIFACT_BYTES,
-            )
-            .unwrap_or_else(|error| panic!("optimization must be written: {error}"));
 
             let bytes = encode_standard_library_manifest(&self.manifest)
                 .unwrap_or_else(|error| panic!("manifest must encode: {error:?}"));

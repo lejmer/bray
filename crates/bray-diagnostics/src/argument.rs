@@ -43,7 +43,7 @@ pub use semantic::{
 };
 pub use source::{DiagnosticModuleTrust, DiagnosticNameKind, DiagnosticVisibility};
 pub use standard_library::{
-    DiagnosticStandardLibraryManifestProblem, DiagnosticStandardLibraryOptimizationMetadataProblem,
+    DiagnosticStandardLibraryManifestProblem,
 };
 pub use target::DiagnosticTargetRepresentation;
 

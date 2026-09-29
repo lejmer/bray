@@ -21,6 +21,8 @@ fn symbol_key(symbol: &NativeSymbolContract) -> SymbolKey {
 /// A reason that one indivisible native unit belongs to the selected product.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub enum NativeUnitInclusion {
+    /// The publisher identified this unit as an owned entry to close transitively.
+    Seed,
     /// A concrete program demand names a definition in the unit.
     Demand(NativeSymbolContract),
     /// A selected unit refers to a definition in this unit.
@@ -58,7 +60,7 @@ impl NativeUnitSelection {
 }
 
 /// A required symbol cannot be resolved by the validated candidate set.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum NativeResolutionError {
     /// No exact provider exists for a required symbol.
     Unresolved(NativeSymbolContract),
@@ -129,7 +131,7 @@ impl NativeUnitResolver {
             return selection.clone();
         }
 
-        let selection = self.select_uncached(&demands).map(Arc::new);
+        let selection = self.select_uncached(&demands, &BTreeSet::new(), &[]).map(Arc::new);
 
         self.selections.lock()
             .expect("native selection cache mutex poisoned")
@@ -138,14 +140,45 @@ impl NativeUnitResolver {
         selection
     }
 
+    /// Closes demand while treating definitions already emitted by the product as satisfied.
+    pub fn select_with_provided(
+        &self,
+        demands: impl IntoIterator<Item = NativeSymbolContract>,
+        provided: impl IntoIterator<Item = NativeSymbolIdentity>,
+    ) -> Result<NativeUnitSelection, NativeResolutionError> {
+        let demands = demands.into_iter().collect::<BTreeSet<_>>().into_iter().collect::<Vec<_>>();
+        let provided = provided.into_iter().collect::<BTreeSet<_>>();
+
+        self.select_uncached(&demands, &provided, &[])
+    }
+
+    /// Closes from known owned units when native publication starts from physical entries.
+    pub fn select_seeded(
+        &self,
+        seeds: impl IntoIterator<Item = NativeContentDigest>,
+    ) -> Result<NativeUnitSelection, NativeResolutionError> {
+        let seeds = seeds.into_iter().collect::<BTreeSet<_>>().into_iter().collect::<Vec<_>>();
+
+        self.select_uncached(&[], &BTreeSet::new(), &seeds)
+    }
+
     fn select_uncached(
         &self,
         demands: &[NativeSymbolContract],
+        provided: &BTreeSet<NativeSymbolIdentity>,
+        seeds: &[NativeContentDigest],
     ) -> Result<NativeUnitSelection, NativeResolutionError> {
         let mut state = SelectionState::default();
 
+        for seed in seeds {
+            let index = self.index.units().binary_search_by_key(seed, |unit| unit.digest())
+                .expect("seeded native unit must belong to the resolver index");
+
+            state.include(index, NativeUnitInclusion::Seed, None);
+        }
+
         for demand in demands {
-            self.require(&demand, NativeUnitInclusion::Demand(demand.clone()), None, &mut state)?;
+            self.require(&demand, NativeUnitInclusion::Demand(demand.clone()), None, provided, &mut state)?;
         }
 
         for (unit_index, unit) in self.index.units().iter().enumerate() {
@@ -185,6 +218,7 @@ impl NativeUnitResolver {
                             symbol: reference.clone(),
                         },
                         Some(unit_index),
+                        provided,
                         &mut state,
                     )?;
                 }
@@ -221,9 +255,12 @@ impl NativeUnitResolver {
         symbol: &NativeSymbolContract,
         reason: NativeUnitInclusion,
         from: Option<usize>,
+        provided: &BTreeSet<NativeSymbolIdentity>,
         state: &mut SelectionState,
     ) -> Result<(), NativeResolutionError> {
-        if symbol.presence() == NativeSymbolPresence::Optional {
+        if symbol.presence() == NativeSymbolPresence::Optional
+            || symbol.version().is_none() && provided.contains(symbol.identity())
+        {
             return Ok(());
         }
 
@@ -457,6 +494,33 @@ mod tests {
             .select([required("caller")]).expect("linked pair");
 
         assert_eq!(selection.units(), [digest(1), digest(2)]);
+    }
+
+    #[test]
+    fn owned_unit_seeds_close_through_the_same_reference_graph() {
+        let owner = unit(1, &[("entry", NativeSymbolBinding::Strong, NativeDefinitionSelection::Ordinary)], &[required("support")], &[]);
+        let support = unit(2, &[("support", NativeSymbolBinding::Strong, NativeDefinitionSelection::Ordinary)], &[], &[]);
+        let unused = unit(3, &[("unused", NativeSymbolBinding::Strong, NativeDefinitionSelection::Ordinary)], &[], &[]);
+
+        let selected = NativeUnitResolver::new(index([unused, support, owner], []))
+            .select_seeded([digest(1)])
+            .expect("owned-unit closure");
+
+        assert_eq!(selected.units(), [digest(1), digest(2)]);
+        assert!(selected.reasons(digest(1)).unwrap().contains(&NativeUnitInclusion::Seed));
+    }
+
+    #[test]
+    fn product_definition_satisfies_selected_unit_reference() {
+        let caller = unit(1, &[("caller", NativeSymbolBinding::Strong, NativeDefinitionSelection::Ordinary)], &[required("callee")], &[]);
+        let callee = unit(2, &[("callee", NativeSymbolBinding::Strong, NativeDefinitionSelection::Ordinary)], &[], &[]);
+        let provided = NativeSymbolIdentity::Name(NonEmptySharedStr::try_new("callee").expect("test name"));
+
+        let selection = NativeUnitResolver::new(index([callee, caller], []))
+            .select_with_provided([required("caller")], [provided])
+            .expect("product-satisfied closure");
+
+        assert_eq!(selection.units(), [digest(1)]);
     }
 
     #[test]

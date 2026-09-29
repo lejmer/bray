@@ -68,14 +68,14 @@ impl Compilation {
             configuration,
             runtime.as_ref().map(|runtime| {
                 runtime
-                    .components()
+                    .metadata().native_indexes()
                     .iter()
-                    .map(|component| {
-                        crate::fact::RuntimeComponentQueryIdentity::new(
-                            component.metadata().identity().clone(),
-                            component.metadata().purpose(),
-                            component.metadata().archive_digest(),
-                            component.archive().to_path_buf(),
+                    .map(|index| {
+                        crate::fact::RuntimeNativeIndexQueryIdentity::new(
+                            runtime.contract().artifact().clone(),
+                            index.purpose(),
+                            index.digest(),
+                            runtime.directory().join(index.file_name()),
                         )
                     })
                     .collect::<Vec<_>>()
@@ -428,64 +428,25 @@ impl Compilation {
         };
 
         profile.record_metric(
-            crate::profile::ProfileMetricKind::RuntimeComponents,
-            u64::try_from(runtime.components().len()).unwrap_or(u64::MAX),
+            crate::profile::ProfileMetricKind::RuntimeNativeUnits,
+            u64::try_from(runtime.native_units().len()).unwrap_or(u64::MAX),
         );
 
-        let bytes = runtime
-            .components()
-            .iter()
-            .filter_map(|component| component.archive().metadata().ok())
-            .fold(0_u64, |total, metadata| {
-                total.saturating_add(metadata.len())
+        let mut bytes = 0_u64;
+
+        for unit in runtime.native_units() {
+            let unit_bytes = unit.path().metadata().map_or(0, |metadata| metadata.len());
+            bytes = bytes.saturating_add(unit_bytes);
+
+            profile.add_runtime_artifact(bray_profile::CompilationProfileRuntimeArtifact {
+                identity: unit.path().file_name()
+                    .map_or_else(|| unit.path().display().to_string(), |name| name.to_string_lossy().into_owned()),
+                bytes: unit_bytes,
             });
-
-        for component in runtime.components() {
-            let component_bytes = component
-                .archive()
-                .metadata()
-                .map_or(0, |metadata| metadata.len());
-
-            let metadata = component.metadata();
-            let identity = metadata.identity();
-
-            let retained_by = runtime
-                .components()
-                .iter()
-                .filter(|candidate| candidate.metadata().dependencies().contains(identity))
-                .map(|candidate| candidate.metadata().identity().as_str().to_owned())
-                .collect();
-
-            let mut artifact = bray_profile::CompilationProfileRuntimeArtifact {
-                identity: identity.as_str().to_owned(),
-                bytes: component_bytes,
-                runtime_roles: metadata
-                    .roles()
-                    .iter()
-                    .map(|role| role.as_str().to_owned())
-                    .collect(),
-                capabilities: metadata
-                    .capabilities()
-                    .iter()
-                    .map(|capability| capability.as_str().to_owned())
-                    .collect(),
-                platform_services: metadata
-                    .platform_services()
-                    .iter()
-                    .map(|role| role.as_str().to_owned())
-                    .collect(),
-                retained_by,
-            };
-
-            artifact.runtime_roles.sort_unstable();
-            artifact.capabilities.sort_unstable();
-            artifact.platform_services.sort_unstable();
-            artifact.retained_by.sort_unstable();
-            profile.add_runtime_artifact(artifact);
         }
 
         profile.record_metric(
-            crate::profile::ProfileMetricKind::RuntimeArchiveBytes,
+            crate::profile::ProfileMetricKind::RuntimeNativeBytes,
             bytes,
         );
     }
@@ -531,7 +492,7 @@ mod tests {
         MirProjectionKind, MirTerminatorKind, MirUnitKey, MirUnitKind,
     };
     use bray_linker::{
-        LinkFailure, LinkInputKind, LinkInputProvenance, LinkInputSource, LinkModel, LinkOutcome,
+        LinkFailure, LinkInputSource, LinkModel, LinkOutcome,
         LinkPlan, Linker, LinkerDriver, LinkerDriverCapabilities, LinkerDriverIdentity,
         LinkerDriverKind,
     };
@@ -547,7 +508,7 @@ mod tests {
         BinarySymbolName, ExecutableEntryResult, ExecutableHostContractBuildError,
         PlatformServiceBinding, PlatformServiceRole, ProtectedFrameAbiVersions,
         ProtectedFrameOperation, RootExecution, RuntimeAbiRole, RuntimeAbiVersion, RuntimeArtifact,
-        RuntimeArtifactComponentMetadata, RuntimeArtifactDigest, RuntimeArtifactId,
+        RuntimeArtifactComponentMetadata, RuntimeArtifactId,
         RuntimeArtifactMetadata, RuntimeArtifactPurpose, RuntimeCapability,
         RuntimeCompatibilityError, RuntimeContract, RuntimeIdentity, RuntimeRoleBinding,
         RuntimeRoleImplementation,
@@ -888,341 +849,120 @@ mod tests {
     }
 
     #[test]
-    fn reachable_native_symbols_select_only_their_platform_roles() {
-        let available_services = [
-            PlatformServiceRole::StandardOutputWrite,
-            PlatformServiceRole::FileRead,
-        ];
-
-        let selected = super::super::link::platform_services_for_imported_symbols(
-            &available_services,
-            [PlatformServiceRole::StandardOutputWrite.native_symbol()],
-        );
-
-        assert_eq!(
-            selected,
-            BTreeSet::from([PlatformServiceRole::StandardOutputWrite,])
-        );
-    }
-
-    #[test]
-    fn source_authority_link_inputs_include_standard_library_providers() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("fixture directory must exist: {error}"));
-
+    fn source_authority_selects_native_provider_units_and_flags() {
+        let directory = tempfile::tempdir().unwrap();
         let selected = SelectedTarget::baseline();
         let target = selected.profile().identity().clone();
+        let native_target = NativeTarget::for_identity(&target).unwrap();
         let runtime_abi = selected.runtime_abi();
-        let archive_bytes = b"standard library archive";
-        let platform_archive_bytes = b"standard stream provider archive";
-        let filesystem_archive_bytes = b"filesystem provider archive";
-        let process_archive_bytes = b"process provider archive";
+        let prefix = format!("targets/{}/{}.{}", target.as_str(), runtime_abi.major(), runtime_abi.minor());
 
-        let archive_path = format!(
-            "targets/{}/{}.{}/libstd.a",
-            target.as_str(),
-            runtime_abi.major(),
-            runtime_abi.minor()
-        );
+        let artifacts = [
+            (StandardLibraryArtifactKind::PackageInterface, "std.brayi", b"interface".as_slice()),
+            (StandardLibraryArtifactKind::PackageImplementation, "std.brayimpl", b"implementation".as_slice()),
+        ].into_iter().map(|(kind, name, bytes)| {
+            let artifact = StandardLibraryArtifact::try_for_bytes(kind, format!("{prefix}/{name}"), bytes).unwrap();
+            let path = artifact.beneath(directory.path());
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, bytes).unwrap();
 
-        let interface = StandardLibraryArtifact::try_for_bytes(
-            StandardLibraryArtifactKind::PackageInterface,
-            format!(
-                "targets/{}/{}.{}/std.brayi",
-                target.as_str(),
-                runtime_abi.major(),
-                runtime_abi.minor()
-            ),
-            b"interface",
-        )
-        .unwrap_or_else(|error| panic!("interface metadata must be valid: {error:?}"));
+            artifact
+        }).collect::<Vec<_>>();
 
-        let implementation = StandardLibraryArtifact::try_for_bytes(
-            StandardLibraryArtifactKind::PackageImplementation,
-            format!(
-                "targets/{}/{}.{}/std.brayimpl",
-                target.as_str(),
-                runtime_abi.major(),
-                runtime_abi.minor()
-            ),
-            b"implementation",
-        )
-        .unwrap_or_else(|error| panic!("implementation metadata must be valid: {error:?}"));
+        let mut payload_paths = BTreeMap::new();
 
-        let archive = StandardLibraryArtifact::try_for_bytes(
-            StandardLibraryArtifactKind::StaticLibrary,
-            archive_path,
-            archive_bytes,
-        )
-        .unwrap_or_else(|error| panic!("archive metadata must be valid: {error:?}"));
+        let units = [
+            ("fallback", None, None),
+            ("streams", Some(PlatformServiceRole::StandardOutputWrite), Some("c")),
+            ("filesystem", Some(PlatformServiceRole::FileRead), Some("filesystem")),
+            ("process", Some(PlatformServiceRole::ChildSpawn), Some("process")),
+        ].into_iter().map(|(name, role, library)| {
+            let bytes = name.as_bytes();
+            let digest = NativeContentDigest::new(bray_base::sha256_reader(bytes).unwrap());
+            let kind = if role.is_some() { NativeUnitKind::Object } else { NativeUnitKind::OpaqueArchive };
 
-        let platform_archive_path = format!(
-            "targets/{}/{}.{}/libbray_platform_standard_streams.a",
-            target.as_str(),
-            runtime_abi.major(),
-            runtime_abi.minor()
-        );
+            let summary = role.map_or(NativeUnitSummary::Opaque, |role| NativeUnitSummary::Exact {
+                definitions: Arc::from([NativeDefinition::new(
+                    NativeSymbolContract::required_name(NonEmptySharedStr::try_new(role.native_symbol()).unwrap()),
+                    NativeDefinitionSelection::Ordinary,
+                )]),
+                references: Arc::from([]),
+                roots: Arc::from([]),
+            });
 
-        let platform_archive = StandardLibraryArtifact::try_for_bytes(
-            StandardLibraryArtifactKind::PlatformServiceLibrary,
-            platform_archive_path,
-            platform_archive_bytes,
-        )
-        .map(|artifact| artifact.with_platform_services([PlatformServiceRole::StandardOutputWrite]))
-        .map(|artifact| {
-            artifact.with_native_links([NativeLinkRequirement::new(
-                NonEmptySharedStr::try_new("c")
-                    .unwrap_or_else(|| panic!("native library name must be valid")),
-                NativeLinkKind::System,
-            )])
-        })
-        .unwrap_or_else(|error| panic!("platform archive metadata must be valid: {error:?}"));
+            let links = library.into_iter().map(|name| NativeLinkRequirement::new(
+                NonEmptySharedStr::try_new(name).unwrap(), NativeLinkKind::System,
+            ));
 
-        let filesystem_archive = StandardLibraryArtifact::try_for_bytes(
-            StandardLibraryArtifactKind::PlatformServiceLibrary,
-            format!(
-                "targets/{}/{}.{}/libbray_platform_filesystem.a",
-                target.as_str(),
-                runtime_abi.major(),
-                runtime_abi.minor()
-            ),
-            filesystem_archive_bytes,
-        )
-        .map(|artifact| artifact.with_platform_services([PlatformServiceRole::FileRead]))
-        .map(|artifact| {
-            artifact.with_native_links([NativeLinkRequirement::new(
-                NonEmptySharedStr::try_new("filesystem")
-                    .unwrap_or_else(|| panic!("native library name must be valid")),
-                NativeLinkKind::System,
-            )])
-        })
-        .unwrap_or_else(|error| panic!("filesystem metadata must be valid: {error:?}"));
+            let path = directory.path().join(&prefix).join("native").join(kind.file_name(digest, native_target));
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, bytes).unwrap();
+            payload_paths.insert(name, path);
 
-        let process_archive = StandardLibraryArtifact::try_for_bytes(
-            StandardLibraryArtifactKind::PlatformServiceLibrary,
-            format!(
-                "targets/{}/{}.{}/libbray_platform_process.a",
-                target.as_str(),
-                runtime_abi.major(),
-                runtime_abi.minor()
-            ),
-            process_archive_bytes,
-        )
-        .map(|artifact| artifact.with_platform_services([PlatformServiceRole::ChildSpawn]))
-        .map(|artifact| {
-            artifact.with_native_links([NativeLinkRequirement::new(
-                NonEmptySharedStr::try_new("process")
-                    .unwrap_or_else(|| panic!("native library name must be valid")),
-                NativeLinkKind::System,
-            )])
-        })
-        .unwrap_or_else(|error| panic!("process metadata must be valid: {error:?}"));
+            NativeUnit::new(digest, kind, summary, links, [])
+        }).collect::<Vec<_>>();
 
-        let target_artifacts = target_artifacts_for_test(
-            target,
-            runtime_abi,
-            vec![
-                interface.clone(),
-                implementation.clone(),
-                archive.clone(),
-                platform_archive.clone(),
-                filesystem_archive.clone(),
-                process_archive.clone(),
-            ],
-        )
-        .unwrap_or_else(|error| panic!("target metadata must be valid: {error:?}"));
+        let index = NativeArtifactIndex::try_new(native_target, NativeContentDigest::new([7; 32]), units, [])
+            .unwrap().encode().unwrap();
 
-        let manifest = StandardLibraryBundleManifest::try_new([target_artifacts])
-            .unwrap_or_else(|error| panic!("manifest must be valid: {error:?}"));
+        let index_artifact = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::NativeObjectIndex, format!("{prefix}/native-object-index.json"), &index,
+        ).unwrap();
 
-        let archive_file = archive.beneath(directory.path());
+        fs::write(index_artifact.beneath(directory.path()), &index).unwrap();
 
-        let archive_directory = archive_file
-            .parent()
-            .unwrap_or_else(|| panic!("archive must have a parent directory"));
+        let manifest = StandardLibraryBundleManifest::try_new([
+            target_artifacts_for_test(
+                target, runtime_abi, artifacts.into_iter().chain([index_artifact]).collect(),
+            ).unwrap(),
+        ]).unwrap();
 
-        fs::create_dir_all(archive_directory)
-            .unwrap_or_else(|error| panic!("archive directory must exist: {error}"));
+        fs::write(
+            directory.path().join("manifest.json"),
+            encode_standard_library_manifest(&manifest).unwrap(),
+        ).unwrap();
 
-        fs::write(&archive_file, archive_bytes)
-            .unwrap_or_else(|error| panic!("archive must be written: {error}"));
-
-        let platform_archive_file = platform_archive.beneath(directory.path());
-        let filesystem_archive_file = filesystem_archive.beneath(directory.path());
-        let process_archive_file = process_archive.beneath(directory.path());
-
-        fs::write(&platform_archive_file, platform_archive_bytes)
-            .unwrap_or_else(|error| panic!("platform archive must be written: {error}"));
-
-        fs::write(&filesystem_archive_file, filesystem_archive_bytes)
-            .unwrap_or_else(|error| panic!("filesystem archive must be written: {error}"));
-
-        // The unrelated process provider stays absent so selected plans cannot resolve it eagerly.
-        fs::write(interface.beneath(directory.path()), b"interface")
-            .unwrap_or_else(|error| panic!("interface must be written: {error}"));
-
-        fs::write(implementation.beneath(directory.path()), b"implementation")
-            .unwrap_or_else(|error| panic!("implementation must be written: {error}"));
-
-        let manifest_bytes = encode_standard_library_manifest(&manifest)
-            .unwrap_or_else(|error| panic!("manifest must encode: {error:?}"));
-
-        fs::write(directory.path().join("manifest.json"), manifest_bytes)
-            .unwrap_or_else(|error| panic!("manifest must be written: {error}"));
-
-        let root = StandardLibraryRoot::try_new(directory.path())
-            .unwrap_or_else(|| panic!("temporary root must be absolute"));
-
-        let package = PackageIdentity::try_new("std.tests.api")
-            .unwrap_or_else(|| panic!("test package identity must be valid"));
+        let root = StandardLibraryRoot::try_new(directory.path()).unwrap();
 
         let request = CompilationRequest::with_options(
-            package,
-            vec![crate::test_support::source_input(
-                "module application;\n",
-                0,
-            )],
+            PackageIdentity::try_new("std.tests.api").unwrap(),
+            vec![crate::test_support::source_input("module application;\n", 0)],
             CompilationOptions::new(WorkerBudget::serial(), ProductKind::Executable, selected),
         )
         .with_standard_library_provider_root(root)
         .with_standard_library_source_authority();
 
-        let compilation = crate::Compilation::load(request)
-            .unwrap_or_else(|error| panic!("compilation must load: {error:?}"));
-
+        let compilation = crate::Compilation::load(request).unwrap();
         assert!(compilation.dependency_interfaces().is_empty());
 
-        let inputs = compilation
-            .standard_library_link_inputs(
-                ProductKind::Executable,
-                &BTreeSet::from([PlatformServiceRole::StandardOutputWrite.native_symbol()]),
-                &BTreeSet::new(),
-            )
-            .unwrap_or_else(|error| panic!("standard library inputs must resolve: {error:?}"));
+        let select = |role: PlatformServiceRole| compilation.standard_library_link_inputs(
+            ProductKind::Executable,
+            &BTreeSet::from([role.native_symbol()]),
+            &BTreeSet::new(),
+        ).unwrap().into_iter().map(Result::unwrap).collect::<Vec<_>>();
 
-        assert_eq!(inputs.len(), 3);
+        let streams = select(PlatformServiceRole::StandardOutputWrite);
+        assert_eq!(streams.len(), 3);
+        assert!(streams.iter().any(|input| input.source() == &LinkInputSource::file(&payload_paths["fallback"])));
+        assert!(streams.iter().any(|input| input.source() == &LinkInputSource::file(&payload_paths["streams"])));
+        assert!(streams.iter().any(|input| input.source() == &LinkInputSource::try_native_library("c").unwrap()));
+        assert!(streams.iter().all(|input| input.source() != &LinkInputSource::file(&payload_paths["process"])));
+        let filesystem = select(PlatformServiceRole::FileRead);
+        assert!(filesystem.iter().any(|input| input.source() == &LinkInputSource::file(&payload_paths["filesystem"])));
+        assert!(filesystem.iter().all(|input| input.source() != &LinkInputSource::file(&payload_paths["streams"])));
 
-        let package_provenance = |provenance: &LinkInputProvenance| {
-            matches!(
-                provenance,
-                LinkInputProvenance::Package(package)
-                    if package.as_str()
-                        == bray_standard_library::PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY
-            )
-        };
+        let overridden = compilation.standard_library_link_inputs(
+            ProductKind::Test,
+            &BTreeSet::from([PlatformServiceRole::StandardOutputWrite.native_symbol()]),
+            &BTreeSet::from([PlatformServiceRole::StandardOutputWrite]),
+        ).unwrap().into_iter().map(Result::unwrap).collect::<Vec<_>>();
 
-        let platform_provenance = |provenance: &LinkInputProvenance| {
-            matches!(
-                provenance,
-                LinkInputProvenance::PlatformProvider(package)
-                    if package.as_str()
-                        == bray_standard_library::PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY
-            )
-        };
+        assert_eq!(overridden.len(), 1);
+        assert_eq!(overridden[0].source(), &LinkInputSource::file(&payload_paths["fallback"]));
 
-        for (path, provenance) in [
-            (
-                &archive_file,
-                package_provenance as fn(&LinkInputProvenance) -> bool,
-            ),
-            (
-                &platform_archive_file,
-                platform_provenance as fn(&LinkInputProvenance) -> bool,
-            ),
-        ] {
-            assert!(inputs.iter().any(|input| {
-                input.as_ref().is_ok_and(|input| {
-                    input.kind() == LinkInputKind::Archive
-                        && input.source() == &LinkInputSource::file(path)
-                        && provenance(input.provenance())
-                })
-            }));
-        }
-
-        assert!(inputs.iter().any(|input| {
-            input.as_ref().is_ok_and(|input| {
-                input.kind() == LinkInputKind::NativeLibrary
-                    && input.source()
-                        == &LinkInputSource::try_native_library("c")
-                            .unwrap_or_else(|| panic!("native library name must be valid"))
-                    && platform_provenance(input.provenance())
-            })
-        }));
-
-        for forbidden in [&filesystem_archive_file, &process_archive_file] {
-            assert!(!inputs.iter().any(|input| {
-                input
-                    .as_ref()
-                    .is_ok_and(|input| input.source() == &LinkInputSource::file(forbidden))
-            }));
-        }
-
-        let filesystem_inputs = compilation
-            .standard_library_link_inputs(
-                ProductKind::Executable,
-                &BTreeSet::from([PlatformServiceRole::FileRead.native_symbol()]),
-                &BTreeSet::new(),
-            )
-            .unwrap_or_else(|error| panic!("filesystem inputs must resolve: {error:?}"));
-
-        assert!(filesystem_inputs.iter().any(|input| {
-            input.as_ref().is_ok_and(|input| {
-                input.source() == &LinkInputSource::file(&filesystem_archive_file)
-                    && platform_provenance(input.provenance())
-            })
-        }));
-
-        assert!(!filesystem_inputs.iter().any(|input| {
-            input.as_ref().is_ok_and(|input| {
-                input.source() == &LinkInputSource::file(&platform_archive_file)
-                    || input.source() == &LinkInputSource::file(&process_archive_file)
-            })
-        }));
-
-        assert!(filesystem_inputs.iter().any(|input| {
-            input.as_ref().is_ok_and(|input| {
-                input.source()
-                    == &LinkInputSource::try_native_library("filesystem")
-                        .unwrap_or_else(|| panic!("native library name must be valid"))
-                    && platform_provenance(input.provenance())
-            })
-        }));
-
-        assert!(!filesystem_inputs.iter().any(|input| {
-            input.as_ref().is_ok_and(|input| {
-                ["c", "process"].iter().any(|name| {
-                    input.source()
-                        == &LinkInputSource::try_native_library(*name)
-                            .unwrap_or_else(|| panic!("native library name must be valid"))
-                })
-            })
-        }));
-
-        let overridden_inputs = compilation
-            .standard_library_link_inputs(
-                ProductKind::Test,
-                &BTreeSet::from([PlatformServiceRole::StandardOutputWrite.native_symbol()]),
-                &BTreeSet::from([PlatformServiceRole::StandardOutputWrite]),
-            )
-            .unwrap_or_else(|error| panic!("overridden inputs must resolve: {error:?}"));
-
-        assert_eq!(overridden_inputs.len(), 1);
-
-        assert!(overridden_inputs[0].as_ref().is_ok_and(|input| {
-            input.source() == &LinkInputSource::file(&archive_file)
-                && package_provenance(input.provenance())
-        }));
-
-        assert!(
-            compilation
-                .standard_library_link_inputs(
-                    ProductKind::Library,
-                    &BTreeSet::new(),
-                    &BTreeSet::new(),
-                )
-                .unwrap_or_else(|error| panic!("library inputs must resolve: {error:?}"))
-                .is_empty()
-        );
+        assert!(compilation.standard_library_link_inputs(
+            ProductKind::Library, &BTreeSet::new(), &BTreeSet::new(),
+        ).unwrap().is_empty());
     }
 
     #[test]
@@ -1764,6 +1504,25 @@ mod tests {
             generated_artifacts(&backend, &plan)
                 .iter()
                 .all(|artifact| !artifact.is_empty())
+        );
+    }
+
+    #[test]
+    fn inlined_callee_parameter_remains_valid_across_blocks() {
+        assert_source_emits_valid_native_units(
+            concat!(
+                "module app;\n",
+                "public func choose(pos value: i32) -> bool\n",
+                "{\n",
+                "    if value == 1 { return true; }\n",
+                "    return false;\n",
+                "}\n",
+                "public func entry(pos value: i32) -> bool\n",
+                "{\n",
+                "    return choose(value);\n",
+                "}\n",
+            ),
+            crate::BuildConfiguration::Release,
         );
     }
 
@@ -6292,11 +6051,6 @@ public func invoke<T>(pos value: T)
         )
         .unwrap_or_else(|error| panic!("test runtime contract must validate: {error:?}"));
 
-        let digest = RuntimeArtifactDigest::new(
-            bray_base::sha256_file(archive)
-                .unwrap_or_else(|error| panic!("test runtime archive must hash: {error}")),
-        );
-
         let product_component = RuntimeArtifactId::try_new("runtime.product")
             .unwrap_or_else(|| panic!("test component identity must be valid"));
 
@@ -6309,8 +6063,6 @@ public func invoke<T>(pos value: T)
                     .copied()
                     .filter(|role| role.available_to_product()),
                 capabilities,
-                "libbray_runtime_product.a",
-                digest,
             )
             .unwrap_or_else(|error| panic!("test component must validate: {error:?}")),
             RuntimeArtifactComponentMetadata::try_new(
@@ -6319,36 +6071,28 @@ public func invoke<T>(pos value: T)
                 RuntimeArtifactPurpose::TestRunner,
                 roles.iter().copied(),
                 capabilities,
-                "libbray_runtime_test.a",
-                digest,
             )
             .unwrap_or_else(|error| panic!("test component must validate: {error:?}"))
             .with_platform_services(platform_services),
         ];
 
-        let metadata = RuntimeArtifactMetadata::try_new(contract, components)
-            .unwrap_or_else(|error| panic!("test runtime metadata must validate: {error:?}"));
-
         let directory = archive.parent().unwrap_or_else(|| std::path::Path::new(""));
-        let product_archive = directory.join("libbray_runtime_product.a");
-        let test_archive = directory.join("libbray_runtime_test.a");
 
-        fs::copy(archive, &product_archive)
-            .unwrap_or_else(|error| panic!("test product runtime archive must copy: {error}"));
+        let indexes = RuntimeArtifactPurpose::ALL.map(|purpose| {
+            let symbols = contract.role_bindings().iter()
+                .filter(|binding| purpose == RuntimeArtifactPurpose::TestRunner || binding.role().available_to_product())
+                .map(|binding| binding.symbol_name().as_str());
 
-        fs::copy(archive, &test_archive)
-            .unwrap_or_else(|error| panic!("test runner runtime archive must copy: {error}"));
+            bray_testing::test_runtime_native_index(directory, bray_target::NativeTarget::for_identity(target.identity()).expect("test target must be native"), purpose, symbols, archive)
+        });
+
+        let metadata = RuntimeArtifactMetadata::try_new(contract, components, indexes.iter().map(|(reference, _)| reference.clone()))
+            .unwrap_or_else(|error| panic!("test runtime metadata must validate: {error:?}"));
 
         RuntimeArtifact::try_new(
             metadata,
-            [
-                (product_component, product_archive),
-                (
-                    RuntimeArtifactId::try_new("runtime.test")
-                        .unwrap_or_else(|| panic!("test component identity must be valid")),
-                    test_archive,
-                ),
-            ],
+            directory.to_path_buf(),
+            indexes.map(|(_, index)| index),
         )
         .unwrap_or_else(|error| panic!("test runtime artifact must validate: {error:?}"))
     }

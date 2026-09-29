@@ -212,9 +212,9 @@ impl PackageNativeArtifactError {
 
                     Cause::WrongProducer
                 }
-                NativeIndexError::Read { path: failed_path, error } => {
+                NativeIndexError::Read { path: failed_path, kind } => {
                     path = Some(failed_path);
-                    io_error_kind = Some(bray_diagnostics::DiagnosticIoErrorKind::from(error.kind()));
+                    io_error_kind = Some(bray_diagnostics::DiagnosticIoErrorKind::from(kind));
 
                     Cause::ReadFailure
                 },

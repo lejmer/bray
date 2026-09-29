@@ -25,7 +25,7 @@ file-id = "0.2"
 bray-codegen = { path = "../bray-codegen", features = ["test-support"] }
 bray-package-interface = { path = "../bray-package-interface", features = ["test-support"] }
 bray-target = { path = "../bray-target", features = ["test-support"] }
-bray-testing = { path = "../bray-testing", features = ["mir-unit"] }
+bray-testing = { path = "../bray-testing", features = ["mir-unit", "runtime-artifact"] }
 
 [lints]
 workspace = true

@@ -206,9 +206,6 @@ pub enum DiagnosticNativeProductFailureKind {
     RuntimeSelectionIncompatible(DiagnosticNativeProductFailureDetail),
     RuntimeSelectionMissingRoleOwner(DiagnosticNativeProductFailureDetail),
     RuntimeSelectionMissingCapabilityOwner(DiagnosticNativeProductFailureDetail),
-    RuntimeSelectionUnreadableArchive(DiagnosticNativeProductFailureDetail),
-    RuntimeSelectionInvalidArchive(DiagnosticNativeProductFailureDetail),
-    RuntimeSelectionArchiveDigestMismatch(DiagnosticNativeProductFailureDetail),
     /// The configured standard library could not supply a required native artifact.
     StandardLibraryUnavailable,
     LinkTargetEmptyTriple,
@@ -325,10 +322,7 @@ impl DiagnosticNativeProductFailureKind {
             }
             Self::RuntimeSelectionIncompatible(detail)
             | Self::RuntimeSelectionMissingRoleOwner(detail)
-            | Self::RuntimeSelectionMissingCapabilityOwner(detail)
-            | Self::RuntimeSelectionUnreadableArchive(detail)
-            | Self::RuntimeSelectionInvalidArchive(detail)
-            | Self::RuntimeSelectionArchiveDigestMismatch(detail) => detail.reason(),
+            | Self::RuntimeSelectionMissingCapabilityOwner(detail) => detail.reason(),
             Self::StandardLibraryUnavailable => "standard_library_unavailable",
             Self::LinkTargetEmptyTriple => "link_target_empty_triple",
             Self::CodegenBackendUnsupportedTarget => "codegen_backend_unsupported_target",

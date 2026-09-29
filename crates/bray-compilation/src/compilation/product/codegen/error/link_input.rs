@@ -47,9 +47,10 @@ const fn standard_library_artifact_kind(
         Kind::RelocatableObject => "relocatable_object",
         Kind::StaticLibrary => "static_library",
         Kind::PlatformServiceLibrary => "platform_service_library",
-        Kind::OptimizationArchive => "optimization_archive",
         Kind::SharedLibrary => "shared_library",
         Kind::RuntimeArtifact => "runtime_artifact",
+        Kind::NativeIndex => "native_index",
+        Kind::NativeObjectIndex => "native_object_index",
     }
 }
 

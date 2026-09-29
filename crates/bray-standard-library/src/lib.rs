@@ -18,11 +18,7 @@ pub use manifest::target_artifacts_for_test;
 pub use manifest::{
     STANDARD_LIBRARY_MANIFEST_FILE_NAME, StandardLibraryArtifact, StandardLibraryArtifactDigest,
     StandardLibraryArtifactKind, StandardLibraryBundleDigest, StandardLibraryBundleManifest,
-    StandardLibraryManifestError, StandardLibraryOptimizationCompatibility,
-    StandardLibraryOptimizationDependency, StandardLibraryOptimizationFallback,
-    StandardLibraryOptimizationLifecycleRoot, StandardLibraryOptimizationMetadata,
-    StandardLibraryOptimizationMetadataProblem, StandardLibraryOptimizationProducer,
-    StandardLibraryOptimizationProducerKind, StandardLibraryOptimizationSemantics,
+    StandardLibraryManifestError,
     StandardLibraryTargetArtifacts, decode_standard_library_manifest,
     encode_standard_library_manifest, standard_library_target_artifact_directory,
 };

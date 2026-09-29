@@ -1,4 +1,6 @@
 use std::fmt;
+use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -19,6 +21,43 @@ impl RustStaticLibrary {
     pub(crate) fn native_links(&self) -> &[NativeLinkRequirement] {
         &self.native_links
     }
+}
+
+/// Packs independently generated native members into one deterministic linker archive.
+pub(crate) fn archive_bytes(
+    tool: &Path,
+    members: &[Vec<u8>],
+    extension: &str,
+) -> io::Result<Vec<u8>> {
+    if members.is_empty() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "archive requires members"));
+    }
+
+    let directory = tempfile::Builder::new().prefix("bray-native-archive-").tempdir()?;
+    let archive = directory.path().join("members.lib");
+    let mut names = Vec::with_capacity(members.len());
+
+    for (index, bytes) in members.iter().enumerate() {
+        let name = format!("{index:04}.{extension}");
+        fs::write(directory.path().join(&name), bytes)?;
+        names.push(name);
+    }
+
+    let output = Command::new(tool)
+        .current_dir(directory.path())
+        .arg("crsD")
+        .arg(&archive)
+        .args(&names)
+        .output()?;
+
+    if !output.status.success() {
+        return Err(io::Error::other(format!(
+            "archive tool failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim(),
+        )));
+    }
+
+    fs::read(archive)
 }
 
 pub(crate) fn build_rust_static_library(

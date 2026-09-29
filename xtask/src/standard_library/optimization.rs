@@ -1,18 +1,9 @@
-use std::collections::BTreeSet;
 use std::fs;
-use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use bray_codegen::{BackendIdentity, CodegenTarget};
-use bray_runtime_interface::{BinarySymbolName, PlatformServiceRole, RuntimeAbiVersion};
-use bray_standard_library::{
-    StandardLibraryArtifact, StandardLibraryArtifactKind, StandardLibraryOptimizationCompatibility,
-    StandardLibraryOptimizationDependency, StandardLibraryOptimizationFallback,
-    StandardLibraryOptimizationLifecycleRoot, StandardLibraryOptimizationMetadata,
-    StandardLibraryOptimizationProducer, StandardLibraryOptimizationProducerKind,
-};
-use bray_target::{NativeTarget, ObjectFormat, TargetOutputKind, TargetOutputName};
+use bray_native_artifact::{NativeUnitSummary, scan_bitcode_unit_summary};
+use bray_target::NativeTarget;
 use inkwell::context::Context;
 use inkwell::memory_buffer::MemoryBuffer;
 use inkwell::module::Module;
@@ -20,196 +11,18 @@ use rayon::prelude::{IndexedParallelIterator, IntoParallelIterator, ParallelIter
 
 use super::command::BuildError;
 
-pub(super) struct BuiltOptimizationArchive {
-    pub(super) bytes: Vec<u8>,
-    pub(super) module_count: NonZeroU32,
-    pub(super) preservation_roots: Vec<BinarySymbolName>,
-    pub(super) lifecycle_roots: Vec<StandardLibraryOptimizationLifecycleRoot>,
+pub(super) struct BuiltNativeModules {
+    pub(super) units: Vec<(NativeUnitSummary, Vec<u8>)>,
     pub(super) triple: String,
     pub(super) data_layout: String,
-}
-
-pub(super) struct OptimizationPublication<'publication> {
-    bundle: &'publication Path,
-    target_path: &'publication str,
-    native: NativeTarget,
-    runtime_abi: RuntimeAbiVersion,
-    backend: &'publication BackendIdentity,
-    target: &'publication CodegenTarget,
-    triple: String,
-    data_layout: String,
-}
-
-impl<'publication> OptimizationPublication<'publication> {
-    pub(super) fn new(
-        bundle: &'publication Path,
-        target_path: &'publication str,
-        native: NativeTarget,
-        runtime_abi: RuntimeAbiVersion,
-        backend: &'publication BackendIdentity,
-        target: &'publication CodegenTarget,
-        baseline: &BuiltOptimizationArchive,
-    ) -> Self {
-        Self {
-            bundle,
-            target_path,
-            native,
-            runtime_abi,
-            backend,
-            target,
-            triple: baseline.triple.clone(),
-            data_layout: baseline.data_layout.clone(),
-        }
-    }
-
-    pub(super) fn publish_bray(
-        &self,
-        fallback: &StandardLibraryArtifact,
-        built: BuiltOptimizationArchive,
-    ) -> Result<StandardLibraryArtifact, BuildError> {
-        let producer = StandardLibraryOptimizationProducer::try_new(
-            StandardLibraryOptimizationProducerKind::Bray,
-            self.backend.name(),
-            self.backend.revision(),
-            "llvm",
-            self.backend.toolchain_revision(),
-        )
-        .map_err(manifest_error)?;
-
-        self.publish("std", &[], &[], fallback, built, producer)
-    }
-
-    pub(super) fn publish_native(
-        &self,
-        partition: &str,
-        services: &[PlatformServiceRole],
-        dependencies: &[StandardLibraryArtifact],
-        fallback: &StandardLibraryArtifact,
-        built: BuiltOptimizationArchive,
-    ) -> Result<StandardLibraryArtifact, BuildError> {
-        let producer = StandardLibraryOptimizationProducer::try_new(
-            StandardLibraryOptimizationProducerKind::PinnedNative,
-            partition,
-            env!("CARGO_PKG_VERSION"),
-            "llvm",
-            self.backend.toolchain_revision(),
-        )
-        .map_err(manifest_error)?;
-
-        self.publish(partition, services, dependencies, fallback, built, producer)
-    }
-
-    fn publish(
-        &self,
-        partition: &str,
-        services: &[PlatformServiceRole],
-        dependencies: &[StandardLibraryArtifact],
-        fallback: &StandardLibraryArtifact,
-        built: BuiltOptimizationArchive,
-        producer: StandardLibraryOptimizationProducer,
-    ) -> Result<StandardLibraryArtifact, BuildError> {
-        let compatibility = self.compatibility(&built)?;
-        let file_name = optimization_archive_name(self.native, partition)?;
-        let path = format!("{}/{file_name}", self.target_path);
-
-        super::command::write_bundle_artifact(self.bundle, &path, &built.bytes)?;
-
-        let fallback_metadata =
-            StandardLibraryOptimizationFallback::try_new(fallback.path(), fallback.digest())
-                .map_err(manifest_error)?;
-
-        let dependencies = dependencies
-            .iter()
-            .map(|dependency| {
-                StandardLibraryOptimizationDependency::try_new(
-                    dependency.path(),
-                    dependency.digest(),
-                )
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(manifest_error)?;
-
-        let metadata = StandardLibraryOptimizationMetadata::try_new(
-            partition,
-            producer,
-            compatibility,
-            fallback_metadata,
-            built.module_count,
-        )
-        .map(|metadata| metadata.with_preservation_roots(built.preservation_roots))
-        .map(|metadata| metadata.with_lifecycle_roots(built.lifecycle_roots))
-        .map(|metadata| metadata.with_platform_services(services.iter().copied()))
-        .map(|metadata| metadata.with_dependencies(dependencies))
-        .map_err(manifest_error)?;
-
-        StandardLibraryArtifact::try_for_bytes(
-            StandardLibraryArtifactKind::OptimizationArchive,
-            path,
-            &built.bytes,
-        )
-        .map(|artifact| artifact.with_optimization(metadata))
-        .map(|artifact| inherit_native_links(artifact, fallback))
-        .map_err(manifest_error)
-    }
-
-    fn compatibility(
-        &self,
-        optimization: &BuiltOptimizationArchive,
-    ) -> Result<StandardLibraryOptimizationCompatibility, BuildError> {
-        if optimization.triple != self.triple || optimization.data_layout != self.data_layout {
-            return Err(BuildError::NativeArchive(format!(
-                "optimization target {} with data layout {} differs from Bray target {} with data layout {}",
-                optimization.triple, optimization.data_layout, self.triple, self.data_layout,
-            )));
-        }
-
-        let compatibility = StandardLibraryOptimizationCompatibility::try_new(
-            optimization.triple.clone(),
-            optimization.data_layout.clone(),
-            self.target.relocation_model(),
-            self.target.code_model(),
-            self.runtime_abi,
-        )
-        .map_err(manifest_error)?;
-
-        if compatibility.triple() != self.target.triple() {
-            return Err(BuildError::NativeArchive(format!(
-                "optimization target {} differs from selected target {}",
-                compatibility.triple(),
-                self.target.triple(),
-            )));
-        }
-
-        Ok(compatibility)
-    }
-}
-
-fn inherit_native_links(
-    artifact: StandardLibraryArtifact,
-    fallback: &StandardLibraryArtifact,
-) -> StandardLibraryArtifact {
-    artifact.with_native_links(fallback.native_links().iter().cloned())
-}
-
-fn optimization_archive_name(target: NativeTarget, partition: &str) -> Result<String, BuildError> {
-    TargetOutputName::for_native(target.object_format(), TargetOutputKind::StaticLibrary)
-        .file_name(&format!("{partition}_optimization"))
-        .ok_or(BuildError::InvalidIdentity)
-}
-
-fn manifest_error(error: bray_standard_library::StandardLibraryManifestError) -> BuildError {
-    BuildError::Manifest(format!("{error:?}"))
 }
 
 pub(super) fn from_bray_modules(
     root: &Path,
     work: &Path,
     modules: impl IntoIterator<Item = Vec<u8>>,
-    preservation_roots: impl IntoIterator<Item = BinarySymbolName>,
-) -> Result<BuiltOptimizationArchive, BuildError> {
-    let preservation_roots = preservation_roots.into_iter().collect::<BTreeSet<_>>();
-
-    build_archive(root, work, modules, preservation_roots, None, true)
+) -> Result<BuiltNativeModules, BuildError> {
+    prepare_units(root, work, modules, None, true)
 }
 
 pub(super) fn from_native_archive(
@@ -217,31 +30,23 @@ pub(super) fn from_native_archive(
     work: &Path,
     archive: &Path,
     target: NativeTarget,
-) -> Result<Option<BuiltOptimizationArchive>, BuildError> {
+) -> Result<Option<BuiltNativeModules>, BuildError> {
     let modules = bitcode_members(root, archive)?;
 
     if modules.is_empty() {
         return Ok(None);
     }
 
-    let built = build_archive(root, work, modules, BTreeSet::new(), Some(target.as_str()), false)?;
-
-    let preservation_roots = native_exports(root, &built.bytes, work, target.object_format())?;
-
-    Ok(Some(BuiltOptimizationArchive {
-        preservation_roots,
-        ..built
-    }))
+    prepare_units(root, work, modules, Some(target.as_str()), false).map(Some)
 }
 
-fn build_archive(
+fn prepare_units(
     root: &Path,
     work: &Path,
     modules: impl IntoIterator<Item = Vec<u8>>,
-    preservation_roots: BTreeSet<BinarySymbolName>,
     target_triple: Option<&str>,
     compiler_summarized: bool,
-) -> Result<BuiltOptimizationArchive, BuildError> {
+) -> Result<BuiltNativeModules, BuildError> {
     let staging = tempfile::Builder::new()
         .prefix("bray-thin-lto-")
         .tempdir_in(work)
@@ -250,16 +55,8 @@ fn build_archive(
     let mut modules: Vec<_> = modules.into_iter().collect();
     modules.sort_unstable();
 
-    let module_count = u32::try_from(modules.len())
-        .ok()
-        .and_then(NonZeroU32::new)
-        .ok_or_else(|| {
-            BuildError::NativeArchive("optimization module count is invalid".to_owned())
-        })?;
-
-    let mut summarized = Vec::with_capacity(modules.len());
+    let mut units = Vec::with_capacity(modules.len());
     let mut contract = None;
-    let mut lifecycle_roots = BTreeSet::new();
 
     let prepare = |index, bytes| {
         prepare_module(root, staging.path(), index, bytes, target_triple, compiler_summarized)
@@ -272,7 +69,7 @@ fn build_archive(
     };
 
     for item in prepared {
-        let (output, module_contract, module_lifecycle_roots) = item?;
+        let (output, module_contract, summary) = item?;
 
         if contract
             .as_ref()
@@ -284,27 +81,16 @@ fn build_archive(
         }
 
         contract.get_or_insert(module_contract);
-        lifecycle_roots.extend(module_lifecycle_roots);
-        summarized.push(output);
+        let bytes = fs::read(&output).map_err(|error| BuildError::read(&output, error))?;
+        units.push((summary, bytes));
     }
-
-    let archive = staging.path().join("optimization.a");
-
-    crate::progress::run("Creating optimization archive", || {
-        create_archive(root, &archive, &summarized)
-    })?;
-
-    let bytes = fs::read(&archive).map_err(|error| BuildError::read(&archive, error))?;
 
     let (triple, data_layout) = contract.ok_or_else(|| {
         BuildError::NativeArchive("optimization module target is unavailable".to_owned())
     })?;
 
-    Ok(BuiltOptimizationArchive {
-        bytes,
-        module_count,
-        preservation_roots: preservation_roots.into_iter().collect(),
-        lifecycle_roots: lifecycle_roots.into_iter().collect(),
+    Ok(BuiltNativeModules {
+        units,
         triple,
         data_layout,
     })
@@ -317,7 +103,7 @@ fn prepare_module(
     bytes: Vec<u8>,
     target_triple: Option<&str>,
     compiler_summarized: bool,
-) -> Result<(PathBuf, (String, String), BTreeSet<StandardLibraryOptimizationLifecycleRoot>), BuildError> {
+) -> Result<(PathBuf, (String, String), NativeUnitSummary), BuildError> {
     if !is_llvm_bitcode(&bytes) {
         let signature = bytes
             .iter()
@@ -347,9 +133,43 @@ fn prepare_module(
         fs::read(&output).map_err(|error| BuildError::read(&output, error))?
     };
 
-    let (contract, lifecycle_roots) = inspect_module_contract(root, &summarized, compiler_summarized)?;
+    let contract = inspect_module_contract(root, &summarized, compiler_summarized)?;
+    let summary = native_unit_summary(root, &output)?;
 
-    Ok((output, contract, lifecycle_roots))
+    Ok((output, contract, summary))
+}
+
+fn native_unit_summary(root: &Path, module: &Path) -> Result<NativeUnitSummary, BuildError> {
+    let inspect = |tool: &str, arguments: &[&str]| {
+        let output = Command::new(bray_llvm_toolchain::tool_path(root, tool))
+            .args(arguments)
+            .arg(module)
+            .output()
+            .map_err(|error| BuildError::ToolLaunch {
+                action: "inspect optimization module",
+                program: bray_llvm_toolchain::tool_path(root, tool),
+                source: error,
+            })?;
+
+        if !output.status.success() {
+            return Err(BuildError::NativeArchive(format!(
+                "LLVM could not inspect optimization module {} with {tool}",
+                module.display(),
+            )));
+        }
+
+        String::from_utf8(output.stdout).map_err(|_| {
+            BuildError::NativeArchive(format!(
+                "LLVM returned non-UTF-8 optimization symbols for {}",
+                module.display(),
+            ))
+        })
+    };
+
+    let symbols = inspect("llvm-nm", &["--format=posix", "--extern-only"])?;
+    let structure = inspect("llvm-dis", &["-o", "-"])?;
+
+    Ok(scan_bitcode_unit_summary(&symbols, &structure))
 }
 
 fn summarize_module(
@@ -456,13 +276,7 @@ fn inspect_module_contract(
     root: &Path,
     bytes: &[u8],
     check_checkout_path: bool,
-) -> Result<
-    (
-        (String, String),
-        BTreeSet<StandardLibraryOptimizationLifecycleRoot>,
-    ),
-    BuildError,
-> {
+) -> Result<(String, String), BuildError> {
     let mut terminated = Vec::with_capacity(bytes.len() + 1);
     terminated.extend_from_slice(bytes);
     terminated.push(0);
@@ -483,80 +297,13 @@ fn inspect_module_contract(
         ));
     }
 
-    let mut lifecycle_roots = BTreeSet::new();
-
     if check_checkout_path && contains_checkout_path(&module.print_to_string().to_string(), root) {
         return Err(BuildError::NativeArchive(
             "compiler-produced optimization module retains the checkout path".to_owned(),
         ));
     }
 
-    if module.get_global("llvm.global_ctors").is_some() {
-        lifecycle_roots.insert(StandardLibraryOptimizationLifecycleRoot::GlobalConstructors);
-    }
-
-    if module.get_global("llvm.global_dtors").is_some() {
-        lifecycle_roots.insert(StandardLibraryOptimizationLifecycleRoot::GlobalDestructors);
-    }
-
-    if ["atexit", "_atexit", "__cxa_atexit"]
-        .iter()
-        .any(|symbol| module.get_function(symbol).is_some())
-    {
-        lifecycle_roots.insert(StandardLibraryOptimizationLifecycleRoot::ExitRegistration);
-    }
-
-    Ok(((triple, data_layout), lifecycle_roots))
-}
-
-fn create_archive(root: &Path, archive: &Path, modules: &[PathBuf]) -> Result<(), BuildError> {
-    let response = archive.with_extension("rsp");
-
-    let arguments = modules
-        .iter()
-        .map(|path| path.as_os_str().to_os_string())
-        .collect::<Vec<_>>();
-
-    let contents =
-        bray_linker::encode_response_arguments(&arguments, bray_linker::ResponseFileEncoding::Utf8)
-            .map_err(|source| BuildError::ResponseFileEncoding {
-                path: response.clone(),
-                source,
-            })?;
-
-    fs::write(&response, contents).map_err(|error| BuildError::write(&response, error))?;
-
-    let mut command = Command::new(bray_llvm_toolchain::tool_path(root, "llvm-ar"));
-
-    command
-        .args(["--rsp-quoting=posix", "rcsD"])
-        .arg(archive)
-        .arg(bray_linker::response_file_reference(&response));
-
-    require_success(command, "LLVM could not create an optimization archive")?;
-
-    let mut inspect = Command::new(bray_llvm_toolchain::tool_path(root, "llvm-ar"));
-
-    let output = inspect
-        .arg("t")
-        .arg(archive)
-        .output()
-        .map_err(|error| BuildError::NativeArchive(error.to_string()))?;
-
-    if !output.status.success()
-        || output
-            .stdout
-            .split(|byte| *byte == b'\n')
-            .filter(|line| !line.is_empty())
-            .count()
-            != modules.len()
-    {
-        return Err(BuildError::NativeArchive(
-            "optimization archive inventory is invalid".to_owned(),
-        ));
-    }
-
-    Ok(())
+    Ok((triple, data_layout))
 }
 
 fn bitcode_members(root: &Path, archive: &Path) -> Result<Vec<Vec<u8>>, BuildError> {
@@ -612,33 +359,6 @@ fn is_optimization_member(member: &str) -> bool {
 
 fn is_llvm_bitcode(bytes: &[u8]) -> bool {
     bytes.starts_with(b"BC\xc0\xde") || bytes.starts_with(b"\xde\xc0\x17\x0b")
-}
-
-fn native_exports(
-    root: &Path,
-    archive_bytes: &[u8],
-    work: &Path,
-    object_format: ObjectFormat,
-) -> Result<Vec<BinarySymbolName>, BuildError> {
-    let staging = tempfile::Builder::new()
-        .prefix("bray-native-symbols-")
-        .tempdir_in(work)
-        .map_err(BuildError::TemporaryDirectory)?;
-
-    let archive = staging.path().join("optimization.a");
-    fs::write(&archive, archive_bytes).map_err(|error| BuildError::write(&archive, error))?;
-
-    let symbols = crate::native_symbols::defined_exports(root, &archive, object_format)
-        .map_err(BuildError::NativeSymbolInspection)?;
-
-    Ok(symbols
-        .iter()
-        .map(String::as_str)
-        .filter(|name| name.starts_with("bray_"))
-        .filter_map(BinarySymbolName::try_new)
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect())
 }
 
 fn require_success(mut command: Command, failure: &'static str) -> Result<(), BuildError> {
@@ -708,17 +428,11 @@ pub(super) fn verify_relocated_native_modules(
 
 #[cfg(test)]
 mod tests {
-    use bray_base::NonEmptySharedStr;
-    use bray_standard_library::{StandardLibraryArtifact, StandardLibraryArtifactKind};
-    use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
-
-    use bray_standard_library::StandardLibraryOptimizationLifecycleRoot;
     use inkwell::context::Context;
     use inkwell::targets::{TargetData, TargetTriple};
 
     use super::{
-        contains_checkout_path, inherit_native_links, is_llvm_bitcode, is_optimization_member,
-        remap_checkout_path,
+        contains_checkout_path, is_llvm_bitcode, is_optimization_member, remap_checkout_path,
     };
 
     #[test]
@@ -726,41 +440,6 @@ mod tests {
         assert!(is_llvm_bitcode(b"BC\xc0\xdepayload"));
         assert!(is_llvm_bitcode(b"\xde\xc0\x17\x0bpayload"));
         assert!(!is_llvm_bitcode(b"native object"));
-    }
-
-    #[test]
-    fn optimization_archives_accept_member_lists_beyond_windows_command_limits() {
-        let root = crate::workspace::root().unwrap();
-        let scratch = root.join("scratch");
-        std::fs::create_dir_all(&scratch).unwrap();
-
-        let directory = tempfile::Builder::new()
-            .prefix("archive response ")
-            .tempdir_in(&scratch)
-            .unwrap();
-
-        let members = (0..512)
-            .map(|index| {
-                let path = directory.path().join(format!(
-                    "module with spaces {index:04} {}.bc",
-                    "x".repeat(48)
-                ));
-
-                std::fs::write(&path, b"archive member").unwrap();
-
-                path
-            })
-            .collect::<Vec<_>>();
-
-        assert!(
-            members
-                .iter()
-                .map(|path| path.as_os_str().len())
-                .sum::<usize>()
-                > 32767
-        );
-
-        super::create_archive(&root, &directory.path().join("optimization.a"), &members).unwrap();
     }
 
     #[test]
@@ -794,7 +473,7 @@ mod tests {
     }
 
     #[test]
-    fn llvm_module_contract_and_lifecycle_are_read_in_process() {
+    fn llvm_module_contract_is_read_in_process() {
         let context = Context::create();
         let module = context.create_module("inspection.test");
         module.set_triple(&TargetTriple::create("x86_64-pc-windows-msvc"));
@@ -806,22 +485,14 @@ mod tests {
         let buffer = module.write_bitcode_to_memory();
         let bytes = buffer.as_slice().strip_suffix(&[0]).unwrap();
 
-        let (contract, roots) =
-            super::inspect_module_contract(std::path::Path::new("C:\\workspace\\bray"), bytes, false)
-                .unwrap();
+        let contract = super::inspect_module_contract(
+            std::path::Path::new("C:\\workspace\\bray"), bytes, false,
+        )
+        .unwrap();
 
         assert_eq!(
             contract,
-            ("x86_64-pc-windows-msvc".to_owned(), "e-p:64:64-i128:128".to_owned())
-        );
-
-        assert_eq!(
-            roots.into_iter().collect::<Vec<_>>(),
-            [
-                StandardLibraryOptimizationLifecycleRoot::GlobalConstructors,
-                StandardLibraryOptimizationLifecycleRoot::GlobalDestructors,
-                StandardLibraryOptimizationLifecycleRoot::ExitRegistration,
-            ]
+            ("x86_64-pc-windows-msvc".to_owned(), "e-p:64:64-i128:128".to_owned()),
         );
     }
 
@@ -853,32 +524,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn optimization_artifacts_inherit_fallback_native_links() {
-        let link = NativeLinkRequirement::new(
-            NonEmptySharedStr::try_new("Mincore")
-                .unwrap_or_else(|| panic!("native library name must be valid")),
-            NativeLinkKind::System,
-        );
-
-        let fallback = StandardLibraryArtifact::try_for_bytes(
-            StandardLibraryArtifactKind::StaticLibrary,
-            "std.lib",
-            b"fallback",
-        )
-        .unwrap_or_else(|error| panic!("fallback artifact must be valid: {error:?}"))
-        .with_native_links([link.clone()]);
-
-        let optimization = StandardLibraryArtifact::try_for_bytes(
-            StandardLibraryArtifactKind::OptimizationArchive,
-            "std_optimization.lib",
-            b"optimization",
-        )
-        .unwrap_or_else(|error| panic!("optimization artifact must be valid: {error:?}"));
-
-        assert_eq!(
-            inherit_native_links(optimization, &fallback).native_links(),
-            [link]
-        );
-    }
 }

@@ -251,13 +251,13 @@ impl<'plan> LinkPlanConstructor<'plan> {
             return Ok(());
         };
 
-        for component in runtime.components() {
+        for unit in runtime.native_units() {
             let id = self.next_input_id()?;
 
-            self.builder.push_input(LinkInput::runtime_component(
+            self.builder.push_input(LinkInput::runtime_unit(
                 id,
                 runtime.contract().artifact(),
-                component,
+                unit,
             ));
         }
 
@@ -566,7 +566,7 @@ mod tests {
     };
     use bray_runtime_interface::{
         BinarySymbolName, RootExecution, RuntimeAbiRole, RuntimeArtifact,
-        RuntimeArtifactComponentMetadata, RuntimeArtifactDigest, RuntimeArtifactId,
+        RuntimeArtifactComponentMetadata, RuntimeArtifactId,
         RuntimeArtifactMetadata, RuntimeArtifactPurpose, RuntimeArtifactSelection,
         RuntimeCapability,
     };
@@ -793,6 +793,7 @@ mod tests {
                 LinkInputKind::RelocatableObject,
                 LinkInputKind::RelocatableObject,
                 LinkInputKind::RuntimeComponent,
+                LinkInputKind::RuntimeComponent,
                 LinkInputKind::Archive,
                 LinkInputKind::Archive,
                 LinkInputKind::NativeLibrary,
@@ -817,7 +818,7 @@ mod tests {
         assert!(runtime_input < standard_library);
 
         assert!(matches!(
-            link_plan.inputs()[4].provenance(),
+            link_plan.inputs()[5].provenance(),
             LinkInputProvenance::PlatformProvider(_)
         ));
 
@@ -827,14 +828,13 @@ mod tests {
             .filter(|input| matches!(input.provenance(), LinkInputProvenance::Runtime(_)))
             .collect::<Vec<_>>();
 
-        let [runtime_input] = runtime_inputs.as_slice() else {
-            panic!("async link plan must contain exactly one runtime input");
+        let [role_unit, archive_unit] = runtime_inputs.as_slice() else {
+            panic!("async link plan must contain role and fallback runtime units");
         };
 
-        assert_eq!(
-            runtime_input.provenance(),
-            &LinkInputProvenance::Runtime(runtime.contract().artifact().clone())
-        );
+        for input in [role_unit, archive_unit] {
+            assert_eq!(input.provenance(), &LinkInputProvenance::Runtime(runtime.contract().artifact().clone()));
+        }
 
         assert_eq!(host.abi_version(), runtime.contract().abi_version());
 
@@ -1190,15 +1190,8 @@ mod tests {
 
         let bytes = b"!<arch>\n";
 
-        for archive in ["bray_runtime_product.a", "bray_runtime_test.a"] {
-            std::fs::write(directory.path().join(archive), bytes)
-                .unwrap_or_else(|error| panic!("test runtime archive must be written: {error}"));
-        }
-
-        let digest = RuntimeArtifactDigest::new(
-            bray_base::sha256_file(&directory.path().join("bray_runtime_product.a"))
-                .unwrap_or_else(|error| panic!("test runtime archive must hash: {error}")),
-        );
+        let archive = directory.path().join("test-runtime.a");
+        std::fs::write(&archive, bytes).expect("test runtime archive must be written");
 
         let roles = contract
             .role_bindings()
@@ -1214,8 +1207,6 @@ mod tests {
             RuntimeArtifactPurpose::Product,
             roles,
             contract.capabilities().iter().copied(),
-            "bray_runtime_product.a",
-            digest,
         )
         .unwrap_or_else(|error| panic!("test runtime component must be valid: {error:?}"));
 
@@ -1228,27 +1219,27 @@ mod tests {
                 .iter()
                 .map(bray_runtime_interface::RuntimeRoleBinding::role),
             contract.capabilities().iter().copied(),
-            "bray_runtime_test.a",
-            digest,
         )
         .unwrap_or_else(|error| panic!("test runtime component must be valid: {error:?}"));
 
-        let metadata = RuntimeArtifactMetadata::try_new(contract, [component, test_component])
+        let target = bray_target::NativeTarget::for_identity(contract.target())
+            .expect("test runtime target must be native");
+
+        let indexes = RuntimeArtifactPurpose::ALL.map(|purpose| {
+            let symbols = contract.role_bindings().iter()
+                .filter(|binding| purpose == RuntimeArtifactPurpose::TestRunner || binding.role().available_to_product())
+                .map(|binding| binding.symbol_name().as_str());
+
+            bray_testing::test_runtime_native_index(directory.path(), target, purpose, symbols, &archive)
+        });
+
+        let metadata = RuntimeArtifactMetadata::try_new(contract, [component, test_component], indexes.iter().map(|(reference, _)| reference.clone()))
             .unwrap_or_else(|error| panic!("test runtime metadata must be valid: {error:?}"));
 
         let artifact = RuntimeArtifact::try_new(
             metadata,
-            [
-                (
-                    component_id,
-                    directory.path().join("bray_runtime_product.a"),
-                ),
-                (
-                    RuntimeArtifactId::try_new("runtime.test")
-                        .unwrap_or_else(|| panic!("test component identity must be valid")),
-                    directory.path().join("bray_runtime_test.a"),
-                ),
-            ],
+            directory.path().to_path_buf(),
+            indexes.map(|(_, index)| index),
         )
         .unwrap_or_else(|error| panic!("test runtime artifact must be valid: {error:?}"));
 

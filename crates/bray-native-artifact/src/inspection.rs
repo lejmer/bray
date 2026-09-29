@@ -2,16 +2,22 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use bray_base::NonEmptySharedStr;
-use bray_symbols::{NativeSymbolContract, NativeSymbolPresence};
+use bray_symbols::{
+    NativeSymbolBinding, NativeSymbolContract, NativeSymbolIdentity, NativeSymbolPresence,
+};
 use object::{Object, ObjectSection, ObjectSymbol, SectionFlags, SectionKind, SymbolKind, SymbolSection};
 
-use crate::{NativeDefinition, NativeDefinitionSelection, NativeRoot, NativeUnitSummary};
+use crate::{
+    NativeComdatSelection, NativeDefinition, NativeDefinitionSelection, NativeRoot,
+    NativeUnitSummary,
+};
 
 /// Summarizes an LLVM-inspected bitcode unit. Unknown selection or retention semantics
 /// make the whole unit opaque instead of producing an incomplete exact graph.
 pub fn scan_bitcode_unit_summary(symbols: &str, structure: &str) -> NativeUnitSummary {
     let mut definitions = BTreeSet::new();
     let mut references = BTreeSet::new();
+    let mut weak_comdats = BTreeSet::new();
 
     for line in symbols.lines().map(str::trim).filter(|line| !line.is_empty()) {
         if line.ends_with(':') {
@@ -28,7 +34,7 @@ pub fn scan_bitcode_unit_summary(symbols: &str, structure: &str) -> NativeUnitSu
             return NativeUnitSummary::Opaque;
         };
 
-        let symbol = NativeSymbolContract::required_name(name);
+        let symbol = NativeSymbolContract::required_name(name.clone());
 
         match class {
             "U" => {
@@ -40,15 +46,72 @@ pub fn scan_bitcode_unit_summary(symbols: &str, structure: &str) -> NativeUnitSu
                     NativeDefinitionSelection::Ordinary,
                 ));
             }
+            "W" => {
+                let Some(selection) = weak_comdat_selection(name.as_str(), structure) else {
+                    return NativeUnitSummary::Opaque;
+                };
+
+                weak_comdats.insert(name.as_str().to_owned());
+
+                definitions.insert(NativeDefinition::new(
+                    NativeSymbolContract::new(
+                        NativeSymbolIdentity::Name(name),
+                        None,
+                        NativeSymbolBinding::Weak,
+                        NativeSymbolPresence::Required,
+                    ),
+                    selection,
+                ));
+            }
             _ => return NativeUnitSummary::Opaque,
         }
     }
 
-    let Some(roots) = bitcode_roots(structure) else {
+    let Some(roots) = bitcode_roots(structure, &weak_comdats) else {
         return NativeUnitSummary::Opaque;
     };
 
     exact_summary(definitions, references, roots)
+}
+
+fn weak_comdat_selection(name: &str, ir: &str) -> Option<NativeDefinitionSelection> {
+    let function = format!("@{name}(");
+    let global = format!("@{name} =");
+
+    let definition = ir.lines().find(|line| {
+        (line.starts_with("define ") && line.contains(&function))
+            || (line.starts_with('@') && line.starts_with(&global))
+    })?;
+
+    if !definition.contains(" weak_odr ") && !definition.contains(" linkonce_odr ") {
+        return None;
+    }
+
+    let group = if let Some((_, group)) = definition.split_once(" comdat($") {
+        group.split_once(')')?.0
+    } else if definition.contains(" comdat") {
+        name
+    } else {
+        return None;
+    };
+
+    let declaration = format!("${group} = comdat ");
+    let rule = ir.lines().find_map(|line| line.strip_prefix(&declaration))?;
+
+    let rule = match rule {
+        "any" => NativeComdatSelection::Any,
+        "exactmatch" => NativeComdatSelection::ExactMatch,
+        "samesize" => NativeComdatSelection::SameSize,
+        "largest" => NativeComdatSelection::Largest,
+        "noduplicates" => NativeComdatSelection::NoDuplicates,
+        _ => return None,
+    };
+
+    Some(NativeDefinitionSelection::Comdat {
+        group: NativeSymbolIdentity::Name(NonEmptySharedStr::try_new(group)?),
+        rule,
+        associative_with: None,
+    })
 }
 
 /// Reads a compiler-produced object in process, retaining exact selection only for
@@ -178,7 +241,7 @@ fn exact_summary(
     }
 }
 
-fn bitcode_roots(ir: &str) -> Option<BTreeSet<NativeRoot>> {
+fn bitcode_roots(ir: &str, weak_comdats: &BTreeSet<String>) -> Option<BTreeSet<NativeRoot>> {
     let mut roots = BTreeSet::new();
 
     for line in ir.lines().map(str::trim) {
@@ -196,15 +259,33 @@ fn bitcode_roots(ir: &str) -> Option<BTreeSet<NativeRoot>> {
             continue;
         }
 
+        if line.starts_with('$') {
+            if !line.contains(" = comdat ") {
+                return None;
+            }
+
+            continue;
+        }
+
+        if line.contains(" comdat")
+            || line.contains(" weak_odr ")
+            || line.contains(" linkonce_odr ")
+        {
+            let known = weak_comdats.iter().any(|name| {
+                (line.starts_with("define ") && line.contains(&format!("@{name}(")))
+                    || line.starts_with(&format!("@{name} ="))
+            });
+
+            if !known {
+                return None;
+            }
+        }
+
         if line.starts_with("@llvm.")
-            || line.starts_with('$')
             || line.split_whitespace().any(|token| matches!(token, "alias" | "ifunc"))
-            || line.contains(" comdat")
             || line.contains(" extern_weak ")
             || line.contains(" weak ")
-            || line.contains(" weak_odr ")
             || line.contains(" linkonce ")
-            || line.contains(" linkonce_odr ")
             || line.contains(" thread_local ")
             || line.contains(" section ")
             || line.contains(" asm ")
@@ -225,7 +306,8 @@ mod tests {
     use object::{Architecture, BinaryFormat, Endianness, SectionKind, SymbolFlags, SymbolKind, SymbolScope};
 
     use super::{scan_bitcode_unit_summary, scan_object_unit_summary};
-    use crate::{NativeRoot, NativeUnitSummary};
+    use crate::{NativeComdatSelection, NativeDefinitionSelection, NativeRoot, NativeUnitSummary};
+    use bray_symbols::NativeSymbolBinding;
 
     #[test]
     fn code_data_and_address_references_are_exact() {
@@ -239,6 +321,39 @@ mod tests {
         assert_eq!(definitions.len(), 2);
         assert_eq!(references.len(), 1);
         assert!(roots.is_empty());
+    }
+
+    #[test]
+    fn weak_comdat_bitcode_is_selected_by_symbol() {
+        let ir = "$provider = comdat exactmatch\ndefine weak_odr void @provider() comdat {\n  ret void\n}\n";
+        let summary = scan_bitcode_unit_summary("provider W 0 0\n", ir);
+
+        let NativeUnitSummary::Exact { definitions, references, roots } = summary else {
+            panic!("supported weak COMDAT must have an exact summary");
+        };
+
+        assert_eq!(definitions.len(), 1);
+        assert_eq!(definitions[0].symbol().binding(), NativeSymbolBinding::Weak);
+
+        assert!(matches!(
+            definitions[0].selection(),
+            NativeDefinitionSelection::Comdat {
+                rule: NativeComdatSelection::ExactMatch,
+                associative_with: None,
+                ..
+            },
+        ));
+
+        assert!(references.is_empty());
+        assert!(roots.is_empty());
+
+        assert!(matches!(
+            scan_bitcode_unit_summary(
+                "provider W 0 0\n",
+                "$provider = comdat exactmatch\ndefine weak_odr void @provider() section \".custom\" comdat {\n  ret void\n}\n",
+            ),
+            NativeUnitSummary::Opaque,
+        ));
     }
 
     #[test]

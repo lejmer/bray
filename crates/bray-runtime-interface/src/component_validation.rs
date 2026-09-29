@@ -50,8 +50,6 @@ pub(crate) fn validate(
         }
     }
 
-    crate::component_dependency::validate(components)?;
-
     for purpose in RuntimeArtifactPurpose::ALL {
         validate_role_owners(contract, components, purpose)?;
         validate_capability_owners(contract, components, purpose)?;

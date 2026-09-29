@@ -5,7 +5,6 @@
 mod artifact;
 mod binding;
 mod compatibility;
-mod component_dependency;
 mod component_validation;
 mod contract;
 mod family;
@@ -16,11 +15,12 @@ mod runtime;
 mod signature;
 
 pub use artifact::{
-    RuntimeArtifact, RuntimeArtifactBuildError, RuntimeArtifactComponent,
+    RuntimeArtifact, RuntimeArtifactBuildError,
     RuntimeArtifactComponentMetadata, RuntimeArtifactDigest, RuntimeArtifactMetadata,
     RuntimeArtifactMetadataBuildError, RuntimeArtifactMetadataDecodeError,
     RuntimeArtifactMetadataEncodeError, RuntimeArtifactPurpose, RuntimeArtifactSelection,
-    RuntimeArtifactSelectionError,
+    RuntimeArtifactSelectionError, RuntimeNativeUnit,
+    RuntimeNativeIndexMetadata,
 };
 pub use binding::SourceRoleBinding;
 pub use bray_runtime_model::{

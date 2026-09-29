@@ -621,6 +621,7 @@ name = "bray-standard-library"
 version = "0.0.0"
 dependencies = [
  "bray-base",
+ "bray-native-artifact",
  "bray-runtime-interface",
  "bray-symbols",
  "bray-target",
@@ -680,6 +681,7 @@ dependencies = [
  "bray-diagnostics",
  "bray-ir",
  "bray-messages",
+ "bray-native-artifact",
  "bray-parser",
  "bray-runtime-interface",
  "bray-source",
@@ -705,6 +707,7 @@ dependencies = [
  "bray-linker",
  "bray-lowering",
  "bray-messages",
+ "bray-native-artifact",
  "bray-package-interface",
  "bray-parser",
  "bray-project",
@@ -1932,6 +1935,7 @@ dependencies = [
  "bray-formatter",
  "bray-linker",
  "bray-llvm-toolchain",
+ "bray-native-artifact",
  "bray-package-interface",
  "bray-profile",
  "bray-project",

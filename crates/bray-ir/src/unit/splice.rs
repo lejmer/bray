@@ -134,10 +134,18 @@ pub fn inline_scalar_call(
         }
     }
 
-    for storage in parameters.values() {
-        let ty = concrete_type(callee.storage(*storage).expect("parameter storage").ty(), concrete_types);
-        let value = builder.push_block_parameter(callee_ids.block(callee.entry()), source.clone(), ty)?;
-        callee_ids.parameters.insert(*storage, value);
+    let mut parameter_values = BTreeMap::new();
+
+    for (block_id, _) in callee.blocks_with_ids() {
+        let mut block_values = BTreeMap::new();
+
+        for storage in parameters.values() {
+            let ty = concrete_type(callee.storage(*storage).expect("parameter storage").ty(), concrete_types);
+            let value = builder.push_block_parameter(callee_ids.block(block_id), source.clone(), ty)?;
+            block_values.insert(*storage, value);
+        }
+
+        parameter_values.insert(block_id, block_values);
     }
 
     if let Some(result) = operation.result() {
@@ -146,7 +154,7 @@ pub fn inline_scalar_call(
 
     let mut next_value = caller.blocks().iter().map(|block| block.parameters().len()).sum::<usize>()
         + callee.blocks().iter().map(|block| block.parameters().len()).sum::<usize>()
-        + parameters.len()
+        + parameters.len() * callee.blocks().len()
         + usize::from(operation.result().is_some());
 
     predict_results(caller, &mut caller_ids, Some(site), &mut next_value, caller.unit())?;
@@ -168,6 +176,8 @@ pub fn inline_scalar_call(
     }
 
     for (old, block) in callee.blocks_with_ids() {
+        callee_ids.parameters = parameter_values[&old].clone();
+
         for operation_id in block.operations() {
             let original = callee.operation(*operation_id).expect("valid operation");
             let mut kind = original.kind().clone();
@@ -204,6 +214,8 @@ pub fn inline_scalar_call(
     }
 
     for (old, block) in callee.blocks_with_ids() {
+        callee_ids.parameters = parameter_values[&old].clone();
+
         let kind = match block.terminator().kind() {
             MirTerminatorKind::Return(value) => {
                 let arguments = value.iter().map(|value| {
@@ -219,6 +231,17 @@ pub fn inline_scalar_call(
                 let mut kind = other.clone();
                 remap_terminator(&mut kind, &callee_ids);
 
+                kind.try_for_each_edge_mut::<()>(|edge| {
+                    *edge = MirEdge::new(
+                        edge.target(),
+                        edge.arguments().iter().cloned().chain(
+                            callee_ids.parameters.values().copied().map(MirOperand::Value),
+                        ),
+                    );
+
+                    Ok(())
+                }).expect("callee edges can be extended without failure");
+
                 kind
             }
         };
@@ -231,7 +254,7 @@ pub fn inline_scalar_call(
     builder.set_terminator(join, source, normal);
 
     let inlined = builder.finish(caller_ids.block(caller.entry()));
-    assert!(inlined.is_valid(), "scalar call splice must preserve valid MIR");
+    assert!(inlined.is_valid(), "scalar call splice must preserve valid MIR for caller {:?}, callee {:?}, site {:?}", caller.key(), callee.key(), site);
 
     Ok(Some(inlined))
 }
