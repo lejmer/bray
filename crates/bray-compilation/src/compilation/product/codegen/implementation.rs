@@ -5525,6 +5525,22 @@ public func invoke<T>(pos value: T)
         let symbol = PlatformServiceRole::StandardOutputFlush.native_symbol();
 
         assert_direct_platform_service(&plan, symbol);
+        let provided = super::super::link::strong_product_symbols(plan.mappings());
+
+        assert!(
+            !provided.contains(symbol),
+            "a weak platform fallback must not suppress a strong provider"
+        );
+
+        let runtime_reference = plan.mappings().iter()
+            .flat_map(bray_codegen::CodegenMappings::symbols)
+            .find(|mapping| matches!(mapping.key(), bray_codegen::CodegenSymbolKey::Runtime(_)))
+            .expect("host plan must reference a runtime role");
+
+        assert!(
+            !provided.contains(runtime_reference.name().as_str()),
+            "a runtime reference must not count as a product definition"
+        );
 
         assert!(
             plan.preservation_roots()

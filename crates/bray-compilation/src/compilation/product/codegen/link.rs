@@ -180,24 +180,7 @@ impl Compilation {
             })
             .collect();
 
-        let mut provided_symbols: BTreeSet<&str> = mappings
-            .iter()
-            .flat_map(|mapping| {
-                mapping.symbols().iter()
-                    .filter(|symbol| matches!(symbol.linkage(),
-                        bray_codegen::CodegenLinkage::External
-                        | bray_codegen::CodegenLinkage::Weak
-                        | bray_codegen::CodegenLinkage::Fallback
-                        | bray_codegen::CodegenLinkage::LinkOnce
-                        | bray_codegen::CodegenLinkage::Common
-                        | bray_codegen::CodegenLinkage::Export))
-                    .map(|symbol| symbol.name().as_str())
-                    .chain(mapping.native_storages().iter()
-                        .filter(|storage| storage.direction()
-                            == bray_symbols::ForeignCallableDirection::Export)
-                        .map(|storage| storage.symbol().as_str()))
-            })
-            .collect();
+        let mut provided_symbols = strong_product_symbols(mappings);
 
         let platform_override_symbols = runtime_platform_symbols(runtime.as_ref())?;
         provided_symbols.extend(platform_override_symbols.iter().map(|symbol| symbol.as_str()));
@@ -376,6 +359,26 @@ impl Compilation {
         )
         .map(|selection| selection.inputs)
     }
+}
+
+pub(super) fn strong_product_symbols(
+    mappings: &[bray_codegen::CodegenMappings],
+) -> BTreeSet<&str> {
+    mappings
+        .iter()
+        .flat_map(|mapping| {
+            mapping.symbols().iter()
+                .filter(|symbol| symbol.defines_in(mapping.unit())
+                    && matches!(symbol.linkage(),
+                        bray_codegen::CodegenLinkage::External | bray_codegen::CodegenLinkage::Export))
+                .map(|symbol| symbol.name().as_str())
+                .chain(mapping.native_storages().iter()
+                    .filter(|storage| storage.direction()
+                        == bray_symbols::ForeignCallableDirection::Export
+                        && storage.binding() == bray_symbols::NativeSymbolBinding::Strong)
+                    .map(|storage| storage.symbol().as_str()))
+        })
+        .collect()
 }
 
 pub(super) const fn product_link_model(object_format: bray_target::ObjectFormat) -> LinkModel {

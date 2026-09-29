@@ -21,14 +21,7 @@ pub(crate) fn declare_symbols<'context, 'mappings>(
     types: &mut LlvmTypeMappings<'context, 'mappings>,
 ) -> Result<(), CodegenFailure> {
     for mapping in mappings.symbols() {
-        let defines_symbol = match mapping.key() {
-            bray_codegen::CodegenSymbolKey::Instance(instance) => {
-                mappings.unit().instances().contains(instance)
-                    && mapping.linkage() != CodegenLinkage::Import
-            }
-            bray_codegen::CodegenSymbolKey::Runtime(_)
-            | bray_codegen::CodegenSymbolKey::ProtectedFrame { .. } => false,
-        };
+        let defines_symbol = mapping.defines_in(mappings.unit());
 
         declare_symbol(module, mapping, target, defines_symbol, types)?;
 

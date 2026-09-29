@@ -1,4 +1,4 @@
-use crate::{CodegenCallableSignature, CodegenInstanceKey, CodegenLinkage};
+use crate::{CodegenCallableSignature, CodegenInstanceKey, CodegenLinkage, CodegenUnitKey};
 use bray_ir::MirRuntimeReference;
 use bray_runtime_interface::{
     BinarySymbolName, ProtectedAsyncFrameId, ProtectedFrameOperation, RuntimeAbiRole,
@@ -97,6 +97,16 @@ impl CodegenSymbolMapping {
     /// Returns the selected binary linkage.
     pub const fn linkage(&self) -> CodegenLinkage {
         self.linkage
+    }
+
+    /// Whether this unit emits the mapped definition rather than a reference.
+    pub fn defines_in(&self, unit: &CodegenUnitKey) -> bool {
+        match &self.key {
+            CodegenSymbolKey::Instance(instance) => {
+                unit.instances().contains(instance) && self.linkage != CodegenLinkage::Import
+            }
+            CodegenSymbolKey::Runtime(_) | CodegenSymbolKey::ProtectedFrame { .. } => false,
+        }
     }
 
     /// Returns the complete selected machine signature.
