@@ -57,26 +57,13 @@ impl super::super::Compilation {
                 let artifact = if let Some(artifact) = input.implementation_artifact() {
                     artifact.clone()
                 } else {
-                    let bytes = match input.shared_implementation_bytes() {
-                        Ok(Some(bytes)) => bytes,
+                    match input.shared_implementation_artifact() {
+                        Ok(Some(artifact)) => artifact,
                         Ok(None) => return Ok(DiagnosticResult::without_diagnostics(None)),
                         Err(error) => {
                             return Ok(DiagnosticResult::new(
                                 None,
                                 standard_library_diagnostics(error, input),
-                            ));
-                        }
-                    };
-
-                    match bray_package_interface::PackageImplementationArtifact::try_from_bytes(
-                        bytes,
-                        input.validation_policy().limits(),
-                    ) {
-                        Ok(artifact) => artifact,
-                        Err(error) => {
-                            return Ok(DiagnosticResult::new(
-                                None,
-                                implementation_validation_diagnostics(error, input),
                             ));
                         }
                     }

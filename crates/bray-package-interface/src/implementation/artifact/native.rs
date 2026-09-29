@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use bray_native_artifact::{
-    NativeArtifactIndex, NativeContentDigest, NativeIndexError, NativeUnit, NativeUnitSummary,
+    NativeArtifactIndex, NativeContentDigest, NativeIndexError, NativeUnit, NativeUnitKind, NativeUnitSummary,
     NativeUnitResolver, WireError,
 };
 use bray_symbols::InterfaceSymbolId;
@@ -13,6 +13,48 @@ use crate::InterfaceValidationError;
 use super::{ImplementationPayloadKind, PackageImplementationArtifact};
 
 impl PackageImplementationArtifact {
+    /// Reads an alternate native route from the same authenticated package container.
+    pub fn native_variant(
+        &self,
+        kind: NativeUnitKind,
+    ) -> Result<Option<NativeArtifactIndex>, PackageNativeArtifactError> {
+        let Some(bytes) = self.native_index_bytes_at(super::native_index_discriminator(kind))? else {
+            return Ok(None);
+        };
+
+        let target = bray_target::NativeTarget::for_identity(
+            self.identity().configuration().target(),
+        ).ok_or(PackageNativeArtifactError::UnsupportedTarget)?;
+
+        let digest = NativeContentDigest::new(
+            bray_base::sha256_reader(bytes.as_ref())
+                .expect("reading in-memory native index bytes cannot fail"),
+        );
+
+        let index = NativeArtifactIndex::decode(&bytes, digest, target)?;
+
+        let embedded = self.directory.iter()
+            .filter(|entry| entry.kind == Some(ImplementationPayloadKind::NativeUnit))
+            .map(|entry| entry.discriminator)
+            .collect::<BTreeSet<_>>();
+
+        for unit in index.units() {
+            if unit.kind() != kind && unit.kind() != NativeUnitKind::OpaqueArchive {
+                return Err(PackageNativeArtifactError::Index(
+                    NativeIndexError::InvalidSummary(unit.digest()),
+                ));
+            }
+
+            if unit.kind() != NativeUnitKind::OpaqueArchive
+                && !embedded.contains(&unit.digest().bytes())
+            {
+                return Err(PackageNativeArtifactError::MissingUnit(unit.digest()));
+            }
+        }
+
+        Ok(Some(index))
+    }
+
     /// Reuses the validated provider index and demand closure for this artifact identity.
     pub fn native_resolver(&self) -> Result<Option<&NativeUnitResolver>, PackageNativeArtifactError> {
         if let Some(cached) = self.native_resolver.get() {
@@ -27,7 +69,7 @@ impl PackageImplementationArtifact {
             .as_ref())
     }
 
-    /// Authenticates the optional native index and every embedded physical unit.
+    /// Validates the optional native index and its embedded unit directory.
     pub fn native_artifact(&self) -> Result<Option<NativeArtifactIndex>, PackageNativeArtifactError> {
         let Some(bytes) = self.native_index_bytes()? else {
             if self.directory.iter().any(|entry| {
@@ -50,26 +92,20 @@ impl PackageImplementationArtifact {
         );
 
         let index = NativeArtifactIndex::decode(&bytes, digest, target)?;
-        let mut seen = BTreeSet::new();
+
+        let seen = index.units().iter()
+            .map(|unit| unit.digest().bytes())
+            .collect::<BTreeSet<_>>();
+
+        let embedded = self.directory.iter()
+            .filter(|entry| entry.kind == Some(ImplementationPayloadKind::NativeUnit))
+            .map(|entry| entry.discriminator)
+            .collect::<BTreeSet<_>>();
 
         for unit in index.units() {
-            let digest = unit.digest();
-
-            let payload = self.native_unit_bytes(digest.bytes())?
-                .ok_or(PackageNativeArtifactError::MissingUnit(digest))?;
-
-            let actual = NativeContentDigest::new(
-                bray_base::sha256_reader(payload.as_ref())
-                    .expect("reading in-memory native unit bytes cannot fail"),
-            );
-
-            if actual != digest {
-                return Err(PackageNativeArtifactError::Index(
-                    NativeIndexError::PayloadDigestMismatch { expected: digest, actual },
-                ));
+            if !embedded.contains(&unit.digest().bytes()) {
+                return Err(PackageNativeArtifactError::MissingUnit(unit.digest()));
             }
-
-            seen.insert(digest.bytes());
         }
 
         for entry in self.directory.iter() {
@@ -81,7 +117,10 @@ impl PackageImplementationArtifact {
         }
 
         for binding in self.native_bindings()? {
-            let Some(unit) = index.units().iter().find(|unit| unit.digest().bytes() == binding.unit()) else {
+            let Some(unit) = index.units()
+                .binary_search_by_key(&NativeContentDigest::new(binding.unit()), NativeUnit::digest)
+                .ok()
+                .and_then(|position| index.units().get(position)) else {
                 return Err(PackageNativeArtifactError::InvalidBinding(binding.owner()));
             };
 
@@ -130,7 +169,7 @@ fn symbol_in_unit(unit: &NativeUnit, symbol: &str) -> bool {
 }
 
 /// Exact corruption or mismatch in embedded native package metadata.
-#[derive(Debug)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum PackageNativeArtifactError {
     /// The enclosing package implementation has invalid bytes.
     Validation(InterfaceValidationError),

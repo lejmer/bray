@@ -19,6 +19,7 @@ pub struct NativeProductPlan {
     pub(super) static_instances: Arc<[bray_codegen::CodegenStaticInstanceKey]>,
     pub(super) product_host: Option<bray_codegen::CodegenProductHostMapping>,
     pub(super) selected_native: Arc<[super::reuse::SelectedNativeUnit]>,
+    pub(super) selected_standard_library: Arc<[super::reuse::SelectedNativePayload]>,
 }
 
 impl NativeProductPlan {
@@ -74,6 +75,10 @@ impl NativeProductPlan {
 
     pub(in crate::compilation) fn selected_native_units(&self) -> &[super::reuse::SelectedNativeUnit] {
         &self.selected_native
+    }
+
+    pub(in crate::compilation) fn selected_standard_library_units(&self) -> &[super::reuse::SelectedNativePayload] {
+        &self.selected_standard_library
     }
 
     /// Returns the deterministic static-instance table contributed by this product.

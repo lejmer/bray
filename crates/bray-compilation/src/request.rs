@@ -311,16 +311,16 @@ impl DependencyInterfaceInput {
         }
     }
 
-    pub(crate) fn shared_implementation_bytes(
+    pub(crate) fn shared_implementation_artifact(
         &self,
-    ) -> Result<Option<Arc<[u8]>>, StandardLibraryLoadError> {
+    ) -> Result<Option<bray_package_interface::PackageImplementationArtifact>, StandardLibraryLoadError> {
         match &self.source {
             DependencyInterfaceSource::Bytes { .. } => Ok(None),
             DependencyInterfaceSource::StandardLibrary {
                 resolver, target, ..
             } => resolver
-                .implementation(target.profile().identity(), target.runtime_abi())
-                .map(|artifact| Some(artifact.shared_bytes())),
+                .implementation_artifact(target.profile().identity(), target.runtime_abi())
+                .map(|(_, artifact)| Some(artifact)),
         }
     }
 

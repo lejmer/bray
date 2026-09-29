@@ -14,6 +14,7 @@ use super::error::{NativeLinkInputPlanningError, NativeProductPlanningError};
 
 struct StandardLibraryLinkSelection {
     inputs: Vec<Result<LinkInputSpec, NativeProductPlanningError>>,
+    payloads: Vec<super::reuse::SelectedNativePayload>,
     optimization_modules: u64,
     optimization_bytes: u64,
 }
@@ -55,7 +56,7 @@ impl Compilation {
         product_host: Option<&bray_codegen::CodegenProductHostMapping>,
         target: &CodegenTarget,
         configuration: crate::BuildConfiguration,
-    ) -> Result<ProductLinkInputs, NativeProductPlanningError> {
+    ) -> Result<(ProductLinkInputs, Vec<super::reuse::SelectedNativePayload>), NativeProductPlanningError> {
         let product = match kind {
             ProductKind::Library => LinkedProductKind::StaticLibrary,
             ProductKind::Executable | ProductKind::Test => LinkedProductKind::Executable,
@@ -275,7 +276,7 @@ impl Compilation {
             }
         }
 
-        Ok(inputs)
+        Ok((inputs, standard_library.payloads))
     }
 
     fn standard_library_link_selection(
@@ -289,6 +290,7 @@ impl Compilation {
         if product_kind == ProductKind::Library {
             return Ok(StandardLibraryLinkSelection {
                 inputs: Vec::new(),
+                payloads: Vec::new(),
                 optimization_modules: 0,
                 optimization_bytes: 0,
             });
@@ -297,6 +299,7 @@ impl Compilation {
         let Some(resolver) = self.standard_library_provider_resolver() else {
             return Ok(StandardLibraryLinkSelection {
                 inputs: Vec::new(),
+                payloads: Vec::new(),
                 optimization_modules: 0,
                 optimization_bytes: 0,
             });
@@ -332,6 +335,7 @@ impl Compilation {
 
         Ok(StandardLibraryLinkSelection {
             inputs: selection.inputs.into_iter().map(Ok).collect(),
+            payloads: selection.payloads,
             optimization_modules: selection.modules,
             optimization_bytes: selection.bytes,
         })
@@ -343,7 +347,7 @@ impl Compilation {
         product_kind: ProductKind,
         imported_symbols: &BTreeSet<&str>,
         platform_overrides: &BTreeSet<bray_runtime_interface::PlatformServiceRole>,
-    ) -> Result<Vec<Result<LinkInputSpec, NativeProductPlanningError>>, NativeProductPlanningError>
+    ) -> Result<(Vec<LinkInputSpec>, Vec<super::reuse::SelectedNativePayload>), NativeProductPlanningError>
     {
         let target = self
             .requested_target()
@@ -361,7 +365,10 @@ impl Compilation {
             &target,
             crate::BuildConfiguration::Development,
         )
-        .map(|selection| selection.inputs)
+        .and_then(|selection| Ok((
+            selection.inputs.into_iter().collect::<Result<_, _>>()?,
+            selection.payloads,
+        )))
     }
 }
 

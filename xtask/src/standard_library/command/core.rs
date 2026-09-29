@@ -356,15 +356,6 @@ fn build_bundle(
 
         let implementation_path = format!("{target_path}/std.brayimpl");
 
-        write_bundle_artifact(bundle, &implementation_path, &implementation_bytes)?;
-
-        let implementation = StandardLibraryArtifact::try_for_bytes(
-            StandardLibraryArtifactKind::PackageImplementation,
-            implementation_path,
-            &implementation_bytes,
-        )
-        .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
-
         let file_name = standard_library_archive_name(native)?;
         let portable_path = format!("{target_path}/{file_name}");
 
@@ -420,7 +411,7 @@ fn build_bundle(
         )
         .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
 
-        let [native_index, native_object_index] = super::super::native_index::publish(
+        let [implementation_bytes, native_implementation_bytes] = super::super::native_index::publish(
             &root,
             bundle,
             &target_path,
@@ -432,13 +423,31 @@ fn build_bundle(
             &platform_archives,
         )?;
 
+        write_bundle_artifact(bundle, &implementation_path, &implementation_bytes)?;
+
+        let implementation = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::PackageImplementation,
+            implementation_path,
+            &implementation_bytes,
+        )
+        .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
+
+        let native_implementation_path = format!("{target_path}/std-native.brayimpl");
+        write_bundle_artifact(bundle, &native_implementation_path, &native_implementation_bytes)?;
+
+        let native_implementation = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::NativeImplementation,
+            native_implementation_path,
+            &native_implementation_bytes,
+        )
+        .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
+
         let mut artifacts = vec![
             interface,
             implementation,
+            native_implementation,
             archive,
             compiler_support,
-            native_index,
-            native_object_index,
         ];
 
         for platform in platform_archives {

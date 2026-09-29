@@ -144,7 +144,7 @@ fn native_package_units_round_trip_with_exact_source_binding() {
     assert_eq!(imported.native_bindings().unwrap_or_else(|error| panic!("bindings must decode: {error:?}")), vec![binding.clone()]);
     assert_eq!(imported.native_binding(binding.owner(), binding.key(), producer_options), Ok(Some(binding.clone())));
     assert_eq!(imported.native_binding(binding.owner(), binding.key(), CodegenOptions::default()), Ok(None));
-    assert_eq!(imported.native_unit_bytes(first_digest.bytes()), Ok(Some(Arc::from(first.as_slice()))));
+    assert_eq!(imported.native_unit_bytes(first_digest.bytes()).unwrap(), Some(Arc::from(first.as_slice())));
 
     let other_policy = InterfaceNativeBinding::new(
         binding.owner(), binding.key().clone(), CodegenOptions::default(), first_digest.bytes(),
@@ -167,7 +167,8 @@ fn native_package_units_round_trip_with_exact_source_binding() {
     )
     .unwrap_or_else(|error| panic!("outer artifact may encode an inconsistent unit: {error:?}"));
 
-    assert!(matches!(wrong.native_artifact(), Err(super::native::PackageNativeArtifactError::Index(NativeIndexError::PayloadDigestMismatch { .. }))));
+    assert!(wrong.native_artifact().is_ok());
+    assert!(matches!(wrong.native_unit_bytes(first_digest.bytes()), Err(super::native::PackageNativeArtifactError::Index(NativeIndexError::PayloadDigestMismatch { .. }))));
 
     let opaque_binding = InterfaceNativeBinding::new(
         fixture.body.owner(), binding.key().clone(), producer_options, second_digest.bytes(),

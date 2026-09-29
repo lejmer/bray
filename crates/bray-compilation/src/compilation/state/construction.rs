@@ -104,8 +104,12 @@ impl Compilation {
         let standard_library =
             standard_library_root.map(bray_standard_library::StandardLibraryResolver::new);
 
-        let standard_library_providers =
-            standard_library_provider_root.map(bray_standard_library::StandardLibraryResolver::new);
+        let standard_library_providers = standard_library_provider_root.map(|root| {
+            standard_library.as_ref()
+                .filter(|resolver| resolver.root() == &root)
+                .cloned()
+                .unwrap_or_else(|| bray_standard_library::StandardLibraryResolver::new(root))
+        });
 
         if let Some(resolver) = standard_library.as_ref() {
             // The synthetic dependency and native selection share one immutable resolver cache.

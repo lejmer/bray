@@ -109,21 +109,21 @@ fn verify_native_indexes(
     manifest: &StandardLibraryBundleManifest,
 ) -> Result<(), BuildError> {
     for target in manifest.targets() {
-        let (_, objects) = resolver
+        let (_, _, objects) = resolver
             .native_object_artifact(target.target(), target.runtime_abi())
             .map_err(|error| BuildError::conformance("native-index", format!("{error:?}")))?
             .ok_or_else(|| BuildError::conformance("native-index", "object index is missing"))?;
 
-        let (_, bitcode) = resolver
-            .native_artifact(target.target(), target.runtime_abi(), objects.index().producer())
+        let (_, _, bitcode) = resolver
+            .native_artifact(target.target(), target.runtime_abi(), objects.producer())
             .map_err(|error| BuildError::conformance("native-index", format!("{error:?}")))?
             .ok_or_else(|| BuildError::conformance("native-index", "bitcode index is missing"))?;
 
-        for (name, artifact, kind) in [
+        for (name, index, kind) in [
             ("object", objects, NativeUnitKind::Object),
             ("bitcode", bitcode, NativeUnitKind::Bitcode),
         ] {
-            let units = artifact.index().units();
+            let units = index.units();
 
             if !units.iter().any(|unit| unit.kind() == kind
                 && matches!(unit.summary(), NativeUnitSummary::Exact { .. }))

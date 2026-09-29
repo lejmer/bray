@@ -44,6 +44,22 @@ impl ImplementationPayloadKind {
     }
 }
 
+pub(in crate::implementation) const fn native_index_discriminator(
+    kind: bray_native_artifact::NativeUnitKind,
+) -> [u8; 32] {
+    let mut discriminator = [0; 32];
+
+    discriminator[0] = match kind {
+        bray_native_artifact::NativeUnitKind::Object => 1,
+        bray_native_artifact::NativeUnitKind::Bitcode => 2,
+        bray_native_artifact::NativeUnitKind::OpaqueArchive => {
+            panic!("an archive is not a native code generation route")
+        }
+    };
+
+    discriminator
+}
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(in crate::implementation) struct ImplementationDirectoryEntry {
     pub(in crate::implementation) index: u64,

@@ -14,6 +14,7 @@ use super::wire::encode_payload;
 pub const STANDARD_LIBRARY_MANIFEST_FILE_NAME: &str = "manifest.json";
 const STANDARD_LIBRARY_INTERFACE_FILE_NAME: &str = "std.brayi";
 const STANDARD_LIBRARY_IMPLEMENTATION_FILE_NAME: &str = "std.brayimpl";
+const STANDARD_LIBRARY_NATIVE_IMPLEMENTATION_FILE_NAME: &str = "std-native.brayimpl";
 
 /// Returns the canonical portable artifact directory for a target and runtime ABI.
 pub fn standard_library_target_artifact_directory(
@@ -90,6 +91,8 @@ pub enum StandardLibraryArtifactKind {
     PackageInterface,
     /// Generic executable and const-evaluation implementation payloads.
     PackageImplementation,
+    /// Additional native representation in the package implementation format.
+    NativeImplementation,
     /// Compiler-owned dependency metadata.
     DependencyMetadata,
     /// Relocatable native object.
@@ -98,10 +101,6 @@ pub enum StandardLibraryArtifactKind {
     StaticLibrary,
     /// Native platform-service provider archive.
     PlatformServiceLibrary,
-    /// Common native unit index for independently selectable physical units.
-    NativeIndex,
-    /// Native object units for configurations without cross-module optimization.
-    NativeObjectIndex,
     /// Native shared library.
     SharedLibrary,
     /// Private runtime artifact metadata.
@@ -113,12 +112,11 @@ impl StandardLibraryArtifactKind {
         match self {
             Self::PackageInterface => "package_interface",
             Self::PackageImplementation => "package_implementation",
+            Self::NativeImplementation => "native_implementation",
             Self::DependencyMetadata => "dependency_metadata",
             Self::RelocatableObject => "relocatable_object",
             Self::StaticLibrary => "static_library",
             Self::PlatformServiceLibrary => "platform_service_library",
-            Self::NativeIndex => "native_index",
-            Self::NativeObjectIndex => "native_object_index",
             Self::SharedLibrary => "shared_library",
             Self::RuntimeArtifact => "runtime_artifact",
         }
@@ -128,12 +126,11 @@ impl StandardLibraryArtifactKind {
         match value {
             "package_interface" => Some(Self::PackageInterface),
             "package_implementation" => Some(Self::PackageImplementation),
+            "native_implementation" => Some(Self::NativeImplementation),
             "dependency_metadata" => Some(Self::DependencyMetadata),
             "relocatable_object" => Some(Self::RelocatableObject),
             "static_library" => Some(Self::StaticLibrary),
             "platform_service_library" => Some(Self::PlatformServiceLibrary),
-            "native_index" => Some(Self::NativeIndex),
-            "native_object_index" => Some(Self::NativeObjectIndex),
             "shared_library" => Some(Self::SharedLibrary),
             "runtime_artifact" => Some(Self::RuntimeArtifact),
             _ => None,
@@ -349,6 +346,19 @@ impl StandardLibraryTargetArtifacts {
             return Err(StandardLibraryManifestError::InvalidImplementationArtifact);
         }
 
+        let native_implementation_path =
+            format!("{prefix}{STANDARD_LIBRARY_NATIVE_IMPLEMENTATION_FILE_NAME}");
+
+        if artifacts.iter().any(|artifact| artifact.kind() == StandardLibraryArtifactKind::NativeImplementation)
+            && !has_exact_artifact(
+                &artifacts,
+                StandardLibraryArtifactKind::NativeImplementation,
+                &native_implementation_path,
+            )
+        {
+            return Err(StandardLibraryManifestError::InvalidTargetArtifact);
+        }
+
         Ok(Self {
             target,
             runtime_abi,
@@ -385,6 +395,13 @@ impl StandardLibraryTargetArtifacts {
             &self.artifacts,
             StandardLibraryArtifactKind::PackageImplementation,
         )
+    }
+
+    /// Returns the optional native-only package artifact for another codegen representation.
+    pub fn native_implementation(&self) -> Option<&StandardLibraryArtifact> {
+        self.artifacts.iter().find(|artifact| {
+            artifact.kind() == StandardLibraryArtifactKind::NativeImplementation
+        })
     }
 }
 

@@ -1,4 +1,5 @@
 use std::hash::Hash;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use bray_base::StableDigestHasher;
@@ -37,8 +38,15 @@ pub(in crate::compilation) struct SelectedNativePayload {
     pub(in crate::compilation) package: PackageIdentity,
     pub(in crate::compilation) digest: NativeContentDigest,
     pub(in crate::compilation) kind: NativeUnitKind,
-    pub(in crate::compilation) bytes: Arc<[u8]>,
+    pub(in crate::compilation) source: SelectedNativePayloadSource,
     pub(in crate::compilation) native_links: Arc<[LinkInputSpec]>,
+}
+
+/// Physical source of an already selected native unit.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(in crate::compilation) enum SelectedNativePayloadSource {
+    Bytes(Arc<[u8]>),
+    File(PathBuf),
 }
 
 /// Identifies the exact backend, partition policy, and configuration of published units.
@@ -228,7 +236,7 @@ impl Compilation {
 
             let bytes = implementation
                 .native_unit_bytes(digest.bytes())
-                .map_err(validation)?
+                .map_err(native_failure)?
                 .expect("authenticated native index must retain its selected unit");
 
             let provenance = LinkInputProvenance::Package(input.package().clone());
@@ -241,7 +249,7 @@ impl Compilation {
                 package: input.package().clone(),
                 digest,
                 kind: unit.kind(),
-                bytes,
+                source: SelectedNativePayloadSource::Bytes(bytes),
                 native_links: native_links.into(),
             });
         }

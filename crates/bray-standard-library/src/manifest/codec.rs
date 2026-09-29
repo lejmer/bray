@@ -137,15 +137,14 @@ mod tests {
     };
 
     #[test]
-    fn native_indexes_round_trip_and_manifest_bytes_are_canonical() {
+    fn implementation_round_trips_and_manifest_bytes_are_canonical() {
         let target = TargetIdentity::try_new("x86_64-pc-windows-msvc").unwrap();
         let prefix = format!("targets/{}/1.0", target.as_str());
 
         let artifacts = [
             (StandardLibraryArtifactKind::PackageInterface, "std.brayi"),
             (StandardLibraryArtifactKind::PackageImplementation, "std.brayimpl"),
-            (StandardLibraryArtifactKind::NativeIndex, "native-index.json"),
-            (StandardLibraryArtifactKind::NativeObjectIndex, "native-object-index.json"),
+            (StandardLibraryArtifactKind::NativeImplementation, "std-native.brayimpl"),
         ].into_iter().map(|(kind, name)| {
             StandardLibraryArtifact::try_for_bytes(kind, format!("{prefix}/{name}"), name.as_bytes())
                 .unwrap()

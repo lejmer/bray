@@ -35,13 +35,17 @@ impl OptimizationCatalog {
         let mut entries = selected
             .artifacts()
             .iter()
-            .filter(|artifact| matches!(artifact.kind(), StandardLibraryArtifactKind::NativeIndex | StandardLibraryArtifactKind::NativeObjectIndex))
+            .filter(|artifact| matches!(
+                artifact.kind(),
+                StandardLibraryArtifactKind::PackageImplementation
+                    | StandardLibraryArtifactKind::NativeImplementation
+            ))
             .map(|artifact| {
                 OptimizationEntry {
                     partition: match artifact.kind() {
-                        StandardLibraryArtifactKind::NativeIndex => "native-bitcode",
-                        StandardLibraryArtifactKind::NativeObjectIndex => "native-object",
-                        _ => unreachable!("filtered index kinds"),
+                        StandardLibraryArtifactKind::PackageImplementation => "native-object",
+                        StandardLibraryArtifactKind::NativeImplementation => "native-bitcode",
+                        _ => unreachable!("filtered implementation kinds"),
                     }.to_owned(),
                     path: artifact.path().to_owned(),
                     bytes: artifact.byte_len(),

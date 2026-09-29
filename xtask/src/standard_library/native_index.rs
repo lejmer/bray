@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -6,7 +6,7 @@ use bray_native_artifact::{
     NativeArtifactIndex, NativeContentDigest, NativeUnit, NativeUnitKind, NativeUnitSummary,
 };
 use bray_package_interface::{InterfaceValidationLimits, PackageImplementationArtifact};
-use bray_standard_library::{StandardLibraryArtifact, StandardLibraryArtifactKind};
+use bray_standard_library::StandardLibraryArtifact;
 use bray_target::NativeTarget;
 
 use super::command::{BuildError, BuiltPlatformArchive, write_bundle_artifact};
@@ -22,7 +22,7 @@ pub(super) fn publish(
     compiler_support: &StandardLibraryArtifact,
     built: &BuiltNativeModules,
     platforms: &[BuiltPlatformArchive],
-) -> Result<[StandardLibraryArtifact; 2], BuildError> {
+) -> Result<[Vec<u8>; 2], BuildError> {
     let implementation = PackageImplementationArtifact::try_from_bytes(
         Arc::<[u8]>::from(implementation_bytes),
         InterfaceValidationLimits::default(),
@@ -44,6 +44,7 @@ pub(super) fn publish(
 
     let mut units = Vec::with_capacity(built.units.len() + 2);
     let mut opaque = Vec::new();
+    let mut bitcode_payloads = BTreeMap::new();
 
     for (summary, bytes) in &built.units {
         if matches!(summary, NativeUnitSummary::Opaque) {
@@ -61,7 +62,7 @@ pub(super) fn publish(
             [],
         );
 
-        write_unit(bundle, target_path, target, &unit, bytes)?;
+        bitcode_payloads.insert(digest, bytes.clone());
         units.push(unit);
     }
 
@@ -108,7 +109,7 @@ pub(super) fn publish(
                     [],
                 );
 
-                write_unit(bundle, target_path, target, &unit, bytes)?;
+                bitcode_payloads.insert(unit.digest(), bytes.clone());
                 units.push(unit);
             }
 
@@ -122,7 +123,8 @@ pub(super) fn publish(
     }
 
     units.extend(archives.iter().cloned());
-    let bitcode = write_index(bundle, target_path, target, published.producer(), units, "native-index.json", StandardLibraryArtifactKind::NativeIndex)?;
+
+    let bitcode = encode_index(target, published.producer(), units)?;
 
     let grouped = published.co_retention_groups().iter()
         .flat_map(|group| group.members().iter().copied())
@@ -135,20 +137,41 @@ pub(super) fn publish(
             continue;
         }
 
-        let bytes = implementation.native_unit_bytes(unit.digest().bytes())
-            .map_err(|error| BuildError::NativeArchive(format!(
-                "standard library object unit is invalid: {error:?}",
-            )))?
-            .expect("validated standard library native unit must have payload bytes");
-
-        write_unit(bundle, target_path, target, unit, &bytes)?;
         objects.push(unit.clone());
     }
 
     objects.extend(archives);
-    let object = write_index(bundle, target_path, target, published.producer(), objects, "native-object-index.json", StandardLibraryArtifactKind::NativeObjectIndex)?;
 
-    Ok([bitcode, object])
+    let object = encode_index(target, published.producer(), objects)?;
+
+    let units = bitcode_payloads.into_iter()
+        .map(|(digest, bytes)| (digest.bytes(), Arc::from(bytes)))
+        .collect::<Vec<_>>();
+
+    let object_artifact = implementation.try_with_native_variants(
+        &[(NativeUnitKind::Object, &object)], &[],
+    ).map_err(|error| BuildError::NativeArchive(format!(
+        "standard library object variant cannot be published: {error:?}",
+    )))?;
+
+    let bitcode_artifact = implementation.try_native_only_artifact(
+        &[(NativeUnitKind::Bitcode, &bitcode)], &units,
+    ).map_err(|error| BuildError::NativeArchive(format!(
+        "standard library bitcode variant cannot be published: {error:?}",
+    )))?;
+
+    for (artifact, kind) in [
+        (&object_artifact, NativeUnitKind::Object),
+        (&bitcode_artifact, NativeUnitKind::Bitcode),
+    ] {
+        artifact.native_variant(kind)
+            .map_err(|error| BuildError::NativeArchive(format!(
+                "standard library native variant is invalid: {error:?}",
+            )))?
+            .expect("published native variant must have an index");
+    }
+
+    Ok([object_artifact.bytes().to_vec(), bitcode_artifact.bytes().to_vec()])
 }
 
 fn opaque_bitcode_archive(root: &Path, modules: &[Vec<u8>]) -> Result<Vec<u8>, BuildError> {
@@ -160,32 +183,19 @@ fn opaque_bitcode_archive(root: &Path, modules: &[Vec<u8>]) -> Result<Vec<u8>, B
         )))
 }
 
-fn write_index(
-    bundle: &Path,
-    target_path: &str,
+fn encode_index(
     target: NativeTarget,
     producer: NativeContentDigest,
     units: Vec<NativeUnit>,
-    name: &str,
-    kind: StandardLibraryArtifactKind,
-) -> Result<StandardLibraryArtifact, BuildError> {
+) -> Result<Vec<u8>, BuildError> {
     let index = NativeArtifactIndex::try_new(target, producer, units, [])
         .map_err(|error| BuildError::NativeArchive(format!(
             "standard library native index is invalid: {error:?}",
         )))?;
 
-    let bytes = index.encode().map_err(|error| BuildError::NativeArchive(format!(
+    index.encode().map_err(|error| BuildError::NativeArchive(format!(
         "standard library native index cannot encode: {error:?}",
-    )))?;
-
-    let path = format!("{target_path}/{name}");
-    write_bundle_artifact(bundle, &path, &bytes)?;
-
-    StandardLibraryArtifact::try_for_bytes(
-        kind,
-        path,
-        &bytes,
-    ).map_err(|error| BuildError::Manifest(format!("{error:?}")))
+    )))
 }
 
 fn archive_unit(
@@ -203,24 +213,14 @@ fn archive_unit(
         [],
     );
 
-    write_unit(bundle, target_path, target, &unit, bytes)?;
-
-    Ok(unit)
-}
-
-fn write_unit(
-    bundle: &Path,
-    target_path: &str,
-    target: NativeTarget,
-    unit: &NativeUnit,
-    bytes: &[u8],
-) -> Result<(), BuildError> {
     let path = format!(
         "{target_path}/native/{}",
         unit.kind().file_name(unit.digest(), target),
     );
 
-    write_bundle_artifact(bundle, &path, bytes)
+    write_bundle_artifact(bundle, &path, bytes)?;
+
+    Ok(unit)
 }
 
 fn content_digest(bytes: &[u8]) -> NativeContentDigest {

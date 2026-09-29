@@ -64,7 +64,14 @@ impl PackageImplementationArtifact {
 
     /// Returns the native unit index embedded in this implementation, when present.
     pub fn native_index_bytes(&self) -> Result<Option<Arc<[u8]>>, InterfaceValidationError> {
-        self.entry(InterfaceSymbolId::new(0), ImplementationPayloadKind::NativeIndex, [0; 32])
+        self.native_index_bytes_at([0; 32])
+    }
+
+    pub(super) fn native_index_bytes_at(
+        &self,
+        discriminator: [u8; 32],
+    ) -> Result<Option<Arc<[u8]>>, InterfaceValidationError> {
+        self.entry(InterfaceSymbolId::new(0), ImplementationPayloadKind::NativeIndex, discriminator)
             .map(|(index, entry)| self.payload(index, entry))
             .transpose()
     }
@@ -73,10 +80,29 @@ impl PackageImplementationArtifact {
     pub fn native_unit_bytes(
         &self,
         digest: [u8; 32],
-    ) -> Result<Option<Arc<[u8]>>, InterfaceValidationError> {
-        self.entry(InterfaceSymbolId::new(0), ImplementationPayloadKind::NativeUnit, digest)
-            .map(|(index, entry)| self.payload(index, entry))
-            .transpose()
+    ) -> Result<Option<Arc<[u8]>>, super::native::PackageNativeArtifactError> {
+        let Some((index, entry)) = self.entry(
+            InterfaceSymbolId::new(0), ImplementationPayloadKind::NativeUnit, digest,
+        ) else {
+            return Ok(None);
+        };
+
+        let payload = self.payload(index, entry)?;
+
+        let actual = bray_native_artifact::NativeContentDigest::new(
+            bray_base::sha256_reader(payload.as_ref())
+                .expect("reading in-memory native unit bytes cannot fail"),
+        );
+
+        let expected = bray_native_artifact::NativeContentDigest::new(digest);
+
+        if actual != expected {
+            return Err(super::native::PackageNativeArtifactError::Index(
+                bray_native_artifact::NativeIndexError::PayloadDigestMismatch { expected, actual },
+            ));
+        }
+
+        Ok(Some(payload))
     }
 
     /// Resolves a native specialization only when its producer policy matches the request.

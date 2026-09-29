@@ -6,10 +6,11 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use bray_native_artifact::{
     NativeArtifactIndex, NativeContentDigest, NativeIndexError, NativeResolutionError,
-    ValidatedNativeArtifact,
+    NativeUnitKind,
 };
+use bray_package_interface::{InterfaceValidationError, InterfaceValidationLimits, PackageImplementationArtifact, PackageNativeArtifactError};
 use bray_runtime_interface::RuntimeAbiVersion;
-use bray_target::{NativeTarget, TargetIdentity};
+use bray_target::TargetIdentity;
 
 use crate::{
     STANDARD_LIBRARY_MANIFEST_FILE_NAME, StandardLibraryArtifact, StandardLibraryArtifactDigest,
@@ -18,12 +19,21 @@ use crate::{
 };
 
 /// One digest-validated standard library artifact selected from a bundle.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct ResolvedStandardLibraryArtifact {
     metadata: StandardLibraryArtifact,
     path: Arc<Path>,
     bytes: Arc<[u8]>,
+    implementation: Arc<OnceLock<Result<PackageImplementationArtifact, InterfaceValidationError>>>,
 }
+
+impl PartialEq for ResolvedStandardLibraryArtifact {
+    fn eq(&self, other: &Self) -> bool {
+        self.metadata == other.metadata && self.path == other.path && self.bytes == other.bytes
+    }
+}
+
+impl Eq for ResolvedStandardLibraryArtifact {}
 
 impl ResolvedStandardLibraryArtifact {
     /// Returns the manifest metadata that selected this artifact.
@@ -116,6 +126,33 @@ impl StandardLibraryResolver {
         self.resolve(implementation)
     }
 
+    /// Parses the implementation once for the selected immutable bundle artifact.
+    pub fn implementation_artifact(
+        &self,
+        target: &TargetIdentity,
+        runtime_abi: RuntimeAbiVersion,
+    ) -> Result<(PathBuf, PackageImplementationArtifact), StandardLibraryLoadError> {
+        let resolved = self.implementation(target, runtime_abi)?;
+
+        Self::parse_implementation(resolved)
+    }
+
+    fn parse_implementation(
+        resolved: ResolvedStandardLibraryArtifact,
+    ) -> Result<(PathBuf, PackageImplementationArtifact), StandardLibraryLoadError> {
+        let path = resolved.path().to_path_buf();
+
+        let artifact = resolved.implementation.get_or_init(|| {
+            PackageImplementationArtifact::try_from_bytes(
+                resolved.shared_bytes(), InterfaceValidationLimits::default(),
+            )
+        }).clone().map_err(|cause| StandardLibraryLoadError::Implementation {
+            path: path.clone(), cause,
+        })?;
+
+        Ok((path, artifact))
+    }
+
     /// Returns the exact artifacts selected for a target and runtime ABI.
     pub fn target_artifacts(
         &self,
@@ -140,8 +177,8 @@ impl StandardLibraryResolver {
         target: &TargetIdentity,
         runtime_abi: RuntimeAbiVersion,
         expected_producer: NativeContentDigest,
-    ) -> Result<Option<(PathBuf, ValidatedNativeArtifact)>, StandardLibraryLoadError> {
-        self.native_artifact_for_kind(target, runtime_abi, crate::StandardLibraryArtifactKind::NativeIndex, Some(expected_producer))
+    ) -> Result<Option<(PathBuf, PackageImplementationArtifact, NativeArtifactIndex)>, StandardLibraryLoadError> {
+        self.native_artifact_for_kind(target, runtime_abi, NativeUnitKind::Bitcode, Some(expected_producer))
     }
 
     /// Authenticates object units published for configurations without cross-module optimization.
@@ -149,61 +186,44 @@ impl StandardLibraryResolver {
         &self,
         target: &TargetIdentity,
         runtime_abi: RuntimeAbiVersion,
-    ) -> Result<Option<(PathBuf, ValidatedNativeArtifact)>, StandardLibraryLoadError> {
-        self.native_artifact_for_kind(target, runtime_abi, crate::StandardLibraryArtifactKind::NativeObjectIndex, None)
+    ) -> Result<Option<(PathBuf, PackageImplementationArtifact, NativeArtifactIndex)>, StandardLibraryLoadError> {
+        self.native_artifact_for_kind(target, runtime_abi, NativeUnitKind::Object, None)
     }
 
     fn native_artifact_for_kind(
         &self,
         target: &TargetIdentity,
         runtime_abi: RuntimeAbiVersion,
-        kind: crate::StandardLibraryArtifactKind,
+        kind: NativeUnitKind,
         expected_producer: Option<NativeContentDigest>,
-    ) -> Result<Option<(PathBuf, ValidatedNativeArtifact)>, StandardLibraryLoadError> {
-        let manifest = self.manifest()?;
-        let selected = target_inventory(&manifest, target, runtime_abi)?;
+    ) -> Result<Option<(PathBuf, PackageImplementationArtifact, NativeArtifactIndex)>, StandardLibraryLoadError> {
+        let resolved = if kind == NativeUnitKind::Bitcode {
+            let manifest = self.manifest()?;
+            let selected = target_inventory(&manifest, target, runtime_abi)?;
 
-        let Some(record) = selected.artifacts().iter().find(|artifact| {
-            artifact.kind() == kind
-        }) else {
+            let Some(record) = selected.native_implementation() else {
+                return Ok(None);
+            };
+
+            self.resolve(record)?
+        } else {
+            self.implementation(target, runtime_abi)?
+        };
+
+        let (path, implementation) = Self::parse_implementation(resolved)?;
+
+        let Some(index) = implementation.native_variant(kind)
+            .map_err(|cause| StandardLibraryLoadError::NativePackage {
+                path: path.clone(), cause,
+            })? else {
             return Ok(None);
         };
 
-        let resolved = self.resolve(record)?;
-        let path = resolved.path().to_path_buf();
-
-        let native_target = NativeTarget::for_identity(target)
-            .expect("validated standard library target must have a native representation");
-
-        let index_digest = NativeContentDigest::new(
-            bray_base::sha256_reader(resolved.bytes())
-                .expect("hashing an in-memory native index cannot fail"),
-        );
-
-        let payloads = path.parent()
-            .expect("native index artifact must have a parent")
-            .join("native");
-
-        let producer = match expected_producer {
-            Some(producer) => producer,
-            None => NativeArtifactIndex::decode(
-                resolved.bytes(), index_digest, native_target,
-            ).map_err(|cause| StandardLibraryLoadError::NativeIndex {
-                path: path.clone(), cause,
-            })?.producer(),
-        };
-
-        match NativeArtifactIndex::import(
-            resolved.bytes(),
-            index_digest,
-            native_target,
-            producer,
-            &payloads,
-        ) {
-            Ok(artifact) => Ok(Some((path, artifact))),
-            Err(NativeIndexError::WrongProducer { .. }) if expected_producer.is_some() => Ok(None),
-            Err(cause) => Err(StandardLibraryLoadError::NativeIndex { path, cause }),
+        if expected_producer.is_some_and(|producer| producer != index.producer()) {
+            return Ok(None);
         }
+
+        Ok(Some((path, implementation, index)))
     }
 
     fn resolve(
@@ -303,6 +323,7 @@ fn load_artifact(
         metadata: artifact.clone(),
         path: Arc::from(path),
         bytes: Arc::from(bytes),
+        implementation: Arc::new(OnceLock::new()),
     })
 }
 
@@ -364,6 +385,20 @@ pub enum StandardLibraryLoadError {
         /// Exact native index or payload failure.
         cause: NativeIndexError,
     },
+    /// The shared package container is invalid.
+    Implementation {
+        /// Exact selected implementation path.
+        path: PathBuf,
+        /// Exact container validation failure.
+        cause: InterfaceValidationError,
+    },
+    /// An indexed native route in the package container is invalid.
+    NativePackage {
+        /// Exact selected implementation path.
+        path: PathBuf,
+        /// Exact native package failure.
+        cause: PackageNativeArtifactError,
+    },
     /// Native demands cannot close over the published unit set.
     NativeResolution {
         /// Validated manifest path for the native index.
@@ -384,8 +419,7 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use bray_runtime_interface::RuntimeAbiVersion;
-    use bray_native_artifact::{NativeArtifactIndex, NativeContentDigest};
-    use bray_target::{NativeTarget, TargetIdentity};
+    use bray_target::TargetIdentity;
     use tempfile::TempDir;
 
     use super::{StandardLibraryLoadError, StandardLibraryResolver};
@@ -452,58 +486,6 @@ mod tests {
             resolver.target_artifacts(&missing, RuntimeAbiVersion::new(1, 0)),
             Err(StandardLibraryLoadError::TargetUnavailable(missing))
         );
-    }
-
-    #[test]
-    fn optimized_index_with_another_producer_is_optional() {
-        let fixture = Fixture::new();
-        fixture.write();
-
-        let producer = NativeContentDigest::new([1; 32]);
-
-        let index = NativeArtifactIndex::try_new(
-            NativeTarget::X86_64LinuxGnu,
-            producer,
-            [],
-            [],
-        )
-        .expect("fixture index must be valid");
-
-        let bytes = index.encode().expect("fixture index must encode");
-
-        let artifact = StandardLibraryArtifact::try_for_bytes(
-            StandardLibraryArtifactKind::NativeIndex,
-            "targets/x86_64-unknown-linux-gnu/1.0/native-index.json",
-            &bytes,
-        )
-        .expect("fixture artifact must be valid");
-
-        fs::write(artifact.beneath(fixture.directory.path()), bytes)
-            .expect("fixture index must be written");
-
-        let mut artifacts = fixture.manifest.targets()[0].artifacts().to_vec();
-        artifacts.push(artifact);
-
-        let target = target_artifacts_for_test(fixture.target(), RuntimeAbiVersion::new(1, 0), artifacts)
-            .expect("fixture target must be valid");
-
-        let manifest = StandardLibraryBundleManifest::try_new([target])
-            .expect("fixture manifest must be valid");
-
-        let bytes = encode_standard_library_manifest(&manifest)
-            .expect("fixture manifest must encode");
-
-        fs::write(fixture.manifest_path(), bytes).expect("fixture manifest must be written");
-
-        let resolver = StandardLibraryResolver::new(fixture.root());
-        let target = fixture.target();
-        let abi = RuntimeAbiVersion::new(1, 0);
-
-        assert!(resolver.native_artifact(&target, abi, NativeContentDigest::new([2; 32]))
-            .expect("other producer must be treated as absent").is_none());
-
-        assert!(resolver.native_artifact(&target, abi, producer)
-            .expect("matching producer must resolve").is_some());
     }
 
     #[test]

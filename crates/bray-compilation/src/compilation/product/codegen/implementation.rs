@@ -303,6 +303,11 @@ impl Compilation {
             },
         )?;
 
+        let (link, selected_standard_library) = match link {
+            Some((link, payloads)) => (Some(link), payloads),
+            None => (None, Vec::new()),
+        };
+
         // The plan owns static instance identities independently of its mapping tables.
         let static_instances = mappings
             .iter()
@@ -322,6 +327,7 @@ impl Compilation {
             static_instances: shared_slice(static_instances),
             product_host,
             selected_native: shared_slice(selected_native),
+            selected_standard_library: shared_slice(selected_standard_library),
         })
     }
 
@@ -859,7 +865,6 @@ mod tests {
 
         let artifacts = [
             (StandardLibraryArtifactKind::PackageInterface, "std.brayi", b"interface".as_slice()),
-            (StandardLibraryArtifactKind::PackageImplementation, "std.brayimpl", b"implementation".as_slice()),
         ].into_iter().map(|(kind, name, bytes)| {
             let artifact = StandardLibraryArtifact::try_for_bytes(kind, format!("{prefix}/{name}"), bytes).unwrap();
             let path = artifact.beneath(directory.path());
@@ -869,7 +874,8 @@ mod tests {
             artifact
         }).collect::<Vec<_>>();
 
-        let mut payload_paths = BTreeMap::new();
+        let mut payloads = BTreeMap::new();
+        let mut unit_digests = BTreeMap::new();
 
         let units = [
             ("fallback", None, None),
@@ -894,26 +900,97 @@ mod tests {
                 NonEmptySharedStr::try_new(name).unwrap(), NativeLinkKind::System,
             ));
 
-            let path = directory.path().join(&prefix).join("native").join(kind.file_name(digest, native_target));
-            fs::create_dir_all(path.parent().unwrap()).unwrap();
-            fs::write(&path, bytes).unwrap();
-            payload_paths.insert(name, path);
+            if kind == NativeUnitKind::OpaqueArchive {
+                let path = directory.path().join(&prefix).join("native")
+                    .join(kind.file_name(digest, native_target));
+
+                fs::create_dir_all(path.parent().unwrap()).unwrap();
+                fs::write(path, bytes).unwrap();
+            } else {
+                payloads.insert(digest, bytes.to_vec());
+            }
+
+            unit_digests.insert(name, digest);
 
             NativeUnit::new(digest, kind, summary, links, [])
         }).collect::<Vec<_>>();
 
         let index = NativeArtifactIndex::try_new(native_target, NativeContentDigest::new([7; 32]), units, [])
-            .unwrap().encode().unwrap();
+            .unwrap();
 
-        let index_artifact = StandardLibraryArtifact::try_for_bytes(
-            StandardLibraryArtifactKind::NativeObjectIndex, format!("{prefix}/native-object-index.json"), &index,
+        let native_index = index.encode().unwrap();
+        let bitcode_bytes = b"optional bitcode";
+
+        let bitcode_digest = NativeContentDigest::new(
+            bray_base::sha256_reader(bitcode_bytes.as_slice()).unwrap(),
+        );
+
+        let bitcode_index = NativeArtifactIndex::try_new(
+            native_target,
+            NativeContentDigest::new([8; 32]),
+            [NativeUnit::new(
+                bitcode_digest, NativeUnitKind::Bitcode, NativeUnitSummary::Opaque, [], [],
+            )],
+            [],
+        ).unwrap().encode().unwrap();
+
+        let package = PackageIdentity::try_new("example.nativefixture").unwrap();
+
+        let identity = PackageInterfaceIdentity::try_new(
+            package.clone(), crate::test_support::package_version(),
+            InterfaceProductIdentity::try_new("library").unwrap(),
+            InterfaceProductKind::Library, "public",
         ).unwrap();
 
-        fs::write(index_artifact.beneath(directory.path()), &index).unwrap();
+        let export = PackageInterfaceExportRequest::new(identity, InterfaceLanguageRevision::new(0));
+
+        let producer = crate::Compilation::load(
+            CompilationRequest::with_options(
+                package,
+                vec![crate::test_support::source_input("module fixture;\n\npublic func fixture()\n{\n}\n", 0)],
+                CompilationOptions::new(WorkerBudget::serial(), ProductKind::Library, selected.clone()),
+            ).with_package_interface_export(export),
+        ).unwrap();
+
+        assert!(producer.check_diagnostics().is_empty(), "{:#?}", producer.check_diagnostics());
+        let bundle = producer.package_interface_export_bundle().unwrap().as_ref().unwrap();
+        let interface = encode_package_interface(bundle).unwrap();
+
+        let implementation = PackageImplementationArtifact::try_from_export_bundle(
+            &interface, bundle, InterfaceValidationLimits::default(),
+        ).unwrap();
+
+        let units = payloads.into_iter().map(|(digest, bytes)| {
+            (digest.bytes(), Arc::from(bytes))
+        }).collect::<Vec<_>>();
+
+        let implementation = implementation.try_with_native_variants(
+            &[(NativeUnitKind::Object, &native_index)], &units,
+        ).unwrap();
+
+        let native_implementation = implementation.try_native_only_artifact(
+            &[(NativeUnitKind::Bitcode, &bitcode_index)],
+            &[(bitcode_digest.bytes(), Arc::from(bitcode_bytes.as_slice()))],
+        ).unwrap();
+
+        let implementation_artifact = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::PackageImplementation,
+            format!("{prefix}/std.brayimpl"), implementation.bytes(),
+        ).unwrap();
+
+        fs::write(implementation_artifact.beneath(directory.path()), implementation.bytes()).unwrap();
+
+        let native_artifact = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::NativeImplementation,
+            format!("{prefix}/std-native.brayimpl"), native_implementation.bytes(),
+        ).unwrap();
+
+        fs::write(native_artifact.beneath(directory.path()), native_implementation.bytes()).unwrap();
 
         let manifest = StandardLibraryBundleManifest::try_new([
             target_artifacts_for_test(
-                target, runtime_abi, artifacts.into_iter().chain([index_artifact]).collect(),
+                target.clone(), runtime_abi,
+                artifacts.into_iter().chain([implementation_artifact, native_artifact]).collect(),
             ).unwrap(),
         ]).unwrap();
 
@@ -923,6 +1000,14 @@ mod tests {
         ).unwrap();
 
         let root = StandardLibraryRoot::try_new(directory.path()).unwrap();
+
+        let resolver = bray_standard_library::StandardLibraryResolver::new(root.clone());
+
+        assert!(resolver.native_artifact(&target, runtime_abi, NativeContentDigest::new([9; 32]))
+            .unwrap().is_none());
+
+        assert!(resolver.native_artifact(&target, runtime_abi, NativeContentDigest::new([8; 32]))
+            .unwrap().is_some());
 
         let request = CompilationRequest::with_options(
             PackageIdentity::try_new("std.tests.api").unwrap(),
@@ -939,30 +1024,45 @@ mod tests {
             ProductKind::Executable,
             &BTreeSet::from([role.native_symbol()]),
             &BTreeSet::new(),
-        ).unwrap().into_iter().map(Result::unwrap).collect::<Vec<_>>();
+        ).unwrap();
 
-        let streams = select(PlatformServiceRole::StandardOutputWrite);
-        assert_eq!(streams.len(), 3);
-        assert!(streams.iter().any(|input| input.source() == &LinkInputSource::file(&payload_paths["fallback"])));
-        assert!(streams.iter().any(|input| input.source() == &LinkInputSource::file(&payload_paths["streams"])));
-        assert!(streams.iter().any(|input| input.source() == &LinkInputSource::try_native_library("c").unwrap()));
-        assert!(streams.iter().all(|input| input.source() != &LinkInputSource::file(&payload_paths["process"])));
-        let filesystem = select(PlatformServiceRole::FileRead);
-        assert!(filesystem.iter().any(|input| input.source() == &LinkInputSource::file(&payload_paths["filesystem"])));
-        assert!(filesystem.iter().all(|input| input.source() != &LinkInputSource::file(&payload_paths["streams"])));
+        let (streams_links, streams) = select(PlatformServiceRole::StandardOutputWrite);
+
+        let fallback_path = directory.path().join(&prefix).join("native").join(
+            NativeUnitKind::OpaqueArchive.file_name(unit_digests["fallback"], native_target),
+        );
+
+        assert_eq!(streams.len(), 2);
+
+        assert!(streams.iter().any(|unit| unit.digest == unit_digests["fallback"]
+            && matches!(&unit.source, super::super::reuse::SelectedNativePayloadSource::File(path)
+                if path == &fallback_path)));
+
+        assert!(streams.iter().any(|unit| unit.digest == unit_digests["streams"]
+            && matches!(&unit.source, super::super::reuse::SelectedNativePayloadSource::Bytes(bytes)
+                if bytes.as_ref() == b"streams")));
+
+        assert!(streams_links.iter().any(|input| input.source() == &LinkInputSource::try_native_library("c").unwrap()));
+        assert!(streams.iter().all(|unit| unit.digest != unit_digests["process"]));
+
+        let (_, filesystem) = select(PlatformServiceRole::FileRead);
+
+        assert!(filesystem.iter().any(|unit| unit.digest == unit_digests["filesystem"]));
+        assert!(filesystem.iter().all(|unit| unit.digest != unit_digests["streams"]));
 
         let overridden = compilation.standard_library_link_inputs(
             ProductKind::Test,
             &BTreeSet::from([PlatformServiceRole::StandardOutputWrite.native_symbol()]),
             &BTreeSet::from([PlatformServiceRole::StandardOutputWrite]),
-        ).unwrap().into_iter().map(Result::unwrap).collect::<Vec<_>>();
+        ).unwrap();
 
-        assert_eq!(overridden.len(), 1);
-        assert_eq!(overridden[0].source(), &LinkInputSource::file(&payload_paths["fallback"]));
+        assert!(overridden.0.is_empty());
+        assert_eq!(overridden.1.len(), 1);
+        assert_eq!(overridden.1[0].digest, unit_digests["fallback"]);
 
         assert!(compilation.standard_library_link_inputs(
             ProductKind::Library, &BTreeSet::new(), &BTreeSet::new(),
-        ).unwrap().is_empty());
+        ).unwrap().1.is_empty());
     }
 
     #[test]
@@ -3474,7 +3574,12 @@ public func hot(pos value: i32) -> i32 { return value + 1; }
 
         assert_eq!(selected.units.len(), 2);
         assert_eq!(selected.symbol.as_str(), "bray_test_precompiled");
-        assert!(selected.units.iter().all(|unit| unit.bytes.as_ref() != b"disconnected object"));
+
+        assert!(selected.units.iter().all(|unit| matches!(
+            &unit.source,
+            super::super::reuse::SelectedNativePayloadSource::Bytes(bytes)
+                if bytes.as_ref() != b"disconnected object"
+        )));
 
         assert!(selected.units.iter().any(|unit| unit.native_links.iter().any(|link|
             link.source() == &LinkInputSource::try_native_library("native_support")

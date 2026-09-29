@@ -43,14 +43,13 @@ const fn standard_library_artifact_kind(
     match kind {
         Kind::PackageInterface => "package_interface",
         Kind::PackageImplementation => "package_implementation",
+        Kind::NativeImplementation => "native_implementation",
         Kind::DependencyMetadata => "dependency_metadata",
         Kind::RelocatableObject => "relocatable_object",
         Kind::StaticLibrary => "static_library",
         Kind::PlatformServiceLibrary => "platform_service_library",
         Kind::SharedLibrary => "shared_library",
         Kind::RuntimeArtifact => "runtime_artifact",
-        Kind::NativeIndex => "native_index",
-        Kind::NativeObjectIndex => "native_object_index",
     }
 }
 

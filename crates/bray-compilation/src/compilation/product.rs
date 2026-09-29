@@ -10,6 +10,7 @@ mod specialization_identity;
 mod visibility;
 
 pub use codegen::{NativeProductPlan, NativeProductPlanningError};
+pub(in crate::compilation) use codegen::reuse::SelectedNativePayloadSource;
 pub(in crate::compilation) use codegen::{
     codegen_preparation_failure_kind, mir_content_identity, native_producer_identity,
     native_product_preparation_diagnostic,

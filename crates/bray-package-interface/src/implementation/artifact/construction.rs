@@ -21,6 +21,37 @@ use crate::{
 use super::PackageImplementationArtifact;
 
 impl PackageImplementationArtifact {
+    /// Adds native object or bitcode routes to an existing package implementation container.
+    pub fn try_with_native_variants(
+        &self,
+        indexes: &[(bray_native_artifact::NativeUnitKind, &[u8])],
+        units: &[([u8; 32], std::sync::Arc<[u8]>)],
+    ) -> Result<Self, PackageImplementationArtifactBuildError> {
+        let bytes = crate::implementation::artifact_encoding::encode_with_native_variants(
+            self.identity.language_revision(), &self.bytes, &self.directory, self.limits,
+            indexes, units,
+        )?;
+
+        Self::try_from_bytes(bytes, self.limits)
+            .map_err(PackageImplementationArtifactBuildError::InvalidArtifact)
+    }
+
+    /// Encodes another native representation under the same package identity.
+    pub fn try_native_only_artifact(
+        &self,
+        indexes: &[(bray_native_artifact::NativeUnitKind, &[u8])],
+        units: &[([u8; 32], std::sync::Arc<[u8]>)],
+    ) -> Result<Self, PackageImplementationArtifactBuildError> {
+        let base = encode_artifact(
+            &self.identity, &[], &[], &[], &[], None, &[], &[],
+        )?;
+
+        let base = Self::try_from_bytes(base, self.limits)
+            .map_err(PackageImplementationArtifactBuildError::InvalidArtifact)?;
+
+        base.try_with_native_variants(indexes, units)
+    }
+
     /// Encodes the implementation payloads associated with one interface export.
     pub fn try_from_export_bundle(
         interface: &InterfaceArtifact,

@@ -208,6 +208,20 @@ pub(in crate::compilation) fn standard_library_failure_diagnostic(
 
             (diagnostic, Some(path))
         }
+        StandardLibraryLoadError::Implementation { path, cause } => {
+            (cause.into_diagnostic(DiagnosticId::new(0)), Some(path))
+        }
+        StandardLibraryLoadError::NativePackage { path, cause } => {
+            let diagnostic = Diagnostic::new(
+                DiagnosticId::new(0),
+                DiagnosticKind::InterfaceValidationFailed,
+                SeverityKind::Error,
+            ).with_arg(DiagnosticArg::interface_validation_failure(
+                cause.into_diagnostic_failure(),
+            ));
+
+            (diagnostic, Some(path))
+        }
         StandardLibraryLoadError::NativeResolution { path, cause } => {
             let problem = match cause {
                 bray_native_artifact::NativeResolutionError::Unresolved(_) => {

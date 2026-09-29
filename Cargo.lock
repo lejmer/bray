@@ -622,6 +622,7 @@ version = "0.0.0"
 dependencies = [
  "bray-base",
  "bray-native-artifact",
+ "bray-package-interface",
  "bray-runtime-interface",
  "bray-symbols",
  "bray-target",

@@ -370,9 +370,21 @@ fn validate_payload_address(
                 ));
             }
         }
-        Some(ImplementationPayloadKind::Identity | ImplementationPayloadKind::NativeIndex) => {
+        Some(ImplementationPayloadKind::Identity) => {
             if owner.raw() != 0
                 || discriminator != [0; 32]
+                || family_size != 0
+                || platform_service.is_some()
+            {
+                return Err(crate::implementation::invalid_value(
+                    InterfaceValidationField::Value,
+                ));
+            }
+        }
+        Some(ImplementationPayloadKind::NativeIndex) => {
+            if owner.raw() != 0
+                || !matches!(discriminator[0], 0..=2)
+                || discriminator[1..].iter().any(|byte| *byte != 0)
                 || family_size != 0
                 || platform_service.is_some()
             {

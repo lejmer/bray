@@ -25,6 +25,7 @@ use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 use super::diagnostics::ProductEmissionErrorKind;
 use super::execution::NativeInspectionInputs;
 use crate::compilation::{Compilation, NativeProductPlan};
+use crate::compilation::product::SelectedNativePayloadSource;
 use crate::fact::CancellationToken;
 
 pub(super) fn stage_selected_native_inputs(
@@ -39,6 +40,7 @@ pub(super) fn stage_selected_native_inputs(
 
     let selected = native.selected_native_units().iter()
         .flat_map(|selection| selection.units.iter())
+        .chain(native.selected_standard_library_units())
         .filter(|unit| seen.insert((unit.package.clone(), unit.digest)))
         .collect::<Vec<_>>();
 
@@ -51,9 +53,12 @@ pub(super) fn stage_selected_native_inputs(
                 NativeUnitKind::OpaqueArchive => LinkInputKind::Archive,
             };
 
-            let path = staging.stage_imported_native_unit(
-                ordinal, kind, target, &unit.bytes, cancellation,
-            ).map_err(product_staging_error)?;
+            let path = match &unit.source {
+                SelectedNativePayloadSource::Bytes(bytes) => staging.stage_imported_native_unit(
+                    ordinal, kind, target, bytes, cancellation,
+                ).map_err(product_staging_error)?,
+                SelectedNativePayloadSource::File(path) => path.clone(),
+            };
 
             LinkInputSpec::try_new(
                 kind,
