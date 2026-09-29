@@ -193,7 +193,7 @@ impl NativeArtifactIndex {
             });
         }
 
-        let workers = std::thread::available_parallelism().map_or(1, usize::from).min(4);
+        let workers = std::thread::available_parallelism().map_or(1, usize::from).min(12);
 
         let payloads = if index.units.len() < 16 || workers == 1 {
             index.units().iter()

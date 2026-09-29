@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use bray_base::NonEmptySharedStr;
@@ -9,7 +9,7 @@ use bray_linker::{
 use bray_native_artifact::{NativeUnitKind, NativeUnitResolver};
 use bray_runtime_interface::RuntimeAbiVersion;
 use bray_standard_library::{StandardLibraryLoadError, StandardLibraryResolver};
-use bray_symbols::{NativeSymbolContract, NativeSymbolIdentity, PackageIdentity};
+use bray_symbols::{NativeSymbolBinding, NativeSymbolContract, NativeSymbolIdentity, PackageIdentity};
 use bray_target::{NativeTarget, TargetIdentity};
 
 use super::super::super::Compilation;
@@ -31,7 +31,7 @@ impl Compilation {
         target_identity: &TargetIdentity,
         runtime_abi: RuntimeAbiVersion,
         imported_symbols: &BTreeSet<&str>,
-        provided_symbols: &BTreeSet<&str>,
+        provided_symbols: &BTreeMap<&str, NativeSymbolBinding>,
         target: &CodegenTarget,
         configuration: crate::BuildConfiguration,
         package: &PackageIdentity,
@@ -82,9 +82,9 @@ impl Compilation {
         // The index clone shares its immutable unit arrays with the resolver.
         let unit_resolver = NativeUnitResolver::new(artifact.index().clone());
 
-        let provided = provided_symbols.iter().map(|name| {
-            NativeSymbolIdentity::Name(NonEmptySharedStr::try_new(*name)
-                .expect("mapped provided native symbol must be nonempty"))
+        let provided = provided_symbols.iter().map(|(&name, &binding)| {
+            (NativeSymbolIdentity::Name(NonEmptySharedStr::try_new(name)
+                .expect("mapped provided native symbol must be nonempty")), binding)
         });
 
         let selected = unit_resolver.select_with_provided(demands, provided)

@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bray_codegen::CodegenTarget;
 use bray_emitter::ProductLinkInputs;
@@ -7,7 +7,7 @@ use bray_linker::{
     SectionGarbageCollectionPolicy,
 };
 use bray_runtime_interface::{ExecutableHostContract, RuntimeArtifactSelection};
-use bray_symbols::{NativeLinkKind, NativeLinkRequirement, ProductKind};
+use bray_symbols::{NativeLinkKind, NativeLinkRequirement, NativeSymbolBinding, ProductKind};
 
 use super::super::super::Compilation;
 use super::error::{NativeLinkInputPlanningError, NativeProductPlanningError};
@@ -180,10 +180,13 @@ impl Compilation {
             })
             .collect();
 
-        let mut provided_symbols = strong_product_symbols(mappings);
+        let mut provided_symbols = product_native_definitions(mappings);
 
         let platform_override_symbols = runtime_platform_symbols(runtime.as_ref())?;
-        provided_symbols.extend(platform_override_symbols.iter().map(|symbol| symbol.as_str()));
+
+        for symbol in &platform_override_symbols {
+            provided_symbols.insert(symbol.as_str(), NativeSymbolBinding::Strong);
+        }
 
         let standard_library = self.standard_library_link_selection(
             kind,
@@ -279,7 +282,7 @@ impl Compilation {
         &self,
         product_kind: ProductKind,
         imported_symbols: &BTreeSet<&str>,
-        provided_symbols: &BTreeSet<&str>,
+        provided_symbols: &BTreeMap<&str, NativeSymbolBinding>,
         target: &CodegenTarget,
         configuration: crate::BuildConfiguration,
     ) -> Result<StandardLibraryLinkSelection, NativeProductPlanningError> {
@@ -347,8 +350,9 @@ impl Compilation {
             .codegen_target()
             .map_err(NativeProductPlanningError::InvalidCodegenTarget)?;
 
-        let provided = platform_overrides.iter().map(|role| role.native_symbol())
-            .collect::<BTreeSet<_>>();
+        let provided = platform_overrides.iter().map(|role| {
+            (role.native_symbol(), NativeSymbolBinding::Strong)
+        }).collect::<BTreeMap<_, _>>();
 
         self.standard_library_link_selection(
             product_kind,
@@ -361,24 +365,50 @@ impl Compilation {
     }
 }
 
-pub(super) fn strong_product_symbols(
+pub(super) fn product_native_definitions(
     mappings: &[bray_codegen::CodegenMappings],
-) -> BTreeSet<&str> {
-    mappings
-        .iter()
-        .flat_map(|mapping| {
-            mapping.symbols().iter()
-                .filter(|symbol| symbol.defines_in(mapping.unit())
-                    && matches!(symbol.linkage(),
-                        bray_codegen::CodegenLinkage::External | bray_codegen::CodegenLinkage::Export))
-                .map(|symbol| symbol.name().as_str())
-                .chain(mapping.native_storages().iter()
-                    .filter(|storage| storage.direction()
-                        == bray_symbols::ForeignCallableDirection::Export
-                        && storage.binding() == bray_symbols::NativeSymbolBinding::Strong)
-                    .map(|storage| storage.symbol().as_str()))
-        })
-        .collect()
+) -> BTreeMap<&str, NativeSymbolBinding> {
+    let mut definitions = BTreeMap::new();
+
+    for mapping in mappings {
+        for symbol in mapping.symbols().iter().filter(|symbol| symbol.defines_in(mapping.unit())) {
+            let binding = match symbol.linkage() {
+                bray_codegen::CodegenLinkage::External
+                | bray_codegen::CodegenLinkage::Export
+                | bray_codegen::CodegenLinkage::LinkOnce => NativeSymbolBinding::Strong,
+                bray_codegen::CodegenLinkage::Weak
+                | bray_codegen::CodegenLinkage::Fallback
+                | bray_codegen::CodegenLinkage::Common => NativeSymbolBinding::Weak,
+                bray_codegen::CodegenLinkage::Private
+                | bray_codegen::CodegenLinkage::Internal
+                | bray_codegen::CodegenLinkage::Import => continue,
+            };
+
+            // An emitted LinkOnce body satisfies its own references even though its native
+            // linkage is weak; selecting the std body would define that same body twice.
+            insert_product_definition(&mut definitions, symbol.name().as_str(), binding);
+        }
+
+        for storage in mapping.native_storages().iter().filter(|storage| {
+            storage.direction() == bray_symbols::ForeignCallableDirection::Export
+        }) {
+            insert_product_definition(&mut definitions, storage.symbol().as_str(), storage.binding());
+        }
+    }
+
+    definitions
+}
+
+fn insert_product_definition<'a>(
+    definitions: &mut BTreeMap<&'a str, NativeSymbolBinding>,
+    name: &'a str,
+    binding: NativeSymbolBinding,
+) {
+    let existing = definitions.entry(name).or_insert(binding);
+
+    if binding == NativeSymbolBinding::Strong {
+        *existing = binding;
+    }
 }
 
 pub(super) const fn product_link_model(object_format: bray_target::ObjectFormat) -> LinkModel {

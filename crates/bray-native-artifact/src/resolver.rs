@@ -131,7 +131,7 @@ impl NativeUnitResolver {
             return selection.clone();
         }
 
-        let selection = self.select_uncached(&demands, &BTreeSet::new(), &[]).map(Arc::new);
+        let selection = self.select_uncached(&demands, &BTreeMap::new(), &[]).map(Arc::new);
 
         self.selections.lock()
             .expect("native selection cache mutex poisoned")
@@ -140,16 +140,24 @@ impl NativeUnitResolver {
         selection
     }
 
-    /// Closes demand while treating definitions already emitted by the product as satisfied.
+    /// Closes demand with product definitions, allowing ordinary strong units to displace weak ones.
     pub fn select_with_provided(
         &self,
         demands: impl IntoIterator<Item = NativeSymbolContract>,
-        provided: impl IntoIterator<Item = NativeSymbolIdentity>,
+        provided: impl IntoIterator<Item = (NativeSymbolIdentity, NativeSymbolBinding)>,
     ) -> Result<NativeUnitSelection, NativeResolutionError> {
         let demands = demands.into_iter().collect::<BTreeSet<_>>().into_iter().collect::<Vec<_>>();
-        let provided = provided.into_iter().collect::<BTreeSet<_>>();
+        let mut definitions = BTreeMap::new();
 
-        self.select_uncached(&demands, &provided, &[])
+        for (identity, binding) in provided {
+            let existing = definitions.entry(identity).or_insert(binding);
+
+            if binding == NativeSymbolBinding::Strong {
+                *existing = binding;
+            }
+        }
+
+        self.select_uncached(&demands, &definitions, &[])
     }
 
     /// Closes from known owned units when native publication starts from physical entries.
@@ -159,13 +167,13 @@ impl NativeUnitResolver {
     ) -> Result<NativeUnitSelection, NativeResolutionError> {
         let seeds = seeds.into_iter().collect::<BTreeSet<_>>().into_iter().collect::<Vec<_>>();
 
-        self.select_uncached(&[], &BTreeSet::new(), &seeds)
+        self.select_uncached(&[], &BTreeMap::new(), &seeds)
     }
 
     fn select_uncached(
         &self,
         demands: &[NativeSymbolContract],
-        provided: &BTreeSet<NativeSymbolIdentity>,
+        provided: &BTreeMap<NativeSymbolIdentity, NativeSymbolBinding>,
         seeds: &[NativeContentDigest],
     ) -> Result<NativeUnitSelection, NativeResolutionError> {
         let mut state = SelectionState::default();
@@ -255,16 +263,26 @@ impl NativeUnitResolver {
         symbol: &NativeSymbolContract,
         reason: NativeUnitInclusion,
         from: Option<usize>,
-        provided: &BTreeSet<NativeSymbolIdentity>,
+        provided: &BTreeMap<NativeSymbolIdentity, NativeSymbolBinding>,
         state: &mut SelectionState,
     ) -> Result<(), NativeResolutionError> {
-        if symbol.presence() == NativeSymbolPresence::Optional
-            || symbol.version().is_none() && provided.contains(symbol.identity())
-        {
+        if symbol.presence() == NativeSymbolPresence::Optional {
+            return Ok(());
+        }
+
+        let provided_binding = symbol.version().is_none()
+            .then(|| provided.get(symbol.identity()).copied())
+            .flatten();
+
+        if provided_binding == Some(NativeSymbolBinding::Strong) {
             return Ok(());
         }
 
         let Some(candidates) = self.providers.get(&symbol_key(symbol)) else {
+            if provided_binding.is_some() {
+                return Ok(());
+            }
+
             let mut opaque_terminal = false;
 
             for (unit_index, unit) in self.index.units().iter().enumerate() {
@@ -300,6 +318,16 @@ impl NativeUnitResolver {
                 fallback.push(provider);
             } else {
                 ordinary.push(provider);
+            }
+        }
+
+        if provided_binding == Some(NativeSymbolBinding::Weak) {
+            ordinary.retain(|(_, definition)| {
+                definition.symbol().binding() == NativeSymbolBinding::Strong
+            });
+
+            if ordinary.is_empty() {
+                return Ok(());
             }
         }
 
@@ -517,10 +545,33 @@ mod tests {
         let provided = NativeSymbolIdentity::Name(NonEmptySharedStr::try_new("callee").expect("test name"));
 
         let selection = NativeUnitResolver::new(index([callee, caller], []))
-            .select_with_provided([required("caller")], [provided])
+            .select_with_provided([required("caller")], [(provided, NativeSymbolBinding::Strong)])
             .expect("product-satisfied closure");
 
         assert_eq!(selection.units(), [digest(1)]);
+    }
+
+    #[test]
+    fn weak_product_definition_only_yields_to_an_ordinary_strong_provider() {
+        let caller = unit(1, &[("caller", NativeSymbolBinding::Strong, NativeDefinitionSelection::Ordinary)], &[required("callee")], &[]);
+        let strong = unit(2, &[("callee", NativeSymbolBinding::Strong, NativeDefinitionSelection::Ordinary)], &[], &[]);
+        let weak = unit(3, &[("callee", NativeSymbolBinding::Weak, NativeDefinitionSelection::Ordinary)], &[], &[]);
+        let fallback = unit(4, &[("callee", NativeSymbolBinding::Strong, NativeDefinitionSelection::Fallback)], &[], &[]);
+        let provided = || (NativeSymbolIdentity::Name(NonEmptySharedStr::try_new("callee").expect("test name")), NativeSymbolBinding::Weak);
+
+        let selected = NativeUnitResolver::new(index([caller.clone(), strong, weak.clone(), fallback.clone()], []))
+            .select_with_provided([required("caller")], [provided()])
+            .expect("strong provider overrides weak product definition");
+
+        assert_eq!(selected.units(), [digest(1), digest(2)]);
+
+        for provider in [weak, fallback] {
+            let selected = NativeUnitResolver::new(index([caller.clone(), provider], []))
+                .select_with_provided([required("caller")], [provided()])
+                .expect("weak product definition satisfies reference");
+
+            assert_eq!(selected.units(), [digest(1)]);
+        }
     }
 
     #[test]
