@@ -2132,3 +2132,129 @@ fn complete_reads_enforce_metadata_promises_and_share_their_immutable_snapshot()
             .is_err()
     );
 }
+
+#[test]
+fn demanded_payloads_share_one_allocation_budget_across_parallel_readers() {
+    let fixture = artifact_fixture();
+    let interface = encode_package_interface(&fixture.bundle).unwrap();
+
+    let artifact = PackageImplementationArtifact::try_from_export_bundle(
+        &interface,
+        &fixture.bundle,
+        InterfaceValidationLimits::default(),
+    )
+    .unwrap();
+
+    let target = NativeTarget::for_identity(artifact.identity().configuration().target()).unwrap();
+
+    let payloads = (0..3u8)
+        .map(|byte| {
+            let bytes = Arc::<[u8]>::from(vec![byte; 512 * 1024]);
+
+            (native_digest(&bytes).bytes(), bytes)
+        })
+        .collect::<Vec<_>>();
+
+    let index = NativeArtifactIndex::try_new(
+        target,
+        native_digest(b"producer"),
+        payloads.iter().map(|(digest, _)| {
+            NativeUnit::new(
+                NativeContentDigest::new(*digest),
+                NativeUnitKind::OpaqueArchive,
+                NativeUnitSummary::opaque([]),
+                [],
+            )
+        }),
+        [],
+    )
+    .unwrap()
+    .encode()
+    .unwrap();
+
+    let packed = artifact
+        .try_native_only_artifact(&[(NativeUnitKind::Object, &index)], &payloads)
+        .unwrap();
+
+    let bytes = packed.shared_bytes().unwrap();
+
+    for (parallel, verify_before) in [(false, false), (true, false), (false, true), (true, true)] {
+        let loaded = PackageImplementationArtifact::try_from_bytes(
+            Arc::clone(&bytes),
+            InterfaceValidationLimits::default().with_decoded_allocation(800_000),
+        )
+        .unwrap();
+
+        if verify_before {
+            // Full authentication streams all units without reserving their unused decoded bytes.
+            loaded.verify_all().unwrap();
+
+            assert_eq!(
+                loaded
+                    .decoded
+                    .iter()
+                    .filter(|cell| cell.get().is_some())
+                    .count(),
+                1
+            );
+        }
+
+        let results = if parallel {
+            let barrier = std::sync::Barrier::new(payloads.len());
+
+            std::thread::scope(|scope| {
+                let readers = payloads
+                    .iter()
+                    .map(|(digest, _)| {
+                        let barrier = &barrier;
+                        let loaded = &loaded;
+
+                        scope.spawn(move || {
+                            barrier.wait();
+
+                            (*digest, loaded.native_unit_bytes(*digest))
+                        })
+                    })
+                    .collect::<Vec<_>>();
+
+                readers
+                    .into_iter()
+                    .map(|reader| reader.join().unwrap())
+                    .collect::<Vec<_>>()
+            })
+        } else {
+            payloads
+                .iter()
+                .map(|(digest, _)| (*digest, loaded.native_unit_bytes(*digest)))
+                .collect()
+        };
+
+        assert_eq!(
+            results.iter().filter(|(_, result)| result.is_ok()).count(),
+            1
+        );
+
+        let statistics = loaded.access_statistics();
+
+        for (digest, result) in results {
+            match result {
+                Ok(Some(payload)) => assert_eq!(payload.len(), 512 * 1024),
+                Err(super::native::PackageNativeArtifactError::Validation(
+                    InterfaceValidationError::ResourceLimitExceeded {
+                        limit: crate::InterfaceLimit::DecodedAllocation,
+                        maximum: 800_000,
+                        ..
+                    },
+                )) => {}
+                other => panic!("unexpected allocation outcome: {other:?}"),
+            }
+
+            let _ = loaded.clone().native_unit_bytes(digest);
+        }
+
+        assert_eq!(statistics, loaded.access_statistics());
+
+        // Rejected reservations do not consume memory or prevent streaming verification.
+        loaded.verify_all().unwrap();
+    }
+}

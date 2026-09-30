@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 static NEXT_FILE_SNAPSHOT: AtomicU64 = AtomicU64::new(1);
 
@@ -21,6 +21,7 @@ pub struct PackageArtifactInput {
     metadata_digest: Option<[u8; 32]>,
     file_snapshot: Option<u64>,
     supplied_bytes: Option<Arc<[u8]>>,
+    initialization: Arc<Mutex<()>>,
     bytes: Arc<OnceLock<Result<Arc<[u8]>, PackageArtifactLoadError>>>,
     implementation: Arc<OnceLock<Result<PackageImplementationArtifact, PackageArtifactLoadError>>>,
 }
@@ -69,6 +70,7 @@ impl PackageArtifactInput {
                     })
                     .expect("package artifact snapshot identities exhausted")
             }),
+            initialization: Arc::new(Mutex::new(())),
             bytes: Arc::new(OnceLock::new()),
             implementation: Arc::new(OnceLock::new()),
         }
@@ -124,11 +126,25 @@ impl PackageArtifactInput {
 
     /// Reads and authenticates this input at most once within its immutable request.
     pub fn read(&self) -> Result<Arc<[u8]>, PackageArtifactLoadError> {
+        if let Some(bytes) = self.bytes.get() {
+            return bytes.clone();
+        }
+
+        let _initialization = self
+            .initialization
+            .lock()
+            .expect("artifact input initialization poisoned");
+
+        self.read_bytes()
+    }
+
+    fn read_bytes(&self) -> Result<Arc<[u8]>, PackageArtifactLoadError> {
         self.bytes
             .get_or_init(|| {
                 let bytes = match (&self.supplied_bytes, self.implementation.get()) {
                     (Some(bytes), _) => Arc::clone(bytes),
-                    (None, Some(Ok(artifact))) => artifact
+                    (None, Some(artifact)) => artifact
+                        .clone()?
                         .shared_bytes()
                         .map_err(PackageArtifactLoadError::Validation)?,
                     (None, _) => Arc::from(
@@ -172,6 +188,15 @@ impl PackageArtifactInput {
     pub fn load_implementation(
         &self,
     ) -> Result<PackageImplementationArtifact, PackageArtifactLoadError> {
+        if let Some(artifact) = self.implementation.get() {
+            return artifact.clone();
+        }
+
+        let _initialization = self
+            .initialization
+            .lock()
+            .expect("artifact input initialization poisoned");
+
         self.implementation
             .get_or_init(|| {
                 let limits = InterfaceValidationLimits::default();
@@ -180,7 +205,7 @@ impl PackageArtifactInput {
                     || self.expected_digest.is_some()
                     || self.bytes.get().is_some()
                 {
-                    PackageImplementationArtifact::try_from_bytes(self.read()?, limits)
+                    PackageImplementationArtifact::try_from_bytes(self.read_bytes()?, limits)
                 } else {
                     PackageImplementationArtifact::try_open(&self.path, limits)
                 }
@@ -289,5 +314,104 @@ mod tests {
             second.read().expect("authenticated read").as_ref(),
             b"expected"
         );
+    }
+
+    #[test]
+    fn concurrent_acquisition_keeps_one_snapshot_through_path_replacement() {
+        let bundle = crate::test_support::package_interface_export_bundle();
+        let interface = crate::encode_package_interface(&bundle).unwrap();
+
+        let artifact = crate::PackageImplementationArtifact::try_from_export_bundle(
+            &interface,
+            &bundle,
+            crate::InterfaceValidationLimits::default(),
+        )
+        .unwrap();
+
+        let original = artifact.shared_bytes().unwrap();
+
+        let target =
+            bray_target::NativeTarget::for_identity(artifact.identity().configuration().target())
+                .unwrap();
+
+        let index = bray_native_artifact::NativeArtifactIndex::try_new(
+            target,
+            bray_native_artifact::NativeContentDigest::new([1; 32]),
+            [],
+            [],
+        )
+        .unwrap()
+        .encode()
+        .unwrap();
+
+        let replacement = artifact
+            .try_native_only_artifact(
+                &[(bray_native_artifact::NativeUnitKind::Object, &index)],
+                &[],
+            )
+            .unwrap()
+            .shared_bytes()
+            .unwrap();
+
+        assert_ne!(original, replacement);
+
+        for mode in 0..3 {
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("library.brayimpl");
+            std::fs::write(&path, &original).unwrap();
+
+            let input = match mode {
+                0 => PackageArtifactInput::file(&path, None),
+                1 => PackageArtifactInput::packed_file(&path, *artifact.artifact_hash()),
+                _ => PackageArtifactInput::file(&path, Some(*blake3::hash(&original).as_bytes())),
+            };
+
+            let (opened, ready) = std::sync::mpsc::channel();
+
+            let (resume, released) = std::sync::mpsc::channel();
+
+            let reader = input.clone();
+
+            let reading = std::thread::spawn(move || {
+                let _initialization = reader.initialization.lock().unwrap();
+
+                // Pause the real bytes cell between acquisition and publication.
+                reader
+                    .bytes
+                    .get_or_init(|| {
+                        let bytes = std::fs::read(reader.path()).unwrap();
+                        opened.send(()).unwrap();
+                        released.recv().unwrap();
+
+                        Ok(std::sync::Arc::from(bytes))
+                    })
+                    .clone()
+                    .unwrap()
+            });
+
+            ready.recv().unwrap();
+            std::fs::rename(&path, directory.path().join("original.brayimpl")).unwrap();
+            std::fs::write(&path, &replacement).unwrap();
+            let loader = input.clone();
+
+            let (completed, completion) = std::sync::mpsc::channel();
+
+            let loading = std::thread::spawn(move || {
+                completed.send(loader.load_implementation()).unwrap();
+            });
+
+            assert!(matches!(
+                completion.recv_timeout(std::time::Duration::from_millis(50)),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+            ));
+
+            resume.send(()).unwrap();
+            let bytes = reading.join().unwrap();
+            let loaded = completion.recv().unwrap().unwrap();
+            loading.join().unwrap();
+            assert_eq!(bytes, original);
+            assert_eq!(loaded.artifact_hash(), artifact.artifact_hash());
+            assert_eq!(input.read().unwrap(), original);
+        }
     }
 }

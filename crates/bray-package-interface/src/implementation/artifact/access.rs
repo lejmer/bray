@@ -369,7 +369,16 @@ impl PackageImplementationArtifact {
             .get(index)
             .expect("validated implementation directory entry must have a payload cache slot");
 
-        cache.get_or_init(|| self.read_payload(entry)).clone()
+        cache
+            .get_or_init(|| {
+                self.allocation
+                    .lock()
+                    .expect("implementation allocation budget poisoned")
+                    .charge(usize::try_from(entry.decoded_length).unwrap_or(usize::MAX))?;
+
+                self.read_payload(entry)
+            })
+            .clone()
     }
 
     fn read_payload(

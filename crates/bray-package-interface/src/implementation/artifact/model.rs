@@ -1,6 +1,6 @@
 use std::ops::Range;
 use std::sync::Arc;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 use bray_symbols::InterfaceSymbolId;
 
@@ -96,6 +96,7 @@ pub struct PackageImplementationArtifact {
             >,
         >; 3],
     >,
+    pub(super) allocation: Arc<Mutex<crate::decode::DecodeBudget>>,
     pub(super) limits: InterfaceValidationLimits,
 }
 

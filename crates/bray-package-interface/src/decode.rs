@@ -64,6 +64,7 @@ pub(crate) const fn map_wire_error(
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct DecodeBudget {
     limits: InterfaceValidationLimits,
     allocated: u64,
@@ -134,10 +135,14 @@ impl DecodeBudget {
     pub(crate) fn charge(&mut self, bytes: usize) -> Result<(), InterfaceValidationError> {
         let bytes = u64::try_from(bytes).unwrap_or(u64::MAX);
 
-        self.allocated = self.allocated.saturating_add(bytes);
+        let allocated = self.allocated.saturating_add(bytes);
 
         self.limits
-            .check(InterfaceLimit::DecodedAllocation, self.allocated)
+            .check(InterfaceLimit::DecodedAllocation, allocated)?;
+
+        self.allocated = allocated;
+
+        Ok(())
     }
 
     pub(crate) fn charge_external_reference(

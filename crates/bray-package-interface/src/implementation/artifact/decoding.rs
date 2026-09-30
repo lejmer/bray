@@ -249,9 +249,15 @@ impl PackageImplementationArtifact {
         validate_encoded_executable_template_families(&directory)?;
 
         let identity =
-            decode_implementation_identity(&storage, &directory, language_revision, limits)?;
+            decode_implementation_identity(&storage, &directory, language_revision, &mut budget)?;
 
-        let decoded = (0..directory.len()).map(|_| OnceLock::new()).collect();
+        let mut decoded = budget.allocate_derived_items(
+            InterfaceValidationContext::Directory,
+            InterfaceValidationField::RecordPayload,
+            directory.len(),
+        )?;
+
+        decoded.extend((0..directory.len()).map(|_| OnceLock::new()));
 
         Ok(Self {
             storage: Arc::new(storage),
@@ -259,8 +265,9 @@ impl PackageImplementationArtifact {
             content_hash,
             artifact_hash,
             directory: directory.into(),
-            decoded,
+            decoded: decoded.into(),
             native_indexes: Arc::new(std::array::from_fn(|_| OnceLock::new())),
+            allocation: Arc::new(std::sync::Mutex::new(budget)),
             limits,
         })
     }
@@ -270,7 +277,7 @@ fn decode_implementation_identity(
     storage: &super::storage::ImplementationStorage,
     directory: &[ImplementationDirectoryEntry],
     language_revision: InterfaceLanguageRevision,
-    limits: InterfaceValidationLimits,
+    budget: &mut DecodeBudget,
 ) -> Result<PackageImplementationIdentity, InterfaceValidationError> {
     let identity_entries = directory
         .iter()
@@ -282,6 +289,10 @@ fn decode_implementation_identity(
             InterfaceValidationField::Value,
         ));
     };
+
+    budget.charge(usize::try_from(identity_entry.decoded_length).unwrap_or(usize::MAX))?;
+
+    let limits = budget.limits();
 
     let identity_payload = decode_entry_payload(
         storage.read(identity_entry.payload.clone())?,
