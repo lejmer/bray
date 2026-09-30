@@ -24,8 +24,16 @@ pub(super) fn package_implementation_contribution(
             .into(),
         ))?;
 
-    let content = ArtifactContent::try_memory(artifact.shared_bytes())
-        .map_err(ProductEmissionErrorKind::PackageImplementationContent)?;
+    artifact.verify_all().expect(
+        "compiler-produced package implementation must pass complete publication authentication",
+    );
+
+    let content = ArtifactContent::try_memory(artifact.shared_bytes().map_err(|error| {
+        ProductEmissionErrorKind::PackageImplementation(
+            bray_package_interface::PackageImplementationArtifactBuildError::InvalidArtifact(error),
+        )
+    })?)
+    .map_err(ProductEmissionErrorKind::PackageImplementationContent)?;
 
     Ok(ArtifactContribution::new(
         planned.id().clone(),

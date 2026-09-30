@@ -347,10 +347,7 @@ impl DependencyInterfaceInput {
             resolver.target_inventory(target.profile().identity(), target.runtime_abi())?;
 
         let artifact = |record: &bray_standard_library::StandardLibraryArtifact| {
-            bray_package_interface::PackageArtifactInput::file(
-                record.beneath(resolver.root().path()),
-                Some(record.digest().bytes()),
-            )
+            record.input(resolver.root().path())
         };
 
         let interface = Self::from_artifact(

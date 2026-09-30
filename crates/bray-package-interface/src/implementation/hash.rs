@@ -94,15 +94,25 @@ pub(super) fn compute_content_hash(
 }
 
 pub(super) fn compute_artifact_hash(bytes: &[u8]) -> Option<[u8; 32]> {
-    let (before, after_hash) = bytes.split_at_checked(ARTIFACT_HASH_OFFSET)?;
+    let offset = usize::try_from(u64::from_le_bytes(bytes.get(32..40)?.try_into().ok()?)).ok()?;
+
+    compute_metadata_hash(
+        bytes.get(..super::artifact::HEADER_LENGTH)?,
+        bytes.get(offset..)?,
+    )
+}
+
+pub(super) fn compute_metadata_hash(header: &[u8], directory: &[u8]) -> Option<[u8; 32]> {
+    let (before, after_hash) = header.split_at_checked(ARTIFACT_HASH_OFFSET)?;
 
     let (_, after) = after_hash.split_at_checked(32)?;
 
     let mut hasher = Hasher::new();
-
+    hasher.update(b"bray.package-implementation.metadata.v1");
     hasher.update(before);
     hasher.update(&[0; 32]);
     hasher.update(after);
+    hasher.update(directory);
 
     Some(*hasher.finalize().as_bytes())
 }

@@ -145,19 +145,19 @@ impl Compilation {
             implementation.identity().dependencies().iter().cloned(),
         );
 
-        let Some(binding) = implementation
-            .native_binding(address.symbol(), &specialization, options)
-            .map_err(validation)?
-        else {
-            return Ok(None);
-        };
-
         let native_failure = |error| {
             NativeProductPlanningError::Codegen(
                 crate::compilation::CodegenPreparationError::Diagnostics(
                     crate::compilation::imported::native_artifact_diagnostics(error, input),
                 ),
             )
+        };
+
+        let Some(binding) = implementation
+            .native_binding(address.symbol(), &specialization, options)
+            .map_err(native_failure)?
+        else {
+            return Ok(None);
         };
 
         let index = implementation

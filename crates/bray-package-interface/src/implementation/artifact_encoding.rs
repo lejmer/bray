@@ -9,8 +9,8 @@ use crate::{InterfaceLanguageRevision, InterfaceValidationError};
 
 use super::artifact::{
     ARTIFACT_HASH_OFFSET, BYTE_ORDER_MARKER, CONTENT_HASH_OFFSET, DIRECTORY_ENTRY_LENGTH,
-    HEADER_LENGTH, ImplementationDirectoryEntry, ImplementationPayloadKind, MAGIC,
-    REQUIRED_FLAGS, executable_discriminator, native_index_discriminator,
+    HEADER_LENGTH, ImplementationDirectoryEntry, ImplementationPayloadKind, MAGIC, REQUIRED_FLAGS,
+    executable_discriminator, native_index_discriminator,
 };
 use super::codec::encode_identity;
 use super::hash::{
@@ -21,8 +21,8 @@ use super::payload::{
     specialization_discriminator,
 };
 use super::{
-    InterfaceConstantCallableBody, InterfaceExecutableTemplate, InterfaceNativeBinding, InterfaceNativeBoundary,
-    InterfacePreSpecializedMir, PackageImplementationArtifactBuildError,
+    InterfaceConstantCallableBody, InterfaceExecutableTemplate, InterfaceNativeBinding,
+    InterfaceNativeBoundary, InterfacePreSpecializedMir, PackageImplementationArtifactBuildError,
     PackageImplementationIdentity,
 };
 
@@ -121,34 +121,46 @@ pub(super) fn encode_artifact(
 /// Reuses the package container for additional native representations produced after export.
 pub(super) fn encode_with_native_variants(
     language_revision: InterfaceLanguageRevision,
-    original: &[u8],
-    directory: &[ImplementationDirectoryEntry],
-    limits: crate::InterfaceValidationLimits,
+    original: &super::PackageImplementationArtifact,
     indexes: &[(bray_native_artifact::NativeUnitKind, &[u8])],
     units: &[([u8; 32], Arc<[u8]>)],
 ) -> Result<Arc<[u8]>, PackageImplementationArtifactBuildError> {
-    let mut payloads = directory.iter()
-        .map(|entry| {
-            let kind = entry.kind.expect("compiler-produced implementation has known payload kinds");
+    let mut payloads = original
+        .directory
+        .iter()
+        .enumerate()
+        .map(|(index, entry)| {
+            let kind = entry
+                .kind
+                .expect("compiler-produced implementation has known payload kinds");
 
-            let decoded = super::artifact_decoding::decode_entry_payload(
-                original, entry, limits,
-            ).map_err(PackageImplementationArtifactBuildError::InvalidArtifact)?;
+            let decoded = original
+                .payload(index, entry)
+                .map_err(PackageImplementationArtifactBuildError::InvalidArtifact)?;
 
             Ok(EncodedImplementationPayload::new(
-                entry.owner, kind, entry.discriminator, entry.family_size, decoded.to_vec(),
-            ).with_platform_service(entry.platform_service))
+                entry.owner,
+                kind,
+                entry.discriminator,
+                entry.family_size,
+                decoded.to_vec(),
+            )
+            .with_platform_service(entry.platform_service))
         })
         .collect::<Result<Vec<_>, PackageImplementationArtifactBuildError>>()?;
 
     for &(kind, bytes) in indexes {
         payloads.push(EncodedImplementationPayload::new(
-            InterfaceSymbolId::new(0), ImplementationPayloadKind::NativeIndex,
-            native_index_discriminator(kind), 0, bytes.to_vec(),
+            InterfaceSymbolId::new(0),
+            ImplementationPayloadKind::NativeIndex,
+            native_index_discriminator(kind),
+            0,
+            bytes.to_vec(),
         ));
     }
 
-    let mut embedded = payloads.iter()
+    let mut embedded = payloads
+        .iter()
         .filter(|payload| payload.kind == ImplementationPayloadKind::NativeUnit)
         .map(|payload| payload.discriminator)
         .collect::<BTreeSet<_>>();
@@ -159,8 +171,11 @@ pub(super) fn encode_with_native_variants(
         }
 
         payloads.push(EncodedImplementationPayload::new(
-            InterfaceSymbolId::new(0), ImplementationPayloadKind::NativeUnit,
-            *digest, 0, bytes.to_vec(),
+            InterfaceSymbolId::new(0),
+            ImplementationPayloadKind::NativeUnit,
+            *digest,
+            0,
+            bytes.to_vec(),
         ));
     }
 
@@ -173,7 +188,10 @@ fn encode_payloads(
 ) -> Result<Arc<[u8]>, PackageImplementationArtifactBuildError> {
     payloads.sort_by_key(EncodedImplementationPayload::directory_key);
 
-    if payloads.windows(2).any(|pair| pair[0].directory_key() == pair[1].directory_key()) {
+    if payloads
+        .windows(2)
+        .any(|pair| pair[0].directory_key() == pair[1].directory_key())
+    {
         return Err(PackageImplementationArtifactBuildError::InvalidArtifact(
             super::invalid_value(crate::InterfaceValidationField::Value),
         ));

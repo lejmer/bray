@@ -4,7 +4,7 @@ use std::sync::{Arc, OnceLock};
 use crate::decode::{DecodeBudget, wire_error};
 use crate::implementation::artifact_decoding::{decode_directory_entry, decode_entry_payload};
 use crate::implementation::codec::decode_identity;
-use crate::implementation::hash::{compute_artifact_hash, compute_content_hash};
+use crate::implementation::hash::{compute_content_hash, compute_metadata_hash};
 use crate::wire::WireReader;
 use crate::{
     InterfaceContentHash, InterfaceLanguageRevision, InterfaceLimit, InterfaceValidationContext,
@@ -24,16 +24,31 @@ impl PackageImplementationArtifact {
         bytes: impl Into<Arc<[u8]>>,
         limits: InterfaceValidationLimits,
     ) -> Result<Self, InterfaceValidationError> {
-        let bytes = bytes.into();
+        Self::from_storage(
+            super::storage::ImplementationStorage::memory(bytes.into()),
+            limits,
+        )
+    }
 
-        limits.check(
-            InterfaceLimit::FileSize,
-            u64::try_from(bytes.len()).unwrap_or(u64::MAX),
-        )?;
+    /// Opens bounded metadata and keeps the same file handle for authenticated payload reads.
+    pub fn try_open(
+        path: &std::path::Path,
+        limits: InterfaceValidationLimits,
+    ) -> Result<Self, InterfaceValidationError> {
+        Self::from_storage(
+            super::storage::ImplementationStorage::open(path, limits)?,
+            limits,
+        )
+    }
 
-        let header = bytes.get(..HEADER_LENGTH).unwrap_or(&bytes);
+    fn from_storage(
+        storage: super::storage::ImplementationStorage,
+        limits: InterfaceValidationLimits,
+    ) -> Result<Self, InterfaceValidationError> {
+        limits.check(InterfaceLimit::FileSize, storage.len() as u64)?;
+        let header = storage.read(0..HEADER_LENGTH.min(storage.len()))?;
 
-        let mut reader = WireReader::new(header);
+        let mut reader = WireReader::new(&header);
 
         let actual_magic = reader.read_array::<8>().map_err(wire_error(
             InterfaceValidationContext::Header,
@@ -117,7 +132,7 @@ impl PackageImplementationArtifact {
             InterfaceValidationField::RecordPayload,
         ))?;
 
-        let actual_file_length = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+        let actual_file_length = storage.len() as u64;
 
         if declared_file_length != actual_file_length {
             return Err(InterfaceValidationError::Malformed {
@@ -130,19 +145,6 @@ impl PackageImplementationArtifact {
             });
         }
 
-        let actual_artifact_hash =
-            compute_artifact_hash(&bytes).ok_or(InterfaceValidationError::DigestUnavailable {
-                context: InterfaceValidationContext::Artifact,
-                field: InterfaceValidationField::ArtifactHash,
-            })?;
-
-        if actual_artifact_hash != artifact_hash {
-            return Err(InterfaceValidationError::ArtifactHashMismatch {
-                expected: crate::InterfaceArtifactHash::from_bytes(artifact_hash),
-                actual: crate::InterfaceArtifactHash::from_bytes(actual_artifact_hash),
-            });
-        }
-
         let directory_offset = usize::try_from(directory_offset)
             .map_err(|_| crate::implementation::invalid_value(InterfaceValidationField::Value))?;
 
@@ -150,7 +152,7 @@ impl PackageImplementationArtifact {
             .map_err(|_| crate::implementation::invalid_value(InterfaceValidationField::Value))?;
 
         if directory_offset < HEADER_LENGTH
-            || directory_offset.checked_add(directory_length) != Some(bytes.len())
+            || directory_offset.checked_add(directory_length) != Some(storage.len())
             || directory_length % DIRECTORY_ENTRY_LENGTH != 0
         {
             return Err(crate::implementation::invalid_value(
@@ -165,18 +167,24 @@ impl PackageImplementationArtifact {
             u64::try_from(count).unwrap_or(u64::MAX),
         )?;
 
-        let directory_bytes =
-            bytes
-                .get(directory_offset..)
-                .ok_or(InterfaceValidationError::Truncated {
-                    context: InterfaceValidationContext::Directory,
-                    field: InterfaceValidationField::DirectoryLength,
-                    offset: directory_offset as u64,
-                    expected_length: directory_length as u64,
-                    actual_length: bytes.len().saturating_sub(directory_offset) as u64,
-                })?;
+        limits.check(InterfaceLimit::DecodedAllocation, directory_length as u64)?;
+        let directory_bytes = storage.read(directory_offset..storage.len())?;
 
-        let mut directory_reader = WireReader::new(directory_bytes);
+        let actual_artifact_hash = compute_metadata_hash(&header, &directory_bytes).ok_or(
+            InterfaceValidationError::DigestUnavailable {
+                context: InterfaceValidationContext::Artifact,
+                field: InterfaceValidationField::ArtifactHash,
+            },
+        )?;
+
+        if actual_artifact_hash != artifact_hash {
+            return Err(InterfaceValidationError::ArtifactHashMismatch {
+                expected: crate::InterfaceArtifactHash::from_bytes(artifact_hash),
+                actual: crate::InterfaceArtifactHash::from_bytes(actual_artifact_hash),
+            });
+        }
+
+        let mut directory_reader = WireReader::new(&directory_bytes);
         let mut budget = DecodeBudget::new(limits);
 
         let mut directory = budget.allocate_items(
@@ -187,23 +195,15 @@ impl PackageImplementationArtifact {
         )?;
 
         let mut expected_offset = HEADER_LENGTH;
-        let mut decoded_total = 0_u64;
 
         for index in 0..count {
             let entry = decode_directory_entry(
                 &mut directory_reader,
-                &bytes,
                 directory_offset,
                 expected_offset,
                 index as u64,
                 limits,
             )?;
-
-            decoded_total = decoded_total.checked_add(entry.decoded_length).ok_or(
-                crate::implementation::invalid_value(InterfaceValidationField::Value),
-            )?;
-
-            limits.check(InterfaceLimit::DecodedAllocation, decoded_total)?;
 
             if directory
                 .last()
@@ -249,25 +249,25 @@ impl PackageImplementationArtifact {
         validate_encoded_executable_template_families(&directory)?;
 
         let identity =
-            decode_implementation_identity(&bytes, &directory, language_revision, limits)?;
+            decode_implementation_identity(&storage, &directory, language_revision, limits)?;
 
         let decoded = (0..directory.len()).map(|_| OnceLock::new()).collect();
 
         Ok(Self {
-            bytes,
+            storage: Arc::new(storage),
             identity,
             content_hash,
             artifact_hash,
             directory: directory.into(),
             decoded,
-            native_indexes: Arc::new(OnceLock::new()),
+            native_indexes: Arc::new(std::array::from_fn(|_| OnceLock::new())),
             limits,
         })
     }
 }
 
 fn decode_implementation_identity(
-    bytes: &[u8],
+    storage: &super::storage::ImplementationStorage,
     directory: &[ImplementationDirectoryEntry],
     language_revision: InterfaceLanguageRevision,
     limits: InterfaceValidationLimits,
@@ -283,7 +283,18 @@ fn decode_implementation_identity(
         ));
     };
 
-    let identity_payload = decode_entry_payload(bytes, identity_entry, limits)?;
+    let identity_payload = decode_entry_payload(
+        storage.read(identity_entry.payload.clone())?,
+        identity_entry,
+        limits,
+    )?;
+
+    storage.authenticated(
+        identity_entry.payload.len(),
+        identity_entry.decoded_length,
+        identity_entry.encoding == crate::InterfaceSectionEncoding::ZstdFrame,
+    );
+
     let identity = decode_identity(&identity_payload, limits)?;
 
     if identity.language_revision() != language_revision {

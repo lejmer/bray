@@ -155,6 +155,7 @@ pub struct StandardLibraryArtifact {
     path: Arc<str>,
     byte_len: u64,
     digest: StandardLibraryArtifactDigest,
+    metadata_digest: Option<StandardLibraryArtifactDigest>,
     platform_services: Arc<[PlatformServiceRole]>,
     native_links: Arc<[NativeLinkRequirement]>,
 }
@@ -178,6 +179,7 @@ impl StandardLibraryArtifact {
             path,
             byte_len,
             digest,
+            metadata_digest: None,
             platform_services: Arc::from([]),
             native_links: Arc::from([]),
         })
@@ -217,12 +219,44 @@ impl StandardLibraryArtifact {
         let byte_len =
             u64::try_from(bytes.len()).map_err(|_| StandardLibraryManifestError::LengthExceeded)?;
 
+        let metadata_digest =
+            bray_package_interface::PackageImplementationArtifact::metadata_digest(bytes)
+                .map(StandardLibraryArtifactDigest::new);
+
         Self::try_new(
             kind,
             path,
             byte_len,
             StandardLibraryArtifactDigest::for_bytes(bytes),
         )
+        .map(|artifact| artifact.with_metadata_digest(metadata_digest))
+    }
+
+    /// Adds the packed metadata commitment used for selective access after acquisition.
+    pub fn with_metadata_digest(mut self, digest: Option<StandardLibraryArtifactDigest>) -> Self {
+        self.metadata_digest = digest;
+
+        self
+    }
+
+    /// Returns the packed metadata commitment, when the artifact supports selective access.
+    pub const fn metadata_digest(&self) -> Option<StandardLibraryArtifactDigest> {
+        self.metadata_digest
+    }
+
+    /// Selects this artifact through the common package loader without opening it.
+    /// Packed reads enforce metadata commitments; complete acquisition checks use the full digest.
+    pub fn input(&self, root: &std::path::Path) -> bray_package_interface::PackageArtifactInput {
+        let path = self.beneath(root);
+
+        match self.metadata_digest {
+            Some(digest) => {
+                bray_package_interface::PackageArtifactInput::packed_file(path, digest.bytes())
+            }
+            None => {
+                bray_package_interface::PackageArtifactInput::file(path, Some(self.digest.bytes()))
+            }
+        }
     }
 
     /// Returns the artifact category.

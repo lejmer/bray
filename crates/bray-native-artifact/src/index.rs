@@ -10,8 +10,6 @@ use crate::model::{
 };
 use crate::wire::{IndexWire, WireError};
 
-const MAXIMUM_INDEX_BYTES: usize = 16 * 1024 * 1024;
-
 /// Immutable, target-specific description of independently selectable native units.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct NativeArtifactIndex {
@@ -23,6 +21,9 @@ pub struct NativeArtifactIndex {
 }
 
 impl NativeArtifactIndex {
+    /// Maximum encoded native metadata size accepted by this format.
+    pub const MAXIMUM_BYTES: usize = 256 * 1024 * 1024;
+
     /// Validates a published unit set without inspecting its payload files.
     ///
     /// The producer digest must commit to the toolchain/backend revision and all effective
@@ -141,7 +142,7 @@ impl NativeArtifactIndex {
 
         bytes.push(b'\n');
 
-        if bytes.len() > MAXIMUM_INDEX_BYTES {
+        if bytes.len() > Self::MAXIMUM_BYTES {
             return Err(NativeIndexError::SizeLimitExceeded);
         }
 
@@ -154,7 +155,7 @@ impl NativeArtifactIndex {
         expected_digest: NativeContentDigest,
         expected_target: NativeTarget,
     ) -> Result<Self, NativeIndexError> {
-        if bytes.len() > MAXIMUM_INDEX_BYTES {
+        if bytes.len() > Self::MAXIMUM_BYTES {
             return Err(NativeIndexError::SizeLimitExceeded);
         }
 
@@ -166,6 +167,19 @@ impl NativeArtifactIndex {
                 expected: expected_digest,
                 actual: NativeContentDigest::new(digest),
             });
+        }
+
+        Self::decode_authenticated(bytes, expected_target)
+    }
+
+    /// Decodes bounded index bytes already authenticated by their enclosing package container.
+    /// The caller must verify the container commitment before supplying these bytes.
+    pub fn decode_authenticated(
+        bytes: &[u8],
+        expected_target: NativeTarget,
+    ) -> Result<Self, NativeIndexError> {
+        if bytes.len() > Self::MAXIMUM_BYTES {
+            return Err(NativeIndexError::SizeLimitExceeded);
         }
 
         let wire: IndexWire =
@@ -1079,5 +1093,66 @@ mod tests {
 
             assert_eq!(imported.index(), &index);
         }
+    }
+}
+
+#[cfg(test)]
+mod large_metadata_tests {
+    use super::NativeArtifactIndex;
+    use crate::{NativeContentDigest, NativeUnit, NativeUnitKind, NativeUnitSummary};
+    use crate::{NativeDefinition, NativeDefinitionSelection};
+    use bray_base::NonEmptySharedStr;
+    use bray_symbols::{
+        NativeSymbolBinding, NativeSymbolContract, NativeSymbolIdentity, NativeSymbolPresence,
+    };
+    use bray_target::NativeTarget;
+
+    #[test]
+    fn ten_thousand_units_round_trip_above_the_old_sixteen_mib_ceiling() {
+        let definitions = (0..10_000u32).map(|number| {
+            let mut digest = [0; 32];
+            digest[..4].copy_from_slice(&number.to_be_bytes());
+
+            let symbol =
+                NonEmptySharedStr::try_new(format!("entry_{number:05}_{}", "x".repeat(1700)))
+                    .unwrap();
+
+            NativeUnit::new(
+                NativeContentDigest::new(digest),
+                NativeUnitKind::Object,
+                NativeUnitSummary::Exact {
+                    definitions: vec![NativeDefinition::new(
+                        NativeSymbolContract::new(
+                            NativeSymbolIdentity::Name(symbol),
+                            None,
+                            NativeSymbolBinding::Strong,
+                            NativeSymbolPresence::Required,
+                        ),
+                        NativeDefinitionSelection::Ordinary,
+                    )]
+                    .into(),
+                    references: [].into(),
+                    roots: [].into(),
+                },
+                [],
+            )
+        });
+
+        let index = NativeArtifactIndex::try_new(
+            NativeTarget::X86_64LinuxGnu,
+            NativeContentDigest::new([1; 32]),
+            definitions,
+            [],
+        )
+        .unwrap();
+
+        let bytes = index.encode().unwrap();
+        assert!(bytes.len() > 16 * 1024 * 1024);
+        let digest = NativeContentDigest::new(bray_base::sha256_reader(bytes.as_slice()).unwrap());
+
+        assert_eq!(
+            NativeArtifactIndex::decode(&bytes, digest, index.target()).unwrap(),
+            index
+        );
     }
 }

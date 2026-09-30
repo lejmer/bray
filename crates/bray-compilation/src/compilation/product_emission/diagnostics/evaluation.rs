@@ -158,6 +158,7 @@ pub(super) const fn interface_validation_reason(
     use bray_package_interface::InterfaceValidationError as Error;
 
     match error {
+        Error::Read { .. } => "package_artifact_read_failed",
         Error::InvalidMagic { .. } => "interface_invalid_magic",
         Error::UnsupportedFormatRevision { .. } => "interface_unsupported_format_revision",
         Error::UnsupportedLanguageRevision { .. } => "interface_unsupported_language_revision",
@@ -179,6 +180,7 @@ pub(super) const fn interface_validation_reason(
         }
         Error::SectionContentHashMismatch { .. } => "interface_section_content_hash_mismatch",
         Error::PayloadChecksumMismatch { .. } => "interface_payload_checksum_mismatch",
+        Error::NativeUnitDigestMismatch { .. } => "native_payload_digest_mismatch",
         Error::PayloadContentHashMismatch { .. } => "interface_payload_content_hash_mismatch",
         Error::SpecializationKeyMismatch { .. } => "interface_specialization_key_mismatch",
         Error::ImplementationConfigurationMismatch { .. } => {

@@ -93,6 +93,12 @@ fn decode_artifact(
 
     let digest = StandardLibraryArtifactDigest::new(decode_digest(wire.digest)?);
 
+    let metadata_digest = wire
+        .metadata_digest
+        .map(decode_digest)
+        .transpose()?
+        .map(StandardLibraryArtifactDigest::new);
+
     let platform_services = wire
         .platform_services
         .iter()
@@ -109,6 +115,7 @@ fn decode_artifact(
         .collect::<Result<Vec<_>, _>>()?;
 
     StandardLibraryArtifact::try_new(kind, wire.path, wire.byte_len, digest)
+        .map(|artifact| artifact.with_metadata_digest(metadata_digest))
         .map(|artifact| artifact.with_platform_services(platform_services))
         .map(|artifact| artifact.with_native_links(native_links))
 }
@@ -164,6 +171,10 @@ mod tests {
                 name.as_bytes(),
             )
             .unwrap()
+            .with_metadata_digest(
+                (kind != StandardLibraryArtifactKind::PackageInterface)
+                    .then(|| crate::StandardLibraryArtifactDigest::new([7; 32])),
+            )
         })
         .collect();
 
@@ -189,6 +200,16 @@ mod tests {
         assert_eq!(
             decode_standard_library_manifest(&serde_json::to_vec(&tampered).unwrap()),
             Err(StandardLibraryManifestError::BundleDigestMismatch),
+        );
+
+        let mut metadata_tampered: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+
+        metadata_tampered["targets"][0]["artifacts"][1]["metadata_digest"]["bytes"] =
+            serde_json::json!("00".repeat(32));
+
+        assert_eq!(
+            decode_standard_library_manifest(&serde_json::to_vec(&metadata_tampered).unwrap()),
+            Err(StandardLibraryManifestError::BundleDigestMismatch)
         );
 
         let mut wrong_revision: serde_json::Value = serde_json::from_slice(&bytes).unwrap();

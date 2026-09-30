@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use bray_native_artifact::{
     NativeArtifactIndex, NativeContentDigest, NativeIndexError, NativeUnit, NativeUnitKind,
@@ -18,17 +18,14 @@ impl PackageImplementationArtifact {
         &self,
         kind: NativeUnitKind,
     ) -> Result<Option<NativeArtifactIndex>, PackageNativeArtifactError> {
-        Ok(self
-            .native_indexes()?
-            .get(&super::native_index_discriminator(kind))
-            .cloned())
+        self.native_index(Some(kind))
     }
 
     /// Returns the primary native index used by source-definition bindings.
     pub fn native_artifact(
         &self,
     ) -> Result<Option<NativeArtifactIndex>, PackageNativeArtifactError> {
-        Ok(self.native_indexes()?.get(&[0; 32]).cloned())
+        self.native_index(None)
     }
 
     /// Selects compatible bitcode when requested, then falls back to native objects.
@@ -70,128 +67,129 @@ impl PackageImplementationArtifact {
         Ok(Some((NativeUnitKind::Object, index)))
     }
 
-    fn native_indexes(
+    pub(super) fn native_index(
         &self,
-    ) -> Result<&BTreeMap<[u8; 32], NativeArtifactIndex>, PackageNativeArtifactError> {
-        if let Some(indexes) = self.native_indexes.get() {
-            return Ok(indexes);
-        }
+        kind: Option<NativeUnitKind>,
+    ) -> Result<Option<NativeArtifactIndex>, PackageNativeArtifactError> {
+        let discriminator = kind.map_or([0; 32], super::native_index_discriminator);
 
-        let indexes = self.decode_native_indexes()?;
-        let _ = self.native_indexes.set(indexes);
-
-        Ok(self
-            .native_indexes
-            .get()
-            .expect("validated native indexes must be cached"))
+        self.native_indexes[usize::from(discriminator[0])]
+            .get_or_init(|| self.decode_native_index(kind, discriminator))
+            .clone()
     }
 
-    fn decode_native_indexes(
+    fn decode_native_index(
         &self,
-    ) -> Result<BTreeMap<[u8; 32], NativeArtifactIndex>, PackageNativeArtifactError> {
-        let embedded = self
-            .directory
-            .iter()
-            .filter(|entry| entry.kind == Some(ImplementationPayloadKind::NativeUnit))
-            .map(|entry| entry.discriminator)
-            .collect::<BTreeSet<_>>();
-
-        let mut indexes = BTreeMap::new();
-        let mut seen = BTreeSet::new();
+        kind: Option<NativeUnitKind>,
+        discriminator: [u8; 32],
+    ) -> Result<Option<NativeArtifactIndex>, PackageNativeArtifactError> {
+        let Some(bytes) = self.native_index_bytes_at(discriminator)? else {
+            return Ok(None);
+        };
 
         let target =
-            bray_target::NativeTarget::for_identity(self.identity().configuration().target());
+            bray_target::NativeTarget::for_identity(self.identity().configuration().target())
+                .ok_or(PackageNativeArtifactError::UnsupportedTarget)?;
+
+        let index = NativeArtifactIndex::decode_authenticated(&bytes, target)?;
+
+        for unit in index.units() {
+            if kind.is_some_and(|kind| {
+                unit.kind() != kind && unit.kind() != NativeUnitKind::OpaqueArchive
+            }) {
+                return Err(NativeIndexError::InvalidSummary(unit.digest()).into());
+            }
+
+            if self
+                .entry(
+                    InterfaceSymbolId::new(0),
+                    ImplementationPayloadKind::NativeUnit,
+                    unit.digest().bytes(),
+                )
+                .is_none()
+            {
+                return Err(PackageNativeArtifactError::MissingUnit(unit.digest()));
+            }
+        }
+
+        Ok(Some(index))
+    }
+
+    pub(super) fn validate_native_inventory(&self) -> Result<(), PackageNativeArtifactError> {
+        let mut seen = BTreeSet::new();
+        let mut producer = None;
 
         for kind in [
             None,
             Some(NativeUnitKind::Object),
             Some(NativeUnitKind::Bitcode),
         ] {
-            let discriminator = kind.map_or([0; 32], super::native_index_discriminator);
-
-            let Some(bytes) = self.native_index_bytes_at(discriminator)? else {
-                continue;
-            };
-
-            let target = target.ok_or(PackageNativeArtifactError::UnsupportedTarget)?;
-
-            let digest = NativeContentDigest::new(
-                bray_base::sha256_reader(bytes.as_ref())
-                    .expect("reading in-memory native index bytes cannot fail"),
-            );
-
-            let index = NativeArtifactIndex::decode(&bytes, digest, target)?;
-
-            if let Some(previous) = indexes.values().next() {
-                let previous: &NativeArtifactIndex = previous;
-
-                if index.producer() != previous.producer() {
-                    return Err(NativeIndexError::WrongProducer {
-                        expected: previous.producer(),
-                        actual: index.producer(),
+            if let Some(index) = self.native_index(kind)? {
+                if let Some(expected) = producer {
+                    if index.producer() != expected {
+                        return Err(NativeIndexError::WrongProducer {
+                            expected,
+                            actual: index.producer(),
+                        }
+                        .into());
                     }
-                    .into());
-                }
-            }
-
-            for unit in index.units() {
-                if kind.is_some_and(|kind| {
-                    unit.kind() != kind && unit.kind() != NativeUnitKind::OpaqueArchive
-                }) {
-                    return Err(PackageNativeArtifactError::Index(
-                        NativeIndexError::InvalidSummary(unit.digest()),
-                    ));
                 }
 
-                if !embedded.contains(&unit.digest().bytes()) {
-                    return Err(PackageNativeArtifactError::MissingUnit(unit.digest()));
-                }
-
-                seen.insert(unit.digest().bytes());
-            }
-
-            indexes.insert(discriminator, index);
-        }
-
-        if indexes.is_empty() && !embedded.is_empty() {
-            return Err(PackageNativeArtifactError::MissingIndex);
-        }
-
-        if let Some(unindexed) = embedded.difference(&seen).next() {
-            return Err(PackageNativeArtifactError::UnindexedUnit(*unindexed));
-        }
-
-        for binding in self.native_bindings()? {
-            let index = indexes
-                .get(&[0; 32])
-                .ok_or(PackageNativeArtifactError::MissingIndex)?;
-
-            let Some(unit) = index
-                .units()
-                .binary_search_by_key(
-                    &NativeContentDigest::new(binding.unit()),
-                    NativeUnit::digest,
-                )
-                .ok()
-                .and_then(|position| index.units().get(position))
-            else {
-                return Err(PackageNativeArtifactError::InvalidBinding(binding.owner()));
-            };
-
-            if binding.key().template_schema_revision() != CURRENT_TEMPLATE_SCHEMA_REVISION
-                || binding.key().configuration() != self.identity().configuration()
-                || binding.key().dependencies() != self.identity().dependencies()
-                || index
-                    .target()
-                    .codegen_symbol_name(binding.symbol())
-                    .is_none_or(str::is_empty)
-                || !symbol_in_unit(unit, binding.symbol())
-            {
-                return Err(PackageNativeArtifactError::InvalidBinding(binding.owner()));
+                producer = Some(index.producer());
+                seen.extend(index.units().iter().map(|unit| unit.digest().bytes()));
             }
         }
 
-        Ok(indexes)
+        for entry in self
+            .directory
+            .iter()
+            .filter(|entry| entry.kind == Some(ImplementationPayloadKind::NativeUnit))
+        {
+            if producer.is_none() {
+                return Err(PackageNativeArtifactError::MissingIndex);
+            }
+
+            if !seen.contains(&entry.discriminator) {
+                return Err(PackageNativeArtifactError::UnindexedUnit(
+                    entry.discriminator,
+                ));
+            }
+        }
+
+        Ok(())
+    }
+
+    pub(super) fn validate_native_binding(
+        &self,
+        binding: &crate::InterfaceNativeBinding,
+    ) -> Result<(), PackageNativeArtifactError> {
+        let index = self
+            .native_artifact()?
+            .ok_or(PackageNativeArtifactError::MissingIndex)?;
+
+        let unit = index
+            .units()
+            .binary_search_by_key(
+                &NativeContentDigest::new(binding.unit()),
+                NativeUnit::digest,
+            )
+            .ok()
+            .and_then(|position| index.units().get(position))
+            .ok_or(PackageNativeArtifactError::InvalidBinding(binding.owner()))?;
+
+        if binding.key().template_schema_revision() != CURRENT_TEMPLATE_SCHEMA_REVISION
+            || binding.key().configuration() != self.identity().configuration()
+            || binding.key().dependencies() != self.identity().dependencies()
+            || index
+                .target()
+                .codegen_symbol_name(binding.symbol())
+                .is_none_or(str::is_empty)
+            || !symbol_in_unit(unit, binding.symbol())
+        {
+            return Err(PackageNativeArtifactError::InvalidBinding(binding.owner()));
+        }
+
+        Ok(())
     }
 
     /// Decodes all source-definition bindings for native import validation and later selection.

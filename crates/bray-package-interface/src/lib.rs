@@ -50,7 +50,7 @@ pub use header::{
 };
 pub use implementation::{
     CURRENT_MIR_SCHEMA_REVISION, CURRENT_TEMPLATE_SCHEMA_REVISION, ExecutableTemplateDecodeError,
-    ExecutableTemplateEncodeContext, ExecutableTemplateEncodeError,
+    ExecutableTemplateEncodeContext, ExecutableTemplateEncodeError, ImplementationAccessStatistics,
     ImplementationExternalSymbolIdentity, ImplementationMirSchemaRevision,
     ImplementationSpecializationArgument, ImplementationSpecializationArgumentKind,
     ImplementationSpecializationWitness, ImplementationTemplateSchemaRevision,

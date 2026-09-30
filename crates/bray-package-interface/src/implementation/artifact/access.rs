@@ -10,9 +10,9 @@ use crate::implementation::payload::{
     specialization_discriminator,
 };
 use crate::implementation::{
-    InterfaceConstantCallableBody, InterfaceExecutableTemplate, InterfaceNativeBinding, InterfaceNativeBoundary,
-    PackageImplementationConfiguration, PackageImplementationSpecializationKey,
-    PreSpecializedMirDecodeError,
+    InterfaceConstantCallableBody, InterfaceExecutableTemplate, InterfaceNativeBinding,
+    InterfaceNativeBoundary, PackageImplementationConfiguration,
+    PackageImplementationSpecializationKey, PreSpecializedMirDecodeError,
 };
 use crate::semantic::decode_template_payload;
 use crate::{
@@ -47,19 +47,63 @@ impl PackageImplementationArtifact {
         &self.content_hash
     }
 
-    /// Returns the exact canonical artifact hash.
+    /// Returns the metadata commitment, including every stored payload checksum.
     pub const fn artifact_hash(&self) -> &[u8; 32] {
         &self.artifact_hash
     }
 
-    /// Returns the canonical encoded implementation artifact.
-    pub fn bytes(&self) -> &[u8] {
-        &self.bytes
+    /// Returns cumulative reads and payload authentication work shared by artifact clones.
+    pub fn access_statistics(&self) -> super::storage::ImplementationAccessStatistics {
+        self.storage.statistics()
     }
 
-    /// Returns the canonical encoded implementation artifact bytes.
-    pub fn shared_bytes(&self) -> Arc<[u8]> {
-        Arc::clone(&self.bytes)
+    /// Computes the packed metadata commitment without reading or authenticating payloads.
+    /// Returns no commitment when the bytes do not contain packed implementation framing.
+    pub fn metadata_digest(bytes: &[u8]) -> Option<[u8; 32]> {
+        if !bytes.starts_with(&super::MAGIC) {
+            return None;
+        }
+
+        crate::implementation::hash::compute_artifact_hash(bytes)
+    }
+
+    /// Reads the complete encoded artifact for publication or explicit acquisition verification.
+    pub fn shared_bytes(&self) -> Result<Arc<[u8]>, InterfaceValidationError> {
+        self.storage.read(0..self.storage.len())
+    }
+
+    /// Authenticates every payload, including otherwise unread implementation.
+    pub fn verify_all(&self) -> Result<(), super::native::PackageNativeArtifactError> {
+        self.storage.verify_length()?;
+        let header = self.storage.read(0..super::HEADER_LENGTH)?;
+
+        let directory_offset =
+            self.storage.len() - self.directory.len() * super::DIRECTORY_ENTRY_LENGTH;
+
+        let directory = self.storage.read(directory_offset..self.storage.len())?;
+
+        let actual = crate::implementation::hash::compute_metadata_hash(&header, &directory)
+            .expect("validated packed metadata has complete hash framing");
+
+        if actual != self.artifact_hash {
+            return Err(InterfaceValidationError::ArtifactHashMismatch {
+                expected: crate::InterfaceArtifactHash::from_bytes(self.artifact_hash),
+                actual: crate::InterfaceArtifactHash::from_bytes(actual),
+            }
+            .into());
+        }
+
+        for entry in self.directory.iter() {
+            self.read_payload(entry)?;
+        }
+
+        self.validate_native_inventory()?;
+
+        for binding in self.native_bindings()? {
+            self.validate_native_binding(&binding)?;
+        }
+
+        Ok(())
     }
 
     /// Returns the native unit index embedded in this implementation, when present.
@@ -71,9 +115,13 @@ impl PackageImplementationArtifact {
         &self,
         discriminator: [u8; 32],
     ) -> Result<Option<Arc<[u8]>>, InterfaceValidationError> {
-        self.entry(InterfaceSymbolId::new(0), ImplementationPayloadKind::NativeIndex, discriminator)
-            .map(|(index, entry)| self.payload(index, entry))
-            .transpose()
+        self.entry(
+            InterfaceSymbolId::new(0),
+            ImplementationPayloadKind::NativeIndex,
+            discriminator,
+        )
+        .map(|(index, entry)| self.payload(index, entry))
+        .transpose()
     }
 
     /// Returns one native unit by its exact content identity.
@@ -82,27 +130,14 @@ impl PackageImplementationArtifact {
         digest: [u8; 32],
     ) -> Result<Option<Arc<[u8]>>, super::native::PackageNativeArtifactError> {
         let Some((index, entry)) = self.entry(
-            InterfaceSymbolId::new(0), ImplementationPayloadKind::NativeUnit, digest,
+            InterfaceSymbolId::new(0),
+            ImplementationPayloadKind::NativeUnit,
+            digest,
         ) else {
             return Ok(None);
         };
 
-        let payload = self.payload(index, entry)?;
-
-        let actual = bray_native_artifact::NativeContentDigest::new(
-            bray_base::sha256_reader(payload.as_ref())
-                .expect("reading in-memory native unit bytes cannot fail"),
-        );
-
-        let expected = bray_native_artifact::NativeContentDigest::new(digest);
-
-        if actual != expected {
-            return Err(super::native::PackageNativeArtifactError::Index(
-                bray_native_artifact::NativeIndexError::PayloadDigestMismatch { expected, actual },
-            ));
-        }
-
-        Ok(Some(payload))
+        self.payload(index, entry).map(Some).map_err(Into::into)
     }
 
     /// Resolves a native specialization only when its producer policy matches the request.
@@ -111,7 +146,7 @@ impl PackageImplementationArtifact {
         owner: InterfaceSymbolId,
         key: &PackageImplementationSpecializationKey,
         requested_options: bray_codegen::CodegenOptions,
-    ) -> Result<Option<InterfaceNativeBinding>, InterfaceValidationError> {
+    ) -> Result<Option<InterfaceNativeBinding>, super::native::PackageNativeArtifactError> {
         let Some((index, entry)) = self.entry(
             owner,
             ImplementationPayloadKind::NativeBinding,
@@ -126,8 +161,11 @@ impl PackageImplementationArtifact {
             return Err(InterfaceValidationError::SpecializationKeyMismatch {
                 expected: key.cache_identity(),
                 actual: binding.key().cache_identity(),
-            });
+            }
+            .into());
         }
+
+        self.validate_native_binding(&binding)?;
 
         Ok((binding.producer_options() == requested_options).then_some(binding))
     }
@@ -301,29 +339,6 @@ impl PackageImplementationArtifact {
             });
         }
 
-        for (index, entry) in self.directory.iter().enumerate() {
-            if entry.kind != Some(ImplementationPayloadKind::NativeBinding) {
-                continue;
-            }
-
-            let payload = self.payload(index, entry)?;
-            let binding = decode_native_binding(entry.owner, &payload, self.limits)?;
-
-            if surface.symbols().symbol(entry.owner)
-                .is_none_or(|symbol| symbol.key() != binding.key().declaration().key())
-            {
-                return Err(InterfaceValidationError::Malformed {
-                    context: crate::InterfaceValidationContext::ImplementationEntry {
-                        index: entry.index,
-                        raw_kind: entry.raw_kind,
-                    },
-                    cause: crate::InterfaceMalformedCause::InvalidValue {
-                        field: crate::InterfaceValidationField::Owner,
-                    },
-                });
-            }
-        }
-
         Ok(())
     }
 
@@ -344,7 +359,7 @@ impl PackageImplementationArtifact {
         Ok(())
     }
 
-    pub(super) fn payload(
+    pub(in crate::implementation) fn payload(
         &self,
         index: usize,
         entry: &ImplementationDirectoryEntry,
@@ -352,16 +367,32 @@ impl PackageImplementationArtifact {
         let cache = self
             .decoded
             .get(index)
-            .ok_or(crate::implementation::invalid_value(
-                crate::InterfaceValidationField::Value,
-            ))?;
+            .expect("validated implementation directory entry must have a payload cache slot");
 
-        cache
-            .get_or_init(|| decode_entry_payload(&self.bytes, entry, self.limits))
-            .clone()
+        cache.get_or_init(|| self.read_payload(entry)).clone()
     }
 
-    fn entry(
+    fn read_payload(
+        &self,
+        entry: &ImplementationDirectoryEntry,
+    ) -> Result<Arc<[u8]>, InterfaceValidationError> {
+        let bytes = self.storage.read(entry.payload.clone())?;
+        let decoded = decode_entry_payload(bytes, entry, self.limits)?;
+
+        self.storage.authenticated(
+            entry.payload.len(),
+            entry.decoded_length,
+            entry.encoding == crate::InterfaceSectionEncoding::ZstdFrame,
+        );
+
+        if entry.kind == Some(ImplementationPayloadKind::NativeUnit) {
+            self.storage.hashed(decoded.len());
+        }
+
+        Ok(decoded)
+    }
+
+    pub(super) fn entry(
         &self,
         owner: InterfaceSymbolId,
         kind: ImplementationPayloadKind,

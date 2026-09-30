@@ -91,9 +91,22 @@ Per-section compression is deterministic and bounded. Storage encoding does not 
 Unknown required semantics are rejected. Optional non-semantic data has an explicit discard-or-preserve policy for tools
 that rewrite artifacts, rather than an unknown field silently affecting compilation.
 
-The semantic content hash commits to every consumer-relevant record and support dependency. The artifact hash identifies
-exact stored bytes, including provenance. These hashes support reuse and corruption detection, not authenticity. Package
-and distribution policy owns trust in the selected input.
+The semantic content hash commits to every consumer-relevant record and support dependency. Interface artifact hashes
+identify exact stored bytes, including provenance. Packed implementation metadata commits to the framing and to each
+payload's encoded checksum and decoded content identity. Consumers validate bounded metadata before reading and
+authenticating only demanded templates, native indexes and physical units. Object and bitcode representations share
+this contract and remain independently demandable.
+
+Unread payload bytes are not verified by metadata validation. Publication and explicit acquisition verification
+stream the complete payload inventory. Distribution may also require a full-file digest. A full-file digest request
+always verifies all stored bytes, while an independently supplied metadata commitment permits selective access after
+acquisition. These hashes detect corruption and support reuse. Package and distribution policy owns authenticity and
+trust in the selected input.
+
+One open storage handle supplies a consumer's metadata and payloads. Replacing a writable path establishes a new input
+snapshot, while in-place changes to unread bytes must pass their committed checks before use. Validated immutable
+payloads and indexes are shared through the common package loader for ordinary libraries, the standard library and
+compiler providers. Paths and timestamps do not establish immutable identity.
 
 External artifacts are untrusted input. The reader validates counts, offsets, nesting, allocation bounds, references,
 identities, and compatibility before using them. Rejected input retains the most specific field, region, and cause for

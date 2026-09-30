@@ -18,6 +18,7 @@ use crate::{
 pub struct PackageArtifactInput {
     path: Arc<Path>,
     expected_digest: Option<[u8; 32]>,
+    metadata_digest: Option<[u8; 32]>,
     file_snapshot: Option<u64>,
     supplied_bytes: Option<Arc<[u8]>>,
     bytes: Arc<OnceLock<Result<Arc<[u8]>, PackageArtifactLoadError>>>,
@@ -28,6 +29,7 @@ impl PartialEq for PackageArtifactInput {
     fn eq(&self, other: &Self) -> bool {
         self.path == other.path
             && self.expected_digest == other.expected_digest
+            && self.metadata_digest == other.metadata_digest
             && self.file_snapshot == other.file_snapshot
             && self.supplied_bytes == other.supplied_bytes
     }
@@ -41,6 +43,7 @@ impl std::hash::Hash for PackageArtifactInput {
             &(
                 &self.path,
                 self.expected_digest,
+                self.metadata_digest,
                 self.file_snapshot,
                 &self.supplied_bytes,
             ),
@@ -57,6 +60,7 @@ impl PackageArtifactInput {
         Self {
             path: Arc::from(path.into()),
             expected_digest,
+            metadata_digest: None,
             supplied_bytes: None,
             file_snapshot: expected_digest.is_none().then(|| {
                 NEXT_FILE_SNAPSHOT
@@ -68,6 +72,14 @@ impl PackageArtifactInput {
             bytes: Arc::new(OnceLock::new()),
             implementation: Arc::new(OnceLock::new()),
         }
+    }
+
+    /// Selects a packed artifact with an externally committed metadata identity.
+    pub fn packed_file(path: impl Into<PathBuf>, metadata_digest: [u8; 32]) -> Self {
+        let mut input = Self::file(path, None);
+        input.metadata_digest = Some(metadata_digest);
+
+        input
     }
 
     /// Supplies immutable bytes directly, as used by in-process publication and tests.
@@ -84,7 +96,8 @@ impl PackageArtifactInput {
         path: impl Into<PathBuf>,
         artifact: PackageImplementationArtifact,
     ) -> Self {
-        let input = Self::memory(path, artifact.shared_bytes());
+        let mut input = Self::file(path, None);
+        input.metadata_digest = Some(*artifact.artifact_hash());
 
         input
             .implementation
@@ -113,9 +126,12 @@ impl PackageArtifactInput {
     pub fn read(&self) -> Result<Arc<[u8]>, PackageArtifactLoadError> {
         self.bytes
             .get_or_init(|| {
-                let bytes = match &self.supplied_bytes {
-                    Some(bytes) => Arc::clone(bytes),
-                    None => Arc::from(
+                let bytes = match (&self.supplied_bytes, self.implementation.get()) {
+                    (Some(bytes), _) => Arc::clone(bytes),
+                    (None, Some(Ok(artifact))) => artifact
+                        .shared_bytes()
+                        .map_err(PackageArtifactLoadError::Validation)?,
+                    (None, _) => Arc::from(
                         std::fs::read(&self.path)
                             .map_err(|error| PackageArtifactLoadError::Read(error.kind()))?,
                     ),
@@ -134,6 +150,19 @@ impl PackageArtifactInput {
                     }
                 }
 
+                if self.metadata_digest.is_some() {
+                    let artifact = PackageImplementationArtifact::try_from_bytes(
+                        Arc::clone(&bytes),
+                        InterfaceValidationLimits::default(),
+                    )
+                    .map_err(PackageArtifactLoadError::Validation)?;
+
+                    self.validate_metadata_digest(*artifact.artifact_hash())?;
+
+                    // A complete read owns immutable bytes; share its parsed metadata with later demands.
+                    let _ = self.implementation.set(Ok(artifact));
+                }
+
                 Ok(bytes)
             })
             .clone()
@@ -145,13 +174,37 @@ impl PackageArtifactInput {
     ) -> Result<PackageImplementationArtifact, PackageArtifactLoadError> {
         self.implementation
             .get_or_init(|| {
-                PackageImplementationArtifact::try_from_bytes(
-                    self.read()?,
-                    InterfaceValidationLimits::default(),
-                )
-                .map_err(PackageArtifactLoadError::Validation)
+                let limits = InterfaceValidationLimits::default();
+
+                let artifact = if self.supplied_bytes.is_some()
+                    || self.expected_digest.is_some()
+                    || self.bytes.get().is_some()
+                {
+                    PackageImplementationArtifact::try_from_bytes(self.read()?, limits)
+                } else {
+                    PackageImplementationArtifact::try_open(&self.path, limits)
+                }
+                .map_err(PackageArtifactLoadError::Validation)?;
+
+                self.validate_metadata_digest(*artifact.artifact_hash())?;
+
+                Ok(artifact)
             })
             .clone()
+    }
+    fn validate_metadata_digest(&self, actual: [u8; 32]) -> Result<(), PackageArtifactLoadError> {
+        if let Some(expected) = self.metadata_digest {
+            if expected != actual {
+                return Err(PackageArtifactLoadError::Validation(
+                    InterfaceValidationError::ArtifactHashMismatch {
+                        expected: InterfaceArtifactHash::from_bytes(expected),
+                        actual: InterfaceArtifactHash::from_bytes(actual),
+                    },
+                ));
+            }
+        }
+
+        Ok(())
     }
 }
 

@@ -1006,26 +1006,26 @@ mod tests {
         let implementation_artifact = StandardLibraryArtifact::try_for_bytes(
             StandardLibraryArtifactKind::PackageImplementation,
             format!("{prefix}/std.brayimpl"),
-            implementation.bytes(),
+            &implementation.shared_bytes().unwrap(),
         )
         .unwrap();
 
         fs::write(
             implementation_artifact.beneath(directory.path()),
-            implementation.bytes(),
+            &implementation.shared_bytes().unwrap(),
         )
         .unwrap();
 
         let native_artifact = StandardLibraryArtifact::try_for_bytes(
             StandardLibraryArtifactKind::NativeImplementation,
             format!("{prefix}/std-native.brayimpl"),
-            native_implementation.bytes(),
+            &native_implementation.shared_bytes().unwrap(),
         )
         .unwrap();
 
         fs::write(
             native_artifact.beneath(directory.path()),
-            native_implementation.bytes(),
+            &native_implementation.shared_bytes().unwrap(),
         )
         .unwrap();
 
@@ -4508,7 +4508,7 @@ public func hot(pos value: i32) -> i32 { return value + 1; }
 
         let duplicate = bray_package_interface::PackageArtifactInput::memory(
             "copy.brayimpl",
-            Arc::<[u8]>::from(artifact.bytes()),
+            artifact.shared_bytes().unwrap(),
         );
 
         let payloads = native_fixture_payloads(
@@ -4533,7 +4533,7 @@ public func hot(pos value: i32) -> i32 { return value + 1; }
 
         let companion = bray_package_interface::PackageArtifactInput::memory(
             "conflict.brayimpl",
-            Arc::<[u8]>::from(artifact.bytes()),
+            artifact.shared_bytes().unwrap(),
         );
 
         let error = native_fixture_payloads(
@@ -4573,7 +4573,7 @@ public func hot(pos value: i32) -> i32 { return value + 1; }
 
         let companion = bray_package_interface::PackageArtifactInput::memory(
             "wrong-interface.brayimpl",
-            Arc::<[u8]>::from(artifact.bytes()),
+            artifact.shared_bytes().unwrap(),
         );
 
         let error = native_fixture_payloads(

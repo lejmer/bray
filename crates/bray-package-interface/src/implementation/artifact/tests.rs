@@ -160,14 +160,14 @@ fn variant_only_packages_validate_the_complete_native_payload_set() {
     let missing = artifact.try_native_only_artifact(&variants, &[]).unwrap();
 
     assert_eq!(
-        missing.native_artifact(),
+        missing.verify_all(),
         Err(PackageNativeArtifactError::MissingUnit(digest))
     );
 
     let orphan = artifact.try_native_only_artifact(&[], &payloads).unwrap();
 
     assert_eq!(
-        orphan.native_artifact(),
+        orphan.verify_all(),
         Err(PackageNativeArtifactError::MissingIndex)
     );
 
@@ -181,7 +181,7 @@ fn variant_only_packages_validate_the_complete_native_payload_set() {
         .unwrap();
 
     assert_eq!(
-        orphan.native_variant(NativeUnitKind::Object),
+        orphan.verify_all(),
         Err(PackageNativeArtifactError::UnindexedUnit(digest.bytes()))
     );
 }
@@ -221,17 +221,15 @@ fn native_representations_in_one_package_must_share_their_producer() {
         )
         .unwrap();
 
-    for kind in [NativeUnitKind::Object, NativeUnitKind::Bitcode] {
-        assert_eq!(
-            mismatched.native_variant(kind),
-            Err(crate::PackageNativeArtifactError::Index(
-                NativeIndexError::WrongProducer {
-                    expected: native_digest(b"first"),
-                    actual: native_digest(b"second")
-                },
-            ))
-        );
-    }
+    assert_eq!(
+        mismatched.verify_all(),
+        Err(crate::PackageNativeArtifactError::Index(
+            NativeIndexError::WrongProducer {
+                expected: native_digest(b"first"),
+                actual: native_digest(b"second")
+            },
+        ))
+    );
 }
 
 #[test]
@@ -338,7 +336,7 @@ fn native_package_units_round_trip_with_exact_source_binding() {
     .unwrap_or_else(|error| panic!("native package must encode: {error:?}"));
 
     let imported = PackageImplementationArtifact::try_from_bytes(
-        artifact.bytes().to_vec(),
+        artifact.shared_bytes().unwrap().to_vec(),
         InterfaceValidationLimits::default(),
     )
     .unwrap_or_else(|error| panic!("native package must import: {error:?}"));
@@ -418,8 +416,8 @@ fn native_package_units_round_trip_with_exact_source_binding() {
 
     assert!(matches!(
         wrong.native_unit_bytes(first_digest.bytes()),
-        Err(super::native::PackageNativeArtifactError::Index(
-            NativeIndexError::PayloadDigestMismatch { .. }
+        Err(super::native::PackageNativeArtifactError::Validation(
+            InterfaceValidationError::NativeUnitDigestMismatch { .. }
         ))
     ));
 
@@ -445,7 +443,7 @@ fn native_package_units_round_trip_with_exact_source_binding() {
     });
 
     assert!(
-        matches!(opaque.native_artifact(), Err(super::native::PackageNativeArtifactError::InvalidBinding(owner))
+        matches!(opaque.verify_all(), Err(super::native::PackageNativeArtifactError::InvalidBinding(owner))
         if owner == fixture.body.owner())
     );
 
@@ -744,7 +742,7 @@ fn truncated_headers_identify_the_exact_field() {
 
     for (length, expected_field) in cases {
         let error = PackageImplementationArtifact::try_from_bytes(
-            artifact.bytes()[..length].to_vec(),
+            artifact.shared_bytes().unwrap()[..length].to_vec(),
             InterfaceValidationLimits::default(),
         )
         .unwrap_err();
@@ -1462,4 +1460,675 @@ fn artifact_fixture() -> ArtifactFixture {
         bundle,
         body,
     }
+}
+
+#[test]
+fn packed_file_reads_only_metadata_and_demanded_bodies_and_shares_parallel_cache() {
+    let fixture = artifact_fixture();
+
+    let identity = super::construction::implementation_identity(
+        &fixture.interface,
+        fixture.bundle.surface(),
+        fixture.bundle.semantics(),
+        fixture.bundle.implementation_configuration().clone(),
+    );
+
+    let bodies = std::iter::once(fixture.body.clone())
+        .chain((1..10_000).map(|owner| {
+            InterfaceConstantCallableBody::new(
+                InterfaceSymbolId::new(10_000 + owner),
+                fixture.body.template().clone(),
+            )
+        }))
+        .collect::<Vec<_>>();
+
+    let bytes = encode_artifact(&identity, &bodies, &[], &[], &[], None, &[], &[]).unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("large.brayimpl");
+    std::fs::write(&path, &bytes).unwrap();
+
+    let input = crate::PackageArtifactInput::packed_file(
+        &path,
+        PackageImplementationArtifact::metadata_digest(&bytes).unwrap(),
+    );
+
+    let artifact = input.load_implementation().unwrap();
+    let metadata = artifact.access_statistics();
+    assert_eq!(metadata.opens, 1);
+    assert_eq!(metadata.reads, 3);
+    assert!(metadata.bytes_read < bytes.len() as u64);
+    assert!(metadata.payload_bytes_hashed < 4096);
+
+    assert_eq!(
+        artifact
+            .decoded
+            .iter()
+            .filter(|cell| cell.get().is_some())
+            .count(),
+        0
+    );
+
+    let surface = fixture.bundle.surface();
+    let owner = fixture.body.owner();
+
+    std::thread::scope(|scope| {
+        for _ in 0..8 {
+            let artifact = artifact.clone();
+
+            scope.spawn(move || {
+                assert!(
+                    artifact
+                        .constant_callable_body(owner, surface)
+                        .unwrap()
+                        .is_some()
+                )
+            });
+        }
+    });
+
+    let demanded = artifact.access_statistics();
+    assert_eq!(demanded.reads, metadata.reads + 1);
+
+    assert_eq!(
+        artifact
+            .decoded
+            .iter()
+            .filter(|cell| cell.get().is_some())
+            .count(),
+        1
+    );
+
+    assert_eq!(
+        input
+            .clone()
+            .load_implementation()
+            .unwrap()
+            .access_statistics(),
+        demanded
+    );
+
+    assert!(demanded.payload_bytes_hashed < 8192);
+    artifact.verify_all().unwrap();
+
+    // Complete acquisition verification streams unread bodies without retaining them.
+    assert_eq!(
+        artifact
+            .decoded
+            .iter()
+            .filter(|cell| cell.get().is_some())
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn unread_corruption_is_rejected_on_selection_and_complete_verification() {
+    let fixture = artifact_fixture();
+
+    let identity = super::construction::implementation_identity(
+        &fixture.interface,
+        fixture.bundle.surface(),
+        fixture.bundle.semantics(),
+        fixture.bundle.implementation_configuration().clone(),
+    );
+
+    let second = InterfaceConstantCallableBody::new(
+        InterfaceSymbolId::new(999),
+        fixture.body.template().clone(),
+    );
+
+    let bytes = encode_artifact(
+        &identity,
+        &[fixture.body.clone(), second],
+        &[],
+        &[],
+        &[],
+        None,
+        &[],
+        &[],
+    )
+    .unwrap();
+
+    let pristine = PackageImplementationArtifact::try_from_bytes(
+        Arc::clone(&bytes),
+        InterfaceValidationLimits::default(),
+    )
+    .unwrap();
+
+    let entry = pristine
+        .directory
+        .iter()
+        .find(|entry| entry.owner.raw() == 999)
+        .unwrap();
+
+    let mut corrupt = bytes.to_vec();
+    corrupt[entry.payload.start] ^= 1;
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("library.brayimpl");
+    std::fs::write(&path, &corrupt).unwrap();
+
+    let artifact = crate::PackageArtifactInput::packed_file(&path, *pristine.artifact_hash())
+        .load_implementation()
+        .unwrap();
+
+    assert!(
+        artifact
+            .constant_callable_body(fixture.body.owner(), fixture.bundle.surface())
+            .unwrap()
+            .is_some()
+    );
+
+    assert!(matches!(
+        artifact.constant_callable_body(InterfaceSymbolId::new(999), fixture.bundle.surface()),
+        Err(InterfaceValidationError::PayloadChecksumMismatch { .. })
+    ));
+
+    assert!(matches!(
+        artifact.verify_all(),
+        Err(crate::PackageNativeArtifactError::Validation(
+            InterfaceValidationError::PayloadChecksumMismatch { .. }
+        ))
+    ));
+
+    let mut metadata_corrupt = bytes.to_vec();
+    let last = metadata_corrupt.len() - 1;
+    metadata_corrupt[last] ^= 1;
+    std::fs::write(&path, &metadata_corrupt).unwrap();
+
+    assert!(matches!(
+        crate::PackageArtifactInput::file(&path, None).load_implementation(),
+        Err(crate::PackageArtifactLoadError::Validation(
+            InterfaceValidationError::ArtifactHashMismatch { .. }
+        ))
+    ));
+}
+
+#[test]
+fn open_file_snapshot_survives_path_replacement_and_new_input_detects_corruption() {
+    let fixture = artifact_fixture();
+
+    let artifact = PackageImplementationArtifact::try_new(
+        &fixture.interface,
+        fixture.bundle.surface(),
+        fixture.bundle.semantics(),
+        fixture.bundle.implementation_configuration().clone(),
+        [fixture.body.clone()],
+        [],
+        [],
+        [],
+        InterfaceValidationLimits::default(),
+    )
+    .unwrap();
+
+    let bytes = artifact.shared_bytes().unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("library.brayimpl");
+    std::fs::write(&path, &bytes).unwrap();
+    let input = crate::PackageArtifactInput::file(&path, None);
+    let old = input.load_implementation().unwrap();
+    std::fs::rename(&path, directory.path().join("old.brayimpl")).unwrap();
+    std::fs::write(&path, b"corrupt replacement").unwrap();
+
+    assert!(
+        old.constant_callable_body(fixture.body.owner(), fixture.bundle.surface())
+            .unwrap()
+            .is_some()
+    );
+
+    assert!(
+        input
+            .clone()
+            .load_implementation()
+            .unwrap()
+            .constant_callable_body(fixture.body.owner(), fixture.bundle.surface())
+            .unwrap()
+            .is_some()
+    );
+
+    assert!(
+        crate::PackageArtifactInput::file(&path, None)
+            .load_implementation()
+            .is_err()
+    );
+}
+
+#[test]
+fn object_only_selection_leaves_bitcode_payloads_untouched() {
+    let fixture = artifact_fixture();
+    let interface = encode_package_interface(&fixture.bundle).unwrap();
+
+    let artifact = PackageImplementationArtifact::try_from_export_bundle(
+        &interface,
+        &fixture.bundle,
+        InterfaceValidationLimits::default(),
+    )
+    .unwrap();
+
+    let target = NativeTarget::for_identity(artifact.identity().configuration().target()).unwrap();
+    let producer = native_digest(b"producer");
+
+    let object = NativeArtifactIndex::try_new(target, producer, [], [])
+        .unwrap()
+        .encode()
+        .unwrap();
+
+    let bitcode = NativeArtifactIndex::try_new(target, producer, [], [])
+        .unwrap()
+        .with_bitcode_toolchain("llvm-test")
+        .encode()
+        .unwrap();
+
+    let variants = artifact
+        .try_native_only_artifact(
+            &[
+                (NativeUnitKind::Object, &object),
+                (NativeUnitKind::Bitcode, &bitcode),
+            ],
+            &[],
+        )
+        .unwrap();
+
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("library.brayimpl");
+    let mut bytes = variants.shared_bytes().unwrap().to_vec();
+
+    let bitcode_entry = variants
+        .directory
+        .iter()
+        .find(|entry| {
+            entry.kind == Some(ImplementationPayloadKind::NativeIndex)
+                && entry.discriminator[0] == 2
+        })
+        .unwrap();
+
+    bytes[bitcode_entry.payload.start] ^= 1;
+    std::fs::write(&path, bytes).unwrap();
+    let input = crate::PackageArtifactInput::packed_file(&path, *variants.artifact_hash());
+    let loaded = input.load_implementation().unwrap();
+
+    assert_eq!(
+        loaded.native_representation(None).unwrap().unwrap().0,
+        NativeUnitKind::Object
+    );
+
+    assert!(loaded.native_indexes[2].get().is_none());
+
+    assert!(matches!(
+        loaded.native_representation(Some("llvm-test")),
+        Err(crate::PackageNativeArtifactError::Validation(
+            InterfaceValidationError::PayloadChecksumMismatch { .. }
+        ))
+    ));
+
+    assert!(loaded.verify_all().is_err());
+}
+
+#[test]
+fn packed_read_errors_preserve_path_and_exact_io_cause() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("absent.brayimpl");
+
+    assert!(
+        matches!(crate::PackageArtifactInput::file(&path, None).load_implementation(),
+        Err(crate::PackageArtifactLoadError::Validation(InterfaceValidationError::Read { path: actual, kind: std::io::ErrorKind::NotFound })) if actual == path)
+    );
+
+    let fixture = artifact_fixture();
+
+    let artifact = PackageImplementationArtifact::try_new(
+        &fixture.interface,
+        fixture.bundle.surface(),
+        fixture.bundle.semantics(),
+        fixture.bundle.implementation_configuration().clone(),
+        [fixture.body.clone()],
+        [],
+        [],
+        [],
+        InterfaceValidationLimits::default(),
+    )
+    .unwrap();
+
+    let bytes = artifact.shared_bytes().unwrap();
+    std::fs::write(&path, &bytes).unwrap();
+
+    let selected = crate::PackageArtifactInput::file(&path, None)
+        .load_implementation()
+        .unwrap();
+
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_len(super::HEADER_LENGTH as u64)
+        .unwrap();
+
+    assert!(
+        matches!(selected.constant_callable_body(fixture.body.owner(), fixture.bundle.surface()),
+        Err(InterfaceValidationError::Read { path: actual, kind: std::io::ErrorKind::UnexpectedEof }) if actual == path)
+    );
+}
+
+#[test]
+fn packed_metadata_and_full_digest_promises_are_distinct_and_enforced() {
+    let fixture = artifact_fixture();
+
+    let artifact = PackageImplementationArtifact::try_new(
+        &fixture.interface,
+        fixture.bundle.surface(),
+        fixture.bundle.semantics(),
+        fixture.bundle.implementation_configuration().clone(),
+        [fixture.body.clone()],
+        [],
+        [],
+        [],
+        InterfaceValidationLimits::default(),
+    )
+    .unwrap();
+
+    let bytes = artifact.shared_bytes().unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("library.brayimpl");
+    std::fs::write(&path, &bytes).unwrap();
+
+    assert!(matches!(
+        crate::PackageArtifactInput::packed_file(&path, [0; 32]).load_implementation(),
+        Err(crate::PackageArtifactLoadError::Validation(
+            InterfaceValidationError::ArtifactHashMismatch { .. }
+        ))
+    ));
+
+    let digest = *blake3::hash(&bytes).as_bytes();
+
+    let entry = artifact
+        .directory
+        .iter()
+        .find(|entry| entry.kind == Some(ImplementationPayloadKind::ConstantCallableBody))
+        .unwrap();
+
+    let mut damaged = bytes.to_vec();
+    damaged[entry.payload.start] ^= 1;
+    std::fs::write(&path, damaged).unwrap();
+
+    assert!(
+        crate::PackageArtifactInput::packed_file(&path, *artifact.artifact_hash())
+            .load_implementation()
+            .is_ok()
+    );
+
+    assert!(matches!(
+        crate::PackageArtifactInput::file(&path, Some(digest)).load_implementation(),
+        Err(crate::PackageArtifactLoadError::Validation(
+            InterfaceValidationError::ArtifactHashMismatch { .. }
+        ))
+    ));
+}
+
+#[test]
+fn complete_verification_rechecks_in_place_metadata_and_file_length() {
+    let fixture = artifact_fixture();
+
+    let artifact = PackageImplementationArtifact::try_new(
+        &fixture.interface,
+        fixture.bundle.surface(),
+        fixture.bundle.semantics(),
+        fixture.bundle.implementation_configuration().clone(),
+        [fixture.body.clone()],
+        [],
+        [],
+        [],
+        InterfaceValidationLimits::default(),
+    )
+    .unwrap();
+
+    let bytes = artifact.shared_bytes().unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("library.brayimpl");
+    std::fs::write(&path, &bytes).unwrap();
+
+    let selected = crate::PackageArtifactInput::file(&path, None)
+        .load_implementation()
+        .unwrap();
+
+    let mut damaged = bytes.to_vec();
+    *damaged.last_mut().unwrap() ^= 1;
+    std::fs::write(&path, damaged).unwrap();
+
+    assert!(matches!(
+        selected.verify_all(),
+        Err(crate::PackageNativeArtifactError::Validation(
+            InterfaceValidationError::ArtifactHashMismatch { .. }
+        ))
+    ));
+
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_len(bytes.len() as u64 + 1)
+        .unwrap();
+
+    assert!(matches!(
+        selected.verify_all(),
+        Err(crate::PackageNativeArtifactError::Validation(
+            InterfaceValidationError::Malformed {
+                cause: crate::InterfaceMalformedCause::LengthMismatch { .. },
+                ..
+            }
+        ))
+    ));
+}
+
+#[test]
+fn packed_read_diagnostic_supplies_the_message_protocol_arguments() {
+    let path = std::path::PathBuf::from("missing/library.brayimpl");
+
+    let diagnostic = InterfaceValidationError::Read {
+        path: path.clone(),
+        kind: std::io::ErrorKind::NotFound,
+    }
+    .into_diagnostic(bray_diagnostics::DiagnosticId::new(1));
+
+    assert_eq!(
+        diagnostic.kind(),
+        bray_diagnostics::DiagnosticKind::PackageArtifactReadFailed
+    );
+
+    assert!(
+        diagnostic
+            .args()
+            .contains(&bray_diagnostics::DiagnosticArg::file_path(path))
+    );
+
+    assert!(
+        diagnostic
+            .args()
+            .contains(&bray_diagnostics::DiagnosticArg::io_error_kind(
+                bray_diagnostics::DiagnosticIoErrorKind::NotFound
+            ))
+    );
+
+    assert!(
+        bray_messages::DiagnosticRenderer::english()
+            .render(&diagnostic)
+            .message()
+            .contains("missing/library.brayimpl")
+    );
+}
+
+#[test]
+fn packed_native_index_above_sixteen_mib_has_its_own_bounded_metadata_budget() {
+    let fixture = artifact_fixture();
+    let interface = encode_package_interface(&fixture.bundle).unwrap();
+
+    let target =
+        NativeTarget::for_identity(fixture.bundle.implementation_configuration().target()).unwrap();
+
+    let payload: Arc<[u8]> = Arc::from(b"native unit".as_slice());
+    let digest = native_digest(&payload);
+
+    let definitions = (0..100_000u32)
+        .map(|number| {
+            let name = NonEmptySharedStr::try_new(format!("bray_instance_{number:064x}")).unwrap();
+
+            NativeDefinition::new(
+                NativeSymbolContract::new(
+                    bray_symbols::NativeSymbolIdentity::Name(name),
+                    None,
+                    bray_symbols::NativeSymbolBinding::Strong,
+                    bray_symbols::NativeSymbolPresence::Required,
+                ),
+                NativeDefinitionSelection::Ordinary,
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let index = NativeArtifactIndex::try_new(
+        target,
+        native_digest(b"producer"),
+        [NativeUnit::new(
+            digest,
+            NativeUnitKind::Object,
+            NativeUnitSummary::Exact {
+                definitions: definitions.into(),
+                references: [].into(),
+                roots: [].into(),
+            },
+            [],
+        )],
+        [],
+    )
+    .unwrap();
+
+    let encoded = index.encode().unwrap();
+    assert!(encoded.len() > 16 * 1024 * 1024);
+
+    let artifact = PackageImplementationArtifact::try_from_export_bundle_with_native(
+        &interface,
+        &fixture.bundle,
+        &encoded,
+        &[(digest.bytes(), payload)],
+        &[],
+        InterfaceValidationLimits::default(),
+    )
+    .unwrap();
+
+    assert_eq!(artifact.native_artifact().unwrap(), Some(index));
+    artifact.verify_all().unwrap();
+
+    let error = PackageImplementationArtifact::try_from_bytes(
+        artifact.shared_bytes().unwrap(),
+        InterfaceValidationLimits::default().with_decoded_allocation(16 * 1024 * 1024),
+    );
+
+    assert!(matches!(
+        error,
+        Err(InterfaceValidationError::ResourceLimitExceeded {
+            limit: crate::InterfaceLimit::DecodedAllocation,
+            ..
+        })
+    ));
+}
+
+#[test]
+fn native_unit_identity_authentication_is_shared_by_the_payload_cache() {
+    let fixture = artifact_fixture();
+    let interface = encode_package_interface(&fixture.bundle).unwrap();
+
+    let target =
+        NativeTarget::for_identity(fixture.bundle.implementation_configuration().target()).unwrap();
+
+    let payload: Arc<[u8]> = Arc::from(b"native unit".as_slice());
+    let digest = native_digest(&payload);
+
+    let index = NativeArtifactIndex::try_new(
+        target,
+        native_digest(b"producer"),
+        [NativeUnit::new(
+            digest,
+            NativeUnitKind::Object,
+            NativeUnitSummary::opaque([]),
+            [],
+        )],
+        [],
+    )
+    .unwrap()
+    .encode()
+    .unwrap();
+
+    let artifact = PackageImplementationArtifact::try_from_export_bundle_with_native(
+        &interface,
+        &fixture.bundle,
+        &index,
+        &[(digest.bytes(), Arc::clone(&payload))],
+        &[],
+        InterfaceValidationLimits::default(),
+    )
+    .unwrap();
+
+    assert_eq!(
+        artifact.native_unit_bytes(digest.bytes()).unwrap().unwrap(),
+        payload
+    );
+
+    let first = artifact.access_statistics();
+
+    assert_eq!(
+        artifact
+            .clone()
+            .native_unit_bytes(digest.bytes())
+            .unwrap()
+            .unwrap(),
+        payload
+    );
+
+    assert_eq!(artifact.access_statistics(), first);
+}
+
+#[test]
+fn complete_reads_enforce_metadata_promises_and_share_their_immutable_snapshot() {
+    let fixture = artifact_fixture();
+
+    let artifact = PackageImplementationArtifact::try_new(
+        &fixture.interface,
+        fixture.bundle.surface(),
+        fixture.bundle.semantics(),
+        fixture.bundle.implementation_configuration().clone(),
+        [fixture.body.clone()],
+        [],
+        [],
+        [],
+        InterfaceValidationLimits::default(),
+    )
+    .unwrap();
+
+    let bytes = artifact.shared_bytes().unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("library.brayimpl");
+    std::fs::write(&path, &bytes).unwrap();
+
+    assert!(matches!(
+        crate::PackageArtifactInput::packed_file(&path, [0; 32]).read(),
+        Err(crate::PackageArtifactLoadError::Validation(
+            InterfaceValidationError::ArtifactHashMismatch { .. }
+        ))
+    ));
+
+    let input = crate::PackageArtifactInput::packed_file(&path, *artifact.artifact_hash());
+    assert_eq!(input.read().unwrap(), bytes);
+    std::fs::write(&path, b"replacement").unwrap();
+    let loaded = input.load_implementation().unwrap();
+    assert_eq!(loaded.access_statistics().opens, 0);
+
+    assert!(
+        loaded
+            .constant_callable_body(fixture.body.owner(), fixture.bundle.surface())
+            .unwrap()
+            .is_some()
+    );
+
+    assert!(
+        crate::PackageArtifactInput::packed_file(&path, *artifact.artifact_hash())
+            .load_implementation()
+            .is_err()
+    );
 }

@@ -14,7 +14,6 @@ use super::hash::{compute_payload_content_hash, compute_payload_hash};
 
 pub(super) fn decode_directory_entry(
     reader: &mut WireReader<'_>,
-    bytes: &[u8],
     directory_offset: usize,
     expected_offset: usize,
     index: u64,
@@ -118,8 +117,21 @@ pub(super) fn decode_directory_entry(
         .read_array::<32>()
         .map_err(wire_error(context, InterfaceValidationField::ContentHash))?;
 
-    limits.check(InterfaceLimit::BlobLength, encoded_length)?;
-    limits.check(InterfaceLimit::BlobLength, decoded_length)?;
+    if ImplementationPayloadKind::from_raw(raw_kind) == Some(ImplementationPayloadKind::NativeIndex)
+    {
+        let index_limits = limits.with_decoded_allocation(
+            limits
+                .maximum(InterfaceLimit::DecodedAllocation)
+                .min(bray_native_artifact::NativeArtifactIndex::MAXIMUM_BYTES as u64),
+        );
+
+        index_limits.check(InterfaceLimit::DecodedAllocation, encoded_length)?;
+        index_limits.check(InterfaceLimit::DecodedAllocation, decoded_length)?;
+    } else {
+        limits.check(InterfaceLimit::BlobLength, encoded_length)?;
+        limits.check(InterfaceLimit::BlobLength, decoded_length)?;
+    }
+
     limits.check(InterfaceLimit::RecordCount, record_count)?;
 
     let offset = usize::try_from(offset)
@@ -198,16 +210,6 @@ pub(super) fn decode_directory_entry(
             )
         })?;
 
-    let payload = bytes
-        .get(offset..end)
-        .ok_or(InterfaceValidationError::Truncated {
-            context,
-            field: InterfaceValidationField::RecordPayload,
-            offset: offset as u64,
-            expected_length: encoded_length as u64,
-            actual_length: bytes.len().saturating_sub(offset) as u64,
-        })?;
-
     if encoding == crate::InterfaceSectionEncoding::Raw {
         if encoded_length != usize::try_from(decoded_length).unwrap_or(usize::MAX) {
             return Err(InterfaceValidationError::Malformed {
@@ -219,8 +221,6 @@ pub(super) fn decode_directory_entry(
                 },
             });
         }
-    } else {
-        crate::encoding::validate_zstd_frame(context, payload, decoded_length)?;
     }
 
     let entry = ImplementationDirectoryEntry {
@@ -240,21 +240,11 @@ pub(super) fn decode_directory_entry(
         payload: offset..end,
     };
 
-    let actual_checksum = compute_payload_hash(&entry, payload);
-
-    if actual_checksum != checksum {
-        return Err(InterfaceValidationError::PayloadChecksumMismatch {
-            context,
-            expected: checksum,
-            actual: actual_checksum,
-        });
-    }
-
     Ok(entry)
 }
 
 pub(super) fn decode_entry_payload(
-    bytes: &[u8],
+    encoded: Arc<[u8]>,
     entry: &ImplementationDirectoryEntry,
     limits: InterfaceValidationLimits,
 ) -> Result<Arc<[u8]>, InterfaceValidationError> {
@@ -265,14 +255,20 @@ pub(super) fn decode_entry_payload(
 
     limits.check(InterfaceLimit::DecodedAllocation, entry.decoded_length)?;
 
-    let encoded = bytes
-        .get(entry.payload.clone())
-        .ok_or_else(|| invalid_value(context, InterfaceValidationField::RecordPayload))?;
+    let actual_checksum = compute_payload_hash(entry, &encoded);
+
+    if actual_checksum != entry.checksum {
+        return Err(InterfaceValidationError::PayloadChecksumMismatch {
+            context,
+            expected: entry.checksum,
+            actual: actual_checksum,
+        });
+    }
 
     let decoded = match entry.encoding {
-        crate::InterfaceSectionEncoding::Raw => Arc::from(encoded),
+        crate::InterfaceSectionEncoding::Raw => encoded,
         crate::InterfaceSectionEncoding::ZstdFrame => {
-            crate::encoding::decode_zstd_frame(context, encoded, entry.decoded_length)?
+            crate::encoding::decode_zstd_frame(context, &encoded, entry.decoded_length)?
         }
     };
 
@@ -285,6 +281,18 @@ pub(super) fn decode_entry_payload(
             expected: entry.content_hash,
             actual: content_hash,
         });
+    }
+
+    if entry.kind == Some(ImplementationPayloadKind::NativeUnit) {
+        let actual = bray_base::sha256_reader(decoded.as_ref())
+            .expect("reading in-memory native unit bytes cannot fail");
+
+        if actual != entry.discriminator {
+            return Err(InterfaceValidationError::NativeUnitDigestMismatch {
+                expected: entry.discriminator,
+                actual,
+            });
+        }
     }
 
     Ok(decoded)
@@ -401,7 +409,9 @@ fn validate_payload_address(
                 ));
             }
         }
-        Some(ImplementationPayloadKind::PreSpecializedMir | ImplementationPayloadKind::NativeUnit) => {
+        Some(
+            ImplementationPayloadKind::PreSpecializedMir | ImplementationPayloadKind::NativeUnit,
+        ) => {
             if owner.raw() != 0 || family_size != 0 || platform_service.is_some() {
                 return Err(crate::implementation::invalid_value(
                     InterfaceValidationField::Value,
