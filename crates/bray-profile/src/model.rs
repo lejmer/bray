@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Current compiler profile schema revision.
-pub const COMPILATION_PROFILE_SCHEMA_REVISION: u32 = 2;
+pub const COMPILATION_PROFILE_SCHEMA_REVISION: u32 = 1;
 
 /// Profiling detail requested for one compiler invocation.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]

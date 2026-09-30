@@ -763,6 +763,7 @@ mod tests {
         let decoded: crate::CompilationProfileReport =
             serde_json::from_slice(&encoded).expect("native root profile must decode");
 
+        assert_eq!(decoded.schema_revision, 1);
         assert_eq!(decoded, native_root);
 
         native_root.native_codegen.as_mut().unwrap().runtime_demands[0].predecessor =
