@@ -14,8 +14,8 @@ use bray_ir::{
     MirUnaryOperator,
 };
 use bray_symbols::{
-    BorrowKind, CallableAbi, CallableDefinitionId, CallableInstanceData, GenericOwnerId,
-    GenericSubstitutionData, TypeData, TypeId,
+    BorrowKind, CallableAbi, CallableDefinitionId, CallableInstanceData, ConstantValueData,
+    ConstantValueKind, GenericOwnerId, GenericSubstitutionData, TypeData, TypeId,
 };
 
 use super::super::super::LoweringError;
@@ -271,6 +271,35 @@ impl Lowerer<'_> {
         };
 
         let selection = self.selected_operator(id);
+
+        // A signed minimum's positive spelling is valid only with its literal minus.
+        // Publish that checked literal as one representable MIR value at every level.
+        if matches!(selection, OperatorTarget::BuiltIn(_))
+            && operator == BoundOperator::Subtract
+            && let Some(value) = self.input.literal_values().expression(*operand)
+            && let ConstantValueKind::Integer(integer) = self
+                .input
+                .semantic_values()
+                .constant_value_data(value)
+                .kind()
+        {
+            let ty = self.expression_type(id);
+
+            let value =
+                self.input
+                    .semantic_values()
+                    .intern_constant_value(ConstantValueData::new(
+                        ty,
+                        ConstantValueKind::Integer(integer.negated()),
+                    ))?;
+
+            return Ok(LoweredExpression::continuing(
+                current,
+                Some(MirOperand::Constant { value, ty }),
+                self.expression_source(id),
+            ));
+        }
+
         let lowered = self.lower_operator_operand(id, *operand, selection, current)?;
 
         let Some(current) = lowered.block else {
@@ -839,8 +868,9 @@ impl Lowerer<'_> {
             })
             .unwrap_or_else(|| {
                 panic!(
-                    "lowering contract violation: MissingSemanticSelection {value:?}",
-                    value = id
+                    "lowering call contract violation: missing semantic selection for {id:?} in {:?} at {:?}",
+                    self.input.unit().key(),
+                    expression.origin().source_anchor(),
                 )
             })
             .clone();

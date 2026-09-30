@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use bray_linker::{
-    DebugLinkPolicy, LinkInput, LinkInputBuildError, LinkInputId, LinkInputKind, LinkInputMode,
+    DebugLinkPolicy, LinkInputBuildError, LinkInputId, LinkInputKind, LinkInputMode,
     LinkInputProvenance, LinkInputSource, LinkInputSpec, LinkPlan, LinkPlanBuildError,
     LinkPlanBuilder, LinkPlanSelectionError, LinkPolicy, LinkStartupMode, LinkedArtifactKind,
     LinkedProductKind, Linker, LinkerDriverIdentity, PlannedLinkedArtifact, StagingDestination,
@@ -33,7 +33,23 @@ pub fn construct_link_plan(
     let staged_artifacts = staged_artifacts_by_id(staged_artifacts)?;
     let output_staging = output_staging_by_id(output_staging)?;
 
-    let startup_mode = startup_mode(product_kind, inputs);
+    // The candidate plans own their native paths and Arc-backed runtime identity.
+    // Runtime objects and archives follow the same eager-before-lazy input order as packages.
+    let inputs = inputs.clone().with_native_inputs(
+        inputs
+            .runtime
+            .iter()
+            .filter(|_| product_kind != LinkedProductKind::StaticLibrary)
+            .flat_map(|runtime| {
+                runtime
+                    .native_units()
+                    .iter()
+                    .map(|unit| LinkInputSpec::runtime_unit(runtime.contract().artifact(), unit))
+            })
+            .chain(inputs.native_inputs.iter().cloned()),
+    );
+
+    let startup_mode = startup_mode(product_kind, &inputs);
 
     linker
         .select_plan(|driver| {
@@ -44,7 +60,7 @@ pub fn construct_link_plan(
                 product_kind,
                 staged_artifacts.clone(),
                 output_staging.clone(),
-                inputs,
+                &inputs,
                 driver.clone(),
                 startup_mode,
             )
@@ -158,7 +174,6 @@ impl<'plan> LinkPlanConstructor<'plan> {
         self.push_staged_inputs()?;
         self.push_direct_native_inputs()?;
         self.validate_native_inputs()?;
-        self.push_runtime_input()?;
         self.push_native_inputs_matching(is_ordinary_archive_input)?;
         self.push_native_inputs_matching(is_platform_provider_input)?;
         self.push_native_inputs_matching(is_native_library_input)?;
@@ -197,7 +212,11 @@ impl<'plan> LinkPlanConstructor<'plan> {
     }
 
     fn push_staged_inputs(&mut self) -> Result<(), LinkPlanConstructionError> {
-        for planned in self.emission.staged_artifacts() {
+        for planned in self
+            .emission
+            .staged_artifacts()
+            .filter(|artifact| artifact.role() == crate::ArtifactRole::LinkInput)
+        {
             let Some(path) = self.staged_artifacts.remove(planned.id()) else {
                 // Construction errors retain the Arc-backed artifact identity.
                 return Err(LinkPlanConstructionError::MissingStagedArtifact(
@@ -231,8 +250,16 @@ impl<'plan> LinkPlanConstructor<'plan> {
     }
 
     fn push_direct_native_inputs(&mut self) -> Result<(), LinkPlanConstructionError> {
-        for input in self.inputs.native_inputs.iter()
-            .filter(|input| matches!(input.kind(), LinkInputKind::RelocatableObject | LinkInputKind::Bitcode))
+        for input in self
+            .inputs
+            .native_inputs
+            .iter()
+            .filter(|input| {
+                matches!(
+                    input.kind(),
+                    LinkInputKind::RelocatableObject | LinkInputKind::Bitcode
+                )
+            })
             .cloned()
             .collect::<Vec<_>>()
         {
@@ -242,33 +269,15 @@ impl<'plan> LinkPlanConstructor<'plan> {
         Ok(())
     }
 
-    fn push_runtime_input(&mut self) -> Result<(), LinkPlanConstructionError> {
-        if self.product_kind == LinkedProductKind::StaticLibrary {
-            return Ok(());
-        }
-
-        let Some(runtime) = &self.inputs.runtime else {
-            return Ok(());
-        };
-
-        for component in runtime.components() {
-            let id = self.next_input_id()?;
-
-            self.builder.push_input(LinkInput::runtime_component(
-                id,
-                runtime.contract().artifact(),
-                component,
-            ));
-        }
-
-        Ok(())
-    }
-
     fn validate_native_inputs(&self) -> Result<(), LinkPlanConstructionError> {
         for input in self.inputs.native_inputs.iter() {
             if !matches!(
                 input.kind(),
-                LinkInputKind::RelocatableObject | LinkInputKind::Bitcode | LinkInputKind::Archive | LinkInputKind::NativeLibrary | LinkInputKind::Framework
+                LinkInputKind::RelocatableObject
+                    | LinkInputKind::Bitcode
+                    | LinkInputKind::Archive
+                    | LinkInputKind::NativeLibrary
+                    | LinkInputKind::Framework
             ) {
                 return Err(LinkPlanConstructionError::InvalidNativeInputKind(
                     input.kind(),
@@ -488,6 +497,7 @@ const fn linked_product_kind(kind: ArtifactKind) -> Option<LinkedProductKind> {
         | ArtifactKind::ExecutableModule
         | ArtifactKind::DebugCompanion
         | ArtifactKind::PackageInterface
+        | ArtifactKind::PackageNativeImplementation
         | ArtifactKind::PackageImplementation
         | ArtifactKind::DependencyMetadata
         | ArtifactKind::TestCatalog
@@ -566,9 +576,8 @@ mod tests {
     };
     use bray_runtime_interface::{
         BinarySymbolName, RootExecution, RuntimeAbiRole, RuntimeArtifact,
-        RuntimeArtifactComponentMetadata, RuntimeArtifactDigest, RuntimeArtifactId,
-        RuntimeArtifactMetadata, RuntimeArtifactPurpose, RuntimeArtifactSelection,
-        RuntimeCapability,
+        RuntimeArtifactComponentMetadata, RuntimeArtifactId, RuntimeArtifactMetadata,
+        RuntimeArtifactPurpose, RuntimeArtifactSelection, RuntimeCapability,
     };
     use bray_target::{CodeModel, RelocationModel};
 
@@ -717,18 +726,17 @@ mod tests {
         )
         .expect("static library request must validate");
 
-        let plan = emission_planner(None).plan(request)
+        let plan = emission_planner(None)
+            .plan(request)
             .expect("static library emission must plan");
 
         let package = product_identity().package().clone();
 
-        let inputs = product_link_inputs().with_additional_native_inputs([
-            file_input(
-                LinkInputKind::RelocatableObject,
-                "stage/dependency.o",
-                LinkInputProvenance::Package(package.clone()),
-            ),
-        ]);
+        let inputs = product_link_inputs().with_additional_native_inputs([file_input(
+            LinkInputKind::RelocatableObject,
+            "stage/dependency.o",
+            LinkInputProvenance::Package(package.clone()),
+        )]);
 
         let link_plan = construct_link_plan(
             &plan,
@@ -736,7 +744,8 @@ mod tests {
             output_staging(&plan),
             &inputs,
             &linker_for(LinkStartupMode::NotApplicable),
-        ).expect("imported unit must enter the static library link plan");
+        )
+        .expect("imported unit must enter the static library link plan");
 
         assert_eq!(link_plan.product_kind(), LinkedProductKind::StaticLibrary);
 
@@ -792,7 +801,8 @@ mod tests {
             [
                 LinkInputKind::RelocatableObject,
                 LinkInputKind::RelocatableObject,
-                LinkInputKind::RuntimeComponent,
+                LinkInputKind::RelocatableObject,
+                LinkInputKind::Archive,
                 LinkInputKind::Archive,
                 LinkInputKind::Archive,
                 LinkInputKind::NativeLibrary,
@@ -817,7 +827,7 @@ mod tests {
         assert!(runtime_input < standard_library);
 
         assert!(matches!(
-            link_plan.inputs()[4].provenance(),
+            link_plan.inputs()[5].provenance(),
             LinkInputProvenance::PlatformProvider(_)
         ));
 
@@ -827,14 +837,19 @@ mod tests {
             .filter(|input| matches!(input.provenance(), LinkInputProvenance::Runtime(_)))
             .collect::<Vec<_>>();
 
-        let [runtime_input] = runtime_inputs.as_slice() else {
-            panic!("async link plan must contain exactly one runtime input");
+        let [role_unit, archive_unit] = runtime_inputs.as_slice() else {
+            panic!("async link plan must contain role and fallback runtime units");
         };
 
-        assert_eq!(
-            runtime_input.provenance(),
-            &LinkInputProvenance::Runtime(runtime.contract().artifact().clone())
-        );
+        assert_eq!(role_unit.kind(), LinkInputKind::RelocatableObject);
+        assert_eq!(archive_unit.kind(), LinkInputKind::Archive);
+
+        for input in [role_unit, archive_unit] {
+            assert_eq!(
+                input.provenance(),
+                &LinkInputProvenance::Runtime(runtime.contract().artifact().clone())
+            );
+        }
 
         assert_eq!(host.abi_version(), runtime.contract().abi_version());
 
@@ -1034,8 +1049,25 @@ mod tests {
         let (runtime, _runtime_directory) = runtime_artifact(&host);
 
         let runtime = runtime
-            .select(RuntimeArtifactPurpose::Product, host.requirements())
+            .plan(RuntimeArtifactPurpose::Product, host.requirements())
             .unwrap_or_else(|error| panic!("test runtime must select: {error:?}"));
+
+        let units = runtime
+            .native_index()
+            .units()
+            .iter()
+            .filter(|unit| LinkInputKind::from(unit.kind()) == LinkInputKind::Archive)
+            .chain(
+                runtime
+                    .native_index()
+                    .units()
+                    .iter()
+                    .filter(|unit| LinkInputKind::from(unit.kind()) != LinkInputKind::Archive),
+            )
+            .map(|unit| unit.digest())
+            .collect::<Vec<_>>();
+
+        let runtime = runtime.finish(units);
 
         let request = EmissionRequest::try_new(
             product_identity(),
@@ -1190,21 +1222,14 @@ mod tests {
 
         let bytes = b"!<arch>\n";
 
-        for archive in ["bray_runtime_product.a", "bray_runtime_test.a"] {
-            std::fs::write(directory.path().join(archive), bytes)
-                .unwrap_or_else(|error| panic!("test runtime archive must be written: {error}"));
-        }
-
-        let digest = RuntimeArtifactDigest::new(
-            bray_base::sha256_file(&directory.path().join("bray_runtime_product.a"))
-                .unwrap_or_else(|error| panic!("test runtime archive must hash: {error}")),
-        );
+        let archive = directory.path().join("test-runtime.a");
+        std::fs::write(&archive, bytes).expect("test runtime archive must be written");
 
         let roles = contract
             .role_bindings()
             .iter()
             .map(bray_runtime_interface::RuntimeRoleBinding::role)
-            .filter(|role| *role != bray_runtime_interface::RuntimeAbiRole::TestEntrySelection);
+            .filter(|role| *role != RuntimeAbiRole::TestEntrySelection);
 
         let component_id = RuntimeArtifactId::try_new("runtime.product")
             .unwrap_or_else(|| panic!("test component identity must be valid"));
@@ -1214,8 +1239,6 @@ mod tests {
             RuntimeArtifactPurpose::Product,
             roles,
             contract.capabilities().iter().copied(),
-            "bray_runtime_product.a",
-            digest,
         )
         .unwrap_or_else(|error| panic!("test runtime component must be valid: {error:?}"));
 
@@ -1228,27 +1251,42 @@ mod tests {
                 .iter()
                 .map(bray_runtime_interface::RuntimeRoleBinding::role),
             contract.capabilities().iter().copied(),
-            "bray_runtime_test.a",
-            digest,
         )
         .unwrap_or_else(|error| panic!("test runtime component must be valid: {error:?}"));
 
-        let metadata = RuntimeArtifactMetadata::try_new(contract, [component, test_component])
-            .unwrap_or_else(|error| panic!("test runtime metadata must be valid: {error:?}"));
+        let target = bray_target::NativeTarget::for_identity(contract.target())
+            .expect("test runtime target must be native");
+
+        let indexes = RuntimeArtifactPurpose::ALL.map(|purpose| {
+            let symbols = contract
+                .role_bindings()
+                .iter()
+                .filter(|binding| {
+                    purpose == RuntimeArtifactPurpose::TestRunner
+                        || binding.role().available_to_product()
+                })
+                .map(|binding| binding.symbol_name().as_str());
+
+            bray_testing::test_runtime_native_index(
+                directory.path(),
+                target,
+                purpose,
+                symbols,
+                &archive,
+            )
+        });
+
+        let metadata = RuntimeArtifactMetadata::try_new(
+            contract,
+            [component, test_component],
+            indexes.iter().map(|(reference, _)| reference.clone()),
+        )
+        .unwrap_or_else(|error| panic!("test runtime metadata must be valid: {error:?}"));
 
         let artifact = RuntimeArtifact::try_new(
             metadata,
-            [
-                (
-                    component_id,
-                    directory.path().join("bray_runtime_product.a"),
-                ),
-                (
-                    RuntimeArtifactId::try_new("runtime.test")
-                        .unwrap_or_else(|| panic!("test component identity must be valid")),
-                    directory.path().join("bray_runtime_test.a"),
-                ),
-            ],
+            directory.path().to_path_buf(),
+            indexes.map(|(_, index)| index),
         )
         .unwrap_or_else(|error| panic!("test runtime artifact must be valid: {error:?}"));
 
@@ -1279,7 +1317,6 @@ mod tests {
                 LinkPlanCapability::Input(LinkInputKind::TerminationObject),
                 LinkPlanCapability::Input(LinkInputKind::Archive),
                 LinkPlanCapability::Input(LinkInputKind::NativeLibrary),
-                LinkPlanCapability::Input(LinkInputKind::RuntimeComponent),
                 LinkPlanCapability::InputMode(LinkInputMode::Ordinary),
                 LinkPlanCapability::Output(LinkedArtifactKind::SharedLibrary),
                 LinkPlanCapability::Output(LinkedArtifactKind::StaticLibrary),

@@ -1,6 +1,5 @@
 use std::path::{Path, PathBuf};
 
-use bray_base::sha256_file;
 use bray_runtime_interface::RuntimeArtifactMetadata;
 
 pub(super) fn current(
@@ -28,16 +27,8 @@ pub(super) fn current(
         return Ok(false);
     };
 
-    for component in metadata.components() {
-        let archive = output.join(component.archive_file_name());
-
-        let Ok(digest) = sha256_file(&archive) else {
-            return Ok(false);
-        };
-
-        if digest != component.archive_digest().bytes() {
-            return Ok(false);
-        }
+    if bray_tooling::load_runtime_artifact(metadata_path, metadata.contract().target(), metadata.contract().abi_version()).is_err() {
+        return Ok(false);
     }
 
     Ok(expected_archives.iter().all(|archive| archive.is_file()))

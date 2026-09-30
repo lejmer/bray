@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
 use std::path::Path;
 
@@ -6,9 +7,9 @@ use bray_target::{NativeTarget, RelocationModel, TargetArchitecture};
 use crate::LldFlavor;
 use crate::SystemLinkerFamily;
 use crate::{
-    DeadStripPolicy, DebugLinkPolicy, LinkInput, LinkInputMode, LinkInputSource, LinkModel,
-    LinkPlan, LinkSearchPathKind, LinkSubsystem, LinkTimeOptimizationPolicy, LinkedArtifactKind,
-    LinkedProductKind, PlannedLinkedArtifact, SectionGarbageCollectionPolicy,
+    DeadStripPolicy, DebugLinkPolicy, LinkInput, LinkInputKind, LinkInputMode, LinkInputSource,
+    LinkModel, LinkPlan, LinkSearchPathKind, LinkSubsystem, LinkTimeOptimizationPolicy,
+    LinkedArtifactKind, LinkedProductKind, PlannedLinkedArtifact, SectionGarbageCollectionPolicy,
 };
 
 pub(super) fn system_arguments_for(
@@ -35,6 +36,7 @@ fn gnu_compiler_arguments(
     current_directory: Option<&Path>,
 ) -> Result<Vec<OsString>, LldPlanError> {
     let raw = arguments_for_with_directory(plan, LldFlavor::Elf, current_directory)?;
+    let input_kinds = ordinary_file_input_kinds(plan, current_directory);
     let mut arguments = Vec::with_capacity(raw.len() + 4);
 
     if through_wsl {
@@ -58,6 +60,10 @@ fn gnu_compiler_arguments(
 
         if argument == "--entry=main" {
             continue;
+        }
+
+        if input_kinds.get(OsStr::new(argument)) == Some(&LinkInputKind::Bitcode) {
+            arguments.push("-Xlinker".into());
         }
 
         let transformed = match argument {
@@ -97,6 +103,7 @@ fn microsoft_compiler_arguments(
     current_directory: Option<&Path>,
 ) -> Result<Vec<OsString>, LldPlanError> {
     let raw = arguments_for_with_directory(plan, LldFlavor::Coff, current_directory)?;
+    let input_kinds = ordinary_file_input_kinds(plan, current_directory);
     let mut arguments = Vec::with_capacity(raw.len() * 2 + 3);
 
     arguments.push(format!("--target={}", plan.target().triple()).into());
@@ -124,7 +131,10 @@ fn microsoft_compiler_arguments(
             arguments.push(output.into());
         } else if text == "/dll" {
             arguments.push("-shared".into());
-        } else if is_ordinary_file_input(plan, &argument, current_directory) {
+        } else if input_kinds
+            .get(argument.as_os_str())
+            .is_some_and(|kind| *kind != LinkInputKind::Bitcode)
+        {
             arguments.push(argument);
         } else {
             arguments.push("-Xlinker".into());
@@ -135,19 +145,20 @@ fn microsoft_compiler_arguments(
     Ok(arguments)
 }
 
-fn is_ordinary_file_input(
-    plan: &LinkPlan,
-    argument: &OsStr,
+fn ordinary_file_input_kinds<'plan>(
+    plan: &'plan LinkPlan,
     current_directory: Option<&Path>,
-) -> bool {
-    plan.inputs().iter().any(|input| {
-        input.mode() == LinkInputMode::Ordinary
-            && matches!(
-                input.source(),
-                LinkInputSource::File(path)
-                    if linker_visible_path(path, current_directory).as_os_str() == argument
-            )
-    })
+) -> BTreeMap<&'plan OsStr, LinkInputKind> {
+    plan.inputs()
+        .iter()
+        .filter_map(|input| match (input.mode(), input.source()) {
+            (LinkInputMode::Ordinary, LinkInputSource::File(path)) => Some((
+                linker_visible_path(path, current_directory).as_os_str(),
+                input.kind(),
+            )),
+            _ => None,
+        })
+        .collect()
 }
 
 fn apple_compiler_arguments(
@@ -155,6 +166,7 @@ fn apple_compiler_arguments(
     current_directory: Option<&Path>,
 ) -> Result<Vec<OsString>, LldPlanError> {
     let raw = arguments_for_with_directory(plan, LldFlavor::MachO, current_directory)?;
+    let input_kinds = ordinary_file_input_kinds(plan, current_directory);
     let mut arguments = Vec::with_capacity(raw.len());
     let mut raw = raw.into_iter();
 
@@ -187,6 +199,10 @@ fn apple_compiler_arguments(
 
                 arguments.push(OsString::from(format!("-Wl,{text}")));
                 arguments.push(prefixed("-Wl,", value));
+            }
+            _ if input_kinds.get(argument.as_os_str()) == Some(&LinkInputKind::Bitcode) => {
+                arguments.push("-Xlinker".into());
+                arguments.push(argument);
             }
             _ => arguments.push(argument),
         }
@@ -741,7 +757,7 @@ mod tests {
             builder.push_input(
                 LinkInput::try_new(
                     LinkInputId::new(ordinal as u32),
-                    LinkInputKind::RuntimeComponent,
+                    LinkInputKind::Archive,
                     LinkInputSource::file(path),
                     LinkInputProvenance::Runtime(runtime.clone()),
                     LinkInputMode::Ordinary,
@@ -947,6 +963,14 @@ mod tests {
             ),
             (
                 TargetArchitecture::X86_64,
+                ObjectFormat::Elf,
+                LldFlavor::Elf,
+                SystemLinkerFamily::WslGnuCompiler,
+                "--thinlto-jobs=3",
+                "-Wl,--thinlto-jobs=3",
+            ),
+            (
+                TargetArchitecture::X86_64,
                 ObjectFormat::Coff,
                 LldFlavor::Coff,
                 SystemLinkerFamily::MicrosoftCompiler,
@@ -968,7 +992,8 @@ mod tests {
                 architecture,
                 format,
                 "application",
-                "main.bc",
+                "native-unit.payload",
+                LinkInputKind::Bitcode,
                 crate::LinkStartupMode::PlatformCompilerDriver,
                 LinkTimeOptimizationPolicy::ThinLto { jobs },
             );
@@ -994,6 +1019,15 @@ mod tests {
             assert!(
                 compiler.contains(&OsString::from(compiler_job)),
                 "{family:?}"
+            );
+
+            assert!(
+                compiler.windows(2).any(|arguments| arguments
+                    == [
+                        OsString::from("-Xlinker"),
+                        OsString::from("native-unit.payload"),
+                    ]),
+                "typed bitcode must bypass compiler frontend: {family:?}"
             );
         }
     }
@@ -1040,6 +1074,7 @@ mod tests {
             ObjectFormat::MachO,
             "application",
             "main.o",
+            LinkInputKind::RelocatableObject,
             crate::LinkStartupMode::ExplicitInputs,
             LinkTimeOptimizationPolicy::None,
         );
@@ -1164,6 +1199,7 @@ mod tests {
             object_format,
             output,
             input,
+            LinkInputKind::RelocatableObject,
             crate::LinkStartupMode::PlatformCompilerDriver,
             LinkTimeOptimizationPolicy::None,
         )
@@ -1174,6 +1210,7 @@ mod tests {
         object_format: ObjectFormat,
         output: &str,
         input: &str,
+        input_kind: LinkInputKind,
         startup_mode: crate::LinkStartupMode,
         optimization: LinkTimeOptimizationPolicy,
     ) -> LinkPlan {
@@ -1213,7 +1250,16 @@ mod tests {
             builder.push_input(startup_input(1, "crt/start.o"));
         }
 
-        builder.push_input(link_input(0, input));
+        builder.push_input(
+            LinkInput::try_new(
+                LinkInputId::new(0),
+                input_kind,
+                LinkInputSource::file(input),
+                LinkInputProvenance::Product,
+                LinkInputMode::Ordinary,
+            )
+            .expect("test executable input must match its native kind"),
+        );
 
         builder.push_output(planned_output(
             0,

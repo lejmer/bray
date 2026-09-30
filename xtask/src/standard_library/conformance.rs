@@ -5,6 +5,7 @@ use bray_compilation::{
     Compilation, CompilationOptions, CompilationRequest, SelectedTarget, WorkerBudget,
 };
 use bray_diagnostics::DiagnosticKind;
+use bray_native_artifact::{NativeUnitKind, NativeUnitSummary};
 use bray_package_interface::{
     InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceProductKind,
     InterfaceValidationPolicy, ValidatedPackageInterface,
@@ -15,9 +16,8 @@ use bray_source::{SourceIdentity, SourceInput, SourceVersion};
 use bray_standard_library::{
     PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY, PUBLIC_STANDARD_LIBRARY_PRODUCT_IDENTITY,
     PUBLIC_STANDARD_LIBRARY_SURFACE_IDENTITY, STANDARD_LIBRARY_MANIFEST_FILE_NAME,
-    StandardLibraryArtifactKind, StandardLibraryBundleManifest, StandardLibraryLoadError,
-    StandardLibraryOptimizationLifecycleRoot, StandardLibraryOptimizationProducerKind,
-    StandardLibraryResolver, StandardLibraryRoot,
+    StandardLibraryBundleManifest, StandardLibraryLoadError, StandardLibraryResolver,
+    StandardLibraryRoot,
 };
 use bray_symbols::{PackageIdentity, ProductKind};
 use bray_target::{NativeTarget, TargetIdentity};
@@ -51,7 +51,7 @@ fn verify_bundle(bundle: &Path, scratch: &Path) -> Result<(), BuildError> {
     let resolver = resolver(bundle)?;
 
     verify_package_interfaces(&resolver, &manifest)?;
-    verify_optimization_artifacts(&resolver, &manifest)?;
+    verify_native_indexes(&resolver, &manifest)?;
     verify_configured_root(bundle)?;
     verify_target_selection(&resolver, &manifest)?;
     verify_missing_artifact_diagnostic(bundle, &scratch.join("missing-artifact"))?;
@@ -104,67 +104,86 @@ fn write_synthetic_project(root: &Path) -> Result<(), BuildError> {
     )
 }
 
-fn verify_optimization_artifacts(
+fn verify_native_indexes(
     resolver: &StandardLibraryResolver,
     manifest: &StandardLibraryBundleManifest,
 ) -> Result<(), BuildError> {
     for target in manifest.targets() {
-        let artifacts = resolver
+        let inputs = resolver
             .target_artifacts(target.target(), target.runtime_abi())
-            .map_err(|error| {
-                BuildError::conformance("optimization-artifact", format!("{error:?}"))
-            })?;
+            .map_err(|error| BuildError::conformance("native-index", format!("{error:?}")))?;
 
-        let optimization_artifacts = artifacts
-            .iter()
-            .filter(|artifact| {
-                artifact.metadata().kind() == StandardLibraryArtifactKind::OptimizationArchive
-            })
-            .collect::<Vec<_>>();
+        let read = |kind| {
+            for input in inputs.iter() {
+                let artifact_kind = input.metadata().kind();
 
-        if optimization_artifacts.is_empty() {
-            return Err(BuildError::conformance(
-                "optimization-artifact",
-                format!("{} has no optimization archive", target.target().as_str()),
-            ));
-        }
+                if !matches!(
+                    artifact_kind,
+                    bray_standard_library::StandardLibraryArtifactKind::PackageImplementation
+                        | bray_standard_library::StandardLibraryArtifactKind::NativeImplementation
+                ) {
+                    continue;
+                }
 
-        if optimization_artifacts
-            .iter()
-            .any(|artifact| !artifact.bytes().starts_with(b"!<arch>\n"))
-        {
-            return Err(BuildError::conformance(
-                "optimization-artifact",
-                format!(
-                    "{} has an invalid optimization archive",
-                    target.target().as_str()
-                ),
-            ));
-        }
+                let package =
+                    bray_package_interface::PackageImplementationArtifact::try_from_bytes(
+                        input.shared_bytes(),
+                        bray_package_interface::InterfaceValidationLimits::default(),
+                    )
+                    .map_err(|error| {
+                        BuildError::conformance("native-index", format!("{error:?}"))
+                    })?;
 
-        for artifact in optimization_artifacts {
-            let optimization = artifact.metadata().optimization().ok_or_else(|| {
-                BuildError::conformance(
-                    "optimization-artifact",
-                    "optimization archive has no selection metadata",
-                )
-            })?;
+                if package.identity().interface().package().as_str()
+                    != PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY
+                {
+                    continue;
+                }
 
-            if optimization.producer().kind()
-                == StandardLibraryOptimizationProducerKind::PinnedNative
-                && !optimization.dependencies().is_empty()
-                && [
-                    StandardLibraryOptimizationLifecycleRoot::GlobalConstructors,
-                    StandardLibraryOptimizationLifecycleRoot::ExitRegistration,
-                ]
+                if let Some(index) = package.native_variant(kind).map_err(|error| {
+                    BuildError::conformance("native-index", format!("{error:?}"))
+                })? {
+                    return Ok(index);
+                }
+
+                if kind == NativeUnitKind::Object
+                    && artifact_kind
+                        == bray_standard_library::StandardLibraryArtifactKind::PackageImplementation
+                {
+                    if let Some(index) = package.native_artifact().map_err(|error| {
+                        BuildError::conformance("native-index", format!("{error:?}"))
+                    })? {
+                        return Ok(index);
+                    }
+                }
+            }
+
+            Err(BuildError::conformance(
+                "native-index",
+                format!("{kind:?} index is missing"),
+            ))
+        };
+
+        let objects = read(NativeUnitKind::Object)?;
+        let bitcode = read(NativeUnitKind::Bitcode)?;
+
+        for (name, index, kind) in [
+            ("object", objects, NativeUnitKind::Object),
+            ("bitcode", bitcode, NativeUnitKind::Bitcode),
+        ] {
+            let units = index.units();
+
+            if !units.iter().any(|unit| {
+                unit.kind() == kind && matches!(unit.summary(), NativeUnitSummary::Exact { .. })
+            }) && !units
                 .iter()
-                .any(|root| !optimization.lifecycle_roots().contains(root))
+                .any(|unit| unit.kind() == NativeUnitKind::OpaqueArchive)
             {
                 return Err(BuildError::conformance(
-                    "optimization-artifact",
+                    "native-index",
                     format!(
-                        "{} has incomplete lifecycle roots",
-                        optimization.partition()
+                        "{} {name} index has no exact units or fallback archive",
+                        target.target().as_str()
                     ),
                 ));
             }
@@ -347,7 +366,7 @@ fn verify_missing_artifact_diagnostic(bundle: &Path, missing: &Path) -> Result<(
     let result = standard_library_interface_result(&compilation)?;
     let diagnostics = diagnostic_kinds(result.diagnostics());
 
-    if diagnostics != [DiagnosticKind::StandardLibraryArtifactReadFailed] {
+    if diagnostics != [DiagnosticKind::PackageArtifactReadFailed] {
         return Err(BuildError::conformance(
             "missing-artifact-diagnostic",
             format!("unexpected diagnostics: {diagnostics:?}"),

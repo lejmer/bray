@@ -14,6 +14,9 @@ pub(super) fn validate_host_operation(
     };
 
     match host_operation {
+        MirHostOperation::InitializeRuntime { runtime } => {
+            validate_runtime_role(unit, *runtime, RuntimeAbiRole::RuntimeInitialization)
+        }
         MirHostOperation::MaterializeStatic { place } => {
             if !matches!(
                 unit.storage(place.storage()).map(crate::MirStorage::kind),

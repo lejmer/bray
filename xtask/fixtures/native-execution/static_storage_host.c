@@ -110,6 +110,7 @@ static int identity_is(static_identity left, static_identity right)
 
 static static_access find_thread_access(
     const product_host_descriptor *descriptor,
+    static_identity identity,
     uint32_t finalizer_execution
 )
 {
@@ -119,7 +120,11 @@ static static_access find_thread_access(
     {
         static_host_entry entry = descriptor->static_entry(index);
 
-        if (entry.duration != 1 || entry.finalizer.execution != finalizer_execution)
+        if (
+            entry.duration != 1 ||
+            entry.finalizer.execution != finalizer_execution ||
+            !identity_is(entry.identity, identity)
+        )
             continue;
 
         if (result != NULL)
@@ -266,11 +271,12 @@ static int check_product_scoped_thread_statics(
     product_host_control first_control,
     const product_host_descriptor *first_descriptor,
     product_host_control second_control,
-    const product_host_descriptor *second_descriptor
+    const product_host_descriptor *second_descriptor,
+    static_identity thread_identity
 )
 {
-    static_access first_access = find_thread_access(first_descriptor, 0);
-    static_access second_access = find_thread_access(second_descriptor, 0);
+    static_access first_access = find_thread_access(first_descriptor, thread_identity, 0);
+    static_access second_access = find_thread_access(second_descriptor, thread_identity, 0);
 
     if (first_access == NULL || second_access == NULL)
         return 34;
@@ -306,7 +312,9 @@ static int exercise_host(
     product_host_control control,
     const product_host_descriptor *descriptor,
     size_t *product_static_count,
-    uintptr_t *representative_address
+    uintptr_t *representative_address,
+    static_identity thread_identity,
+    static_identity async_thread_identity
 )
 {
     product_host_observation formed = control(PRODUCT_HOST_FORM);
@@ -317,8 +325,8 @@ static int exercise_host(
     if (descriptor->static_count < 6 || descriptor->static_entry == NULL)
         return 41;
 
-    static_access thread_access = find_thread_access(descriptor, 0);
-    static_access async_thread_access = find_thread_access(descriptor, 2);
+    static_access thread_access = find_thread_access(descriptor, thread_identity, 0);
+    static_access async_thread_access = find_thread_access(descriptor, async_thread_identity, 2);
     static_host_entry product_entries[64];
 
     size_t product_count = 0;
@@ -488,8 +496,23 @@ static int exercise_host(
 
 int main(int argument_count, char **arguments)
 {
-    if (argument_count != 6)
+    if (argument_count != 8)
         return 60;
+
+    static_identity thread_identity;
+    static_identity async_thread_identity;
+
+    if (strlen(arguments[6]) != 64 || strlen(arguments[7]) != 64)
+        return 76;
+
+    for (size_t index = 0; index < 32; index += 1)
+    {
+        if (
+            sscanf(arguments[6] + index * 2, "%2hhx", &thread_identity.bytes[index]) != 1 ||
+            sscanf(arguments[7] + index * 2, "%2hhx", &async_thread_identity.bytes[index]) != 1
+        )
+            return 77;
+    }
 
     native_library first_library = open_library(arguments[1]);
     native_library second_library = open_library(arguments[2]);
@@ -528,7 +551,8 @@ int main(int argument_count, char **arguments)
         first_control,
         first_descriptor,
         second_control,
-        second_descriptor
+        second_descriptor,
+        thread_identity
     );
 
     if (scoped_thread_result != 0)
@@ -541,7 +565,9 @@ int main(int argument_count, char **arguments)
         first_control,
         first_descriptor,
         &product_static_count,
-        &first_product_address
+        &first_product_address,
+        thread_identity,
+        async_thread_identity
     );
 
     if (first_result != 0)
@@ -561,7 +587,8 @@ int main(int argument_count, char **arguments)
     {
         static_host_entry entry = second_descriptor->static_entry(index);
 
-        if (entry.duration == 0) {
+        if (entry.duration == 0)
+        {
             second_product_address = entry.access();
             break;
         }

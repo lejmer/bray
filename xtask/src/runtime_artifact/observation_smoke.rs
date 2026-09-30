@@ -9,7 +9,6 @@ use bray_compilation::{
     WorkerBudget,
 };
 use bray_emitter::{ArtifactKind, resolve_published_artifact};
-use bray_runtime_interface::RuntimeArtifactPurpose;
 use bray_source::{SourceIdentity, SourceInput, SourceVersion};
 use bray_standard_library::StandardLibraryRoot;
 use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};
@@ -62,11 +61,21 @@ fn smoke_test_direct_hooks(
     let metadata = crate::native_toolchain::runtime_artifact_metadata(&package.metadata)
         .map_err(CommandError::ObservationSmoke)?;
 
-    let native_links = metadata
-        .components()
+    let artifact = bray_tooling::load_runtime_artifact(
+        &package.metadata,
+        metadata.contract().target(),
+        metadata.contract().abi_version(),
+    )
+    .map_err(|error| {
+        CommandError::ObservationSmoke(format!("could not load runtime native units: {error:?}"))
+    })?;
+
+    let native_links = artifact.native_indexes()[0]
+        .index()
+        .units()
         .iter()
-        .filter(|component| component.purpose() == RuntimeArtifactPurpose::Product)
-        .flat_map(bray_runtime_interface::RuntimeArtifactComponentMetadata::native_links)
+        .flat_map(bray_native_artifact::NativeUnit::native_links)
+        .chain(&package.native_links)
         .cloned()
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()
@@ -551,12 +560,6 @@ fn audit_observation_link_map(map: &Path, required: &[&str]) -> Result<(), Comma
 
     audit_link_symbols(&contents, required, &[]).map_err(CommandError::ObservationSmoke)?;
 
-    if !contents.contains("bray_runtime_observation") {
-        return Err(CommandError::ObservationSmoke(
-            "link map does not attribute the hooks to the Observation archive".to_owned(),
-        ));
-    }
-
     Ok(())
 }
 
@@ -565,12 +568,6 @@ fn audit_unobserved_link_map(map: &Path) -> Result<(), CommandError> {
 
     audit_link_symbols(&contents, &[], &OBSERVATION_SYMBOLS)
         .map_err(CommandError::ObservationSmoke)?;
-
-    if contents.contains("bray_runtime_observation") {
-        return Err(CommandError::ObservationSmoke(
-            "ordinary product retained the Observation archive".to_owned(),
-        ));
-    }
 
     Ok(())
 }

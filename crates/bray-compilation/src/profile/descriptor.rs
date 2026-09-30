@@ -199,8 +199,8 @@ pub(crate) enum ProfileMetricKind {
     InterfaceSections,
     InterfaceBytes,
     LinkInputs,
-    RuntimeComponents,
-    RuntimeArchiveBytes,
+    RuntimeNativeUnits,
+    RuntimeNativeBytes,
     OptimizationModules,
     OptimizationProcessedModules,
     OptimizationInputBytes,
@@ -248,11 +248,11 @@ impl ProfileMetricKind {
             }
             Self::InterfaceBytes => ("compiler.interface.bytes", CompilationProfileUnit::Bytes),
             Self::LinkInputs => ("compiler.link.inputs", CompilationProfileUnit::Count),
-            Self::RuntimeComponents => {
-                ("compiler.runtime.components", CompilationProfileUnit::Count)
+            Self::RuntimeNativeUnits => {
+                ("compiler.runtime.native_units", CompilationProfileUnit::Count)
             }
-            Self::RuntimeArchiveBytes => (
-                "compiler.runtime.archive_bytes",
+            Self::RuntimeNativeBytes => (
+                "compiler.runtime.native_bytes",
                 CompilationProfileUnit::Bytes,
             ),
             Self::OptimizationModules => (
@@ -358,8 +358,8 @@ impl ProfileMetricKind {
             Self::InterfaceSections => 2_011,
             Self::InterfaceBytes => 2_012,
             Self::LinkInputs => 2_013,
-            Self::RuntimeComponents => 2_016,
-            Self::RuntimeArchiveBytes => 2_017,
+            Self::RuntimeNativeUnits => 2_016,
+            Self::RuntimeNativeBytes => 2_017,
             Self::OptimizationModules => 2_018,
             Self::OptimizationProcessedModules => 2_033,
             Self::OptimizationInputBytes => 2_019,
@@ -398,8 +398,8 @@ impl ProfileMetricKind {
             Self::InterfaceSections
             | Self::InterfaceBytes
             | Self::LinkInputs
-            | Self::RuntimeComponents
-            | Self::RuntimeArchiveBytes
+            | Self::RuntimeNativeUnits
+            | Self::RuntimeNativeBytes
             | Self::OptimizationModules
             | Self::OptimizationProcessedModules
             | Self::OptimizationInputBytes
@@ -436,8 +436,8 @@ impl ProfileMetricKind {
             Self::InterfaceSections,
             Self::InterfaceBytes,
             Self::LinkInputs,
-            Self::RuntimeComponents,
-            Self::RuntimeArchiveBytes,
+            Self::RuntimeNativeUnits,
+            Self::RuntimeNativeBytes,
             Self::OptimizationModules,
             Self::OptimizationProcessedModules,
             Self::OptimizationInputBytes,

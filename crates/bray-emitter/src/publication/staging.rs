@@ -107,6 +107,7 @@ const fn artifact_mode(kind: ArtifactKind) -> u32 {
         | ArtifactKind::RelocatableObject
         | ArtifactKind::DebugCompanion
         | ArtifactKind::PackageInterface
+        | ArtifactKind::PackageNativeImplementation
         | ArtifactKind::PackageImplementation
         | ArtifactKind::DependencyMetadata
         | ArtifactKind::StaticLibrary

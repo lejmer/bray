@@ -194,13 +194,12 @@ struct CliOptions {
     )]
     standard_library_root: Option<PathBuf>,
     #[arg(
-        long = "standard-library-provider-root",
+        long = "native-implementation",
         global = true,
-        value_name = "DIRECTORY",
-        conflicts_with = "standard_library_root",
+        value_name = "FILE",
         hide = true
     )]
-    standard_library_provider_root: Option<PathBuf>,
+    native_implementations: Vec<PathBuf>,
     #[arg(long = "standard-library-source", global = true, hide = true)]
     standard_library_source: bool,
     #[arg(
@@ -246,17 +245,12 @@ impl CliOptions {
             .map(parse_standard_library_root)
             .transpose()?;
 
-        let standard_library_provider_root = self
-            .standard_library_provider_root
-            .map(parse_standard_library_root)
-            .transpose()?;
-
         let options = DriverOptions::new(
             worker_budget,
             self.format,
             compilation,
             standard_library_root,
-            standard_library_provider_root,
+            self.native_implementations,
             if self.standard_library_source {
                 bray_compilation::PackageSourceAuthority::StandardLibrary
             } else {
@@ -658,14 +652,14 @@ mod tests {
     }
 
     #[test]
-    fn accepts_a_provider_only_standard_library_bundle_root() {
+    fn accepts_native_implementation_without_semantic_dependency() {
         let root = std::env::current_dir()
             .unwrap_or_else(|error| panic!("test directory should be available: {error:?}"))
             .join("standard-library");
 
         let invocation = DriverInvocation::try_from_arguments([
             OsString::from("brayc"),
-            OsString::from("--standard-library-provider-root"),
+            OsString::from("--native-implementation"),
             root.as_os_str().to_os_string(),
             OsString::from("build"),
             OsString::from("--output"),
@@ -675,13 +669,7 @@ mod tests {
 
         assert!(invocation.options().standard_library_root().is_none());
 
-        assert_eq!(
-            invocation
-                .options()
-                .standard_library_provider_root()
-                .map(bray_standard_library::StandardLibraryRoot::path),
-            Some(root.as_path())
-        );
+        assert_eq!(invocation.options().native_implementations(), &[root]);
     }
 
     #[test]

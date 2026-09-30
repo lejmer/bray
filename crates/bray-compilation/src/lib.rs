@@ -14,6 +14,7 @@ mod worker;
 mod test_support;
 
 pub use compilation::{
+    diagnostic_native_artifact_cause,
     AsyncAnalysisView, BuildConfiguration, CodegenPreparationError, Compilation,
     CompilationLoadError, CompletionCandidate, DependencyContractsView, EmissionCodegenError,
     EmissionCodegenErrorKind, ExpressionTypesView, ForeignQueryError, ForeignQueryErrorKind,

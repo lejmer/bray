@@ -5,7 +5,6 @@
 mod artifact;
 mod binding;
 mod compatibility;
-mod component_dependency;
 mod component_validation;
 mod contract;
 mod family;
@@ -16,11 +15,11 @@ mod runtime;
 mod signature;
 
 pub use artifact::{
-    RuntimeArtifact, RuntimeArtifactBuildError, RuntimeArtifactComponent,
-    RuntimeArtifactComponentMetadata, RuntimeArtifactDigest, RuntimeArtifactMetadata,
-    RuntimeArtifactMetadataBuildError, RuntimeArtifactMetadataDecodeError,
-    RuntimeArtifactMetadataEncodeError, RuntimeArtifactPurpose, RuntimeArtifactSelection,
-    RuntimeArtifactSelectionError,
+    RuntimeArtifact, RuntimeArtifactBuildError, RuntimeArtifactComponentMetadata,
+    RuntimeArtifactDigest, RuntimeArtifactMetadata, RuntimeArtifactMetadataBuildError,
+    RuntimeArtifactMetadataDecodeError, RuntimeArtifactMetadataEncodeError, RuntimeArtifactPlan,
+    RuntimeArtifactPurpose, RuntimeArtifactSelection, RuntimeArtifactSelectionError,
+    RuntimeNativeIndexMetadata, RuntimeNativeUnit,
 };
 pub use binding::SourceRoleBinding;
 pub use bray_runtime_model::{
@@ -43,9 +42,8 @@ pub use platform::{
     PlatformAbiType, PlatformServiceBinding, PlatformServiceRole, PlatformServiceSignature,
 };
 pub use role::{
-    RuntimeAbiRole, RuntimeRoleBinding, RuntimeRoleContract,
-    RuntimeRoleContractEffect, RuntimeRoleImplementation, RuntimeRoleSourceBinding,
-    RuntimeServiceClass,
+    RuntimeAbiRole, RuntimeRoleBinding, RuntimeRoleContract, RuntimeRoleContractEffect,
+    RuntimeRoleImplementation, RuntimeRoleSourceBinding, RuntimeServiceClass,
 };
 pub use runtime::{RuntimeCompatibilityError, RuntimeContract, RuntimeContractBuildError};
 

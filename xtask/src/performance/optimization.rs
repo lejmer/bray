@@ -26,36 +26,35 @@ impl OptimizationCatalog {
             .find(|candidate| candidate.target().as_str() == target.as_str())
             .ok_or_else(|| "performance standard library does not contain the target".to_owned())?;
 
+        let fallback = selected
+            .artifacts()
+            .iter()
+            .find(|artifact| artifact.kind() == StandardLibraryArtifactKind::StaticLibrary)
+            .ok_or_else(|| "performance standard library has no static fallback".to_owned())?;
+
         let mut entries = selected
             .artifacts()
             .iter()
-            .filter(|artifact| artifact.kind() == StandardLibraryArtifactKind::OptimizationArchive)
-            .map(|artifact| {
-                let optimization = artifact.optimization().ok_or_else(|| {
-                    "validated optimization archive has no selection metadata".to_owned()
-                })?;
-
-                let symbols = optimization
-                    .preservation_roots()
-                    .iter()
-                    .map(|symbol| symbol.as_str().to_owned())
-                    .chain(
-                        optimization
-                            .platform_services()
-                            .iter()
-                            .map(|role| role.native_symbol().to_owned()),
-                    )
-                    .collect();
-
-                Ok(OptimizationEntry {
-                    partition: optimization.partition().to_owned(),
-                    path: artifact.path().to_owned(),
-                    bytes: artifact.byte_len(),
-                    fallback: optimization.fallback().path().to_owned(),
-                    symbols,
-                })
+            .filter(|artifact| {
+                matches!(
+                    artifact.kind(),
+                    StandardLibraryArtifactKind::PackageImplementation
+                        | StandardLibraryArtifactKind::NativeImplementation
+                )
             })
-            .collect::<Result<Vec<_>, String>>()?;
+            .map(|artifact| OptimizationEntry {
+                partition: match artifact.kind() {
+                    StandardLibraryArtifactKind::PackageImplementation => "native-object",
+                    StandardLibraryArtifactKind::NativeImplementation => "native-bitcode",
+                    _ => unreachable!("filtered implementation kinds"),
+                }
+                .to_owned(),
+                path: artifact.path().to_owned(),
+                bytes: artifact.byte_len(),
+                fallback: fallback.path().to_owned(),
+                symbols: BTreeSet::new(),
+            })
+            .collect::<Vec<_>>();
 
         entries.sort_by(|left, right| left.partition.cmp(&right.partition));
 
@@ -119,7 +118,7 @@ impl OptimizationCatalog {
             .map(|entry| {
                 let mut selected_by_workloads = workloads
                     .iter()
-                    .filter(|workload| workload_selects_partition(workload, &entry.partition))
+                    .filter(|workload| workload_selects_index(workload, &entry.path))
                     .map(|workload| workload.id.clone())
                     .collect::<Vec<_>>();
 
@@ -185,15 +184,16 @@ fn retained_input_identity(input: &RetainedInput) -> Option<String> {
     (!identity.is_empty()).then(|| identity.to_owned())
 }
 
-fn workload_selects_partition(workload: &WorkloadReport, partition: &str) -> bool {
-    workload.artifacts.iter().any(|artifact| {
-        artifact.linker_map.as_ref().is_some_and(|map| {
-            map.logical_provenance
-                .entries
-                .binary_search_by(|candidate| candidate.as_str().cmp(partition))
-                .is_ok()
+fn workload_selects_index(workload: &WorkloadReport, path: &str) -> bool {
+    workload
+        .compiler_profile
+        .native_codegen
+        .as_ref()
+        .is_some_and(|codegen| {
+            codegen.library_artifacts.iter().any(|artifact| {
+                Path::new(&artifact.path).file_name() == Path::new(path).file_name()
+            })
         })
-    })
 }
 
 #[cfg(test)]

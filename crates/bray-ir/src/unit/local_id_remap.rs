@@ -4,8 +4,8 @@ use bray_symbols::TypeId;
 
 use crate::{
     MirAsyncOperation, MirBlockId, MirCleanupEdge, MirEdge, MirFrameInitializer,
-    MirGeneratorOperation, MirHostOperation, MirOperand, MirOperationKind, MirPanicCause, MirStorageId,
-    MirTaskTerminalState, MirTerminatorKind, MirValueId,
+    MirGeneratorOperation, MirHostOperation, MirOperand, MirOperationKind, MirPanicCause,
+    MirStorageId, MirTaskTerminalState, MirTerminatorKind, MirValueId,
 };
 
 pub(crate) trait MirLocalIdMapping {
@@ -17,7 +17,10 @@ pub(crate) trait MirLocalIdMapping {
         old
     }
 
-    fn remap_operand(&self, operand: &mut MirOperand) where Self: Sized {
+    fn remap_operand(&self, operand: &mut MirOperand)
+    where
+        Self: Sized,
+    {
         remap_operand_ids(operand, self);
     }
 }
@@ -26,14 +29,13 @@ pub(crate) fn remap_operand_ids(operand: &mut MirOperand, mappings: &impl MirLoc
     match operand {
         MirOperand::Value(value) => *value = mappings.value(*value),
         MirOperand::Copy(place) | MirOperand::Move(place) => place.remap_local_ids(mappings),
-        MirOperand::Constant { .. } | MirOperand::ConstantTerm { .. } | MirOperand::Immediate { .. } => {}
+        MirOperand::Constant { .. }
+        | MirOperand::ConstantTerm { .. }
+        | MirOperand::Immediate { .. } => {}
     }
 }
 
-pub(super) fn remap_operation(
-    operation: &mut MirOperationKind,
-    mappings: &impl MirLocalIdMapping,
-) {
+pub(super) fn remap_operation(operation: &mut MirOperationKind, mappings: &impl MirLocalIdMapping) {
     match operation {
         MirOperationKind::Store {
             destination, value, ..
@@ -86,7 +88,8 @@ pub(super) fn remap_operation(
             place.remap_local_ids(mappings);
         }
         MirOperationKind::Host(
-            MirHostOperation::SelectTestEntry { .. }
+            MirHostOperation::InitializeRuntime { .. }
+            | MirHostOperation::SelectTestEntry { .. }
             | MirHostOperation::ExecuteRoot { .. }
             | MirHostOperation::ObserveRootTerminal { .. }
             | MirHostOperation::ResolveRootTerminal { .. }

@@ -1,0 +1,63 @@
+{
+  "format": 1,
+  "identity": "fixture.base",
+  "version": {
+    "workspace": true
+  },
+  "source_roots": [
+    {
+      "name": "cross",
+      "path": "cross"
+    },
+    {
+      "name": "generic",
+      "path": "generic"
+    }
+  ],
+  "products": [
+    {
+      "name": "cross",
+      "kind": "library",
+      "source_roots": [
+        "cross"
+      ],
+      "targets": [
+        "x86_64-pc-windows-msvc",
+        "aarch64-pc-windows-msvc",
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "dependencies": [],
+      "outputs": [
+        "package_interface",
+        "package_implementation",
+        "package_native_implementation",
+        "static_library"
+      ]
+    },
+    {
+      "name": "generic",
+      "kind": "library",
+      "source_roots": [
+        "generic"
+      ],
+      "targets": [
+        "x86_64-pc-windows-msvc",
+        "aarch64-pc-windows-msvc",
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "dependencies": [],
+      "outputs": [
+        "package_interface",
+        "package_implementation",
+        "package_native_implementation",
+        "static_library"
+      ]
+    }
+  ]
+}

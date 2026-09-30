@@ -5,10 +5,6 @@ using std.memory;
 
 internal const STATUS_SUCCESS: u32 = 0;
 
-internal const STATUS_NOT_INITIALIZED: u32 = 1;
-
-internal const STATUS_ALREADY_INITIALIZED: u32 = 2;
-
 internal const STATUS_RUNTIME_FAILURE: u32 = 4;
 
 internal const STATUS_PANICKED: u32 = 5;
@@ -18,12 +14,6 @@ internal const RUN_COMPLETED: u32 = 0;
 internal const RUN_PANICKED: u32 = 2;
 
 internal const PANIC_ALLOCATION_FAILURE: u32 = 4;
-
-internal const INITIALIZATION_EMPTY: u32 = 0;
-
-internal const INITIALIZATION_PENDING: u32 = 1;
-
-internal const INITIALIZATION_READY: u32 = 2;
 
 internal const ONE_USIZE: usize = 1;
 
@@ -52,8 +42,6 @@ internal struct PanicReportData
     mut consumer: RawPointer<u8>;
 }
 
-internal static SUBSTRATE_INITIALIZED: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
-
 internal static CONSTRUCTED_REPORTS: core.atomic.Atomic<u64> = core.atomic.initialize<u64>(0);
 
 internal static CONSUMED_REPORTS: core.atomic.Atomic<u64> = core.atomic.initialize<u64>(0);
@@ -62,29 +50,7 @@ internal static CONSUMED_REPORTS: core.atomic.Atomic<u64> = core.atomic.initiali
 trusted internal func runtime_initialization(pos worker_capacity: usize, pos timer_capacity: usize) -> u32
     uses(foreign_call)
 {
-    let (_, acquired) = core.atomic.compare_exchange<u32, 3, 1>(
-        &SUBSTRATE_INITIALIZED,
-        expected = INITIALIZATION_EMPTY,
-        desired = INITIALIZATION_PENDING,
-    );
-
-    if !acquired
-    {
-        return STATUS_ALREADY_INITIALIZED;
-    }
-
-    let status: u32 = trusted substrate_initialization(worker_capacity, timer_capacity);
-
-    if status != STATUS_SUCCESS
-    {
-        core.atomic.store<u32, 2>(&SUBSTRATE_INITIALIZED, value = INITIALIZATION_EMPTY);
-
-        return status;
-    }
-
-    core.atomic.store<u32, 2>(&SUBSTRATE_INITIALIZED, value = INITIALIZATION_READY);
-
-    return STATUS_SUCCESS;
+    return trusted substrate_initialization(worker_capacity, timer_capacity);
 }
 
 @abi(c)
@@ -92,11 +58,6 @@ trusted internal func structured_shutdown() -> u32
     uses(foreign_call)
 {
     let status: u32 = trusted substrate_shutdown();
-
-    if status == STATUS_SUCCESS || status == STATUS_NOT_INITIALIZED
-    {
-        core.atomic.store<u32, 2>(&SUBSTRATE_INITIALIZED, value = INITIALIZATION_EMPTY);
-    }
 
     if core.atomic.load<u64, 1>(&CONSTRUCTED_REPORTS) != core.atomic.load<u64, 1>(&CONSUMED_REPORTS)
     {

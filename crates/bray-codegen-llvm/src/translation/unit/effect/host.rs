@@ -14,6 +14,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
         // Keep this exhaustive so every host operation requires an explicit translation.
         match operation {
+            MirHostOperation::InitializeRuntime { runtime } => {
+                self.initialize_host_runtime(*runtime)?;
+
+                Ok(None)
+            }
             MirHostOperation::MaterializeStatic { place } => {
                 let _ = self.place(place)?;
 
@@ -29,171 +34,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 root,
                 execution,
                 runtime,
-            } => {
-                self.begin_memory_observation()?;
-
-                if self.host_role_implementation(*runtime)
-                    == RuntimeRoleImplementation::CompilerLowering
-                    && *execution == RootExecution::Synchronous
-                {
-                    self.translate_compiler_lowered_synchronous_root(*entry, root)?;
-
-                    return Ok(None);
-                }
-
-                if *execution == RootExecution::Synchronous {
-                    self.host_result =
-                        Some(self.translate_synchronous_root_boundary(*entry, root, *runtime)?);
-
-                    return Ok(None);
-                }
-
-                if let RootExecution::Asynchronous { frame } = execution {
-                    if self.begin_performance_interval(self.function)?.is_some() {
-                        panic!(
-                            "calibrated performance intervals require a synchronous executable entry"
-                        );
-                    }
-
-                    let (constructor, signature) =
-                        self.root_entry(root, RootExecution::Synchronous)?;
-
-                    let inactive = self
-                        .invoke_function(constructor, signature, &[], "root.frame")?
-                        .expect("checked MIR effect translation requires an established mapping or value");
-
-                    let context = super::super::support::extract_value(&self.builder, inactive, 0)?;
-
-                    let context = pointer_value(context)
-                        .expect("inactive root frames must contain a pointer context");
-
-                    let context = llvm(self.builder.build_ptr_to_int(
-                        context,
-                        crate::native::pointer_integer_type(
-                            self.types.context(),
-                            self.request.target(),
-                        ),
-                        "root.frame.context",
-                    ))?;
-
-                    let bray_ir::MirUnitKind::ExecutableHost(host) = self.unit.kind() else {
-                        panic!(
-                            "checked MIR effect translation violated an established compiler contract"
-                        );
-                    };
-
-                    let adapter_name = host
-                        .entry(*entry)
-                        .and_then(bray_runtime_interface::ExecutableHostEntry::root_frame_adapter)
-                        .expect("checked MIR effect translation requires an established mapping or value");
-
-                    let adapter = self
-                        .module
-                        .get_function(adapter_name.as_str())
-                        .unwrap_or_else(|| {
-                            self.module.add_function(
-                                adapter_name.as_str(),
-                                crate::native::frame_operation_type(
-                                    self.types.context(),
-                                    self.request.target(),
-                                    ProtectedFrameOperation::MoveBeforeStart,
-                                ),
-                                None,
-                            )
-                        });
-
-                    let adapter_key = bray_codegen::CodegenSymbolKey::ProtectedFrame {
-                        frame: *frame,
-                        operation: ProtectedFrameOperation::MoveBeforeStart,
-                    };
-
-                    let frame = crate::native::invoke_function(
-                        self.types.context(),
-                        &self.builder,
-                        self.request.target(),
-                        &adapter_key,
-                        adapter,
-                        &[context.into()],
-                        "root.frame.adapter",
-                    )?
-                    .expect(
-                        "checked MIR effect translation requires an established mapping or value",
-                    );
-
-                    let frame_storage =
-                        self.allocate_temporary(frame.get_type(), "root.frame.transfer.storage")?;
-
-                    llvm(self.builder.build_store(frame_storage, frame))?;
-
-                    let capacity = host
-                        .capacity_limits()
-                        .tasks()
-                        .map_or(u64::MAX, |capacity| u64::from(capacity.get()));
-
-                    let usize = crate::native::pointer_integer_type(
-                        self.types.context(),
-                        self.request.target(),
-                    );
-
-                    let frame_transfer = llvm(self.builder.build_ptr_to_int(
-                        frame_storage,
-                        usize,
-                        "root.frame.transfer",
-                    ))?;
-
-                    let configuration = crate::native::runtime_configuration_type(
-                        self.types.context(),
-                        self.request.target(),
-                    )
-                    .const_named_struct(&[
-                        usize.const_int(capacity, false).into(),
-                        usize.const_all_ones().into(),
-                    ]);
-
-                    let start = self
-                        .invoke_native_runtime(
-                            *runtime,
-                            &[frame_transfer.into(), configuration.into()],
-                        )?
-                        .and_then(|value| match value {
-                            BasicValueEnum::StructValue(value) => Some(value),
-                            _ => None,
-                        })
-                        .expect("checked MIR effect translation requires an established mapping or value");
-
-                    let status =
-                        super::super::support::extract_value(&self.builder, start.into(), 0)?;
-
-                    let status = int_value(status)
-                        .expect("root-start results must contain an integer status");
-
-                    let root =
-                        super::super::support::extract_value(&self.builder, start.into(), 1)?;
-
-                    let root = int_value(root)
-                        .expect("root-start results must contain an integer root handle");
-
-                    let started = llvm(self.builder.build_int_compare(
-                        IntPredicate::EQ,
-                        status,
-                        status.get_type().const_zero(),
-                        "root.started",
-                    ))?;
-
-                    let root = llvm(self.builder.build_select(
-                        started,
-                        root,
-                        root.get_type().const_zero(),
-                        "root.handle",
-                    ))?;
-
-                    self.host_root = Some(root);
-
-                    return Ok(None);
-                }
-
-                panic!("checked MIR effect translation violated an established compiler contract")
-            }
+            } => self.translate_root_execution(*entry, root, *execution, *runtime),
             MirHostOperation::ObserveRootTerminal { entry, runtime } => {
                 self.translate_root_terminal_observation(*entry, *runtime)
             }
@@ -252,6 +93,229 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 self.translate_compiler_shutdown(status)
             }
         }
+    }
+
+    fn translate_root_execution(
+        &mut self,
+        entry: bray_runtime_interface::ExecutableHostEntryId,
+        root: &BoundUnitKey,
+        execution: RootExecution,
+        runtime: bray_ir::MirRuntimeReference,
+    ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
+        self.begin_memory_observation()?;
+
+        if self.host_role_implementation(runtime) == RuntimeRoleImplementation::CompilerLowering
+            && execution == RootExecution::Synchronous
+        {
+            self.translate_compiler_lowered_synchronous_root(entry, root)?;
+
+            return Ok(None);
+        }
+
+        if execution == RootExecution::Synchronous {
+            self.host_result =
+                Some(self.translate_synchronous_root_boundary(entry, root, runtime)?);
+
+            return Ok(None);
+        }
+
+        if let RootExecution::Asynchronous { frame } = execution {
+            if self.begin_performance_interval(self.function)?.is_some() {
+                panic!("calibrated performance intervals require a synchronous executable entry");
+            }
+
+            let (constructor, signature) = self.root_entry(root, RootExecution::Synchronous)?;
+
+            let inactive = self
+                .invoke_function(constructor, signature, &[], "root.frame")?
+                .expect("checked MIR effect translation requires an established mapping or value");
+
+            let context = super::super::support::extract_value(&self.builder, inactive, 0)?;
+
+            let context = pointer_value(context)
+                .expect("inactive root frames must contain a pointer context");
+
+            let context = llvm(self.builder.build_ptr_to_int(
+                context,
+                crate::native::pointer_integer_type(self.types.context(), self.request.target()),
+                "root.frame.context",
+            ))?;
+
+            let bray_ir::MirUnitKind::ExecutableHost(host) = self.unit.kind() else {
+                panic!("checked MIR effect translation violated an established compiler contract");
+            };
+
+            let adapter_name = host
+                .entry(entry)
+                .and_then(bray_runtime_interface::ExecutableHostEntry::root_frame_adapter)
+                .expect("checked MIR effect translation requires an established mapping or value");
+
+            let adapter = self
+                .module
+                .get_function(adapter_name.as_str())
+                .unwrap_or_else(|| {
+                    self.module.add_function(
+                        adapter_name.as_str(),
+                        crate::native::frame_operation_type(
+                            self.types.context(),
+                            self.request.target(),
+                            ProtectedFrameOperation::MoveBeforeStart,
+                        ),
+                        None,
+                    )
+                });
+
+            let adapter_key = bray_codegen::CodegenSymbolKey::ProtectedFrame {
+                frame: frame,
+                operation: ProtectedFrameOperation::MoveBeforeStart,
+            };
+
+            let frame = crate::native::invoke_function(
+                self.types.context(),
+                &self.builder,
+                self.request.target(),
+                &adapter_key,
+                adapter,
+                &[context.into()],
+                "root.frame.adapter",
+            )?
+            .expect("checked MIR effect translation requires an established mapping or value");
+
+            let frame_storage =
+                self.allocate_temporary(frame.get_type(), "root.frame.transfer.storage")?;
+
+            llvm(self.builder.build_store(frame_storage, frame))?;
+
+            let capacity = host
+                .capacity_limits()
+                .tasks()
+                .map_or(u64::MAX, |capacity| u64::from(capacity.get()));
+
+            let usize =
+                crate::native::pointer_integer_type(self.types.context(), self.request.target());
+
+            let frame_transfer = llvm(self.builder.build_ptr_to_int(
+                frame_storage,
+                usize,
+                "root.frame.transfer",
+            ))?;
+
+            let configuration = crate::native::runtime_configuration_type(
+                self.types.context(),
+                self.request.target(),
+            )
+            .const_named_struct(&[
+                usize.const_int(capacity, false).into(),
+                usize.const_all_ones().into(),
+            ]);
+
+            let start = self
+                .invoke_native_runtime(runtime, &[frame_transfer.into(), configuration.into()])?
+                .and_then(|value| match value {
+                    BasicValueEnum::StructValue(value) => Some(value),
+                    _ => None,
+                })
+                .expect("checked MIR effect translation requires an established mapping or value");
+
+            let status = super::super::support::extract_value(&self.builder, start.into(), 0)?;
+
+            let status =
+                int_value(status).expect("root-start results must contain an integer status");
+
+            let root = super::super::support::extract_value(&self.builder, start.into(), 1)?;
+
+            let root =
+                int_value(root).expect("root-start results must contain an integer root handle");
+
+            let started = llvm(self.builder.build_int_compare(
+                IntPredicate::EQ,
+                status,
+                status.get_type().const_zero(),
+                "root.started",
+            ))?;
+
+            let root = llvm(self.builder.build_select(
+                started,
+                root,
+                root.get_type().const_zero(),
+                "root.handle",
+            ))?;
+
+            self.host_root = Some(root);
+
+            return Ok(None);
+        }
+
+        panic!("checked MIR effect translation violated an established compiler contract")
+    }
+
+    fn initialize_host_runtime(
+        &mut self,
+        runtime: bray_ir::MirRuntimeReference,
+    ) -> Result<(), CodegenFailure> {
+        let bray_ir::MirUnitKind::ExecutableHost(host) = self.unit.kind() else {
+            panic!("runtime initialization requires an executable host");
+        };
+
+        let usize =
+            crate::native::pointer_integer_type(self.types.context(), self.request.target());
+
+        let capacity = host
+            .capacity_limits()
+            .tasks()
+            .map_or(u64::MAX, |capacity| u64::from(capacity.get()));
+
+        let status = self
+            .invoke_native_runtime(
+                runtime,
+                &[
+                    usize.const_int(capacity, false).into(),
+                    usize.const_all_ones().into(),
+                ],
+            )?
+            .and_then(int_value)
+            .expect("runtime initialization must return its native status");
+
+        let initialized = llvm(self.builder.build_int_compare(
+            IntPredicate::EQ,
+            status,
+            status.get_type().const_int(
+                u64::from(bray_runtime_abi::NativeRuntimeStatus::SUCCESS.code()),
+                false,
+            ),
+            "runtime.initialized",
+        ))?;
+
+        let already_initialized = llvm(self.builder.build_int_compare(
+            IntPredicate::EQ,
+            status,
+            status.get_type().const_int(
+                u64::from(bray_runtime_abi::NativeRuntimeStatus::ALREADY_INITIALIZED.code()),
+                false,
+            ),
+            "runtime.already_initialized",
+        ))?;
+
+        let ready = llvm(
+            self.builder
+                .build_or(initialized, already_initialized, "runtime.ready"),
+        )?;
+
+        let context = self.types.context();
+        let continuation = context.append_basic_block(self.function, "runtime.ready");
+        let failure = context.append_basic_block(self.function, "runtime.initialization.failed");
+
+        llvm(
+            self.builder
+                .build_conditional_branch(ready, continuation, failure),
+        )?;
+
+        self.builder.position_at_end(failure);
+        self.translate_compiler_shutdown(context.i64_type().const_int(1, false))?;
+        llvm(self.builder.build_unreachable())?;
+        self.builder.position_at_end(continuation);
+
+        Ok(())
     }
 
     fn translate_compiler_lowered_synchronous_root(

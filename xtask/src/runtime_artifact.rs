@@ -7,6 +7,7 @@ mod contract;
 mod native_link;
 mod observation_smoke;
 mod partition;
+mod native_index;
 mod reuse;
 mod smoke;
 

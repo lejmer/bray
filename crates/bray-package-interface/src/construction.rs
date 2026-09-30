@@ -152,24 +152,25 @@ pub struct ImportedInterfaceSymbolResolver<'surface> {
 }
 
 impl<'surface> ImportedInterfaceSymbolResolver<'surface> {
-    /// Creates a resolver for the loaded surfaces associated with `symbols`.
-    pub fn try_new(
+    /// Creates a resolver from the same surfaces used to construct `symbols`.
+    /// Dependency identities and hashes have already been validated during construction.
+    pub fn new(
         current: LoadedInterfaceSurface<'surface>,
         surfaces: impl IntoIterator<Item = LoadedInterfaceSurface<'surface>>,
         symbols: &'surface ImportedSymbolSkeleton,
         compiler_known: &'surface BTreeMap<bray_symbols::SymbolKey, AnySymbolId>,
-    ) -> Result<Self, ImportedSymbolConstructionError> {
+    ) -> Self {
         let surfaces: Vec<_> = surfaces.into_iter().collect();
-        let package_index = package_index(&surfaces)?;
 
-        validate_dependencies(&surfaces, &package_index)?;
+        let package_index = package_index(&surfaces)
+            .expect("constructed imported symbol skeleton must have unique packages");
 
-        Ok(Self {
+        Self {
             current,
             package_index,
             symbols,
             compiler_known,
-        })
+        }
     }
 
     fn resolve_external_key(
@@ -544,8 +545,7 @@ mod tests {
         let compiler_known = BTreeMap::from([(function_key.clone(), symbol)]);
 
         let resolver =
-            ImportedInterfaceSymbolResolver::try_new(loaded, [loaded], &symbols, &compiler_known)
-                .unwrap_or_else(|error| panic!("test resolver must be valid: {error:?}"));
+            ImportedInterfaceSymbolResolver::new(loaded, [loaded], &symbols, &compiler_known);
 
         let compiler_known_reference = InterfaceSymbolReference::CompilerKnown(
             crate::CompilerKnownSymbolReference::try_new(function_key.clone())

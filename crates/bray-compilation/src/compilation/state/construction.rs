@@ -52,7 +52,7 @@ impl Compilation {
             package_identity,
             package_source_authority,
             standard_library_root,
-            standard_library_provider_root,
+            mut native_implementations,
             options,
             source_inputs,
             mut dependency_interfaces,
@@ -104,17 +104,42 @@ impl Compilation {
         let standard_library =
             standard_library_root.map(bray_standard_library::StandardLibraryResolver::new);
 
-        let standard_library_providers =
-            standard_library_provider_root.map(bray_standard_library::StandardLibraryResolver::new);
-
-        if let Some(resolver) = standard_library.as_ref() {
-            // The synthetic dependency and native selection share one immutable resolver cache.
-            // SelectedTarget is small immutable request data retained by both compilation queries.
-            dependency_interfaces.push(DependencyInterfaceInput::for_standard_library(
+        let discovery_failure = if let Some(resolver) = standard_library.as_ref() {
+            match DependencyInterfaceInput::for_standard_library(
                 resolver.clone(),
                 options.selected_target().clone(),
-            ));
-        }
+            ) {
+                Ok((input, native_inputs)) => {
+                    native_implementations.extend(native_inputs);
+
+                    if input.package() == &package_identity {
+                        native_implementations.extend(
+                            input
+                                .implementation_input()
+                                .into_iter()
+                                .chain(input.native_implementations())
+                                .cloned(),
+                        );
+                    } else if !dependency_interfaces.iter().any(|dependency| {
+                        dependency.package() == input.package()
+                            && dependency.product() == input.product()
+                    }) {
+                        dependency_interfaces.push(input);
+                    }
+
+                    None
+                }
+                Err(error) => Some(crate::compilation::imported::standard_library_diagnostics(
+                    error,
+                    &resolver
+                        .root()
+                        .path()
+                        .join(bray_standard_library::STANDARD_LIBRARY_MANIFEST_FILE_NAME),
+                )),
+            }
+        } else {
+            None
+        };
 
         dependency_interfaces.sort_by(|left, right| {
             (left.package(), left.product()).cmp(&(right.package(), right.product()))
@@ -123,6 +148,13 @@ impl Compilation {
         let (sources, diagnostics) =
             load_source_inputs(&package_identity, package_source_authority, source_inputs)?;
 
+        let diagnostics = match discovery_failure {
+            Some(discovery_diagnostics) => {
+                DiagnosticBag::merged_all([&diagnostics, &discovery_diagnostics])
+            }
+            None => diagnostics,
+        };
+
         let source_count = sources.len();
         let dependency_count = dependency_interfaces.len();
 
@@ -130,7 +162,7 @@ impl Compilation {
             &package_identity,
             package_source_authority,
             standard_library.as_ref(),
-            standard_library_providers.as_ref(),
+            &native_implementations,
             &options,
             &sources,
             &diagnostics,
@@ -173,7 +205,8 @@ impl Compilation {
                 package_identity,
                 package_source_authority,
                 standard_library,
-                standard_library_providers,
+                native_implementations,
+                native_libraries: Mutex::new(BTreeMap::new()),
                 options,
                 sources,
                 source_diagnostics: diagnostics,

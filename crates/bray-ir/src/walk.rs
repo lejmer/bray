@@ -191,7 +191,8 @@ impl MirOperationKind {
                 crate::MirHostOperation::MaterializeStatic { place } => {
                     visit_place_operands(place, &mut visit);
                 }
-                crate::MirHostOperation::SelectTestEntry { .. }
+                crate::MirHostOperation::InitializeRuntime { .. }
+                | crate::MirHostOperation::SelectTestEntry { .. }
                 | crate::MirHostOperation::ExecuteRoot { .. }
                 | crate::MirHostOperation::ObserveRootTerminal { .. }
                 | crate::MirHostOperation::ResolveRootTerminal { .. }
@@ -345,9 +346,9 @@ pub(crate) fn for_each_operation_storage(
             | MirGeneratorOperation::CleanupBroadcast { destination, .. }
             | MirGeneratorOperation::Destroy { destination, .. },
         )
-        | MirOperationKind::Host(MirHostOperation::MaterializeStatic {
-            place: destination,
-        }) => visit(destination.storage()),
+        | MirOperationKind::Host(MirHostOperation::MaterializeStatic { place: destination }) => {
+            visit(destination.storage())
+        }
         MirOperationKind::Async(MirAsyncOperation::MoveInactiveFrame {
             source,
             destination,

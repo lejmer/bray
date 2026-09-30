@@ -10,10 +10,10 @@ use super::super::specialization::ConcreteCodegenReachability;
 use crate::compilation::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
 use crate::fact::CancellationToken;
 
-pub(super) struct NativeStaticContract {
-    pub(super) symbol: NativeSymbolContract,
-    pub(super) direction: ForeignCallableDirection,
-    pub(super) duration: StaticStorageDuration,
+pub(in crate::compilation::product) struct NativeStaticContract {
+    pub(in crate::compilation::product) symbol: NativeSymbolContract,
+    pub(in crate::compilation::product) direction: ForeignCallableDirection,
+    pub(in crate::compilation::product) duration: StaticStorageDuration,
 }
 
 impl Compilation {
@@ -93,7 +93,7 @@ impl Compilation {
         Ok(mappings)
     }
 
-    pub(super) fn native_static_contract(
+    pub(in crate::compilation::product) fn native_static_contract(
         &self,
         reference: &StaticReferenceSelection,
         cancellation: &CancellationToken,
@@ -108,7 +108,7 @@ impl Compilation {
             })
     }
 
-    pub(super) fn optional_native_static_contract(
+    pub(in crate::compilation::product) fn optional_native_static_contract(
         &self,
         reference: &StaticReferenceSelection,
         cancellation: &CancellationToken,

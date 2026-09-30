@@ -11,7 +11,7 @@ pub(super) fn compilation_inputs(
     package_identity: &PackageIdentity,
     package_source_authority: crate::PackageSourceAuthority,
     standard_library: Option<&bray_standard_library::StandardLibraryResolver>,
-    standard_library_providers: Option<&bray_standard_library::StandardLibraryResolver>,
+    native_implementations: &[bray_package_interface::PackageArtifactInput],
     options: &CompilationOptions,
     sources: &SourceStore,
     source_diagnostics: &DiagnosticBag,
@@ -28,7 +28,7 @@ pub(super) fn compilation_inputs(
         package_identity,
         package_source_authority,
         standard_library,
-        standard_library_providers,
+        native_implementations,
     );
 
     insert_source_inputs(&mut inputs, sources, source_diagnostics);
@@ -51,7 +51,7 @@ fn insert_package_inputs(
     package_identity: &PackageIdentity,
     package_source_authority: crate::PackageSourceAuthority,
     standard_library: Option<&bray_standard_library::StandardLibraryResolver>,
-    standard_library_providers: Option<&bray_standard_library::StandardLibraryResolver>,
+    native_implementations: &[bray_package_interface::PackageArtifactInput],
 ) {
     inputs.insert(CompilationInputKey::PackageIdentity, package_identity);
 
@@ -66,8 +66,8 @@ fn insert_package_inputs(
     );
 
     inputs.insert(
-        CompilationInputKey::StandardLibraryProviders,
-        &standard_library_providers.map(|resolver| resolver.root().path()),
+        CompilationInputKey::NativeImplementations,
+        &native_implementations,
     );
 }
 
@@ -147,7 +147,7 @@ fn insert_dependency_input(
         input.artifact_path(),
         input.dependency_span(),
         input.validation_policy(),
-        input.bytes(),
+        input.interface_input(),
     );
 
     inputs.insert(
@@ -155,12 +155,7 @@ fn insert_dependency_input(
         &interface_value,
     );
 
-    let implementation_value = (
-        input.implementation_artifact_path(),
-        input
-            .implementation_artifact()
-            .map(bray_package_interface::PackageImplementationArtifact::bytes),
-    );
+    let implementation_value = (input.implementation_input(), input.native_implementations());
 
     inputs.insert(
         CompilationInputKey::DependencyImplementation(interface),
@@ -271,16 +266,12 @@ impl Compilation {
         self.state.package_interface_export.as_ref()
     }
 
-    pub(super) fn standard_library_provider_resolver(
+    pub(super) fn native_implementation_inputs(
         &self,
-    ) -> Option<&bray_standard_library::StandardLibraryResolver> {
-        self.record_input(CompilationInputKey::StandardLibrary);
-        self.record_input(CompilationInputKey::StandardLibraryProviders);
+    ) -> &[bray_package_interface::PackageArtifactInput] {
+        self.record_input(CompilationInputKey::NativeImplementations);
 
-        self.state
-            .standard_library
-            .as_ref()
-            .or(self.state.standard_library_providers.as_ref())
+        &self.state.native_implementations
     }
 
     pub(super) fn record_codegen_configuration(&self) {

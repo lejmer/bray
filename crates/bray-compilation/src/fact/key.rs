@@ -1,8 +1,8 @@
 use bray_bound_tree::{BoundExpressionId, BoundUnitKey};
 use bray_checker::TargetValidityRequest;
 use bray_codegen::{
-    BackendArtifactRequest, BackendCapabilityRevision, BackendIdentity, CodegenMappings,
-    CodegenInstanceKey, CodegenOptions, CodegenTarget, CodegenUnitKey,
+    BackendArtifactRequest, BackendCapabilityRevision, BackendIdentity, CodegenInstanceKey,
+    CodegenMappings, CodegenOptions, CodegenTarget, CodegenUnitKey,
 };
 use bray_declarations::ModulePartId;
 use bray_linker::LinkerDriverIdentity;
@@ -57,7 +57,8 @@ impl ImportedExecutableTemplateAddress {
 pub(crate) struct NativeProductQueryKey {
     product: ProductIdentity,
     configuration: crate::BuildConfiguration,
-    runtime: Option<std::sync::Arc<[RuntimeComponentQueryIdentity]>>,
+    linked_product: Option<bray_linker::LinkedProductKind>,
+    runtime: Option<std::sync::Arc<[RuntimeNativeIndexQueryIdentity]>>,
     required_capabilities: std::sync::Arc<[RuntimeCapability]>,
     linker_drivers: std::sync::Arc<[LinkerDriverIdentity]>,
 }
@@ -66,13 +67,15 @@ impl NativeProductQueryKey {
     pub(crate) fn new(
         product: ProductIdentity,
         configuration: crate::BuildConfiguration,
-        runtime: Option<std::sync::Arc<[RuntimeComponentQueryIdentity]>>,
+        linked_product: Option<bray_linker::LinkedProductKind>,
+        runtime: Option<std::sync::Arc<[RuntimeNativeIndexQueryIdentity]>>,
         required_capabilities: impl Into<std::sync::Arc<[RuntimeCapability]>>,
         linker_drivers: impl Into<std::sync::Arc<[LinkerDriverIdentity]>>,
     ) -> Self {
         Self {
             product,
             configuration,
+            linked_product,
             runtime,
             required_capabilities: required_capabilities.into(),
             linker_drivers: linker_drivers.into(),
@@ -87,7 +90,11 @@ impl NativeProductQueryKey {
         self.configuration
     }
 
-    pub(crate) fn runtime(&self) -> Option<&[RuntimeComponentQueryIdentity]> {
+    pub(crate) const fn linked_product(&self) -> Option<bray_linker::LinkedProductKind> {
+        self.linked_product
+    }
+
+    pub(crate) fn runtime(&self) -> Option<&[RuntimeNativeIndexQueryIdentity]> {
         self.runtime.as_deref()
     }
 
@@ -100,32 +107,32 @@ impl NativeProductQueryKey {
     }
 }
 
-/// Complete immutable identity of one runtime catalog component used by a native product query.
+/// Complete immutable identity of one selected runtime native index.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub(crate) struct RuntimeComponentQueryIdentity {
-    component: RuntimeArtifactId,
+pub(crate) struct RuntimeNativeIndexQueryIdentity {
+    artifact: RuntimeArtifactId,
     purpose: RuntimeArtifactPurpose,
     digest: RuntimeArtifactDigest,
-    archive: std::path::PathBuf,
+    path: std::path::PathBuf,
 }
 
-impl RuntimeComponentQueryIdentity {
+impl RuntimeNativeIndexQueryIdentity {
     pub(crate) fn new(
-        component: RuntimeArtifactId,
+        artifact: RuntimeArtifactId,
         purpose: RuntimeArtifactPurpose,
         digest: RuntimeArtifactDigest,
-        archive: std::path::PathBuf,
+        path: std::path::PathBuf,
     ) -> Self {
         Self {
-            component,
+            artifact,
             purpose,
             digest,
-            archive,
+            path,
         }
     }
 
-    pub(crate) const fn component(&self) -> &RuntimeArtifactId {
-        &self.component
+    pub(crate) const fn artifact(&self) -> &RuntimeArtifactId {
+        &self.artifact
     }
 
     pub(crate) const fn purpose(&self) -> RuntimeArtifactPurpose {
@@ -136,8 +143,8 @@ impl RuntimeComponentQueryIdentity {
         self.digest
     }
 
-    pub(crate) fn archive(&self) -> &std::path::Path {
-        self.archive.as_path()
+    pub(crate) fn path(&self) -> &std::path::Path {
+        self.path.as_path()
     }
 }
 

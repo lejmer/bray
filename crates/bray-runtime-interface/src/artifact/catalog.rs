@@ -2,9 +2,8 @@ use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::Arc;
 
-use bray_base::{NonEmptySharedStr, shared_slice};
+use bray_base::NonEmptySharedStr;
 pub use bray_native_artifact::NativeContentDigest as RuntimeArtifactDigest;
-use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
 use bray_target::TargetIdentity;
 use serde::{Deserialize, Serialize};
 
@@ -28,6 +27,51 @@ pub enum RuntimeArtifactPurpose {
     TestRunner,
 }
 
+/// Authenticated native unit index for one runtime product category.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct RuntimeNativeIndexMetadata {
+    purpose: RuntimeArtifactPurpose,
+    file_name: NonEmptySharedStr,
+    digest: RuntimeArtifactDigest,
+}
+
+impl RuntimeNativeIndexMetadata {
+    /// Creates one index reference beneath the runtime artifact directory.
+    pub fn try_new(
+        purpose: RuntimeArtifactPurpose,
+        file_name: impl Into<Arc<str>>,
+        digest: RuntimeArtifactDigest,
+    ) -> Result<Self, RuntimeArtifactMetadataBuildError> {
+        let file_name = NonEmptySharedStr::try_new(file_name)
+            .ok_or(RuntimeArtifactMetadataBuildError::InvalidNativeIndexFileName)?;
+
+        if !is_file_name(file_name.as_str()) {
+            return Err(RuntimeArtifactMetadataBuildError::InvalidNativeIndexFileName);
+        }
+
+        Ok(Self {
+            purpose,
+            file_name,
+            digest,
+        })
+    }
+
+    /// Returns the runtime product category covered by this index.
+    pub const fn purpose(&self) -> RuntimeArtifactPurpose {
+        self.purpose
+    }
+
+    /// Returns the index file name beneath the artifact directory.
+    pub fn file_name(&self) -> &str {
+        self.file_name.as_str()
+    }
+
+    /// Returns the digest of the exact encoded index bytes.
+    pub const fn digest(&self) -> RuntimeArtifactDigest {
+        self.digest
+    }
+}
+
 impl RuntimeArtifactPurpose {
     /// Every runtime artifact purpose in canonical order.
     pub const ALL: [Self; 2] = [Self::Product, Self::TestRunner];
@@ -47,38 +91,24 @@ impl RuntimeArtifactPurpose {
     }
 }
 
-/// One physical archive and the exact runtime surface it owns for one product category.
+/// One semantic runtime provider and the roles it owns for one product category.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct RuntimeArtifactComponentMetadata {
     identity: RuntimeArtifactId,
     purpose: RuntimeArtifactPurpose,
     roles: Arc<[RuntimeAbiRole]>,
     capabilities: Arc<[RuntimeCapability]>,
-    dependencies: Arc<[RuntimeArtifactId]>,
-    archive_file_name: NonEmptySharedStr,
-    archive_digest: RuntimeArtifactDigest,
     platform_services: Arc<[PlatformServiceRole]>,
-    native_links: Arc<[NativeLinkRequirement]>,
 }
 
 impl RuntimeArtifactComponentMetadata {
-    /// Creates one physical component with canonical ownership declarations.
+    /// Creates one runtime provider with canonical ownership declarations.
     pub fn try_new(
         identity: RuntimeArtifactId,
         purpose: RuntimeArtifactPurpose,
         roles: impl IntoIterator<Item = RuntimeAbiRole>,
         capabilities: impl IntoIterator<Item = RuntimeCapability>,
-        archive_file_name: impl Into<Arc<str>>,
-        archive_digest: RuntimeArtifactDigest,
     ) -> Result<Self, RuntimeArtifactMetadataBuildError> {
-        let Some(archive_file_name) = NonEmptySharedStr::try_new(archive_file_name) else {
-            return Err(RuntimeArtifactMetadataBuildError::InvalidArchiveFileName);
-        };
-
-        if !is_file_name(archive_file_name.as_str()) {
-            return Err(RuntimeArtifactMetadataBuildError::InvalidArchiveFileName);
-        }
-
         let roles = canonical_values(roles);
         let capabilities = canonical_values(capabilities);
 
@@ -87,22 +117,8 @@ impl RuntimeArtifactComponentMetadata {
             purpose,
             roles,
             capabilities,
-            dependencies: Arc::from([]),
-            archive_file_name,
-            archive_digest,
             platform_services: Arc::from([]),
-            native_links: Arc::from([]),
         })
-    }
-
-    /// Returns a component with its transitive physical support requirements.
-    pub fn with_dependencies(
-        mut self,
-        dependencies: impl IntoIterator<Item = RuntimeArtifactId>,
-    ) -> Self {
-        self.dependencies = canonical_values(dependencies);
-
-        self
     }
 
     /// Returns a component with the exact platform services it overrides.
@@ -111,16 +127,6 @@ impl RuntimeArtifactComponentMetadata {
         platform_services: impl IntoIterator<Item = PlatformServiceRole>,
     ) -> Self {
         self.platform_services = canonical_values(platform_services);
-
-        self
-    }
-
-    /// Returns a component with its required native libraries and frameworks.
-    pub fn with_native_links(
-        mut self,
-        native_links: impl IntoIterator<Item = NativeLinkRequirement>,
-    ) -> Self {
-        self.native_links = shared_slice(native_links);
 
         self
     }
@@ -135,39 +141,19 @@ impl RuntimeArtifactComponentMetadata {
         self.purpose
     }
 
-    /// Returns the runtime roles physically owned by this component.
+    /// Returns the runtime roles assigned to this provider.
     pub fn roles(&self) -> &[RuntimeAbiRole] {
         &self.roles
     }
 
-    /// Returns the runtime capabilities physically owned by this component.
+    /// Returns the runtime capabilities assigned to this provider.
     pub fn capabilities(&self) -> &[RuntimeCapability] {
         &self.capabilities
     }
 
-    /// Returns direct component dependencies in canonical identity order.
-    pub fn dependencies(&self) -> &[RuntimeArtifactId] {
-        &self.dependencies
-    }
-
-    /// Returns the archive file name relative to the metadata document.
-    pub fn archive_file_name(&self) -> &str {
-        self.archive_file_name.as_str()
-    }
-
-    /// Returns the archive content digest.
-    pub const fn archive_digest(&self) -> RuntimeArtifactDigest {
-        self.archive_digest
-    }
-
-    /// Returns the platform services physically overridden by this component.
+    /// Returns the platform services overridden by this provider.
     pub fn platform_services(&self) -> &[PlatformServiceRole] {
         &self.platform_services
-    }
-
-    /// Returns native libraries and frameworks needed by this component.
-    pub fn native_links(&self) -> &[NativeLinkRequirement] {
-        &self.native_links
     }
 }
 
@@ -176,6 +162,7 @@ impl RuntimeArtifactComponentMetadata {
 pub struct RuntimeArtifactMetadata {
     contract: RuntimeContract,
     components: Arc<[RuntimeArtifactComponentMetadata]>,
+    native_indexes: Arc<[RuntimeNativeIndexMetadata]>,
 }
 
 impl RuntimeArtifactMetadata {
@@ -183,6 +170,7 @@ impl RuntimeArtifactMetadata {
     pub fn try_new(
         contract: RuntimeContract,
         components: impl IntoIterator<Item = RuntimeArtifactComponentMetadata>,
+        native_indexes: impl IntoIterator<Item = RuntimeNativeIndexMetadata>,
     ) -> Result<Self, RuntimeArtifactMetadataBuildError> {
         let mut components: Vec<_> = components.into_iter().collect();
 
@@ -191,10 +179,21 @@ impl RuntimeArtifactMetadata {
         });
 
         crate::component_validation::validate(&contract, &components)?;
+        let mut indexes = native_indexes.into_iter().collect::<Vec<_>>();
+        indexes.sort_by_key(RuntimeNativeIndexMetadata::purpose);
+
+        if indexes
+            .iter()
+            .map(RuntimeNativeIndexMetadata::purpose)
+            .ne(RuntimeArtifactPurpose::ALL)
+        {
+            return Err(RuntimeArtifactMetadataBuildError::InvalidNativeIndexes);
+        }
 
         Ok(Self {
             contract,
             components: components.into(),
+            native_indexes: indexes.into(),
         })
     }
 
@@ -229,9 +228,14 @@ impl RuntimeArtifactMetadata {
         &self.contract
     }
 
-    /// Returns physical components in canonical purpose and identity order.
+    /// Returns semantic providers in canonical purpose and identity order.
     pub fn components(&self) -> &[RuntimeArtifactComponentMetadata] {
         &self.components
+    }
+
+    /// Returns the canonical per-purpose native index references.
+    pub fn native_indexes(&self) -> &[RuntimeNativeIndexMetadata] {
+        &self.native_indexes
     }
 
     fn from_wire(wire: ArtifactWire) -> Result<Self, RuntimeArtifactMetadataDecodeError> {
@@ -284,7 +288,13 @@ impl RuntimeArtifactMetadata {
             .map(ComponentWire::into_metadata)
             .collect::<Result<Vec<_>, _>>()?;
 
-        Self::try_new(contract, components)
+        let indexes = wire
+            .native_indexes
+            .into_iter()
+            .map(NativeIndexWire::into_metadata)
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Self::try_new(contract, components, indexes)
             .map_err(RuntimeArtifactMetadataDecodeError::InvalidMetadata)
     }
 }
@@ -292,21 +302,12 @@ impl RuntimeArtifactMetadata {
 /// A contract violation that prevents runtime artifact metadata construction.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RuntimeArtifactMetadataBuildError {
-    /// The archive name is empty or contains a path component.
-    InvalidArchiveFileName,
-    /// A support-only component is not reachable from an owning component.
-    UnreferencedSupportComponent(RuntimeArtifactId),
+    /// A native index name is empty or contains a path component.
+    InvalidNativeIndexFileName,
+    /// Exactly one native index is required for each runtime purpose.
+    InvalidNativeIndexes,
     /// More than one component has the same stable identity.
     DuplicateComponent(RuntimeArtifactId),
-    /// A component depends on itself or a component absent from its product category.
-    InvalidComponentDependency {
-        /// Component declaring the invalid dependency.
-        component: RuntimeArtifactId,
-        /// Missing, cross-purpose, or self dependency.
-        dependency: RuntimeArtifactId,
-    },
-    /// Component dependencies contain a cycle.
-    ComponentDependencyCycle(RuntimeArtifactId),
     /// A component claims a role absent from the runtime contract.
     UnknownComponentRole(RuntimeAbiRole),
     /// A component claims a capability absent from the runtime contract.
@@ -362,6 +363,8 @@ pub enum RuntimeArtifactMetadataEncodeError {
 /// A malformed or incompatible runtime artifact metadata document.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RuntimeArtifactMetadataDecodeError {
+    /// A native index digest is not a lowercase SHA-256 value.
+    InvalidNativeIndexDigest,
     /// The metadata exceeds the fixed resource limit.
     SizeLimitExceeded,
     /// The document is not valid metadata JSON.
@@ -386,16 +389,10 @@ pub enum RuntimeArtifactMetadataDecodeError {
     InvalidRoleSymbol,
     /// A role implementation boundary is unknown.
     UnknownRoleImplementation,
-    /// A native link requirement has an empty name.
-    InvalidNativeLinkName,
-    /// A native link requirement has an unknown category.
-    UnknownNativeLinkKind,
     /// A component product category is unknown.
     UnknownComponentPurpose,
     /// A component identity is empty.
     InvalidComponentIdentity,
-    /// The archive digest is not a 32-byte lowercase hexadecimal value.
-    InvalidArchiveDigest,
     /// The runtime contract is internally inconsistent.
     InvalidContract(RuntimeContractBuildError),
     /// The archive metadata is internally inconsistent.
@@ -416,6 +413,7 @@ struct ArtifactWire {
     capabilities: Vec<String>,
     roles: Vec<RoleWire>,
     components: Vec<ComponentWire>,
+    native_indexes: Vec<NativeIndexWire>,
 }
 
 impl ArtifactWire {
@@ -446,7 +444,43 @@ impl ArtifactWire {
                 .iter()
                 .map(ComponentWire::from_metadata)
                 .collect(),
+            native_indexes: metadata
+                .native_indexes()
+                .iter()
+                .map(NativeIndexWire::from_metadata)
+                .collect(),
         }
+    }
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct NativeIndexWire {
+    purpose: String,
+    file: String,
+    digest: String,
+}
+
+impl NativeIndexWire {
+    fn from_metadata(metadata: &RuntimeNativeIndexMetadata) -> Self {
+        Self {
+            purpose: metadata.purpose().as_str().to_owned(),
+            file: metadata.file_name().to_owned(),
+            digest: metadata.digest().to_hex(),
+        }
+    }
+
+    fn into_metadata(
+        self,
+    ) -> Result<RuntimeNativeIndexMetadata, RuntimeArtifactMetadataDecodeError> {
+        let purpose = RuntimeArtifactPurpose::from_name(&self.purpose)
+            .ok_or(RuntimeArtifactMetadataDecodeError::UnknownComponentPurpose)?;
+
+        let digest = RuntimeArtifactDigest::from_hex(&self.digest)
+            .ok_or(RuntimeArtifactMetadataDecodeError::InvalidNativeIndexDigest)?;
+
+        RuntimeNativeIndexMetadata::try_new(purpose, self.file, digest)
+            .map_err(RuntimeArtifactMetadataDecodeError::InvalidMetadata)
     }
 }
 
@@ -457,10 +491,7 @@ struct ComponentWire {
     purpose: String,
     roles: Vec<String>,
     capabilities: Vec<String>,
-    dependencies: Vec<String>,
-    native_links: Vec<NativeLinkWire>,
     platform_services: Vec<String>,
-    archive: ArchiveWire,
 }
 
 impl ComponentWire {
@@ -478,25 +509,11 @@ impl ComponentWire {
                 .iter()
                 .map(|capability| capability.as_str().to_owned())
                 .collect(),
-            dependencies: metadata
-                .dependencies()
-                .iter()
-                .map(|dependency| dependency.as_str().to_owned())
-                .collect(),
-            native_links: metadata
-                .native_links()
-                .iter()
-                .map(NativeLinkWire::from_requirement)
-                .collect(),
             platform_services: metadata
                 .platform_services()
                 .iter()
                 .map(|role| role.as_str().to_owned())
                 .collect(),
-            archive: ArchiveWire {
-                file: metadata.archive_file_name().to_owned(),
-                digest: metadata.archive_digest().to_hex(),
-            },
         }
     }
 
@@ -527,12 +544,6 @@ impl ComponentWire {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        let native_links = self
-            .native_links
-            .into_iter()
-            .map(NativeLinkWire::into_requirement)
-            .collect::<Result<Vec<_>, _>>()?;
-
         let platform_services = self
             .platform_services
             .iter()
@@ -542,30 +553,9 @@ impl ComponentWire {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        let dependencies = self
-            .dependencies
-            .into_iter()
-            .map(|identity| {
-                RuntimeArtifactId::try_new(identity)
-                    .ok_or(RuntimeArtifactMetadataDecodeError::InvalidComponentIdentity)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        let digest = RuntimeArtifactDigest::from_hex(&self.archive.digest)
-            .ok_or(RuntimeArtifactMetadataDecodeError::InvalidArchiveDigest)?;
-
-        RuntimeArtifactComponentMetadata::try_new(
-            identity,
-            purpose,
-            roles,
-            capabilities,
-            self.archive.file,
-            digest,
-        )
-        .map(|metadata| metadata.with_dependencies(dependencies))
-        .map(|metadata| metadata.with_platform_services(platform_services))
-        .map(|metadata| metadata.with_native_links(native_links))
-        .map_err(RuntimeArtifactMetadataDecodeError::InvalidMetadata)
+        RuntimeArtifactComponentMetadata::try_new(identity, purpose, roles, capabilities)
+            .map(|metadata| metadata.with_platform_services(platform_services))
+            .map_err(RuntimeArtifactMetadataDecodeError::InvalidMetadata)
     }
 }
 
@@ -655,39 +645,6 @@ impl RoleWire {
     }
 }
 
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct NativeLinkWire {
-    name: String,
-    kind: String,
-}
-
-impl NativeLinkWire {
-    fn from_requirement(requirement: &NativeLinkRequirement) -> Self {
-        Self {
-            name: requirement.name().to_owned(),
-            kind: requirement.kind().as_str().to_owned(),
-        }
-    }
-
-    fn into_requirement(self) -> Result<NativeLinkRequirement, RuntimeArtifactMetadataDecodeError> {
-        let name = NonEmptySharedStr::try_new(self.name)
-            .ok_or(RuntimeArtifactMetadataDecodeError::InvalidNativeLinkName)?;
-
-        let kind = NativeLinkKind::for_name(&self.kind)
-            .ok_or(RuntimeArtifactMetadataDecodeError::UnknownNativeLinkKind)?;
-
-        Ok(NativeLinkRequirement::new(name, kind))
-    }
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct ArchiveWire {
-    file: String,
-    digest: String,
-}
-
 const fn version_for(
     versions: ProtectedFrameAbiVersions,
     operation: ProtectedFrameAbiOperation,
@@ -714,24 +671,26 @@ fn is_file_name(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-
     use bray_base::NonEmptySharedStr;
+    use bray_native_artifact::{
+        NativeArtifactIndex, NativeDefinition, NativeDefinitionSelection, NativeUnit,
+        NativeUnitKind, NativeUnitSummary,
+    };
     use bray_runtime_abi::symbols::MAIN_THREAD_LANE_STARTUP_SYMBOL;
-    use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
-    use bray_target::TargetIdentity;
+    use bray_symbols::NativeSymbolContract;
+    use bray_target::{NativeTarget, TargetIdentity};
 
     use super::{
         MAXIMUM_METADATA_BYTES, RuntimeArtifactComponentMetadata, RuntimeArtifactDigest,
         RuntimeArtifactMetadata, RuntimeArtifactMetadataBuildError,
         RuntimeArtifactMetadataDecodeError, RuntimeArtifactMetadataEncodeError,
-        RuntimeArtifactPurpose,
+        RuntimeArtifactPurpose, RuntimeNativeIndexMetadata,
     };
     use crate::{
         BinarySymbolName, PanicAbiIdentity, PlatformServiceRole, ProtectedFrameAbiVersions,
-        RuntimeAbiRole, RuntimeAbiVersion, RuntimeArtifact, RuntimeArtifactBuildError,
-        RuntimeArtifactId, RuntimeArtifactSelectionError, RuntimeCapability, RuntimeContract,
-        RuntimeIdentity, RuntimeRequirements, RuntimeRoleBinding, RuntimeRoleImplementation,
+        RuntimeAbiRole, RuntimeAbiVersion, RuntimeArtifact, RuntimeArtifactId, RuntimeCapability,
+        RuntimeContract, RuntimeIdentity, RuntimeRequirements, RuntimeRoleBinding,
+        RuntimeRoleImplementation,
     };
 
     #[test]
@@ -754,15 +713,31 @@ mod tests {
     }
 
     #[test]
-    fn runtime_artifacts_require_the_published_archive_name() {
-        assert!(RuntimeArtifact::try_new(metadata(), resolved_components(Path::new(""))).is_ok());
-
-        let mut mismatched_name = resolved_components(Path::new(""));
-        mismatched_name[0].1 = "other.lib".into();
+    fn runtime_artifacts_require_published_native_indexes() {
+        let metadata = metadata();
+        assert_eq!(metadata.native_indexes().len(), 2);
 
         assert_eq!(
-            RuntimeArtifact::try_new(metadata(), mismatched_name),
-            Err(RuntimeArtifactBuildError::ArchiveFileNameMismatch)
+            RuntimeArtifactMetadata::try_new(
+                metadata.contract().clone(),
+                metadata.components().to_vec(),
+                []
+            ),
+            Err(RuntimeArtifactMetadataBuildError::InvalidNativeIndexes),
+        );
+
+        let mut document: serde_json::Value =
+            serde_json::from_slice(&metadata.encode_json().unwrap())
+                .expect("test metadata must parse");
+
+        document
+            .as_object_mut()
+            .expect("metadata must be an object")
+            .remove("native_indexes");
+
+        assert_eq!(
+            RuntimeArtifactMetadata::decode_json(&serde_json::to_vec(&document).unwrap()),
+            Err(RuntimeArtifactMetadataDecodeError::Malformed),
         );
     }
 
@@ -818,29 +793,20 @@ mod tests {
         let directory = tempfile::tempdir()
             .unwrap_or_else(|error| panic!("test runtime directory must exist: {error}"));
 
-        let bytes = b"!<arch>\n";
-        let components = resolved_components(directory.path());
+        let index = native_index(directory.path());
 
-        for (_, archive) in &components {
-            std::fs::write(archive, bytes)
-                .unwrap_or_else(|error| panic!("test runtime archive must be written: {error}"));
-        }
-
-        let digest = RuntimeArtifactDigest::new(
-            bray_base::sha256_file(&components[0].1)
-                .unwrap_or_else(|error| panic!("test runtime archive must hash: {error}")),
-        );
-
-        let metadata = metadata_with_digest("bray.runtime.reference", digest);
-
-        let artifact = RuntimeArtifact::try_new(metadata, components)
-            .unwrap_or_else(|error| panic!("test runtime must resolve: {error:?}"));
+        let artifact = RuntimeArtifact::try_new(
+            metadata(),
+            directory.path().to_path_buf(),
+            [index.clone(), index],
+        )
+        .unwrap_or_else(|error| panic!("test runtime must resolve: {error:?}"));
 
         let empty = requirements([], []);
 
         assert!(
             artifact
-                .select(RuntimeArtifactPurpose::Product, &empty)
+                .plan(RuntimeArtifactPurpose::Product, &empty)
                 .unwrap_or_else(|error| panic!("empty selection must succeed: {error:?}"))
                 .components()
                 .is_empty()
@@ -849,177 +815,24 @@ mod tests {
         let main_thread = requirements([], [RuntimeCapability::MainThreadLane]);
 
         let selected = artifact
-            .select(RuntimeArtifactPurpose::Product, &main_thread)
+            .plan(RuntimeArtifactPurpose::Product, &main_thread)
             .unwrap_or_else(|error| panic!("capability selection must succeed: {error:?}"));
 
         assert_eq!(
-            selected.components()[0].metadata().identity().as_str(),
+            selected.components()[0].identity().as_str(),
             "runtime.product.main_thread"
         );
 
         let startup = requirements([RuntimeAbiRole::MainThreadLaneStartup], []);
 
         let selected = artifact
-            .select(RuntimeArtifactPurpose::TestRunner, &startup)
+            .plan(RuntimeArtifactPurpose::TestRunner, &startup)
             .unwrap_or_else(|error| panic!("role selection must succeed: {error:?}"));
 
         assert_eq!(
-            selected.components()[0].metadata().identity().as_str(),
+            selected.components()[0].identity().as_str(),
             "runtime.test.execution"
         );
-
-        std::fs::write(
-            directory.path().join("bray_runtime_product.lib"),
-            archive_with_member(b"tampered archive"),
-        )
-        .unwrap_or_else(|error| panic!("test runtime archive must be replaced: {error}"));
-
-        artifact
-            .select(RuntimeArtifactPurpose::Product, &main_thread)
-            .unwrap_or_else(|error| {
-                panic!("unselected archives must not be authenticated: {error:?}")
-            });
-
-        let archive = directory.path().join("bray_runtime_product.lib");
-
-        let actual = RuntimeArtifactDigest::new(
-            bray_base::sha256_file(&archive)
-                .unwrap_or_else(|error| panic!("tampered runtime archive must hash: {error}")),
-        );
-
-        assert_eq!(
-            artifact.select(RuntimeArtifactPurpose::Product, &startup),
-            Err(RuntimeArtifactSelectionError::ArchiveDigestMismatch {
-                component: RuntimeArtifactId::try_new("runtime.product.execution")
-                    .unwrap_or_else(|| panic!("component identity must be valid")),
-                path: archive,
-                expected: digest,
-                actual,
-            })
-        );
-    }
-
-    #[test]
-    fn runtime_selection_preserves_missing_and_invalid_archive_details() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("test runtime directory must exist: {error}"));
-
-        let bytes = b"!<arch>\n";
-
-        let digest = RuntimeArtifactDigest::new(
-            bray_base::sha256_reader(bytes.as_slice())
-                .unwrap_or_else(|error| panic!("test runtime bytes must hash: {error}")),
-        );
-
-        let components = resolved_components(directory.path());
-
-        for (_, archive) in &components {
-            std::fs::write(archive, bytes)
-                .unwrap_or_else(|error| panic!("test runtime archive must be written: {error}"));
-        }
-
-        let artifact = RuntimeArtifact::try_new(
-            metadata_with_digest("bray.runtime.reference", digest),
-            components,
-        )
-        .unwrap_or_else(|error| panic!("test runtime must resolve: {error:?}"));
-
-        let requirements = requirements([], [RuntimeCapability::MainThreadLane]);
-        let archive = directory.path().join("bray_runtime_product_main.lib");
-
-        std::fs::remove_file(&archive)
-            .unwrap_or_else(|error| panic!("test runtime archive must be removed: {error}"));
-
-        assert_eq!(
-            artifact.select(RuntimeArtifactPurpose::Product, &requirements),
-            Err(RuntimeArtifactSelectionError::UnreadableArchive {
-                component: RuntimeArtifactId::try_new("runtime.product.main_thread")
-                    .unwrap_or_else(|| panic!("component identity must be valid")),
-                path: archive.clone(),
-                kind: std::io::ErrorKind::NotFound,
-            })
-        );
-
-        std::fs::write(&archive, b"!<arch>\ntruncated member header")
-            .unwrap_or_else(|error| panic!("invalid test archive must be written: {error}"));
-
-        assert_eq!(
-            artifact.select(RuntimeArtifactPurpose::Product, &requirements),
-            Err(RuntimeArtifactSelectionError::InvalidArchive {
-                component: RuntimeArtifactId::try_new("runtime.product.main_thread")
-                    .unwrap_or_else(|| panic!("component identity must be valid")),
-                path: archive,
-            })
-        );
-    }
-
-    #[test]
-    fn runtime_selection_rejects_malformed_member_framing() {
-        let mut malformed_size = archive_with_member(&[]);
-        malformed_size[8 + 48] = b'x';
-
-        let mut truncated_member = archive_with_member(b"body");
-        truncated_member.pop();
-
-        let mut invalid_padding = archive_with_member(b"x");
-
-        *invalid_padding
-            .last_mut()
-            .unwrap_or_else(|| panic!("odd archive member must have padding")) = 0;
-
-        let mut incomplete_trailing_header = b"!<arch>\n".to_vec();
-        incomplete_trailing_header.push(b'x');
-
-        for bytes in [
-            malformed_size,
-            truncated_member,
-            invalid_padding,
-            incomplete_trailing_header,
-        ] {
-            assert_invalid_archive(&bytes);
-        }
-    }
-
-    #[test]
-    fn runtime_selection_accepts_aix_big_archive_framing() {
-        assert_valid_archive(&big_archive_with_member(b"body"));
-    }
-
-    #[test]
-    fn runtime_selection_accepts_supported_unix_archive_framing() {
-        assert_valid_archive(&archive_with_member(b"body"));
-        assert_valid_archive(&coff_archive_with_string_table());
-        assert_valid_archive(&darwin_archive_with_member(b"body"));
-    }
-
-    #[test]
-    fn runtime_selection_rejects_malformed_aix_big_archive_framing() {
-        let mut malformed_fixed_offset = big_archive_with_member(b"body");
-        malformed_fixed_offset[8] = b'x';
-
-        let mut malformed_member_size = big_archive_with_member(b"body");
-        malformed_member_size[128] = b'x';
-
-        let mut invalid_name_terminator = big_archive_with_member(b"body");
-        invalid_name_terminator[128 + 112 + 6] = 0;
-
-        let mut truncated_member = big_archive_with_member(b"body");
-        truncated_member.pop();
-
-        let mut broken_previous_link = big_archive_with_member(b"body");
-        let member_table = 128 + 112 + 6 + 2 + 4;
-        broken_previous_link[member_table + 40] = b'0';
-
-        for bytes in [
-            b"<bigaf>\n".to_vec(),
-            malformed_fixed_offset,
-            malformed_member_size,
-            invalid_name_terminator,
-            truncated_member,
-            broken_previous_link,
-        ] {
-            assert_invalid_archive(&bytes);
-        }
     }
 
     #[test]
@@ -1032,7 +845,11 @@ mod tests {
             .cloned();
 
         assert_eq!(
-            RuntimeArtifactMetadata::try_new(contract("bray.runtime.reference"), incomplete),
+            RuntimeArtifactMetadata::try_new(
+                contract("bray.runtime.reference"),
+                incomplete,
+                test_index_refs()
+            ),
             Err(RuntimeArtifactMetadataBuildError::MissingCapabilityOwner {
                 purpose: RuntimeArtifactPurpose::Product,
                 capability: RuntimeCapability::MainThreadLane,
@@ -1042,16 +859,15 @@ mod tests {
         let duplicate = component(
             RuntimeArtifactPurpose::Product,
             "runtime.product.cooperative_duplicate",
-            "bray_runtime_product_cooperative_duplicate.lib",
             [],
             [RuntimeCapability::CooperativeExecution],
-            RuntimeArtifactDigest::new([7; 32]),
         );
 
         assert_eq!(
             RuntimeArtifactMetadata::try_new(
                 contract("bray.runtime.reference"),
                 components.into_iter().chain([duplicate]),
+                test_index_refs(),
             ),
             Err(
                 RuntimeArtifactMetadataBuildError::DuplicateCapabilityOwner {
@@ -1075,7 +891,11 @@ mod tests {
         });
 
         assert_eq!(
-            RuntimeArtifactMetadata::try_new(contract("bray.runtime.reference"), components),
+            RuntimeArtifactMetadata::try_new(
+                contract("bray.runtime.reference"),
+                components,
+                test_index_refs()
+            ),
             Err(
                 RuntimeArtifactMetadataBuildError::DuplicatePlatformServiceOwner {
                     purpose: RuntimeArtifactPurpose::Product,
@@ -1085,177 +905,61 @@ mod tests {
         );
     }
 
-    #[test]
-    fn runtime_component_dependencies_are_validated_and_selected() {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("test runtime directory must exist: {error}"));
-
-        let bytes = b"!<arch>\n";
-        let digest_path = directory.path().join("digest.lib");
-
-        std::fs::write(&digest_path, bytes)
-            .unwrap_or_else(|error| panic!("test runtime archive must be written: {error}"));
-
-        let digest = RuntimeArtifactDigest::new(
-            bray_base::sha256_file(&digest_path)
-                .unwrap_or_else(|error| panic!("test runtime archive must hash: {error}")),
-        );
-
-        let product_support = RuntimeArtifactId::try_new("runtime.product.support")
-            .unwrap_or_else(|| panic!("component identity must be valid"));
-
-        let test_support = RuntimeArtifactId::try_new("runtime.test.support")
-            .unwrap_or_else(|| panic!("component identity must be valid"));
-
-        let mut components = metadata_with_digest("bray.runtime.reference", digest)
-            .components()
-            .iter()
-            .cloned()
-            .map(|component| match component.identity().as_str() {
-                "runtime.product.execution" => {
-                    component.with_dependencies([product_support.clone()])
-                }
-                "runtime.product.main_thread" => {
-                    component.with_dependencies([product_support.clone()])
-                }
-                "runtime.test.execution" => component.with_dependencies([test_support.clone()]),
-                _ => component,
-            })
-            .collect::<Vec<_>>();
-
-        components.extend([
-            component(
-                RuntimeArtifactPurpose::Product,
-                product_support.as_str(),
-                "bray_runtime_product_support.lib",
-                [],
-                [],
-                digest,
-            ),
-            component(
-                RuntimeArtifactPurpose::TestRunner,
-                test_support.as_str(),
-                "bray_runtime_test_support.lib",
-                [],
-                [],
-                digest,
-            ),
-        ]);
-
-        let metadata =
-            RuntimeArtifactMetadata::try_new(contract("bray.runtime.reference"), components)
-                .unwrap_or_else(|error| {
-                    panic!("dependent runtime metadata must validate: {error:?}")
-                });
-
-        let mut resolved = Vec::new();
-
-        for component in metadata.components() {
-            let archive = directory.path().join(component.archive_file_name());
-
-            std::fs::write(&archive, bytes)
-                .unwrap_or_else(|error| panic!("test runtime archive must be written: {error}"));
-
-            resolved.push((component.identity().clone(), archive));
-        }
-
-        let artifact = RuntimeArtifact::try_new(metadata, resolved)
-            .unwrap_or_else(|error| panic!("test runtime must resolve: {error:?}"));
-
-        let selected = artifact
-            .select(
-                RuntimeArtifactPurpose::Product,
-                &requirements(
-                    [RuntimeAbiRole::MainThreadLaneStartup],
-                    [RuntimeCapability::MainThreadLane],
-                ),
-            )
-            .unwrap_or_else(|error| panic!("dependent selection must succeed: {error:?}"));
-
-        let identities = selected
-            .components()
-            .iter()
-            .map(|component| component.metadata().identity().as_str())
-            .collect::<Vec<_>>();
-
-        assert_eq!(
-            identities,
-            [
-                "runtime.product.execution",
-                "runtime.product.main_thread",
-                "runtime.product.support",
-            ]
-        );
-    }
-
     fn metadata() -> RuntimeArtifactMetadata {
         metadata_with_identity("bray.runtime.reference")
     }
 
     fn metadata_with_identity(identity: &str) -> RuntimeArtifactMetadata {
-        metadata_with_digest(identity, RuntimeArtifactDigest::new([7; 32]))
-    }
-
-    fn metadata_with_digest(
-        identity: &str,
-        digest: RuntimeArtifactDigest,
-    ) -> RuntimeArtifactMetadata {
-        let native_link = NativeLinkRequirement::new(
-            NonEmptySharedStr::try_new("userenv")
-                .unwrap_or_else(|| panic!("test native library name must be valid")),
-            NativeLinkKind::System,
-        );
-
         RuntimeArtifactMetadata::try_new(
             contract(identity),
             [
                 component(
                     RuntimeArtifactPurpose::Product,
                     "runtime.product.execution",
-                    "bray_runtime_product.lib",
                     [RuntimeAbiRole::MainThreadLaneStartup],
                     [RuntimeCapability::CooperativeExecution],
-                    digest,
-                )
-                .with_native_links([native_link.clone()]),
+                ),
                 component(
                     RuntimeArtifactPurpose::Product,
                     "runtime.product.main_thread",
-                    "bray_runtime_product_main.lib",
                     [],
                     [RuntimeCapability::MainThreadLane],
-                    digest,
                 ),
                 component(
                     RuntimeArtifactPurpose::TestRunner,
                     "runtime.test.execution",
-                    "bray_runtime_test.lib",
                     [RuntimeAbiRole::MainThreadLaneStartup],
                     [RuntimeCapability::CooperativeExecution],
-                    digest,
                 )
-                .with_platform_services([PlatformServiceRole::StandardOutputWrite])
-                .with_native_links([native_link]),
+                .with_platform_services([PlatformServiceRole::StandardOutputWrite]),
                 component(
                     RuntimeArtifactPurpose::TestRunner,
                     "runtime.test.main_thread",
-                    "bray_runtime_test_main.lib",
                     [],
                     [RuntimeCapability::MainThreadLane],
-                    digest,
                 ),
             ],
+            test_index_refs(),
         )
         .unwrap_or_else(|error| panic!("test metadata must be valid: {error:?}"))
+    }
+
+    fn test_index_refs() -> [RuntimeNativeIndexMetadata; 2] {
+        RuntimeArtifactPurpose::ALL.map(|purpose| {
+            RuntimeNativeIndexMetadata::try_new(
+                purpose,
+                format!("{}.json", purpose.as_str()),
+                RuntimeArtifactDigest::new([7; 32]),
+            )
+            .unwrap_or_else(|error| panic!("test native index reference must be valid: {error:?}"))
+        })
     }
 
     fn component<const R: usize, const C: usize>(
         purpose: RuntimeArtifactPurpose,
         identity: &str,
-        archive: &str,
         roles: [RuntimeAbiRole; R],
         capabilities: [RuntimeCapability; C],
-        digest: RuntimeArtifactDigest,
     ) -> RuntimeArtifactComponentMetadata {
         RuntimeArtifactComponentMetadata::try_new(
             RuntimeArtifactId::try_new(identity)
@@ -1263,217 +967,60 @@ mod tests {
             purpose,
             roles,
             capabilities,
-            archive,
-            digest,
         )
         .unwrap_or_else(|error| panic!("test component must be valid: {error:?}"))
     }
 
-    fn resolved_components(directory: &Path) -> Vec<(RuntimeArtifactId, std::path::PathBuf)> {
-        [
-            ("runtime.product.execution", "bray_runtime_product.lib"),
-            (
-                "runtime.product.main_thread",
-                "bray_runtime_product_main.lib",
-            ),
-            ("runtime.test.execution", "bray_runtime_test.lib"),
-            ("runtime.test.main_thread", "bray_runtime_test_main.lib"),
-        ]
-        .into_iter()
-        .map(|(identity, archive)| {
-            (
-                RuntimeArtifactId::try_new(identity)
-                    .unwrap_or_else(|| panic!("component identity must be valid")),
-                directory.join(archive),
-            )
-        })
-        .collect()
-    }
-
-    fn archive_with_member(contents: &[u8]) -> Vec<u8> {
-        unix_archive_member("member/", contents)
-    }
-
-    fn coff_archive_with_string_table() -> Vec<u8> {
-        unix_archive_member("//", b"long_name\0")
-    }
-
-    fn darwin_archive_with_member(contents: &[u8]) -> Vec<u8> {
-        let name = b"member";
-        let name_padding = 6;
-        let member_padding = (8 - contents.len() % 8) % 8;
-        let encoded_name_length = name.len() + name_padding;
-        let mut member = Vec::new();
-
-        member.extend_from_slice(name);
-        member.resize(encoded_name_length, 0);
-        member.extend_from_slice(contents);
-        member.resize(member.len() + member_padding, 0);
-
-        unix_archive_member(&format!("#1/{encoded_name_length}"), &member)
-    }
-
-    fn unix_archive_member(name: &str, contents: &[u8]) -> Vec<u8> {
-        let header = format!(
-            "{:<16}{:<12}{:<6}{:<6}{:<8}{:<10}`\n",
-            name,
-            0,
-            0,
-            0,
-            "100644",
-            contents.len()
-        );
-
-        assert_eq!(header.len(), 60);
-
-        let mut archive = b"!<arch>\n".to_vec();
-
-        archive.extend_from_slice(header.as_bytes());
-        archive.extend_from_slice(contents);
-
-        if contents.len() % 2 == 1 {
-            archive.push(b'\n');
-        }
-
-        archive
-    }
-
-    fn big_archive_with_member(contents: &[u8]) -> Vec<u8> {
-        const FIXED_HEADER_LENGTH: usize = 128;
-
-        let name = b"member";
-        let member_length = 112 + name.len() + 2 + contents.len() + contents.len() % 2;
-        let member_table_offset = FIXED_HEADER_LENGTH + member_length;
-
-        let member_table_contents = [
-            fixed_width_decimal(1, 20),
-            fixed_width_decimal(FIXED_HEADER_LENGTH, 20),
-            b"member\0".to_vec(),
-        ]
-        .concat();
-
-        let mut archive = b"<bigaf>\n".to_vec();
-
-        for offset in [
-            member_table_offset,
-            0,
-            0,
-            FIXED_HEADER_LENGTH,
-            FIXED_HEADER_LENGTH,
-            0,
-        ] {
-            archive.extend_from_slice(&fixed_width_decimal(offset, 20));
-        }
-
-        archive.extend_from_slice(&big_archive_member(name, contents, member_table_offset, 0));
-
-        archive.extend_from_slice(&big_archive_member(
-            b"",
-            &member_table_contents,
-            0,
-            FIXED_HEADER_LENGTH,
-        ));
-
-        archive
-    }
-
-    fn big_archive_member(name: &[u8], contents: &[u8], next: usize, previous: usize) -> Vec<u8> {
-        let mut member = Vec::new();
-
-        for (value, width) in [
-            (contents.len(), 20),
-            (next, 20),
-            (previous, 20),
-            (0, 12),
-            (0, 12),
-            (0, 12),
-        ] {
-            member.extend_from_slice(&fixed_width_decimal(value, width));
-        }
-
-        member.extend_from_slice(format!("{:<12}", "100644").as_bytes());
-        member.extend_from_slice(&fixed_width_decimal(name.len(), 4));
-        member.extend_from_slice(name);
-
-        if name.len() % 2 == 1 {
-            member.push(0);
-        }
-
-        member.extend_from_slice(b"`\n");
-        member.extend_from_slice(contents);
-
-        if contents.len() % 2 == 1 {
-            member.push(0);
-        }
-
-        member
-    }
-
-    fn fixed_width_decimal(value: usize, width: usize) -> Vec<u8> {
-        format!("{value:<width$}").into_bytes()
-    }
-
-    fn assert_valid_archive(bytes: &[u8]) {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("test runtime directory must exist: {error}"));
+    fn native_index(directory: &std::path::Path) -> bray_native_artifact::ValidatedNativeArtifact {
+        let bytes = b"test runtime native unit";
 
         let digest = RuntimeArtifactDigest::new(
-            bray_base::sha256_reader(bytes)
-                .unwrap_or_else(|error| panic!("test runtime bytes must hash: {error}")),
+            bray_base::sha256_reader(&bytes[..]).expect("in-memory bytes must hash"),
         );
 
-        let components = resolved_components(directory.path());
+        let symbol = NativeSymbolContract::required_name(
+            NonEmptySharedStr::try_new(MAIN_THREAD_LANE_STARTUP_SYMBOL)
+                .expect("startup symbol must be nonempty"),
+        );
 
-        for (_, archive) in &components {
-            std::fs::write(archive, bytes)
-                .unwrap_or_else(|error| panic!("test runtime archive must be written: {error}"));
-        }
+        let unit = NativeUnit::new(
+            digest,
+            NativeUnitKind::Object,
+            NativeUnitSummary::Exact {
+                definitions: [NativeDefinition::new(
+                    symbol,
+                    NativeDefinitionSelection::Ordinary,
+                )]
+                .into(),
+                references: [].into(),
+                roots: [].into(),
+            },
+            [],
+        );
 
-        let artifact = RuntimeArtifact::try_new(
-            metadata_with_digest("bray.runtime.reference", digest),
-            components,
+        let target = NativeTarget::X86_64WindowsMsvc;
+        let producer = RuntimeArtifactDigest::new([9; 32]);
+
+        let index = NativeArtifactIndex::try_new(target, producer, [unit], [])
+            .unwrap_or_else(|error| panic!("test index must be valid: {error:?}"));
+
+        let encoded = index.encode().expect("test index must encode");
+
+        let index_digest = RuntimeArtifactDigest::new(
+            bray_base::sha256_reader(&encoded[..]).expect("in-memory index must hash"),
+        );
+
+        let native = directory.join("native");
+        std::fs::create_dir_all(&native).expect("test native directory must exist");
+
+        std::fs::write(
+            native.join(NativeUnitKind::Object.file_name(digest, target)),
+            bytes,
         )
-        .unwrap_or_else(|error| panic!("test runtime must resolve: {error:?}"));
+        .expect("test native payload must exist");
 
-        assert!(
-            artifact
-                .select(
-                    RuntimeArtifactPurpose::Product,
-                    &requirements([], [RuntimeCapability::MainThreadLane]),
-                )
-                .is_ok()
-        );
-    }
-
-    fn assert_invalid_archive(bytes: &[u8]) {
-        let directory = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("test runtime directory must exist: {error}"));
-
-        let digest = RuntimeArtifactDigest::new(
-            bray_base::sha256_reader(bytes)
-                .unwrap_or_else(|error| panic!("test runtime bytes must hash: {error}")),
-        );
-
-        let components = resolved_components(directory.path());
-
-        for (_, archive) in &components {
-            std::fs::write(archive, bytes)
-                .unwrap_or_else(|error| panic!("test runtime archive must be written: {error}"));
-        }
-
-        let artifact = RuntimeArtifact::try_new(
-            metadata_with_digest("bray.runtime.reference", digest),
-            components,
-        )
-        .unwrap_or_else(|error| panic!("test runtime must resolve: {error:?}"));
-
-        assert!(matches!(
-            artifact.select(
-                RuntimeArtifactPurpose::Product,
-                &requirements([], [RuntimeCapability::MainThreadLane]),
-            ),
-            Err(RuntimeArtifactSelectionError::InvalidArchive { .. })
-        ));
+        NativeArtifactIndex::import(&encoded, index_digest, target, producer, &native)
+            .unwrap_or_else(|error| panic!("test index must import: {error:?}"))
     }
 
     fn contract(identity: &str) -> RuntimeContract {

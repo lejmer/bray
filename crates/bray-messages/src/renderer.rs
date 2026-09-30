@@ -1460,10 +1460,7 @@ mod tests {
         )
         .with_arg(DiagnosticArg::artifact_path("runtime/bray-runtime.brayrt"))
         .with_arg(DiagnosticArg::runtime_artifact_problem(
-            DiagnosticRuntimeArtifactProblem::InvalidComponentDependency {
-                component: "runtime.scheduler".to_owned(),
-                dependency: "runtime.reactor".to_owned(),
-            },
+            DiagnosticRuntimeArtifactProblem::InvalidNativeIndexes,
         ))
         .with_note(DiagnosticNote::new(
             DiagnosticNoteKind::RuntimeArtifactMustBeUsable,
@@ -1473,7 +1470,7 @@ mod tests {
 
         assert_eq!(
             rendered.message(),
-            "runtime artifact metadata is invalid: runtime/bray-runtime.brayrt: component `runtime.scheduler` has invalid dependency `runtime.reactor`"
+            "runtime artifact metadata is invalid: runtime/bray-runtime.brayrt: runtime native indexes do not cover each product category once"
         );
 
         let [note] = rendered.notes() else {

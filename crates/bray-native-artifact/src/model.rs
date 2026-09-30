@@ -144,8 +144,27 @@ pub enum NativeUnitSummary {
         /// Mandatory native lifecycle roots.
         roots: Arc<[NativeRoot]>,
     },
-    /// No safe exact summary exists. The entire payload remains a conservative leaf.
-    Opaque,
+    /// The payload remains conservative while its known external references close normally.
+    Opaque {
+        /// Known references outside this physical payload. This inventory may be incomplete.
+        references: Arc<[NativeSymbolContract]>,
+    },
+}
+
+impl NativeUnitSummary {
+    /// Creates a conservative summary without discarding known external dependencies.
+    pub fn opaque(references: impl IntoIterator<Item = NativeSymbolContract>) -> Self {
+        Self::Opaque {
+            references: sorted(references.into_iter().collect()),
+        }
+    }
+
+    /// Returns native references known to leave this physical payload.
+    pub fn references(&self) -> &[NativeSymbolContract] {
+        match self {
+            Self::Exact { references, .. } | Self::Opaque { references } => references,
+        }
+    }
 }
 
 /// An unordered set of native units that must be retained together.
@@ -176,7 +195,7 @@ pub struct NativeUnit {
     kind: NativeUnitKind,
     summary: NativeUnitSummary,
     native_links: Arc<[NativeLinkRequirement]>,
-    link_options: Arc<[Arc<str>]>,
+    statics: Arc<[crate::NativeStatic]>,
 }
 
 impl NativeUnit {
@@ -186,7 +205,6 @@ impl NativeUnit {
         kind: NativeUnitKind,
         summary: NativeUnitSummary,
         native_links: impl IntoIterator<Item = NativeLinkRequirement>,
-        link_options: impl IntoIterator<Item = Arc<str>>,
     ) -> Self {
         let summary = match summary {
             NativeUnitSummary::Exact {
@@ -198,7 +216,9 @@ impl NativeUnit {
                 references: sorted(references),
                 roots: sorted(roots),
             },
-            NativeUnitSummary::Opaque => NativeUnitSummary::Opaque,
+            NativeUnitSummary::Opaque { references } => NativeUnitSummary::Opaque {
+                references: sorted(references),
+            },
         };
 
         let mut native_links = native_links.into_iter().collect::<Vec<_>>();
@@ -211,8 +231,25 @@ impl NativeUnit {
             kind,
             summary,
             native_links: native_links.into(),
-            link_options: link_options.into_iter().collect(),
+            statics: Arc::from([]),
         }
+    }
+
+    /// Attaches lifecycle records contributed by this unit when retained.
+    pub fn with_statics(mut self, statics: impl IntoIterator<Item = crate::NativeStatic>) -> Self {
+        let mut statics = statics.into_iter().collect::<Vec<_>>();
+
+        statics.sort_unstable();
+        statics.dedup();
+
+        self.statics = statics.into();
+
+        self
+    }
+
+    /// Returns lifecycle obligations of retaining this native unit.
+    pub fn statics(&self) -> &[crate::NativeStatic] {
+        &self.statics
     }
 
     /// Returns the payload's content identity.
@@ -233,11 +270,6 @@ impl NativeUnit {
     /// Returns native library and framework requirements.
     pub fn native_links(&self) -> &[NativeLinkRequirement] {
         &self.native_links
-    }
-
-    /// Returns ordered target-linker options required by this unit.
-    pub fn link_options(&self) -> &[Arc<str>] {
-        &self.link_options
     }
 }
 

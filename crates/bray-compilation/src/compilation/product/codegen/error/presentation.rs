@@ -11,7 +11,9 @@ use bray_runtime_interface::ExecutableHostContractBuildError;
 use bray_symbols::ProductIdentity;
 
 use super::backend::codegen_backend_failure_kind;
-use super::context::{failure_detail, identity_failure_detail, text_failure_field};
+use super::context::{
+    failure_detail, identity_failure_detail, path_failure_field, text_failure_field,
+};
 use super::link_input::diagnostic_native_link_input_failure;
 use super::model::NativeProductPlanningError;
 use super::preparation::{codegen_preparation_failure_kind, codegen_unit_preparation_failure};
@@ -68,10 +70,6 @@ pub(super) fn native_product_failure_kind(
         NativeProductPlanningError::MissingProductRoot => Kind::MissingProductRoot,
         NativeProductPlanningError::InvalidEntryResult => Kind::InvalidEntryResult,
         NativeProductPlanningError::MissingRuntime => Kind::MissingRuntime,
-        NativeProductPlanningError::LibraryCleanupRequiresMainThread => {
-            Kind::LibraryCleanupRequiresMainThread
-        }
-        NativeProductPlanningError::InvalidSymbolName => Kind::InvalidSymbolName,
         NativeProductPlanningError::InvalidNativeLinkInput(error) => {
             Kind::InvalidNativeLinkInput(diagnostic_native_link_input_failure(error))
         }
@@ -144,7 +142,18 @@ pub(super) fn native_product_failure_kind(
         NativeProductPlanningError::InvalidLinkTarget(LinkTargetBuildError::EmptyTriple) => {
             Kind::LinkTargetEmptyTriple
         }
-        NativeProductPlanningError::StandardLibrary { .. } => Kind::StandardLibraryUnavailable,
+        NativeProductPlanningError::ConflictingNativeArtifacts { first, second } => {
+            Kind::NativeResolution(failure_detail(
+                "native_variant_conflict",
+                [
+                    path_failure_field("first_artifact", first),
+                    path_failure_field("second_artifact", second),
+                ],
+            ))
+        }
+        NativeProductPlanningError::NativeResolution(error) => {
+            Kind::NativeResolution(super::runtime_selection::native_resolution_detail(error))
+        }
         NativeProductPlanningError::Codegen(error) => codegen_preparation_failure_kind(error)?,
     })
 }

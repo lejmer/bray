@@ -50,41 +50,15 @@ pub fn encoded_semantic_test_interface() -> EncodedSemanticTestInterface {
     let package = bundle.surface().identity().package().clone();
     let product = bundle.surface().identity().product().clone();
 
-    let template_owner = bundle
-        .surface()
-        .symbols()
-        .symbols()
-        .iter()
-        .find(|symbol| symbol.kind() == SymbolKind::Function)
-        .map(|symbol| symbol.id())
-        .unwrap_or_else(|| panic!("test template owner must be present"));
+    let template_owner = symbol_id_by_kind(bundle.surface(), SymbolKind::Function);
 
-    let implementation_owner = bundle
-        .surface()
-        .symbols()
-        .symbols()
-        .iter()
-        .find(|symbol| symbol.kind() == SymbolKind::NamedTraitImplementation)
-        .map(|symbol| symbol.id())
-        .unwrap_or_else(|| panic!("test implementation owner must be present"));
+    let implementation_owner =
+        symbol_id_by_kind(bundle.surface(), SymbolKind::NamedTraitImplementation);
 
-    let opaque_predicate_owner = bundle
-        .surface()
-        .symbols()
-        .symbols()
-        .iter()
-        .find(|symbol| symbol.kind() == SymbolKind::Predicate)
-        .map(|symbol| symbol.id())
-        .unwrap_or_else(|| panic!("test opaque predicate owner must be present"));
+    let opaque_predicate_owner = symbol_id_by_kind(bundle.surface(), SymbolKind::Predicate);
 
-    let defined_predicate_owner = bundle
-        .surface()
-        .symbols()
-        .symbols()
-        .iter()
-        .find(|symbol| symbol.kind() == SymbolKind::TraitPredicateFulfillment)
-        .map(|symbol| symbol.id())
-        .unwrap_or_else(|| panic!("test defined predicate owner must be present"));
+    let defined_predicate_owner =
+        symbol_id_by_kind(bundle.surface(), SymbolKind::TraitPredicateFulfillment);
 
     let encoded = encode_package_interface(&bundle)
         .unwrap_or_else(|error| panic!("test interface must encode: {error:?}"));
@@ -703,13 +677,41 @@ pub(crate) fn local_by_kind(
     surface: &PackageInterfaceSurface,
     kind: SymbolKind,
 ) -> InterfaceSymbolReference {
+    InterfaceSymbolReference::Local(symbol_id_by_kind(surface, kind))
+}
+
+fn symbol_id_by_kind(surface: &PackageInterfaceSurface, kind: SymbolKind) -> InterfaceSymbolId {
     surface
         .symbols()
         .symbols()
         .iter()
         .find(|symbol| symbol.kind() == kind)
-        .map(|symbol| InterfaceSymbolReference::Local(symbol.id()))
-        .unwrap_or_else(|| panic!("test symbol kind must be present"))
+        .map(|symbol| symbol.id())
+        .unwrap_or_else(|| panic!("test symbol kind {kind:?} must be present"))
+}
+
+/// Builds the constant callable body used by implementation import fixtures.
+pub fn constant_callable_body(
+    bundle: &PackageInterfaceExportBundle,
+) -> crate::InterfaceConstantCallableBody {
+    let owner = symbol_id_by_kind(bundle.surface(), SymbolKind::Function);
+
+    let template = bundle
+        .semantics()
+        .checked_templates()
+        .first()
+        .expect("test interface must publish a checked template");
+
+    let template = InterfaceCheckedTemplate::new(
+        CheckedTemplateKind::ConstantCallableBody,
+        template.inputs().iter().cloned(),
+        template.nodes().iter().cloned(),
+        template.temporaries().iter().copied(),
+        template.result(),
+        template.behavior().clone(),
+    );
+
+    crate::InterfaceConstantCallableBody::new(owner, template)
 }
 
 fn local_by_key(

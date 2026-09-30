@@ -7,14 +7,16 @@ mod query;
 mod realization;
 mod specialization;
 mod specialization_identity;
+mod structural_order;
 mod visibility;
 
+pub(in crate::compilation) use codegen::NativeLibraries;
+pub(crate) use codegen::{NativeDemand, NativeDemandReason};
 pub use codegen::{NativeProductPlan, NativeProductPlanningError};
 pub(in crate::compilation) use codegen::{
     codegen_preparation_failure_kind, mir_content_identity, native_producer_identity,
     native_product_preparation_diagnostic,
 };
-pub(crate) use codegen::{NativeDemand, NativeDemandReason};
 pub(crate) use error::{
     ProductDataKind, ProductQueryContext, ProductQueryFailure, ProductSynchronizationComponent,
     ProductTestCatalogFailureKind, ProductValueKind,

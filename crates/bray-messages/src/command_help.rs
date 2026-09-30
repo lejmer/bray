@@ -217,6 +217,8 @@ pub const ARTIFACT_DEBUG_COMPANION: &str = "Platform debug-information companion
 pub const ARTIFACT_PACKAGE_INTERFACE: &str = "Portable checked package interface";
 /// Describes a package implementation.
 pub const ARTIFACT_PACKAGE_IMPLEMENTATION: &str = "Native package implementation archive";
+pub const ARTIFACT_PACKAGE_NATIVE_IMPLEMENTATION: &str =
+    "Packed library bitcode for optimized linking";
 /// Describes dependency metadata.
 pub const ARTIFACT_DEPENDENCY_METADATA: &str = "Metadata describing emitted dependency artifacts";
 /// Describes an executable.

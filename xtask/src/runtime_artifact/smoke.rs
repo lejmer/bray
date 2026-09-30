@@ -5,7 +5,7 @@ use std::process::Command;
 use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
 use bray_target::NativeTarget;
 
-use super::command::{CommandError, Package, RuntimeArchiveKind};
+use super::command::{CommandError, Package, PackageComponent, RuntimeArchiveKind};
 
 const PANIC_REPORT_SOURCE: &str = include_str!("../../fixtures/runtime-panic-report.rs");
 const SMOKE_SOURCE: &str = include_str!("../../fixtures/runtime-smoke.rs");
@@ -36,6 +36,7 @@ pub(super) fn smoke_test(
         target,
         directory,
         None,
+        &package.native_links,
     )?;
 
     let output =
@@ -78,6 +79,7 @@ pub(super) fn smoke_test(
         target,
         directory,
         Some(&map),
+        &package.native_links,
     )?;
 
     let status =
@@ -102,26 +104,107 @@ pub(super) fn smoke_test(
     Ok(())
 }
 
+pub(super) fn add_package_dependencies(
+    package: &mut Package,
+    target: NativeTarget,
+    directory: &Path,
+) -> Result<(), CommandError> {
+    let root = crate::workspace::root().map_err(CommandError::Workspace)?;
+
+    let standard_library = crate::workspace::cargo_target(&root)
+        .join("runtime-bootstrap-standard-library")
+        .join(target.as_str());
+
+    let selected = bray_compilation::SelectedTarget::for_native(target);
+
+    let resolver = bray_standard_library::StandardLibraryResolver::new(
+        bray_standard_library::StandardLibraryRoot::try_new(standard_library)
+            .expect("runtime build must have an absolute standard-library root"),
+    );
+
+    let (_, dependency) = resolver
+        .implementation_artifact(selected.profile().identity(), selected.runtime_abi())
+        .map_err(|error| {
+            CommandError::Bootstrap(format!("foreign host dependency could not load: {error:?}"))
+        })?;
+
+    let output = package
+        .metadata
+        .parent()
+        .expect("runtime package must have an artifact directory");
+
+    let owned = super::bootstrap::BrayRuntimeComponent::ALL
+        .into_iter()
+        .map(|component| {
+            bray_package_interface::PackageArtifactInput::file(
+                component.implementation_path(output, target),
+                None,
+            )
+            .load_implementation()
+            .map_err(|error| {
+                CommandError::Bootstrap(format!(
+                    "foreign host owned package could not load: {error:?}"
+                ))
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let inventory = resolver
+        .target_inventory(selected.profile().identity(), selected.runtime_abi())
+        .map_err(|error| {
+            CommandError::Bootstrap(format!(
+                "foreign host dependency inventory could not load: {error:?}"
+            ))
+        })?;
+
+    let mut dependencies = vec![dependency];
+
+    for record in inventory.native_dependencies() {
+        let input = bray_package_interface::PackageArtifactInput::file(
+            record.beneath(resolver.root().path()),
+            Some(record.digest().bytes()),
+        );
+
+        dependencies.push(input.load_implementation().map_err(|error| {
+            CommandError::Bootstrap(format!(
+                "foreign host native dependency could not load: {error:?}"
+            ))
+        })?);
+    }
+
+    let (inputs, links) =
+        crate::native_package::dependency_inputs(&owned, &dependencies, directory)
+            .map_err(CommandError::Bootstrap)?;
+
+    package.native_links = links;
+
+    package
+        .components
+        .extend(inputs.into_iter().map(|archive| PackageComponent {
+            kind: None,
+            archive,
+        }));
+
+    Ok(())
+}
+
 fn smoke_test_bootstrap(
     package: &Package,
     target: NativeTarget,
     directory: &Path,
 ) -> Result<(), CommandError> {
-    let archive = component_archives(package, &[RuntimeArchiveKind::Bootstrap])?
-        .into_iter()
-        .next()
-        .ok_or(CommandError::MetadataContract)?;
+    let archives = component_archives(package, &[RuntimeArchiveKind::Bootstrap])?;
 
     let map = directory.join("runtime-bootstrap-smoke.map");
 
     let executable = compile_c_smoke(
         BOOTSTRAP_SMOKE_SOURCE,
         "runtime-bootstrap-smoke",
-        &[archive],
+        &archives,
         target,
         directory,
         &map,
-        &[],
+        &package.native_links,
     )?;
 
     let status = Command::new(&executable)
@@ -165,6 +248,14 @@ pub(super) fn compile_c_smoke(
         .args(["-std=c11", "-O2", "-fuse-ld=lld"])
         .arg(&source)
         .args(archives);
+
+    for directory in archives
+        .iter()
+        .filter_map(|archive| archive.parent())
+        .collect::<std::collections::BTreeSet<_>>()
+    {
+        command.arg("-L").arg(directory);
+    }
 
     for link in native_links {
         if target.object_format() == bray_target::ObjectFormat::Coff
@@ -220,6 +311,7 @@ fn compile_smoke(
     target: NativeTarget,
     directory: &Path,
     map: Option<&Path>,
+    native_links: &[NativeLinkRequirement],
 ) -> Result<PathBuf, CommandError> {
     let source = directory.join(format!("{name}.rs"));
 
@@ -240,6 +332,26 @@ fn compile_smoke(
     for archive in archives {
         let archive = archive.to_str().ok_or(CommandError::NonUtf8Path)?;
         command.arg("-C").arg(format!("link-arg={archive}"));
+    }
+
+    for directory in archives
+        .iter()
+        .filter_map(|archive| archive.parent())
+        .collect::<std::collections::BTreeSet<_>>()
+    {
+        command
+            .arg("-L")
+            .arg(format!("native={}", directory.display()));
+    }
+
+    for link in native_links {
+        let kind = match link.kind() {
+            NativeLinkKind::Framework => "framework",
+            NativeLinkKind::Static => "static",
+            NativeLinkKind::Dynamic | NativeLinkKind::System => "dylib",
+        };
+
+        command.arg("-l").arg(format!("{kind}={}", link.name()));
     }
 
     if let Some(map) = map {

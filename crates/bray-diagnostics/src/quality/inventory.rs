@@ -257,12 +257,10 @@ impl DiagnosticKind {
                 &[TargetTriple, UnsupportedEmissionReason],
                 primary_components!(&[TargetTriple, UnsupportedEmissionReason]),
             ),
-            Self::RuntimeArtifactMetadataReadFailed | Self::RuntimeArtifactArchiveReadFailed => {
-                Self::quality_artifact(
-                    &[ArtifactPath, IoErrorKind],
-                    note_components!(&[ArtifactPath, IoErrorKind], RuntimeArtifactMustBeUsable),
-                )
-            }
+            Self::RuntimeArtifactMetadataReadFailed => Self::quality_artifact(
+                &[ArtifactPath, IoErrorKind],
+                note_components!(&[ArtifactPath, IoErrorKind], RuntimeArtifactMustBeUsable),
+            ),
             Self::RuntimeArtifactMetadataInvalid => Self::quality_artifact(
                 &[ArtifactPath, RuntimeArtifactProblem],
                 note_components!(
@@ -284,18 +282,7 @@ impl DiagnosticKind {
                     RuntimeArtifactMustBeUsable
                 ),
             ),
-            Self::RuntimeArtifactArchiveInvalid => Self::quality_artifact(
-                &[ArtifactPath],
-                note_components!(&[ArtifactPath], RuntimeArtifactMustBeUsable),
-            ),
-            Self::RuntimeArtifactArchiveDigestMismatch => Self::quality_artifact(
-                &[ArtifactPath, ExpectedArtifactDigest, ActualArtifactDigest],
-                note_components!(
-                    &[ArtifactPath, ExpectedArtifactDigest, ActualArtifactDigest],
-                    RuntimeArtifactMustBeUsable
-                ),
-            ),
-            Self::StandardLibraryArtifactReadFailed => Self::quality_artifact(
+            Self::PackageArtifactReadFailed => Self::quality_artifact(
                 &[FilePath, IoErrorKind],
                 interface_components!(&[FilePath, IoErrorKind]),
             ),
@@ -315,8 +302,7 @@ impl DiagnosticKind {
                 &[FilePath, ExpectedArtifactDigest, ActualArtifactDigest],
                 interface_components!(&[FilePath, ExpectedArtifactDigest, ActualArtifactDigest]),
             ),
-            Self::StandardLibraryTargetUnavailable
-            | Self::StandardLibraryOptimizationUnavailable => {
+            Self::StandardLibraryTargetUnavailable => {
                 Self::quality_artifact(&[TargetTriple], interface_components!(&[TargetTriple]))
             }
             Self::StandardLibraryRuntimeAbiMismatch => Self::quality_artifact(
@@ -1404,10 +1390,12 @@ impl DiagnosticKind {
                 &[CodegenBackendIdentity, TargetTriple],
                 primary_components!(&[CodegenBackendIdentity, TargetTriple]),
             ),
-            Self::CodegenInvalidConfiguration | Self::CodegenResourceExhausted => Self::quality_artifact(
-                &[CodegenBackendIdentity, TargetTriple],
-                compiler_defect_components!(&[CodegenBackendIdentity, TargetTriple]),
-            ),
+            Self::CodegenInvalidConfiguration | Self::CodegenResourceExhausted => {
+                Self::quality_artifact(
+                    &[CodegenBackendIdentity, TargetTriple],
+                    compiler_defect_components!(&[CodegenBackendIdentity, TargetTriple]),
+                )
+            }
             Self::CodegenBackendLibraryFailed => Self::quality_artifact(
                 &[CodegenBackendIdentity, TargetTriple, CodegenBackendReport],
                 compiler_defect_components!(&[

@@ -15,22 +15,6 @@ use super::presentation::{native_product_failure_kind, native_product_preparatio
 /// Exact native link-input contract failure found during product planning.
 #[derive(Debug, Hash)]
 pub enum NativeLinkInputPlanningError {
-    /// A standard-library artifact has no supported static link representation.
-    UnsupportedStandardLibraryArtifact {
-        /// Exact imported artifact path.
-        path: std::path::PathBuf,
-        /// Exact rejected standard-library artifact category.
-        kind: bray_standard_library::StandardLibraryArtifactKind,
-    },
-    /// A standard-library artifact could not form its retained link-input specification.
-    InvalidStandardLibraryArtifact {
-        /// Exact imported artifact path.
-        path: std::path::PathBuf,
-        /// Selected linker input category.
-        kind: bray_linker::LinkInputKind,
-        /// Exact link-input contract failure.
-        cause: bray_linker::LinkInputBuildError,
-    },
     /// A source or platform native-link requirement could not form a linker input.
     InvalidRequirement {
         /// Exact requested native input name.
@@ -55,10 +39,6 @@ pub enum NativeProductPlanningError {
     InvalidEntryResult,
     /// An asynchronous product has no selected runtime artifact.
     MissingRuntime,
-    /// A library static cleanup closure requires unavailable main-thread execution.
-    LibraryCleanupRequiresMainThread,
-    /// A generated binary symbol name is invalid.
-    InvalidSymbolName,
     /// A configured native link input is invalid.
     InvalidNativeLinkInput(NativeLinkInputPlanningError),
     /// A lazy compilation plan could not be evaluated.
@@ -81,13 +61,15 @@ pub enum NativeProductPlanningError {
     InvalidRuntimeSelection(RuntimeArtifactSelectionError),
     /// The selected linker target is invalid.
     InvalidLinkTarget(LinkTargetBuildError),
-    /// The configured standard library cannot supply a required native artifact.
-    StandardLibrary {
-        /// Exact standard-library artifact or manifest that supplied planning context.
-        artifact_path: std::path::PathBuf,
-        /// Exact standard-library resolution failure.
-        cause: bray_standard_library::StandardLibraryLoadError,
+    /// Two selected artifacts disagree about the same library's native publication.
+    ConflictingNativeArtifacts {
+        /// First candidate artifact.
+        first: std::path::PathBuf,
+        /// Conflicting candidate artifact.
+        second: std::path::PathBuf,
     },
+    /// Required native symbols cannot close across the selected dependency set.
+    NativeResolution(bray_native_artifact::NativeResolutionError),
     /// One code generation plan is unavailable.
     Codegen(crate::compilation::CodegenPreparationError),
 }
@@ -148,30 +130,7 @@ impl NativeProductPlanningError {
             failure, product, target,
         ));
 
-        match self {
-            Self::StandardLibrary {
-                artifact_path: context_path,
-                cause: error,
-            } => {
-                let (cause, artifact_path) =
-                    crate::compilation::imported::standard_library_failure_diagnostic(
-                        // The nested diagnostic conversion owns the standard-library failure
-                        // while this planning error remains available for outer context.
-                        error.clone(),
-                    );
-
-                let artifact_path = artifact_path.as_deref().unwrap_or(context_path);
-
-                let cause = crate::compilation::imported::with_standard_library_product_context(
-                    cause,
-                    product,
-                    artifact_path,
-                );
-
-                Some(DiagnosticBag::single(cause).merged(&outer))
-            }
-            _ => Some(outer),
-        }
+        Some(outer)
     }
 }
 

@@ -1,0 +1,14 @@
+module archive_consumer;
+
+using fixture.storage.static_storage_execution;
+
+func exercise_storage() -> i32
+{
+    return fixture.storage.static_storage_execution.main() +
+        fixture.storage.static_storage_execution.thread_cleanup_value();
+}
+
+func borrowed_counter() -> &i32
+{
+    return fixture.storage.static_storage_execution.contribution_counter_alias();
+}

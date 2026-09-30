@@ -11,10 +11,11 @@ use crate::fact::CancellationToken;
 pub(super) fn package_implementation_contribution(
     plan: &EmissionPlan,
     artifact: bray_package_interface::PackageImplementationArtifact,
+    kind: ArtifactKind,
 ) -> Result<ArtifactContribution, ProductEmissionErrorKind> {
     let planned = plan
         .published_artifacts()
-        .find(|artifact| artifact.id().kind() == ArtifactKind::PackageImplementation)
+        .find(|artifact| artifact.id().kind() == kind)
         .ok_or(ProductEmissionErrorKind::Query(
             ProductQueryFailure::missing(
                 ProductQueryContext::Product(plan.request().product_kind()),

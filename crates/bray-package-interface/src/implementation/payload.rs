@@ -19,8 +19,8 @@ use crate::{
 
 use super::codec::{decode_specialization_key, encode_specialization_key};
 use super::{
-    CURRENT_MIR_SCHEMA_REVISION, ImplementationMirSchemaRevision, InterfaceNativeBinding, InterfaceNativeBoundary,
-    InterfaceNativeBoundaryKind, InterfacePreSpecializedMir,
+    CURRENT_MIR_SCHEMA_REVISION, ImplementationMirSchemaRevision, InterfaceNativeBinding,
+    InterfaceNativeBoundary, InterfaceNativeBoundaryKind, InterfacePreSpecializedMir,
     PackageImplementationSpecializationKey,
 };
 
@@ -90,8 +90,12 @@ pub(super) fn encode_native_binding(binding: &InterfaceNativeBinding) -> Vec<u8>
 
     encode_specialization_key(binding.key(), &mut encoder);
     encode_producer_options(binding.producer_options(), &mut encoder);
+
     encoder.write_bytes(&binding.unit());
+
     write_string(&mut encoder, binding.symbol());
+
+    encoder.write_u8(u8::from(binding.requires_main_thread()));
 
     encoder.into_bytes()
 }
@@ -105,15 +109,29 @@ pub(super) fn decode_native_binding(
     let key = decode_specialization_key(&mut reader, limits)?;
     let producer_options = decode_producer_options(&mut reader)?;
 
-    let unit = reader.read_array::<32>()
+    let unit = reader
+        .read_array::<32>()
         .map_err(wire_error(InterfaceValidationField::Hash))?;
 
     let symbol = read_nonempty_string(&mut reader, limits)?;
 
-    reader.finish()
+    let requires_main_thread = match reader
+        .read_u8()
+        .map_err(wire_error(InterfaceValidationField::Discriminant))?
+    {
+        0 => false,
+        1 => true,
+        value => return Err(invalid_discriminant(value)),
+    };
+
+    reader
+        .finish()
         .map_err(wire_error(InterfaceValidationField::RecordPayload))?;
 
-    Ok(InterfaceNativeBinding::new(owner, key, producer_options, unit, symbol))
+    Ok(
+        InterfaceNativeBinding::new(owner, key, producer_options, unit, symbol)
+            .with_main_thread_requirement(requires_main_thread),
+    )
 }
 
 fn encode_producer_options(options: CodegenOptions, encoder: &mut WireEncoder) {
@@ -150,9 +168,13 @@ fn encode_producer_options(options: CodegenOptions, encoder: &mut WireEncoder) {
     }
 }
 
-fn decode_producer_options(reader: &mut WireReader<'_>) -> Result<CodegenOptions, InterfaceValidationError> {
+fn decode_producer_options(
+    reader: &mut WireReader<'_>,
+) -> Result<CodegenOptions, InterfaceValidationError> {
     let read = |reader: &mut WireReader<'_>| {
-        reader.read_u8().map_err(wire_error(InterfaceValidationField::Discriminant))
+        reader
+            .read_u8()
+            .map_err(wire_error(InterfaceValidationField::Discriminant))
     };
 
     let optimization = match read(reader)? {
@@ -186,11 +208,13 @@ fn decode_producer_options(reader: &mut WireReader<'_>) -> Result<CodegenOptions
         0 => RuntimeObservationMode::None,
         1 => RuntimeObservationMode::Memory,
         2 => {
-            let iterations = reader.read_u64()
+            let iterations = reader
+                .read_u64()
                 .map_err(wire_error(InterfaceValidationField::RecordPayload))?;
 
-            let inner_iterations = std::num::NonZeroU64::new(iterations)
-                .ok_or(crate::implementation::invalid_value(InterfaceValidationField::RecordPayload))?;
+            let inner_iterations = std::num::NonZeroU64::new(iterations).ok_or(
+                crate::implementation::invalid_value(InterfaceValidationField::RecordPayload),
+            )?;
 
             RuntimeObservationMode::PerformanceInterval { inner_iterations }
         }
@@ -198,7 +222,11 @@ fn decode_producer_options(reader: &mut WireReader<'_>) -> Result<CodegenOptions
     };
 
     Ok(CodegenOptions::new(
-        optimization, size_preference, debug_information, reproducibility, runtime_observations,
+        optimization,
+        size_preference,
+        debug_information,
+        reproducibility,
+        runtime_observations,
     ))
 }
 

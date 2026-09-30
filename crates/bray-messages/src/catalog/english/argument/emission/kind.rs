@@ -11,7 +11,6 @@ pub(crate) const fn format_english_link_input_kind(kind: DiagnosticLinkInputKind
         DiagnosticLinkInputKind::Archive => "native archive",
         DiagnosticLinkInputKind::StartupObject => "startup object",
         DiagnosticLinkInputKind::TerminationObject => "termination object",
-        DiagnosticLinkInputKind::RuntimeComponent => "runtime component",
         DiagnosticLinkInputKind::NativeLibrary => "native library",
         DiagnosticLinkInputKind::Framework => "platform framework",
     }

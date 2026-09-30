@@ -1,43 +1,14 @@
 use std::sync::Arc;
 
 use bray_runtime_interface::{BinarySymbolName, ExecutableEntryResult};
-use bray_symbols::{CallableExecution, ConstantValueId, StaticStorageDuration, SymbolKey};
+use bray_symbols::{CallableExecution, ConstantValueId, StaticStorageDuration};
 
-use crate::{CodegenImplementationWitness, CodegenInstanceKey, CodegenSpecialization};
-
-/// One implementation selected for one ordered static requirement.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct CodegenStaticWitness {
-    requirement: SymbolKey,
-    implementation: CodegenImplementationWitness,
-}
-
-impl CodegenStaticWitness {
-    /// Creates one requirement-to-implementation selection.
-    pub const fn new(requirement: SymbolKey, implementation: CodegenImplementationWitness) -> Self {
-        Self {
-            requirement,
-            implementation,
-        }
-    }
-
-    /// Returns the required trait identity.
-    pub const fn requirement(&self) -> &SymbolKey {
-        &self.requirement
-    }
-
-    /// Returns the selected concrete implementation.
-    pub const fn implementation(&self) -> &CodegenImplementationWitness {
-        &self.implementation
-    }
-}
+use crate::CodegenInstanceKey;
 
 /// Stable same-product identity of one closed Bray-owned static realization.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CodegenStaticInstanceKey {
-    declaration: SymbolKey,
-    specialization: CodegenSpecialization,
-    witnesses: Arc<[CodegenStaticWitness]>,
+    structural_key: Arc<[u8]>,
     target: bray_ir::MirTargetContract,
     duration: StaticStorageDuration,
 }
@@ -83,34 +54,20 @@ impl CodegenStaticRelocation {
 impl CodegenStaticInstanceKey {
     /// Creates one canonical target realization identity.
     pub fn new(
-        declaration: SymbolKey,
-        specialization: CodegenSpecialization,
-        witnesses: impl IntoIterator<Item = CodegenStaticWitness>,
+        structural_key: Arc<[u8]>,
         target: bray_ir::MirTargetContract,
         duration: StaticStorageDuration,
     ) -> Self {
         Self {
-            declaration,
-            specialization,
-            witnesses: bray_base::shared_slice(witnesses),
+            structural_key,
             target,
             duration,
         }
     }
 
-    /// Returns the portable declaration identity.
-    pub const fn declaration(&self) -> &SymbolKey {
-        &self.declaration
-    }
-
-    /// Returns the normalized closed generic specialization.
-    pub const fn specialization(&self) -> &CodegenSpecialization {
-        &self.specialization
-    }
-
-    /// Returns selected implementations in canonical requirement order.
-    pub fn witnesses(&self) -> &[CodegenStaticWitness] {
-        &self.witnesses
+    /// Returns the stable structural identity and cleanup ordering key.
+    pub fn order_key(&self) -> &[u8] {
+        &self.structural_key
     }
 
     /// Returns the target profile participating in identity.
@@ -345,7 +302,12 @@ impl CodegenStaticStorageMapping {
 
     /// Returns the linked host-table record paired with this static realization.
     pub fn host_name(&self) -> String {
-        format!("bray.static.host.{}", self.symbol.as_str())
+        Self::host_name_for(&self.symbol)
+    }
+
+    /// Returns the host-table record name before a storage-use mapping exists.
+    pub fn host_name_for(symbol: &BinarySymbolName) -> String {
+        format!("bray.static.host.{}", symbol.as_str())
     }
 
     /// Returns the attachment identity cell paired with exact-thread storage.

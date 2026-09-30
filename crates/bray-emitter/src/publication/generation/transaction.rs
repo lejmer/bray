@@ -17,7 +17,7 @@ use super::lock::ProductPublicationLock;
 use super::manifest::{GenerationManifest, ManifestArtifact, ManifestPermissions};
 use super::reference::{GenerationReference, GenerationReferenceEntry};
 use crate::storage::{
-    ManagedStore, StorageContext, StorageLease, StorageProduct, create_managed_path,
+    StorageContext, StorageLease, StorageProduct, create_managed_path, prepare_store,
     require_directory,
 };
 
@@ -267,11 +267,8 @@ fn create_layout(
         .strip_prefix(root)
         .map_err(|_| artifact_failure(planned, PublicationErrorKind::InvalidContribution))?;
 
-    let mut store = ManagedStore::open(root).map_err(|error| storage_failure(planned, error))?;
-
-    store
-        .maintain(crate::StoragePolicy::default(), cancellation)
-        .map_err(|error| storage_failure(planned, error))?;
+    let mut store =
+        prepare_store(root, cancellation).map_err(|error| storage_failure(planned, error))?;
 
     let entry_lease = store
         .register_product(

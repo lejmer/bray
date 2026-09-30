@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use bray_codegen::{CodegenMappings, CodegenOptions, CodegenTarget, CodegenUnit};
@@ -18,7 +19,9 @@ pub struct NativeProductPlan {
     pub(super) mappings: Arc<[CodegenMappings]>,
     pub(super) static_instances: Arc<[bray_codegen::CodegenStaticInstanceKey]>,
     pub(super) product_host: Option<bray_codegen::CodegenProductHostMapping>,
-    pub(super) selected_native: Arc<[super::reuse::SelectedNativeUnit]>,
+    pub(super) native_main_thread: BTreeSet<bray_codegen::CodegenInstanceKey>,
+    pub(super) native_statics: Arc<[bray_native_artifact::NativeStatic]>,
+    pub(super) selected_native: Arc<[super::reuse::SelectedNativePayload]>,
 }
 
 impl NativeProductPlan {
@@ -72,8 +75,21 @@ impl NativeProductPlan {
         &self.mappings
     }
 
-    pub(in crate::compilation) fn selected_native_units(&self) -> &[super::reuse::SelectedNativeUnit] {
+    pub(in crate::compilation) fn selected_native_units(
+        &self,
+    ) -> &[super::reuse::SelectedNativePayload] {
         &self.selected_native
+    }
+
+    pub(in crate::compilation) fn native_requires_main_thread(
+        &self,
+        instance: &bray_codegen::CodegenInstanceKey,
+    ) -> bool {
+        self.native_main_thread.contains(instance)
+    }
+
+    pub(in crate::compilation) fn native_statics(&self) -> &[bray_native_artifact::NativeStatic] {
+        &self.native_statics
     }
 
     /// Returns the deterministic static-instance table contributed by this product.
@@ -100,26 +116,23 @@ pub(super) fn product_preservation_roots<'plan>(
 ) -> impl Iterator<Item = &'plan bray_runtime_interface::BinarySymbolName> {
     let definitions = mappings
         .iter()
-        .flat_map(bray_codegen::CodegenMappings::symbols)
+        .flat_map(CodegenMappings::symbols)
         .filter(|symbol| is_preservation_root(symbol.linkage()))
         .map(bray_codegen::CodegenSymbolMapping::name);
 
     let native_entries = mappings
         .iter()
-        .flat_map(bray_codegen::CodegenMappings::symbols)
+        .flat_map(CodegenMappings::symbols)
         .filter_map(bray_codegen::CodegenSymbolMapping::native_entry)
         .filter(|entry| is_preservation_root(entry.linkage()))
         .map(bray_codegen::CodegenNativeEntryMapping::name);
 
-    let native_data = mappings
-        .iter()
-        .flat_map(bray_codegen::CodegenMappings::static_storages)
-        .filter(|mapping| mapping.native_binding().is_some())
-        .map(bray_codegen::CodegenStaticStorageMapping::symbol);
+    let native_data = product_native_storage_exports(mappings);
 
     let lifecycle = product_host.into_iter().flat_map(|host| {
         [host.descriptor_symbol(), host.control_symbol()]
             .into_iter()
+            .filter(|_| host.is_final_image())
             .chain(
                 host.statics()
                     .iter()
@@ -131,6 +144,39 @@ pub(super) fn product_preservation_roots<'plan>(
         .chain(native_entries)
         .chain(native_data)
         .chain(lifecycle)
+}
+
+pub(super) fn product_native_exports(
+    mappings: &[CodegenMappings],
+) -> impl Iterator<Item = &bray_runtime_interface::BinarySymbolName> {
+    let functions = mappings.iter().flat_map(|mappings| {
+        mappings
+            .symbols()
+            .iter()
+            .filter(|symbol| symbol.defines_in(mappings.unit()))
+    });
+
+    let entries = functions
+        .clone()
+        .filter_map(bray_codegen::CodegenSymbolMapping::native_entry)
+        .filter(|entry| is_preservation_root(entry.linkage()))
+        .map(bray_codegen::CodegenNativeEntryMapping::name);
+
+    functions
+        .filter(|symbol| symbol.linkage() == bray_codegen::CodegenLinkage::Export)
+        .map(bray_codegen::CodegenSymbolMapping::name)
+        .chain(entries)
+        .chain(product_native_storage_exports(mappings))
+}
+
+pub(super) fn product_native_storage_exports(
+    mappings: &[CodegenMappings],
+) -> impl Iterator<Item = &bray_runtime_interface::BinarySymbolName> {
+    mappings
+        .iter()
+        .flat_map(CodegenMappings::static_storages)
+        .filter(|mapping| mapping.native_binding().is_some())
+        .map(bray_codegen::CodegenStaticStorageMapping::symbol)
 }
 
 const fn is_preservation_root(linkage: bray_codegen::CodegenLinkage) -> bool {

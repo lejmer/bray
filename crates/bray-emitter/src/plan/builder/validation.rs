@@ -310,7 +310,9 @@ fn validate_serialization_policy(
         ));
     }
 
-    let bitcode = request.artifact(ArtifactKind::BackendBitcode);
+    let bitcode = request
+        .artifact(ArtifactKind::BackendBitcode)
+        .or_else(|| request.artifact(ArtifactKind::PackageNativeImplementation));
 
     let links_bitcode = backend
         .policy()
@@ -338,6 +340,7 @@ const fn artifact_matches_product(kind: ArtifactKind, product: ProductKind) -> b
         ArtifactKind::StaticLibrary
         | ArtifactKind::SharedLibrary
         | ArtifactKind::PackageInterface
+        | ArtifactKind::PackageNativeImplementation
         | ArtifactKind::PackageImplementation => matches!(product, ProductKind::Library),
         ArtifactKind::TestCatalog => matches!(product, ProductKind::Test),
         ArtifactKind::Assembly
@@ -352,10 +355,10 @@ const fn artifact_matches_product(kind: ArtifactKind, product: ProductKind) -> b
 
 fn request_uses_backend(request: &EmissionRequest) -> bool {
     linked_product(request).is_some()
-        || request
-            .artifacts()
-            .iter()
-            .any(|artifact| artifact.kind().backend_kind().is_some())
+        || request.artifacts().iter().any(|artifact| {
+            artifact.kind().backend_kind().is_some()
+                || artifact.kind() == ArtifactKind::PackageNativeImplementation
+        })
 }
 
 fn request_requires_backend(request: &EmissionRequest) -> bool {
@@ -363,7 +366,8 @@ fn request_requires_backend(request: &EmissionRequest) -> bool {
         .is_some_and(|artifact| artifact.requirement() == ArtifactRequirement::Required)
         || request.artifacts().iter().any(|artifact| {
             artifact.requirement() == ArtifactRequirement::Required
-                && artifact.kind().backend_kind().is_some()
+                && (artifact.kind().backend_kind().is_some()
+                    || artifact.kind() == ArtifactKind::PackageNativeImplementation)
         })
 }
 
@@ -387,7 +391,8 @@ fn has_planned_backend_work(planner: &EmissionPlanner, request: &EmissionRequest
     linked_product(request)
         .is_some_and(|artifact| should_plan_artifact(planner, request, artifact, false))
         || request.artifacts().iter().any(|artifact| {
-            artifact.kind().backend_kind().is_some()
+            (artifact.kind().backend_kind().is_some()
+                || artifact.kind() == ArtifactKind::PackageNativeImplementation)
                 && should_plan_artifact(planner, request, *artifact, false)
         })
 }
@@ -404,6 +409,9 @@ pub(super) fn should_plan_artifact(
 
     match artifact.kind() {
         ArtifactKind::PackageInterface => package_interface_available,
+        ArtifactKind::PackageNativeImplementation => {
+            backend_is_available(planner, BackendArtifactKind::BackendBitcode)
+        }
         ArtifactKind::Executable | ArtifactKind::StaticLibrary | ArtifactKind::SharedLibrary => {
             optional_linked_product_is_available(planner)
         }

@@ -24,10 +24,6 @@ pub(in crate::standard_library) enum BuildError {
     OsBindings(String),
     UnicodeData(String),
     NativeArchive(String),
-    ResponseFileEncoding {
-        path: PathBuf,
-        source: bray_linker::ResponseFileEncodingError,
-    },
     ToolLaunch {
         action: &'static str,
         program: PathBuf,
@@ -179,11 +175,6 @@ impl fmt::Display for BuildError {
             Self::NativeArchive(error) => {
                 write!(formatter, "native archive could not be built: {error}")
             }
-            Self::ResponseFileEncoding { path, source } => write!(
-                formatter,
-                "could not encode response file {}: {source:?}",
-                path.display()
-            ),
             Self::ToolLaunch {
                 action,
                 program,

@@ -7,24 +7,6 @@ pub(super) fn format_english_native_link_input_failure(
     use bray_diagnostics::DiagnosticNativeLinkInputFailure as Failure;
 
     match failure {
-        Failure::UnsupportedStandardLibraryArtifact {
-            path,
-            artifact_kind,
-        } => format!(
-            "standard-library artifact '{}' has unsupported native link category '{}'",
-            path.display(),
-            english_standard_library_artifact_kind(artifact_kind),
-        ),
-        Failure::InvalidStandardLibraryArtifact {
-            path,
-            input_kind,
-            cause,
-        } => format!(
-            "standard-library artifact '{}' could not form {} link input because {}",
-            path.display(),
-            english_link_input_kind(input_kind),
-            english_link_input_cause(cause),
-        ),
         Failure::InvalidRequirement {
             name,
             link_kind,
@@ -41,44 +23,6 @@ pub(super) fn format_english_native_link_input_failure(
                 english_link_kind(link_kind),
             )
         }
-    }
-}
-
-fn english_standard_library_artifact_kind(kind: &str) -> &'static str {
-    match kind {
-        "package_interface" => "package interface",
-        "package_implementation" => "package implementation",
-        "dependency_metadata" => "dependency metadata",
-        "relocatable_object" => "relocatable object",
-        "static_library" => "static library",
-        "platform_service_library" => "platform service library",
-        "optimization_archive" => "optimization archive",
-        "shared_library" => "shared library",
-        "runtime_artifact" => "runtime artifact",
-        _ => "unknown artifact",
-    }
-}
-
-fn english_link_input_kind(kind: &str) -> &'static str {
-    match kind {
-        "relocatable_object" => "a relocatable-object",
-        "bitcode" => "an LLVM bitcode",
-        "archive" => "an archive",
-        "startup_object" => "a startup-object",
-        "termination_object" => "a termination-object",
-        "runtime_component" => "a runtime-component",
-        "native_library" => "a native-library",
-        "framework" => "a platform-framework",
-        _ => "an unknown",
-    }
-}
-
-fn english_link_input_cause(cause: &str) -> &'static str {
-    match cause {
-        "empty_file_path" => "its file path is empty",
-        "source_kind_mismatch" => "its source does not match the required input category",
-        "whole_archive_requires_archive" => "whole-archive treatment requires an archive",
-        _ => "its input contract is invalid",
     }
 }
 
@@ -147,7 +91,6 @@ pub(crate) fn format_english_link_requirement(requirement: &DiagnosticLinkRequir
         Requirement::InputArchive => "native archive".to_owned(),
         Requirement::InputStartupObject => "startup object".to_owned(),
         Requirement::InputTerminationObject => "termination object".to_owned(),
-        Requirement::InputRuntimeComponent => "Bray runtime component".to_owned(),
         Requirement::InputNativeLibrary => "native library".to_owned(),
         Requirement::InputFramework => "platform framework".to_owned(),
         Requirement::InputModeOrdinary => "ordinary archive treatment".to_owned(),
@@ -198,14 +141,6 @@ mod tests {
 
     #[test]
     fn native_link_input_failures_translate_machine_keys() {
-        let artifact = format_english_native_link_input_failure(
-            &DiagnosticNativeLinkInputFailure::InvalidStandardLibraryArtifact {
-                path: "lib.a".into(),
-                input_kind: "relocatable_object",
-                cause: "empty_file_path",
-            },
-        );
-
         let requirement = format_english_native_link_input_failure(
             &DiagnosticNativeLinkInputFailure::InvalidRequirement {
                 name: "ssl".to_owned(),
@@ -215,9 +150,6 @@ mod tests {
             },
         );
 
-        assert!(artifact.contains("lib.a"));
-        assert!(!artifact.contains("relocatable_object"));
-        assert!(!artifact.contains("empty_file_path"));
         assert!(requirement.contains("ssl"));
         assert!(requirement.contains("system"));
         assert!(!requirement.contains("platform_provider"));

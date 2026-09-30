@@ -80,6 +80,7 @@ impl BackendBitcodeOptimizer for NativeBitcodeOptimizer {
             [
                 input.into_os_string(),
                 OsString::from("-module-summary"),
+                OsString::from("-module-hash"),
                 OsString::from("-o"),
                 output.clone().into_os_string(),
             ],

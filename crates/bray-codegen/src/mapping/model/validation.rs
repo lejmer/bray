@@ -227,7 +227,8 @@ fn operation_runtime_references(
             | MirAsyncOperation::TransferCleanupIncident { runtime, .. },
         )
         | MirOperationKind::Host(
-            MirHostOperation::SelectTestEntry { runtime, .. }
+            MirHostOperation::InitializeRuntime { runtime }
+            | MirHostOperation::SelectTestEntry { runtime, .. }
             | MirHostOperation::ObserveRootTerminal { runtime, .. }
             | MirHostOperation::ReportCleanupIncidents { runtime }
             | MirHostOperation::StructuredShutdown { runtime },

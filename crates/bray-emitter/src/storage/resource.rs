@@ -138,7 +138,7 @@ impl ManagedCache {
     }
 }
 
-fn prepare_store(
+pub(crate) fn prepare_store(
     root: &Path,
     cancellation: &dyn Cancellation,
 ) -> Result<ManagedStore, StorageError> {

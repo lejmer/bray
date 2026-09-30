@@ -37,37 +37,26 @@ pub enum DiagnosticRuntimeArtifactProblem {
     InvalidRoleSymbol,
     /// Metadata declares an unknown runtime role implementation boundary.
     UnknownRoleImplementation,
-    /// Metadata declares an invalid native link name.
-    InvalidNativeLinkName,
-    /// Metadata declares an unknown native link category.
-    UnknownNativeLinkKind,
     /// Metadata declares an unknown component purpose.
     UnknownComponentPurpose,
     /// Metadata declares an invalid component identity.
     InvalidComponentIdentity,
-    /// Metadata declares an invalid archive digest.
-    InvalidArchiveDigest,
+    /// Metadata declares an invalid native-index digest.
+    InvalidNativeIndexDigest,
     /// A runtime contract publishes one role more than once.
     DuplicateContractRole(String),
     /// A runtime contract assigns a compiler-owned role to the runtime.
     CompilerOwnedRole(String),
     /// A runtime contract omits baseline cooperative execution.
     MissingCooperativeExecution,
-    /// Component metadata contains an invalid archive file name.
-    InvalidArchiveFileName,
-    /// A support component is unreachable from an owning component.
-    UnreferencedSupportComponent(String),
+    /// Metadata declares an invalid native-index file name.
+    InvalidNativeIndexFileName,
+    /// Metadata lacks one canonical index per runtime purpose.
+    InvalidNativeIndexes,
+    /// A native index or payload failed authentication with a specific cause.
+    InvalidNativeArtifact(crate::DiagnosticNativeArtifactCause),
     /// A component identity occurs more than once.
     DuplicateComponent(String),
-    /// A component dependency is missing, cross-purpose, or self-referential.
-    InvalidComponentDependency {
-        /// Component declaring the dependency.
-        component: String,
-        /// Invalid dependency identity.
-        dependency: String,
-    },
-    /// Component dependencies contain a cycle involving this component.
-    ComponentDependencyCycle(String),
     /// A component claims a role absent from the runtime contract.
     UnknownComponentRole(String),
     /// A component claims a capability absent from the runtime contract.
@@ -107,12 +96,10 @@ pub enum DiagnosticRuntimeArtifactProblem {
         /// Product category with contradictory overrides.
         purpose: DiagnosticRuntimeArtifactPurpose,
     },
-    /// A declared component has no resolved archive path.
-    MissingComponent,
-    /// A resolved archive path has no declared component.
-    UnexpectedComponent,
-    /// A resolved archive path does not use its declared file name.
-    ArchiveFileNameMismatch,
+    /// The runtime target has no supported native representation.
+    InvalidNativeTarget,
+    /// A selected native index targets another platform.
+    IncompatibleIndexTarget,
 }
 
 impl DiagnosticRuntimeArtifactProblem {
@@ -131,19 +118,16 @@ impl DiagnosticRuntimeArtifactProblem {
             Self::UnknownPlatformService => "unknown_platform_service",
             Self::InvalidRoleSymbol => "invalid_role_symbol",
             Self::UnknownRoleImplementation => "unknown_role_implementation",
-            Self::InvalidNativeLinkName => "invalid_native_link_name",
-            Self::UnknownNativeLinkKind => "unknown_native_link_kind",
             Self::UnknownComponentPurpose => "unknown_component_purpose",
             Self::InvalidComponentIdentity => "invalid_component_identity",
-            Self::InvalidArchiveDigest => "invalid_archive_digest",
+            Self::InvalidNativeIndexDigest => "invalid_native_index_digest",
             Self::DuplicateContractRole(_) => "duplicate_contract_role",
             Self::CompilerOwnedRole(_) => "compiler_owned_role",
             Self::MissingCooperativeExecution => "missing_cooperative_execution",
-            Self::InvalidArchiveFileName => "invalid_archive_file_name",
-            Self::UnreferencedSupportComponent(_) => "unreferenced_support_component",
+            Self::InvalidNativeIndexFileName => "invalid_native_index_file_name",
+            Self::InvalidNativeIndexes => "invalid_native_indexes",
+            Self::InvalidNativeArtifact(_) => "invalid_native_artifact",
             Self::DuplicateComponent(_) => "duplicate_component",
-            Self::InvalidComponentDependency { .. } => "invalid_component_dependency",
-            Self::ComponentDependencyCycle(_) => "component_dependency_cycle",
             Self::UnknownComponentRole(_) => "unknown_component_role",
             Self::UnknownComponentCapability(_) => "unknown_component_capability",
             Self::TestRoleInProductComponent(_) => "test_role_in_product_component",
@@ -152,9 +136,8 @@ impl DiagnosticRuntimeArtifactProblem {
             Self::MissingCapabilityOwner { .. } => "missing_capability_owner",
             Self::DuplicateCapabilityOwner { .. } => "duplicate_capability_owner",
             Self::DuplicatePlatformServiceOwner { .. } => "duplicate_platform_service_owner",
-            Self::MissingComponent => "missing_component",
-            Self::UnexpectedComponent => "unexpected_component",
-            Self::ArchiveFileNameMismatch => "archive_file_name_mismatch",
+            Self::InvalidNativeTarget => "invalid_native_target",
+            Self::IncompatibleIndexTarget => "incompatible_index_target",
         }
     }
 }

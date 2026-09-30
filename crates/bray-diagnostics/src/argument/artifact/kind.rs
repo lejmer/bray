@@ -37,6 +37,8 @@ pub enum DiagnosticArtifactKind {
     PackageInterface,
     /// Compiled package implementation payloads.
     PackageImplementation,
+    /// A library native representation.
+    PackageNativeImplementation,
     /// Compiler-owned dependency metadata.
     DependencyMetadata,
     /// Immutable native test-host catalog.
@@ -63,6 +65,7 @@ impl DiagnosticArtifactKind {
             Self::DebugCompanion => "debug_companion",
             Self::PackageInterface => "package_interface",
             Self::PackageImplementation => "package_implementation",
+            Self::PackageNativeImplementation => "package_native_implementation",
             Self::DependencyMetadata => "dependency_metadata",
             Self::TestCatalog => "test_catalog",
             Self::Executable => "executable",

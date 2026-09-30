@@ -84,11 +84,17 @@ impl ConcreteCodegenReachability {
         self.instances.get(key)
     }
 
-    pub(super) fn selected_native(&self, key: &CodegenInstanceKey) -> Option<&super::codegen::reuse::SelectedNativeUnit> {
+    pub(super) fn selected_native(
+        &self,
+        key: &CodegenInstanceKey,
+    ) -> Option<&super::codegen::reuse::SelectedNativeUnit> {
         self.selected_native.get(key)
     }
 
-    pub(super) fn selected_native_units(&self) -> impl Iterator<Item = &super::codegen::reuse::SelectedNativeUnit> {
+    #[cfg(test)]
+    pub(super) fn selected_native_units(
+        &self,
+    ) -> impl Iterator<Item = &super::codegen::reuse::SelectedNativeUnit> {
         self.selected_native.values()
     }
 
@@ -101,7 +107,12 @@ impl ConcreteCodegenReachability {
         added: impl IntoIterator<Item = super::codegen::NativeDemand>,
     ) -> Self {
         // Existing Arc-backed demands remain shared while the planning phase extends them.
-        let mut demands = self.demands.iter().cloned().chain(added).collect::<Vec<_>>();
+        let mut demands = self
+            .demands
+            .iter()
+            .cloned()
+            .chain(added)
+            .collect::<Vec<_>>();
 
         demands.sort_unstable();
         demands.dedup();
@@ -119,7 +130,12 @@ impl ConcreteCodegenReachability {
         Arc<[super::codegen::NativeDemand]>,
         BTreeMap<CodegenInstanceKey, super::codegen::reuse::SelectedNativeUnit>,
     ) {
-        (self.graph, self.instances, self.demands, self.selected_native)
+        (
+            self.graph,
+            self.instances,
+            self.demands,
+            self.selected_native,
+        )
     }
 }
 

@@ -1,12 +1,7 @@
-use bray_diagnostics::{
-    DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm, DiagnosticFailureField,
-    DiagnosticFailureValue, DiagnosticIoErrorKind, DiagnosticNativeProductFailureKind,
-};
+use bray_diagnostics::DiagnosticNativeProductFailureKind;
 use bray_runtime_interface::RuntimeArtifactSelectionError;
 
-use super::context::{
-    failure_detail, path_failure_field, protected_frame_abi_operation, text_failure_field,
-};
+use super::context::{failure_detail, protected_frame_abi_operation, text_failure_field};
 
 pub(super) fn runtime_selection_failure_kind(
     error: &RuntimeArtifactSelectionError,
@@ -54,58 +49,60 @@ pub(super) fn runtime_selection_failure_kind(
                 [text_failure_field("capability", capability.as_str())],
             ))
         }
-        RuntimeArtifactSelectionError::UnreadableArchive {
-            component,
-            path,
-            kind,
-        } => Kind::RuntimeSelectionUnreadableArchive(failure_detail(
-            "runtime_selection_unreadable_archive",
-            [
-                text_failure_field("component", component.as_str()),
-                // The diagnostic outlives this borrowed selection error and owns its path.
-                path_failure_field("path", path.clone()),
-                DiagnosticFailureField::new(
-                    "io_error",
-                    DiagnosticFailureValue::IoErrorKind(DiagnosticIoErrorKind::from(*kind)),
-                ),
-            ],
-        )),
-        RuntimeArtifactSelectionError::InvalidArchive { component, path } => {
-            Kind::RuntimeSelectionInvalidArchive(failure_detail(
-                "runtime_selection_invalid_archive",
-                [
-                    text_failure_field("component", component.as_str()),
-                    // The diagnostic outlives this borrowed selection error and owns its path.
-                    path_failure_field("path", path.clone()),
-                ],
-            ))
+    }
+}
+
+pub(super) fn native_resolution_detail(
+    error: &bray_native_artifact::NativeResolutionError,
+) -> bray_diagnostics::DiagnosticNativeProductFailureDetail {
+    use super::context::identity_failure_detail;
+    use bray_native_artifact::NativeResolutionError as Error;
+
+    match error {
+        Error::Unresolved(symbol) | Error::DuplicateStrong(symbol) => {
+            let reason = if matches!(error, Error::Unresolved(_)) {
+                "native_symbol_unresolved"
+            } else {
+                "native_symbol_duplicate"
+            };
+
+            failure_detail(
+                reason,
+                [text_failure_field(
+                    "symbol",
+                    symbol
+                        .identity()
+                        .name()
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| {
+                            symbol
+                                .identity()
+                                .ordinal()
+                                .expect("native symbol must have a name or ordinal")
+                                .to_string()
+                        }),
+                )],
+            )
         }
-        RuntimeArtifactSelectionError::ArchiveDigestMismatch {
-            component,
-            path,
-            expected,
-            actual,
-        } => Kind::RuntimeSelectionArchiveDigestMismatch(failure_detail(
-            "runtime_selection_archive_digest_mismatch",
+        Error::ConflictingStatic(identity) => {
+            identity_failure_detail("native_static_conflict", "static", identity)
+        }
+        Error::AmbiguousStaticOrder { first, second } => failure_detail(
+            "native_static_ambiguous_order",
             [
-                text_failure_field("component", component.as_str()),
-                // The diagnostic outlives this borrowed selection error and owns its path.
-                path_failure_field("path", path.clone()),
-                DiagnosticFailureField::new(
-                    "expected_digest",
-                    DiagnosticFailureValue::ArtifactDigest(DiagnosticArtifactDigest::new(
-                        DiagnosticArtifactDigestAlgorithm::Sha256,
-                        expected.bytes(),
-                    )),
-                ),
-                DiagnosticFailureField::new(
-                    "actual_digest",
-                    DiagnosticFailureValue::ArtifactDigest(DiagnosticArtifactDigest::new(
-                        DiagnosticArtifactDigestAlgorithm::Sha256,
-                        actual.bytes(),
-                    )),
-                ),
+                crate::fact::diagnostic_context::identity_field("first_static", first),
+                crate::fact::diagnostic_context::identity_field("second_static", second),
             ],
-        )),
+        ),
+        Error::MissingStatic(identity) => {
+            identity_failure_detail("native_static_missing", "static", identity)
+        }
+        Error::StaticLifecycleCycle(identities) => failure_detail(
+            "native_static_lifecycle_cycle",
+            identities
+                .iter()
+                .map(|identity| crate::fact::diagnostic_context::identity_field("static", identity))
+                .collect::<Vec<_>>(),
+        ),
     }
 }

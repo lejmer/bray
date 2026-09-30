@@ -516,12 +516,10 @@ impl DiagnosticNativeProductFailureJson {
             Kind::EvaluationProduct(failure) => product_query_failure_context(failure),
             Kind::EvaluationForeign(failure) => foreign_query_failure_context(failure),
             Kind::InvalidNativeLinkInput(failure) => native_link_input_failure_context(failure),
-            Kind::RuntimeSelectionIncompatible(detail)
+            Kind::NativeResolution(detail)
+            | Kind::RuntimeSelectionIncompatible(detail)
             | Kind::RuntimeSelectionMissingRoleOwner(detail)
             | Kind::RuntimeSelectionMissingCapabilityOwner(detail)
-            | Kind::RuntimeSelectionUnreadableArchive(detail)
-            | Kind::RuntimeSelectionInvalidArchive(detail)
-            | Kind::RuntimeSelectionArchiveDigestMismatch(detail)
             | Kind::PartitionMissingCompatibility(detail)
             | Kind::PartitionInvalidUnit(detail)
             | Kind::ExecutableHostDuplicateRole(detail)
@@ -555,8 +553,6 @@ impl DiagnosticNativeProductFailureJson {
             | Kind::MissingProductRoot
             | Kind::InvalidEntryResult
             | Kind::MissingRuntime
-            | Kind::LibraryCleanupRequiresMainThread
-            | Kind::InvalidSymbolName
             | Kind::EvaluationCancelled
             | Kind::EvaluationSemanticValueStoreCreate
             | Kind::EvaluationConstantCallableBodyUnavailable
@@ -588,7 +584,6 @@ impl DiagnosticNativeProductFailureJson {
             | Kind::ExecutableHostMissingRuntime
             | Kind::ExecutableHostMissingMainThreadLane
             | Kind::ExecutableHostMissingProtectedFrameAbi
-            | Kind::StandardLibraryUnavailable
             | Kind::LinkTargetEmptyTriple
             | Kind::CodegenBackendUnsupportedTarget
             | Kind::CodegenBackendInvalidConfiguration

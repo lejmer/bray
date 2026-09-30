@@ -1,6 +1,6 @@
 use bray_checker::CheckerInfrastructureError;
 use bray_diagnostics::{
-    DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticFailureValue, DiagnosticKind,
+    DiagnosticArgName, DiagnosticArgValue, DiagnosticFailureValue, DiagnosticKind,
     DiagnosticNativeProductFailureKind, DiagnosticNoteKind, DiagnosticSemanticValueFailure,
 };
 use bray_symbols::{PackageIdentity, ProductIdentity, SemanticValueKind, SemanticValueStoreError};
@@ -17,47 +17,28 @@ use super::{
 use crate::fact::FactQueryError;
 
 #[test]
-fn runtime_selection_failures_preserve_component_path_io_and_digests() {
-    let error = NativeProductPlanningError::InvalidRuntimeSelection(
-        bray_runtime_interface::RuntimeArtifactSelectionError::ArchiveDigestMismatch {
-            component: bray_runtime_interface::RuntimeArtifactId::try_new(
-                "runtime.product.execution",
-            )
-            .unwrap_or_else(|| panic!("test runtime component identity must be valid")),
-            path: std::path::PathBuf::from("runtime/product.lib"),
-            expected: bray_runtime_interface::RuntimeArtifactDigest::new([3; 32]),
-            actual: bray_runtime_interface::RuntimeArtifactDigest::new([5; 32]),
-        },
+fn runtime_selection_reports_unresolved_native_symbol() {
+    let error = NativeProductPlanningError::NativeResolution(
+        bray_native_artifact::NativeResolutionError::Unresolved(
+            bray_symbols::NativeSymbolContract::required_name(
+                bray_base::NonEmptySharedStr::try_new("runtime_missing")
+                    .expect("test symbol must be nonempty"),
+            ),
+        ),
     );
 
     let failure = native_product_failure_kind(&error)
         .unwrap_or_else(|| panic!("runtime selection failure must diagnose"));
 
-    let DiagnosticNativeProductFailureKind::RuntimeSelectionArchiveDigestMismatch(detail) = failure
-    else {
-        panic!("archive authentication must retain its exact diagnostic leaf");
+    let DiagnosticNativeProductFailureKind::NativeResolution(detail) = failure else {
+        panic!("native resolution must retain its exact diagnostic leaf");
     };
 
-    assert_eq!(detail.reason(), "runtime_selection_archive_digest_mismatch");
+    assert_eq!(detail.reason(), "native_symbol_unresolved");
 
     assert!(matches!(
         detail.context()[0].value(),
-        DiagnosticFailureValue::Text(component) if component == "runtime.product.execution"
-    ));
-
-    assert!(matches!(
-        detail.context()[1].value(),
-        DiagnosticFailureValue::Path(path) if path == std::path::Path::new("runtime/product.lib")
-    ));
-
-    assert!(matches!(
-        detail.context()[2].value(),
-        DiagnosticFailureValue::ArtifactDigest(digest) if digest.bytes() == &[3; 32]
-    ));
-
-    assert!(matches!(
-        detail.context()[3].value(),
-        DiagnosticFailureValue::ArtifactDigest(digest) if digest.bytes() == &[5; 32]
+        DiagnosticFailureValue::Text(symbol) if symbol == "runtime_missing"
     ));
 }
 
@@ -135,22 +116,24 @@ fn native_product_evaluation_failures_preserve_specific_reasons() {
 
 #[test]
 fn native_link_input_failures_use_stable_leaf_fields() {
-    let failure = diagnostic_native_link_input_failure(
-        &NativeLinkInputPlanningError::InvalidStandardLibraryArtifact {
-            path: std::path::PathBuf::from("lib/example.a"),
-            kind: bray_linker::LinkInputKind::Archive,
-            cause: bray_linker::LinkInputBuildError::WholeArchiveRequiresArchive,
-        },
-    );
+    let failure =
+        diagnostic_native_link_input_failure(&NativeLinkInputPlanningError::InvalidRequirement {
+            name: "provider".into(),
+            kind: bray_symbols::NativeLinkKind::Static,
+            provenance: bray_linker::LinkInputProvenance::Package(
+                PackageIdentity::try_new("example.provider").unwrap(),
+            ),
+        });
 
-    assert!(matches!(
+    assert_eq!(
         failure,
-        bray_diagnostics::DiagnosticNativeLinkInputFailure::InvalidStandardLibraryArtifact {
-            input_kind: "archive",
-            cause: "whole_archive_requires_archive",
-            ..
+        bray_diagnostics::DiagnosticNativeLinkInputFailure::InvalidRequirement {
+            name: "provider".into(),
+            link_kind: "static".into(),
+            provenance_kind: "package",
+            provenance_identity: Some("example.provider".into()),
         }
-    ));
+    );
 }
 
 #[test]
@@ -186,68 +169,31 @@ fn native_product_failures_preserve_exact_product_target_and_reason() {
 }
 
 #[test]
-fn standard_library_failures_preserve_product_target_and_exact_cause() {
-    let package = PackageIdentity::try_new("example")
-        .unwrap_or_else(|| panic!("test package identity must be valid"));
+fn native_library_failures_preserve_product_target_and_exact_symbol() {
+    let package = PackageIdentity::try_new("example").unwrap();
+    let product = ProductIdentity::try_new(package, "application").unwrap();
 
-    let product = ProductIdentity::try_new(package, "application")
-        .unwrap_or_else(|| panic!("test product identity must be valid"));
-
-    let target = bray_target::TargetIdentity::try_new("x86_64-pc-windows-msvc")
-        .unwrap_or_else(|| panic!("test target identity must be valid"));
-
-    let diagnostics = NativeProductPlanningError::StandardLibrary {
-        artifact_path: std::path::PathBuf::from("standard-library.json"),
-        cause: bray_standard_library::StandardLibraryLoadError::OptimizationUnavailable {
-            target: target.clone(),
-        },
-    }
-    .diagnostic(&product, target.as_str())
-    .unwrap_or_else(|| panic!("standard-library planning failure must diagnose"));
-
-    assert!(diagnostics.iter().any(|diagnostic| {
-        diagnostic.kind() == DiagnosticKind::StandardLibraryOptimizationUnavailable
-    }));
-
-    assert_goal_state_diagnostic_kind(
-        &diagnostics,
-        DiagnosticKind::StandardLibraryOptimizationUnavailable,
+    let error = NativeProductPlanningError::NativeResolution(
+        bray_native_artifact::NativeResolutionError::Unresolved(
+            bray_symbols::NativeSymbolContract::required_name(
+                bray_base::NonEmptySharedStr::try_new("provider_entry").unwrap(),
+            ),
+        ),
     );
 
-    let outer = diagnostics
-        .iter()
-        .find(|diagnostic| diagnostic.kind() == DiagnosticKind::NativeProductPreparationFailed)
-        .unwrap_or_else(|| panic!("product-context diagnostic must exist"));
+    let diagnostics = error
+        .diagnostic(&product, "x86_64-pc-windows-msvc")
+        .unwrap();
 
-    assert!(outer.args().iter().any(|arg| {
-        matches!(
-            arg.value(),
-            DiagnosticArgValue::NativeProductFailureKind(
-                DiagnosticNativeProductFailureKind::StandardLibraryUnavailable
-            )
-        )
-    }));
+    assert_goal_state_diagnostic_kind(&diagnostics, DiagnosticKind::NativeProductPreparationFailed);
 
-    let artifact_path = std::path::PathBuf::from("targets/test/libstd.a");
+    let diagnostic = diagnostics.iter().next().unwrap();
 
-    let infrastructure = NativeProductPlanningError::StandardLibrary {
-        artifact_path: std::path::PathBuf::from("standard-library.json"),
-        cause: bray_standard_library::StandardLibraryLoadError::Infrastructure {
-            path: artifact_path.clone(),
-        },
-    }
-    .diagnostic(&product, target.as_str())
-    .unwrap_or_else(|| panic!("standard-library infrastructure failure must diagnose"));
-
-    let cause = infrastructure
-        .iter()
-        .find(|diagnostic| {
-            diagnostic.kind() == DiagnosticKind::StandardLibraryInfrastructureFailure
-        })
-        .unwrap_or_else(|| panic!("standard-library infrastructure cause must exist"));
-
-    assert_eq!(cause.args(), &[DiagnosticArg::artifact_path(artifact_path)]);
-    bray_testing::assert_goal_state_diagnostic(cause);
+    assert!(diagnostic.args().iter().any(|arg| matches!(arg.value(),
+        DiagnosticArgValue::NativeProductFailureKind(DiagnosticNativeProductFailureKind::NativeResolution(detail))
+        if detail.reason() == "native_symbol_unresolved"
+            && detail.context().iter().any(|field| matches!(field.value(), DiagnosticFailureValue::Text(name) if name == "provider_entry"))
+    )));
 }
 
 #[test]

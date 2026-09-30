@@ -392,6 +392,7 @@ version = "0.0.0"
 dependencies = [
  "bray-base",
  "bray-diagnostics",
+ "bray-native-artifact",
  "bray-platform",
  "bray-runtime-abi",
  "bray-runtime-interface",
@@ -491,6 +492,7 @@ dependencies = [
  "bray-source",
  "bray-symbols",
  "bray-target",
+ "tempfile",
  "zstd",
 ]
 
@@ -545,6 +547,7 @@ name = "bray-profile"
 version = "0.0.0"
 dependencies = [
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -621,6 +624,8 @@ name = "bray-standard-library"
 version = "0.0.0"
 dependencies = [
  "bray-base",
+ "bray-native-artifact",
+ "bray-package-interface",
  "bray-runtime-interface",
  "bray-symbols",
  "bray-target",
@@ -680,6 +685,7 @@ dependencies = [
  "bray-diagnostics",
  "bray-ir",
  "bray-messages",
+ "bray-native-artifact",
  "bray-parser",
  "bray-runtime-interface",
  "bray-source",
@@ -705,6 +711,7 @@ dependencies = [
  "bray-linker",
  "bray-lowering",
  "bray-messages",
+ "bray-native-artifact",
  "bray-package-interface",
  "bray-parser",
  "bray-project",
@@ -1932,6 +1939,7 @@ dependencies = [
  "bray-formatter",
  "bray-linker",
  "bray-llvm-toolchain",
+ "bray-native-artifact",
  "bray-package-interface",
  "bray-profile",
  "bray-project",
@@ -1944,6 +1952,7 @@ dependencies = [
  "bray-test-protocol",
  "bray-tooling",
  "inkwell",
+ "object",
  "quote",
  "rayon",
  "rust-style",

@@ -26,8 +26,7 @@ pub(crate) use error::{
     diagnostic_cycle_failure, diagnostic_fact_runtime_failure,
     diagnostic_generic_substitution_failure, diagnostic_semantic_query_failure,
     diagnostic_symbol_graph_failure, generic_substitution_reason,
-    push_generic_substitution_failure, push_selected_target_properties,
-    push_semantic_value_failure,
+    push_generic_substitution_failure, push_semantic_value_failure,
 };
 pub use key::ImportedSemanticRecordKey;
 pub use priority::QueryPriority;
@@ -49,7 +48,7 @@ pub(crate) use fingerprint::{
 pub(crate) use key::{
     CodegenArtifactQueryKey, CompilationFactKey, ConstantCallQueryKey, ConstantInstanceQueryKey,
     ImportedExecutableTemplateAddress, IterationSourceQueryKey, NativeProductQueryKey,
-    OptimizedMirQueryKey, RuntimeComponentQueryIdentity, SymbolQueryKey,
+    OptimizedMirQueryKey, RuntimeNativeIndexQueryIdentity, SymbolQueryKey,
 };
 pub(crate) use priority::QueryPriorityDemand;
 #[cfg(test)]

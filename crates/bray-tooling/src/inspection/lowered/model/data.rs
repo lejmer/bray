@@ -1536,6 +1536,11 @@ fn runtime_reference(role: &str, runtime: MirRuntimeReference, parts: &mut Opera
 
 fn host_operation(operation: &MirHostOperation, parts: &mut OperationParts) -> &'static str {
     match operation {
+        MirHostOperation::InitializeRuntime { runtime } => {
+            runtime_reference("runtime", *runtime, parts);
+
+            "initialize_runtime"
+        }
         MirHostOperation::MaterializeStatic { place } => {
             parts.attribute("storage", place.storage().slot());
 
@@ -2167,17 +2172,20 @@ fn inspection_source_anchor(
             owner: InspectionSymbolIdentity::from_symbol(symbols, key.owner()),
             template: key.template().raw(),
         }),
-        MirSourceAnchor::ImportedSource { owner, namespace, span, version } => {
-            Ok(InspectionMirSource::ImportedSource {
-                owner: InspectionSymbolIdentity::from_symbol(symbols, owner.owner()),
-                template: owner.template().raw(),
-                namespace: *namespace,
-                source: span.source_id().raw(),
-                start: span.start().bytes(),
-                end: span.end().bytes(),
-                version: version.raw(),
-            })
-        }
+        MirSourceAnchor::ImportedSource {
+            owner,
+            namespace,
+            span,
+            version,
+        } => Ok(InspectionMirSource::ImportedSource {
+            owner: InspectionSymbolIdentity::from_symbol(symbols, owner.owner()),
+            template: owner.template().raw(),
+            namespace: *namespace,
+            source: span.source_id().raw(),
+            start: span.start().bytes(),
+            end: span.end().bytes(),
+            version: version.raw(),
+        }),
     }
 }
 

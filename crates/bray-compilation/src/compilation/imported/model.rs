@@ -25,15 +25,17 @@ impl LoadedDependencyInterface {
         }
     }
 
-    pub(super) const fn validated(&self) -> Option<&ValidatedPackageInterface> {
+    pub(in crate::compilation) const fn validated(&self) -> Option<&ValidatedPackageInterface> {
         self.validated.as_ref()
     }
 
-    pub(super) const fn result(&self) -> &DiagnosticResult<Option<PackageInterfaceSurface>> {
+    pub(in crate::compilation) const fn result(
+        &self,
+    ) -> &DiagnosticResult<Option<PackageInterfaceSurface>> {
         &self.result
     }
 
-    pub(super) const fn surface(&self) -> Option<&PackageInterfaceSurface> {
+    pub(in crate::compilation) const fn surface(&self) -> Option<&PackageInterfaceSurface> {
         self.result.value().as_ref()
     }
 }

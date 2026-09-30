@@ -111,13 +111,7 @@ impl CompilationProfileReport {
         if let Some(index) = self
             .runtime_artifacts
             .iter()
-            .position(|artifact| {
-                artifact.identity.trim().is_empty()
-                    || !valid_canonical_strings(&artifact.runtime_roles)
-                    || !valid_canonical_strings(&artifact.capabilities)
-                    || !valid_canonical_strings(&artifact.platform_services)
-                    || !valid_canonical_strings(&artifact.retained_by)
-            })
+            .position(|artifact| artifact.identity.trim().is_empty())
         {
             return Err(
                 CompilationProfileValidationError::InvalidRuntimeArtifactIdentity { index },
@@ -134,22 +128,6 @@ impl CompilationProfileReport {
                     first: entries[0].identity.clone(),
                     second: entries[1].identity.clone(),
                 },
-            );
-        }
-
-        let runtime_identities = self
-            .runtime_artifacts
-            .iter()
-            .map(|artifact| artifact.identity.as_str())
-            .collect::<BTreeSet<_>>();
-
-        if let Some(index) = self.runtime_artifacts.iter().position(|artifact| {
-            artifact.retained_by.iter().any(|identity| {
-                identity == &artifact.identity || !runtime_identities.contains(identity.as_str())
-            })
-        }) {
-            return Err(
-                CompilationProfileValidationError::InvalidRuntimeArtifactIdentity { index },
             );
         }
 
@@ -189,25 +167,37 @@ impl CompilationProfileReport {
 fn valid_native_codegen_inventory(inventory: &crate::CompilationProfileNativeCodegen) -> bool {
     let instance_count = inventory.instances.len();
 
-    if inventory.instances.iter().enumerate().any(|(index, instance)| {
-        usize::try_from(instance.id) != Ok(index)
-            || instance
-                .symbol
-                .as_ref()
-                .is_some_and(|symbol| symbol.trim().is_empty())
-            || instance.external
-                != (instance.pre_optimization_blocks == 0
-                    && instance.pre_optimization_operations == 0
-                    && instance.post_optimization_blocks == 0
-                    && instance.post_optimization_operations == 0)
-            || !valid_inclusion_path(inventory, instance.id, &instance.inclusion_path)
-    }) {
+    if inventory
+        .instances
+        .iter()
+        .enumerate()
+        .any(|(index, instance)| {
+            usize::try_from(instance.id) != Ok(index)
+                || instance
+                    .symbol
+                    .as_ref()
+                    .is_some_and(|symbol| symbol.trim().is_empty())
+                || instance.external
+                    != (instance.pre_optimization_blocks == 0
+                        && instance.pre_optimization_operations == 0
+                        && instance.post_optimization_blocks == 0
+                        && instance.post_optimization_operations == 0)
+                || !valid_inclusion_path(inventory, instance.id, &instance.inclusion_path)
+        })
+    {
         return false;
     }
 
     if inventory.demands.windows(2).any(|entries| {
-        (&entries[0].predecessor, &entries[0].target, &entries[0].kind)
-            >= (&entries[1].predecessor, &entries[1].target, &entries[1].kind)
+        (
+            &entries[0].predecessor,
+            &entries[0].target,
+            &entries[0].kind,
+        ) >= (
+            &entries[1].predecessor,
+            &entries[1].target,
+            &entries[1].kind,
+        )
     }) || inventory.demands.iter().any(|demand| {
         usize::try_from(demand.target).map_or(true, |id| id >= instance_count)
             || demand.predecessor.is_some_and(|predecessor| {
@@ -216,17 +206,26 @@ fn valid_native_codegen_inventory(inventory: &crate::CompilationProfileNativeCod
                 })
             })
             || demand.predecessor.is_none()
-                && inventory.instances[usize::try_from(demand.target).unwrap_or(usize::MAX)].external
+                && inventory.instances[usize::try_from(demand.target).unwrap_or(usize::MAX)]
+                    .external
     }) {
         return false;
     }
 
     if inventory.runtime_demands.windows(2).any(|entries| {
-        (&entries[0].predecessor, &entries[0].role, &entries[0].provider)
-            >= (&entries[1].predecessor, &entries[1].role, &entries[1].provider)
+        (
+            &entries[0].predecessor,
+            &entries[0].role,
+            &entries[0].provider,
+        ) >= (
+            &entries[1].predecessor,
+            &entries[1].role,
+            &entries[1].provider,
+        )
     }) || inventory.runtime_demands.iter().any(|demand| {
-        usize::try_from(demand.predecessor).map_or(true, |id| id >= instance_count)
-            || demand.role.trim().is_empty()
+        demand.predecessor.is_some_and(|predecessor| {
+            usize::try_from(predecessor).map_or(true, |id| id >= instance_count)
+        }) || demand.role.trim().is_empty()
             || demand.provider.trim().is_empty()
     }) {
         return false;
@@ -276,9 +275,9 @@ fn valid_native_codegen_inventory(inventory: &crate::CompilationProfileNativeCod
             || !valid_canonical_strings(&unit.linkages)
             || !valid_canonical_strings(&unit.visibilities)
             || unit.instances.windows(2).any(|ids| ids[0] >= ids[1])
-            || !unit.instances.contains(
-                &demand_path_target(inventory, &unit.inclusion_path).unwrap_or(u32::MAX),
-            )
+            || !unit
+                .instances
+                .contains(&demand_path_target(inventory, &unit.inclusion_path).unwrap_or(u32::MAX))
         {
             return false;
         }
@@ -308,22 +307,15 @@ fn valid_native_codegen_inventory(inventory: &crate::CompilationProfileNativeCod
     }
 
     if inventory
-        .standard_library_artifacts
+        .library_artifacts
         .windows(2)
         .any(|entries| entries[0].path >= entries[1].path)
     {
         return false;
     }
 
-    inventory.standard_library_artifacts.iter().all(|artifact| {
-        !artifact.path.trim().is_empty()
-            && artifact.bytes != 0
-            && artifact
-                .partition
-                .as_ref()
-                .is_none_or(|partition| !partition.trim().is_empty())
-            && (artifact.modules == 0) == artifact.partition.is_none()
-            && valid_canonical_strings(&artifact.platform_services)
+    inventory.library_artifacts.iter().all(|artifact| {
+        !artifact.path.trim().is_empty() && (artifact.modules == 0) == (artifact.bytes == 0)
     })
 }
 
@@ -339,7 +331,9 @@ fn demand_path_target(
     inventory: &crate::CompilationProfileNativeCodegen,
     path: &[u32],
 ) -> Option<u32> {
-    let first = inventory.demands.get(usize::try_from(*path.first()?).ok()?)?;
+    let first = inventory
+        .demands
+        .get(usize::try_from(*path.first()?).ok()?)?;
 
     if first.predecessor.is_some() {
         return None;
@@ -592,10 +586,6 @@ mod tests {
         invalid.runtime_artifacts = vec![crate::CompilationProfileRuntimeArtifact {
             identity: " ".to_owned(),
             bytes: 1,
-            runtime_roles: Vec::new(),
-            capabilities: Vec::new(),
-            platform_services: Vec::new(),
-            retained_by: Vec::new(),
         }];
 
         assert_eq!(
@@ -609,18 +599,10 @@ mod tests {
             crate::CompilationProfileRuntimeArtifact {
                 identity: "runtime.host".to_owned(),
                 bytes: 1,
-                runtime_roles: Vec::new(),
-                capabilities: Vec::new(),
-                platform_services: Vec::new(),
-                retained_by: Vec::new(),
             },
             crate::CompilationProfileRuntimeArtifact {
                 identity: "runtime.host".to_owned(),
                 bytes: 1,
-                runtime_roles: Vec::new(),
-                capabilities: Vec::new(),
-                platform_services: Vec::new(),
-                retained_by: Vec::new(),
             },
         ];
 
@@ -718,7 +700,7 @@ mod tests {
                 },
             ],
             runtime_demands: vec![crate::CompilationProfileNativeRuntimeDemand {
-                predecessor: 0,
+                predecessor: Some(0),
                 role: "panic_reporting".to_owned(),
                 provider: "bray_panic_reporting".to_owned(),
             }],
@@ -736,21 +718,64 @@ mod tests {
                 linkages: vec!["export".to_owned()],
                 visibilities: vec!["public".to_owned()],
             }],
-            standard_library_artifacts: vec![crate::CompilationProfileOptimizationArtifact {
+            library_artifacts: vec![crate::CompilationProfileLibraryArtifact {
                 path: "targets/test/std.bc".to_owned(),
-                partition: Some("std".to_owned()),
                 modules: 1,
                 bytes: 1,
-                platform_services: Vec::new(),
             }],
         };
 
         let mut valid = report(1_000_000);
+
         valid.native_codegen = Some(inventory.clone());
 
         assert_eq!(valid.validate(), Ok(()));
 
+        let mut object = report(1_000_000);
+        let mut object_inventory = inventory.clone();
+
+        object_inventory.library_artifacts[0].path =
+            "targets/test/native-object-index.json".to_owned();
+
+        object_inventory.library_artifacts[0].modules = 0;
+        object_inventory.library_artifacts[0].bytes = 0;
+        object.native_codegen = Some(object_inventory);
+
+        assert_eq!(object.validate(), Ok(()));
+
+        let mut invalid_bytes = report(1_000_000);
+        let mut invalid_inventory = inventory.clone();
+
+        invalid_inventory.library_artifacts[0].bytes = 0;
+        invalid_bytes.native_codegen = Some(invalid_inventory);
+
+        assert_eq!(
+            invalid_bytes.validate(),
+            Err(CompilationProfileValidationError::InvalidNativeCodegenInventory)
+        );
+
+        let mut native_root = report(1_000_000);
+        native_root.native_codegen = Some(inventory.clone());
+        native_root.native_codegen.as_mut().unwrap().runtime_demands[0].predecessor = None;
+        assert!(native_root.validate().is_ok());
+        let encoded = serde_json::to_vec(&native_root).expect("native root profile must serialize");
+
+        let decoded: crate::CompilationProfileReport =
+            serde_json::from_slice(&encoded).expect("native root profile must decode");
+
+        assert_eq!(decoded.schema_revision, 1);
+        assert_eq!(decoded, native_root);
+
+        native_root.native_codegen.as_mut().unwrap().runtime_demands[0].predecessor =
+            Some(u32::MAX);
+
+        assert_eq!(
+            native_root.validate(),
+            Err(CompilationProfileValidationError::InvalidNativeCodegenInventory)
+        );
+
         let mut invalid_role_provider = report(1_000_000);
+
         invalid_role_provider.native_codegen = Some(inventory.clone());
 
         invalid_role_provider
@@ -767,6 +792,7 @@ mod tests {
         );
 
         let mut fabricated_demand = report(1_000_000);
+
         fabricated_demand.native_codegen = Some(inventory.clone());
 
         fabricated_demand
@@ -789,6 +815,7 @@ mod tests {
         );
 
         let mut unexplained_dependency = report(1_000_000);
+
         unexplained_dependency.native_codegen = Some(inventory.clone());
 
         unexplained_dependency
@@ -811,6 +838,7 @@ mod tests {
         );
 
         let mut duplicate = report(1_000_000);
+
         duplicate.native_codegen = Some(inventory);
 
         duplicate

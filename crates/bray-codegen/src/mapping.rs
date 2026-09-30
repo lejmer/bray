@@ -20,7 +20,7 @@ pub use model::{
 };
 pub use native_static::CodegenNativeStaticMapping;
 pub use product_host::{
-    CodegenProductHostMapping, CodegenProductHostStatic, static_host_section_name,
+    CodegenProductHostMapping, CodegenProductHostStatic, LINKED_PRODUCT_HOST_SYMBOL,
 };
 pub use reference::{
     CodegenCallSite, CodegenCallableMapping, CodegenCallableTarget, CodegenHelperMapping,
@@ -28,7 +28,7 @@ pub use reference::{
 };
 pub use static_storage::{
     CodegenStaticFinalization, CodegenStaticIncidentMemory, CodegenStaticInstanceKey,
-    CodegenStaticRelocation, CodegenStaticStorageMapping, CodegenStaticWitness,
+    CodegenStaticRelocation, CodegenStaticStorageMapping,
 };
 pub use symbol::{
     CodegenNativeEntryMapping, CodegenSymbolKey, CodegenSymbolMapping,

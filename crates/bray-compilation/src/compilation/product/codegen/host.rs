@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_codegen::{
     CodegenLinkage, CodegenMappings, CodegenProductHostMapping, CodegenProductHostStatic,
-    CodegenTarget, demanded_runtime_references_for_mir, mapped_symbol_runtime_roles,
+    CodegenTarget,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_runtime_interface::{
@@ -13,11 +13,10 @@ use bray_runtime_interface::{
 use bray_symbols::{GenericArgument, ProductIdentity, ProductKind};
 
 use super::super::super::Compilation;
-use super::super::error::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
 use super::super::specialization::{ConcreteCodegenInstance, ConcreteCodegenReachability};
-use super::error::NativeProductPlanningError;
 use super::NativeDemand;
-use crate::fact::{CancellationToken, FactQueryError};
+use super::error::NativeProductPlanningError;
+use crate::fact::CancellationToken;
 
 impl Compilation {
     pub(super) fn codegen_product_host_mapping(
@@ -25,9 +24,10 @@ impl Compilation {
         product: &ProductIdentity,
         mappings: &[CodegenMappings],
         entries: &[super::super::realization::ProductStaticHostEntry],
+        native_statics: &[bray_native_artifact::NativeStatic],
         target: &CodegenTarget,
     ) -> Result<Option<CodegenProductHostMapping>, NativeProductPlanningError> {
-        if entries.is_empty() {
+        if entries.is_empty() && native_statics.is_empty() {
             return Ok(None);
         }
 
@@ -39,8 +39,9 @@ impl Compilation {
                     .iter()
                     .any(bray_codegen::CodegenStaticStorageMapping::defines_storage)
             })
+            .or_else(|| mappings.first())
             .map(CodegenMappings::unit)
-            .expect("product host entries require a defined static storage");
+            .expect("product host entries require an emitted host or static unit");
 
         let mut realizations = BTreeMap::new();
 
@@ -48,20 +49,17 @@ impl Compilation {
             if let Some(previous) = realizations.insert(mapping.instance(), mapping)
                 && previous.symbol() != mapping.symbol()
             {
-                return Err(FactQueryError::from(ProductQueryFailure::Conflict {
-                    context: ProductQueryContext::CodegenStatic(mapping.instance().clone()),
-                    data: ProductDataKind::ProductHostStaticMapping,
-                })
-                .into());
+                panic!(
+                    "static {:?} must have one emitted symbol, found {:?} and {:?}",
+                    mapping.instance(),
+                    previous.symbol(),
+                    mapping.symbol()
+                );
             }
         }
 
-        let descriptor_symbol = super::super::realization::generated_symbol_name(
-            target,
-            CodegenLinkage::LinkOnce,
-            "product_host",
-            product,
-        )?;
+        let descriptor_symbol = BinarySymbolName::try_new(bray_codegen::LINKED_PRODUCT_HOST_SYMBOL)
+            .expect("linked product descriptor symbol must be valid");
 
         let control_symbol = super::super::realization::generated_symbol_name(
             target,
@@ -74,19 +72,16 @@ impl Compilation {
             super::super::realization::generated_identity("product_host", product),
         );
 
-        let statics = entries
+        let mut statics = entries
             .iter()
             .enumerate()
             .map(|(order, entry)| {
-                let mapping = realizations.get(entry.key()).ok_or_else(|| {
-                    FactQueryError::from(ProductQueryFailure::missing(
-                        ProductQueryContext::CodegenStatic(entry.key().clone()),
-                        ProductDataKind::ProductHostStaticMapping,
-                    ))
-                })?;
+                let mapping = realizations
+                    .get(entry.key())
+                    .expect("retained source static must have its emitted storage mapping");
 
                 let host_symbol = BinarySymbolName::try_new(mapping.host_name())
-                    .ok_or(NativeProductPlanningError::InvalidSymbolName)?;
+                    .expect("emitted static host symbol must be a valid binary name");
 
                 let identity = bray_runtime_abi::NativeStaticIdentity::new(
                     super::super::realization::generated_identity("static_host", entry.key()),
@@ -98,41 +93,115 @@ impl Compilation {
                     )
                 });
 
-                let order = u64::try_from(order).map_err(|_| {
-                    FactQueryError::from(ProductQueryFailure::CountMismatch {
-                        context: ProductQueryContext::CodegenStatic(entry.key().clone()),
-                        data: ProductDataKind::ProductHostStaticMapping,
-                        expected: usize::try_from(u64::MAX).unwrap_or(usize::MAX),
-                        actual: order,
-                    })
-                })?;
+                let order = u64::try_from(order)
+                    .expect("retained static ordinal must fit the native host ABI");
 
-                Ok(CodegenProductHostStatic::new(
+                CodegenProductHostStatic::new(
                     host_symbol,
                     identity,
                     entry.key().duration(),
                     order,
                     dependencies,
-                ))
+                )
             })
-            .collect::<Result<Vec<_>, NativeProductPlanningError>>()?;
+            .collect::<Vec<_>>();
+
+        statics.extend(native_statics.iter().map(|entry| {
+            CodegenProductHostStatic::new(
+                BinarySymbolName::try_new(entry.symbol())
+                    .expect("validated native static symbol must be valid"),
+                bray_runtime_abi::NativeStaticIdentity::new(entry.identity()),
+                entry.duration(),
+                0,
+                entry
+                    .dependencies()
+                    .iter()
+                    .copied()
+                    .map(bray_runtime_abi::NativeStaticIdentity::new),
+            )
+        }));
+
+        let key_inputs = entries
+            .iter()
+            .map(|entry| {
+                (
+                    bray_runtime_abi::NativeStaticIdentity::new(
+                        super::super::realization::generated_identity("static_host", entry.key()),
+                    ),
+                    entry.order_key(),
+                )
+            })
+            .chain(native_statics.iter().map(|entry| {
+                (
+                    bray_runtime_abi::NativeStaticIdentity::new(entry.identity()),
+                    entry.order_key(),
+                )
+            }));
+
+        let mut order_keys = BTreeMap::new();
+
+        for (identity, key) in key_inputs {
+            if let Some(previous) = order_keys.insert(identity, key) {
+                if previous != key {
+                    return Err(NativeProductPlanningError::NativeResolution(
+                        bray_native_artifact::NativeResolutionError::ConflictingStatic(
+                            identity.bytes(),
+                        ),
+                    ));
+                }
+            }
+        }
+
+        let statics = order_product_statics(statics, &order_keys)
+            .map_err(NativeProductPlanningError::NativeResolution)?;
 
         // The product mapping owns the Arc-backed unit identity after preparation returns.
-        CodegenProductHostMapping::try_new(
-            owner.clone(),
-            identity,
-            descriptor_symbol,
-            control_symbol,
-            statics,
-        )
-        .map(Some)
-        .ok_or_else(|| {
-            FactQueryError::from(ProductQueryFailure::Conflict {
-                context: ProductQueryContext::Target(target.clone()),
-                data: ProductDataKind::ProductHostOwnerUnit,
-            })
-            .into()
-        })
+        Ok(Some(
+            CodegenProductHostMapping::try_new(
+                owner.clone(),
+                identity,
+                descriptor_symbol,
+                control_symbol,
+                statics,
+            )
+            .expect("ordered static host contributions must form a valid product mapping"),
+        ))
+    }
+
+    pub(super) fn product_runtime_requirements(
+        &self,
+        runtime: Option<&RuntimeArtifact>,
+        target: &CodegenTarget,
+        roles: &BTreeSet<RuntimeAbiRole>,
+        mut capabilities: BTreeSet<RuntimeCapability>,
+    ) -> Result<RuntimeRequirements, NativeProductPlanningError> {
+        if roles
+            .iter()
+            .any(|role| role.service_class() == Some(RuntimeServiceClass::Execution))
+        {
+            capabilities.insert(RuntimeCapability::CooperativeExecution);
+        }
+
+        let requires_runtime = !roles.is_empty() || !capabilities.is_empty();
+
+        let runtime = runtime
+            .filter(|_| requires_runtime)
+            .map(RuntimeArtifact::contract);
+
+        if runtime.is_none() && requires_runtime {
+            return Err(NativeProductPlanningError::MissingRuntime);
+        }
+
+        Ok(RuntimeRequirements::new(
+            runtime.map(|runtime| runtime.identity().clone()),
+            self.selected_target().target().runtime_abi(),
+            runtime.map(|runtime| runtime.frame_abi()),
+            target.identity().clone(),
+            target.panic_abi().clone(),
+            roles.iter().copied(),
+            capabilities,
+            [],
+        ))
     }
 
     pub(super) fn executable_host(
@@ -142,6 +211,7 @@ impl Compilation {
         roots: &[ConcreteCodegenInstance],
         reachability: Option<&ConcreteCodegenReachability>,
         statics: &[super::super::realization::ProductStaticHostEntry],
+        native_statics: &[bray_native_artifact::NativeStatic],
         runtime: Option<&RuntimeArtifact>,
         required_capabilities: impl IntoIterator<Item = RuntimeCapability>,
         target: &CodegenTarget,
@@ -192,26 +262,10 @@ impl Compilation {
 
         let runtime_contract = runtime.map(RuntimeArtifact::contract);
 
-        let mut runtime_roles: BTreeSet<_> = reachability
-            .into_iter()
-            .flat_map(ConcreteCodegenReachability::demands)
-            .filter_map(NativeDemand::role)
-            .collect();
+        let mut runtime_roles = native_host_runtime_roles(reachability, statics, native_statics);
 
-        if !statics.is_empty() {
-            runtime_roles.insert(RuntimeAbiRole::ProductHostControl);
-        }
-
-        let has_exact_thread_statics = statics.iter().any(|entry| {
-            entry.key().duration() == bray_symbols::StaticStorageDuration::ExactThread
-        });
-
-        if has_exact_thread_statics {
-            runtime_roles.extend([
-                RuntimeAbiRole::ThreadAttachmentIdentity,
-                RuntimeAbiRole::ThreadStaticCleanupRegistration,
-            ]);
-        }
+        let has_exact_thread_statics =
+            runtime_roles.contains(&RuntimeAbiRole::ThreadStaticCleanupRegistration);
 
         if kind != ProductKind::Test {
             runtime_roles.remove(&RuntimeAbiRole::TestEntrySelection);
@@ -261,40 +315,18 @@ impl Compilation {
 
         let mut capabilities: BTreeSet<_> = required_capabilities.into_iter().collect();
 
-        if runtime_roles
-            .iter()
-            .any(|role| role.service_class() == Some(RuntimeServiceClass::Execution))
-        {
-            capabilities.insert(RuntimeCapability::CooperativeExecution);
-        }
-
-        if has_async_entries {
+        if has_async_entries || requires_main_thread_cleanup(statics, native_statics) {
             capabilities.insert(RuntimeCapability::MainThreadLane);
+            runtime_roles.insert(RuntimeAbiRole::RuntimeInitialization);
         }
 
-        let requires_runtime = !runtime_roles.is_empty() || !capabilities.is_empty();
+        let requirements =
+            self.product_runtime_requirements(runtime, target, &runtime_roles, capabilities)?;
 
-        if runtime_contract.is_none() && requires_runtime {
-            return Err(NativeProductPlanningError::MissingRuntime);
-        }
+        let requires_runtime = requirements.requires_implementation();
 
-        let requirements = RuntimeRequirements::new(
-            runtime_contract
-                .filter(|_| requires_runtime)
-                .map(|runtime| runtime.identity().clone()),
-            self.selected_target().target().runtime_abi(),
-            runtime_contract
-                .filter(|_| requires_runtime)
-                .map(|runtime| runtime.frame_abi()),
-            target.identity().clone(),
-            target.panic_abi().clone(),
-            runtime_roles.iter().copied(),
-            capabilities,
-            [],
-        );
-
-        let native_entry = BinarySymbolName::try_new("main")
-            .ok_or(NativeProductPlanningError::InvalidSymbolName)?;
+        let native_entry =
+            BinarySymbolName::try_new("main").expect("executable native entry name must be valid");
 
         let mut entries = entries.into_iter();
 
@@ -348,56 +380,10 @@ impl Compilation {
             .map_err(NativeProductPlanningError::InvalidExecutableHost)
     }
 
-    pub(super) fn mapped_product_runtime_demands(
-        &self,
-        reachability: &ConcreteCodegenReachability,
-        cancellation: &CancellationToken,
-    ) -> Result<BTreeSet<NativeDemand>, NativeProductPlanningError> {
-        let graph = reachability.graph();
-        let mut demands = BTreeSet::new();
-
-        for instance in graph.instances() {
-            let key = instance.key();
-
-            demands.extend(
-                demanded_runtime_references_for_mir(instance.mir())
-                    .into_iter()
-                    .map(|reference| NativeDemand::runtime_role(key.clone(), reference.role())),
-            );
-        }
-
-        for key in graph
-            .instances()
-            .iter()
-            .map(bray_codegen::CodegenInstance::key)
-            .chain(graph.external_instances())
-        {
-            let native_entry = graph.instance(key).is_some()
-                && self
-                    .codegen_native_boundary(key, &BTreeSet::new(), cancellation)?
-                    .is_some_and(|boundary| boundary.is_callback());
-
-            let realization = reachability.instance(key).ok_or_else(|| {
-                FactQueryError::from(ProductQueryFailure::missing(
-                    ProductQueryContext::Instance(key.clone()),
-                    ProductDataKind::ConcreteInstance,
-                ))
-            })?;
-
-            let panic_report_context = self
-                .codegen_instance_signature(realization, cancellation)?
-                .has_panic_report_context();
-
-            demands.extend(
-                mapped_symbol_runtime_roles(native_entry, panic_report_context)
-                    .into_iter()
-                    .map(|role| NativeDemand::runtime_role(key.clone(), role)),
-            );
-        }
-
-        Ok(demands)
-    }
-
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "native demand retains the selected product and codegen contracts"
+    )]
     fn executable_entry_result(
         &self,
         root: &ConcreteCodegenInstance,
@@ -435,12 +421,7 @@ impl Compilation {
                 let representation = self
                     .available_compiler_known_symbols()
                     .result_representation()
-                    .ok_or_else(|| {
-                        FactQueryError::from(ProductQueryFailure::missing(
-                            ProductQueryContext::Type(ty),
-                            ProductDataKind::ResultRepresentation,
-                        ))
-                    })?;
+                    .expect("selected compiler-known Result must have its representation");
 
                 let bray_symbols::TypeData::Named { substitution, .. } = data.as_ref() else {
                     return Err(NativeProductPlanningError::InvalidEntryResult);
@@ -480,5 +461,269 @@ impl Compilation {
             }
             _ => Err(NativeProductPlanningError::InvalidEntryResult),
         }
+    }
+}
+
+pub(super) fn native_static_host_entries(
+    kind: ProductKind,
+    native_statics: &[bray_native_artifact::NativeStatic],
+    source_statics: &[super::super::realization::ProductStaticHostEntry],
+) -> Vec<bray_native_artifact::NativeStatic> {
+    let contributions = native_statics
+        .iter()
+        .map(|entry| (entry.identity(), entry))
+        .collect::<BTreeMap<_, _>>();
+
+    let retained = bray_base::transitive_dependencies(
+        native_statics
+            .iter()
+            .filter(|entry| kind == ProductKind::Library || entry.requires_host())
+            .map(bray_native_artifact::NativeStatic::identity)
+            .chain(
+                source_statics
+                    .iter()
+                    .flat_map(|entry| entry.dependencies())
+                    .map(|key| super::super::realization::generated_identity("static_host", key)),
+            ),
+        |identity| {
+            contributions
+                .get(identity)
+                .into_iter()
+                .flat_map(|entry| entry.dependencies())
+                .copied()
+        },
+    );
+
+    native_statics
+        .iter()
+        .filter(|entry| retained.contains(&entry.identity()))
+        .cloned()
+        .collect()
+}
+
+pub(super) fn native_host_runtime_roles(
+    reachability: Option<&ConcreteCodegenReachability>,
+    statics: &[super::super::realization::ProductStaticHostEntry],
+    native_statics: &[bray_native_artifact::NativeStatic],
+) -> BTreeSet<RuntimeAbiRole> {
+    let mut roles = reachability
+        .into_iter()
+        .flat_map(ConcreteCodegenReachability::demands)
+        .filter_map(NativeDemand::role)
+        .collect::<BTreeSet<_>>();
+
+    if !statics.is_empty() || !native_statics.is_empty() {
+        roles.insert(RuntimeAbiRole::ProductHostControl);
+    }
+
+    if statics
+        .iter()
+        .any(|entry| entry.key().duration() == bray_symbols::StaticStorageDuration::ExactThread)
+        || native_statics
+            .iter()
+            .any(|entry| entry.duration() == bray_symbols::StaticStorageDuration::ExactThread)
+    {
+        roles.extend([
+            RuntimeAbiRole::ThreadAttachmentIdentity,
+            RuntimeAbiRole::ThreadStaticCleanupRegistration,
+        ]);
+    }
+
+    roles
+}
+
+pub(super) fn requires_main_thread_cleanup(
+    statics: &[super::super::realization::ProductStaticHostEntry],
+    native_statics: &[bray_native_artifact::NativeStatic],
+) -> bool {
+    statics
+        .iter()
+        .any(super::super::realization::ProductStaticHostEntry::requires_main_thread_cleanup)
+        || native_statics
+            .iter()
+            .any(bray_native_artifact::NativeStatic::requires_main_thread)
+}
+
+fn order_product_statics(
+    entries: Vec<CodegenProductHostStatic>,
+    order_keys: &BTreeMap<bray_runtime_abi::NativeStaticIdentity, &[u8]>,
+) -> Result<Vec<CodegenProductHostStatic>, bray_native_artifact::NativeResolutionError> {
+    use bray_native_artifact::NativeResolutionError as Error;
+    let mut unique = BTreeMap::<_, CodegenProductHostStatic>::new();
+    let mut order_identities = BTreeMap::new();
+
+    for entry in entries {
+        if let Some(previous) = unique.get(&entry.identity()) {
+            if previous.host_symbol() != entry.host_symbol()
+                || previous.duration() != entry.duration()
+                || previous.dependencies() != entry.dependencies()
+            {
+                return Err(Error::ConflictingStatic(entry.identity().bytes()));
+            }
+        }
+
+        if let Some(previous) =
+            order_identities.insert(order_keys[&entry.identity()], entry.identity())
+        {
+            if previous != entry.identity() {
+                return Err(Error::AmbiguousStaticOrder {
+                    first: previous.bytes(),
+                    second: entry.identity().bytes(),
+                });
+            }
+        }
+
+        unique.insert(entry.identity(), entry);
+    }
+
+    for entry in unique.values() {
+        for provider in entry.dependencies() {
+            assert!(
+                unique.contains_key(provider),
+                "resolved static lifecycle provider {provider:?} must have a product host entry"
+            );
+        }
+    }
+
+    let dependencies = unique
+        .iter()
+        .map(|(identity, entry)| (*identity, entry.dependencies().to_vec()))
+        .collect();
+
+    let ordered = super::super::structural_order::dependency_order(&dependencies, order_keys)
+        .map_err(|cycle| {
+            Error::StaticLifecycleCycle(
+                cycle.into_iter().map(|identity| identity.bytes()).collect(),
+            )
+        })?;
+
+    Ok(ordered
+        .into_iter()
+        .enumerate()
+        .map(|(order, identity)| {
+            let entry = unique
+                .remove(&identity)
+                .expect("ordered static must have an entry");
+
+            CodegenProductHostStatic::new(
+                entry.host_symbol().clone(),
+                entry.identity(),
+                entry.duration(),
+                u64::try_from(order).expect("static count must fit u64"),
+                entry.dependencies().iter().copied(),
+            )
+        })
+        .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::order_product_statics;
+    use bray_codegen::CodegenProductHostStatic;
+    use bray_native_artifact::NativeResolutionError;
+    use bray_runtime_abi::NativeStaticIdentity;
+    use bray_runtime_interface::BinarySymbolName;
+    use bray_symbols::StaticStorageDuration;
+    use std::collections::BTreeMap;
+
+    fn entry(id: u8, dependencies: &[u8]) -> CodegenProductHostStatic {
+        CodegenProductHostStatic::new(
+            BinarySymbolName::try_new(format!("static_{id}")).unwrap(),
+            NativeStaticIdentity::new([id; 32]),
+            StaticStorageDuration::Product,
+            0,
+            dependencies
+                .iter()
+                .map(|id| NativeStaticIdentity::new([*id; 32])),
+        )
+    }
+
+    #[test]
+    fn native_hosts_keep_lifecycle_providers_without_hosting_unrelated_plain_storage() {
+        let entry = |identity: u8, requires_host, dependencies: Vec<[u8; 32]>| {
+            bray_native_artifact::NativeStatic::new(
+                bray_base::NonEmptySharedStr::try_new(format!("host_{identity}")).unwrap(),
+                [identity; 32],
+                vec![identity].into(),
+                StaticStorageDuration::Product,
+                dependencies,
+                requires_host,
+                false,
+            )
+        };
+
+        let statics = [
+            entry(1, true, vec![[2; 32]]),
+            entry(2, false, vec![]),
+            entry(3, false, vec![]),
+        ];
+
+        assert_eq!(
+            super::native_static_host_entries(bray_symbols::ProductKind::Executable, &statics, &[]),
+            statics[..2]
+        );
+
+        assert_eq!(
+            super::native_static_host_entries(bray_symbols::ProductKind::Test, &statics, &[]),
+            statics[..2]
+        );
+
+        assert_eq!(
+            super::native_static_host_entries(bray_symbols::ProductKind::Library, &statics, &[]),
+            statics
+        );
+
+        assert!(
+            super::native_static_host_entries(
+                bray_symbols::ProductKind::Executable,
+                &statics[1..],
+                &[]
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "must have a product host entry")]
+    fn product_host_requires_the_resolved_static_closure() {
+        let first = NativeStaticIdentity::new([1; 32]);
+        let keys = BTreeMap::from([(first, b"a".as_slice())]);
+        let _ = order_product_statics(vec![entry(1, &[2])], &keys);
+    }
+
+    #[test]
+    fn imported_lifecycle_dependencies_are_validated_before_ordering() {
+        let first = NativeStaticIdentity::new([1; 32]);
+        let second = NativeStaticIdentity::new([2; 32]);
+        let keys = BTreeMap::from([(first, b"a".as_slice()), (second, b"b".as_slice())]);
+
+        assert!(matches!(
+            order_product_statics(vec![entry(1, &[2]), entry(2, &[1])], &keys),
+            Err(NativeResolutionError::StaticLifecycleCycle(_))
+        ));
+
+        assert!(matches!(
+            order_product_statics(vec![entry(1, &[]), entry(1, &[2]), entry(2, &[])], &keys),
+            Err(NativeResolutionError::ConflictingStatic(_))
+        ));
+
+        let same_key = BTreeMap::from([(first, b"a".as_slice()), (second, b"a".as_slice())]);
+
+        assert!(matches!(
+            order_product_statics(vec![entry(1, &[]), entry(2, &[])], &same_key),
+            Err(NativeResolutionError::AmbiguousStaticOrder { .. })
+        ));
+
+        let ordered =
+            order_product_statics(vec![entry(1, &[]), entry(1, &[]), entry(2, &[1])], &keys)
+                .unwrap();
+
+        assert_eq!(
+            ordered
+                .iter()
+                .map(CodegenProductHostStatic::identity)
+                .collect::<Vec<_>>(),
+            [second, first]
+        );
     }
 }

@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
-use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use bray_runtime_interface::{PlatformServiceRole, RuntimeAbiVersion};
+use bray_package_interface::{InterfaceValidationError, PackageImplementationArtifact};
+use bray_runtime_interface::RuntimeAbiVersion;
 use bray_target::TargetIdentity;
 
 use crate::{
@@ -14,12 +14,21 @@ use crate::{
 };
 
 /// One digest-validated standard library artifact selected from a bundle.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct ResolvedStandardLibraryArtifact {
     metadata: StandardLibraryArtifact,
     path: Arc<Path>,
     bytes: Arc<[u8]>,
+    input: bray_package_interface::PackageArtifactInput,
 }
+
+impl PartialEq for ResolvedStandardLibraryArtifact {
+    fn eq(&self, other: &Self) -> bool {
+        self.metadata == other.metadata && self.path == other.path && self.bytes == other.bytes
+    }
+}
+
+impl Eq for ResolvedStandardLibraryArtifact {}
 
 impl ResolvedStandardLibraryArtifact {
     /// Returns the manifest metadata that selected this artifact.
@@ -86,6 +95,18 @@ impl StandardLibraryResolver {
             .clone()
     }
 
+    /// Discovers the target inventory without reading implementation payloads.
+    pub fn target_inventory(
+        &self,
+        target: &TargetIdentity,
+        runtime_abi: RuntimeAbiVersion,
+    ) -> Result<crate::StandardLibraryTargetArtifacts, StandardLibraryLoadError> {
+        let manifest = self.manifest()?;
+
+        // The inventory shares immutable metadata independently of the manifest borrow.
+        target_inventory(&manifest, target, runtime_abi).cloned()
+    }
+
     /// Returns the public package interface selected for a target and runtime ABI.
     pub fn interface(
         &self,
@@ -112,6 +133,43 @@ impl StandardLibraryResolver {
         self.resolve(implementation)
     }
 
+    /// Parses the implementation once for the selected immutable bundle artifact.
+    pub fn implementation_artifact(
+        &self,
+        target: &TargetIdentity,
+        runtime_abi: RuntimeAbiVersion,
+    ) -> Result<(PathBuf, PackageImplementationArtifact), StandardLibraryLoadError> {
+        let resolved = self.implementation(target, runtime_abi)?;
+
+        Self::parse_implementation(resolved)
+    }
+
+    fn parse_implementation(
+        resolved: ResolvedStandardLibraryArtifact,
+    ) -> Result<(PathBuf, PackageImplementationArtifact), StandardLibraryLoadError> {
+        let path = resolved.path().to_path_buf();
+
+        let artifact = resolved
+            .input
+            .load_implementation()
+            .map_err(|cause| match cause {
+                bray_package_interface::PackageArtifactLoadError::Read(kind) => {
+                    StandardLibraryLoadError::Read {
+                        path: path.clone(),
+                        kind,
+                    }
+                }
+                bray_package_interface::PackageArtifactLoadError::Validation(cause) => {
+                    StandardLibraryLoadError::Implementation {
+                        path: path.clone(),
+                        cause,
+                    }
+                }
+            })?;
+
+        Ok((path, artifact))
+    }
+
     /// Returns the exact artifacts selected for a target and runtime ABI.
     pub fn target_artifacts(
         &self,
@@ -128,55 +186,6 @@ impl StandardLibraryResolver {
             .map(|artifact| self.resolve(artifact))
             .collect::<Result<Vec<_>, _>>()
             .map(Arc::from)
-    }
-
-    /// Returns native link artifacts after selecting providers for the required platform roles.
-    pub fn link_artifacts_for_platform_services(
-        &self,
-        target: &TargetIdentity,
-        runtime_abi: RuntimeAbiVersion,
-        platform_services: &[PlatformServiceRole],
-    ) -> Result<Arc<[ResolvedStandardLibraryArtifact]>, StandardLibraryLoadError> {
-        let manifest = self.manifest()?;
-        let selected = target_inventory(&manifest, target, runtime_abi)?;
-
-        selected
-            .artifacts()
-            .iter()
-            .filter(|artifact| match artifact.kind() {
-                crate::StandardLibraryArtifactKind::RelocatableObject
-                | crate::StandardLibraryArtifactKind::StaticLibrary
-                | crate::StandardLibraryArtifactKind::SharedLibrary => true,
-                crate::StandardLibraryArtifactKind::PlatformServiceLibrary => artifact
-                    .platform_services()
-                    .iter()
-                    .any(|role| platform_services.contains(role)),
-                crate::StandardLibraryArtifactKind::PackageInterface
-                | crate::StandardLibraryArtifactKind::PackageImplementation
-                | crate::StandardLibraryArtifactKind::DependencyMetadata
-                | crate::StandardLibraryArtifactKind::OptimizationArchive
-                | crate::StandardLibraryArtifactKind::RuntimeArtifact => false,
-            })
-            .map(|artifact| self.resolve(artifact))
-            .collect::<Result<Vec<_>, _>>()
-            .map(Arc::from)
-    }
-
-    /// Returns the platform-service roles available for one target and runtime ABI.
-    pub fn target_platform_services(
-        &self,
-        target: &TargetIdentity,
-        runtime_abi: RuntimeAbiVersion,
-    ) -> Result<Arc<[PlatformServiceRole]>, StandardLibraryLoadError> {
-        let manifest = self.manifest()?;
-        let selected = target_inventory(&manifest, target, runtime_abi)?;
-
-        Ok(selected
-            .artifacts()
-            .iter()
-            .flat_map(StandardLibraryArtifact::platform_services)
-            .copied()
-            .collect())
     }
 
     fn resolve(
@@ -231,9 +240,21 @@ fn load_manifest(
 ) -> Result<Arc<StandardLibraryBundleManifest>, StandardLibraryLoadError> {
     let path = root.path().join(STANDARD_LIBRARY_MANIFEST_FILE_NAME);
 
-    let bytes = fs::read(&path).map_err(|error| StandardLibraryLoadError::Read {
-        path: path.clone(),
-        kind: error.kind(),
+    let input = bray_package_interface::PackageArtifactInput::file(path.clone(), None);
+
+    let bytes = input.read().map_err(|cause| match cause {
+        bray_package_interface::PackageArtifactLoadError::Read(kind) => {
+            StandardLibraryLoadError::Read {
+                path: path.clone(),
+                kind,
+            }
+        }
+        bray_package_interface::PackageArtifactLoadError::Validation(cause) => {
+            StandardLibraryLoadError::Implementation {
+                path: path.clone(),
+                cause,
+            }
+        }
     })?;
 
     decode_standard_library_manifest(&bytes)
@@ -247,9 +268,21 @@ fn load_artifact(
 ) -> Result<ResolvedStandardLibraryArtifact, StandardLibraryLoadError> {
     let path = artifact.beneath(root.path());
 
-    let bytes = fs::read(&path).map_err(|error| StandardLibraryLoadError::Read {
-        path: path.clone(),
-        kind: error.kind(),
+    let input = bray_package_interface::PackageArtifactInput::file(path.clone(), None);
+
+    let bytes = input.read().map_err(|cause| match cause {
+        bray_package_interface::PackageArtifactLoadError::Read(kind) => {
+            StandardLibraryLoadError::Read {
+                path: path.clone(),
+                kind,
+            }
+        }
+        bray_package_interface::PackageArtifactLoadError::Validation(cause) => {
+            StandardLibraryLoadError::Implementation {
+                path: path.clone(),
+                cause,
+            }
+        }
     })?;
 
     let byte_len = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
@@ -274,8 +307,9 @@ fn load_artifact(
 
     Ok(ResolvedStandardLibraryArtifact {
         metadata: artifact.clone(),
+        input,
         path: Arc::from(path),
-        bytes: Arc::from(bytes),
+        bytes,
     })
 }
 
@@ -325,10 +359,12 @@ pub enum StandardLibraryLoadError {
         /// ABI recorded by the bundle.
         actual: RuntimeAbiVersion,
     },
-    /// The bundle has no optimization archive compatible with the selected compiler contract.
-    OptimizationUnavailable {
-        /// Exact selected target identity.
-        target: TargetIdentity,
+    /// The shared package container is invalid.
+    Implementation {
+        /// Exact selected implementation path.
+        path: PathBuf,
+        /// Exact container validation failure.
+        cause: InterfaceValidationError,
     },
     /// Resolver cache coordination failed for one exact selected artifact.
     Infrastructure {
@@ -548,12 +584,12 @@ mod tests {
             )
             .unwrap_or_else(|error| panic!("archive metadata must be valid: {error:?}"));
 
-            let target = bray_target::TargetIdentity::try_new("x86_64-unknown-linux-gnu")
+            let target = TargetIdentity::try_new("x86_64-unknown-linux-gnu")
                 .unwrap_or_else(|| panic!("target identity must be valid"));
 
             let target = target_artifacts_for_test(
                 target,
-                bray_runtime_interface::RuntimeAbiVersion::new(1, 0),
+                RuntimeAbiVersion::new(1, 0),
                 vec![interface, implementation, archive],
             )
             .unwrap_or_else(|error| panic!("target metadata must be valid: {error:?}"));
@@ -599,15 +635,6 @@ mod tests {
 
             let archive = self.archive_path();
 
-            let optimization = target
-                .artifacts()
-                .iter()
-                .find(|artifact| {
-                    artifact.kind() == StandardLibraryArtifactKind::OptimizationArchive
-                })
-                .unwrap_or_else(|| panic!("fixture must contain its optimization archive"))
-                .beneath(self.directory.path());
-
             fs::create_dir_all(
                 interface
                     .parent()
@@ -630,12 +657,6 @@ mod tests {
 
             fs::write(archive, b"archive")
                 .unwrap_or_else(|error| panic!("archive must be written: {error}"));
-
-            fs::write(
-                optimization,
-                crate::manifest::TEST_OPTIMIZATION_ARTIFACT_BYTES,
-            )
-            .unwrap_or_else(|error| panic!("optimization must be written: {error}"));
 
             let bytes = encode_standard_library_manifest(&self.manifest)
                 .unwrap_or_else(|error| panic!("manifest must encode: {error:?}"));

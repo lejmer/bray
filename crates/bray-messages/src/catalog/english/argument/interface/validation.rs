@@ -1,6 +1,8 @@
 use super::problem::format_english_interface_symbol_graph_problem;
 use super::{format_english_interface_limit, format_english_interface_section};
-use crate::catalog::english::argument::source::{format_english_artifact_digest, format_english_io_error_kind};
+use crate::catalog::english::argument::source::{
+    format_english_artifact_digest, format_english_io_error_kind,
+};
 
 pub(crate) fn format_english_interface_validation_failure(
     failure: &bray_diagnostics::DiagnosticInterfaceValidationFailure,
@@ -158,8 +160,17 @@ pub(crate) fn format_english_interface_validation_failure(
             format_english_artifact_digest(expected),
             format_english_artifact_digest(actual),
         ),
-        Failure::NativeArtifact { cause, unit, expected, actual, owner,
-            expected_target, actual_target, path, io_error_kind } => {
+        Failure::NativeArtifact {
+            cause,
+            unit,
+            expected,
+            actual,
+            owner,
+            expected_target,
+            actual_target,
+            path,
+            io_error_kind,
+        } => {
             use bray_diagnostics::DiagnosticNativeArtifactCause as Cause;
 
             let detail = match cause {
@@ -171,7 +182,9 @@ pub(crate) fn format_english_interface_validation_failure(
                 Cause::IndexInvalidSymbol => "native index symbol is invalid",
                 Cause::IndexInvalidLink => "native index link requirement is invalid",
                 Cause::IndexDigestMismatch => "native index digest differs from its commitment",
-                Cause::PayloadDigestMismatch => "native unit bytes differ from their content identity",
+                Cause::PayloadDigestMismatch => {
+                    "native unit bytes differ from their content identity"
+                }
                 Cause::WrongTarget => "native index targets another platform",
                 Cause::WrongProducer => "native index uses another code generation policy",
                 Cause::ReadFailure => "native unit could not be read",
@@ -179,7 +192,6 @@ pub(crate) fn format_english_interface_validation_failure(
                 Cause::InvalidSummary => "native unit summary disagrees with its kind",
                 Cause::DuplicateDefinition => "native unit repeats a definition",
                 Cause::InvalidAssociation => "native unit has an invalid COMDAT association",
-                Cause::InvalidLinkOption => "native unit has an invalid link option",
                 Cause::NoncanonicalSummary => "native unit summary is not in canonical order",
                 Cause::MissingCoRetentionMember => "native group refers to a missing unit",
                 Cause::DuplicateCoRetentionGroup => "native index repeats a group",
@@ -192,25 +204,37 @@ pub(crate) fn format_english_interface_validation_failure(
             };
 
             let mut message = format!("implementation artifact is invalid: {detail}");
-            if let Some(unit) = unit { message.push_str(&format!(" (unit 0x{})", hex_bytes(unit))); }
-            if let Some(owner) = owner { message.push_str(&format!(" (owner {owner})")); }
+
+            if let Some(unit) = unit {
+                message.push_str(&format!(" (unit 0x{})", hex_bytes(unit)));
+            }
+
+            if let Some(owner) = owner {
+                message.push_str(&format!(" (owner {owner})"));
+            }
 
             if let (Some(expected), Some(actual)) = (expected, actual) {
-                message.push_str(&format!(" (expected 0x{}, actual 0x{})", hex_bytes(expected), hex_bytes(actual)));
+                message.push_str(&format!(
+                    " (expected 0x{}, actual 0x{})",
+                    hex_bytes(expected),
+                    hex_bytes(actual)
+                ));
             }
 
             if let (Some(expected), Some(actual)) = (expected_target, actual_target) {
                 message.push_str(&format!(" (expected {expected}, actual {actual})"));
             }
 
-            if let Some(path) = path { message.push_str(&format!(" at {}", path.display())); }
+            if let Some(path) = path {
+                message.push_str(&format!(" at {}", path.display()));
+            }
 
             if let Some(kind) = io_error_kind {
                 message.push_str(&format!(": {}", format_english_io_error_kind(*kind)));
             }
 
             message
-        },
+        }
         Failure::ResourceLimitExceeded {
             limit,
             actual,

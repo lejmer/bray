@@ -27,6 +27,8 @@ pub enum ArtifactKind {
     PackageInterface,
     /// Compiled package implementation payloads.
     PackageImplementation,
+    /// Packed alternate native representation of a library.
+    PackageNativeImplementation,
     /// Compiler-owned dependency metadata.
     DependencyMetadata,
     /// Immutable native test-host catalog.
@@ -57,6 +59,9 @@ impl ArtifactKind {
             Self::DebugCompanion => DiagnosticArtifactKind::DebugCompanion,
             Self::PackageInterface => DiagnosticArtifactKind::PackageInterface,
             Self::PackageImplementation => DiagnosticArtifactKind::PackageImplementation,
+            Self::PackageNativeImplementation => {
+                DiagnosticArtifactKind::PackageNativeImplementation
+            }
             Self::DependencyMetadata => DiagnosticArtifactKind::DependencyMetadata,
             Self::TestCatalog => DiagnosticArtifactKind::TestCatalog,
             Self::Executable => DiagnosticArtifactKind::Executable,
@@ -77,6 +82,7 @@ impl ArtifactKind {
             Self::DebugCompanion => Some(BackendArtifactKind::DebugCompanion),
             Self::PackageInterface
             | Self::PackageImplementation
+            | Self::PackageNativeImplementation
             | Self::DependencyMetadata
             | Self::TestCatalog
             | Self::Executable
@@ -96,6 +102,7 @@ impl ArtifactKind {
             Self::DebugCompanion => TargetOutputKind::DebugCompanion,
             Self::PackageInterface => TargetOutputKind::PackageInterface,
             Self::PackageImplementation => TargetOutputKind::PackageImplementation,
+            Self::PackageNativeImplementation => TargetOutputKind::PackageNativeImplementation,
             Self::DependencyMetadata => TargetOutputKind::DependencyMetadata,
             Self::TestCatalog => TargetOutputKind::TestCatalog,
             Self::Executable => TargetOutputKind::Executable,
@@ -124,6 +131,7 @@ impl ArtifactKind {
             | Self::DebugCompanion
             | Self::PackageInterface
             | Self::PackageImplementation
+            | Self::PackageNativeImplementation
             | Self::DependencyMetadata
             | Self::TestCatalog => false,
         }
@@ -154,6 +162,7 @@ impl From<TargetOutputKind> for ArtifactKind {
             TargetOutputKind::DebugCompanion => Self::DebugCompanion,
             TargetOutputKind::PackageInterface => Self::PackageInterface,
             TargetOutputKind::PackageImplementation => Self::PackageImplementation,
+            TargetOutputKind::PackageNativeImplementation => Self::PackageNativeImplementation,
             TargetOutputKind::DependencyMetadata => Self::DependencyMetadata,
             TargetOutputKind::TestCatalog => Self::TestCatalog,
             TargetOutputKind::Executable => Self::Executable,
@@ -191,6 +200,8 @@ pub enum ArtifactRole {
     Inspection,
     /// Private input staged for the native linker.
     LinkInput,
+    /// Private backend content to pack into a library implementation artifact.
+    PackageInput,
     /// Externally visible companion to another product artifact.
     Companion,
 }
@@ -268,6 +279,7 @@ mod tests {
             TargetOutputKind::DebugCompanion,
             TargetOutputKind::PackageInterface,
             TargetOutputKind::PackageImplementation,
+            TargetOutputKind::PackageNativeImplementation,
             TargetOutputKind::DependencyMetadata,
             TargetOutputKind::TestCatalog,
             TargetOutputKind::Executable,

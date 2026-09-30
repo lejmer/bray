@@ -8,8 +8,8 @@ mod lifecycle;
 mod names;
 mod native_statics;
 mod operations;
-mod outgoing;
 mod optimization;
+mod outgoing;
 mod runtime_signatures;
 mod runtime_source;
 mod signatures;
@@ -30,5 +30,5 @@ pub(in crate::compilation::product) use contextual_self::{
 pub(in crate::compilation) use names::{
     generated_frame_symbol_name, generated_identity, generated_symbol_name,
 };
-pub(in crate::compilation::product) use storage::ProductStaticHostEntry;
+pub(in crate::compilation::product) use storage::{NativeCallableEffects, ProductStaticHostEntry};
 pub(super) use support::closed_array_length;

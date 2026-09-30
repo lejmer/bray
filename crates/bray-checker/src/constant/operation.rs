@@ -41,7 +41,7 @@ pub(super) fn fold_unary(
             ConstantValueKind::Integer(value.clone())
         }
         (BoundOperator::Subtract, ConstantValueKind::Integer(value)) => {
-            integer(-to_big_integer(value))
+            ConstantValueKind::Integer(value.negated())
         }
         (BoundOperator::LogicalNot, ConstantValueKind::Boolean(value)) => {
             ConstantValueKind::Boolean(!value)

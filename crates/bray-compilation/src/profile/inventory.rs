@@ -2,9 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_profile::{
     CompilationProfileCodegenDependency, CompilationProfileCodegenInstance,
-    CompilationProfileCodegenUnit, CompilationProfileNativeCodegen,
-    CompilationProfileNativeDemand, CompilationProfileNativeDemandKind,
-    CompilationProfileNativeRuntimeDemand,
+    CompilationProfileCodegenUnit, CompilationProfileNativeCodegen, CompilationProfileNativeDemand,
+    CompilationProfileNativeDemandKind, CompilationProfileNativeRuntimeDemand,
 };
 
 pub(super) fn set_native_codegen_plan(
@@ -52,33 +51,40 @@ pub(super) fn set_native_codegen_plan(
     inventory.demands = demands
         .iter()
         .filter_map(|demand| {
-            demand.instance_target().map(|target| CompilationProfileNativeDemand {
-                predecessor: demand.predecessor().map(|key| identities[key]),
-                target: identities[target],
-                kind: demand_kind(demand.reason()),
-            })
+            demand
+                .instance_target()
+                .map(|target| CompilationProfileNativeDemand {
+                    predecessor: demand.predecessor().map(|key| identities[key]),
+                    target: identities[target],
+                    kind: demand_kind(demand.reason()),
+                })
         })
         .collect();
 
     inventory.runtime_demands = demands
         .iter()
         .filter_map(|demand| {
-            demand.role().map(|role| CompilationProfileNativeRuntimeDemand {
-                predecessor: identities[demand
-                    .predecessor()
-                    .expect("runtime demand must have a retaining instance")],
-                role: role.as_str().to_owned(),
-                provider: bray_runtime_interface::selected_runtime_role_symbol(host, role)
-                    .unwrap_or_else(|| panic!("selected runtime role {role:?} must have a provider"))
-                    .as_str()
-                    .to_owned(),
-            })
+            demand
+                .role()
+                .map(|role| CompilationProfileNativeRuntimeDemand {
+                    predecessor: demand.predecessor().map(|key| identities[key]),
+                    role: role.as_str().to_owned(),
+                    provider: bray_runtime_interface::selected_runtime_role_symbol(host, role)
+                        .unwrap_or_else(|| {
+                            panic!("selected runtime role {role:?} must have a provider")
+                        })
+                        .as_str()
+                        .to_owned(),
+                })
         })
         .collect();
 
     inventory.runtime_demands.sort_unstable_by(|left, right| {
-        (&left.predecessor, &left.role, &left.provider)
-            .cmp(&(&right.predecessor, &right.role, &right.provider))
+        (&left.predecessor, &left.role, &left.provider).cmp(&(
+            &right.predecessor,
+            &right.role,
+            &right.provider,
+        ))
     });
 
     inventory.runtime_demands.dedup();
@@ -105,13 +111,14 @@ pub(super) fn set_native_codegen_plan(
         .instances()
         .iter()
         .flat_map(|instance| {
-            instance.dependencies().iter().map(|dependency| {
-                CompilationProfileCodegenDependency {
+            instance
+                .dependencies()
+                .iter()
+                .map(|dependency| CompilationProfileCodegenDependency {
                     source: identities[instance.key()],
                     target: identities[dependency.instance()],
                     kind: dependency_kind(dependency.kind()).to_owned(),
-                }
-            })
+                })
         })
         .collect::<Vec<_>>();
 
@@ -234,7 +241,9 @@ fn canonical_inclusion_paths(
 
     paths
         .into_iter()
-        .map(|path| path.unwrap_or_else(|| panic!("reachable native instance must have a demand path")))
+        .map(|path| {
+            path.unwrap_or_else(|| panic!("reachable native instance must have a demand path"))
+        })
         .collect()
 }
 
@@ -361,7 +370,11 @@ mod tests {
             demand(None, 1, CompilationProfileNativeDemandKind::RuntimeRole),
             demand(Some(0), 2, CompilationProfileNativeDemandKind::DirectCall),
             demand(Some(1), 2, CompilationProfileNativeDemandKind::DirectCall),
-            demand(Some(2), 3, CompilationProfileNativeDemandKind::GeneratedHelper),
+            demand(
+                Some(2),
+                3,
+                CompilationProfileNativeDemandKind::GeneratedHelper,
+            ),
         ];
 
         assert_eq!(

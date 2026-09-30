@@ -2,12 +2,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use bray_codegen::{BackendIdentity, CodegenTarget};
-use bray_diagnostics::DiagnosticLlvmToolRole;
 use bray_compilation::{
     BuildConfiguration, CompilationProfileReport, ProductEmissionInputs, SelectedTarget,
     WorkerBudget,
 };
+use bray_diagnostics::DiagnosticLlvmToolRole;
 use bray_emitter::{
     ArtifactKind, ArtifactRequirement, EmissionRequest, EmissionStatus,
     ManagedFilesystemDestination, ManagedOutputDirectory, OutputSink, ReplacementPolicy,
@@ -327,13 +326,11 @@ fn build_bundle(
         let BuiltTarget {
             selected,
             native,
-            backend,
-            codegen_target,
             interface_bytes,
             implementation_bytes,
             archive_bytes,
             native_links,
-            optimization,
+            native_implementation_bytes,
             platform_archives,
             compiler_profile,
         } = built;
@@ -348,25 +345,14 @@ fn build_bundle(
 
         let interface_path = format!("{target_path}/std.brayi");
 
-        write_bundle_artifact(bundle, &interface_path, &interface_bytes)?;
-
-        let interface = StandardLibraryArtifact::try_for_bytes(
+        let interface = publish_bundle_artifact(
+            bundle,
             StandardLibraryArtifactKind::PackageInterface,
             interface_path,
             &interface_bytes,
-        )
-        .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
+        )?;
 
         let implementation_path = format!("{target_path}/std.brayimpl");
-
-        write_bundle_artifact(bundle, &implementation_path, &implementation_bytes)?;
-
-        let implementation = StandardLibraryArtifact::try_for_bytes(
-            StandardLibraryArtifactKind::PackageImplementation,
-            implementation_path,
-            &implementation_bytes,
-        )
-        .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
 
         let file_name = standard_library_archive_name(native)?;
         let portable_path = format!("{target_path}/{file_name}");
@@ -392,59 +378,114 @@ fn build_bundle(
             platform_abi_archive_name(native, "bray_compiler_support")?
         );
 
-        write_bundle_artifact(bundle, &compiler_support_path, &compiler_support_bytes)?;
-
-        let compiler_support = StandardLibraryArtifact::try_for_bytes(
+        let compiler_support = publish_bundle_artifact(
+            bundle,
             StandardLibraryArtifactKind::StaticLibrary,
             compiler_support_path,
             &compiler_support_bytes,
-        )
-        .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
+        )?;
 
         let provenance_path = format!("{target_path}/temporal-provider.json");
 
-        write_bundle_artifact(bundle, &provenance_path, &temporal_provenance)?;
-
-        let provenance = StandardLibraryArtifact::try_for_bytes(
+        let provenance = publish_bundle_artifact(
+            bundle,
             StandardLibraryArtifactKind::DependencyMetadata,
             provenance_path,
             &temporal_provenance,
-        )
-        .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
+        )?;
 
         let unicode_path = format!("{target_path}/unicode-data.json");
 
-        write_bundle_artifact(bundle, &unicode_path, &unicode_metadata)?;
-
-        let unicode = StandardLibraryArtifact::try_for_bytes(
+        let unicode = publish_bundle_artifact(
+            bundle,
             StandardLibraryArtifactKind::DependencyMetadata,
             unicode_path,
             &unicode_metadata,
+        )?;
+
+        let published = bray_package_interface::PackageImplementationArtifact::try_from_bytes(
+            std::sync::Arc::<[u8]>::from(native_implementation_bytes.as_slice()),
+            bray_package_interface::InterfaceValidationLimits::default(),
+        )
+        .expect("compiler-produced bitcode companion must form a valid package implementation");
+
+        let published_index = published
+            .native_variant(bray_native_artifact::NativeUnitKind::Bitcode)
+            .expect("compiler-produced bitcode companion must authenticate")
+            .expect("requested bitcode companion must contain its native representation");
+
+        let toolchain = published_index
+            .bitcode_toolchain()
+            .expect("compiler bitcode publication must identify its LLVM revision");
+
+        let foreign_package = |name: &str,
+                               archive: &[u8],
+                               bitcode: Option<&[u8]>,
+                               links: &[NativeLinkRequirement]| {
+            let bytes = crate::native_package::publish(
+                name,
+                published.identity().configuration().clone(),
+                toolchain,
+                archive,
+                bitcode,
+                links,
+            )
+            .map_err(BuildError::NativeArchive)?;
+
+            let path = format!("{target_path}/{name}.brayimpl");
+
+            write_bundle_artifact(bundle, &path, &bytes)?;
+
+            StandardLibraryArtifact::try_for_bytes(
+                StandardLibraryArtifactKind::NativeDependency,
+                path,
+                &bytes,
+            )
+            .map_err(|error| BuildError::Manifest(format!("{error:?}")))
+        };
+
+        let support_package =
+            foreign_package("bray_compiler_support", &compiler_support_bytes, None, &[])?;
+
+        let implementation = publish_bundle_artifact(
+            bundle,
+            StandardLibraryArtifactKind::PackageImplementation,
+            implementation_path,
+            &implementation_bytes,
+        )?;
+
+        let native_implementation_path = format!("{target_path}/std-native.brayimpl");
+
+        write_bundle_artifact(
+            bundle,
+            &native_implementation_path,
+            &native_implementation_bytes,
+        )?;
+
+        let native_implementation = StandardLibraryArtifact::try_for_bytes(
+            StandardLibraryArtifactKind::NativeImplementation,
+            native_implementation_path,
+            &native_implementation_bytes,
         )
         .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
-
-        let optimization_publication = super::super::optimization::OptimizationPublication::new(
-            bundle,
-            &target_path,
-            native,
-            abi,
-            &backend,
-            &codegen_target,
-            &optimization,
-        );
-
-        let optimization_artifact =
-            optimization_publication.publish_bray(&archive, optimization)?;
 
         let mut artifacts = vec![
             interface,
             implementation,
+            native_implementation,
             archive,
             compiler_support,
-            optimization_artifact,
+            support_package,
         ];
 
         for platform in platform_archives {
+            artifacts.push(foreign_package(
+                platform.name,
+                &platform.bytes,
+                platform.optimization.as_ref().map(Vec::as_slice),
+                &platform.native_links,
+            )?);
+
             let platform_file_name = platform_abi_archive_name(native, platform.name)?;
             let platform_path = format!("{target_path}/{platform_file_name}");
 
@@ -458,24 +499,6 @@ fn build_bundle(
             .map(|artifact| artifact.with_platform_services(platform.roles.iter().copied()))
             .map(|artifact| artifact.with_native_links(platform.native_links))
             .map_err(|error| BuildError::Manifest(format!("{error:?}")))?;
-
-            if let Some(optimization) = platform.optimization {
-                let dependencies = if platform.uses_temporal_dependency_metadata {
-                    std::slice::from_ref(&provenance)
-                } else {
-                    &[]
-                };
-
-                let artifact = optimization_publication.publish_native(
-                    platform.name,
-                    &platform.roles,
-                    dependencies,
-                    &platform_archive,
-                    optimization,
-                )?;
-
-                artifacts.push(artifact);
-            }
 
             artifacts.push(platform_archive);
         }
@@ -498,13 +521,11 @@ fn build_bundle(
 struct BuiltTarget {
     selected: SelectedTarget,
     native: NativeTarget,
-    backend: BackendIdentity,
-    codegen_target: CodegenTarget,
     interface_bytes: Vec<u8>,
     implementation_bytes: Vec<u8>,
     archive_bytes: Vec<u8>,
     native_links: Vec<NativeLinkRequirement>,
-    optimization: super::super::optimization::BuiltOptimizationArchive,
+    native_implementation_bytes: Vec<u8>,
     platform_archives: Vec<super::platform::BuiltPlatformArchive>,
     compiler_profile: Option<CompilationProfileReport>,
 }
@@ -591,7 +612,10 @@ fn build_target(
                 BuildConfiguration::ObjectRelease,
                 None,
                 [],
-                Some(linker.linker()),
+                Some((
+                    linker.linker(),
+                    bray_linker::LinkedProductKind::StaticLibrary,
+                )),
             )
             .map_err(|error| {
                 BuildError::compilation_failed(
@@ -610,7 +634,7 @@ fn build_target(
         [
             TargetOutputKind::PackageInterface,
             TargetOutputKind::PackageImplementation,
-            TargetOutputKind::BackendBitcode,
+            TargetOutputKind::PackageNativeImplementation,
             TargetOutputKind::StaticLibrary,
         ],
     );
@@ -631,7 +655,10 @@ fn build_target(
                 ArtifactRequirement::Required,
             ),
             RequestedArtifact::new(ArtifactKind::StaticLibrary, ArtifactRequirement::Required),
-            RequestedArtifact::new(ArtifactKind::BackendBitcode, ArtifactRequirement::Required),
+            RequestedArtifact::new(
+                ArtifactKind::PackageNativeImplementation,
+                ArtifactRequirement::Required,
+            ),
         ],
         ReplacementPolicy::RequireAbsent,
     )
@@ -686,11 +713,9 @@ fn build_target(
     };
 
     let interface_path = required_path(ArtifactKind::PackageInterface)?;
-
     let implementation_path = required_path(ArtifactKind::PackageImplementation)?;
-
     let archive_path = required_path(ArtifactKind::StaticLibrary)?;
-    let bitcode_paths = emitted_paths(&outcome, ArtifactKind::BackendBitcode);
+    let native_implementation_path = required_path(ArtifactKind::PackageNativeImplementation)?;
 
     let interface_bytes =
         fs::read(&interface_path).map_err(|error| BuildError::read(&interface_path, error))?;
@@ -701,33 +726,17 @@ fn build_target(
     let archive_bytes =
         fs::read(&archive_path).map_err(|error| BuildError::read(&archive_path, error))?;
 
-    let bitcode_modules = bitcode_paths
-        .iter()
-        .map(|path| fs::read(path).map_err(|error| BuildError::read(path, error)))
-        .collect::<Result<Vec<_>, _>>()?;
-
-    let optimization = crate::progress::run("Preparing the standard library optimization archive", || {
-        super::super::optimization::from_bray_modules(
-            &root,
-            work,
-            bitcode_modules,
-            native_plan.preservation_roots().cloned(),
-        )
-    })?;
-
-    let backend = native_plan.backend().identity().clone();
-    let codegen_target = native_plan.target().clone();
+    let native_implementation_bytes = fs::read(&native_implementation_path)
+        .map_err(|error| BuildError::read(&native_implementation_path, error))?;
 
     Ok(BuiltTarget {
         selected,
         native,
-        backend,
-        codegen_target,
         interface_bytes,
         implementation_bytes,
         archive_bytes,
         native_links,
-        optimization,
+        native_implementation_bytes,
         platform_archives: platform,
         compiler_profile,
     })
@@ -775,6 +784,18 @@ pub(in crate::standard_library) fn standard_library_product(
             })
         })
         .ok_or(BuildError::MissingProduct)
+}
+
+fn publish_bundle_artifact(
+    bundle: &Path,
+    kind: StandardLibraryArtifactKind,
+    path: String,
+    bytes: &[u8],
+) -> Result<StandardLibraryArtifact, BuildError> {
+    write_bundle_artifact(bundle, &path, bytes)?;
+
+    StandardLibraryArtifact::try_for_bytes(kind, path, bytes)
+        .map_err(|error| BuildError::Manifest(format!("{error:?}")))
 }
 
 pub(in crate::standard_library) fn write_bundle_artifact(

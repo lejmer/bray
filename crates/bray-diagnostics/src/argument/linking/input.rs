@@ -36,7 +36,6 @@ pub enum DiagnosticLinkInputKind {
     Archive,
     StartupObject,
     TerminationObject,
-    RuntimeComponent,
     NativeLibrary,
     Framework,
 }
@@ -50,7 +49,6 @@ impl DiagnosticLinkInputKind {
             Self::Archive => "archive",
             Self::StartupObject => "startup_object",
             Self::TerminationObject => "termination_object",
-            Self::RuntimeComponent => "runtime_component",
             Self::NativeLibrary => "native_library",
             Self::Framework => "framework",
         }

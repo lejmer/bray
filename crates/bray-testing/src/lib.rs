@@ -9,6 +9,8 @@ mod diagnostic;
 #[cfg(feature = "mir-unit")]
 mod mir_unit;
 mod panic;
+#[cfg(feature = "runtime-artifact")]
+mod runtime_artifact;
 mod source;
 mod syntax;
 mod temporary_file;
@@ -32,6 +34,8 @@ pub use mir_unit::{
     test_mir_unit_with_declaration_for_target,
 };
 pub use panic::panic_payload_text;
+#[cfg(feature = "runtime-artifact")]
+pub use runtime_artifact::test_runtime_native_index;
 pub use source::{
     test_source_at, test_source_inputs, test_source_snapshot, test_source_store,
     try_test_source_store,

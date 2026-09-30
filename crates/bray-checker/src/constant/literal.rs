@@ -84,18 +84,20 @@ pub(crate) fn check_negated_integer_operand_literal(
 
     let (radix, digits) = integer_digits(text)?;
 
-    let magnitude = parse_unsigned_magnitude(digits, radix)?;
+    let operand = IntegerConstant::new(
+        IntegerSign::NonNegative,
+        parse_unsigned_magnitude(digits, radix)?,
+    );
 
-    let negated = IntegerConstant::new(IntegerSign::Negative, magnitude.clone());
-
-    if !fits_integer_representation(&negated, integer_representation, target_integer_width_bits) {
+    if !fits_integer_representation(
+        &operand.negated(),
+        integer_representation,
+        target_integer_width_bits,
+    ) {
         return Err(ConstantLiteralError::NotRepresentable);
     }
 
-    Ok(ConstantValueKind::Integer(IntegerConstant::new(
-        IntegerSign::NonNegative,
-        magnitude,
-    )))
+    Ok(ConstantValueKind::Integer(operand))
 }
 
 pub(super) fn parse_literal(

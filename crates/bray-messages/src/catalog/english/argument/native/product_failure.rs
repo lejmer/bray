@@ -69,21 +69,16 @@ pub(super) const fn native_product_failure_is_internal(
         | Kind::MissingProductRoot
         | Kind::InvalidEntryResult
         | Kind::MissingRuntime
-        | Kind::LibraryCleanupRequiresMainThread
-        | Kind::InvalidSymbolName
         | Kind::InvalidNativeLinkInput(_)
         | Kind::EvaluationCancelled
         | Kind::CodegenTargetUnsupportedProfile
         | Kind::CodegenTargetEmptyTriple
         | Kind::CodegenTargetEmptyCpu
         | Kind::CodegenTargetEmptyFeature
+        | Kind::NativeResolution(_)
         | Kind::RuntimeSelectionIncompatible(_)
         | Kind::RuntimeSelectionMissingRoleOwner(_)
         | Kind::RuntimeSelectionMissingCapabilityOwner(_)
-        | Kind::RuntimeSelectionUnreadableArchive(_)
-        | Kind::RuntimeSelectionInvalidArchive(_)
-        | Kind::RuntimeSelectionArchiveDigestMismatch(_)
-        | Kind::StandardLibraryUnavailable
         | Kind::LinkTargetEmptyTriple
         | Kind::CodegenBackendUnsupportedTarget
         | Kind::CodegenBackendUnsupportedTargetDetail(_)

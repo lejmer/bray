@@ -7,15 +7,13 @@ use bray_symbols::NativeLinkRequirement;
 use bray_target::NativeTarget;
 
 use super::error::BuildError;
-use crate::standard_library::optimization::BuiltOptimizationArchive;
 
-pub(super) struct BuiltPlatformArchive {
-    pub(super) name: &'static str,
+pub(crate) struct BuiltPlatformArchive {
+    pub(crate) name: &'static str,
     pub(super) roles: Vec<PlatformServiceRole>,
-    pub(super) uses_temporal_dependency_metadata: bool,
-    pub(super) bytes: Vec<u8>,
-    pub(super) native_links: Vec<NativeLinkRequirement>,
-    pub(super) optimization: Option<BuiltOptimizationArchive>,
+    pub(crate) bytes: Vec<u8>,
+    pub(crate) native_links: Vec<NativeLinkRequirement>,
+    pub(crate) optimization: Option<Vec<u8>>,
 }
 
 pub(super) fn build_archives(
@@ -103,7 +101,6 @@ fn build_archive(
     Ok(BuiltPlatformArchive {
         name,
         roles,
-        uses_temporal_dependency_metadata: family == PlatformServiceFamily::Temporal,
         bytes,
         native_links: built.native_links().to_vec(),
         optimization,

@@ -49,6 +49,16 @@ pub enum NativeSymbolBinding {
     Weak,
 }
 
+impl NativeSymbolBinding {
+    /// Combines provided definitions, retaining strong selection when either is strong.
+    pub const fn strongest(self, other: Self) -> Self {
+        match self {
+            Self::Strong => Self::Strong,
+            Self::Weak => other,
+        }
+    }
+}
+
 /// Whether native product formation requires one imported symbol to resolve.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum NativeSymbolPresence {

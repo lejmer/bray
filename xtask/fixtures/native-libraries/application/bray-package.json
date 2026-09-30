@@ -1,0 +1,67 @@
+{
+  "format": 1,
+  "identity": "fixture.application",
+  "version": {
+    "workspace": true
+  },
+  "source_roots": [
+    {
+      "name": "cross",
+      "path": "cross"
+    },
+    {
+      "name": "generic",
+      "path": "generic"
+    }
+  ],
+  "products": [
+    {
+      "name": "cross",
+      "kind": "executable",
+      "source_roots": [
+        "cross"
+      ],
+      "targets": [
+        "x86_64-pc-windows-msvc",
+        "aarch64-pc-windows-msvc",
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "dependencies": [
+        {
+          "package": "fixture.middle",
+          "product": "cross"
+        }
+      ],
+      "outputs": [
+        "executable"
+      ]
+    },
+    {
+      "name": "generic",
+      "kind": "executable",
+      "source_roots": [
+        "generic"
+      ],
+      "targets": [
+        "x86_64-pc-windows-msvc",
+        "aarch64-pc-windows-msvc",
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin"
+      ],
+      "dependencies": [
+        {
+          "package": "fixture.middle",
+          "product": "generic"
+        }
+      ],
+      "outputs": [
+        "executable"
+      ]
+    }
+  ]
+}

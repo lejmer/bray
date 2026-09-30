@@ -38,11 +38,14 @@ pub(crate) const fn format_english_standard_library_manifest_problem(
         DiagnosticStandardLibraryManifestProblem::DuplicatePlatformService => {
             "native operation appears in multiple support libraries"
         }
-        DiagnosticStandardLibraryManifestProblem::InvalidOptimizationMetadata(problem) => {
-            format_english_optimization_metadata_problem(problem)
+        DiagnosticStandardLibraryManifestProblem::InvalidNativeArtifact(cause) => {
+            format_english_native_artifact_problem(cause)
         }
-        DiagnosticStandardLibraryManifestProblem::InvalidOptimizationFallback => {
-            "native optimization fallback does not match the packaged artifact"
+        DiagnosticStandardLibraryManifestProblem::NativeDemandUnresolved => {
+            "native unit demand has no provider"
+        }
+        DiagnosticStandardLibraryManifestProblem::NativeProviderConflict => {
+            "native units contain conflicting strong providers"
         }
         DiagnosticStandardLibraryManifestProblem::BundleDigestMismatch => "bundle digest mismatch",
         DiagnosticStandardLibraryManifestProblem::LengthExceeded => {
@@ -51,111 +54,57 @@ pub(crate) const fn format_english_standard_library_manifest_problem(
     }
 }
 
-const fn format_english_optimization_metadata_problem(
-    problem: bray_diagnostics::DiagnosticStandardLibraryOptimizationMetadataProblem,
+pub(super) const fn format_english_native_artifact_problem(
+    cause: bray_diagnostics::DiagnosticNativeArtifactCause,
 ) -> &'static str {
-    use bray_diagnostics::DiagnosticStandardLibraryOptimizationMetadataProblem;
+    use bray_diagnostics::DiagnosticNativeArtifactCause as Cause;
 
-    match problem {
-        DiagnosticStandardLibraryOptimizationMetadataProblem::MissingForArchive => {
-            "optimization archive is missing optimization metadata"
-        }
-        DiagnosticStandardLibraryOptimizationMetadataProblem::AttachedToUnsupportedArtifact => {
-            "optimization metadata is attached to an artifact that is not an optimization archive"
-        }
-        DiagnosticStandardLibraryOptimizationMetadataProblem::UnsupportedSemantics => {
-            "optimization semantics are not supported"
-        }
-        DiagnosticStandardLibraryOptimizationMetadataProblem::UnsupportedProducerKind => {
-            "optimization producer kind is not supported"
-        }
-        DiagnosticStandardLibraryOptimizationMetadataProblem::MissingProducerImplementation => {
-            "optimization producer implementation is empty"
-        }
-        DiagnosticStandardLibraryOptimizationMetadataProblem::MissingProducerImplementationRevision => {
-            "optimization producer implementation revision is empty"
-        }
-        DiagnosticStandardLibraryOptimizationMetadataProblem::MissingToolchain => {
-            "optimization toolchain is empty"
-        }
-        DiagnosticStandardLibraryOptimizationMetadataProblem::MissingToolchainRevision => {
-            "optimization toolchain revision is empty"
-        }
-        DiagnosticStandardLibraryOptimizationMetadataProblem::MissingTargetTriple => {
-            "optimization target triple is empty"
-        }
-        DiagnosticStandardLibraryOptimizationMetadataProblem::MissingDataLayout => {
-            "optimization data layout is empty"
-        }
-        DiagnosticStandardLibraryOptimizationMetadataProblem::UnsupportedRelocationModel => {
-            "optimization relocation model is not supported"
-        }
-        DiagnosticStandardLibraryOptimizationMetadataProblem::UnsupportedCodeModel => {
-            "optimization code model is not supported"
-        }
-        DiagnosticStandardLibraryOptimizationMetadataProblem::NonCanonicalFallbackPath => {
-            "optimization fallback path is not canonical and relative"
-        }
-        DiagnosticStandardLibraryOptimizationMetadataProblem::ZeroModuleCount => {
-            "optimization module count is zero"
-        }
-        DiagnosticStandardLibraryOptimizationMetadataProblem::InvalidPreservationRoot => {
-            "optimization preservation root is not a valid native symbol"
-        }
-        DiagnosticStandardLibraryOptimizationMetadataProblem::UnsupportedLifecycleRoot => {
-            "optimization lifecycle root is not supported"
-        }
-        DiagnosticStandardLibraryOptimizationMetadataProblem::UnknownPlatformService => {
-            "optimization platform service is unknown"
-        }
-        DiagnosticStandardLibraryOptimizationMetadataProblem::NonCanonicalDependencyPath => {
-            "optimization dependency path is not canonical and relative"
-        }
-        DiagnosticStandardLibraryOptimizationMetadataProblem::InvalidPartition => {
-            "optimization partition identity is invalid"
-        }
-        DiagnosticStandardLibraryOptimizationMetadataProblem::DuplicatePartition => {
-            "optimization partition is duplicated"
-        }
-        DiagnosticStandardLibraryOptimizationMetadataProblem::RuntimeAbiMismatch => {
-            "optimization runtime ABI does not match its target inventory"
-        }
-        DiagnosticStandardLibraryOptimizationMetadataProblem::TargetMismatch => {
-            "optimization target does not match its target inventory"
-        }
-        DiagnosticStandardLibraryOptimizationMetadataProblem::CompatibilityMismatch => {
-            "optimization archives have incompatible target settings"
-        }
-        DiagnosticStandardLibraryOptimizationMetadataProblem::ToolchainMismatch => {
-            "optimization archives were produced by different toolchains"
-        }
-        DiagnosticStandardLibraryOptimizationMetadataProblem::MissingDependencyArtifact => {
-            "optimization dependency metadata does not match a packaged artifact"
-        }
-        DiagnosticStandardLibraryOptimizationMetadataProblem::MissingBrayPartition => {
-            "target inventory is missing the Bray standard library optimization partition"
-        }
+    match cause {
+        Cause::IndexSizeLimitExceeded => "native index exceeds its size limit",
+        Cause::IndexMalformed => "native index is malformed",
+        Cause::IndexUnsupportedSchema => "native index schema is unsupported",
+        Cause::IndexInvalidTarget => "native index target is invalid",
+        Cause::IndexInvalidDigest => "native index digest is invalid",
+        Cause::IndexInvalidSymbol => "native index symbol is invalid",
+        Cause::IndexInvalidLink => "native index link requirement is invalid",
+        Cause::IndexDigestMismatch => "native index digest differs from published bytes",
+        Cause::PayloadDigestMismatch => "native unit digest differs from published bytes",
+        Cause::WrongTarget => "native index targets another platform",
+        Cause::WrongProducer => "native index uses another code generation policy",
+        Cause::ReadFailure => "native unit could not be read",
+        Cause::DuplicateUnit => "native index contains a duplicate unit",
+        Cause::InvalidSummary => "native unit summary is invalid",
+        Cause::DuplicateDefinition => "native unit defines a symbol twice",
+        Cause::InvalidAssociation => "native unit association is invalid",
+        Cause::NoncanonicalSummary => "native unit summary is not canonical",
+        Cause::MissingCoRetentionMember => "native unit retention member is missing",
+        Cause::DuplicateCoRetentionGroup => "native unit retention group is duplicated",
+        Cause::InvalidCoRetentionGroup => "native unit retention group is invalid",
+        Cause::UnsupportedTarget => "native unit target is unsupported",
+        Cause::MissingIndex => "native unit index is missing",
+        Cause::MissingUnit => "native unit is missing",
+        Cause::UnindexedUnit => "native unit is not indexed",
+        Cause::InvalidBinding => "native unit binding is invalid",
     }
 }
 
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::{
-        DiagnosticStandardLibraryManifestProblem,
-        DiagnosticStandardLibraryOptimizationMetadataProblem,
+        DiagnosticNativeArtifactCause, DiagnosticStandardLibraryManifestProblem,
     };
 
     use super::format_english_standard_library_manifest_problem;
 
     #[test]
-    fn optimization_metadata_problem_identifies_the_failed_contract() {
-        let problem = DiagnosticStandardLibraryManifestProblem::InvalidOptimizationMetadata(
-            DiagnosticStandardLibraryOptimizationMetadataProblem::MissingToolchainRevision,
+    fn native_index_policy_mismatch_has_a_specific_message() {
+        let problem = DiagnosticStandardLibraryManifestProblem::InvalidNativeArtifact(
+            DiagnosticNativeArtifactCause::WrongProducer,
         );
 
         assert_eq!(
             format_english_standard_library_manifest_problem(problem),
-            "optimization toolchain revision is empty"
+            "native index uses another code generation policy"
         );
     }
 }

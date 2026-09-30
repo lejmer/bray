@@ -151,10 +151,8 @@ pub(super) fn declare_static_host_entry<'context>(
             .into(),
         context.i32_type().const_int(duration, false).into(),
         static_identity_value(context, host_mapping.identity()).into(),
-        context
-            .i64_type()
-            .const_int(host_mapping.order(), false)
-            .into(),
+        // The final descriptor supplies order. Reusable records must be product independent.
+        context.i64_type().const_zero().into(),
         storage.into(),
         accessor.as_global_value().as_pointer_value().into(),
         callbacks
@@ -185,10 +183,6 @@ pub(super) fn declare_static_host_entry<'context>(
     entry.set_initializer(&initializer);
     entry.set_linkage(Linkage::WeakODR);
     entry.set_visibility(GlobalVisibility::Hidden);
-
-    entry.set_section(Some(bray_codegen::static_host_section_name(
-        types.target().machine().object_format(),
-    )));
 
     crate::comdat::attach(
         module,
@@ -290,7 +284,7 @@ pub(super) fn declare_product_host<'context>(
             )
         });
 
-    if product_host.owner() != mappings.unit() {
+    if !product_host.is_final_image() || product_host.owner() != mappings.unit() {
         return Ok(());
     }
 
@@ -324,14 +318,12 @@ pub(super) fn declare_product_host<'context>(
 
     descriptor.set_constant(true);
     descriptor.set_initializer(&descriptor_initializer);
-    descriptor.set_linkage(Linkage::WeakODR);
+    descriptor.set_linkage(Linkage::External);
 
-    crate::comdat::attach(
-        module,
-        descriptor,
-        product_host.descriptor_symbol().as_str(),
-        types.target().machine().object_format(),
-    );
+    // ELF interposition must not bind a loaded product to another image's host.
+    if types.target().machine().object_format() == bray_target::ObjectFormat::Elf {
+        descriptor.set_visibility(GlobalVisibility::Protected);
+    }
 
     let role = bray_runtime_interface::RuntimeAbiRole::ProductHostControl;
     let runtime = crate::native::declare_runtime_function(module, context, types.target(), role)?;
@@ -411,16 +403,7 @@ pub(super) fn declare_product_host<'context>(
         )
         .map_err(CodegenFailure::backend_library)?;
 
-    retain_globals(
-        module,
-        &[
-            descriptor,
-            static_entry.as_global_value(),
-            control.as_global_value(),
-        ],
-        "llvm.used",
-        types,
-    )
+    Ok(())
 }
 
 fn declare_static_host_lookup<'context>(
@@ -431,7 +414,7 @@ fn declare_static_host_lookup<'context>(
     context: &'context inkwell::context::Context,
     object_format: bray_target::ObjectFormat,
 ) -> Result<FunctionValue<'context>, CodegenFailure> {
-    let name = format!("{}.static_entry", product_host.descriptor_symbol().as_str());
+    let name = format!("{}.static_entry", product_host.control_symbol().as_str());
 
     let lookup = module.add_function(
         &name,
@@ -467,6 +450,15 @@ fn declare_static_host_lookup<'context>(
             )
             .map_err(CodegenFailure::backend_library)?;
 
+        let value = builder
+            .build_insert_value(
+                value.into_struct_value(),
+                context.i64_type().const_int(mapping.order(), false),
+                3,
+                "static.host.order",
+            )
+            .map_err(CodegenFailure::backend_library)?;
+
         builder
             .build_return(Some(&value))
             .map_err(CodegenFailure::backend_library)?;
@@ -499,33 +491,6 @@ fn declare_static_host_lookup<'context>(
         .map_err(CodegenFailure::backend_library)?;
 
     Ok(lookup)
-}
-
-pub(super) fn retain_globals<'context>(
-    module: &Module<'context>,
-    globals: &[GlobalValue<'context>],
-    name: &str,
-    types: &LlvmTypeMappings<'context, '_>,
-) -> Result<(), CodegenFailure> {
-    if globals.is_empty() {
-        return Ok(());
-    }
-
-    let pointer = pointer_type(types)?;
-
-    let values = globals
-        .iter()
-        .map(|global| global.as_pointer_value())
-        .collect::<Vec<_>>();
-
-    let initializer = pointer.const_array(&values);
-    let used = module.add_global(initializer.get_type(), None, name);
-
-    used.set_initializer(&initializer);
-    used.set_linkage(Linkage::Appending);
-    used.set_section(Some("llvm.metadata"));
-
-    Ok(())
 }
 
 fn static_host_entry_type<'context>(
@@ -621,24 +586,21 @@ fn product_identity_type(context: &inkwell::context::Context) -> ArrayType<'_> {
     context.i8_type().array_type(32)
 }
 
-fn static_identity_value<'context>(
-    context: &'context inkwell::context::Context,
+fn static_identity_value(
+    context: &inkwell::context::Context,
     identity: bray_runtime_abi::NativeStaticIdentity,
-) -> ArrayValue<'context> {
+) -> ArrayValue<'_> {
     byte_array(context, identity.bytes())
 }
 
-fn product_identity_value<'context>(
-    context: &'context inkwell::context::Context,
+fn product_identity_value(
+    context: &inkwell::context::Context,
     identity: bray_runtime_abi::NativeProductIdentity,
-) -> ArrayValue<'context> {
+) -> ArrayValue<'_> {
     byte_array(context, identity.bytes())
 }
 
-fn byte_array<'context>(
-    context: &'context inkwell::context::Context,
-    bytes: [u8; 32],
-) -> ArrayValue<'context> {
+fn byte_array(context: &inkwell::context::Context, bytes: [u8; 32]) -> ArrayValue<'_> {
     let values = bytes
         .into_iter()
         .map(|byte| context.i8_type().const_int(u64::from(byte), false))

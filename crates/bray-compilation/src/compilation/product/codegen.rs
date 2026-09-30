@@ -5,19 +5,21 @@ mod host;
 mod implementation;
 mod inlining;
 mod link;
+mod native;
+pub(in crate::compilation) use native::NativeLibraries;
 mod plan;
 mod preparation;
 mod reachability;
 pub(in crate::compilation) mod reuse;
 mod roots;
 
+pub(in crate::compilation) use content_identity::mir_content_identity;
+pub(crate) use demand::{
+    ConcreteCodegenDemand, ConcreteCodegenRoot, NativeDemand, NativeDemandReason,
+};
 pub use error::NativeProductPlanningError;
 pub(in crate::compilation) use error::{
     codegen_preparation_failure_kind, native_product_preparation_diagnostic,
 };
 pub use plan::NativeProductPlan;
-pub(in crate::compilation) use content_identity::mir_content_identity;
 pub(in crate::compilation) use reuse::native_producer_identity;
-pub(crate) use demand::{
-    ConcreteCodegenDemand, ConcreteCodegenRoot, NativeDemand, NativeDemandReason,
-};

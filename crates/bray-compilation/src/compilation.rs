@@ -19,6 +19,7 @@ mod foreign;
 mod generic_constraint;
 mod implementation;
 mod imported;
+pub use imported::diagnostic_native_artifact_cause;
 mod input;
 mod iteration;
 mod lifecycle;

@@ -5,7 +5,7 @@ use bray_codegen::{
 use inkwell::module::{Linkage, Module};
 use inkwell::types::{BasicTypeEnum, FunctionType, PointerType};
 use inkwell::values::{BasicValueEnum, FunctionValue, GlobalValue, PointerValue};
-use inkwell::{DLLStorageClass, GlobalVisibility, IntPredicate};
+use inkwell::{GlobalVisibility, IntPredicate};
 
 use super::super::LlvmTypeMappings;
 use super::boundary::{invoke_static_boundary, mapped_instance_function, static_outcome};
@@ -13,7 +13,7 @@ use super::constant::static_initializer;
 use super::finalization::declare_static_finalizer;
 use super::host::{
     StaticLifecycleCallbacks, declare_product_host, declare_static_host_entry,
-    declare_thread_static_registration, retain_globals,
+    declare_thread_static_registration,
 };
 
 pub(in crate::mapping) fn declare_static_storages<'context, 'mappings>(
@@ -23,10 +23,14 @@ pub(in crate::mapping) fn declare_static_storages<'context, 'mappings>(
     types: &mut LlvmTypeMappings<'context, 'mappings>,
 ) -> Result<(), CodegenFailure> {
     let product_host = mappings.product_host();
-    let mut retained_globals = Vec::new();
 
     for mapping in mappings.static_storages() {
         types.select_instance(mapping.owner());
+
+        if !mapping.defines_storage() {
+            declare_static_import(module, mapping, types)?;
+            continue;
+        }
 
         let initializer = static_initializer(module, mapping, mappings, types)?;
 
@@ -37,10 +41,6 @@ pub(in crate::mapping) fn declare_static_storages<'context, 'mappings>(
             .expect("static-storage realization requires an established mapping or value");
 
         let global = declare_static_global(module, mapping, target, initializer, alignment);
-
-        if mapping.native_binding().is_some() && mapping.defines_storage() {
-            retained_globals.push(global);
-        }
 
         let attachment = declare_static_attachment(module, mapping, types)?;
 
@@ -66,13 +66,13 @@ pub(in crate::mapping) fn declare_static_storages<'context, 'mappings>(
         )?;
 
         let host_mapping = product_host.and_then(|host| {
-                host.statics()
-                    .iter()
-                    .find(|entry| entry.host_symbol().as_str() == mapping.host_name())
-            });
+            host.statics()
+                .iter()
+                .find(|entry| entry.host_symbol().as_str() == mapping.host_name())
+        });
 
         if let Some(host_mapping) = host_mapping {
-            retained_globals.push(declare_static_host_entry(
+            declare_static_host_entry(
                 module,
                 mapping,
                 host_mapping,
@@ -80,15 +80,46 @@ pub(in crate::mapping) fn declare_static_storages<'context, 'mappings>(
                 accessor,
                 callbacks,
                 types,
-            )?);
+            )?;
         }
     }
-
-    retain_globals(module, &retained_globals, "llvm.compiler.used", types)?;
 
     if let Some(product_host) = product_host {
         declare_product_host(module, product_host, mappings, types)?;
     }
+
+    Ok(())
+}
+
+fn declare_static_import<'context>(
+    module: &Module<'context>,
+    mapping: &CodegenStaticStorageMapping,
+    types: &mut LlvmTypeMappings<'context, '_>,
+) -> Result<(), CodegenFailure> {
+    if mapping.native_binding().is_some() {
+        let storage = physical_static_global(
+            module,
+            mapping.symbol().as_str(),
+            types.map(mapping.ty())?.const_zero(),
+        );
+
+        storage.set_linkage(Linkage::External);
+
+        if mapping.instance().duration() == bray_symbols::StaticStorageDuration::ExactThread {
+            storage.set_thread_local(true);
+        }
+    }
+
+    let pointer = pointer_type(types)?;
+    let name = mapping.accessor_name();
+
+    let accessor = module
+        .get_function(&name)
+        .unwrap_or_else(|| module.add_function(&name, pointer.fn_type(&[], false), None));
+
+    accessor
+        .as_global_value()
+        .set_visibility(GlobalVisibility::Hidden);
 
     Ok(())
 }
@@ -104,26 +135,13 @@ fn declare_static_global<'context>(
 
     let global = physical_static_global(module, name, initializer);
 
+    global.set_initializer(&initializer);
+    global.set_alignment(alignment);
+
     if let Some(binding) = mapping.native_binding() {
-        if mapping.defines_storage() {
-            global.set_initializer(&initializer);
-            global.set_alignment(alignment);
-
-            global.set_linkage(native_static_definition_linkage(binding));
-        } else {
-            global.set_linkage(Linkage::External);
-        }
-
+        global.set_linkage(native_static_definition_linkage(binding));
         global.set_visibility(GlobalVisibility::Default);
-
-        if mapping.defines_storage()
-            && target.machine().object_format() == bray_target::ObjectFormat::Coff
-        {
-            global.set_dll_storage_class(DLLStorageClass::Export);
-        }
     } else {
-        global.set_initializer(&initializer);
-        global.set_alignment(alignment);
         global.set_linkage(Linkage::WeakODR);
         global.set_visibility(GlobalVisibility::Hidden);
     }

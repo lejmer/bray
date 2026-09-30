@@ -592,7 +592,6 @@ fn linked_plan_capabilities(
         LinkPlanCapability::Input(LinkInputKind::Archive),
         LinkPlanCapability::Input(LinkInputKind::StartupObject),
         LinkPlanCapability::Input(LinkInputKind::TerminationObject),
-        LinkPlanCapability::Input(LinkInputKind::RuntimeComponent),
         LinkPlanCapability::Input(LinkInputKind::NativeLibrary),
         LinkPlanCapability::InputMode(LinkInputMode::Ordinary),
         LinkPlanCapability::InputMode(LinkInputMode::WholeArchive),
@@ -779,11 +778,7 @@ fn validate_runtime_requirement(
     target: &LinkerTargetCapabilities,
     plan: &LinkPlan,
 ) -> Result<(), UnsupportedLinkRequirement> {
-    if !plan
-        .inputs()
-        .iter()
-        .any(|input| input.kind() == LinkInputKind::RuntimeComponent)
-    {
+    if plan.runtime_artifact().is_none() {
         return Ok(());
     }
 

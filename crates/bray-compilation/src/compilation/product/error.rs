@@ -1,6 +1,6 @@
 use bray_codegen::{
     BackendSelectionError, CodegenCallSite, CodegenImplementationWitness, CodegenInstanceKey,
-    CodegenStaticInstanceKey, CodegenTarget, CodegenUnitKey,
+    CodegenUnitKey,
 };
 use bray_compiler_known::CompilerKnownDeclarationKey;
 use bray_declarations::{ContainerId, DeclarationId};
@@ -96,16 +96,10 @@ pub(crate) enum ProductQueryContext {
     SymbolKey(SymbolKey),
     /// Product construction for one source snapshot.
     Source(SourceId),
-    /// Product construction for one selected target.
-    Target(CodegenTarget),
     /// Product construction for one concrete code generation instance.
     Instance(CodegenInstanceKey),
     /// Product construction for one exact MIR call site.
     CallSite(CodegenCallSite),
-    /// Product construction for one partitioned code generation unit.
-    CodegenUnit(CodegenUnitKey),
-    /// Product construction for one realized code generation static.
-    CodegenStatic(CodegenStaticInstanceKey),
     /// Product construction for one resolved callable instance value.
     CallableData(CallableInstanceData),
     /// Product construction for one implementation instance.
@@ -206,10 +200,6 @@ pub(crate) enum ProductDataKind {
     LifecycleRole,
     /// The semantic type owned by a lifecycle helper.
     LifecycleType,
-    /// A realized static instance.
-    RealizedStatic,
-    /// A static lifecycle dependency counter.
-    StaticDependencyCounter,
     /// A static declaration's initializer.
     StaticInitializer,
     /// An implementation's checked header.
@@ -230,14 +220,6 @@ pub(crate) enum ProductDataKind {
     ReachabilityRealization,
     /// One demanded reachability evaluation.
     ReachabilityEvaluation,
-    /// A concrete instance retained by one partition.
-    PartitionInstance,
-    /// Code generation mappings for one partitioned unit.
-    CodegenUnitMapping,
-    /// The semantic owner unit for a product host entry.
-    ProductHostOwnerUnit,
-    /// The code generation static mapped to a product host entry.
-    ProductHostStaticMapping,
     /// The runtime representation of a result value.
     ResultRepresentation,
     /// A callable signature.
@@ -287,10 +269,6 @@ pub(crate) enum ProductValueKind {
     TypeEqualityConstraint,
     /// A type-valued generic argument.
     GenericTypeArgument,
-    /// A closed static reference.
-    ClosedStaticReference,
-    /// An open static reference.
-    OpenStaticReference,
     /// A named semantic type.
     NamedType,
     /// A callable semantic type.
@@ -384,21 +362,6 @@ pub(crate) enum ProductQueryFailure {
     },
     /// A constant owner requires more outgoing records than the native descriptor can express.
     OutgoingCapacityOverflow { value: ConstantValueId },
-    /// A static lifecycle dependency counter exceeded its representable range.
-    StaticDependencyOverflow {
-        /// The exact static instance whose incoming dependency count overflowed.
-        static_instance: CodegenStaticInstanceKey,
-    },
-    /// A static lifecycle dependency counter was decremented below zero.
-    StaticDependencyUnderflow {
-        /// The exact static instance whose incoming dependency count underflowed.
-        static_instance: CodegenStaticInstanceKey,
-    },
-    /// Static lifecycle dependencies contain a cycle among the retained instances.
-    StaticLifecycleCycle {
-        /// The exact static instances left after deterministic topological ordering stopped.
-        instances: Box<[CodegenStaticInstanceKey]>,
-    },
     /// Two concrete realizations use one stable code generation identity.
     ConflictingConcreteInstance {
         /// The colliding stable code generation instance identity.
@@ -648,11 +611,9 @@ impl ProductQueryFailure {
             | Self::ConflictingImplementationWitness { .. } => {
                 ProductQueryErrorKind::Specialization
             }
-            Self::SynchronizationPoisoned { .. }
-            | Self::OutgoingCapacityOverflow { .. }
-            | Self::StaticDependencyOverflow { .. }
-            | Self::StaticDependencyUnderflow { .. }
-            | Self::StaticLifecycleCycle { .. } => ProductQueryErrorKind::Coordination,
+            Self::SynchronizationPoisoned { .. } | Self::OutgoingCapacityOverflow { .. } => {
+                ProductQueryErrorKind::Coordination
+            }
             Self::UnsupportedConstantValue { .. }
             | Self::InvalidCodegenSourceFile { .. }
             | Self::SourceIndex { .. }

@@ -16,7 +16,7 @@ use bray_diagnostics::{
     DiagnosticInterfaceSymbolKind, DiagnosticInterfaceSynthesizedIdentity, DiagnosticKind,
     DiagnosticLayoutOption, DiagnosticLayoutProblem, DiagnosticMemoryOperation,
     DiagnosticModuleTrust, DiagnosticNameKind, DiagnosticNamedType,
-    DiagnosticNativeProductFailureDetail, DiagnosticNativeProductFailureKind, DiagnosticNote,
+    DiagnosticNativeProductFailureKind, DiagnosticNote,
     DiagnosticNoteKind, DiagnosticOutputSink, DiagnosticPatternCoverage,
     DiagnosticPatternMissingCase, DiagnosticProductQueryFailure, DiagnosticProjectCommandFailure,
     DiagnosticProjectManifestField, DiagnosticPropagationProblem, DiagnosticRefinementCapacity,
@@ -138,10 +138,7 @@ fn json_output_serializes_runtime_artifact_problems_with_typed_details() {
     )
     .with_arg(DiagnosticArg::artifact_path("runtime/bray-runtime.brayrt"))
     .with_arg(DiagnosticArg::runtime_artifact_problem(
-        DiagnosticRuntimeArtifactProblem::InvalidComponentDependency {
-            component: "runtime.scheduler".to_owned(),
-            dependency: "runtime.reactor".to_owned(),
-        },
+        DiagnosticRuntimeArtifactProblem::DuplicateComponent("runtime.scheduler".to_owned()),
     ));
 
     let mut output = Vec::new();
@@ -159,12 +156,11 @@ fn json_output_serializes_runtime_artifact_problems_with_typed_details() {
 
     assert_eq!(
         argument["value"]["value"]["category"],
-        "invalid_component_dependency"
+        "duplicate_component"
     );
 
     assert_eq!(argument["value"]["value"]["component"], "runtime.scheduler");
 
-    assert_eq!(argument["value"]["value"]["dependency"], "runtime.reactor");
 }
 
 #[test]
@@ -1229,72 +1225,6 @@ fn json_output_preserves_memory_operation_and_callback_causes() {
     assert_eq!(callback["value"]["reason"], "context_parameter_not_first");
     assert_eq!(callback["value"]["context"][0]["name"], "actual_ordinal");
     assert_eq!(callback["value"]["context"][0]["value"]["value"], 2);
-}
-
-#[test]
-fn native_product_json_preserves_typed_runtime_selection_payload() {
-    let failure = DiagnosticNativeProductFailureKind::RuntimeSelectionArchiveDigestMismatch(
-        DiagnosticNativeProductFailureDetail::new(
-            "runtime_selection_archive_digest_mismatch",
-            [
-                DiagnosticFailureField::new(
-                    "component",
-                    DiagnosticFailureValue::Text("runtime.product.execution".to_owned()),
-                ),
-                DiagnosticFailureField::new(
-                    "path",
-                    DiagnosticFailureValue::Text("runtime/product.lib".to_owned()),
-                ),
-                DiagnosticFailureField::new(
-                    "expected_digest",
-                    DiagnosticFailureValue::ArtifactDigest(DiagnosticArtifactDigest::new(
-                        DiagnosticArtifactDigestAlgorithm::Sha256,
-                        [3; 32],
-                    )),
-                ),
-                DiagnosticFailureField::new(
-                    "actual_digest",
-                    DiagnosticFailureValue::ArtifactDigest(DiagnosticArtifactDigest::new(
-                        DiagnosticArtifactDigestAlgorithm::Sha256,
-                        [5; 32],
-                    )),
-                ),
-            ],
-        ),
-    );
-
-    let diagnostic = Diagnostic::new(
-        DiagnosticId::new(0),
-        DiagnosticKind::NativeProductPreparationFailed,
-        SeverityKind::Error,
-    )
-    .with_arg(DiagnosticArg::native_product_failure_kind(failure));
-
-    let mut output = Vec::new();
-
-    write_json_diagnostics(&DiagnosticBag::single(diagnostic), None, &mut output)
-        .unwrap_or_else(|error| panic!("native-product JSON should write: {error:?}"));
-
-    let output: serde_json::Value = serde_json::from_slice(&output)
-        .unwrap_or_else(|error| panic!("native-product JSON should parse: {error:?}"));
-
-    let value = &output["diagnostics"][0]["args"][0]["value"]["value"];
-
-    assert_eq!(value["reason"], "runtime_selection_archive_digest_mismatch");
-    assert_eq!(value["context"][0]["value"]["kind"], "text");
-    assert_eq!(value["context"][1]["value"]["kind"], "text");
-    assert_eq!(value["context"][2]["value"]["kind"], "artifact_digest");
-    assert_eq!(value["context"][2]["value"]["value"]["algorithm"], "sha256");
-
-    assert_eq!(
-        value["context"][2]["value"]["value"]["bytes"]
-            .as_array()
-            .map(Vec::len),
-        Some(32)
-    );
-
-    assert_eq!(value["context"][2]["value"]["value"]["bytes"][0], 3);
-    assert_eq!(value["context"][3]["value"]["kind"], "artifact_digest");
 }
 
 #[test]

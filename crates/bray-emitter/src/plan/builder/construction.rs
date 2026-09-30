@@ -65,6 +65,14 @@ impl<'planner> PlanBuilder<'planner> {
             self.add_link_inputs()?;
         }
 
+        if let Some(artifact) = self
+            .artifacts
+            .iter()
+            .find(|artifact| artifact.id().kind() == ArtifactKind::PackageNativeImplementation)
+        {
+            self.add_native_implementation_inputs(artifact.requirement())?;
+        }
+
         let backend_requests = self.backend_requests();
 
         let (backend, capability_revision) = if backend_requests.is_empty() {
@@ -203,10 +211,67 @@ impl<'planner> PlanBuilder<'planner> {
         Ok(())
     }
 
+    fn add_native_implementation_inputs(
+        &mut self,
+        requirement: ArtifactRequirement,
+    ) -> Result<(), EmissionPlanningError> {
+        let backend = self
+            .planner
+            .backend()
+            .ok_or(EmissionPlanningError::MissingBackend)?;
+
+        if !backend
+            .capabilities()
+            .supports_artifact(BackendArtifactKind::BackendBitcode)
+        {
+            return Err(EmissionPlanningError::UnsupportedBackendArtifact(
+                BackendArtifactKind::BackendBitcode,
+            ));
+        }
+
+        for unit in backend.units() {
+            if self.artifacts.iter().any(|planned| {
+                planned.destination() == &PlannedArtifactDestination::Stage
+                    && planned
+                        .producer()
+                        .backend_artifact()
+                        .is_some_and(|artifact| {
+                            artifact.unit() == unit
+                                && artifact.kind() == BackendArtifactKind::BackendBitcode
+                        })
+            }) {
+                continue;
+            }
+
+            let id = self.next_artifact_id(ArtifactKind::BackendBitcode)?;
+
+            self.record_backend_entry(unit, BackendArtifactKind::BackendBitcode, requirement);
+
+            self.artifacts.push(PlannedArtifact::new(
+                id,
+                requirement,
+                ArtifactRole::PackageInput,
+                ArtifactProducer::Backend {
+                    artifact: BackendArtifactId::new(
+                        unit.clone(),
+                        BackendArtifactKind::BackendBitcode,
+                        0,
+                    ),
+                    backend: backend.identity().clone(),
+                },
+                PlannedArtifactDestination::Stage,
+            ));
+        }
+
+        Ok(())
+    }
+
     fn compiler_artifact_producer(&mut self, kind: ArtifactKind) -> ArtifactProducer {
         match kind {
             ArtifactKind::PackageInterface => ArtifactProducer::PackageInterface,
-            ArtifactKind::PackageImplementation => ArtifactProducer::PackageImplementation,
+            ArtifactKind::PackageImplementation | ArtifactKind::PackageNativeImplementation => {
+                ArtifactProducer::PackageImplementation
+            }
             ArtifactKind::DependencyMetadata => {
                 ArtifactProducer::DependencyMetadata(DependencyMetadataProducerId::new(0))
             }
@@ -408,6 +473,7 @@ fn published_backend_role(kind: ArtifactKind) -> ArtifactRole {
         ArtifactKind::ExecutableModule => ArtifactRole::Product,
         ArtifactKind::DebugCompanion => ArtifactRole::Companion,
         ArtifactKind::PackageInterface
+        | ArtifactKind::PackageNativeImplementation
         | ArtifactKind::PackageImplementation
         | ArtifactKind::DependencyMetadata
         | ArtifactKind::TestCatalog
@@ -427,6 +493,7 @@ fn compiler_artifact_role(kind: ArtifactKind) -> ArtifactRole {
         | ArtifactKind::StaticLibrary
         | ArtifactKind::SharedLibrary => ArtifactRole::Product,
         ArtifactKind::PackageImplementation
+        | ArtifactKind::PackageNativeImplementation
         | ArtifactKind::DependencyMetadata
         | ArtifactKind::TestCatalog
         | ArtifactKind::LinkedCompanion => ArtifactRole::Companion,
@@ -737,6 +804,91 @@ mod tests {
                 BackendArtifactRequirement::Required,
             ))
         );
+    }
+
+    #[test]
+    fn unavailable_optional_native_companion_has_no_backend_work() {
+        let planner = EmissionPlanner::new(
+            target_output_description(),
+            emission_backend(
+                capabilities_with_artifacts([BackendArtifactKind::RelocatableObject]),
+                [codegen_unit_key(1)],
+                backend_policy(Some(LinkableArtifactKind::RelocatableObject)),
+            ),
+            Some(interface_artifact()),
+        );
+
+        let request = emission_request_for(
+            ProductKind::Library,
+            RequestedArtifactDestination::FilesystemDirectory("out".into()),
+            [
+                RequestedArtifact::new(
+                    ArtifactKind::PackageInterface,
+                    ArtifactRequirement::Required,
+                ),
+                RequestedArtifact::new(
+                    ArtifactKind::PackageNativeImplementation,
+                    ArtifactRequirement::Optional,
+                ),
+            ],
+        );
+
+        let plan = planner
+            .plan(request)
+            .expect("unavailable optional companion must be omitted");
+
+        assert_eq!(plan.artifacts().len(), 1);
+        assert!(plan.backend_requests().is_empty());
+    }
+
+    #[test]
+    fn packed_native_companion_stages_bitcode_separately_from_archive_members() {
+        let capabilities = capabilities_with_artifacts([
+            BackendArtifactKind::RelocatableObject,
+            BackendArtifactKind::BackendBitcode,
+        ]);
+
+        let planner = planner(
+            capabilities,
+            [codegen_unit_key(1)],
+            backend_policy(Some(LinkableArtifactKind::RelocatableObject)),
+        );
+
+        let request = emission_request_for(
+            ProductKind::Library,
+            RequestedArtifactDestination::FilesystemDirectory("out".into()),
+            [
+                RequestedArtifact::new(ArtifactKind::StaticLibrary, ArtifactRequirement::Required),
+                RequestedArtifact::new(
+                    ArtifactKind::PackageNativeImplementation,
+                    ArtifactRequirement::Required,
+                ),
+            ],
+        );
+
+        let plan = planner.plan(request).expect("native companion plan");
+
+        let staged = plan
+            .staged_artifacts()
+            .map(|artifact| (artifact.id().kind(), artifact.role()))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            staged,
+            [
+                (
+                    ArtifactKind::BackendBitcode,
+                    crate::ArtifactRole::PackageInput
+                ),
+                (
+                    ArtifactKind::RelocatableObject,
+                    crate::ArtifactRole::LinkInput
+                ),
+            ]
+        );
+
+        assert_eq!(plan.published_artifacts().count(), 2);
+        assert_eq!(plan.backend_requests().len(), 1);
     }
 
     #[test]

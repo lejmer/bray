@@ -1,77 +1,47 @@
-use std::collections::{BTreeMap, BTreeSet};
-use std::io;
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use bray_base::NonEmptySharedStr;
+use bray_native_artifact::{NativeArtifactIndex, NativeContentDigest, ValidatedNativeArtifact};
 use bray_symbols::NativeLinkRequirement;
+use bray_symbols::NativeSymbolContract;
+use bray_target::NativeTarget;
 
-use super::archive::{ArchiveValidationError, authenticate_archive};
 use super::catalog::{
-    RuntimeArtifactComponentMetadata, RuntimeArtifactDigest, RuntimeArtifactMetadata,
-    RuntimeArtifactPurpose,
+    RuntimeArtifactComponentMetadata, RuntimeArtifactMetadata, RuntimeArtifactPurpose,
 };
-use crate::{RuntimeAbiRole, RuntimeArtifactId, RuntimeCapability, RuntimeContract};
-
-/// One resolved physical runtime component.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct RuntimeArtifactComponent {
-    metadata: RuntimeArtifactComponentMetadata,
-    archive: PathBuf,
-}
-
-impl RuntimeArtifactComponent {
-    /// Returns immutable component metadata.
-    pub const fn metadata(&self) -> &RuntimeArtifactComponentMetadata {
-        &self.metadata
-    }
-
-    /// Returns the exact native archive path.
-    pub fn archive(&self) -> &Path {
-        &self.archive
-    }
-}
+use crate::{RuntimeAbiRole, RuntimeCapability, RuntimeContract};
 
 /// Resolved runtime catalog available to one compiler invocation.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct RuntimeArtifact {
     metadata: RuntimeArtifactMetadata,
-    components: Arc<[RuntimeArtifactComponent]>,
+    directory: PathBuf,
+    native_indexes: [ValidatedNativeArtifact; 2],
 }
 
 impl RuntimeArtifact {
-    /// Resolves every catalog component to its published archive path.
+    /// Binds a validated runtime catalog to its authenticated native indexes.
     pub fn try_new(
         metadata: RuntimeArtifactMetadata,
-        components: impl IntoIterator<Item = (RuntimeArtifactId, PathBuf)>,
+        directory: PathBuf,
+        native_indexes: [ValidatedNativeArtifact; 2],
     ) -> Result<Self, RuntimeArtifactBuildError> {
-        let mut supplied: BTreeMap<_, _> = components.into_iter().collect();
+        let target = NativeTarget::for_identity(metadata.contract().target())
+            .ok_or(RuntimeArtifactBuildError::InvalidNativeTarget)?;
 
-        let mut resolved = Vec::with_capacity(metadata.components().len());
-
-        for component in metadata.components() {
-            let Some(archive) = supplied.remove(component.identity()) else {
-                return Err(RuntimeArtifactBuildError::MissingComponent);
-            };
-
-            if archive.file_name().and_then(|name| name.to_str())
-                != Some(component.archive_file_name())
-            {
-                return Err(RuntimeArtifactBuildError::ArchiveFileNameMismatch);
-            }
-
-            resolved.push(RuntimeArtifactComponent {
-                metadata: component.clone(),
-                archive,
-            });
-        }
-
-        if !supplied.is_empty() {
-            return Err(RuntimeArtifactBuildError::UnexpectedComponent);
+        if native_indexes
+            .iter()
+            .any(|artifact| artifact.index().target() != target)
+        {
+            return Err(RuntimeArtifactBuildError::IncompatibleIndexTarget);
         }
 
         Ok(Self {
             metadata,
-            components: resolved.into(),
+            directory,
+            native_indexes,
         })
     }
 
@@ -85,17 +55,22 @@ impl RuntimeArtifact {
         self.metadata.contract()
     }
 
-    /// Returns resolved physical components in metadata order.
-    pub fn components(&self) -> &[RuntimeArtifactComponent] {
-        &self.components
+    /// Returns the root directory containing the selected native indexes.
+    pub fn directory(&self) -> &Path {
+        &self.directory
     }
 
-    /// Selects the exact physical components required by one product.
-    pub fn select(
+    /// Returns authenticated native indexes in product, then test-runner order.
+    pub fn native_indexes(&self) -> &[ValidatedNativeArtifact; 2] {
+        &self.native_indexes
+    }
+
+    /// Resolves semantic owners and their native demands for the product dependency set.
+    pub fn plan(
         &self,
         purpose: RuntimeArtifactPurpose,
         requirements: &crate::RuntimeRequirements,
-    ) -> Result<RuntimeArtifactSelection, RuntimeArtifactSelectionError> {
+    ) -> Result<RuntimeArtifactPlan, RuntimeArtifactSelectionError> {
         self.contract()
             .validate(requirements)
             .map_err(RuntimeArtifactSelectionError::IncompatibleRuntime)?;
@@ -118,74 +93,43 @@ impl RuntimeArtifact {
             selected.insert(self.owner_of_capability(purpose, capability)?);
         }
 
-        let mut pending = selected.iter().copied().collect::<Vec<_>>();
+        let artifact = &self.native_indexes[match purpose {
+            RuntimeArtifactPurpose::Product => 0,
+            RuntimeArtifactPurpose::TestRunner => 1,
+        }];
 
-        while let Some(index) = pending.pop() {
-            for dependency in self.components[index].metadata().dependencies() {
-                let Some(dependency) = self
-                    .components
-                    .iter()
-                    .position(|component| component.metadata().identity() == dependency)
-                else {
-                    continue;
-                };
+        let demands = requirements.roles().iter().map(|role| {
+            let binding = self
+                .contract()
+                .role_binding(*role)
+                .expect("validated runtime requirements must name a published role");
 
-                if selected.insert(dependency) {
-                    pending.push(dependency);
-                }
-            }
-        }
+            NativeSymbolContract::required_name(
+                NonEmptySharedStr::try_new(
+                    artifact
+                        .index()
+                        .target()
+                        .object_symbol_name(binding.symbol_name().as_str())
+                        .as_ref(),
+                )
+                .expect("validated runtime symbol must be nonempty"),
+            )
+        });
 
-        let mut authenticated = BTreeMap::new();
+        let demands = demands.collect::<Vec<_>>().into();
 
-        for index in &selected {
-            let component = &self.components[*index];
-            let archive = component.archive();
-
-            let digest = match authenticated.get(archive) {
-                Some(digest) => *digest,
-                None => {
-                    let digest = authenticate_archive(archive).map_err(|error| match error {
-                        ArchiveValidationError::Unreadable(kind) => {
-                            RuntimeArtifactSelectionError::UnreadableArchive {
-                                component: component.metadata().identity().clone(),
-                                path: archive.to_path_buf(),
-                                kind,
-                            }
-                        }
-                        ArchiveValidationError::Invalid => {
-                            RuntimeArtifactSelectionError::InvalidArchive {
-                                component: component.metadata().identity().clone(),
-                                path: archive.to_path_buf(),
-                            }
-                        }
-                    })?;
-
-                    authenticated.insert(archive.to_path_buf(), digest);
-
-                    digest
-                }
-            };
-
-            if digest != component.metadata().archive_digest() {
-                return Err(RuntimeArtifactSelectionError::ArchiveDigestMismatch {
-                    component: component.metadata().identity().clone(),
-                    path: archive.to_path_buf(),
-                    expected: component.metadata().archive_digest(),
-                    actual: digest,
-                });
-            }
-        }
-
-        let components = dependency_link_order(&selected, &self.components)
+        let components = selected
             .into_iter()
-            .map(|index| self.components[index].clone())
+            .map(|index| self.metadata.components()[index].clone())
             .collect::<Vec<_>>()
             .into();
 
-        Ok(RuntimeArtifactSelection {
+        Ok(RuntimeArtifactPlan {
             contract: self.contract().clone(),
             components,
+            // The plan retains authenticated paths after the loaded runtime is released.
+            artifact: artifact.clone(),
+            demands,
         })
     }
 
@@ -194,11 +138,11 @@ impl RuntimeArtifact {
         purpose: RuntimeArtifactPurpose,
         role: RuntimeAbiRole,
     ) -> Result<usize, RuntimeArtifactSelectionError> {
-        self.components
+        self.metadata
+            .components()
             .iter()
             .position(|component| {
-                component.metadata().purpose() == purpose
-                    && component.metadata().roles().binary_search(&role).is_ok()
+                component.purpose() == purpose && component.roles().binary_search(&role).is_ok()
             })
             .ok_or(RuntimeArtifactSelectionError::MissingRoleOwner(role))
     }
@@ -208,15 +152,12 @@ impl RuntimeArtifact {
         purpose: RuntimeArtifactPurpose,
         capability: RuntimeCapability,
     ) -> Result<usize, RuntimeArtifactSelectionError> {
-        self.components
+        self.metadata
+            .components()
             .iter()
             .position(|component| {
-                component.metadata().purpose() == purpose
-                    && component
-                        .metadata()
-                        .capabilities()
-                        .binary_search(&capability)
-                        .is_ok()
+                component.purpose() == purpose
+                    && component.capabilities().binary_search(&capability).is_ok()
             })
             .ok_or(RuntimeArtifactSelectionError::MissingCapabilityOwner(
                 capability,
@@ -224,11 +165,94 @@ impl RuntimeArtifact {
     }
 }
 
+/// Validated semantic runtime providers awaiting the complete product's native closure.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct RuntimeArtifactPlan {
+    contract: RuntimeContract,
+    components: Arc<[RuntimeArtifactComponentMetadata]>,
+    artifact: ValidatedNativeArtifact,
+    demands: Arc<[NativeSymbolContract]>,
+}
+
+impl RuntimeArtifactPlan {
+    /// Returns semantic providers selected for roles and capabilities.
+    pub fn components(&self) -> &[RuntimeArtifactComponentMetadata] {
+        &self.components
+    }
+
+    /// Returns native candidates to include with the product's other dependency indexes.
+    pub fn native_index(&self) -> &NativeArtifactIndex {
+        self.artifact.index()
+    }
+
+    /// Returns required native symbols for the selected semantic runtime roles.
+    pub fn native_demands(&self) -> &[NativeSymbolContract] {
+        &self.demands
+    }
+
+    /// Retains runtime units selected by the common product resolver, in its link order.
+    /// Every digest must belong to this plan's authenticated index.
+    pub fn finish(
+        self,
+        units: impl IntoIterator<Item = NativeContentDigest>,
+    ) -> RuntimeArtifactSelection {
+        let native_units = units
+            .into_iter()
+            .map(|digest| {
+                let index = self.artifact.index();
+
+                let unit = index
+                    .units()
+                    .binary_search_by_key(&digest, |unit| unit.digest())
+                    .expect("selected runtime unit must belong to its authenticated index");
+
+                RuntimeNativeUnit {
+                    path: self
+                        .artifact
+                        .payload(digest)
+                        .expect("authenticated native unit must retain its payload")
+                        .to_path_buf(),
+                    kind: index.units()[unit].kind(),
+                    native_links: Arc::from(index.units()[unit].native_links()),
+                }
+            })
+            .collect::<Vec<_>>()
+            .into();
+
+        RuntimeArtifactSelection {
+            contract: self.contract,
+            components: self.components,
+            native_units,
+        }
+    }
+}
+
 /// Exact runtime components selected for one product link.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct RuntimeArtifactSelection {
     contract: RuntimeContract,
-    components: Arc<[RuntimeArtifactComponent]>,
+    components: Arc<[RuntimeArtifactComponentMetadata]>,
+    native_units: Arc<[RuntimeNativeUnit]>,
+}
+
+/// One authenticated runtime native unit selected by generic symbol demand.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct RuntimeNativeUnit {
+    path: PathBuf,
+    kind: bray_native_artifact::NativeUnitKind,
+    native_links: Arc<[NativeLinkRequirement]>,
+}
+
+impl RuntimeNativeUnit {
+    /// Returns the authenticated physical representation.
+    pub const fn kind(&self) -> bray_native_artifact::NativeUnitKind {
+        self.kind
+    }
+
+    /// Returns the authenticated native file path.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
 }
 
 impl RuntimeArtifactSelection {
@@ -237,58 +261,34 @@ impl RuntimeArtifactSelection {
         &self.contract
     }
 
-    /// Returns selected components in deterministic native link order.
-    pub fn components(&self) -> &[RuntimeArtifactComponent] {
+    /// Returns semantic providers selected for roles and capabilities.
+    pub fn components(&self) -> &[RuntimeArtifactComponentMetadata] {
         &self.components
     }
 
-    /// Returns native dependencies across selected components in link order.
+    /// Returns selected authenticated native units in link order.
+    pub fn native_units(&self) -> &[RuntimeNativeUnit] {
+        &self.native_units
+    }
+
+    /// Returns native dependencies across selected units in first-use link order.
     pub fn native_links(&self) -> impl Iterator<Item = &NativeLinkRequirement> {
-        self.components
+        let mut seen = BTreeSet::new();
+
+        self.native_units
             .iter()
-            .flat_map(|component| component.metadata().native_links())
+            .flat_map(|unit| unit.native_links.iter())
+            .filter(move |link| seen.insert((**link).clone()))
     }
 }
 
-fn dependency_link_order(
-    selected: &BTreeSet<usize>,
-    components: &[RuntimeArtifactComponent],
-) -> Vec<usize> {
-    let mut remaining = selected.clone();
-    let mut ordered = Vec::with_capacity(remaining.len());
-
-    while let Some(index) = remaining.iter().copied().find(|index| {
-        let identity = components[*index].metadata().identity();
-
-        !remaining.iter().any(|candidate| {
-            candidate != index
-                && components[*candidate]
-                    .metadata()
-                    .dependencies()
-                    .contains(identity)
-        })
-    }) {
-        remaining.remove(&index);
-        ordered.push(index);
-    }
-
-    debug_assert!(
-        remaining.is_empty(),
-        "runtime component graph was validated"
-    );
-
-    ordered
-}
-
-/// A contract violation that prevents resolving metadata to an archive path.
+/// A mismatch between runtime metadata and its imported native indexes.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RuntimeArtifactBuildError {
-    /// Metadata names a component for which no archive was supplied.
-    MissingComponent,
-    /// An archive was supplied for a component absent from metadata.
-    UnexpectedComponent,
-    /// The selected path does not end with the published archive file name.
-    ArchiveFileNameMismatch,
+    /// The runtime target has no supported native representation.
+    InvalidNativeTarget,
+    /// An imported index targets another native platform.
+    IncompatibleIndexTarget,
 }
 
 /// Failure to select a complete physical runtime surface for one product.
@@ -300,31 +300,4 @@ pub enum RuntimeArtifactSelectionError {
     MissingRoleOwner(RuntimeAbiRole),
     /// No component for this product category owns a required capability.
     MissingCapabilityOwner(RuntimeCapability),
-    /// A selected archive could not be read for authentication.
-    UnreadableArchive {
-        /// Selected component whose archive could not be read.
-        component: RuntimeArtifactId,
-        /// Exact selected archive path.
-        path: PathBuf,
-        /// Stable host I/O failure category.
-        kind: io::ErrorKind,
-    },
-    /// A selected archive is not a regular archive file.
-    InvalidArchive {
-        /// Selected component whose archive is invalid.
-        component: RuntimeArtifactId,
-        /// Exact selected archive path.
-        path: PathBuf,
-    },
-    /// A selected archive does not match its published content digest.
-    ArchiveDigestMismatch {
-        /// Selected component whose archive failed authentication.
-        component: RuntimeArtifactId,
-        /// Exact selected archive path.
-        path: PathBuf,
-        /// Digest published by the runtime metadata.
-        expected: RuntimeArtifactDigest,
-        /// Digest calculated from the selected archive.
-        actual: RuntimeArtifactDigest,
-    },
 }

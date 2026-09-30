@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use bray_base::NonEmptySharedStr;
-use bray_runtime_interface::{RuntimeArtifactComponent, RuntimeArtifactId};
+use bray_runtime_interface::{RuntimeArtifactId, RuntimeNativeUnit};
 use bray_symbols::PackageIdentity;
 
 /// Stable identity of one source-ordered link input.
@@ -34,12 +34,20 @@ pub enum LinkInputKind {
     StartupObject,
     /// Target termination object placed after ordinary product inputs.
     TerminationObject,
-    /// File-backed component of the selected private execution ABI.
-    RuntimeComponent,
     /// Native library selected by canonical library name.
     NativeLibrary,
     /// Platform framework selected by canonical framework name.
     Framework,
+}
+
+impl From<bray_native_artifact::NativeUnitKind> for LinkInputKind {
+    fn from(kind: bray_native_artifact::NativeUnitKind) -> Self {
+        match kind {
+            bray_native_artifact::NativeUnitKind::Object => Self::RelocatableObject,
+            bray_native_artifact::NativeUnitKind::Bitcode => Self::Bitcode,
+            bray_native_artifact::NativeUnitKind::OpaqueArchive => Self::Archive,
+        }
+    }
 }
 
 impl LinkInputKind {
@@ -49,8 +57,7 @@ impl LinkInputKind {
             | Self::Bitcode
             | Self::Archive
             | Self::StartupObject
-            | Self::TerminationObject
-            | Self::RuntimeComponent => matches!(source, LinkInputSource::File(_)),
+            | Self::TerminationObject => matches!(source, LinkInputSource::File(_)),
             Self::NativeLibrary => matches!(source, LinkInputSource::NativeLibrary(_)),
             Self::Framework => matches!(source, LinkInputSource::Framework(_)),
         }
@@ -173,6 +180,16 @@ impl LinkInputSpec {
         })
     }
 
+    /// Creates one authenticated runtime input without changing its physical category.
+    pub fn runtime_unit(runtime: &RuntimeArtifactId, unit: &RuntimeNativeUnit) -> Self {
+        Self {
+            kind: unit.kind().into(),
+            source: LinkInputSource::file(unit.path()),
+            provenance: LinkInputProvenance::Runtime(runtime.clone()),
+            mode: LinkInputMode::Ordinary,
+        }
+    }
+
     /// Returns the native input category.
     pub const fn kind(&self) -> LinkInputKind {
         self.kind
@@ -218,22 +235,6 @@ impl LinkInput {
         provenance: LinkInputProvenance,
     ) -> Option<Self> {
         LinkInputSpec::try_native_library(name, provenance).map(|spec| spec.with_id(id))
-    }
-
-    /// Creates the runtime component selected from validated artifact metadata.
-    pub fn runtime_component(
-        id: LinkInputId,
-        runtime: &RuntimeArtifactId,
-        component: &RuntimeArtifactComponent,
-    ) -> Self {
-        LinkInputSpec {
-            kind: LinkInputKind::RuntimeComponent,
-            source: LinkInputSource::file(component.archive()),
-            // The plan input retains runtime identity after the artifact borrow ends.
-            provenance: LinkInputProvenance::Runtime(runtime.clone()),
-            mode: LinkInputMode::Ordinary,
-        }
-        .with_id(id)
     }
 
     /// Returns the stable input identity.
@@ -295,15 +296,6 @@ pub enum LinkInputBuildError {
 
 #[cfg(test)]
 mod tests {
-    use bray_runtime_interface::{
-        BinarySymbolName, PanicAbiIdentity, ProtectedFrameAbiVersions, RuntimeAbiRole,
-        RuntimeAbiVersion, RuntimeArtifact, RuntimeArtifactComponentMetadata,
-        RuntimeArtifactDigest, RuntimeArtifactId, RuntimeArtifactMetadata, RuntimeArtifactPurpose,
-        RuntimeCapability, RuntimeContract, RuntimeIdentity, RuntimeRoleBinding,
-        RuntimeRoleImplementation,
-    };
-    use bray_target::TargetIdentity;
-
     use super::{
         LinkInput, LinkInputBuildError, LinkInputId, LinkInputKind, LinkInputMode,
         LinkInputProvenance, LinkInputSource, LinkInputSpec,
@@ -376,108 +368,5 @@ mod tests {
             ),
             Err(LinkInputBuildError::EmptyFilePath)
         );
-    }
-
-    #[test]
-    fn runtime_components_preserve_artifact_identity_and_archive_path() {
-        let artifact = runtime_artifact();
-
-        let input = LinkInput::runtime_component(
-            LinkInputId::new(3),
-            artifact.contract().artifact(),
-            &artifact.components()[0],
-        );
-
-        assert_eq!(input.kind(), LinkInputKind::RuntimeComponent);
-
-        assert_eq!(
-            input.source(),
-            &LinkInputSource::file("runtime/bray_runtime_product.lib")
-        );
-
-        assert_eq!(
-            input.provenance(),
-            &LinkInputProvenance::Runtime(
-                RuntimeArtifactId::try_new("bray.runtime.reference.windows.x86_64")
-                    .unwrap_or_else(|| panic!("artifact identity must be valid"))
-            )
-        );
-
-        assert_eq!(input.mode(), LinkInputMode::Ordinary);
-    }
-
-    fn runtime_artifact() -> RuntimeArtifact {
-        let contract = RuntimeContract::try_new(
-            RuntimeIdentity::try_new("bray.runtime.reference")
-                .unwrap_or_else(|| panic!("runtime identity must be valid")),
-            RuntimeArtifactId::try_new("bray.runtime.reference.windows.x86_64")
-                .unwrap_or_else(|| panic!("artifact identity must be valid")),
-            RuntimeAbiVersion::new(1, 0),
-            ProtectedFrameAbiVersions::uniform(RuntimeAbiVersion::new(1, 0)),
-            TargetIdentity::try_new("x86_64-pc-windows-msvc")
-                .unwrap_or_else(|| panic!("target identity must be valid")),
-            PanicAbiIdentity::try_new("bray.panic.unwind")
-                .unwrap_or_else(|| panic!("panic ABI must be valid")),
-            [RuntimeCapability::CooperativeExecution],
-            [RuntimeRoleBinding::new(
-                RuntimeAbiRole::MainThreadLaneStartup,
-                BinarySymbolName::try_new(
-                    bray_runtime_abi::symbols::MAIN_THREAD_LANE_STARTUP_SYMBOL,
-                )
-                .unwrap_or_else(|| panic!("runtime symbol must be valid")),
-                RuntimeRoleImplementation::BrayRuntime,
-            )],
-        )
-        .unwrap_or_else(|error| panic!("runtime contract must be valid: {error:?}"));
-
-        let components = [
-            runtime_component(
-                RuntimeArtifactPurpose::Product,
-                "runtime.product",
-                "bray_runtime_product.lib",
-            ),
-            runtime_component(
-                RuntimeArtifactPurpose::TestRunner,
-                "runtime.test",
-                "bray_runtime_test.lib",
-            ),
-        ];
-
-        let metadata = RuntimeArtifactMetadata::try_new(contract, components)
-            .unwrap_or_else(|error| panic!("runtime metadata must be valid: {error:?}"));
-
-        RuntimeArtifact::try_new(
-            metadata,
-            [
-                (
-                    RuntimeArtifactId::try_new("runtime.product")
-                        .unwrap_or_else(|| panic!("component identity must be valid")),
-                    "runtime/bray_runtime_product.lib".into(),
-                ),
-                (
-                    RuntimeArtifactId::try_new("runtime.test")
-                        .unwrap_or_else(|| panic!("component identity must be valid")),
-                    "runtime/bray_runtime_test.lib".into(),
-                ),
-            ],
-        )
-        .unwrap_or_else(|error| panic!("runtime artifact must be valid: {error:?}"))
-    }
-
-    fn runtime_component(
-        purpose: RuntimeArtifactPurpose,
-        identity: &str,
-        archive: &str,
-    ) -> RuntimeArtifactComponentMetadata {
-        RuntimeArtifactComponentMetadata::try_new(
-            RuntimeArtifactId::try_new(identity)
-                .unwrap_or_else(|| panic!("component identity must be valid")),
-            purpose,
-            [RuntimeAbiRole::MainThreadLaneStartup],
-            [RuntimeCapability::CooperativeExecution],
-            archive,
-            RuntimeArtifactDigest::new([1; 32]),
-        )
-        .unwrap_or_else(|error| panic!("runtime component must be valid: {error:?}"))
     }
 }

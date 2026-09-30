@@ -1,0 +1,47 @@
+{
+  "format": 1,
+  "package": {
+    "version": "0.1.0"
+  },
+  "output_root": "build",
+  "targets": [
+    {
+      "name": "x86_64-pc-windows-msvc",
+      "identity": "x86_64-pc-windows-msvc"
+    },
+    {
+      "name": "aarch64-pc-windows-msvc",
+      "identity": "aarch64-pc-windows-msvc"
+    },
+    {
+      "name": "x86_64-unknown-linux-gnu",
+      "identity": "x86_64-unknown-linux-gnu"
+    },
+    {
+      "name": "aarch64-unknown-linux-gnu",
+      "identity": "aarch64-unknown-linux-gnu"
+    },
+    {
+      "name": "x86_64-apple-darwin",
+      "identity": "x86_64-apple-darwin"
+    },
+    {
+      "name": "aarch64-apple-darwin",
+      "identity": "aarch64-apple-darwin"
+    }
+  ],
+  "packages": [
+    {
+      "path": "base",
+      "role": "vendored"
+    },
+    {
+      "path": "middle",
+      "role": "vendored"
+    },
+    {
+      "path": "application",
+      "role": "root"
+    }
+  ]
+}

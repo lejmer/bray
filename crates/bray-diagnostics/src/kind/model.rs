@@ -29,8 +29,8 @@ define_diagnostic_kinds! {
     RequestReservedPackageIdentity,
     /// Standard library source authority is applied to a package outside the reserved namespace.
     RequestStandardLibraryPackageIdentityRequired,
-    /// A configured standard library file could not be read.
-    StandardLibraryArtifactReadFailed,
+    /// A selected package artifact could not be read.
+    PackageArtifactReadFailed,
     /// A configured standard library manifest is invalid.
     StandardLibraryManifestInvalid,
     /// Bray could not publish a resolved standard library artifact.
@@ -43,8 +43,6 @@ define_diagnostic_kinds! {
     StandardLibraryTargetUnavailable,
     /// A configured standard library target requires another runtime ABI.
     StandardLibraryRuntimeAbiMismatch,
-    /// A configured bundle has no optimization artifacts compatible with the compiler.
-    StandardLibraryOptimizationUnavailable,
     /// A compilation request selects one logical source more than once.
     RequestDuplicateSourceInput,
     /// The requested worker budget is not valid.
@@ -63,12 +61,6 @@ define_diagnostic_kinds! {
     RuntimeArtifactTargetMismatch,
     /// Selected runtime artifact metadata implements another runtime ABI.
     RuntimeArtifactAbiMismatch,
-    /// A selected runtime archive could not be read.
-    RuntimeArtifactArchiveReadFailed,
-    /// A selected runtime archive is not a valid native archive.
-    RuntimeArtifactArchiveInvalid,
-    /// A selected runtime archive does not match its published digest.
-    RuntimeArtifactArchiveDigestMismatch,
     /// A required Bray project manifest could not be read.
     ProjectManifestReadFailed,
     /// A Bray project manifest does not match the serialized schema.
@@ -690,20 +682,16 @@ impl DiagnosticKind {
             Self::RuntimeArtifactMetadataInvalid => 1117,
             Self::RuntimeArtifactTargetMismatch => 1118,
             Self::RuntimeArtifactAbiMismatch => 1119,
-            Self::RuntimeArtifactArchiveReadFailed => 1120,
-            Self::RuntimeArtifactArchiveInvalid => 1121,
-            Self::RuntimeArtifactArchiveDigestMismatch => 1122,
             Self::RequestUnsupportedProductEmission => 1106,
             Self::RequestReservedPackageIdentity => 1107,
             Self::RequestStandardLibraryPackageIdentityRequired => 1108,
-            Self::StandardLibraryArtifactReadFailed => 1109,
+            Self::PackageArtifactReadFailed => 1109,
             Self::StandardLibraryManifestInvalid => 1110,
             Self::StandardLibraryInfrastructureFailure => 1126,
             Self::StandardLibraryArtifactLengthMismatch => 1111,
             Self::StandardLibraryArtifactDigestMismatch => 1112,
             Self::StandardLibraryTargetUnavailable => 1113,
             Self::StandardLibraryRuntimeAbiMismatch => 1114,
-            Self::StandardLibraryOptimizationUnavailable => 1127,
             Self::ProjectManifestReadFailed => 1201,
             Self::ProjectManifestParseFailed => 1202,
             Self::ProjectManifestUnsupportedFormat => 1220,
@@ -1021,7 +1009,7 @@ impl DiagnosticKind {
             Self::RequestStandardLibraryPackageIdentityRequired => {
                 "request_standard_library_package_identity_required"
             }
-            Self::StandardLibraryArtifactReadFailed => "standard_library_artifact_read_failed",
+            Self::PackageArtifactReadFailed => "package_artifact_read_failed",
             Self::StandardLibraryManifestInvalid => "standard_library_manifest_invalid",
             Self::StandardLibraryInfrastructureFailure => "standard_library_infrastructure_failure",
             Self::StandardLibraryArtifactLengthMismatch => {
@@ -1032,9 +1020,6 @@ impl DiagnosticKind {
             }
             Self::StandardLibraryTargetUnavailable => "standard_library_target_unavailable",
             Self::StandardLibraryRuntimeAbiMismatch => "standard_library_runtime_abi_mismatch",
-            Self::StandardLibraryOptimizationUnavailable => {
-                "standard_library_optimization_unavailable"
-            }
             Self::RequestInvalidWorkerBudget => "request_invalid_worker_budget",
             Self::RequestUnsupportedProductEmission => REQUEST_PRODUCT_EMISSION_KEY,
             Self::RequestDuplicateSourceInput => "request_duplicate_source_input",
@@ -1044,11 +1029,6 @@ impl DiagnosticKind {
             Self::RuntimeArtifactMetadataInvalid => "runtime_artifact_metadata_invalid",
             Self::RuntimeArtifactTargetMismatch => "runtime_artifact_target_mismatch",
             Self::RuntimeArtifactAbiMismatch => "runtime_artifact_abi_mismatch",
-            Self::RuntimeArtifactArchiveReadFailed => "runtime_artifact_archive_read_failed",
-            Self::RuntimeArtifactArchiveInvalid => "runtime_artifact_archive_invalid",
-            Self::RuntimeArtifactArchiveDigestMismatch => {
-                "runtime_artifact_archive_digest_mismatch"
-            }
             Self::ProjectManifestReadFailed => "project_manifest_read_failed",
             Self::ProjectManifestParseFailed => "project_manifest_parse_failed",
             Self::ProjectManifestUnsupportedFormat => "project_manifest_unsupported_format",

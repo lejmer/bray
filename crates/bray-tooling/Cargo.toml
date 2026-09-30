@@ -25,6 +25,7 @@ analysis = [
 compiler = [
     "analysis",
     "build-identity",
+    "dep:bray-native-artifact",
     "dep:bray-codegen",
     "dep:bray-codegen-llvm",
     "dep:bray-linker",
@@ -44,6 +45,7 @@ bray-ir = { path = "../bray-ir", optional = true }
 bray-linker = { path = "../bray-linker", optional = true }
 bray-lowering = { path = "../bray-lowering", optional = true }
 bray-messages = { path = "../bray-messages" }
+bray-native-artifact = { path = "../bray-native-artifact", optional = true }
 bray-package-interface = { path = "../bray-package-interface", optional = true }
 bray-parser = { path = "../bray-parser", optional = true }
 bray-project = { path = "../bray-project", optional = true }
@@ -63,7 +65,7 @@ tempfile = { version = "3", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
-bray-testing = { path = "../bray-testing", features = ["mir-unit"] }
+bray-testing = { path = "../bray-testing", features = ["mir-unit", "runtime-artifact"] }
 
 [lints]
 workspace = true

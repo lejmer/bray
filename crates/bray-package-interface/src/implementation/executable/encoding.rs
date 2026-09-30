@@ -1,7 +1,7 @@
 // rust-style: allow(module-too-large, reason = "the executable MIR wire encoder keeps one exhaustive operation and terminator mapping")
 
-use std::sync::Arc;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use bray_base::StableDigestHasher;
 
@@ -13,11 +13,11 @@ use bray_bound_tree::{
 use bray_ir::{
     MirAggregateKind, MirBinaryOperator, MirBlockKind, MirCall, MirCallArgument, MirCallTarget,
     MirCleanupEdge, MirCleanupPhase, MirConstructionInput, MirEdge, MirGeneratorKind,
-    MirGeneratorOperation, MirHostOperation, MirImmediateValue, MirMemoryOperation, MirNumericConversionKind,
-    MirOperand, MirOperationKind, MirPanicCause, MirPatternPredicate, MirPlace, MirProjectionKind,
-    MirRuntimeReference, MirStorageKind, MirStoreKind, MirSwitchCase, MirTerminatorKind,
-    MirSourceAnchor, MirTextOperation, MirTextOperationKind, MirUnaryOperator, MirUnit,
-    MirUnitKind, MirValueOrigin,
+    MirGeneratorOperation, MirHostOperation, MirImmediateValue, MirMemoryOperation,
+    MirNumericConversionKind, MirOperand, MirOperationKind, MirPanicCause, MirPatternPredicate,
+    MirPlace, MirProjectionKind, MirRuntimeReference, MirSourceAnchor, MirStorageKind,
+    MirStoreKind, MirSwitchCase, MirTerminatorKind, MirTextOperation, MirTextOperationKind,
+    MirUnaryOperator, MirUnit, MirUnitKind, MirValueOrigin,
 };
 use bray_source::SourceSpan;
 use bray_symbols::{
@@ -108,7 +108,12 @@ pub fn encode_executable_template<C: ExecutableTemplateEncodeContext>(
     source_namespace: [u8; 32],
     context: &mut C,
 ) -> Result<Arc<[u8]>, ExecutableTemplateEncodeError<C::Error>> {
-    encode_unit(unit, source_namespace, context, EncodingPurpose::InterfaceTemplate)
+    encode_unit(
+        unit,
+        source_namespace,
+        context,
+        EncodingPurpose::InterfaceTemplate,
+    )
 }
 
 /// Encodes complete MIR structure using caller-supplied semantic reference identities.
@@ -205,17 +210,26 @@ fn encode_unit<C: ExecutableTemplateEncodeContext>(
                         anchor.source_version(),
                     ))
                 }
-                MirSourceAnchor::ImportedSource { namespace, span, version, .. } => Some((*namespace, *span, *version)),
+                MirSourceAnchor::ImportedSource {
+                    namespace,
+                    span,
+                    version,
+                    ..
+                } => Some((*namespace, *span, *version)),
                 _ => None,
             };
 
-            write_optional(&mut encoder.wire, source, |wire, (namespace, span, version)| {
-                wire.write_bytes(&namespace);
-                wire.write_u32(span.source_id().raw());
-                wire.write_u32(span.start().bytes());
-                wire.write_u32(span.end().bytes());
-                wire.write_u64(version.raw());
-            });
+            write_optional(
+                &mut encoder.wire,
+                source,
+                |wire, (namespace, span, version)| {
+                    wire.write_bytes(&namespace);
+                    wire.write_u32(span.source_id().raw());
+                    wire.write_u32(span.start().bytes());
+                    wire.write_u32(span.end().bytes());
+                    wire.write_u64(version.raw());
+                },
+            );
         }
     }
 
@@ -379,7 +393,9 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             MirUnitKind::ExecutableHost(_) if self.purpose == EncodingPurpose::CodegenContent => {
                 self.wire.write_u32(2);
             }
-            MirUnitKind::GeneratedLifecycle(_) if self.purpose == EncodingPurpose::CodegenContent => {
+            MirUnitKind::GeneratedLifecycle(_)
+                if self.purpose == EncodingPurpose::CodegenContent =>
+            {
                 self.wire.write_u32(3);
             }
             MirUnitKind::ExecutableHost(_) | MirUnitKind::GeneratedLifecycle(_) => {
@@ -642,6 +658,10 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
         operation: &MirHostOperation,
     ) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
         match operation {
+            MirHostOperation::InitializeRuntime { runtime } => {
+                self.wire.write_u32(8);
+                self.runtime_reference(*runtime);
+            }
             MirHostOperation::MaterializeStatic { place } => {
                 self.wire.write_u32(0);
                 self.place(place)?;
@@ -651,7 +671,12 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.wire.write_u32(entry.slot());
                 self.runtime_reference(*runtime);
             }
-            MirHostOperation::ExecuteRoot { entry, root, execution, runtime } => {
+            MirHostOperation::ExecuteRoot {
+                entry,
+                root,
+                execution,
+                runtime,
+            } => {
                 self.wire.write_u32(2);
                 self.wire.write_u32(entry.slot());
 

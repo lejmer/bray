@@ -32,7 +32,7 @@ pub use generation::{ProductGenerationIdentity, PublishedProductGeneration};
 pub use link::{
     LinkOutputStaging, LinkOutputStagingBuildError, LinkPlanConstructionError, LinkStaging,
     LinkStagingError, ProductLinkInputs, StagedArtifact, StagedArtifactBuildError,
-    construct_link_plan,
+    construct_link_plan, construct_package_archive_plan,
 };
 pub use outcome::{EmissionFailure, EmissionOutcome, EmissionStatus};
 pub use plan::{

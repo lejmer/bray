@@ -27,6 +27,10 @@ pub struct LinkStaging {
 }
 
 impl LinkStaging {
+    pub(super) fn directory(&self) -> &Path {
+        self._transaction.path()
+    }
+
     /// Stages planned native inputs and reserves linked outputs without publishing either.
     pub fn prepare(
         plan: &EmissionPlan,
@@ -142,24 +146,39 @@ impl LinkStaging {
 
         let path = self._transaction.path().join(name);
 
-        let mut file = OpenOptions::new().write(true).create_new(true).open(&path)
-            .map_err(|error| LinkStagingError::Storage(Box::new(
-                crate::StorageError::io(&path, crate::StorageOperation::Create, error),
-            )))?;
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .map_err(|error| {
+                LinkStagingError::Storage(Box::new(crate::StorageError::io(
+                    &path,
+                    crate::StorageOperation::Create,
+                    error,
+                )))
+            })?;
 
         for chunk in bytes.chunks(64 * 1024) {
             if cancellation.is_cancelled() {
                 return Err(LinkStagingError::Cancelled);
             }
 
-            file.write_all(chunk).map_err(|error| LinkStagingError::Storage(Box::new(
-                crate::StorageError::io(&path, crate::StorageOperation::Write, error),
-            )))?;
+            file.write_all(chunk).map_err(|error| {
+                LinkStagingError::Storage(Box::new(crate::StorageError::io(
+                    &path,
+                    crate::StorageOperation::Write,
+                    error,
+                )))
+            })?;
         }
 
-        file.flush().map_err(|error| LinkStagingError::Storage(Box::new(
-            crate::StorageError::io(&path, crate::StorageOperation::Flush, error),
-        )))?;
+        file.flush().map_err(|error| {
+            LinkStagingError::Storage(Box::new(crate::StorageError::io(
+                &path,
+                crate::StorageOperation::Flush,
+                error,
+            )))
+        })?;
 
         Ok(path)
     }
@@ -483,6 +502,7 @@ const fn linked_kind(kind: ArtifactKind) -> Option<LinkedArtifactKind> {
         | ArtifactKind::ExecutableModule
         | ArtifactKind::DebugCompanion
         | ArtifactKind::PackageInterface
+        | ArtifactKind::PackageNativeImplementation
         | ArtifactKind::PackageImplementation
         | ArtifactKind::DependencyMetadata
         | ArtifactKind::TestCatalog => None,
@@ -641,13 +661,15 @@ mod tests {
 
         let input_path = first.inputs()[0].path().to_owned();
 
-        let imported_path = first.stage_imported_native_unit(
-            0,
-            bray_linker::LinkInputKind::RelocatableObject,
-            bray_target::NativeTarget::X86_64LinuxGnu,
-            b"precompiled bytes",
-            &never_cancelled,
-        ).unwrap_or_else(|error| panic!("imported unit must stage: {error:?}"));
+        let imported_path = first
+            .stage_imported_native_unit(
+                0,
+                bray_linker::LinkInputKind::RelocatableObject,
+                bray_target::NativeTarget::X86_64LinuxGnu,
+                b"precompiled bytes",
+                &never_cancelled,
+            )
+            .unwrap_or_else(|error| panic!("imported unit must stage: {error:?}"));
 
         assert_eq!(
             std::fs::read(&imported_path)
@@ -655,15 +677,20 @@ mod tests {
             b"precompiled bytes",
         );
 
-        let archive_path = first.stage_imported_native_unit(
-            1,
-            bray_linker::LinkInputKind::Archive,
-            bray_target::NativeTarget::X86_64WindowsMsvc,
-            b"opaque archive bytes",
-            &never_cancelled,
-        ).unwrap_or_else(|error| panic!("opaque archive must stage: {error:?}"));
+        let archive_path = first
+            .stage_imported_native_unit(
+                1,
+                bray_linker::LinkInputKind::Archive,
+                bray_target::NativeTarget::X86_64WindowsMsvc,
+                b"opaque archive bytes",
+                &never_cancelled,
+            )
+            .unwrap_or_else(|error| panic!("opaque archive must stage: {error:?}"));
 
-        assert_eq!(archive_path.extension().and_then(std::ffi::OsStr::to_str), Some("lib"));
+        assert_eq!(
+            archive_path.extension().and_then(std::ffi::OsStr::to_str),
+            Some("lib")
+        );
 
         let output_path = first.outputs()[0].path().to_owned();
         let output_key = first.outputs()[0].path_key().clone();

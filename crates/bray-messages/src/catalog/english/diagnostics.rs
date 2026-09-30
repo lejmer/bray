@@ -301,27 +301,6 @@ const RUNTIME_ARTIFACT_ABI_MISMATCH: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::ExpectedRuntimeAbi),
 ];
 
-const RUNTIME_ARTIFACT_ARCHIVE_READ_FAILED: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("could not read runtime archive "),
-    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactPath),
-    MessageTemplatePart::Text(": "),
-    MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
-];
-
-const RUNTIME_ARTIFACT_ARCHIVE_INVALID: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("runtime archive is invalid: "),
-    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactPath),
-];
-
-const RUNTIME_ARTIFACT_ARCHIVE_DIGEST_MISMATCH: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("runtime archive "),
-    MessageTemplatePart::Arg(DiagnosticArgName::ArtifactPath),
-    MessageTemplatePart::Text(" has digest "),
-    MessageTemplatePart::Arg(DiagnosticArgName::ActualArtifactDigest),
-    MessageTemplatePart::Text(" but expected "),
-    MessageTemplatePart::Arg(DiagnosticArgName::ExpectedArtifactDigest),
-];
-
 const PROJECT_MANIFEST_READ_FAILED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("could not read Bray project manifest "),
     MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
@@ -682,8 +661,8 @@ const REQUEST_STANDARD_LIBRARY_PACKAGE_IDENTITY_REQUIRED: &[MessageTemplatePart]
     MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
 ];
 
-const STANDARD_LIBRARY_ARTIFACT_READ_FAILED: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("could not read standard library artifact "),
+const PACKAGE_ARTIFACT_READ_FAILED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("could not read package artifact "),
     MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
     MessageTemplatePart::Text(": "),
     MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
@@ -733,13 +712,6 @@ const STANDARD_LIBRARY_RUNTIME_ABI_MISMATCH: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::ExpectedRuntimeAbi),
     MessageTemplatePart::Text(" but the standard library provides "),
     MessageTemplatePart::Arg(DiagnosticArgName::ActualRuntimeAbi),
-];
-
-const STANDARD_LIBRARY_OPTIMIZATION_UNAVAILABLE: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text(
-        "standard library has no optimization artifacts compatible with target ",
-    ),
-    MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
 ];
 
 const REQUEST_DUPLICATE_SOURCE_INPUT: &[MessageTemplatePart] = &[
@@ -2090,8 +2062,8 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::RequestStandardLibraryPackageIdentityRequired => {
             MessageTemplate::new(REQUEST_STANDARD_LIBRARY_PACKAGE_IDENTITY_REQUIRED)
         }
-        DiagnosticKind::StandardLibraryArtifactReadFailed => {
-            MessageTemplate::new(STANDARD_LIBRARY_ARTIFACT_READ_FAILED)
+        DiagnosticKind::PackageArtifactReadFailed => {
+            MessageTemplate::new(PACKAGE_ARTIFACT_READ_FAILED)
         }
         DiagnosticKind::StandardLibraryManifestInvalid => {
             MessageTemplate::new(STANDARD_LIBRARY_MANIFEST_INVALID)
@@ -2110,9 +2082,6 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::StandardLibraryRuntimeAbiMismatch => {
             MessageTemplate::new(STANDARD_LIBRARY_RUNTIME_ABI_MISMATCH)
-        }
-        DiagnosticKind::StandardLibraryOptimizationUnavailable => {
-            MessageTemplate::new(STANDARD_LIBRARY_OPTIMIZATION_UNAVAILABLE)
         }
         DiagnosticKind::RequestDuplicateSourceInput => {
             MessageTemplate::new(REQUEST_DUPLICATE_SOURCE_INPUT)
@@ -2140,15 +2109,6 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::RuntimeArtifactAbiMismatch => {
             MessageTemplate::new(RUNTIME_ARTIFACT_ABI_MISMATCH)
-        }
-        DiagnosticKind::RuntimeArtifactArchiveReadFailed => {
-            MessageTemplate::new(RUNTIME_ARTIFACT_ARCHIVE_READ_FAILED)
-        }
-        DiagnosticKind::RuntimeArtifactArchiveInvalid => {
-            MessageTemplate::new(RUNTIME_ARTIFACT_ARCHIVE_INVALID)
-        }
-        DiagnosticKind::RuntimeArtifactArchiveDigestMismatch => {
-            MessageTemplate::new(RUNTIME_ARTIFACT_ARCHIVE_DIGEST_MISMATCH)
         }
         DiagnosticKind::ProjectManifestReadFailed => {
             MessageTemplate::new(PROJECT_MANIFEST_READ_FAILED)

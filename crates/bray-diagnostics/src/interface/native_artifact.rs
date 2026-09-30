@@ -33,8 +33,6 @@ pub enum DiagnosticNativeArtifactCause {
     DuplicateDefinition,
     /// invalid association in the native package artifact.
     InvalidAssociation,
-    /// invalid link option in the native package artifact.
-    InvalidLinkOption,
     /// noncanonical summary in the native package artifact.
     NoncanonicalSummary,
     /// missing co retention member in the native package artifact.
@@ -75,7 +73,6 @@ impl DiagnosticNativeArtifactCause {
             Self::InvalidSummary => "invalid_summary",
             Self::DuplicateDefinition => "duplicate_definition",
             Self::InvalidAssociation => "invalid_association",
-            Self::InvalidLinkOption => "invalid_link_option",
             Self::NoncanonicalSummary => "noncanonical_summary",
             Self::MissingCoRetentionMember => "missing_co_retention_member",
             Self::DuplicateCoRetentionGroup => "duplicate_co_retention_group",

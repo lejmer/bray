@@ -8,9 +8,9 @@ use bray_codegen::{
 };
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{
-    MirBinaryOperator, MirCall, MirCallTarget, MirEdge, MirOperand, MirOperationId, MirOperationKind,
-    MirStorageKind, MirTerminatorKind, MirUnit, MirUnitKey, MirUnitKind, MirUnaryOperator, inline_scalar_call,
-    reconstruct_reachable,
+    MirBinaryOperator, MirCall, MirCallTarget, MirEdge, MirOperand, MirOperationId,
+    MirOperationKind, MirStorageKind, MirTerminatorKind, MirUnaryOperator, MirUnit, MirUnitKey,
+    MirUnitKind, inline_scalar_call, reconstruct_reachable,
 };
 use bray_symbols::{CallableAbi, TypeData, TypeId};
 
@@ -35,7 +35,10 @@ impl Compilation {
             || options.debug_information() == DebugInformationMode::Full
             || options.runtime_observations() != RuntimeObservationMode::None
             || options.size_preference() == SizePreference::MinimumSize
-            || !matches!(base.key(), MirUnitKey::Bound(_) | MirUnitKey::ImportedExecutable(_))
+            || !matches!(
+                base.key(),
+                MirUnitKey::Bound(_) | MirUnitKey::ImportedExecutable(_)
+            )
             || !matches!(base.kind(), MirUnitKind::Synchronous)
             || base.frame_descriptor().is_some()
         {
@@ -47,13 +50,23 @@ impl Compilation {
 
         // MIR bodies own Arc-backed tables; the cached base remains immutable while expansion replaces this handle.
         let (body, changed) = self.expand_scalar_calls(
-            owner, base.clone(), options, target, &mut stack, 0, &mut remaining, cancellation,
+            owner,
+            base.clone(),
+            options,
+            target,
+            &mut stack,
+            0,
+            &mut remaining,
+            cancellation,
         )?;
 
         Ok(changed.then_some(body))
     }
 
-    #[expect(clippy::too_many_arguments, reason = "inlining carries one caller's policy, stack, and work budget")]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "inlining carries one caller's policy, stack, and work budget"
+    )]
     fn expand_scalar_calls(
         &self,
         owner: &ConcreteCodegenInstance,
@@ -85,14 +98,26 @@ impl Compilation {
                     };
 
                     if options.size_preference() == SizePreference::Size
-                        && (call.arguments().is_empty() || call.arguments().iter().any(|argument| {
-                            !matches!(argument.value(), MirOperand::Constant { .. } | MirOperand::Immediate { .. })
-                        }))
+                        && (call.arguments().is_empty()
+                            || call.arguments().iter().any(|argument| {
+                                !matches!(
+                                    argument.value(),
+                                    MirOperand::Constant { .. } | MirOperand::Immediate { .. }
+                                )
+                            }))
                     {
                         continue;
                     }
 
-                    let Some(callee) = self.scalar_callee(owner, &body, *operation_id, call, target, cancellation)? else {
+                    let Some(callee) = self.scalar_callee(
+                        owner,
+                        &body,
+                        *operation_id,
+                        call,
+                        target,
+                        cancellation,
+                    )?
+                    else {
                         continue;
                     };
 
@@ -100,11 +125,17 @@ impl Compilation {
                         continue;
                     }
 
-                    let raw = self.codegen_mir_for_plan(callee.key(), bray_ir::MirUnitId::new(0), None, cancellation)?;
+                    let raw = self.codegen_mir_for_plan(
+                        callee.key(),
+                        bray_ir::MirUnitId::new(0),
+                        None,
+                        cancellation,
+                    )?;
 
                     let basic = options.with_optimization(OptimizationLevel::Basic);
 
-                    let base = self.optimized_mir_for_plan(&callee, &raw, basic, target, cancellation)?;
+                    let base =
+                        self.optimized_mir_for_plan(&callee, &raw, basic, target, cancellation)?;
 
                     if base.operations().len() > MAX_CALLEE_OPERATIONS
                         || base.blocks().len() > MAX_CALLEE_OPERATIONS
@@ -122,7 +153,14 @@ impl Compilation {
                     stack.push(callee.key().clone());
 
                     let expanded = self.expand_scalar_calls(
-                        &callee, base, options, target, stack, depth + 1, &mut tentative, cancellation,
+                        &callee,
+                        base,
+                        options,
+                        target,
+                        stack,
+                        depth + 1,
+                        &mut tentative,
+                        cancellation,
                     );
 
                     stack.pop();
@@ -130,20 +168,26 @@ impl Compilation {
                     let (expanded, nested_changed) = expanded?;
 
                     let expanded = if nested_changed {
-                        let simplified = self.simplify_concrete_mir(&callee, &expanded, cancellation)?;
+                        let simplified =
+                            self.simplify_concrete_mir(&callee, &expanded, cancellation)?;
 
                         reconstruct_reachable(&simplified)
-                            .map_err(CodegenPreparationError::MirCapacity)?.0
+                            .map_err(CodegenPreparationError::MirCapacity)?
+                            .0
                     } else {
                         expanded
                     };
 
-                    let Some(concrete_types) = self.scalar_body_is_eligible(&callee, &expanded, cancellation)? else {
+                    let Some(concrete_types) =
+                        self.scalar_body_is_eligible(&callee, &expanded, cancellation)?
+                    else {
                         continue;
                     };
 
-                    let Some(spliced) = inline_scalar_call(&body, *operation_id, &expanded, &concrete_types)
-                        .map_err(CodegenPreparationError::MirCapacity)? else {
+                    let Some(spliced) =
+                        inline_scalar_call(&body, *operation_id, &expanded, &concrete_types)
+                            .map_err(CodegenPreparationError::MirCapacity)?
+                    else {
                         continue;
                     };
 
@@ -185,29 +229,48 @@ impl Compilation {
         let mut caller_types = BTreeMap::new();
 
         for argument in call.arguments() {
-            if !self.scalar_operand(body, argument.value(), owner, &mut caller_types, cancellation)? {
+            if !self.scalar_operand(
+                body,
+                argument.value(),
+                owner,
+                &mut caller_types,
+                cancellation,
+            )? {
                 return Ok(None);
             }
         }
 
-        let Some(result) = body.operation(operation_id).expect("call operation").result() else {
+        let Some(result) = body
+            .operation(operation_id)
+            .expect("call operation")
+            .result()
+        else {
             return Ok(None);
         };
 
         let Some(result_type) = self.concrete_scalar_type(
-            body.value(result).expect("call result").ty(), owner, cancellation,
-        )? else {
+            body.value(result).expect("call result").ty(),
+            owner,
+            cancellation,
+        )?
+        else {
             return Ok(None);
         };
 
-        let demand = demanded_callable_instance_for_call(CodegenCallSite::Operation(operation_id), call)
-            .expect("direct call has a concrete demand");
+        let demand =
+            demanded_callable_instance_for_call(CodegenCallSite::Operation(operation_id), call)
+                .expect("direct call has a concrete demand");
 
-        let ConcreteCodegenCallee::Instance(callee) = self.concrete_codegen_callee(owner, &demand, target, cancellation)? else {
+        let ConcreteCodegenCallee::Instance(callee) =
+            self.concrete_codegen_callee(owner, &demand, target, cancellation)?
+        else {
             return Ok(None);
         };
 
-        if !matches!(callee.key().template(), MirUnitKey::Bound(_) | MirUnitKey::ImportedExecutable(_)) {
+        if !matches!(
+            callee.key().template(),
+            MirUnitKey::Bound(_) | MirUnitKey::ImportedExecutable(_)
+        ) {
             return Ok(None);
         }
 
@@ -250,11 +313,18 @@ impl Compilation {
         let mut types = BTreeMap::new();
 
         for (_, storage) in body.storages_with_ids() {
-            let Some(concrete) = self.concrete_scalar_type(storage.ty(), instance, cancellation)? else {
+            let Some(concrete) = self.concrete_scalar_type(storage.ty(), instance, cancellation)?
+            else {
                 return Ok(None);
             };
 
-            if !matches!(storage.kind(), MirStorageKind::Parameter(_) | MirStorageKind::Local | MirStorageKind::Temporary | MirStorageKind::Return) {
+            if !matches!(
+                storage.kind(),
+                MirStorageKind::Parameter(_)
+                    | MirStorageKind::Local
+                    | MirStorageKind::Temporary
+                    | MirStorageKind::Return
+            ) {
                 return Ok(None);
             }
 
@@ -262,7 +332,8 @@ impl Compilation {
         }
 
         for value in body.values() {
-            let Some(concrete) = self.concrete_scalar_type(value.ty(), instance, cancellation)? else {
+            let Some(concrete) = self.concrete_scalar_type(value.ty(), instance, cancellation)?
+            else {
                 return Ok(None);
             };
 
@@ -271,22 +342,42 @@ impl Compilation {
 
         for operation in body.operations() {
             let allowed = match operation.kind() {
-                MirOperationKind::Store { destination, value, .. } => {
+                MirOperationKind::Store {
+                    destination, value, ..
+                } => {
                     destination.projections().is_empty()
-                        && !matches!(body.storage(destination.storage()).expect("valid storage").kind(), MirStorageKind::Parameter(_))
+                        && !matches!(
+                            body.storage(destination.storage())
+                                .expect("valid storage")
+                                .kind(),
+                            MirStorageKind::Parameter(_)
+                        )
                         && self.scalar_operand(body, value, instance, &mut types, cancellation)?
                 }
-                MirOperationKind::Unary { operator: MirUnaryOperator::Not | MirUnaryOperator::BitwiseNot, operand }
+                MirOperationKind::Unary {
+                    operator: MirUnaryOperator::Not | MirUnaryOperator::BitwiseNot,
+                    operand,
+                }
                 | MirOperationKind::NumericConversion { operand, .. } => {
                     self.scalar_operand(body, operand, instance, &mut types, cancellation)?
                 }
-                MirOperationKind::Binary { operator, left, right } => {
-                    matches!(operator, MirBinaryOperator::Equal | MirBinaryOperator::NotEqual
-                        | MirBinaryOperator::LessThan | MirBinaryOperator::LessThanOrEqual
-                        | MirBinaryOperator::GreaterThan | MirBinaryOperator::GreaterThanOrEqual
-                        | MirBinaryOperator::BitwiseAnd | MirBinaryOperator::BitwiseOr
-                        | MirBinaryOperator::BitwiseXor)
-                        && self.scalar_operand(body, left, instance, &mut types, cancellation)?
+                MirOperationKind::Binary {
+                    operator,
+                    left,
+                    right,
+                } => {
+                    matches!(
+                        operator,
+                        MirBinaryOperator::Equal
+                            | MirBinaryOperator::NotEqual
+                            | MirBinaryOperator::LessThan
+                            | MirBinaryOperator::LessThanOrEqual
+                            | MirBinaryOperator::GreaterThan
+                            | MirBinaryOperator::GreaterThanOrEqual
+                            | MirBinaryOperator::BitwiseAnd
+                            | MirBinaryOperator::BitwiseOr
+                            | MirBinaryOperator::BitwiseXor
+                    ) && self.scalar_operand(body, left, instance, &mut types, cancellation)?
                         && self.scalar_operand(body, right, instance, &mut types, cancellation)?
                 }
                 _ => false,
@@ -299,22 +390,51 @@ impl Compilation {
 
         for block in body.blocks() {
             let allowed = match block.terminator().kind() {
-                MirTerminatorKind::Goto(edge) => self.scalar_edge(body, edge, instance, &mut types, cancellation)?,
+                MirTerminatorKind::Goto(edge) => {
+                    self.scalar_edge(body, edge, instance, &mut types, cancellation)?
+                }
                 MirTerminatorKind::Return(value) => match value {
-                    Some(value) => self.scalar_operand(body, value, instance, &mut types, cancellation)?,
+                    Some(value) => {
+                        self.scalar_operand(body, value, instance, &mut types, cancellation)?
+                    }
                     None => true,
                 },
-                MirTerminatorKind::Branch { condition, then_edge, else_edge } => {
+                MirTerminatorKind::Branch {
+                    condition,
+                    then_edge,
+                    else_edge,
+                } => {
                     self.scalar_operand(body, condition, instance, &mut types, cancellation)?
                         && self.scalar_edge(body, then_edge, instance, &mut types, cancellation)?
                         && self.scalar_edge(body, else_edge, instance, &mut types, cancellation)?
                 }
-                MirTerminatorKind::Switch { discriminant, cases, otherwise } => {
-                    let mut allowed = self.scalar_operand(body, discriminant, instance, &mut types, cancellation)?
-                        && self.scalar_edge(body, otherwise, instance, &mut types, cancellation)?;
+                MirTerminatorKind::Switch {
+                    discriminant,
+                    cases,
+                    otherwise,
+                } => {
+                    let mut allowed = self.scalar_operand(
+                        body,
+                        discriminant,
+                        instance,
+                        &mut types,
+                        cancellation,
+                    )? && self.scalar_edge(
+                        body,
+                        otherwise,
+                        instance,
+                        &mut types,
+                        cancellation,
+                    )?;
 
                     for case in cases.iter() {
-                        allowed &= self.scalar_edge(body, case.edge(), instance, &mut types, cancellation)?;
+                        allowed &= self.scalar_edge(
+                            body,
+                            case.edge(),
+                            instance,
+                            &mut types,
+                            cancellation,
+                        )?;
                     }
 
                     allowed
@@ -377,7 +497,9 @@ impl Compilation {
         types.insert(ty, concrete);
 
         Ok(match operand {
-            MirOperand::Value(_) | MirOperand::Constant { .. } | MirOperand::Immediate { .. } => true,
+            MirOperand::Value(_) | MirOperand::Constant { .. } | MirOperand::Immediate { .. } => {
+                true
+            }
             MirOperand::Copy(place) | MirOperand::Move(place) => place.projections().is_empty(),
             MirOperand::ConstantTerm { .. } => false,
         })
@@ -392,13 +514,22 @@ impl Compilation {
             return Ok(false);
         };
 
-        let Some(role) = crate::compilation::foreign::compiler_known_representation(self, *definition) else {
+        let Some(role) =
+            crate::compilation::foreign::compiler_known_representation(self, *definition)
+        else {
             return Ok(false);
         };
 
-        Ok(crate::compilation::representation::target_scalar(role).is_some()
-            && !matches!(role, RepresentationRole::ScalarC32 | RepresentationRole::ScalarC64
-                | RepresentationRole::ScalarC128 | RepresentationRole::ScalarC256))
+        Ok(
+            crate::compilation::representation::target_scalar(role).is_some()
+                && !matches!(
+                    role,
+                    RepresentationRole::ScalarC32
+                        | RepresentationRole::ScalarC64
+                        | RepresentationRole::ScalarC128
+                        | RepresentationRole::ScalarC256
+                ),
+        )
     }
 }
 
@@ -435,23 +566,40 @@ mod tests {
         options: CodegenOptions,
     ) -> super::super::super::specialization::ConcreteCodegenReachability {
         let cancellation = CancellationToken::new();
-        let target = compilation.selected_target().target().codegen_target().expect("test target");
+
+        let target = compilation
+            .selected_target()
+            .target()
+            .codegen_target()
+            .expect("test target");
+
         let semantic = compilation.product_semantics().expect("product semantics");
 
-        let roots = compilation.product_root_instances(
-            semantic.value(), None, &target, &cancellation,
-        ).expect("root instances");
+        let roots = compilation
+            .product_root_instances(semantic.value(), None, &target, &cancellation)
+            .expect("root instances");
 
-        compilation.codegen_reachability(roots, None, &target, options, &cancellation)
+        compilation
+            .codegen_reachability(roots, None, &target, options, false, &cancellation)
             .expect("reachability must close")
     }
 
-    fn direct_calls(graph: &super::super::super::specialization::ConcreteCodegenReachability) -> usize {
-        graph.graph().instances().iter().map(|instance| {
-            instance.mir().operations().iter().filter(|operation| {
-                matches!(operation.kind(), MirOperationKind::Call(_))
-            }).count()
-        }).sum()
+    fn direct_calls(
+        graph: &super::super::super::specialization::ConcreteCodegenReachability,
+    ) -> usize {
+        graph
+            .graph()
+            .instances()
+            .iter()
+            .map(|instance| {
+                instance
+                    .mir()
+                    .operations()
+                    .iter()
+                    .filter(|operation| matches!(operation.kind(), MirOperationKind::Call(_)))
+                    .count()
+            })
+            .sum()
     }
 
     #[test]
@@ -476,7 +624,8 @@ mod tests {
         "#;
 
         let compilation = crate::test_support::compilation_with_product(
-            source, bray_symbols::ProductKind::Executable,
+            source,
+            bray_symbols::ProductKind::Executable,
         );
 
         let release = crate::BuildConfiguration::Release.codegen_options();
@@ -492,13 +641,15 @@ mod tests {
         let none = reachability_for_compilation(&compilation, CodegenOptions::default());
 
         let basic = reachability_for_compilation(
-            &compilation, crate::BuildConfiguration::Development.codegen_options(),
+            &compilation,
+            crate::BuildConfiguration::Development.codegen_options(),
         );
 
         let full = reachability_for_compilation(&compilation, release);
 
         let observed = reachability_for_compilation(
-            &compilation, crate::BuildConfiguration::ObservedRelease.codegen_options(),
+            &compilation,
+            crate::BuildConfiguration::ObservedRelease.codegen_options(),
         );
 
         let debug = reachability_for_compilation(&compilation, full_debug);
@@ -553,7 +704,13 @@ mod tests {
 
         for source in [direct, mutual] {
             let full = reachability(source, crate::BuildConfiguration::Release.codegen_options());
-            assert!(full.graph().instances().iter().all(|instance| instance.mir().is_valid()));
+
+            assert!(
+                full.graph()
+                    .instances()
+                    .iter()
+                    .all(|instance| instance.mir().is_valid())
+            );
         }
     }
 
@@ -580,7 +737,11 @@ mod tests {
             }
         "#;
 
-        let basic = reachability(source, crate::BuildConfiguration::Development.codegen_options());
+        let basic = reachability(
+            source,
+            crate::BuildConfiguration::Development.codegen_options(),
+        );
+
         let full = reachability(source, crate::BuildConfiguration::Release.codegen_options());
 
         assert_eq!(basic.graph().instances().len(), 4);
@@ -590,7 +751,8 @@ mod tests {
 
     #[test]
     fn inline_budget_leaves_later_calls_and_is_repeatable() {
-        let mut source = String::from(r#"
+        let mut source = String::from(
+            r#"
             module app;
 
             func unused() {}
@@ -610,7 +772,8 @@ mod tests {
 
             func main()
             {
-        "#);
+        "#,
+        );
 
         for _ in 0..30 {
             source.push_str("if enabled(false) { unused(); }\n");
@@ -619,19 +782,23 @@ mod tests {
         source.push_str("}\n");
 
         let compilation = crate::test_support::compilation_with_product(
-            &source, bray_symbols::ProductKind::Executable,
+            &source,
+            bray_symbols::ProductKind::Executable,
         );
 
         let basic = reachability_for_compilation(
-            &compilation, crate::BuildConfiguration::Development.codegen_options(),
+            &compilation,
+            crate::BuildConfiguration::Development.codegen_options(),
         );
 
         let first = reachability_for_compilation(
-            &compilation, crate::BuildConfiguration::Release.codegen_options(),
+            &compilation,
+            crate::BuildConfiguration::Release.codegen_options(),
         );
 
         let second = reachability_for_compilation(
-            &compilation, crate::BuildConfiguration::Release.codegen_options(),
+            &compilation,
+            crate::BuildConfiguration::Release.codegen_options(),
         );
 
         assert!(direct_calls(&first) > 0);
@@ -657,7 +824,13 @@ mod tests {
 
         let full = reachability(source, crate::BuildConfiguration::Release.codegen_options());
         assert!(direct_calls(&full) > 0);
-        assert!(full.graph().instances().iter().all(|instance| instance.mir().is_valid()));
+
+        assert!(
+            full.graph()
+                .instances()
+                .iter()
+                .all(|instance| instance.mir().is_valid())
+        );
     }
 
     #[test]
@@ -729,13 +902,23 @@ mod tests {
             }
         "#;
 
-        let basic = reachability(source, crate::BuildConfiguration::Development.codegen_options());
+        let basic = reachability(
+            source,
+            crate::BuildConfiguration::Development.codegen_options(),
+        );
+
         let full = reachability(source, crate::BuildConfiguration::Release.codegen_options());
 
         assert!(direct_calls(&basic) > 0);
         assert_eq!(direct_calls(&full), 0);
         assert_eq!(full.graph().instances().len(), 1);
-        assert!(full.graph().instances().iter().all(|instance| instance.mir().is_valid()));
+
+        assert!(
+            full.graph()
+                .instances()
+                .iter()
+                .all(|instance| instance.mir().is_valid())
+        );
     }
 
     #[test]
@@ -757,24 +940,38 @@ mod tests {
         "#;
 
         let compilation = crate::test_support::compilation_with_product(
-            source, bray_symbols::ProductKind::Library,
+            source,
+            bray_symbols::ProductKind::Library,
         );
 
         let release = crate::BuildConfiguration::Release.codegen_options();
 
-        let options = |size| CodegenOptions::new(
-            release.optimization(), size, release.debug_information(), release.reproducibility(),
-            release.runtime_observations(),
-        );
+        let options = |size| {
+            CodegenOptions::new(
+                release.optimization(),
+                size,
+                release.debug_information(),
+                release.reproducibility(),
+                release.runtime_observations(),
+            )
+        };
 
         let default = reachability_for_compilation(&compilation, options(SizePreference::None));
         let size = reachability_for_compilation(&compilation, options(SizePreference::Size));
-        let minimum = reachability_for_compilation(&compilation, options(SizePreference::MinimumSize));
+
+        let minimum =
+            reachability_for_compilation(&compilation, options(SizePreference::MinimumSize));
 
         assert_eq!(direct_calls(&default), 0);
         assert_eq!(direct_calls(&size), 2);
         assert_eq!(direct_calls(&minimum), 2);
-        assert!(size.graph().instances().iter().all(|instance| instance.mir().is_valid()));
+
+        assert!(
+            size.graph()
+                .instances()
+                .iter()
+                .all(|instance| instance.mir().is_valid())
+        );
     }
 
     #[test]
@@ -803,10 +1000,12 @@ mod tests {
             crate::test_support::package_identity(),
             vec![
                 crate::test_support::source_input(
-                    "module app; func identity(pos value: bool) -> bool { return value; }", 0,
+                    "module app; func identity(pos value: bool) -> bool { return value; }",
+                    0,
                 ),
                 crate::test_support::source_input(
-                    "module app; func main() { if identity(false) {} }", 1,
+                    "module app; func main() { if identity(false) {} }",
+                    1,
                 ),
             ],
             crate::CompilationOptions::new(
@@ -814,30 +1013,59 @@ mod tests {
                 bray_symbols::ProductKind::Executable,
                 crate::SelectedTarget::baseline(),
             ),
-        )).expect("cross-file compilation");
+        ))
+        .expect("cross-file compilation");
 
-        assert!(compilation.check_diagnostics().is_empty(), "{:#?}", compilation.check_diagnostics());
-
-        let basic = reachability_for_compilation(
-            &compilation, crate::BuildConfiguration::Development.codegen_options(),
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
         );
 
-        let caller = basic.graph().instances().iter().find(|instance| {
-            instance.mir().operations().iter().any(|operation| matches!(operation.kind(), MirOperationKind::Call(_)))
-        }).expect("caller instance");
+        let basic = reachability_for_compilation(
+            &compilation,
+            crate::BuildConfiguration::Development.codegen_options(),
+        );
 
-        let callee = basic.graph().instances().iter().find(|instance| instance.key() != caller.key())
+        let caller = basic
+            .graph()
+            .instances()
+            .iter()
+            .find(|instance| {
+                instance
+                    .mir()
+                    .operations()
+                    .iter()
+                    .any(|operation| matches!(operation.kind(), MirOperationKind::Call(_)))
+            })
+            .expect("caller instance");
+
+        let callee = basic
+            .graph()
+            .instances()
+            .iter()
+            .find(|instance| instance.key() != caller.key())
             .expect("callee instance");
 
-        let (site, operation) = caller.mir().operations_with_ids().find(|(_, operation)| {
-            matches!(operation.kind(), MirOperationKind::Call(_))
-        }).expect("call site");
+        let (site, operation) = caller
+            .mir()
+            .operations_with_ids()
+            .find(|(_, operation)| matches!(operation.kind(), MirOperationKind::Call(_)))
+            .expect("call site");
 
         let inlined = inline_scalar_call(caller.mir(), site, callee.mir(), &BTreeMap::new())
-            .expect("MIR capacity").expect("scalar splice");
+            .expect("MIR capacity")
+            .expect("scalar splice");
 
         assert_ne!(operation.source(), callee.mir().blocks()[0].source());
-        assert!(inlined.blocks().iter().any(|block| block.source() == callee.mir().blocks()[0].source()));
+
+        assert!(
+            inlined
+                .blocks()
+                .iter()
+                .any(|block| block.source() == callee.mir().blocks()[0].source())
+        );
+
         assert!(inlined.is_valid());
     }
 
@@ -851,7 +1079,8 @@ mod tests {
             product.clone(),
             InterfaceProductKind::Library,
             "public",
-        ).expect("interface identity");
+        )
+        .expect("interface identity");
 
         let revision = InterfaceLanguageRevision::new(0);
         let export = crate::PackageInterfaceExportRequest::new(identity, revision);
@@ -859,22 +1088,28 @@ mod tests {
         let library = crate::Compilation::load(
             crate::CompilationRequest::with_options(
                 package.clone(),
-                vec![crate::test_support::source_input(
-                    library_source,
-                    0,
-                )],
+                vec![crate::test_support::source_input(library_source, 0)],
                 crate::CompilationOptions::new(
                     crate::WorkerBudget::serial(),
                     bray_symbols::ProductKind::Library,
                     crate::SelectedTarget::baseline(),
                 ),
-            ).with_package_interface_export(export),
-        ).expect("library compilation");
+            )
+            .with_package_interface_export(export),
+        )
+        .expect("library compilation");
 
-        assert!(library.check_diagnostics().is_empty(), "{:#?}", library.check_diagnostics());
+        assert!(
+            library.check_diagnostics().is_empty(),
+            "{:#?}",
+            library.check_diagnostics()
+        );
 
-        let bundle = library.package_interface_export_bundle().expect("export bundle")
-            .as_ref().expect("valid export");
+        let bundle = library
+            .package_interface_export_bundle()
+            .expect("export bundle")
+            .as_ref()
+            .expect("valid export");
 
         let interface = encode_package_interface(bundle).expect("encoded interface");
         let policy = InterfaceValidationPolicy::new(revision);
@@ -892,7 +1127,8 @@ mod tests {
             [],
             [],
             InterfaceValidationLimits::default(),
-        ).expect("implementation artifact");
+        )
+        .expect("implementation artifact");
 
         let dependency = crate::DependencyInterfaceInput::new(
             package,
@@ -900,7 +1136,8 @@ mod tests {
             "dependency.brayi",
             interface.shared_bytes(),
             policy,
-        ).with_implementation_artifact("dependency.brayimpl", Arc::new(implementation));
+        )
+        .with_implementation_artifact("dependency.brayimpl", Arc::new(implementation));
 
         let consumer = crate::Compilation::load(
             crate::CompilationRequest::with_options(
@@ -911,10 +1148,16 @@ mod tests {
                     bray_symbols::ProductKind::Executable,
                     crate::SelectedTarget::baseline(),
                 ),
-            ).with_dependency_interfaces([dependency]),
-        ).expect("consumer compilation");
+            )
+            .with_dependency_interfaces([dependency]),
+        )
+        .expect("consumer compilation");
 
-        assert!(consumer.check_diagnostics().is_empty(), "{:#?}", consumer.check_diagnostics());
+        assert!(
+            consumer.check_diagnostics().is_empty(),
+            "{:#?}",
+            consumer.check_diagnostics()
+        );
 
         consumer
     }
@@ -943,35 +1186,52 @@ mod tests {
         );
 
         let basic = reachability_for_compilation(
-            &consumer, crate::BuildConfiguration::Development.codegen_options(),
+            &consumer,
+            crate::BuildConfiguration::Development.codegen_options(),
         );
 
         let full = reachability_for_compilation(
-            &consumer, crate::BuildConfiguration::Release.codegen_options(),
+            &consumer,
+            crate::BuildConfiguration::Release.codegen_options(),
         );
 
         assert!(basic.graph().instances().iter().any(|instance| {
             matches!(instance.key().template(), MirUnitKey::ImportedExecutable(_))
         }));
 
-        let imported = basic.graph().instances().iter().find(|instance| {
-            matches!(instance.key().template(), MirUnitKey::ImportedExecutable(_))
-        }).expect("imported MIR instance");
+        let imported = basic
+            .graph()
+            .instances()
+            .iter()
+            .find(|instance| matches!(instance.key().template(), MirUnitKey::ImportedExecutable(_)))
+            .expect("imported MIR instance");
 
-        let caller = basic.graph().instances().iter().find(|instance| {
-            matches!(instance.key().template(), MirUnitKey::Bound(_))
-        }).expect("source caller");
+        let caller = basic
+            .graph()
+            .instances()
+            .iter()
+            .find(|instance| matches!(instance.key().template(), MirUnitKey::Bound(_)))
+            .expect("source caller");
 
-        let (site, operation) = caller.mir().operations_with_ids().find(|(_, operation)| {
-            matches!(operation.kind(), MirOperationKind::Call(_))
-        }).expect("imported call site");
+        let (site, operation) = caller
+            .mir()
+            .operations_with_ids()
+            .find(|(_, operation)| matches!(operation.kind(), MirOperationKind::Call(_)))
+            .expect("imported call site");
 
         let inlined = inline_scalar_call(caller.mir(), site, imported.mir(), &BTreeMap::new())
-            .expect("MIR capacity").expect("scalar splice");
+            .expect("MIR capacity")
+            .expect("scalar splice");
 
         assert!(inlined.is_valid());
         assert_ne!(imported.mir().blocks()[0].source(), operation.source());
-        assert!(inlined.blocks().iter().any(|block| block.source() == imported.mir().blocks()[0].source()));
+
+        assert!(
+            inlined
+                .blocks()
+                .iter()
+                .any(|block| block.source() == imported.mir().blocks()[0].source())
+        );
 
         assert_eq!(full.graph().instances().len(), 1);
         assert_eq!(direct_calls(&full), 0);
@@ -1002,16 +1262,24 @@ mod tests {
         );
 
         let basic = reachability_for_compilation(
-            &consumer, crate::BuildConfiguration::Development.codegen_options(),
+            &consumer,
+            crate::BuildConfiguration::Development.codegen_options(),
         );
 
         let full = reachability_for_compilation(
-            &consumer, crate::BuildConfiguration::Release.codegen_options(),
+            &consumer,
+            crate::BuildConfiguration::Release.codegen_options(),
         );
 
         assert!(direct_calls(&basic) > 0);
         assert_eq!(direct_calls(&full), 0);
         assert_eq!(full.graph().instances().len(), 1);
-        assert!(full.graph().instances().iter().all(|instance| instance.mir().is_valid()));
+
+        assert!(
+            full.graph()
+                .instances()
+                .iter()
+                .all(|instance| instance.mir().is_valid())
+        );
     }
 }
