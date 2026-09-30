@@ -48,8 +48,14 @@ pub(in crate::compilation) struct CompilationState {
     pub(in crate::compilation) package_source_authority: crate::PackageSourceAuthority,
     pub(in crate::compilation) standard_library:
         Option<bray_standard_library::StandardLibraryResolver>,
-    pub(in crate::compilation) standard_library_providers:
-        Option<bray_standard_library::StandardLibraryResolver>,
+    pub(in crate::compilation) native_implementations:
+        Vec<bray_package_interface::PackageArtifactInput>,
+    pub(in crate::compilation) native_libraries: Mutex<
+        BTreeMap<
+            (bray_codegen::CodegenOptions, bool),
+            Arc<crate::compilation::product::NativeLibraries>,
+        >,
+    >,
     pub(in crate::compilation) options: CompilationOptions,
     pub(in crate::compilation) sources: SourceStore,
     pub(in crate::compilation) source_diagnostics: DiagnosticBag,
@@ -90,9 +96,8 @@ pub(in crate::compilation) struct CompilationState {
         OnceLock<Result<SemanticValueStore, SemanticValueStoreCreateError>>,
     pub(in crate::compilation) loaded_dependency_interfaces:
         Vec<FactCell<crate::compilation::imported::LoadedDependencyInterface>>,
-    pub(in crate::compilation) loaded_dependency_implementations: Vec<
-        FactCell<DiagnosticResult<Option<crate::compilation::imported::LoadedImplementation>>>,
-    >,
+    pub(in crate::compilation) loaded_dependency_implementations:
+        Vec<FactCell<DiagnosticResult<Option<crate::compilation::imported::LoadedImplementation>>>>,
     pub(in crate::compilation) imported_symbol_skeleton:
         FactCell<DiagnosticResult<Option<Arc<ImportedSymbolSkeleton>>>>,
     pub(in crate::compilation) imported_semantic_graphs:

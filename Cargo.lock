@@ -392,6 +392,7 @@ version = "0.0.0"
 dependencies = [
  "bray-base",
  "bray-diagnostics",
+ "bray-native-artifact",
  "bray-platform",
  "bray-runtime-abi",
  "bray-runtime-interface",
@@ -491,6 +492,7 @@ dependencies = [
  "bray-source",
  "bray-symbols",
  "bray-target",
+ "tempfile",
  "zstd",
 ]
 
@@ -545,6 +547,7 @@ name = "bray-profile"
 version = "0.0.0"
 dependencies = [
  "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1949,6 +1952,7 @@ dependencies = [
  "bray-test-protocol",
  "bray-tooling",
  "inkwell",
+ "object",
  "quote",
  "rayon",
  "rust-style",

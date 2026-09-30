@@ -22,7 +22,6 @@ pub enum DiagnosticLinkRequirement {
     InputArchive,
     InputStartupObject,
     InputTerminationObject,
-    InputRuntimeComponent,
     InputNativeLibrary,
     InputFramework,
     InputModeOrdinary,
@@ -73,7 +72,6 @@ impl DiagnosticLinkRequirement {
             | Self::InputArchive
             | Self::InputStartupObject
             | Self::InputTerminationObject
-            | Self::InputRuntimeComponent
             | Self::InputNativeLibrary
             | Self::InputFramework => DiagnosticLinkRequirementKind::Input,
             Self::InputModeOrdinary | Self::InputModeWholeArchive => {
@@ -129,7 +127,6 @@ impl DiagnosticLinkRequirement {
             Self::InputArchive => "archive",
             Self::InputStartupObject => "startup_object",
             Self::InputTerminationObject => "termination_object",
-            Self::InputRuntimeComponent => "runtime_component",
             Self::InputNativeLibrary => "native_library",
             Self::InputFramework => "framework",
             Self::InputModeOrdinary => "ordinary",

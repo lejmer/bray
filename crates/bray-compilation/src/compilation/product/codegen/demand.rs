@@ -82,6 +82,14 @@ impl NativeDemand {
         }
     }
 
+    pub(crate) fn native_runtime_role(role: RuntimeAbiRole) -> Self {
+        Self {
+            predecessor: None,
+            target: NativeDemandTarget::RuntimeRole(role),
+            reason: NativeDemandReason::NativeReference,
+        }
+    }
+
     pub(crate) const fn predecessor(&self) -> Option<&CodegenInstanceKey> {
         self.predecessor.as_ref()
     }
@@ -112,10 +120,7 @@ pub(crate) struct ConcreteCodegenRoot {
 }
 
 impl ConcreteCodegenRoot {
-    pub(crate) const fn new(
-        instance: ConcreteCodegenInstance,
-        reason: NativeDemandReason,
-    ) -> Self {
+    pub(crate) const fn new(instance: ConcreteCodegenInstance, reason: NativeDemandReason) -> Self {
         Self { instance, reason }
     }
 

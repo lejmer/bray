@@ -1,0 +1,45 @@
+module numbers;
+
+using std.io;
+using fixture.base.numbers;
+
+struct Stored
+{
+    value: i32;
+}
+
+impl Stored
+{
+    finalize()
+    {
+        if read_base(self.value) == 42
+        {
+            std.io.print("M");
+        }
+    }
+}
+
+static STORED: Stored = Stored
+{
+    value = 0
+};
+
+public func result() -> i32
+{
+    return fixture.base.numbers.answer() + STORED.value;
+}
+
+func read_base(pos depth: i32) -> i32
+{
+    if depth == 0
+    {
+        return fixture.base.numbers.answer();
+    }
+
+    return read_again(depth - 1);
+}
+
+func read_again(pos depth: i32) -> i32
+{
+    return read_base(depth);
+}

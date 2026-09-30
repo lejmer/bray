@@ -1,0 +1,44 @@
+module numbers;
+
+using std.io;
+
+struct Stored
+{
+    value: i32;
+}
+
+impl Stored
+{
+    async finalize()
+        requires(main_thread_execution())
+    {
+        std.io.print("F");
+    }
+}
+
+static STORED: Stored = Stored
+{
+    value = 42
+};
+
+public func answer() -> i32
+{
+    return STORED.value;
+}
+
+internal struct Hidden
+{
+}
+
+impl Hidden
+{
+    async finalize()
+        requires(main_thread_execution())
+    {
+        std.io.print("H");
+    }
+}
+
+internal static HIDDEN_RESOURCE: Hidden = Hidden
+{
+};

@@ -2,74 +2,69 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use bray_native_artifact::{NativeUnitSummary, scan_bitcode_unit_summary};
 use bray_target::NativeTarget;
 use inkwell::context::Context;
 use inkwell::memory_buffer::MemoryBuffer;
 use inkwell::module::Module;
-use rayon::prelude::{IndexedParallelIterator, IntoParallelIterator, ParallelIterator};
 
 use super::command::BuildError;
-
-pub(super) struct BuiltNativeModules {
-    pub(super) units: Vec<(NativeUnitSummary, Vec<u8>)>,
-    pub(super) triple: String,
-    pub(super) data_layout: String,
-}
-
-pub(super) fn from_bray_modules(
-    root: &Path,
-    work: &Path,
-    modules: impl IntoIterator<Item = Vec<u8>>,
-) -> Result<BuiltNativeModules, BuildError> {
-    prepare_units(root, work, modules, None, true)
-}
 
 pub(super) fn from_native_archive(
     root: &Path,
     work: &Path,
     archive: &Path,
     target: NativeTarget,
-) -> Result<Option<BuiltNativeModules>, BuildError> {
-    let modules = bitcode_members(root, archive)?;
+) -> Result<Option<Vec<u8>>, BuildError> {
+    let bytes = fs::read(archive).map_err(|error| BuildError::read(archive, error))?;
 
-    if modules.is_empty() {
+    let archive = object::read::archive::ArchiveFile::parse(bytes.as_slice())
+        .expect("foreign producer archive must parse");
+
+    let members = archive
+        .members()
+        .map(|member| {
+            member
+                .expect("foreign producer archive member must parse")
+                .data(bytes.as_slice())
+                .expect("foreign producer archive member must be in bounds")
+                .to_vec()
+        })
+        .collect::<Vec<_>>();
+
+    if !members.iter().any(|member| is_llvm_bitcode(member)) {
         return Ok(None);
     }
 
-    prepare_units(root, work, modules, Some(target.as_str()), false).map(Some)
+    let members = prepare_units(root, work, members, target)?;
+
+    crate::native_archive::archive_bytes(
+        &bray_llvm_toolchain::tool_path(root, "llvm-ar"),
+        &members,
+        "o",
+    )
+    .map(Some)
+    .map_err(|error| BuildError::NativeArchive(error.to_string()))
 }
 
 fn prepare_units(
     root: &Path,
     work: &Path,
-    modules: impl IntoIterator<Item = Vec<u8>>,
-    target_triple: Option<&str>,
-    compiler_summarized: bool,
-) -> Result<BuiltNativeModules, BuildError> {
+    mut modules: Vec<Vec<u8>>,
+    target: NativeTarget,
+) -> Result<Vec<Vec<u8>>, BuildError> {
     let staging = tempfile::Builder::new()
         .prefix("bray-thin-lto-")
         .tempdir_in(work)
         .map_err(BuildError::TemporaryDirectory)?;
 
-    let mut modules: Vec<_> = modules.into_iter().collect();
-    modules.sort_unstable();
-
-    let mut units = Vec::with_capacity(modules.len());
     let mut contract = None;
 
-    let prepare = |index, bytes| {
-        prepare_module(root, staging.path(), index, bytes, target_triple, compiler_summarized)
-    };
+    for (index, bytes) in modules.iter_mut().enumerate() {
+        if !is_llvm_bitcode(&bytes) {
+            continue;
+        }
 
-    let prepared = if compiler_summarized {
-        modules.into_par_iter().enumerate().map(|(index, bytes)| prepare(index, bytes)).collect::<Vec<_>>()
-    } else {
-        modules.into_iter().enumerate().map(|(index, bytes)| prepare(index, bytes)).collect::<Vec<_>>()
-    };
-
-    for item in prepared {
-        let (output, module_contract, summary) = item?;
+        let (output, module_contract) = prepare_module(root, staging.path(), index, bytes, target)?;
 
         if contract
             .as_ref()
@@ -81,115 +76,50 @@ fn prepare_units(
         }
 
         contract.get_or_insert(module_contract);
-        let bytes = fs::read(&output).map_err(|error| BuildError::read(&output, error))?;
-        units.push((summary, bytes));
+
+        *bytes = fs::read(&output).map_err(|error| BuildError::read(&output, error))?;
     }
 
-    let (triple, data_layout) = contract.ok_or_else(|| {
-        BuildError::NativeArchive("optimization module target is unavailable".to_owned())
-    })?;
-
-    Ok(BuiltNativeModules {
-        units,
-        triple,
-        data_layout,
-    })
+    Ok(modules)
 }
 
 fn prepare_module(
     root: &Path,
     staging: &Path,
     index: usize,
-    bytes: Vec<u8>,
-    target_triple: Option<&str>,
-    compiler_summarized: bool,
-) -> Result<(PathBuf, (String, String), NativeUnitSummary), BuildError> {
-    if !is_llvm_bitcode(&bytes) {
-        let signature = bytes
-            .iter()
-            .take(4)
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>();
-
-        return Err(BuildError::NativeArchive(format!(
-            "optimization module {index} starts with 0x{signature} instead of LLVM bitcode magic"
-        )));
-    }
-
+    bytes: &[u8],
+    target: NativeTarget,
+) -> Result<(PathBuf, (String, String)), BuildError> {
     let output = staging.join(format!("module_{index:04}.bc"));
 
-    if compiler_summarized {
-        fs::write(&output, &bytes).map_err(|error| BuildError::write(&output, error))?;
-    } else {
-        let input = staging.join(format!("input_{index:04}.bc"));
+    let input = staging.join(format!("input_{index:04}.bc"));
 
-        fs::write(&input, &bytes).map_err(|error| BuildError::write(&input, error))?;
-        summarize_module(root, &input, &output, target_triple)?;
-    }
+    fs::write(&input, &bytes).map_err(|error| BuildError::write(&input, error))?;
 
-    let summarized = if compiler_summarized {
-        bytes
-    } else {
-        fs::read(&output).map_err(|error| BuildError::read(&output, error))?
-    };
+    summarize_module(root, &input, &output, target.as_str())?;
 
-    let contract = inspect_module_contract(root, &summarized, compiler_summarized)?;
-    let summary = native_unit_summary(root, &output)?;
+    let summarized = fs::read(&output).map_err(|error| BuildError::read(&output, error))?;
+    let contract = inspect_module_contract(root, &summarized, true)?;
 
-    Ok((output, contract, summary))
-}
-
-fn native_unit_summary(root: &Path, module: &Path) -> Result<NativeUnitSummary, BuildError> {
-    let inspect = |tool: &str, arguments: &[&str]| {
-        let output = Command::new(bray_llvm_toolchain::tool_path(root, tool))
-            .args(arguments)
-            .arg(module)
-            .output()
-            .map_err(|error| BuildError::ToolLaunch {
-                action: "inspect optimization module",
-                program: bray_llvm_toolchain::tool_path(root, tool),
-                source: error,
-            })?;
-
-        if !output.status.success() {
-            return Err(BuildError::NativeArchive(format!(
-                "LLVM could not inspect optimization module {} with {tool}",
-                module.display(),
-            )));
-        }
-
-        String::from_utf8(output.stdout).map_err(|_| {
-            BuildError::NativeArchive(format!(
-                "LLVM returned non-UTF-8 optimization symbols for {}",
-                module.display(),
-            ))
-        })
-    };
-
-    let symbols = inspect("llvm-nm", &["--format=posix", "--extern-only"])?;
-    let structure = inspect("llvm-dis", &["-o", "-"])?;
-
-    Ok(scan_bitcode_unit_summary(&symbols, &structure))
+    Ok((output, contract))
 }
 
 fn summarize_module(
     root: &Path,
     input: &Path,
     output: &Path,
-    target_triple: Option<&str>,
+    target_triple: &str,
 ) -> Result<(), BuildError> {
     let canonical = canonicalize_module(root, root, input)?;
     let mut summarize = Command::new(bray_llvm_toolchain::tool_path(root, "opt"));
 
     summarize
-        .arg("-module-summary")
+        .args(["-module-summary", "-module-hash"])
         .arg(canonical)
         .arg("-o")
         .arg(output);
 
-    if let Some(target_triple) = target_triple {
-        summarize.arg(format!("-mtriple={target_triple}"));
-    }
+    summarize.arg(format!("-mtriple={target_triple}"));
 
     require_success(summarize, "LLVM could not create a module summary")?;
 
@@ -289,7 +219,12 @@ fn inspect_module_contract(
     })?;
 
     let triple = module.get_triple().as_str().to_string_lossy().into_owned();
-    let data_layout = module.get_data_layout().as_str().to_string_lossy().into_owned();
+
+    let data_layout = module
+        .get_data_layout()
+        .as_str()
+        .to_string_lossy()
+        .into_owned();
 
     if triple.is_empty() || data_layout.is_empty() {
         return Err(BuildError::NativeArchive(
@@ -304,57 +239,6 @@ fn inspect_module_contract(
     }
 
     Ok((triple, data_layout))
-}
-
-fn bitcode_members(root: &Path, archive: &Path) -> Result<Vec<Vec<u8>>, BuildError> {
-    let archiver = bray_llvm_toolchain::tool_path(root, "llvm-ar");
-
-    let output = Command::new(&archiver)
-        .arg("t")
-        .arg(archive)
-        .output()
-        .map_err(|error| BuildError::NativeArchive(error.to_string()))?;
-
-    if !output.status.success() {
-        return Err(BuildError::NativeArchive(
-            "LLVM could not inspect a native provider archive".to_owned(),
-        ));
-    }
-
-    let members = String::from_utf8(output.stdout).map_err(|_| {
-        BuildError::NativeArchive("native archive inventory is not UTF-8".to_owned())
-    })?;
-
-    let mut bitcode = Vec::new();
-
-    for member in members.lines().filter(|member| !member.is_empty()) {
-        if !is_optimization_member(member) {
-            continue;
-        }
-
-        let output = Command::new(&archiver)
-            .arg("p")
-            .arg(archive)
-            .arg(member)
-            .output()
-            .map_err(|error| BuildError::NativeArchive(error.to_string()))?;
-
-        if !output.status.success() {
-            return Err(BuildError::NativeArchive(
-                "LLVM could not read a native provider archive member".to_owned(),
-            ));
-        }
-
-        if is_llvm_bitcode(&output.stdout) {
-            bitcode.push(output.stdout);
-        }
-    }
-
-    Ok(bitcode)
-}
-
-fn is_optimization_member(member: &str) -> bool {
-    !member.contains(".rcgu.") || member.starts_with("bray_")
 }
 
 fn is_llvm_bitcode(bytes: &[u8]) -> bool {
@@ -431,9 +315,7 @@ mod tests {
     use inkwell::context::Context;
     use inkwell::targets::{TargetData, TargetTriple};
 
-    use super::{
-        contains_checkout_path, is_llvm_bitcode, is_optimization_member, remap_checkout_path,
-    };
+    use super::{contains_checkout_path, is_llvm_bitcode, remap_checkout_path};
 
     #[test]
     fn bitcode_detection_accepts_raw_and_wrapped_llvm_modules() {
@@ -462,17 +344,6 @@ mod tests {
     }
 
     #[test]
-    fn native_optimization_keeps_native_and_first_party_rust_modules() {
-        assert!(is_optimization_member("provider.o"));
-
-        assert!(is_optimization_member(
-            "bray_platform_abi_temporal.hash-cgu.0.rcgu.o"
-        ));
-
-        assert!(!is_optimization_member("std.hash-cgu.0.rcgu.o"));
-    }
-
-    #[test]
     fn llvm_module_contract_is_read_in_process() {
         let context = Context::create();
         let module = context.create_module("inspection.test");
@@ -486,13 +357,18 @@ mod tests {
         let bytes = buffer.as_slice().strip_suffix(&[0]).unwrap();
 
         let contract = super::inspect_module_contract(
-            std::path::Path::new("C:\\workspace\\bray"), bytes, false,
+            std::path::Path::new("C:\\workspace\\bray"),
+            bytes,
+            false,
         )
         .unwrap();
 
         assert_eq!(
             contract,
-            ("x86_64-pc-windows-msvc".to_owned(), "e-p:64:64-i128:128".to_owned()),
+            (
+                "x86_64-pc-windows-msvc".to_owned(),
+                "e-p:64:64-i128:128".to_owned()
+            ),
         );
     }
 
@@ -523,5 +399,4 @@ mod tests {
             "source_filename = \".\\\\source.cpp\""
         );
     }
-
 }

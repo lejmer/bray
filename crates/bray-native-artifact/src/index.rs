@@ -17,6 +17,7 @@ const MAXIMUM_INDEX_BYTES: usize = 16 * 1024 * 1024;
 pub struct NativeArtifactIndex {
     target: NativeTarget,
     producer: NativeContentDigest,
+    bitcode_toolchain: Option<Arc<str>>,
     units: Arc<[NativeUnit]>,
     co_retention_groups: Arc<[NativeCoRetentionGroup]>,
 }
@@ -38,6 +39,7 @@ impl NativeArtifactIndex {
         units.sort_by_key(NativeUnit::digest);
 
         let mut previous = None;
+        let mut static_records = std::collections::BTreeMap::new();
 
         for unit in &units {
             if previous == Some(unit.digest()) {
@@ -46,30 +48,34 @@ impl NativeArtifactIndex {
 
             previous = Some(unit.digest());
 
+            for entry in unit.statics() {
+                if entry.order_key().is_empty() || entry.dependencies().contains(&entry.identity())
+                {
+                    return Err(NativeIndexError::InvalidSummary(unit.digest()));
+                }
+
+                if let Some(previous) = static_records.insert(entry.identity(), entry)
+                    && previous != entry
+                {
+                    return Err(NativeIndexError::InvalidSummary(unit.digest()));
+                }
+            }
+
             if matches!(unit.kind(), NativeUnitKind::OpaqueArchive)
-                && !matches!(unit.summary(), NativeUnitSummary::Opaque)
+                && !matches!(unit.summary(), NativeUnitSummary::Opaque { .. })
             {
                 return Err(NativeIndexError::InvalidSummary(unit.digest()));
             }
 
-            if unit
-                .link_options()
-                .iter()
-                .any(|option| option.is_empty() || option.contains(['\0', '\n', '\r']))
-            {
-                return Err(NativeIndexError::InvalidLinkOption(unit.digest()));
+            if !strictly_sorted(unit.summary().references()) {
+                return Err(NativeIndexError::NoncanonicalSummary(unit.digest()));
             }
 
             if let NativeUnitSummary::Exact {
-                definitions,
-                references,
-                roots,
+                definitions, roots, ..
             } = unit.summary()
             {
-                if !strictly_sorted(definitions)
-                    || !strictly_sorted(references)
-                    || !strictly_sorted(roots)
-                {
+                if !strictly_sorted(definitions) || !strictly_sorted(roots) {
                     return Err(NativeIndexError::NoncanonicalSummary(unit.digest()));
                 }
 
@@ -122,6 +128,7 @@ impl NativeArtifactIndex {
         Ok(Self {
             target,
             producer,
+            bitcode_toolchain: None,
             units: units.into(),
             co_retention_groups: co_retention_groups.into(),
         })
@@ -193,10 +200,14 @@ impl NativeArtifactIndex {
             });
         }
 
-        let workers = std::thread::available_parallelism().map_or(1, usize::from).min(12);
+        let workers = std::thread::available_parallelism()
+            .map_or(1, usize::from)
+            .min(12);
 
         let payloads = if index.units.len() < 16 || workers == 1 {
-            index.units().iter()
+            index
+                .units()
+                .iter()
                 .map(|unit| authenticate_payload(unit, index.target(), payload_directory))
                 .collect::<Result<Vec<_>, _>>()?
         } else {
@@ -205,14 +216,24 @@ impl NativeArtifactIndex {
             let units = index.units();
 
             std::thread::scope(|scope| {
-                let tasks = units.chunks(chunk_size).map(|chunk| {
-                    scope.spawn(move || chunk.iter()
-                        .map(|unit| authenticate_payload(unit, target, payload_directory))
-                        .collect::<Vec<_>>())
-                }).collect::<Vec<_>>();
+                let tasks = units
+                    .chunks(chunk_size)
+                    .map(|chunk| {
+                        scope.spawn(move || {
+                            chunk
+                                .iter()
+                                .map(|unit| authenticate_payload(unit, target, payload_directory))
+                                .collect::<Vec<_>>()
+                        })
+                    })
+                    .collect::<Vec<_>>();
 
-                tasks.into_iter()
-                    .flat_map(|task| task.join().expect("native payload validation worker panicked"))
+                tasks
+                    .into_iter()
+                    .flat_map(|task| {
+                        task.join()
+                            .expect("native payload validation worker panicked")
+                    })
                     .collect::<Result<Vec<_>, _>>()
             })?
         };
@@ -231,6 +252,18 @@ impl NativeArtifactIndex {
     /// Returns the producer's exact code-generation policy identity.
     pub const fn producer(&self) -> NativeContentDigest {
         self.producer
+    }
+
+    /// Records the toolchain revision that serialized the bitcode.
+    pub fn with_bitcode_toolchain(mut self, revision: impl Into<Arc<str>>) -> Self {
+        self.bitcode_toolchain = Some(revision.into());
+
+        self
+    }
+
+    /// Returns the bitcode toolchain revision independently of the producer build policy.
+    pub fn bitcode_toolchain(&self) -> Option<&str> {
+        self.bitcode_toolchain.as_deref()
     }
 
     /// Returns the target object format.
@@ -256,8 +289,10 @@ fn authenticate_payload(
 ) -> Result<PathBuf, NativeIndexError> {
     let path = payload_directory.join(unit.kind().file_name(unit.digest(), target));
 
-    let actual = bray_base::sha256_file(&path)
-        .map_err(|error| NativeIndexError::Read { path: path.clone(), kind: error.kind() })?;
+    let actual = bray_base::sha256_file(&path).map_err(|error| NativeIndexError::Read {
+        path: path.clone(),
+        kind: error.kind(),
+    })?;
 
     if NativeContentDigest::new(actual) != unit.digest() {
         return Err(NativeIndexError::PayloadDigestMismatch {
@@ -346,8 +381,6 @@ pub enum NativeIndexError {
     DuplicateDefinition(NativeContentDigest),
     /// An associative COMDAT has no parent definition in its unit.
     InvalidAssociation(NativeContentDigest),
-    /// A target-linker option is empty or contains an invalid control character.
-    InvalidLinkOption(NativeContentDigest),
     /// Exact summary sets are not in stable unique order.
     NoncanonicalSummary(NativeContentDigest),
     /// A group refers to a unit absent from the index.
@@ -364,7 +397,6 @@ fn strictly_sorted<T: Ord>(values: &[T]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
 
     use bray_base::NonEmptySharedStr;
     use bray_symbols::{
@@ -417,7 +449,6 @@ mod tests {
                 name("pthread"),
                 NativeLinkKind::System,
             )],
-            [Arc::from("-pthread")],
         )
     }
 
@@ -479,8 +510,12 @@ mod tests {
         let archive_unit = NativeUnit::new(
             archive_id,
             NativeUnitKind::OpaqueArchive,
-            NativeUnitSummary::Opaque,
-            [],
+            NativeUnitSummary::opaque([symbol(
+                NativeSymbolIdentity::Name(name("external_boundary")),
+                None,
+                NativeSymbolBinding::Strong,
+                NativeSymbolPresence::Required,
+            )]),
             [],
         );
 
@@ -510,22 +545,87 @@ mod tests {
     }
 
     #[test]
+    fn lifecycle_metadata_round_trips_and_rejects_conflicting_instances() {
+        let contribution = crate::NativeStatic::new(
+            name("static_host"),
+            [1; 32],
+            vec![2, 1, 0].into(),
+            bray_symbols::StaticStorageDuration::ExactThread,
+            [[2; 32]],
+            true,
+            true,
+        );
+
+        let unit = NativeUnit::new(
+            digest(b"object"),
+            NativeUnitKind::Object,
+            NativeUnitSummary::opaque([]),
+            [],
+        )
+        .with_statics([contribution.clone()]);
+
+        let index = NativeArtifactIndex::try_new(
+            NativeTarget::X86_64LinuxGnu,
+            digest(b"producer"),
+            [unit.clone()],
+            [],
+        )
+        .unwrap();
+
+        let bytes = index.encode().unwrap();
+        let decoded = NativeArtifactIndex::decode(&bytes, digest(&bytes), index.target()).unwrap();
+
+        assert_eq!(decoded.units()[0].statics(), &[contribution.clone()]);
+
+        let conflicting = crate::NativeStatic::new(
+            name("different_host"),
+            contribution.identity(),
+            contribution.order_key().into(),
+            contribution.duration(),
+            contribution.dependencies().iter().copied(),
+            true,
+            contribution.requires_main_thread(),
+        );
+
+        let second = NativeUnit::new(
+            digest(b"second"),
+            NativeUnitKind::Object,
+            NativeUnitSummary::opaque([]),
+            [],
+        )
+        .with_statics([conflicting]);
+
+        assert!(matches!(
+            NativeArtifactIndex::try_new(index.target(), index.producer(), [unit, second], []),
+            Err(NativeIndexError::InvalidSummary(_))
+        ));
+    }
+
+    #[test]
     fn parallel_import_authenticates_all_units_and_reports_first_invalid_payload() {
         let target = NativeTarget::X86_64LinuxGnu;
         let producer = digest(b"test producer");
 
-        let payloads = (0..20).map(|index| {
-            let bytes = format!("native unit {index}").into_bytes();
+        let payloads = (0..20)
+            .map(|index| {
+                let bytes = format!("native unit {index}").into_bytes();
 
-            (digest(&bytes), bytes)
-        }).collect::<Vec<_>>();
+                (digest(&bytes), bytes)
+            })
+            .collect::<Vec<_>>();
 
-        let units = payloads.iter().map(|(digest, _)| NativeUnit::new(
-            *digest,
-            NativeUnitKind::Object,
-            NativeUnitSummary::Exact { definitions: [].into(), references: [].into(), roots: [].into() },
-            [], [],
-        ));
+        let units = payloads.iter().map(|(digest, _)| {
+            NativeUnit::new(
+                *digest,
+                NativeUnitKind::Object,
+                NativeUnitSummary::Exact {
+                    definitions: [].into(),
+                    references: [].into(),
+                    roots: [].into(),
+                },
+                [],
+            )
+        });
 
         let index = NativeArtifactIndex::try_new(target, producer, units, [])
             .expect("test index must validate");
@@ -535,12 +635,18 @@ mod tests {
         let directory = tempfile::tempdir().expect("test directory must exist");
 
         for (digest, bytes) in &payloads {
-            std::fs::write(directory.path().join(NativeUnitKind::Object.file_name(*digest, target)), bytes)
-                .expect("test payload must be written");
+            std::fs::write(
+                directory
+                    .path()
+                    .join(NativeUnitKind::Object.file_name(*digest, target)),
+                bytes,
+            )
+            .expect("test payload must be written");
         }
 
-        let imported = NativeArtifactIndex::import(&bytes, index_digest, target, producer, directory.path())
-            .expect("all test payloads must authenticate");
+        let imported =
+            NativeArtifactIndex::import(&bytes, index_digest, target, producer, directory.path())
+                .expect("all test payloads must authenticate");
 
         assert_eq!(imported.index().units().len(), 20);
 
@@ -548,8 +654,13 @@ mod tests {
         let last = index.units()[19].digest();
 
         for digest in [first, last] {
-            std::fs::write(directory.path().join(NativeUnitKind::Object.file_name(digest, target)), b"corrupted")
-                .expect("test payload must be changed");
+            std::fs::write(
+                directory
+                    .path()
+                    .join(NativeUnitKind::Object.file_name(digest, target)),
+                b"corrupted",
+            )
+            .expect("test payload must be changed");
         }
 
         assert!(matches!(
@@ -561,6 +672,8 @@ mod tests {
     #[test]
     fn round_trip_duplicate_providers_cycles_roots_and_opaque_units() {
         let (index, payloads) = index();
+
+        let index = index.with_bitcode_toolchain("llvm-test-revision");
 
         let bytes = index
             .encode()
@@ -607,7 +720,8 @@ mod tests {
             index.units().iter().cloned().rev(),
             index.co_retention_groups().iter().cloned().rev(),
         )
-        .unwrap_or_else(|error| panic!("reordered units must validate: {error:?}"));
+        .unwrap_or_else(|error| panic!("reordered units must validate: {error:?}"))
+        .with_bitcode_toolchain(index.bitcode_toolchain().expect("test toolchain revision"));
 
         assert_eq!(reversed.encode().ok().as_deref(), Some(bytes.as_slice()));
 
@@ -630,7 +744,6 @@ mod tests {
                     roots: roots.iter().rev().copied().collect(),
                 },
                 unit.native_links().iter().cloned().rev(),
-                unit.link_options().iter().cloned(),
             )
         });
 
@@ -640,7 +753,8 @@ mod tests {
             reordered,
             index.co_retention_groups().iter().cloned(),
         )
-        .unwrap_or_else(|error| panic!("reordered symbols must validate: {error:?}"));
+        .unwrap_or_else(|error| panic!("reordered symbols must validate: {error:?}"))
+        .with_bitcode_toolchain(index.bitcode_toolchain().expect("test toolchain revision"));
 
         assert_eq!(reordered.encode().ok().as_deref(), Some(bytes.as_slice()));
     }
@@ -748,8 +862,8 @@ mod tests {
 
         wire["units"][0]["digest"] = serde_json::Value::String("not-a-digest".to_owned());
 
-        let malformed =
-            serde_json::to_vec(&wire).unwrap_or_else(|error| panic!("test JSON must encode: {error}"));
+        let malformed = serde_json::to_vec(&wire)
+            .unwrap_or_else(|error| panic!("test JSON must encode: {error}"));
 
         assert!(matches!(
             NativeArtifactIndex::import(
@@ -766,11 +880,13 @@ mod tests {
             ))
         ));
 
-        wire["units"][0]["digest"] = serde_json::Value::String(index.units()[0].digest().to_string());
+        wire["units"][0]["digest"] =
+            serde_json::Value::String(index.units()[0].digest().to_string());
+
         wire["object_format"] = serde_json::Value::String("coff".to_owned());
 
-        let wrong_format =
-            serde_json::to_vec(&wire).unwrap_or_else(|error| panic!("test JSON must encode: {error}"));
+        let wrong_format = serde_json::to_vec(&wire)
+            .unwrap_or_else(|error| panic!("test JSON must encode: {error}"));
 
         assert!(matches!(
             NativeArtifactIndex::import(
@@ -801,13 +917,13 @@ mod tests {
         let opaque_object = NativeUnit::new(
             digest(b"object with unknown retention"),
             NativeUnitKind::Object,
-            NativeUnitSummary::Opaque,
-            [],
+            NativeUnitSummary::opaque([]),
             [],
         );
 
         assert!(
-            NativeArtifactIndex::try_new(index.target(), index.producer(), [opaque_object], []).is_ok()
+            NativeArtifactIndex::try_new(index.target(), index.producer(), [opaque_object], [])
+                .is_ok()
         );
 
         let orphan = exact(
@@ -836,7 +952,7 @@ mod tests {
     }
 
     #[test]
-    fn construction_rejects_duplicate_units_and_unmodelled_link_options() {
+    fn construction_rejects_duplicate_units_and_invalid_groups() {
         let (index, _) = index();
 
         let duplicate = index.units()[0].clone();
@@ -849,19 +965,6 @@ mod tests {
                 [],
             ),
             Err(NativeIndexError::DuplicateUnit(_))
-        ));
-
-        let invalid_option = NativeUnit::new(
-            digest(b"invalid option"),
-            NativeUnitKind::Bitcode,
-            NativeUnitSummary::Opaque,
-            [],
-            [Arc::from("-bad\noption")],
-        );
-
-        assert!(matches!(
-            NativeArtifactIndex::try_new(index.target(), index.producer(), [invalid_option], []),
-            Err(NativeIndexError::InvalidLinkOption(_))
         ));
 
         assert!(NativeCoRetentionGroup::try_new([index.units()[0].digest()]).is_none());
@@ -892,8 +995,8 @@ mod tests {
 
         wire["revision"] = serde_json::Value::from(2);
 
-        let bytes =
-            serde_json::to_vec(&wire).unwrap_or_else(|error| panic!("test JSON must encode: {error}"));
+        let bytes = serde_json::to_vec(&wire)
+            .unwrap_or_else(|error| panic!("test JSON must encode: {error}"));
 
         assert!(matches!(
             NativeArtifactIndex::import(

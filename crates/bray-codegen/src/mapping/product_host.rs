@@ -7,17 +7,8 @@ use bray_symbols::StaticStorageDuration;
 
 use crate::CodegenUnitKey;
 
-/// Returns the retained object section for static-host contributions.
-pub const fn static_host_section_name(format: bray_target::ObjectFormat) -> &'static str {
-    match format {
-        bray_target::ObjectFormat::Coff => ".bray$S",
-        bray_target::ObjectFormat::Elf | bray_target::ObjectFormat::WebAssembly => {
-            "bray_static_hosts"
-        }
-        bray_target::ObjectFormat::MachO => "__DATA,__bray_static",
-        bray_target::ObjectFormat::Xcoff => ".bray_static_hosts",
-    }
-}
+/// The descriptor shared by all static packages in one linked image.
+pub const LINKED_PRODUCT_HOST_SYMBOL: &str = "bray_linked_product_host";
 
 /// One static-entry identity referenced by a product-host descriptor.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -86,6 +77,7 @@ pub struct CodegenProductHostMapping {
     descriptor_symbol: BinarySymbolName,
     control_symbol: BinarySymbolName,
     statics: Arc<[CodegenProductHostStatic]>,
+    final_image: bool,
 }
 
 impl CodegenProductHostMapping {
@@ -148,7 +140,20 @@ impl CodegenProductHostMapping {
             descriptor_symbol,
             control_symbol,
             statics: statics.into(),
+            final_image: false,
         })
+    }
+
+    /// Marks the descriptor as the complete final-image definition.
+    pub const fn with_final_image(mut self, final_image: bool) -> Self {
+        self.final_image = final_image;
+
+        self
+    }
+
+    /// Returns whether this is the complete descriptor rather than a library contribution.
+    pub const fn is_final_image(&self) -> bool {
+        self.final_image
     }
 
     /// Returns the code generation unit that defines the descriptor and control surface.
@@ -182,20 +187,7 @@ mod tests {
     use bray_runtime_abi::{NativeProductIdentity, NativeStaticIdentity};
     use bray_runtime_interface::BinarySymbolName;
 
-    use super::{CodegenProductHostMapping, CodegenProductHostStatic, static_host_section_name};
-
-    #[test]
-    fn static_host_sections_cover_every_object_format() {
-        assert_eq!(
-            static_host_section_name(bray_target::ObjectFormat::Coff),
-            ".bray$S"
-        );
-
-        assert_eq!(
-            static_host_section_name(bray_target::ObjectFormat::MachO),
-            "__DATA,__bray_static"
-        );
-    }
+    use super::{CodegenProductHostMapping, CodegenProductHostStatic};
 
     #[test]
     fn product_host_mappings_require_dependency_order() {

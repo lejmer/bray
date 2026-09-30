@@ -509,8 +509,7 @@ pub(super) fn compilation_request(
     let dependencies = configuration
         .dependencies()
         .iter()
-        .map(crate::command::DriverDependencyInterface::load)
-        .collect::<Result<Vec<_>, _>>()?;
+        .map(crate::command::DriverDependencyInterface::input);
 
     request = request.with_dependency_interfaces(dependencies);
     request = request.with_platform_services(configuration.platform_services().iter().cloned());
@@ -528,9 +527,12 @@ pub(super) fn compilation_request(
         request = request.with_standard_library_root(root.clone());
     }
 
-    if let Some(root) = options.standard_library_provider_root() {
-        request = request.with_standard_library_provider_root(root.clone());
-    }
+    request = request.with_native_implementations(
+        options
+            .native_implementations()
+            .iter()
+            .map(|path| bray_package_interface::PackageArtifactInput::file(path, None)),
+    );
 
     if export_interface {
         request =
@@ -693,7 +695,7 @@ mod tests {
             OutputFormat::Text,
             configuration,
             None,
-            None,
+            Vec::new(),
             PackageSourceAuthority::Ordinary,
         );
 

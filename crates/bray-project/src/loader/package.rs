@@ -643,6 +643,9 @@ const fn output_kind(kind: OutputKindManifest) -> TargetOutputKind {
         OutputKindManifest::DebugCompanion => TargetOutputKind::DebugCompanion,
         OutputKindManifest::PackageInterface => TargetOutputKind::PackageInterface,
         OutputKindManifest::PackageImplementation => TargetOutputKind::PackageImplementation,
+        OutputKindManifest::PackageNativeImplementation => {
+            TargetOutputKind::PackageNativeImplementation
+        }
         OutputKindManifest::DependencyMetadata => TargetOutputKind::DependencyMetadata,
         OutputKindManifest::Executable => TargetOutputKind::Executable,
         OutputKindManifest::StaticLibrary => TargetOutputKind::StaticLibrary,
@@ -661,6 +664,7 @@ const fn output_kind_name(kind: TargetOutputKind) -> &'static str {
         TargetOutputKind::DebugCompanion => "debug_companion",
         TargetOutputKind::PackageInterface => "package_interface",
         TargetOutputKind::PackageImplementation => "package_implementation",
+        TargetOutputKind::PackageNativeImplementation => "package_native_implementation",
         TargetOutputKind::DependencyMetadata => "dependency_metadata",
         TargetOutputKind::TestCatalog => "test_catalog",
         TargetOutputKind::Executable => "executable",

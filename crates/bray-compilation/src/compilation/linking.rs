@@ -456,7 +456,7 @@ mod tests {
 
         builder.push_input(file_input(
             2,
-            LinkInputKind::RuntimeComponent,
+            LinkInputKind::Archive,
             "runtime.a",
             LinkInputProvenance::Runtime(runtime.clone()),
         ));
@@ -524,7 +524,7 @@ mod tests {
                 ),
                 file_input(
                     2,
-                    LinkInputKind::RuntimeComponent,
+                    LinkInputKind::Archive,
                     "runtime.a",
                     LinkInputProvenance::Runtime(runtime.clone()),
                 ),
@@ -835,7 +835,7 @@ mod tests {
         builder.push_input(
             LinkInput::try_new(
                 LinkInputId::new(0),
-                LinkInputKind::RuntimeComponent,
+                LinkInputKind::Archive,
                 LinkInputSource::file(input),
                 LinkInputProvenance::Runtime(runtime.clone()),
                 LinkInputMode::Ordinary,
@@ -1077,9 +1077,9 @@ mod tests {
                 LinkPlanCapability::Product(LinkedProductKind::Executable),
                 LinkPlanCapability::Product(LinkedProductKind::SharedLibrary),
                 LinkPlanCapability::Input(LinkInputKind::RelocatableObject),
+                LinkPlanCapability::Input(LinkInputKind::Archive),
                 LinkPlanCapability::Input(LinkInputKind::StartupObject),
                 LinkPlanCapability::Input(LinkInputKind::TerminationObject),
-                LinkPlanCapability::Input(LinkInputKind::RuntimeComponent),
                 LinkPlanCapability::Input(LinkInputKind::NativeLibrary),
                 LinkPlanCapability::InputMode(LinkInputMode::Ordinary),
                 LinkPlanCapability::Output(LinkedArtifactKind::Executable),

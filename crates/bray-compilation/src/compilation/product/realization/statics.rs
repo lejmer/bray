@@ -3,8 +3,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use bray_codegen::{
     CodegenConstantTermMapping, CodegenLinkage, CodegenMappings, CodegenStaticFinalization,
     CodegenStaticIncidentMemory, CodegenStaticInstanceKey, CodegenStaticRelocation,
-    CodegenStaticStorageMapping, CodegenStaticWitness, CodegenTarget, CodegenTerminatorMapping,
-    CodegenUnit, demanded_callable_instances_for_mir,
+    CodegenStaticStorageMapping, CodegenTarget, CodegenTerminatorMapping, CodegenUnit,
+    demanded_callable_instances_for_mir,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{MirStorageKind, MirUnit, MirUnitKey};
@@ -40,9 +40,8 @@ pub(super) struct ConcreteStaticRealization {
 }
 
 impl ConcreteStaticRealization {
-    pub(super) fn requires_host(&self, product_kind: bray_symbols::ProductKind) -> bool {
-        product_kind == bray_symbols::ProductKind::Library
-            || self.key.duration() == bray_symbols::StaticStorageDuration::ExactThread
+    pub(super) fn requires_host(&self) -> bool {
+        self.key.duration() == bray_symbols::StaticStorageDuration::ExactThread
             || self.outgoing_capacity != 0
             || self.finalization.is_some()
             || self.destroy.is_some()
@@ -495,6 +494,38 @@ impl Compilation {
         Ok(mappings)
     }
 
+    pub(in crate::compilation::product) fn codegen_static_identity(
+        &self,
+        owner: &ConcreteCodegenInstance,
+        reference: &StaticReferenceSelection,
+        instance: &bray_symbols::StaticInstanceKey,
+        target: &CodegenTarget,
+        cancellation: &CancellationToken,
+    ) -> Result<(CodegenStaticInstanceKey, BinarySymbolName), CodegenPreparationError> {
+        // The static identity retains the immutable target independently of the caller.
+        let key = CodegenStaticInstanceKey::new(
+            self.static_cleanup_order_key(instance, cancellation)?,
+            owner.key().target().clone(),
+            self.static_instance_template(instance.template().declaration())?
+                .value()
+                .duration(),
+        );
+
+        let symbol = match self.optional_native_static_contract(reference, cancellation)? {
+            Some(native) if native.direction == bray_symbols::ForeignCallableDirection::Export => {
+                native
+                    .symbol
+                    .identity()
+                    .name()
+                    .and_then(BinarySymbolName::try_new)
+                    .expect("checked exported static must have a valid named symbol")
+            }
+            _ => generated_symbol_name(target, CodegenLinkage::LinkOnce, "static", &key)?,
+        };
+
+        Ok((key, symbol))
+    }
+
     pub(super) fn concrete_codegen_static(
         &self,
         owner: &ConcreteCodegenInstance,
@@ -536,46 +567,17 @@ impl Compilation {
             }
         };
 
-        // Initializer and storage identities independently own shared specialization data.
         let initializer = ConcreteCodegenInstance::static_initializer(
             initializer_template,
             declaration,
             instance.substitution(),
-            specialization.clone(),
+            specialization,
             &witnesses,
             owner.key().target().clone(),
         );
 
-        let binding_context = self.binding_context(cancellation)?;
-        let declaration = self.portable_codegen_symbol_key(&binding_context, declaration.into())?;
-
-        let key = CodegenStaticInstanceKey::new(
-            declaration,
-            specialization,
-            template
-                .value()
-                .witness_requirements()
-                .iter()
-                .cloned()
-                .zip(witnesses.iter().map(|(identity, _)| identity.clone()))
-                .map(|(requirement, implementation)| {
-                    CodegenStaticWitness::new(requirement, implementation)
-                }),
-            owner.key().target().clone(),
-            template.value().duration(),
-        );
-
-        let symbol = match self.optional_native_static_contract(reference, cancellation)? {
-            Some(native) if native.direction == bray_symbols::ForeignCallableDirection::Export => {
-                native
-                    .symbol
-                    .identity()
-                    .name()
-                    .and_then(BinarySymbolName::try_new)
-                    .ok_or(CodegenPreparationError::InvalidSymbolName)?
-            }
-            _ => generated_symbol_name(target, CodegenLinkage::LinkOnce, "static", &key)?,
-        };
+        let (key, symbol) =
+            self.codegen_static_identity(owner, reference, &instance, target, cancellation)?;
 
         let ty = self.resolve_codegen_type(
             template.value().declared_type(),
@@ -751,11 +753,8 @@ impl Compilation {
                     let realization =
                         self.concrete_codegen_static(owner, reference, target, cancellation)?;
 
-                    let relocation = CodegenStaticRelocation::new(
-                        value,
-                        realization.key,
-                        realization.symbol,
-                    );
+                    let relocation =
+                        CodegenStaticRelocation::new(value, realization.key, realization.symbol);
 
                     if relocations.insert(value, relocation).is_some() {
                         return Err(

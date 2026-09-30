@@ -39,22 +39,20 @@ pub use mapping::{
     CodegenNativeStaticMapping, CodegenOperationMapping, CodegenParameterMapping,
     CodegenProductHostMapping, CodegenProductHostStatic, CodegenResultMapping, CodegenSourceFile,
     CodegenStaticFinalization, CodegenStaticIncidentMemory, CodegenStaticInstanceKey,
-    CodegenStaticRelocation, CodegenStaticStorageMapping, CodegenStaticWitness, CodegenSymbolKey,
-    CodegenSymbolMapping, CodegenTerminatorMapping, CodegenTypeBehavior, CodegenTypeKind,
-    CodegenTypeMapping, CodegenUnionVariantLayout, CodegenValueAttribute, ConstantDemands,
-    DemandedCallableInstance, FOREIGN_CALLBACK_RUNTIME_ROLES, IntrinsicCall, child_constants,
+    CodegenStaticRelocation, CodegenStaticStorageMapping, CodegenSymbolKey, CodegenSymbolMapping,
+    CodegenTerminatorMapping, CodegenTypeBehavior, CodegenTypeKind, CodegenTypeMapping,
+    CodegenUnionVariantLayout, CodegenValueAttribute, ConstantDemands, DemandedCallableInstance,
+    FOREIGN_CALLBACK_RUNTIME_ROLES, IntrinsicCall, LINKED_PRODUCT_HOST_SYMBOL, child_constants,
     demanded_callable_instance_for_call, demanded_callable_instances,
     demanded_callable_instances_for_mir, demanded_constant_terms, demanded_constants,
     demanded_debug_sources, demanded_runtime_references, demanded_runtime_references_for_mir,
     frame_creation_runtime_role, mapped_runtime_references, mapped_symbol_runtime_roles,
-    static_host_section_name,
 };
 pub use optimization::{
     BackendBitcodeOptimizationOutcome, BackendBitcodeOptimizer, BackendBitcodeTargetContract,
 };
 pub use options::{
-    CodegenOptions, DebugInformationMode, OptimizationLevel,
-    RuntimeObservationMode, SizePreference,
+    CodegenOptions, DebugInformationMode, OptimizationLevel, RuntimeObservationMode, SizePreference,
 };
 pub use outcome::{
     CodegenFailure, CodegenOutcome, CodegenStatus, codegen_failure_diagnostic,

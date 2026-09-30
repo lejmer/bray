@@ -22,8 +22,7 @@ use bray_symbols::{
 };
 
 use super::diagnostic::{
-    contextual_interface_diagnostic, standard_library_diagnostics, unlocated_interface_diagnostics,
-    validation_diagnostics,
+    contextual_interface_diagnostic, dependency_artifact_diagnostics, validation_diagnostics,
 };
 use super::model::LoadedDependencyInterface;
 use crate::compilation::diagnostics::diagnostic_interface_symbol_reference;
@@ -33,22 +32,6 @@ use crate::fact::{
 use crate::request::DependencyInterfaceInput;
 
 impl super::super::Compilation {
-    /// Returns structured diagnostics for one failed standard library artifact request.
-    pub fn standard_library_load_diagnostics(
-        &self,
-        error: &bray_standard_library::StandardLibraryLoadError,
-    ) -> DiagnosticBag {
-        let input = self.dependency_interfaces().iter().find(|input| {
-            input.package().as_str()
-                == bray_standard_library::PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY
-        });
-
-        input.map_or_else(
-            || unlocated_interface_diagnostics(DiagnosticKind::StandardLibraryManifestInvalid),
-            |input| standard_library_diagnostics(error.clone(), input),
-        )
-    }
-
     /// Resolves the canonical compilation-local handle for one selected dependency interface.
     pub fn dependency_interface_id(
         &self,
@@ -159,7 +142,7 @@ impl super::super::Compilation {
         )
     }
 
-    pub(super) fn loaded_dependency_interface_with_cancellation(
+    pub(in crate::compilation) fn loaded_dependency_interface_with_cancellation(
         &self,
         interface: ImportedInterfaceId,
         cancellation: &CancellationToken,
@@ -476,42 +459,7 @@ impl super::super::Compilation {
     ) -> Result<DiagnosticResult<Option<Arc<ImportedSemantics>>>, FactQueryError> {
         cancellation.check()?;
 
-        let interfaces = self
-            .loaded_interface_views(cancellation)?
-            .unwrap_or_else(|| {
-                panic!(
-                    "imported publication invariant MissingLoadedInterfaceViews: {:?}",
-                    interface
-                )
-            });
-
-        let Some(current) = interfaces
-            .iter()
-            .copied()
-            .find(|loaded| loaded.interface() == interface)
-        else {
-            panic!(
-                "imported publication invariant MissingCurrentInterface: {:?}",
-                interface
-            );
-        };
-
-        let symbols = self.symbol_graph()?;
-
-        let resolver = match ImportedInterfaceSymbolResolver::try_new(
-            current,
-            interfaces,
-            skeleton,
-            symbols.compiler_known_provider().symbol_keys(),
-        ) {
-            Ok(resolver) => resolver,
-            Err(error) => {
-                return Ok(DiagnosticResult::new(
-                    None,
-                    dependency_graph_diagnostics(self, error),
-                ));
-            }
-        };
+        let resolver = self.imported_symbol_resolver(interface, skeleton, cancellation)?;
 
         let semantic_values = self.semantic_value_store()?;
 
@@ -526,6 +474,32 @@ impl super::super::Compilation {
                 semantic_content_diagnostics(error, input),
             )),
         }
+    }
+
+    pub(super) fn imported_symbol_resolver<'a>(
+        &'a self,
+        interface: ImportedInterfaceId,
+        skeleton: &'a ImportedSymbolSkeleton,
+        cancellation: &CancellationToken,
+    ) -> Result<ImportedInterfaceSymbolResolver<'a>, FactQueryError> {
+        let interfaces = self
+            .loaded_interface_views(cancellation)?
+            .expect("constructed imported skeleton must have loaded interface views");
+
+        let current = interfaces
+            .iter()
+            .copied()
+            .find(|loaded| loaded.interface() == interface)
+            .unwrap_or_else(|| panic!("constructed imported skeleton must contain {interface:?}"));
+
+        let symbols = self.symbol_graph()?;
+
+        Ok(ImportedInterfaceSymbolResolver::new(
+            current,
+            interfaces,
+            skeleton,
+            symbols.compiler_known_provider().symbol_keys(),
+        ))
     }
 
     pub(in crate::compilation) fn loaded_interface_views(
@@ -608,7 +582,7 @@ fn load_dependency_interface(
         Ok(bytes) => bytes,
         Err(error) => {
             return Ok(LoadedDependencyInterface::invalid(
-                standard_library_diagnostics(error, input),
+                dependency_artifact_diagnostics(error, input, input.artifact_path()),
             ));
         }
     };
@@ -1354,7 +1328,7 @@ mod tests {
     }
 
     #[test]
-    fn configured_standard_library_roots_are_loaded_only_when_imports_are_demanded() {
+    fn configured_standard_library_manifest_failure_is_reported_during_discovery() {
         let directory = tempfile::tempdir()
             .unwrap_or_else(|error| panic!("temporary root must exist: {error}"));
 
@@ -1375,21 +1349,48 @@ mod tests {
         )
         .with_standard_library_root(root);
 
-        let compilation = Compilation::load(request)
-            .unwrap_or_else(|error| panic!("I/O-free compilation load must succeed: {error:?}"));
+        let compilation = Compilation::load(request).unwrap_or_else(|error| {
+            panic!("compilation must retain discovery failures: {error:?}")
+        });
 
-        assert!(compilation.source_diagnostics().is_empty());
-
-        let interface = interface_id(&compilation, "std", "library");
-
-        let result = compilation
-            .dependency_interface_result(interface)
-            .unwrap_or_else(|| panic!("synthetic standard library dependency must exist"));
+        assert!(compilation.dependency_interfaces().is_empty());
 
         assert_eq!(
-            diagnostic_kinds(result.diagnostics()),
-            [DiagnosticKind::StandardLibraryArtifactReadFailed]
+            diagnostic_kinds(compilation.source_diagnostics()),
+            [DiagnosticKind::PackageArtifactReadFailed]
         );
+    }
+
+    #[test]
+    fn explicit_dependency_owns_its_interface_and_native_representations() {
+        let directory = tempfile::tempdir().unwrap();
+
+        let root = write_standard_library_fixture(
+            directory.path(),
+            TargetIdentity::try_new("x86_64-unknown-linux-gnu").unwrap(),
+            b"discovered interface",
+            b"discovered interface",
+        );
+
+        let explicit = dependency("std", "library");
+
+        let request = CompilationRequest::new(
+            package("example.current"),
+            vec![SourceInput::virtual_text(
+                SourceIdentity::new(1),
+                "main.bray",
+                SourceVersion::new(1),
+                "module example.current;",
+            )],
+        )
+        .with_dependency_interfaces([explicit.clone()])
+        .with_standard_library_root(root);
+
+        let compilation = Compilation::load(request).unwrap();
+
+        assert_eq!(compilation.dependency_interfaces(), &[explicit]);
+        assert!(compilation.native_implementation_inputs().is_empty());
+        assert!(compilation.source_diagnostics().is_empty());
     }
 
     #[test]
@@ -1410,16 +1411,14 @@ mod tests {
                 .unwrap_or_else(|| panic!("temporary root must be absolute")),
         );
 
-        let malformed_result = malformed
-            .dependency_interface_result(interface_id(&malformed, "std", "library"))
-            .unwrap_or_else(|| panic!("synthetic standard library dependency must exist"));
+        let malformed_diagnostics = malformed.source_diagnostics();
 
         assert_eq!(
-            diagnostic_kinds(malformed_result.diagnostics()),
+            diagnostic_kinds(malformed_diagnostics),
             [DiagnosticKind::StandardLibraryManifestInvalid]
         );
 
-        let malformed_diagnostic = bray_testing::single_diagnostic(malformed_result.diagnostics());
+        let malformed_diagnostic = bray_testing::single_diagnostic(malformed_diagnostics);
 
         assert_eq!(
             malformed_diagnostic.args(),
@@ -1436,7 +1435,7 @@ mod tests {
         );
 
         bray_testing::assert_goal_state_diagnostic_kind(
-            malformed_result.diagnostics(),
+            malformed_diagnostics,
             DiagnosticKind::StandardLibraryManifestInvalid,
         );
 
@@ -1457,13 +1456,9 @@ mod tests {
         );
 
         let unavailable = compilation_with_standard_library_root(unavailable_root);
+        let unavailable_diagnostics = unavailable.source_diagnostics();
 
-        let unavailable_result = unavailable
-            .dependency_interface_result(interface_id(&unavailable, "std", "library"))
-            .unwrap_or_else(|| panic!("synthetic standard library dependency must exist"));
-
-        let unavailable_diagnostic =
-            bray_testing::single_diagnostic(unavailable_result.diagnostics());
+        let unavailable_diagnostic = bray_testing::single_diagnostic(unavailable_diagnostics);
 
         assert_eq!(
             unavailable_diagnostic.kind(),
@@ -1494,26 +1489,27 @@ mod tests {
 
         let mismatch_result = mismatch
             .dependency_interface_result(interface_id(&mismatch, "std", "library"))
-            .unwrap_or_else(|| panic!("synthetic standard library dependency must exist"));
+            .unwrap_or_else(|| panic!("discovered standard library dependency must exist"));
 
         let mismatch_diagnostic = bray_testing::single_diagnostic(mismatch_result.diagnostics());
 
         assert_eq!(
             mismatch_diagnostic.kind(),
-            DiagnosticKind::StandardLibraryArtifactDigestMismatch
+            DiagnosticKind::InterfaceHashMismatch
         );
 
-        assert_eq!(
+        assert!(mismatch_diagnostic.args().iter().any(|arg| matches!(
+            arg.value(),
+            DiagnosticArgValue::InterfaceValidationFailure(
+                bray_diagnostics::DiagnosticInterfaceValidationFailure::ArtifactHashMismatch { .. }
+            )
+        )));
+
+        assert!(
             mismatch_diagnostic
                 .args()
                 .iter()
-                .map(|argument| argument.name())
-                .collect::<Vec<_>>(),
-            [
-                DiagnosticArgName::FilePath,
-                DiagnosticArgName::ExpectedArtifactDigest,
-                DiagnosticArgName::ActualArtifactDigest,
-            ]
+                .any(|arg| arg.name() == DiagnosticArgName::FilePath)
         );
 
         bray_testing::assert_goal_state_diagnostic(mismatch_diagnostic);
@@ -1541,12 +1537,13 @@ mod tests {
         )
         .with_standard_library_root(root);
 
-        let compilation = Compilation::load(request)
-            .unwrap_or_else(|error| panic!("I/O-free compilation load must succeed: {error:?}"));
+        let compilation = Compilation::load(request).unwrap_or_else(|error| {
+            panic!("compilation must retain discovery failures: {error:?}")
+        });
 
         assert!(
             diagnostic_kinds(compilation.check_diagnostics())
-                .contains(&DiagnosticKind::StandardLibraryArtifactReadFailed)
+                .contains(&DiagnosticKind::PackageArtifactReadFailed)
         );
     }
 

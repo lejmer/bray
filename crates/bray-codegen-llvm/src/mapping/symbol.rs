@@ -5,7 +5,6 @@ use bray_codegen::{
 };
 use bray_ir::MirUnitKey;
 use bray_symbols::SymbolKind;
-use inkwell::DLLStorageClass;
 use inkwell::GlobalVisibility;
 use inkwell::attributes::AttributeLoc;
 use inkwell::module::{Linkage, Module};
@@ -206,22 +205,6 @@ fn apply_linkage(
         function
             .as_global_value()
             .set_visibility(GlobalVisibility::Hidden);
-    }
-
-    if defines_symbol && target.machine().object_format() == bray_target::ObjectFormat::Coff {
-        match mapping.linkage() {
-            CodegenLinkage::Export => function
-                .as_global_value()
-                .set_dll_storage_class(DLLStorageClass::Export),
-            CodegenLinkage::Private
-            | CodegenLinkage::Internal
-            | CodegenLinkage::External
-            | CodegenLinkage::Weak
-            | CodegenLinkage::Fallback
-            | CodegenLinkage::Import
-            | CodegenLinkage::LinkOnce
-            | CodegenLinkage::Common => {}
-        }
     }
 
     Ok(())
@@ -795,6 +778,37 @@ mod tests {
         assert_eq!(
             function.as_global_value().get_visibility(),
             inkwell::GlobalVisibility::Hidden
+        );
+    }
+
+    #[test]
+    fn coff_export_definitions_leave_image_exports_to_the_link_plan() {
+        let fixture = codegen_request();
+        let mapping = &fixture.request().mappings().symbols()[0];
+
+        let exported = CodegenSymbolMapping::new(
+            mapping.key().clone(),
+            mapping.name().clone(),
+            CodegenLinkage::Export,
+            mapping.signature().clone(),
+        );
+
+        let context = Context::create();
+        let module = context.create_module("coff-library-export");
+
+        let function = module.add_function(
+            exported.name().as_str(),
+            context.void_type().fn_type(&[], false),
+            None,
+        );
+
+        let target = CodegenTarget::for_native(NativeTarget::X86_64WindowsMsvc);
+        apply_linkage(&module, function, &exported, &target, true).unwrap();
+        assert_eq!(function.get_linkage(), Linkage::External);
+
+        assert_eq!(
+            function.as_global_value().get_dll_storage_class(),
+            DLLStorageClass::Default
         );
     }
 

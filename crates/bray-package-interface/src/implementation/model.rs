@@ -163,18 +163,38 @@ pub struct InterfaceNativeBinding {
     producer_options: bray_codegen::CodegenOptions,
     unit: [u8; 32],
     symbol: bray_base::NonEmptySharedStr,
+    requires_main_thread: bool,
 }
 
 impl InterfaceNativeBinding {
     /// Creates a binding for one interface declaration and complete specialization key.
-    pub const fn new(
+    pub fn new(
         owner: InterfaceSymbolId,
         key: super::PackageImplementationSpecializationKey,
         producer_options: bray_codegen::CodegenOptions,
         unit: [u8; 32],
         symbol: bray_base::NonEmptySharedStr,
     ) -> Self {
-        Self { owner, key, producer_options, unit, symbol }
+        Self {
+            owner,
+            key,
+            producer_options,
+            unit,
+            symbol,
+            requires_main_thread: false,
+        }
+    }
+
+    /// Records whether this callable can require the main thread.
+    pub fn with_main_thread_requirement(mut self, required: bool) -> Self {
+        self.requires_main_thread = required;
+
+        self
+    }
+
+    /// Returns whether execution can require the main thread.
+    pub const fn requires_main_thread(&self) -> bool {
+        self.requires_main_thread
     }
 
     /// Returns the owning interface declaration.

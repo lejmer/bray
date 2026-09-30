@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use bray_base::NonEmptySharedStr;
 use bray_symbols::{
     NativeLinkKind, NativeLinkRequirement, NativeSymbolBinding, NativeSymbolContract,
@@ -40,6 +38,7 @@ pub(super) struct IndexWire {
     target: String,
     object_format: String,
     producer: String,
+    bitcode_toolchain: Option<String>,
     units: Vec<UnitWire>,
     co_retention_groups: Vec<Vec<String>>,
 }
@@ -52,6 +51,9 @@ impl IndexWire {
             target: index.target().as_str().to_owned(),
             object_format: object_format_name(index.object_format()).to_owned(),
             producer: index.producer().to_string(),
+            bitcode_toolchain: index
+                .bitcode_toolchain()
+                .map(|identity| identity.to_string()),
             units: index.units().iter().map(UnitWire::from_unit).collect(),
             co_retention_groups: index
                 .co_retention_groups()
@@ -97,7 +99,12 @@ impl IndexWire {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        NativeArtifactIndex::try_new(target, producer, units, groups)
+        let index = NativeArtifactIndex::try_new(target, producer, units, groups)?;
+
+        Ok(match self.bitcode_toolchain {
+            Some(revision) => index.with_bitcode_toolchain(revision),
+            None => index,
+        })
     }
 }
 
@@ -108,12 +115,14 @@ struct UnitWire {
     kind: UnitKindWire,
     summary: SummaryWire,
     native_links: Vec<LinkWire>,
-    link_options: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    statics: Vec<StaticWire>,
 }
 
 impl UnitWire {
     fn from_unit(unit: &NativeUnit) -> Self {
         Self {
+            statics: unit.statics().iter().map(StaticWire::from_static).collect(),
             digest: unit.digest().to_string(),
             kind: UnitKindWire::from_kind(unit.kind()),
             summary: SummaryWire::from_summary(unit.summary()),
@@ -121,11 +130,6 @@ impl UnitWire {
                 .native_links()
                 .iter()
                 .map(LinkWire::from_link)
-                .collect(),
-            link_options: unit
-                .link_options()
-                .iter()
-                .map(|item| item.to_string())
                 .collect(),
         }
     }
@@ -144,7 +148,65 @@ impl UnitWire {
             self.kind.into_kind(),
             self.summary.into_summary()?,
             links,
-            self.link_options.into_iter().map(Arc::<str>::from),
+        )
+        .with_statics(
+            self.statics
+                .into_iter()
+                .map(StaticWire::into_static)
+                .collect::<Result<Vec<_>, _>>()?,
+        ))
+    }
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StaticWire {
+    symbol: String,
+    identity: String,
+    order_key: Vec<u8>,
+    exact_thread: bool,
+    dependencies: Vec<String>,
+    requires_host: bool,
+    requires_main_thread: bool,
+}
+
+impl StaticWire {
+    fn from_static(value: &crate::NativeStatic) -> Self {
+        Self {
+            symbol: value.symbol().to_owned(),
+            identity: NativeContentDigest::new(value.identity()).to_hex(),
+            order_key: value.order_key().to_vec(),
+            exact_thread: value.duration() == bray_symbols::StaticStorageDuration::ExactThread,
+            dependencies: value
+                .dependencies()
+                .iter()
+                .map(|id| NativeContentDigest::new(*id).to_hex())
+                .collect(),
+            requires_host: value.requires_host(),
+            requires_main_thread: value.requires_main_thread(),
+        }
+    }
+
+    fn into_static(self) -> Result<crate::NativeStatic, NativeIndexError> {
+        let symbol = NonEmptySharedStr::try_new(self.symbol)
+            .filter(|symbol| !symbol.as_str().contains('\0'))
+            .ok_or(NativeIndexError::Wire(WireError::InvalidSymbol))?;
+
+        Ok(crate::NativeStatic::new(
+            symbol,
+            digest(&self.identity)?.bytes(),
+            self.order_key.into(),
+            if self.exact_thread {
+                bray_symbols::StaticStorageDuration::ExactThread
+            } else {
+                bray_symbols::StaticStorageDuration::Product
+            },
+            self.dependencies
+                .iter()
+                .map(|value| digest(value).map(NativeContentDigest::bytes))
+                .collect::<Result<Vec<_>, _>>()?,
+            self.requires_host,
+            self.requires_main_thread,
         ))
     }
 }
@@ -183,7 +245,9 @@ enum SummaryWire {
         references: Vec<SymbolWire>,
         roots: Vec<RootWire>,
     },
-    Opaque,
+    Opaque {
+        references: Vec<SymbolWire>,
+    },
 }
 
 impl SummaryWire {
@@ -201,7 +265,9 @@ impl SummaryWire {
                 references: references.iter().map(SymbolWire::from_symbol).collect(),
                 roots: roots.iter().copied().map(RootWire::from_root).collect(),
             },
-            NativeUnitSummary::Opaque => Self::Opaque,
+            NativeUnitSummary::Opaque { references } => Self::Opaque {
+                references: references.iter().map(SymbolWire::from_symbol).collect(),
+            },
         }
     }
 
@@ -228,7 +294,13 @@ impl SummaryWire {
                     .collect::<Vec<_>>()
                     .into(),
             }),
-            Self::Opaque => Ok(NativeUnitSummary::Opaque),
+            Self::Opaque { references } => Ok(NativeUnitSummary::Opaque {
+                references: references
+                    .into_iter()
+                    .map(SymbolWire::into_symbol)
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into(),
+            }),
         }
     }
 }

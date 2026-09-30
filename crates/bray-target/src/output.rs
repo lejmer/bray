@@ -23,6 +23,8 @@ pub enum TargetOutputKind {
     PackageInterface,
     /// Compiled package implementation payloads.
     PackageImplementation,
+    /// Packed alternate native representation of a library.
+    PackageNativeImplementation,
     /// Compiler-owned dependency metadata.
     DependencyMetadata,
     /// Immutable native test-host catalog.
@@ -227,6 +229,7 @@ const fn native_name_fragments(
         }
         TargetOutputKind::PackageInterface => ("", ".brayi"),
         TargetOutputKind::PackageImplementation => ("", ".brayimpl"),
+        TargetOutputKind::PackageNativeImplementation => ("", "-native.brayimpl"),
         TargetOutputKind::DependencyMetadata => ("", ".brayd"),
         TargetOutputKind::TestCatalog => ("", ".braytests"),
         TargetOutputKind::Executable => match format {

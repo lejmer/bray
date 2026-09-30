@@ -392,8 +392,8 @@ pub struct CompilationProfileNativeCodegen {
     pub dependencies: Vec<CompilationProfileCodegenDependency>,
     /// Every generated unit in emission order.
     pub units: Vec<CompilationProfileCodegenUnit>,
-    /// Native standard-library indexes selected for native linking or ThinLTO.
-    pub standard_library_artifacts: Vec<CompilationProfileStandardLibraryArtifact>,
+    /// Library artifacts selected for native linking or ThinLTO.
+    pub library_artifacts: Vec<CompilationProfileLibraryArtifact>,
 }
 
 /// One reachable generated definition or external leaf.
@@ -465,8 +465,9 @@ pub struct CompilationProfileNativeDemand {
 /// One retained runtime role and its selected native provider.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CompilationProfileNativeRuntimeDemand {
-    /// Report-local identity of the instance requiring the role.
-    pub predecessor: u32,
+    /// Report-local requiring instance, or no instance for a native-library obligation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub predecessor: Option<u32>,
     /// Private runtime ABI role.
     pub role: String,
     /// Selected native symbol implementing the role.
@@ -503,9 +504,9 @@ pub struct CompilationProfileCodegenUnit {
     pub visibilities: Vec<String>,
 }
 
-/// One selected standard-library native index.
+/// One selected library native artifact.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct CompilationProfileStandardLibraryArtifact {
+pub struct CompilationProfileLibraryArtifact {
     /// Resolved index path.
     pub path: String,
     /// Number of selected LLVM modules.

@@ -121,7 +121,6 @@ fn format_english_native_product_failure_detail(
             "the executable entry result does not match the product contract"
         }
         Kind::MissingRuntime => "the asynchronous product has no selected runtime",
-        Kind::InvalidSymbolName => "a generated binary symbol name is not representable",
         Kind::InvalidNativeLinkInput(failure) => {
             return format_english_native_link_input_failure(failure);
         }
@@ -230,13 +229,31 @@ fn format_english_native_product_failure_detail(
         Kind::ExecutableHostMissingMainThreadLane => {
             "the executable host requires a main-thread execution lane"
         }
-        Kind::LibraryCleanupRequiresMainThread => {
-            "a library static cleanup operation requires main-thread execution"
-        }
         Kind::ExecutableHostMissingProtectedFrameAbi => {
             "the executable host lacks the required protected-frame ABI"
         }
         Kind::ExecutableHostMissingRole(_) => "the executable host lacks a required runtime role",
+        Kind::NativeResolution(detail) => match detail.reason() {
+            "native_variant_conflict" => {
+                "the selected artifacts disagree about the native implementation of the same library"
+            }
+            "native_static_conflict" => {
+                "the selected libraries disagree about the cleanup requirements of the same static declaration"
+            }
+            "native_static_ambiguous_order" => {
+                "distinct static instances in the selected libraries have the same cleanup ordering key"
+            }
+            "native_static_missing" => {
+                "a selected library requires a static instance whose cleanup provider is absent"
+            }
+            "native_static_lifecycle_cycle" => {
+                "static cleanup dependencies in the selected libraries form a cycle"
+            }
+            "native_symbol_unresolved" => {
+                "the selected libraries do not define a required native symbol"
+            }
+            _ => "the selected libraries define the same required native symbol more than once",
+        },
         Kind::RuntimeSelectionIncompatible(_) => {
             "the selected runtime is incompatible with the product"
         }
@@ -245,9 +262,6 @@ fn format_english_native_product_failure_detail(
         }
         Kind::RuntimeSelectionMissingCapabilityOwner(_) => {
             "the selected runtime has no owner for a required capability"
-        }
-        Kind::StandardLibraryUnavailable => {
-            "the configured standard library cannot supply a required native artifact"
         }
         Kind::LinkTargetEmptyTriple => "the native link target has an empty target triple",
         Kind::CodegenBackendUnsupportedTarget => {
@@ -348,8 +362,12 @@ pub(crate) fn format_english_runtime_artifact_problem(
             "runtime contract omits cooperative execution".to_owned()
         }
         Problem::InvalidNativeIndexFileName => "invalid runtime native-index file name".to_owned(),
-        Problem::InvalidNativeIndexes => "runtime native indexes do not cover each product category once".to_owned(),
-        Problem::InvalidNativeArtifact(cause) => super::standard_library::format_english_native_artifact_problem(*cause).to_owned(),
+        Problem::InvalidNativeIndexes => {
+            "runtime native indexes do not cover each product category once".to_owned()
+        }
+        Problem::InvalidNativeArtifact(cause) => {
+            super::standard_library::format_english_native_artifact_problem(*cause).to_owned()
+        }
         Problem::DuplicateComponent(component) => {
             format!("duplicate runtime component `{component}`")
         }
@@ -389,7 +407,9 @@ pub(crate) fn format_english_runtime_artifact_problem(
             format_english_runtime_artifact_purpose(*purpose),
         ),
         Problem::InvalidNativeTarget => "runtime target has no native representation".to_owned(),
-        Problem::IncompatibleIndexTarget => "runtime native index targets another platform".to_owned(),
+        Problem::IncompatibleIndexTarget => {
+            "runtime native index targets another platform".to_owned()
+        }
     }
 }
 
@@ -518,7 +538,6 @@ mod tests {
         for failure in [
             bray_diagnostics::DiagnosticNativeProductFailureKind::EvaluationCancelled,
             bray_diagnostics::DiagnosticNativeProductFailureKind::CodegenTargetUnsupportedProfile,
-            bray_diagnostics::DiagnosticNativeProductFailureKind::StandardLibraryUnavailable,
             bray_diagnostics::DiagnosticNativeProductFailureKind::CodegenBackendUnsupportedTarget,
         ] {
             let message = format_english_native_product_failure(&failure);

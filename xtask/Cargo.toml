@@ -32,6 +32,7 @@ bray-target = { path = "../crates/bray-target" }
 bray-test-protocol = { path = "../crates/bray-test-protocol", features = ["serialization"] }
 bray-tooling = { path = "../crates/bray-tooling" }
 rust-style = { path = "../tools/rust-style" }
+object = { version = "=0.39.1", default-features = false, features = ["read", "std"] }
 quote = "1"
 rayon = "1.11.0"
 serde = { version = "1", features = ["derive"] }

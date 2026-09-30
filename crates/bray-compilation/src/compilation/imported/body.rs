@@ -2,13 +2,13 @@ use std::sync::Arc;
 
 use bray_bound_tree::CheckedTemplate;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
-use bray_package_interface::{ImportedInterfaceSymbolResolver, InterfaceSymbolResolver};
+use bray_package_interface::InterfaceSymbolResolver;
 use bray_symbols::{AnySymbolId, ImportedSemanticAddress};
 
 use super::diagnostic::{
-    executable_template_decode_diagnostics, executable_template_diagnostics,
-    implementation_body_diagnostics, implementation_validation_diagnostics,
-    standard_library_diagnostics,
+    dependency_artifact_diagnostics, executable_template_decode_diagnostics,
+    executable_template_diagnostics, implementation_body_diagnostics,
+    implementation_validation_diagnostics,
 };
 use crate::fact::{
     CancellationToken, CompilationFactKey, FactQueryError, ImportedExecutableTemplateAddress,
@@ -24,10 +24,7 @@ impl super::super::Compilation {
         &self,
         interface: bray_symbols::ImportedInterfaceId,
         cancellation: &CancellationToken,
-    ) -> Result<
-        Option<&DiagnosticResult<Option<LoadedImplementation>>>,
-        FactQueryError,
-    > {
+    ) -> Result<Option<&DiagnosticResult<Option<LoadedImplementation>>>, FactQueryError> {
         let Some(index) = interface.to_index() else {
             return Ok(None);
         };
@@ -54,18 +51,20 @@ impl super::super::Compilation {
                     )
                 });
 
-                let artifact = if let Some(artifact) = input.implementation_artifact() {
-                    artifact.clone()
-                } else {
-                    match input.shared_implementation_artifact() {
-                        Ok(Some(artifact)) => artifact,
-                        Ok(None) => return Ok(DiagnosticResult::without_diagnostics(None)),
-                        Err(error) => {
-                            return Ok(DiagnosticResult::new(
-                                None,
-                                standard_library_diagnostics(error, input),
-                            ));
-                        }
+                let artifact = match input.shared_implementation_artifact() {
+                    Ok(Some(artifact)) => artifact,
+                    Ok(None) => return Ok(DiagnosticResult::without_diagnostics(None)),
+                    Err(error) => {
+                        return Ok(DiagnosticResult::new(
+                            None,
+                            dependency_artifact_diagnostics(
+                                error,
+                                input,
+                                input.implementation_artifact_path().expect(
+                                    "implementation load failure requires a selected input",
+                                ),
+                            ),
+                        ));
                     }
                 };
 
@@ -73,7 +72,8 @@ impl super::super::Compilation {
                     .loaded_dependency_interface_with_cancellation(interface, cancellation)?
                     .expect("implementation input must have a loaded dependency interface");
 
-                let (Some(validated), Some(surface)) = (loaded.validated(), loaded.surface()) else {
+                let (Some(validated), Some(surface)) = (loaded.validated(), loaded.surface())
+                else {
                     return Ok(DiagnosticResult::without_diagnostics(None));
                 };
 
@@ -162,6 +162,37 @@ impl super::super::Compilation {
         Ok(Arc::clone(result))
     }
 
+    fn imported_body_artifact(
+        &self,
+        interface: bray_symbols::ImportedInterfaceId,
+        unavailable: fn(&crate::request::DependencyInterfaceInput) -> DiagnosticBag,
+        cancellation: &CancellationToken,
+    ) -> Result<
+        DiagnosticResult<Option<&bray_package_interface::PackageImplementationArtifact>>,
+        FactQueryError,
+    > {
+        let input = self
+            .dependency_interface_input(interface)
+            .expect("imported body must have a dependency input");
+
+        let loaded = self
+            .loaded_dependency_implementation_with_cancellation(interface, cancellation)?
+            .expect("imported body must have an implementation query");
+
+        Ok(match loaded.value() {
+            Some(Ok(artifact)) => DiagnosticResult::without_diagnostics(Some(artifact.as_ref())),
+            Some(Err(error)) => DiagnosticResult::new(
+                None,
+                // The immutable query cache retains the typed cause for non-diagnostic consumers.
+                implementation_validation_diagnostics(error.clone(), input),
+            ),
+            None => DiagnosticResult::new(
+                None,
+                DiagnosticBag::merged_all([loaded.diagnostics(), &unavailable(input)]),
+            ),
+        })
+    }
+
     fn compute_imported_executable_template(
         &self,
         address: ImportedExecutableTemplateAddress,
@@ -194,36 +225,14 @@ impl super::super::Compilation {
             return Ok(DiagnosticResult::without_diagnostics(None));
         }
 
-        let artifact = self
-            .loaded_dependency_implementation_with_cancellation(
-                symbol_address.interface(),
-                cancellation,
-            )?
-            .unwrap_or_else(|| {
-                panic!(
-                    "imported publication invariant MissingLoadedImplementation: {:?}",
-                    symbol_address.interface()
-                )
-            });
+        let artifact = self.imported_body_artifact(
+            symbol_address.interface(),
+            executable_template_diagnostics,
+            cancellation,
+        )?;
 
         let Some(artifact) = artifact.value() else {
-            return Ok(DiagnosticResult::new(
-                None,
-                DiagnosticBag::merged_all([
-                    artifact.diagnostics(),
-                    &executable_template_diagnostics(input),
-                ]),
-            ));
-        };
-
-        let artifact = match artifact.as_ref() {
-            Ok(artifact) => artifact,
-            Err(error) => {
-                return Ok(DiagnosticResult::new(
-                    None,
-                    implementation_validation_diagnostics(error.clone(), input),
-                ));
-            }
+            return Ok(DiagnosticResult::new(None, artifact.diagnostics().clone()));
         };
 
         let template =
@@ -265,42 +274,8 @@ impl super::super::Compilation {
             return Ok(DiagnosticResult::new(None, graph.diagnostics().clone()));
         };
 
-        let interfaces = self
-            .loaded_interface_views(cancellation)?
-            .unwrap_or_else(|| {
-                panic!(
-                    "imported publication invariant MissingLoadedInterfaceViews: {:?}",
-                    symbol_address.interface()
-                )
-            });
-
-        let current = interfaces
-            .iter()
-            .copied()
-            .find(|loaded| loaded.interface() == symbol_address.interface())
-            .unwrap_or_else(|| {
-                panic!(
-                    "imported publication invariant MissingCurrentInterface: {:?}",
-                    symbol_address.interface()
-                )
-            });
-
-        let symbols = self.symbol_graph()?;
-
-        let resolver = match ImportedInterfaceSymbolResolver::try_new(
-            current,
-            interfaces,
-            skeleton,
-            symbols.compiler_known_provider().symbol_keys(),
-        ) {
-            Ok(resolver) => resolver,
-            Err(error) => {
-                return Ok(DiagnosticResult::new(
-                    None,
-                    super::query::dependency_graph_diagnostics(self, error),
-                ));
-            }
-        };
+        let resolver =
+            self.imported_symbol_resolver(symbol_address.interface(), skeleton, cancellation)?;
 
         let owner = resolver
             .resolve(&bray_package_interface::InterfaceSymbolReference::Local(
@@ -437,33 +412,14 @@ impl super::super::Compilation {
             return Ok(DiagnosticResult::without_diagnostics(None));
         };
 
-        let artifact = self
-            .loaded_dependency_implementation_with_cancellation(address.interface(), cancellation)?
-            .unwrap_or_else(|| {
-                panic!(
-                    "imported publication invariant MissingLoadedImplementation: {:?}",
-                    address.interface()
-                )
-            });
+        let artifact = self.imported_body_artifact(
+            address.interface(),
+            implementation_body_diagnostics,
+            cancellation,
+        )?;
 
         let Some(artifact) = artifact.value() else {
-            return Ok(DiagnosticResult::new(
-                None,
-                DiagnosticBag::merged_all([
-                    artifact.diagnostics(),
-                    &implementation_body_diagnostics(input),
-                ]),
-            ));
-        };
-
-        let artifact = match artifact.as_ref() {
-            Ok(artifact) => artifact,
-            Err(error) => {
-                return Ok(DiagnosticResult::new(
-                    None,
-                    implementation_validation_diagnostics(error.clone(), input),
-                ));
-            }
+            return Ok(DiagnosticResult::new(None, artifact.diagnostics().clone()));
         };
 
         let graph_result = self
@@ -506,42 +462,8 @@ impl super::super::Compilation {
 
         cancellation.check()?;
 
-        let interfaces = self
-            .loaded_interface_views(cancellation)?
-            .unwrap_or_else(|| {
-                panic!(
-                    "imported publication invariant MissingLoadedInterfaceViews: {:?}",
-                    address.interface()
-                )
-            });
-
-        let Some(current) = interfaces
-            .iter()
-            .copied()
-            .find(|loaded| loaded.interface() == address.interface())
-        else {
-            panic!(
-                "imported publication invariant MissingCurrentInterface: {:?}",
-                address.interface()
-            );
-        };
-
-        let symbols = self.symbol_graph()?;
-
-        let resolver = match ImportedInterfaceSymbolResolver::try_new(
-            current,
-            interfaces,
-            skeleton,
-            symbols.compiler_known_provider().symbol_keys(),
-        ) {
-            Ok(resolver) => resolver,
-            Err(error) => {
-                return Ok(DiagnosticResult::new(
-                    None,
-                    super::query::dependency_graph_diagnostics(self, error),
-                ));
-            }
-        };
+        let resolver =
+            self.imported_symbol_resolver(address.interface(), skeleton, cancellation)?;
 
         let template = match graph.intern_checked_template(body.template(), &resolver) {
             Ok(template) => template,
@@ -570,12 +492,11 @@ mod tests {
     use bray_bound_tree::CheckedTemplateKind;
     use bray_diagnostics::DiagnosticKind;
     use bray_package_interface::{
-        InterfaceCheckedTemplate, InterfaceConstantCallableBody, InterfaceLanguageRevision,
-        InterfaceValidationLimits, InterfaceValidationPolicy, PackageImplementationArtifact,
-        ValidatedPackageInterface, encode_package_interface,
+        InterfaceLanguageRevision, InterfaceValidationLimits, InterfaceValidationPolicy,
+        PackageImplementationArtifact, ValidatedPackageInterface, encode_package_interface,
         test_support::package_interface_export_bundle,
     };
-    use bray_symbols::{ImportedSemanticAddress, SymbolKind};
+    use bray_symbols::ImportedSemanticAddress;
 
     use crate::fact::ImportedExecutableTemplateAddress;
     use crate::test_support::compilation_with_dependencies;
@@ -683,36 +604,15 @@ mod tests {
         let interface = ValidatedPackageInterface::try_new(encoded.bytes(), policy)
             .unwrap_or_else(|error| panic!("test interface must validate: {error:?}"));
 
-        let owner = bundle
-            .surface()
-            .symbols()
-            .symbols()
-            .iter()
-            .find(|symbol| symbol.kind() == SymbolKind::Function)
-            .map(|symbol| symbol.id())
-            .unwrap_or_else(|| panic!("test interface must export a function"));
-
-        let template = bundle
-            .semantics()
-            .checked_templates()
-            .first()
-            .unwrap_or_else(|| panic!("test interface must publish a checked template"));
-
-        let template = InterfaceCheckedTemplate::new(
-            CheckedTemplateKind::ConstantCallableBody,
-            template.inputs().iter().cloned(),
-            template.nodes().iter().cloned(),
-            template.temporaries().iter().copied(),
-            template.result(),
-            template.behavior().clone(),
-        );
+        let body = bray_package_interface::test_support::constant_callable_body(&bundle);
+        let owner = body.owner();
 
         let artifact = PackageImplementationArtifact::try_new(
             &interface,
             bundle.surface(),
             bundle.semantics(),
             bundle.implementation_configuration().clone(),
-            [InterfaceConstantCallableBody::new(owner, template)],
+            [body],
             [],
             [],
             [],

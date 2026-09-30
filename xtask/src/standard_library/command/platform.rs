@@ -7,14 +7,13 @@ use bray_symbols::NativeLinkRequirement;
 use bray_target::NativeTarget;
 
 use super::error::BuildError;
-use crate::standard_library::optimization::BuiltNativeModules;
 
 pub(crate) struct BuiltPlatformArchive {
     pub(crate) name: &'static str,
     pub(super) roles: Vec<PlatformServiceRole>,
     pub(crate) bytes: Vec<u8>,
     pub(crate) native_links: Vec<NativeLinkRequirement>,
-    pub(crate) optimization: Option<BuiltNativeModules>,
+    pub(crate) optimization: Option<Vec<u8>>,
 }
 
 pub(super) fn build_archives(

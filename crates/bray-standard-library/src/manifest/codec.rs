@@ -14,8 +14,8 @@ use super::model::{
     StandardLibraryTargetArtifacts,
 };
 use super::wire::{
-    MANIFEST_FORMAT_REVISION, OwnedArtifactWire, OwnedNativeLinkWire,
-    OwnedPublishedWire, decode_digest, encode_published, runtime_abi,
+    MANIFEST_FORMAT_REVISION, OwnedArtifactWire, OwnedNativeLinkWire, OwnedPublishedWire,
+    decode_digest, encode_published, runtime_abi,
 };
 
 /// Encodes a manifest using its canonical compact UTF-8 JSON representation.
@@ -143,15 +143,32 @@ mod tests {
 
         let artifacts = [
             (StandardLibraryArtifactKind::PackageInterface, "std.brayi"),
-            (StandardLibraryArtifactKind::PackageImplementation, "std.brayimpl"),
-            (StandardLibraryArtifactKind::NativeImplementation, "std-native.brayimpl"),
-        ].into_iter().map(|(kind, name)| {
-            StandardLibraryArtifact::try_for_bytes(kind, format!("{prefix}/{name}"), name.as_bytes())
-                .unwrap()
-        }).collect();
+            (
+                StandardLibraryArtifactKind::PackageImplementation,
+                "std.brayimpl",
+            ),
+            (
+                StandardLibraryArtifactKind::NativeImplementation,
+                "std-native.brayimpl",
+            ),
+            (
+                StandardLibraryArtifactKind::NativeDependency,
+                "bray_compiler_support.brayimpl",
+            ),
+        ]
+        .into_iter()
+        .map(|(kind, name)| {
+            StandardLibraryArtifact::try_for_bytes(
+                kind,
+                format!("{prefix}/{name}"),
+                name.as_bytes(),
+            )
+            .unwrap()
+        })
+        .collect();
 
-        let target = target_artifacts_for_test(target, RuntimeAbiVersion::new(1, 0), artifacts)
-            .unwrap();
+        let target =
+            target_artifacts_for_test(target, RuntimeAbiVersion::new(1, 0), artifacts).unwrap();
 
         let manifest = StandardLibraryBundleManifest::try_new([target]).unwrap();
         let bytes = encode_standard_library_manifest(&manifest).unwrap();
@@ -164,6 +181,14 @@ mod tests {
         assert_eq!(
             decode_standard_library_manifest(&whitespace),
             Err(StandardLibraryManifestError::NonCanonicalEncoding),
+        );
+
+        let mut tampered: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        tampered["targets"][0]["artifacts"][0]["byte_len"] = serde_json::json!(1);
+
+        assert_eq!(
+            decode_standard_library_manifest(&serde_json::to_vec(&tampered).unwrap()),
+            Err(StandardLibraryManifestError::BundleDigestMismatch),
         );
 
         let mut wrong_revision: serde_json::Value = serde_json::from_slice(&bytes).unwrap();

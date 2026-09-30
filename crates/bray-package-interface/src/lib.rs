@@ -13,6 +13,7 @@ mod framing;
 mod hash;
 mod header;
 mod implementation;
+mod input;
 mod inspection;
 mod limits;
 mod presentation;
@@ -53,14 +54,16 @@ pub use implementation::{
     ImplementationExternalSymbolIdentity, ImplementationMirSchemaRevision,
     ImplementationSpecializationArgument, ImplementationSpecializationArgumentKind,
     ImplementationSpecializationWitness, ImplementationTemplateSchemaRevision,
-    InterfaceConstantCallableBody, InterfaceExecutableTemplate, InterfaceNativeBinding, InterfaceNativeBoundary,
-    InterfaceNativeBoundaryKind, InterfacePreSpecializedMir, PackageImplementationArtifact,
-    PackageImplementationArtifactBuildError, PackageNativeArtifactError, PackageImplementationConfiguration,
-    PackageImplementationIdentity, PackageImplementationSpecializationKey,
-    PackageImplementationTargetProperties, PackageImplementationTargetProperty,
-    PackageImplementationTargetPropertyValue, PreSpecializedMirDecodeError,
-    decode_executable_template, encode_codegen_mir, encode_executable_template, encode_pre_specialized_mir,
+    InterfaceConstantCallableBody, InterfaceExecutableTemplate, InterfaceNativeBinding,
+    InterfaceNativeBoundary, InterfaceNativeBoundaryKind, InterfacePreSpecializedMir,
+    PackageImplementationArtifact, PackageImplementationArtifactBuildError,
+    PackageImplementationConfiguration, PackageImplementationIdentity,
+    PackageImplementationSpecializationKey, PackageImplementationTargetProperties,
+    PackageImplementationTargetProperty, PackageImplementationTargetPropertyValue,
+    PackageNativeArtifactError, PreSpecializedMirDecodeError, decode_executable_template,
+    encode_codegen_mir, encode_executable_template, encode_pre_specialized_mir,
 };
+pub use input::{PackageArtifactInput, PackageArtifactLoadError};
 pub use inspection::{
     InterfaceInspectionRecord, InterfaceInspectionRecordKind, InterfaceInspectionSection,
     InterfaceSectionIndexEntry, PackageInterfaceInspection,

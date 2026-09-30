@@ -1,9 +1,7 @@
 use bray_diagnostics::DiagnosticNativeProductFailureKind;
 use bray_runtime_interface::RuntimeArtifactSelectionError;
 
-use super::context::{
-    failure_detail, protected_frame_abi_operation, text_failure_field,
-};
+use super::context::{failure_detail, protected_frame_abi_operation, text_failure_field};
 
 pub(super) fn runtime_selection_failure_kind(
     error: &RuntimeArtifactSelectionError,
@@ -51,21 +49,60 @@ pub(super) fn runtime_selection_failure_kind(
                 [text_failure_field("capability", capability.as_str())],
             ))
         }
-        RuntimeArtifactSelectionError::NativeResolution(error) => {
-            let (reason, symbol) = match error {
-                bray_native_artifact::NativeResolutionError::Unresolved(symbol) =>
-                    ("runtime_native_symbol_unresolved", symbol),
-                bray_native_artifact::NativeResolutionError::DuplicateStrong(symbol) =>
-                    ("runtime_native_symbol_duplicate", symbol),
+    }
+}
+
+pub(super) fn native_resolution_detail(
+    error: &bray_native_artifact::NativeResolutionError,
+) -> bray_diagnostics::DiagnosticNativeProductFailureDetail {
+    use super::context::identity_failure_detail;
+    use bray_native_artifact::NativeResolutionError as Error;
+
+    match error {
+        Error::Unresolved(symbol) | Error::DuplicateStrong(symbol) => {
+            let reason = if matches!(error, Error::Unresolved(_)) {
+                "native_symbol_unresolved"
+            } else {
+                "native_symbol_duplicate"
             };
 
-            Kind::RuntimeSelectionIncompatible(failure_detail(
+            failure_detail(
                 reason,
-                [text_failure_field("symbol", symbol.identity().name()
-                    .map(str::to_owned)
-                    .unwrap_or_else(|| symbol.identity().ordinal()
-                        .expect("native symbol must have a name or ordinal").to_string()))],
-            ))
+                [text_failure_field(
+                    "symbol",
+                    symbol
+                        .identity()
+                        .name()
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| {
+                            symbol
+                                .identity()
+                                .ordinal()
+                                .expect("native symbol must have a name or ordinal")
+                                .to_string()
+                        }),
+                )],
+            )
         }
+        Error::ConflictingStatic(identity) => {
+            identity_failure_detail("native_static_conflict", "static", identity)
+        }
+        Error::AmbiguousStaticOrder { first, second } => failure_detail(
+            "native_static_ambiguous_order",
+            [
+                crate::fact::diagnostic_context::identity_field("first_static", first),
+                crate::fact::diagnostic_context::identity_field("second_static", second),
+            ],
+        ),
+        Error::MissingStatic(identity) => {
+            identity_failure_detail("native_static_missing", "static", identity)
+        }
+        Error::StaticLifecycleCycle(identities) => failure_detail(
+            "native_static_lifecycle_cycle",
+            identities
+                .iter()
+                .map(|identity| crate::fact::diagnostic_context::identity_field("static", identity))
+                .collect::<Vec<_>>(),
+        ),
     }
 }

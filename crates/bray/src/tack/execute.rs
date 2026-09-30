@@ -1906,7 +1906,7 @@ mod tests {
     }
 
     #[test]
-    fn standard_library_source_build_retains_native_provider_root() {
+    fn standard_library_source_build_discovers_native_packages() {
         let workspace = ProjectWorkspace::standard_library();
         let toolchain = unique_temporary_directory();
         let executor = RecordingExecutor::default();
@@ -1956,17 +1956,10 @@ mod tests {
 
         assert!(
             api.arguments.windows(2).any(|pair| {
-                pair[0] == "--standard-library-provider-root"
-                    && pair[1] == standard_library.as_os_str()
+                pair[0] == "--standard-library-root" && pair[1] == standard_library.as_os_str()
             }),
-            "native API request must retain provider root {standard_library:?}: {:#?}",
+            "native API request must discover packages at {standard_library:?}: {:#?}",
             api.arguments
-        );
-
-        assert!(
-            !api.arguments
-                .iter()
-                .any(|argument| argument == "--standard-library-root")
         );
 
         assert!(has_argument_pair(
@@ -1984,91 +1977,115 @@ mod tests {
 
     #[test]
     fn build_forwards_the_manifest_artifact_set_to_the_compiler() {
-        let workspace = ProjectWorkspace::basic();
-        let toolchain = unique_temporary_directory();
-        let executor = RecordingExecutor::default();
+        for (kind, artifact) in [
+            ("executable", "executable"),
+            ("library", "shared-library"),
+            ("library", "static-library"),
+        ] {
+            let workspace = ProjectWorkspace::basic();
+            let manifest_path = workspace.path().join("app/bray-package.json");
 
-        let result = run_tack_result_with_input(
-            [
-                "bray".into(),
-                "--workspace".into(),
-                workspace.path().as_os_str().to_os_string(),
-                "--toolchain-root".into(),
-                toolchain.as_os_str().to_os_string(),
-                "build".into(),
-            ],
-            &executor,
-            Cursor::new(Vec::new()),
-        );
+            let mut manifest: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
 
-        assert_eq!(result.exit_code(), ExitCode::SUCCESS);
+            manifest["products"][0]["kind"] = kind.into();
+            manifest["products"][0]["outputs"] = serde_json::json!([artifact.replace('-', "_")]);
 
-        assert!(
-            result
-                .stderr()
-                .contains("Building example.application/application [debug]")
-        );
+            workspace.write(
+                "app/bray-package.json",
+                &serde_json::to_string(&manifest).unwrap(),
+            );
 
-        assert!(result.stderr().contains("✓ Compiled example.application"));
-        assert!(result.stderr().contains("✓ Finished application"));
+            let toolchain = unique_temporary_directory();
+            let executor = RecordingExecutor::default();
 
-        let requests = executor.requests();
+            let result = run_tack_result_with_input(
+                [
+                    "bray".into(),
+                    "--workspace".into(),
+                    workspace.path().as_os_str().to_os_string(),
+                    "--toolchain-root".into(),
+                    toolchain.as_os_str().to_os_string(),
+                    "build".into(),
+                ],
+                &executor,
+                Cursor::new(Vec::new()),
+            );
 
-        let [request] = requests.as_slice() else {
-            panic!("build should invoke exactly one compiler: {requests:#?}");
-        };
+            assert_eq!(
+                result.exit_code(),
+                ExitCode::SUCCESS,
+                "{artifact}: {}",
+                result.stderr()
+            );
 
-        assert!(has_argument_pair(
-            &request.arguments,
-            "--artifact",
-            "executable"
-        ));
+            assert!(
+                result
+                    .stderr()
+                    .contains("Building example.application/application [debug]")
+            );
 
-        let standard_library = std::path::absolute(&toolchain)
-            .unwrap_or_else(|error| panic!("test toolchain path should resolve: {error:?}"))
-            .join("lib")
-            .join("bray")
-            .join("standard-library");
+            assert!(result.stderr().contains("✓ Compiled example.application"));
+            assert!(result.stderr().contains("✓ Finished application"));
 
-        assert!(
-            request.arguments.windows(2).any(|pair| {
-                pair[0] == "--standard-library-root" && pair[1] == standard_library.as_os_str()
-            }),
-            "compiler request should contain standard-library root {standard_library:?}: {:#?}",
-            request.arguments
-        );
+            let requests = executor.requests();
 
-        let output_root = request
-            .arguments
-            .windows(2)
-            .find(|pair| pair[0] == "--output")
-            .map(|pair| PathBuf::from(&pair[1]))
-            .unwrap_or_else(|| panic!("debug build must select an output directory"));
+            let [request] = requests.as_slice() else {
+                panic!("build should invoke exactly one compiler: {requests:#?}");
+            };
 
-        assert!(output_root.ends_with("build"));
+            assert!(has_argument_pair(
+                &request.arguments,
+                "--artifact",
+                artifact
+            ));
 
-        assert!(has_argument_pair(
-            &request.arguments,
-            "--managed-output-directory",
-            "native/debug/example.application"
-        ));
+            let standard_library = std::path::absolute(&toolchain)
+                .unwrap_or_else(|error| panic!("test toolchain path should resolve: {error:?}"))
+                .join("lib")
+                .join("bray")
+                .join("standard-library");
 
-        let runtime = std::path::absolute(&toolchain)
-            .unwrap_or_else(|error| panic!("test toolchain path should resolve: {error:?}"))
-            .join("lib")
-            .join("bray")
-            .join("runtime")
-            .join("x86_64-unknown-linux-gnu")
-            .join("bray-runtime.brayrt");
+            assert!(
+                request.arguments.windows(2).any(|pair| {
+                    pair[0] == "--standard-library-root" && pair[1] == standard_library.as_os_str()
+                }),
+                "compiler request should contain standard-library root {standard_library:?}: {:#?}",
+                request.arguments
+            );
 
-        assert!(
-            request
+            let output_root = request
                 .arguments
                 .windows(2)
-                .any(|pair| { pair[0] == "--runtime-artifact" && pair[1] == runtime.as_os_str() }),
-            "compiler request should contain runtime metadata {runtime:?}: {:#?}",
-            request.arguments
-        );
+                .find(|pair| pair[0] == "--output")
+                .map(|pair| PathBuf::from(&pair[1]))
+                .unwrap_or_else(|| panic!("debug build must select an output directory"));
+
+            assert!(output_root.ends_with("build"));
+
+            assert!(has_argument_pair(
+                &request.arguments,
+                "--managed-output-directory",
+                "native/debug/example.application"
+            ));
+
+            let runtime = std::path::absolute(&toolchain)
+                .unwrap_or_else(|error| panic!("test toolchain path should resolve: {error:?}"))
+                .join("lib")
+                .join("bray")
+                .join("runtime")
+                .join("x86_64-unknown-linux-gnu")
+                .join("bray-runtime.brayrt");
+
+            assert_eq!(
+                request.arguments.windows(2).any(|pair| {
+                    pair[0] == "--runtime-artifact" && pair[1] == runtime.as_os_str()
+                }),
+                artifact != "static-library",
+                "compiler request should contain runtime metadata {runtime:?}: {:#?}",
+                request.arguments
+            );
+        }
     }
 
     #[test]

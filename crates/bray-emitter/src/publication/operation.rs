@@ -1686,6 +1686,19 @@ mod tests {
     }
 
     #[test]
+    fn publication_creates_a_missing_managed_root_without_link_staging() {
+        let directory = tempfile::tempdir().unwrap();
+        let output = directory.path().join("fresh").join("output");
+        let plan = filesystem_plan(&output, ReplacementPolicy::ReplaceExisting);
+
+        let outcome = ArtifactPublisher::new(&never_cancelled)
+            .publish(&plan, [contribution(&plan, b"artifact", None)]);
+
+        assert!(outcome.generation().is_some(), "{outcome:?}");
+        assert_eq!(file_bytes(&output.join("application.brayd")), b"artifact");
+    }
+
+    #[test]
     fn inactive_product_reclamation_removes_public_files_and_preserves_unmanaged_neighbors() {
         let output = tempfile::tempdir().unwrap();
         let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
@@ -3185,7 +3198,7 @@ mod tests {
         crate::publication::generation::layout::product_store(
             root,
             Path::new(""),
-            &crate::test_support::product_identity(),
+            &product_identity(),
         )
     }
 

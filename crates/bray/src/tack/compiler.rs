@@ -137,7 +137,14 @@ impl<'project> ProjectCompiler<'project> {
         let product = self.project_product(planned)?.clone();
         let mut outputs = Vec::new();
 
-        if !self.check_dependencies(&product, planned.target(), &mut outputs, progress, evidence, Some(configuration))? {
+        if !self.check_dependencies(
+            &product,
+            planned.target(),
+            &mut outputs,
+            progress,
+            evidence,
+            Some(configuration),
+        )? {
             return Ok(ProductBuild {
                 outputs,
                 executable: None,
@@ -254,8 +261,13 @@ impl<'project> ProjectCompiler<'project> {
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_else(|| product.identity().name().to_owned());
 
-        let packages =
-            self.progress_packages(product, planned.target(), &dependencies, evidence, configuration)?;
+        let packages = self.progress_packages(
+            product,
+            planned.target(),
+            &dependencies,
+            evidence,
+            configuration,
+        )?;
 
         let product_identity = format!(
             "{}/{}",
@@ -340,7 +352,14 @@ impl<'project> ProjectCompiler<'project> {
         let dependencies = self.direct_dependencies(product, target)?;
 
         for dependency in dependencies {
-            if !self.ensure_dependency(&dependency, target, outputs, progress, evidence, configuration)? {
+            if !self.ensure_dependency(
+                &dependency,
+                target,
+                outputs,
+                progress,
+                evidence,
+                configuration,
+            )? {
                 return Ok(false);
             }
         }
@@ -383,7 +402,10 @@ impl<'project> ProjectCompiler<'project> {
         let output_root = self.graph.output_root().beneath(self.workspace_root);
 
         let (interface, operation, action) = if let Some(configuration) = configuration {
-            let target_name = self.graph.targets().iter()
+            let target_name = self
+                .graph
+                .targets()
+                .iter()
                 .find(|candidate| candidate.identity() == target)
                 .expect("selected dependency target must belong to the workspace")
                 .name();
@@ -414,15 +436,13 @@ impl<'project> ProjectCompiler<'project> {
 
             (interface, None, action)
         } else {
-            let operation = bray_emitter::ManagedOperation::begin(
-                &output_root,
-                identity,
-                target,
-                &|| false,
-            )
-            .map_err(storage_diagnostics)?;
+            let operation =
+                bray_emitter::ManagedOperation::begin(&output_root, identity, target, &|| false)
+                    .map_err(storage_diagnostics)?;
 
-            let interface = operation.directory().join(format!("{}.brayi", identity.name()));
+            let interface = operation
+                .directory()
+                .join(format!("{}.brayi", identity.name()));
 
             let action = CompilerAction::Check {
                 interface: Some(interface.clone()),
@@ -469,7 +489,7 @@ impl<'project> ProjectCompiler<'project> {
         let mut request = ToolRequest::new(Tool::Compiler, self.workspace_root);
 
         let runtime = action
-            .requires_runtime(product.kind())
+            .requires_runtime(product)
             .then(|| self.toolchain.runtime_metadata(target));
 
         let uses_standard_library_source = self.graph.source_authority().is_standard_library();
@@ -501,8 +521,8 @@ impl<'project> ProjectCompiler<'project> {
 
             let root_argument = if uses_standard_library_source {
                 action
-                    .requires_runtime(product.kind())
-                    .then_some("--standard-library-provider-root")
+                    .requires_runtime(product)
+                    .then_some("--standard-library-root")
             } else {
                 Some("--standard-library-root")
             };
@@ -539,6 +559,10 @@ impl<'project> ProjectCompiler<'project> {
         }
 
         for dependency in self.dependencies(product, target, action.configuration())? {
+            if let Some(companion) = dependency.native_implementation {
+                request.arg("--native-implementation").arg(companion);
+            }
+
             request
                 .arg("--dependency-product")
                 .arg(format!(
@@ -690,7 +714,12 @@ impl<'project> ProjectCompiler<'project> {
                 let is_root = candidate.identity() == product.identity();
 
                 let is_pending_dependency = dependencies.contains(candidate.identity())
-                    && !self.interface_matches(candidate.identity(), target, evidence, Some(configuration));
+                    && !self.interface_matches(
+                        candidate.identity(),
+                        target,
+                        evidence,
+                        Some(configuration),
+                    );
 
                 if !is_root && !is_pending_dependency {
                     continue;
@@ -732,10 +761,10 @@ impl<'project> ProjectCompiler<'project> {
         let key = (identity.clone(), target.clone());
         let source_input_digest = evidence.and_then(|evidence| evidence.source_inputs(identity));
 
-        self.interfaces
-            .get(&key)
-            .is_some_and(|interface| interface.source_input_digest == source_input_digest
-                && interface.configuration == configuration)
+        self.interfaces.get(&key).is_some_and(|interface| {
+            interface.source_input_digest == source_input_digest
+                && interface.configuration == configuration
+        })
     }
 
     fn dependencies(
@@ -744,24 +773,56 @@ impl<'project> ProjectCompiler<'project> {
         target: &TargetIdentity,
         configuration: Option<TackBuildConfiguration>,
     ) -> Result<Vec<DependencyArtifact>, DiagnosticBag> {
-        self.direct_dependencies(product, target)?
+        self.transitive_dependencies(product, target)?
             .into_iter()
-            .map(|identity| {
-                let key = (identity.clone(), target.clone());
-
-                let path = self.interfaces.get(&key).filter(|entry| entry.configuration == configuration).ok_or_else(|| {
-                    operation_diagnostics(DiagnosticProjectCommandFailure::MissingResult(
-                        DiagnosticProjectOperation::DependencyInterface,
-                    ))
-                })?;
-
-                Ok(DependencyArtifact {
-                    identity,
-                    interface: path.path.clone(),
-                    implementation: path.path.with_extension("brayimpl"),
-                })
-            })
+            .map(|identity| self.dependency_artifact(identity, target, configuration))
             .collect()
+    }
+
+    fn dependency_artifact(
+        &self,
+        identity: ProductIdentity,
+        target: &TargetIdentity,
+        configuration: Option<TackBuildConfiguration>,
+    ) -> Result<DependencyArtifact, DiagnosticBag> {
+        let key = (identity.clone(), target.clone());
+
+        let path = self
+            .interfaces
+            .get(&key)
+            .filter(|entry| entry.configuration == configuration)
+            .ok_or_else(|| {
+                operation_diagnostics(DiagnosticProjectCommandFailure::MissingResult(
+                    DiagnosticProjectOperation::DependencyInterface,
+                ))
+            })?;
+
+        let native_implementation = if configuration.is_some()
+            && self
+                .project_product_by_identity(&identity)?
+                .outputs()
+                .contains(&TargetOutputKind::PackageNativeImplementation)
+        {
+            let name = TargetOutputName::for_native(
+                NativeTarget::for_identity(target)
+                    .expect("selected project target must be native")
+                    .object_format(),
+                TargetOutputKind::PackageNativeImplementation,
+            )
+            .file_name(identity.name())
+            .expect("validated product name must form an artifact name");
+
+            Some(path.path.with_file_name(name))
+        } else {
+            None
+        };
+
+        Ok(DependencyArtifact {
+            identity,
+            interface: path.path.clone(),
+            implementation: path.path.with_extension("brayimpl"),
+            native_implementation,
+        })
     }
 
     fn direct_dependencies(
@@ -1005,6 +1066,7 @@ struct DependencyArtifact {
     identity: ProductIdentity,
     interface: PathBuf,
     implementation: PathBuf,
+    native_implementation: Option<PathBuf>,
 }
 
 enum CompilerAction {
@@ -1044,9 +1106,10 @@ impl CompilerAction {
         }
     }
 
-    fn requires_runtime(&self, product_kind: ProductKind) -> bool {
+    fn requires_runtime(&self, product: &ProjectProduct) -> bool {
         matches!(self, Self::Build { .. })
-            && matches!(product_kind, ProductKind::Executable | ProductKind::Test)
+            && (matches!(product.kind(), ProductKind::Executable | ProductKind::Test)
+                || product.outputs().contains(&TargetOutputKind::SharedLibrary))
     }
 
     const fn expected_source_digest(&self) -> Option<[u8; 32]> {
@@ -1165,6 +1228,7 @@ fn artifact_text(kind: TargetOutputKind) -> &'static str {
         TargetOutputKind::DebugCompanion => "debug-companion",
         TargetOutputKind::PackageInterface => "package-interface",
         TargetOutputKind::PackageImplementation => "package-implementation",
+        TargetOutputKind::PackageNativeImplementation => "package-native-implementation",
         TargetOutputKind::DependencyMetadata => "dependency-metadata",
         TargetOutputKind::TestCatalog => "test-catalog",
         TargetOutputKind::Executable => "executable",

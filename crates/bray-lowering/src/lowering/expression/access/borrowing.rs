@@ -123,7 +123,7 @@ impl Lowerer<'_> {
         clippy::too_many_arguments,
         reason = "borrow lowering requires both source occurrences and the checked borrow types"
     )]
-    fn lower_storage_borrow(
+    pub(in crate::lowering::expression) fn lower_storage_borrow(
         &mut self,
         access_expression: BoundExpressionId,
         initialization_expression: BoundExpressionId,

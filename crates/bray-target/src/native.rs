@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
 
 use crate::{
@@ -65,6 +66,23 @@ impl NativeTarget {
             Self::X86_64LinuxGnu | Self::Aarch64LinuxGnu => ObjectFormat::Elf,
             Self::X86_64WindowsMsvc | Self::Aarch64WindowsMsvc => ObjectFormat::Coff,
             Self::X86_64MacOs | Self::Aarch64MacOs => ObjectFormat::MachO,
+        }
+    }
+
+    /// Returns the object symbol spelling for a code generation symbol.
+    pub fn object_symbol_name(self, name: &str) -> Cow<'_, str> {
+        match self.object_format() {
+            ObjectFormat::MachO => Cow::Owned(format!("_{name}")),
+            _ => Cow::Borrowed(name),
+        }
+    }
+
+    /// Removes the target's object symbol prefix from a compiler-published symbol.
+    /// Returns `None` when the object name lacks the required prefix.
+    pub fn codegen_symbol_name(self, name: &str) -> Option<&str> {
+        match self.object_format() {
+            ObjectFormat::MachO => name.strip_prefix('_'),
+            _ => Some(name),
         }
     }
 
@@ -265,6 +283,24 @@ mod tests {
         Endianness, ObjectFormat, TargetArchitecture, TargetAtomicRepresentation,
         TargetCScalarKind, TargetScalarKind,
     };
+
+    #[test]
+    fn object_names_round_trip_without_dropping_source_underscores() {
+        for target in NativeTarget::ALL {
+            for name in ["entry", "_entry", "bray_instance_42"] {
+                let object = target.object_symbol_name(name);
+
+                assert_eq!(target.codegen_symbol_name(&object), Some(name));
+
+                assert_eq!(
+                    object.starts_with("__"),
+                    target.object_format() == ObjectFormat::MachO && name.starts_with('_')
+                );
+            }
+        }
+
+        assert_eq!(NativeTarget::X86_64MacOs.codegen_symbol_name("entry"), None);
+    }
 
     #[test]
     fn native_profiles_cover_the_declared_platform_matrix() {

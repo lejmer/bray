@@ -1,0 +1,8 @@
+module application;
+
+using fixture.middle.numbers;
+
+func main() -> i32
+{
+    return fixture.middle.numbers.result() - 42;
+}

@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -16,16 +15,15 @@ const STATIC_STORAGE_CONTRIBUTION: &str =
     "xtask/fixtures/native-execution/static_storage_contribution.bray";
 const STATIC_CLEANUP_FAILURE: &str = "xtask/fixtures/native-execution/static_cleanup_failure.bray";
 const STATIC_STORAGE_HOST: &str = "xtask/fixtures/native-execution/static_storage_host.c";
-const STATIC_STORAGE_ARCHIVE_HOST: &str =
-    "xtask/fixtures/native-execution/static_storage_archive_host.c";
+const STATIC_STORAGE_ARCHIVE_CONSUMER: &str =
+    "xtask/fixtures/native-execution/static_storage_archive_consumer.bray";
+const ARCHIVE_PACKAGE: &str = "fixture.storage";
 
 pub(super) fn audit_static_storage(
     root: &Path,
     target: NativeTarget,
     runtime: &Path,
 ) -> Result<(), String> {
-    let section = static_host_report_section(target);
-
     audit_repeatable_fixtures(
         root,
         target,
@@ -35,7 +33,7 @@ pub(super) fn audit_static_storage(
             &[STATIC_STORAGE_FIXTURE, STATIC_STORAGE_CONTRIBUTION],
             42,
             "Bray-owned static storage",
-            &["bray.static.host.", section],
+            &["bray.static.host."],
         ),
     )?;
 
@@ -48,7 +46,7 @@ pub(super) fn audit_static_storage(
             &[STATIC_CLEANUP_FAILURE],
             1,
             "static cleanup failure after a successful root",
-            &["bray.static.host.", section],
+            &["bray.static.host."],
         ),
     )?;
 
@@ -61,11 +59,11 @@ pub(super) fn audit_static_storage(
             &["xtask/fixtures/native-execution/static_cleanup_panics.bray"],
             1,
             "static cleanup panics preserve every owner and error payload",
-            &["bray.static.host.", section],
+            &["bray.static.host."],
         ),
     )?;
 
-    audit_library_host(root, target, runtime)?;
+    audit_library_host(root, target, runtime, None)?;
 
     audit_archive_host(root, target, runtime)
 }
@@ -73,36 +71,43 @@ pub(super) fn audit_static_storage(
 fn audit_archive_host(root: &Path, target: NativeTarget, runtime: &Path) -> Result<(), String> {
     let output = super::core::native_output("bray-native-static-archive-")?;
 
-    build_library(root, target, runtime, output.path(), "static-library")?;
+    build_library(root, target, runtime, output.path(), "static-library", None)?;
 
-    let archive = published_library(output.path(), bray_emitter::ArtifactKind::StaticLibrary)?;
     let report = inspect_objects(root, &object_files(output.path(), target)?)?;
 
-    let control = report_symbol(&report, target, "bray_product_host_control_", None)?;
+    require_evidence(&report, &["bray.static.host."])?;
 
-    let executable = compile_archive_host(
-        root,
-        target,
-        runtime,
-        archive.path(),
-        control,
-        output.path(),
-    )?;
-
-    crate::command::require_success(
-        Command::new(executable),
-        "executing the native static-archive product host",
-    )
-    .map(|_| ())
+    // Reusable archives contribute storage to the final product formed by the compiler.
+    // Exercise the same foreign host contract after loading those native contributions.
+    audit_library_host(root, target, runtime, Some(output.path()))
 }
 
-fn audit_library_host(root: &Path, target: NativeTarget, runtime: &Path) -> Result<(), String> {
+fn audit_library_host(
+    root: &Path,
+    target: NativeTarget,
+    runtime: &Path,
+    dependency: Option<&Path>,
+) -> Result<(), String> {
     let first = super::core::native_output("bray-native-static-library-first-")?;
     let second = super::core::native_output("bray-native-static-library-second-")?;
 
-    build_library(root, target, runtime, first.path(), "shared-library")?;
+    build_library(
+        root,
+        target,
+        runtime,
+        first.path(),
+        "shared-library",
+        dependency,
+    )?;
 
-    build_library(root, target, runtime, second.path(), "shared-library")?;
+    build_library(
+        root,
+        target,
+        runtime,
+        second.path(),
+        "shared-library",
+        dependency,
+    )?;
 
     let first_library = shared_library_path(first.path(), target)?;
     let second_library = shared_library_path(second.path(), target)?;
@@ -121,14 +126,19 @@ fn audit_library_host(root: &Path, target: NativeTarget, runtime: &Path) -> Resu
         return Err("static-host shared libraries differ across repeated builds".to_owned());
     }
 
-    let report = inspect_objects(root, &first_objects)?;
+    let mut inspected_objects = first_objects;
+
+    if let Some(dependency) = dependency {
+        inspected_objects.extend(object_files(dependency, target)?);
+    }
+
+    let report = inspect_objects(root, &inspected_objects)?;
 
     require_evidence(
         &report,
         &[
             "bray.static.host.",
-            static_host_report_section(target),
-            "bray_product_host_",
+            bray_codegen::LINKED_PRODUCT_HOST_SYMBOL,
             "bray_product_host_control_",
             initialized_data_section(target),
             zero_data_section(target),
@@ -147,12 +157,7 @@ fn audit_library_host(root: &Path, target: NativeTarget, runtime: &Path) -> Resu
 
     let control = report_symbol(&report, target, "bray_product_host_control_", None)?;
 
-    let descriptor = report_symbol(
-        &report,
-        target,
-        "bray_product_host_",
-        Some("bray_product_host_control_"),
-    )?;
+    let descriptor = bray_codegen::LINKED_PRODUCT_HOST_SYMBOL;
 
     let hidden_static = report_symbol(&report, target, "bray_static_", None)?;
     let loaded = super::core::native_output("bray-native-static-host-load-")?;
@@ -165,13 +170,62 @@ fn audit_library_host(root: &Path, target: NativeTarget, runtime: &Path) -> Resu
     std::fs::copy(&first_library, &second_copy)
         .map_err(|error| format!("could not copy second static-host library: {error}"))?;
 
+    let identities = thread_static_identities(
+        dependency.unwrap_or(first.path()),
+        if dependency.is_some() {
+            ARCHIVE_PACKAGE
+        } else {
+            "command.line"
+        },
+    )?;
+
     let harness = compile_host(root, target, loaded.path())?;
     let mut command = Command::new(&harness);
 
     command.args([&first_copy, &second_copy]);
     command.args([control, descriptor, hidden_static]);
+    command.args(identities);
 
     crate::command::require_success(command, "executing the native static product host").map(|_| ())
+}
+
+fn thread_static_identities(output: &Path, package: &str) -> Result<[String; 2], String> {
+    let artifact = published_library(
+        output,
+        package,
+        bray_emitter::ArtifactKind::PackageImplementation,
+    )?;
+
+    let implementation = bray_package_interface::PackageArtifactInput::file(artifact.path(), None)
+        .load_implementation()
+        .map_err(|error| format!("could not load static fixture implementation: {error:?}"))?;
+
+    let index = implementation
+        .native_artifact()
+        .map_err(|error| format!("could not load static fixture native index: {error:?}"))?
+        .expect("published static fixture must have a native index");
+
+    let mut entries = index
+        .units()
+        .iter()
+        .flat_map(|unit| unit.statics())
+        .filter(|entry| entry.duration() == bray_symbols::StaticStorageDuration::ExactThread)
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+
+    entries.sort_unstable_by_key(|entry| entry.order_key());
+
+    // The fixture's ASYNC_THREAD_CLEANUP_PROBE precedes THREAD_ANSWER structurally.
+    // The C host checks their initial values, lifetime isolation and cleanup behavior.
+    let [cleanup, answer] = entries.as_slice() else {
+        return Err("static fixture must own exactly two thread-local statics".to_owned());
+    };
+
+    Ok([
+        bray_base::lowercase_hex(&answer.identity()),
+        bray_base::lowercase_hex(&cleanup.identity()),
+    ])
 }
 
 fn build_library(
@@ -180,6 +234,7 @@ fn build_library(
     runtime: &Path,
     output: &Path,
     artifact: &str,
+    dependency: Option<&Path>,
 ) -> Result<(), String> {
     let compiler = crate::native_toolchain::compiler_executable(root, "brayc");
     let mut command = Command::new(compiler);
@@ -206,8 +261,49 @@ fn build_library(
         .arg("--standard-library-root")
         .arg(standard_library_root(root));
 
-    command.arg(root.join(STATIC_STORAGE_FIXTURE));
-    command.arg(root.join(STATIC_STORAGE_CONTRIBUTION));
+    command.args([
+        "--artifact",
+        "package-interface",
+        "--artifact",
+        "package-implementation",
+        "--artifact",
+        "package-native-implementation",
+    ]);
+
+    if artifact == "static-library" {
+        command.args(["--package", ARCHIVE_PACKAGE]);
+    }
+
+    if let Some(dependency) = dependency {
+        command.args([
+            "--dependency-product",
+            &format!("{ARCHIVE_PACKAGE}/{PRODUCT_NAME}"),
+        ]);
+
+        for (argument, kind) in [
+            (
+                "--dependency-interface",
+                bray_emitter::ArtifactKind::PackageInterface,
+            ),
+            (
+                "--dependency-implementation",
+                bray_emitter::ArtifactKind::PackageImplementation,
+            ),
+            (
+                "--native-implementation",
+                bray_emitter::ArtifactKind::PackageNativeImplementation,
+            ),
+        ] {
+            command
+                .arg(argument)
+                .arg(published_library(dependency, ARCHIVE_PACKAGE, kind)?.path());
+        }
+
+        command.arg(root.join(STATIC_STORAGE_ARCHIVE_CONSUMER));
+    } else {
+        command.arg(root.join(STATIC_STORAGE_FIXTURE));
+        command.arg(root.join(STATIC_STORAGE_CONTRIBUTION));
+    }
 
     crate::command::require_success(command, "building the native static-host library").map(|_| ())
 }
@@ -250,104 +346,15 @@ fn compile_host(root: &Path, target: NativeTarget, output: &Path) -> Result<Path
     Ok(executable)
 }
 
-fn compile_archive_host(
-    root: &Path,
-    target: NativeTarget,
-    runtime: &Path,
-    archive: &Path,
-    control: &str,
-    output: &Path,
-) -> Result<PathBuf, String> {
-    let compiler = llvm_tool(
-        root,
-        bray_diagnostics::DiagnosticLlvmToolRole::CompilerDriver,
-    );
-
-    let executable = output.join(
-        TargetOutputName::for_native(target.object_format(), TargetOutputKind::Executable)
-            .file_name("static_storage_archive_host")
-            .ok_or_else(|| "native static-archive host executable name is invalid".to_owned())?,
-    );
-
-    let mut command = Command::new(compiler);
-
-    command
-        .arg(format!("--target={}", target.as_str()))
-        .arg("-std=c11")
-        .arg(format!("-DBRAY_PRODUCT_HOST_CONTROL={control}"))
-        .arg(root.join(STATIC_STORAGE_ARCHIVE_HOST))
-        .arg(archive);
-
-    for runtime_archive in runtime_archives(runtime)? {
-        command.arg(runtime_archive);
-    }
-
-    for requirement in runtime_native_links(runtime)? {
-        match requirement.kind() {
-            bray_symbols::NativeLinkKind::Framework => {
-                command.arg("-framework").arg(requirement.name());
-            }
-            bray_symbols::NativeLinkKind::Dynamic
-            | bray_symbols::NativeLinkKind::Static
-            | bray_symbols::NativeLinkKind::System => {
-                command.arg(format!("-l{}", requirement.name()));
-            }
-        }
-    }
-
-    command.arg("-o").arg(&executable);
-
-    if matches!(
-        target,
-        NativeTarget::X86_64LinuxGnu | NativeTarget::Aarch64LinuxGnu
-    ) {
-        command.args(["-ldl", "-pthread"]);
-    } else if matches!(
-        target,
-        NativeTarget::X86_64MacOs | NativeTarget::Aarch64MacOs
-    ) {
-        command.arg("-pthread");
-    }
-
-    crate::command::require_success(command, "linking the native static-archive host")?;
-
-    Ok(executable)
-}
-
-fn runtime_archives(runtime: &Path) -> Result<Vec<PathBuf>, String> {
-    let artifact = runtime_artifact(runtime)?;
-    let index = &artifact.native_indexes()[0];
-
-    Ok(index.index().units().iter()
-        .filter(|unit| unit.kind() == bray_native_artifact::NativeUnitKind::OpaqueArchive)
-        .map(|unit| index.payload(unit.digest()).expect("authenticated runtime unit must have a path").to_path_buf())
-        .collect())
-}
-
-fn runtime_native_links(
-    runtime: &Path,
-) -> Result<BTreeSet<bray_symbols::NativeLinkRequirement>, String> {
-    Ok(runtime_artifact(runtime)?.native_indexes()[0].index().units()
-        .iter()
-        .flat_map(bray_native_artifact::NativeUnit::native_links)
-        .cloned()
-        .collect())
-}
-
-fn runtime_artifact(
-    runtime: &Path,
-) -> Result<bray_runtime_interface::RuntimeArtifact, String> {
-    let metadata = crate::native_toolchain::runtime_artifact_metadata(runtime)?;
-
-    bray_tooling::load_runtime_artifact(runtime, metadata.contract().target(), metadata.contract().abi_version())
-        .map_err(|error| format!("could not load runtime native units: {error:?}"))
-}
-
 fn shared_library_path(
     output: &Path,
     target: NativeTarget,
 ) -> Result<bray_emitter::PublishedArtifact, String> {
-    let path = published_library(output, bray_emitter::ArtifactKind::SharedLibrary)?;
+    let path = published_library(
+        output,
+        "command.line",
+        bray_emitter::ArtifactKind::SharedLibrary,
+    )?;
 
     let expected =
         TargetOutputName::for_native(target.object_format(), TargetOutputKind::SharedLibrary)
@@ -363,9 +370,10 @@ fn shared_library_path(
 
 fn published_library(
     output: &Path,
+    package: &str,
     artifact: bray_emitter::ArtifactKind,
 ) -> Result<bray_emitter::PublishedArtifact, String> {
-    let package = bray_symbols::PackageIdentity::try_new("command.line")
+    let package = bray_symbols::PackageIdentity::try_new(package)
         .ok_or_else(|| "native static-host package identity is invalid".to_owned())?;
 
     let product = bray_symbols::ProductIdentity::try_new(package, PRODUCT_NAME)
@@ -416,14 +424,6 @@ fn report_symbol<'report>(
     });
 
     symbol.ok_or_else(|| format!("native object inspection is missing symbol {fragment}"))
-}
-
-fn static_host_report_section(target: NativeTarget) -> &'static str {
-    let section = bray_codegen::static_host_section_name(target.object_format());
-
-    section
-        .rsplit_once(',')
-        .map_or(section, |(_, section)| section)
 }
 
 const fn initialized_data_section(target: NativeTarget) -> &'static str {

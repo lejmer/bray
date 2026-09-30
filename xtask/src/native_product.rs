@@ -65,7 +65,7 @@ pub(crate) fn emit_executable_with_configuration(
             configuration,
             Some(runtime),
             [],
-            Some(linker.linker()),
+            Some((linker.linker(), bray_linker::LinkedProductKind::Executable)),
         )
         .map_err(|error| {
             crate::diagnostic_output::failure_detail(
@@ -110,22 +110,23 @@ pub(crate) fn emit_executable_with_configuration(
 
     let inputs = ProductEmissionInputs::new(&outputs).with_native_product(&native, linker.linker());
 
-    let outcome = compilation
-        .emit_product(request, inputs)
-        .map_err(|error| {
-            crate::diagnostic_output::failure_detail(
-                format!("native fixture emission failed: {:?}", error.kind()),
-                [compilation.check_diagnostics(), error.diagnostics()],
-                compilation.sources(),
-            )
-        })?;
+    let outcome = compilation.emit_product(request, inputs).map_err(|error| {
+        crate::diagnostic_output::failure_detail(
+            format!("native fixture emission failed: {:?}", error.kind()),
+            [compilation.check_diagnostics(), error.diagnostics()],
+            compilation.sources(),
+        )
+    })?;
 
     if matches!(outcome.status(), EmissionStatus::Complete) {
         return Ok(());
     }
 
     Err(crate::diagnostic_output::failure_detail(
-        format!("native fixture emission did not complete: {:?}", outcome.status()),
+        format!(
+            "native fixture emission did not complete: {:?}",
+            outcome.status()
+        ),
         [outcome.diagnostics()],
         compilation.sources(),
     ))

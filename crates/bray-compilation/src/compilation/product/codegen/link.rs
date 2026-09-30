@@ -1,67 +1,64 @@
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_codegen::CodegenTarget;
 use bray_emitter::ProductLinkInputs;
 use bray_linker::{
-    DeadStripPolicy, DebugLinkPolicy, LinkInputProvenance, LinkInputSpec, LinkModel, LinkPolicy, LinkTarget, LinkedProductKind,
-    SectionGarbageCollectionPolicy,
+    DeadStripPolicy, DebugLinkPolicy, LinkInputProvenance, LinkInputSpec, LinkModel, LinkPolicy,
+    LinkTarget, LinkedProductKind, SectionGarbageCollectionPolicy,
 };
-use bray_runtime_interface::{ExecutableHostContract, RuntimeArtifactSelection};
-use bray_symbols::{NativeLinkKind, NativeLinkRequirement, NativeSymbolBinding, ProductKind};
+use bray_runtime_interface::{
+    ExecutableHostContract, RuntimeArtifactPlan, RuntimeArtifactSelection,
+};
+#[cfg(test)]
+use bray_symbols::ProductKind;
+use bray_symbols::{NativeLinkKind, NativeLinkRequirement, NativeSymbolBinding};
 
 use super::super::super::Compilation;
 use super::error::{NativeLinkInputPlanningError, NativeProductPlanningError};
 
-struct StandardLibraryLinkSelection {
-    inputs: Vec<Result<LinkInputSpec, NativeProductPlanningError>>,
+struct NativeLibraryLinkSelection {
     payloads: Vec<super::reuse::SelectedNativePayload>,
     optimization_modules: u64,
     optimization_bytes: u64,
+    runtime: Option<RuntimeArtifactSelection>,
 }
 
 pub(super) fn runtime_platform_services(
-    runtime: Option<&RuntimeArtifactSelection>,
-) -> BTreeSet<bray_runtime_interface::PlatformServiceRole> {
+    runtime: Option<&RuntimeArtifactPlan>,
+) -> impl Iterator<Item = bray_runtime_interface::PlatformServiceRole> + '_ {
     runtime
         .into_iter()
-        .flat_map(RuntimeArtifactSelection::components)
+        .flat_map(RuntimeArtifactPlan::components)
         .flat_map(bray_runtime_interface::RuntimeArtifactComponentMetadata::platform_services)
         .copied()
-        .collect()
 }
 
-pub(super) fn runtime_platform_symbols(
-    runtime: Option<&RuntimeArtifactSelection>,
-) -> Result<BTreeSet<bray_runtime_interface::BinarySymbolName>, NativeProductPlanningError> {
+fn runtime_platform_symbols(
+    runtime: Option<&RuntimeArtifactPlan>,
+) -> BTreeSet<bray_runtime_interface::BinarySymbolName> {
     runtime_platform_services(runtime)
-        .into_iter()
-        .map(platform_symbol)
+        .map(|role| {
+            bray_runtime_interface::BinarySymbolName::try_new(role.native_symbol())
+                .expect("platform service catalog must publish valid native symbol names")
+        })
         .collect()
-}
-
-fn platform_symbol(
-    role: bray_runtime_interface::PlatformServiceRole,
-) -> Result<bray_runtime_interface::BinarySymbolName, NativeProductPlanningError> {
-    bray_runtime_interface::BinarySymbolName::try_new(role.native_symbol())
-        .ok_or(NativeProductPlanningError::InvalidSymbolName)
 }
 
 impl Compilation {
     pub(super) fn product_link_inputs(
         &self,
-        kind: ProductKind,
+        product: LinkedProductKind,
         host: Option<&ExecutableHostContract>,
-        runtime: Option<RuntimeArtifactSelection>,
+        runtime: Option<RuntimeArtifactPlan>,
         mappings: &[bray_codegen::CodegenMappings],
         product_host: Option<&bray_codegen::CodegenProductHostMapping>,
         target: &CodegenTarget,
         configuration: crate::BuildConfiguration,
-    ) -> Result<(ProductLinkInputs, Vec<super::reuse::SelectedNativePayload>), NativeProductPlanningError> {
-        let product = match kind {
-            ProductKind::Library => LinkedProductKind::StaticLibrary,
-            ProductKind::Executable | ProductKind::Test => LinkedProductKind::Executable,
-        };
-
+    ) -> Result<
+        (ProductLinkInputs, Vec<super::reuse::SelectedNativePayload>),
+        NativeProductPlanningError,
+    > {
         let link_model = product_link_model(target.machine().object_format());
 
         // Link inputs own the Arc-backed target identity independently of codegen inputs.
@@ -148,7 +145,72 @@ impl Compilation {
             native_link_input(requirement, LinkInputProvenance::HostConfiguration)
         });
 
-        let runtime_inputs = runtime.iter().flat_map(|runtime| {
+        let mut imported_symbols: BTreeSet<&str> = mappings
+            .iter()
+            .flat_map(|mappings| {
+                mappings
+                    .symbols()
+                    .iter()
+                    .filter(|symbol| symbol.linkage() == bray_codegen::CodegenLinkage::Import)
+                    .filter(|symbol| match symbol.key() {
+                        bray_codegen::CodegenSymbolKey::Runtime(reference) => !host
+                            .and_then(|host| host.role_binding(reference.role()))
+                            .is_some_and(|binding| binding.implementation() == bray_runtime_interface::RuntimeRoleImplementation::CompilerLowering),
+                        _ => true,
+                    })
+                    .map(|symbol| symbol.name().as_str())
+                    .chain(
+                        mappings
+                            .native_storages()
+                            .iter()
+                            .filter(|storage| {
+                                storage.direction() == bray_symbols::ForeignCallableDirection::Import
+                                    && storage.presence() == bray_symbols::NativeSymbolPresence::Required
+                            })
+                            .map(|storage| storage.symbol().as_str()),
+                    )
+            })
+            .collect();
+
+        let mut provided_symbols = product_native_definitions(mappings);
+
+        if let Some(product_host) = product_host {
+            provided_symbols.insert(
+                Cow::Borrowed(product_host.descriptor_symbol().as_str()),
+                NativeSymbolBinding::Strong,
+            );
+        }
+
+        let platform_override_symbols = runtime_platform_symbols(runtime.as_ref());
+
+        if let Some(product_host) = product_host {
+            imported_symbols.extend(
+                product_host
+                    .statics()
+                    .iter()
+                    .filter(|entry| {
+                        !mappings
+                            .iter()
+                            .flat_map(bray_codegen::CodegenMappings::static_storages)
+                            .any(|storage| storage.host_name() == entry.host_symbol().as_str())
+                    })
+                    .map(|entry| entry.host_symbol().as_str()),
+            );
+        }
+
+        let libraries = self.native_library_link_selection(
+            product,
+            &imported_symbols,
+            &provided_symbols,
+            target,
+            configuration,
+            runtime,
+            product_host,
+        )?;
+
+        self.profile_runtime_selection(libraries.runtime.as_ref());
+
+        let runtime_inputs = libraries.runtime.iter().flat_map(|runtime| {
             // Every input retains the Arc-backed runtime artifact provenance.
             let artifact = runtime.contract().artifact().clone();
 
@@ -160,52 +222,14 @@ impl Compilation {
             })
         });
 
-        let imported_symbols = mappings
-            .iter()
-            .flat_map(|mappings| {
-                mappings
-                    .symbols()
-                    .iter()
-                    .filter(|symbol| symbol.linkage() == bray_codegen::CodegenLinkage::Import)
-                    .map(|symbol| symbol.name().as_str())
-                    .chain(
-                        mappings
-                            .native_storages()
-                            .iter()
-                            .filter(|storage| {
-                                storage.direction()
-                                    == bray_symbols::ForeignCallableDirection::Import
-                            })
-                            .map(|storage| storage.symbol().as_str()),
-                    )
-            })
-            .collect();
-
-        let mut provided_symbols = product_native_definitions(mappings);
-
-        let platform_override_symbols = runtime_platform_symbols(runtime.as_ref())?;
-
-        for symbol in &platform_override_symbols {
-            provided_symbols.insert(symbol.as_str(), NativeSymbolBinding::Strong);
-        }
-
-        let standard_library = self.standard_library_link_selection(
-            kind,
-            &imported_symbols,
-            &provided_symbols,
-            target,
-            configuration,
-        )?;
-
         let native_inputs = configured_inputs
             .chain(runtime_inputs)
-            .chain(standard_library.inputs)
             .collect::<Result<Vec<_>, _>>()?;
 
         let mut inputs =
             ProductLinkInputs::new(link_target, policy).with_native_inputs(native_inputs);
 
-        if let Some(runtime) = runtime {
+        if let Some(runtime) = libraries.runtime {
             inputs = inputs.with_runtime(runtime);
         }
 
@@ -224,198 +248,322 @@ impl Compilation {
             preservation_roots.insert(host.native_entry().clone());
         }
 
-        if let Some(product_host) = product_host {
-            preservation_roots.extend([
-                product_host.descriptor_symbol().clone(),
-                product_host.control_symbol().clone(),
-            ]);
-        }
-
         if configuration.uses_thin_lto() {
             if let Some(profile) = self.state.fact_runtime.profile() {
-                profile.record_metric(
-                    crate::profile::ProfileMetricKind::OptimizationModules,
-                    standard_library.optimization_modules,
-                );
+                use crate::profile::ProfileMetricKind as Metric;
 
-                profile.record_metric(
-                    crate::profile::ProfileMetricKind::OptimizationInputBytes,
-                    standard_library.optimization_bytes,
-                );
-
-                profile.record_metric(
-                    crate::profile::ProfileMetricKind::OptimizationWorkers,
-                    u64::try_from(self.worker_budget().get()).unwrap_or(u64::MAX),
-                );
-
-                profile.record_metric(
-                    crate::profile::ProfileMetricKind::OptimizationPreservationRoots,
-                    u64::try_from(preservation_roots.len()).unwrap_or(u64::MAX),
-                );
+                for (metric, value) in [
+                    (Metric::OptimizationModules, libraries.optimization_modules),
+                    (Metric::OptimizationInputBytes, libraries.optimization_bytes),
+                    (
+                        Metric::OptimizationWorkers,
+                        u64::try_from(self.worker_budget().get()).unwrap_or(u64::MAX),
+                    ),
+                    (
+                        Metric::OptimizationPreservationRoots,
+                        u64::try_from(preservation_roots.len()).unwrap_or(u64::MAX),
+                    ),
+                ] {
+                    profile.record_metric(metric, value);
+                }
             }
         }
 
         inputs = inputs.with_retained_symbols(preservation_roots);
 
-        let native_exports = mappings
-            .iter()
-            .flat_map(bray_codegen::CodegenMappings::static_storages)
-            .filter(|mapping| mapping.native_binding().is_some())
-            .map(bray_codegen::CodegenStaticStorageMapping::symbol)
+        let mut native_exports = super::plan::product_native_exports(mappings)
+            .filter(|_| product != LinkedProductKind::StaticLibrary)
             .cloned()
             .collect::<BTreeSet<_>>();
 
-        inputs = inputs.with_exported_symbols(native_exports);
-
-        if let Some(product_host) = product_host {
-            if kind == ProductKind::Library {
-                inputs = inputs.with_exported_symbols([
-                    product_host.descriptor_symbol().clone(),
-                    product_host.control_symbol().clone(),
+        if product == LinkedProductKind::SharedLibrary {
+            if let Some(host) = product_host {
+                native_exports.extend([
+                    host.descriptor_symbol().clone(),
+                    host.control_symbol().clone(),
                 ]);
             }
         }
 
-        Ok((inputs, standard_library.payloads))
+        inputs = inputs.with_exported_symbols(native_exports);
+
+        Ok((inputs, libraries.payloads))
     }
 
-    fn standard_library_link_selection(
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "final native closure combines existing host, runtime and link contracts"
+    )]
+    fn native_library_link_selection(
         &self,
-        product_kind: ProductKind,
+        product_kind: LinkedProductKind,
         imported_symbols: &BTreeSet<&str>,
-        provided_symbols: &BTreeMap<&str, NativeSymbolBinding>,
+        provided_symbols: &BTreeMap<Cow<'_, str>, NativeSymbolBinding>,
         target: &CodegenTarget,
         configuration: crate::BuildConfiguration,
-    ) -> Result<StandardLibraryLinkSelection, NativeProductPlanningError> {
-        if product_kind == ProductKind::Library {
-            return Ok(StandardLibraryLinkSelection {
-                inputs: Vec::new(),
+        runtime: Option<RuntimeArtifactPlan>,
+        product_host: Option<&bray_codegen::CodegenProductHostMapping>,
+    ) -> Result<NativeLibraryLinkSelection, NativeProductPlanningError> {
+        if product_kind == LinkedProductKind::StaticLibrary {
+            return Ok(NativeLibraryLinkSelection {
                 payloads: Vec::new(),
                 optimization_modules: 0,
                 optimization_bytes: 0,
+                runtime: None,
             });
         }
 
-        let Some(resolver) = self.standard_library_provider_resolver() else {
-            return Ok(StandardLibraryLinkSelection {
-                inputs: Vec::new(),
-                payloads: Vec::new(),
-                optimization_modules: 0,
-                optimization_bytes: 0,
-            });
-        };
-
-        let selected = self.requested_target();
-
-        let package = bray_symbols::PackageIdentity::try_new(
-            bray_standard_library::PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY,
-        )
-        .unwrap_or_else(|| panic!("standard library package identity must be valid"));
-
-        let selection = self.select_standard_library_native(
-            resolver,
-            selected.profile().identity(),
-            selected.runtime_abi(),
-            imported_symbols,
-            provided_symbols,
-            target,
-            configuration,
-            &package,
+        let libraries = self.native_libraries(
+            configuration.codegen_options(),
+            configuration.uses_thin_lto(),
         )?;
 
-        if let Some(profile) = self.state.fact_runtime.profile() {
-            profile.set_standard_library_artifacts(vec![
-                bray_profile::CompilationProfileStandardLibraryArtifact {
-                    path: selection.index_path.display().to_string(),
-                    modules: u32::try_from(selection.modules).unwrap_or(u32::MAX),
-                    bytes: selection.bytes,
-                },
-            ]);
+        let target = bray_target::NativeTarget::for_identity(target.identity())
+            .expect("native selection requires a supported native target");
+
+        let demands = imported_symbols.iter().map(|name| {
+            bray_symbols::NativeSymbolContract::required_name(
+                bray_base::NonEmptySharedStr::try_new(
+                    target.object_symbol_name(name.as_ref()).as_ref(),
+                )
+                .expect("mapped imported symbol must be nonempty"),
+            )
+        });
+
+        let provided = provided_symbols.iter().map(|(name, &binding)| {
+            (
+                bray_symbols::NativeSymbolIdentity::Name(
+                    bray_base::NonEmptySharedStr::try_new(
+                        target.object_symbol_name(name.as_ref()).as_ref(),
+                    )
+                    .expect("mapped provided symbol must be nonempty"),
+                ),
+                binding,
+            )
+        });
+
+        let static_demands = product_host
+            .into_iter()
+            .flat_map(|host| host.statics())
+            .map(|entry| entry.identity().bytes())
+            .filter(|identity| libraries.resolver.static_entry(identity).is_some());
+
+        let runtime_ordinal = libraries.resolver.artifacts().len();
+
+        let selection = libraries.select(
+            demands,
+            provided,
+            static_demands,
+            runtime.as_ref(),
+            self.native_link_inputs(),
+        )?;
+
+        let package_units = selection
+            .units()
+            .iter()
+            .copied()
+            .filter(|location| location.artifact < runtime_ordinal)
+            .collect::<Vec<_>>();
+
+        let runtime = runtime.map(|runtime| {
+            runtime.finish(
+                selection
+                    .units()
+                    .iter()
+                    .filter(|location| location.artifact == runtime_ordinal)
+                    .map(|location| location.digest),
+            )
+        });
+
+        let payloads = package_units
+            .iter()
+            .map(|&location| libraries.payload(location))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let mut modules = 0;
+        let mut bytes = 0;
+        let mut artifacts = BTreeMap::new();
+
+        for (&location, payload) in package_units.iter().zip(&payloads) {
+            let entry = artifacts
+                .entry(libraries.path(location))
+                .or_insert((0_u32, 0_u64));
+
+            if payload.kind == bray_native_artifact::NativeUnitKind::Bitcode {
+                entry.0 += 1;
+
+                entry.1 += u64::try_from(payload.bytes.len())
+                    .expect("payload length must fit profile counter");
+            }
         }
 
-        Ok(StandardLibraryLinkSelection {
-            inputs: selection.inputs.into_iter().map(Ok).collect(),
-            payloads: selection.payloads,
-            optimization_modules: selection.modules,
-            optimization_bytes: selection.bytes,
+        let artifacts = artifacts
+            .into_iter()
+            .map(|(path, (count, size))| {
+                modules += u64::from(count);
+                bytes += size;
+
+                bray_profile::CompilationProfileLibraryArtifact {
+                    path: path.display().to_string(),
+                    modules: count,
+                    bytes: size,
+                }
+            })
+            .collect();
+
+        if let Some(profile) = self.state.fact_runtime.profile() {
+            profile.set_library_artifacts(artifacts);
+        }
+
+        Ok(NativeLibraryLinkSelection {
+            payloads,
+            optimization_modules: modules,
+            optimization_bytes: bytes,
+            runtime,
         })
     }
 
     #[cfg(test)]
-    pub(super) fn standard_library_link_inputs(
+    pub(super) fn native_library_link_inputs(
         &self,
         product_kind: ProductKind,
         imported_symbols: &BTreeSet<&str>,
         platform_overrides: &BTreeSet<bray_runtime_interface::PlatformServiceRole>,
-    ) -> Result<(Vec<LinkInputSpec>, Vec<super::reuse::SelectedNativePayload>), NativeProductPlanningError>
-    {
+    ) -> Result<
+        (Vec<LinkInputSpec>, Vec<super::reuse::SelectedNativePayload>),
+        NativeProductPlanningError,
+    > {
         let target = self
             .requested_target()
             .codegen_target()
             .map_err(NativeProductPlanningError::InvalidCodegenTarget)?;
 
-        let provided = platform_overrides.iter().map(|role| {
-            (role.native_symbol(), NativeSymbolBinding::Strong)
-        }).collect::<BTreeMap<_, _>>();
+        let provided = platform_overrides
+            .iter()
+            .map(|role| {
+                (
+                    Cow::Borrowed(role.native_symbol()),
+                    NativeSymbolBinding::Strong,
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
 
-        self.standard_library_link_selection(
-            product_kind,
+        self.native_library_link_selection(
+            match product_kind {
+                ProductKind::Library => LinkedProductKind::StaticLibrary,
+                ProductKind::Executable | ProductKind::Test => LinkedProductKind::Executable,
+            },
             imported_symbols,
             &provided,
             &target,
             crate::BuildConfiguration::Development,
+            None,
+            None,
         )
-        .and_then(|selection| Ok((
-            selection.inputs.into_iter().collect::<Result<_, _>>()?,
-            selection.payloads,
-        )))
+        .map(|selection| {
+            (
+                selection
+                    .payloads
+                    .iter()
+                    .flat_map(|unit| unit.native_links.iter().cloned())
+                    .collect(),
+                selection.payloads,
+            )
+        })
     }
 }
 
 pub(super) fn product_native_definitions(
     mappings: &[bray_codegen::CodegenMappings],
-) -> BTreeMap<&str, NativeSymbolBinding> {
+) -> BTreeMap<Cow<'_, str>, NativeSymbolBinding> {
     let mut definitions = BTreeMap::new();
 
     for mapping in mappings {
-        for symbol in mapping.symbols().iter().filter(|symbol| symbol.defines_in(mapping.unit())) {
-            let binding = match symbol.linkage() {
-                bray_codegen::CodegenLinkage::External
-                | bray_codegen::CodegenLinkage::Export
-                | bray_codegen::CodegenLinkage::LinkOnce => NativeSymbolBinding::Strong,
-                bray_codegen::CodegenLinkage::Weak
-                | bray_codegen::CodegenLinkage::Fallback
-                | bray_codegen::CodegenLinkage::Common => NativeSymbolBinding::Weak,
-                bray_codegen::CodegenLinkage::Private
-                | bray_codegen::CodegenLinkage::Internal
-                | bray_codegen::CodegenLinkage::Import => continue,
-            };
+        for symbol in mapping
+            .symbols()
+            .iter()
+            .filter(|symbol| symbol.defines_in(mapping.unit()))
+        {
+            if let Some(binding) = product_symbol_binding(symbol.linkage()) {
+                // An emitted LinkOnce body satisfies its references without selecting another copy.
+                insert_product_definition(
+                    &mut definitions,
+                    Cow::Borrowed(symbol.name().as_str()),
+                    binding,
+                );
+            }
 
-            // An emitted LinkOnce body satisfies its own references even though its native
-            // linkage is weak; selecting the std body would define that same body twice.
-            insert_product_definition(&mut definitions, symbol.name().as_str(), binding);
+            if let Some(entry) = symbol.native_entry() {
+                let binding = product_symbol_binding(entry.linkage())
+                    .expect("emitted native callback must have definition linkage");
+
+                insert_product_definition(
+                    &mut definitions,
+                    Cow::Borrowed(entry.name().as_str()),
+                    binding,
+                );
+            }
         }
 
-        for storage in mapping.native_storages().iter().filter(|storage| {
-            storage.direction() == bray_symbols::ForeignCallableDirection::Export
-        }) {
-            insert_product_definition(&mut definitions, storage.symbol().as_str(), storage.binding());
+        for storage in mapping
+            .static_storages()
+            .iter()
+            .filter(|storage| storage.defines_storage())
+        {
+            insert_product_definition(
+                &mut definitions,
+                Cow::Borrowed(storage.symbol().as_str()),
+                storage
+                    .native_binding()
+                    .unwrap_or(NativeSymbolBinding::Strong),
+            );
+
+            insert_product_definition(
+                &mut definitions,
+                Cow::Owned(storage.host_name()),
+                NativeSymbolBinding::Strong,
+            );
+        }
+
+        for storage in mapping
+            .native_storages()
+            .iter()
+            .filter(|storage| storage.direction() == bray_symbols::ForeignCallableDirection::Export)
+        {
+            insert_product_definition(
+                &mut definitions,
+                Cow::Borrowed(storage.symbol().as_str()),
+                storage.binding(),
+            );
         }
     }
 
     definitions
 }
 
-fn insert_product_definition<'a>(
-    definitions: &mut BTreeMap<&'a str, NativeSymbolBinding>,
-    name: &'a str,
+pub(super) fn product_symbol_binding(
+    linkage: bray_codegen::CodegenLinkage,
+) -> Option<NativeSymbolBinding> {
+    match linkage {
+        bray_codegen::CodegenLinkage::Internal
+        | bray_codegen::CodegenLinkage::External
+        | bray_codegen::CodegenLinkage::Export
+        | bray_codegen::CodegenLinkage::LinkOnce => Some(NativeSymbolBinding::Strong),
+        bray_codegen::CodegenLinkage::Weak
+        | bray_codegen::CodegenLinkage::Fallback
+        | bray_codegen::CodegenLinkage::Common => Some(NativeSymbolBinding::Weak),
+        bray_codegen::CodegenLinkage::Private | bray_codegen::CodegenLinkage::Import => None,
+    }
+}
+
+pub(super) fn insert_product_definition<Name: Ord>(
+    definitions: &mut BTreeMap<Name, NativeSymbolBinding>,
+    name: Name,
     binding: NativeSymbolBinding,
 ) {
     let existing = definitions.entry(name).or_insert(binding);
 
-    if binding == NativeSymbolBinding::Strong {
-        *existing = binding;
-    }
+    *existing = existing.strongest(binding);
 }
 
 pub(super) const fn product_link_model(object_format: bray_target::ObjectFormat) -> LinkModel {

@@ -1,7 +1,7 @@
 // rust-style: allow(module-too-large, reason = "runtime artifact command parsing, construction, and metadata publication form one reproducible packaging contract")
 
-use std::fmt;
 use std::collections::BTreeMap;
+use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -14,9 +14,9 @@ use crate::bundle::{
 use crate::workspace;
 use bray_runtime_interface::{
     BinarySymbolName, PanicAbiIdentity, PlatformServiceRole, ProtectedFrameAbiVersions,
-    RuntimeAbiRole, RuntimeAbiVersion, RuntimeArtifactComponentMetadata,
-    RuntimeArtifactId, RuntimeArtifactMetadata, RuntimeArtifactPurpose, RuntimeCapability,
-    RuntimeContract, RuntimeIdentity, RuntimeRoleBinding, RuntimeNativeIndexMetadata,
+    RuntimeAbiRole, RuntimeAbiVersion, RuntimeArtifactComponentMetadata, RuntimeArtifactId,
+    RuntimeArtifactMetadata, RuntimeArtifactPurpose, RuntimeCapability, RuntimeContract,
+    RuntimeIdentity, RuntimeNativeIndexMetadata, RuntimeRoleBinding,
 };
 use bray_symbols::NativeLinkRequirement;
 use bray_target::{NativeTarget, TargetOutputKind, TargetOutputName};
@@ -99,7 +99,9 @@ fn smoke_test_command(mut arguments: impl Iterator<Item = String>) -> Result<(),
 
     let output = directory.path().join(target.as_str());
 
-    let package = build(target, &output, "release")?;
+    let mut package = build(target, &output, "release")?;
+
+    super::smoke::add_package_dependencies(&mut package, target, directory.path())?;
 
     crate::progress::run("Running runtime artifact smoke tests", || {
         smoke_test(&package, target, directory.path())
@@ -204,11 +206,18 @@ fn package(output: &Path, target: NativeTarget) -> Package {
         for entry in entries.flatten() {
             let path = entry.path();
 
-            if path.file_name().and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with("bray_runtime_support_")
-                    || name.starts_with("libbray_runtime_support_"))
+            if path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| {
+                    name.starts_with("bray_runtime_support_")
+                        || name.starts_with("libbray_runtime_support_")
+                })
             {
-                components.push(PackageComponent { kind: None, archive: path });
+                components.push(PackageComponent {
+                    kind: None,
+                    archive: path,
+                });
             }
         }
     }
@@ -218,6 +227,7 @@ fn package(output: &Path, target: NativeTarget) -> Package {
     Package {
         metadata: output.join(METADATA_FILE_NAME),
         components,
+        native_links: Vec::new(),
     }
 }
 
@@ -334,11 +344,9 @@ fn build_contents(
 
     let support = support
         .into_iter()
-        .map(|support| {
-            BuiltSupportComponent {
-                owners: support.owners,
-                archive: support.archive,
-            }
+        .map(|support| BuiltSupportComponent {
+            owners: support.owners,
+            archive: support.archive,
         })
         .collect::<Vec<_>>();
 
@@ -350,11 +358,14 @@ fn build_contents(
         super::native_index::publish(target, output, producer, &components, &support)
     })?;
 
-    let metadata_value = metadata(target, native_indexes.into_iter().map(|index| {
+    let metadata_value = metadata(
+        target,
+        native_indexes.into_iter().map(|index| {
             RuntimeNativeIndexMetadata::try_new(index.purpose, index.file_name, index.digest)
                 .expect("published runtime native index has a valid file name")
-        }))
-        .map_err(|_| CommandError::MetadataContract)?;
+        }),
+    )
+    .map_err(|_| CommandError::MetadataContract)?;
 
     let bytes = metadata_value
         .encode_json()
@@ -393,7 +404,10 @@ fn audit_dependency_boundaries(root: &Path) -> Result<(), CommandError> {
     .map_err(CommandError::DependencyAudit)
 }
 
-fn metadata(target: NativeTarget, indexes: impl IntoIterator<Item = RuntimeNativeIndexMetadata>) -> Result<RuntimeArtifactMetadata, CommandError> {
+fn metadata(
+    target: NativeTarget,
+    indexes: impl IntoIterator<Item = RuntimeNativeIndexMetadata>,
+) -> Result<RuntimeArtifactMetadata, CommandError> {
     let identity =
         RuntimeIdentity::try_new(RUNTIME_IDENTITY).ok_or(CommandError::MetadataContract)?;
 
@@ -430,15 +444,13 @@ fn metadata(target: NativeTarget, indexes: impl IntoIterator<Item = RuntimeNativ
             .with_platform_services(RuntimeArchiveKind::Bootstrap.platform_services()),
         );
 
-        metadata_components.push(
-            component_metadata(
-                target,
-                purpose,
-                "observation",
-                RuntimeArchiveKind::Observation.runtime_roles(),
-                [RuntimeCapability::PerformanceObservation],
-            )?,
-        );
+        metadata_components.push(component_metadata(
+            target,
+            purpose,
+            "observation",
+            RuntimeArchiveKind::Observation.runtime_roles(),
+            [RuntimeCapability::PerformanceObservation],
+        )?);
 
         if purpose == RuntimeArtifactPurpose::Product {
             for (kind, name, capabilities) in [
@@ -467,16 +479,18 @@ fn metadata(target: NativeTarget, indexes: impl IntoIterator<Item = RuntimeNativ
         }
 
         if purpose == RuntimeArtifactPurpose::TestRunner {
-            metadata_components.push(component_metadata(
-                target,
-                purpose,
-                "test_host",
-                RuntimeArchiveKind::TestHost.runtime_roles(),
-                SCHEDULER_CAPABILITIES
-                    .into_iter()
-                    .chain([RuntimeCapability::Reactor]),
-            )?
-            .with_platform_services(RuntimeArchiveKind::TestHost.platform_services()));
+            metadata_components.push(
+                component_metadata(
+                    target,
+                    purpose,
+                    "test_host",
+                    RuntimeArchiveKind::TestHost.runtime_roles(),
+                    SCHEDULER_CAPABILITIES
+                        .into_iter()
+                        .chain([RuntimeCapability::Reactor]),
+                )?
+                .with_platform_services(RuntimeArchiveKind::TestHost.platform_services()),
+            );
         }
     }
 
@@ -493,10 +507,8 @@ fn component_metadata(
 ) -> Result<RuntimeArtifactComponentMetadata, CommandError> {
     let identity = component_identity(target, purpose, name)?;
 
-    RuntimeArtifactComponentMetadata::try_new(
-        identity, purpose, roles, capabilities,
-    )
-    .map_err(|_| CommandError::MetadataContract)
+    RuntimeArtifactComponentMetadata::try_new(identity, purpose, roles, capabilities)
+        .map_err(|_| CommandError::MetadataContract)
 }
 
 fn component_identity(
@@ -513,7 +525,7 @@ fn component_identity(
     .ok_or(CommandError::MetadataContract)
 }
 
-fn runtime_role_archive(role: RuntimeAbiRole) -> Option<RuntimeArchiveKind> {
+pub(super) fn runtime_role_archive(role: RuntimeAbiRole) -> Option<RuntimeArchiveKind> {
     use bray_runtime_interface::RuntimeRoleArtifact;
 
     Some(match role.artifact_owner() {
@@ -594,6 +606,7 @@ impl BuildOptions {
 pub(super) struct Package {
     pub(super) metadata: PathBuf,
     pub(super) components: Vec<PackageComponent>,
+    pub(super) native_links: Vec<NativeLinkRequirement>,
 }
 
 pub(super) struct PackageComponent {
@@ -645,7 +658,7 @@ impl RuntimeArchiveKind {
         Self::TestHost,
     ];
 
-    const fn archive_stem(self) -> &'static str {
+    pub(super) const fn archive_stem(self) -> &'static str {
         match self {
             Self::Observation => "bray_runtime_observation",
             Self::Bootstrap => "bray_runtime_bootstrap",
@@ -702,7 +715,7 @@ impl RuntimeArchiveKind {
                     role.family() == bray_runtime_interface::PlatformServiceFamily::StandardStreams
                 }
                 Self::Bootstrap => role.bootstrap_declaration().is_some(),
-            Self::Observation
+                Self::Observation
                 | Self::Host
                 | Self::Callback
                 | Self::Scheduler
@@ -941,13 +954,14 @@ fn required_value(
 #[cfg(test)]
 mod tests {
     use bray_runtime_interface::{
-        PlatformServiceRole, RuntimeAbiRole, RuntimeArtifactDigest, RuntimeNativeIndexMetadata, RuntimeArtifactPurpose,
+        PlatformServiceRole, RuntimeAbiRole, RuntimeArtifactDigest, RuntimeArtifactPurpose,
+        RuntimeNativeIndexMetadata,
     };
     use bray_target::NativeTarget;
 
     use super::{
-        BuildOptions, CommandError, RuntimeArchiveKind, archive_file_name,
-        metadata, runtime_role_archive, runtime_role_bindings,
+        BuildOptions, CommandError, RuntimeArchiveKind, archive_file_name, metadata,
+        runtime_role_archive, runtime_role_bindings,
     };
 
     #[test]
@@ -1020,8 +1034,12 @@ mod tests {
     fn runtime_metadata_covers_every_native_target_reproducibly() {
         for target in NativeTarget::ALL {
             let indexes = RuntimeArtifactPurpose::ALL.map(|purpose| {
-                RuntimeNativeIndexMetadata::try_new(purpose, format!("{}.json", purpose.as_str()), RuntimeArtifactDigest::new([7; 32]))
-                    .expect("test index name must be valid")
+                RuntimeNativeIndexMetadata::try_new(
+                    purpose,
+                    format!("{}.json", purpose.as_str()),
+                    RuntimeArtifactDigest::new([7; 32]),
+                )
+                .expect("test index name must be valid")
             });
 
             let first = metadata(target, indexes.clone())

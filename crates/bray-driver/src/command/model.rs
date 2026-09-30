@@ -15,7 +15,7 @@ pub struct DriverOptions {
     output_format: OutputFormat,
     compilation: DriverCompilationConfiguration,
     standard_library_root: Option<StandardLibraryRoot>,
-    standard_library_provider_root: Option<StandardLibraryRoot>,
+    native_implementations: Vec<PathBuf>,
     package_source_authority: PackageSourceAuthority,
     profile: Option<CompilationProfileConfiguration>,
     profile_output: Option<PathBuf>,
@@ -29,7 +29,7 @@ impl DriverOptions {
         output_format: OutputFormat,
         compilation: DriverCompilationConfiguration,
         standard_library_root: Option<StandardLibraryRoot>,
-        standard_library_provider_root: Option<StandardLibraryRoot>,
+        native_implementations: Vec<PathBuf>,
         package_source_authority: PackageSourceAuthority,
     ) -> Self {
         Self {
@@ -37,7 +37,7 @@ impl DriverOptions {
             output_format,
             compilation,
             standard_library_root,
-            standard_library_provider_root,
+            native_implementations,
             package_source_authority,
             profile: None,
             profile_output: None,
@@ -94,9 +94,9 @@ impl DriverOptions {
         self.standard_library_root.as_ref()
     }
 
-    /// Returns the provider-only standard-library bundle root.
-    pub const fn standard_library_provider_root(&self) -> Option<&StandardLibraryRoot> {
-        self.standard_library_provider_root.as_ref()
+    /// Returns native dependency artifacts that do not add source imports.
+    pub fn native_implementations(&self) -> &[PathBuf] {
+        &self.native_implementations
     }
 
     /// Returns the authority governing source package identities.

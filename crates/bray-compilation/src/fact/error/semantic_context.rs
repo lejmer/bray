@@ -265,6 +265,10 @@ fn push_fact_context(
                 text_field("product_name", key.product().name()),
             ]);
 
+            if let Some(kind) = key.linked_product() {
+                fields.push(identity_field("linked_product", &kind));
+            }
+
             push_build_configuration(fields, key.configuration());
             push_runtime_indexes(fields, key.runtime());
 
@@ -580,9 +584,7 @@ fn push_runtime_indexes(
         ),
         text_list_field(
             "runtime_native_index_artifacts",
-            runtime
-                .iter()
-                .map(|index| index.artifact().as_str()),
+            runtime.iter().map(|index| index.artifact().as_str()),
         ),
         text_list_field(
             "runtime_native_index_purposes",
@@ -709,6 +711,7 @@ mod tests {
                 inner_iterations: std::num::NonZeroU64::new(3)
                     .unwrap_or_else(|| panic!("test iteration count must be nonzero")),
             },
+            Some(bray_linker::LinkedProductKind::Executable),
             Some(vec![runtime_index].into()),
             [bray_runtime_interface::RuntimeCapability::Reactor],
             [linker],
@@ -725,6 +728,7 @@ mod tests {
             "product_package",
             "product_name",
             "build_configuration",
+            "linked_product",
             "build_inner_iterations",
             "runtime_selected",
             "runtime_native_index_artifacts",

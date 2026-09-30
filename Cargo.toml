@@ -60,3 +60,7 @@ unsafe_code = "deny"
 
 [workspace.lints.clippy]
 unwrap_used = "deny"
+
+# Keep compiler development archives within COFF's 32-bit member offsets.
+[profile.dev.package.bray-compilation]
+debug = 1

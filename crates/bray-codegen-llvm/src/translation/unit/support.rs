@@ -95,6 +95,16 @@ pub(super) fn extract_value<'context>(
     aggregate: BasicValueEnum<'context>,
     index: u32,
 ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+    assert!(
+        index < aggregate_value_length(aggregate),
+        "LLVM aggregate projection {index} is outside {aggregate:?} in function {:?}",
+        builder.get_insert_block().and_then(|block| {
+            block
+                .get_parent()
+                .map(|function| function.get_name().to_string_lossy().into_owned())
+        }),
+    );
+
     match aggregate {
         BasicValueEnum::ArrayValue(aggregate) => {
             llvm(builder.build_extract_value(aggregate, index, "projection.value"))

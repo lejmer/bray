@@ -60,6 +60,11 @@ pub(crate) fn target_output_description() -> TargetOutputDescription {
         output_name(TargetOutputKind::ExecutableModule, "", ".wasm"),
         output_name(TargetOutputKind::DebugCompanion, "", ".debug"),
         output_name(TargetOutputKind::PackageInterface, "", ".brayi"),
+        output_name(
+            TargetOutputKind::PackageNativeImplementation,
+            "",
+            "-native.brayimpl",
+        ),
         output_name(TargetOutputKind::DependencyMetadata, "", ".brayd"),
         output_name(TargetOutputKind::Executable, "", ""),
         output_name(TargetOutputKind::StaticLibrary, "lib", ".a"),

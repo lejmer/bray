@@ -133,8 +133,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .type_mapping(ty)
             .expect("checked MIR value translation requires an established mapping or value");
 
-        if mapping.behavior() == Some(CodegenTypeBehavior::String) {
-            return self.retain_string(value, ty);
+        match mapping.behavior() {
+            Some(CodegenTypeBehavior::String) => return self.retain_string(value, ty),
+            // Native panic headers contain no shared-storage fields to retain.
+            Some(CodegenTypeBehavior::PanicReport) => return Ok(()),
+            _ => {}
         }
 
         // Recursive translation changes the insertion block, so retain an owned representation.
@@ -704,7 +707,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 .value(*value)
                 .map(bray_ir::MirValue::ty)
                 .expect("checked MIR operands must reference a value in their unit"),
-            MirOperand::Constant { ty, .. } | MirOperand::ConstantTerm { ty, .. } | MirOperand::Immediate { ty, .. } => *ty,
+            MirOperand::Constant { ty, .. }
+            | MirOperand::ConstantTerm { ty, .. }
+            | MirOperand::Immediate { ty, .. } => *ty,
             MirOperand::Copy(place) | MirOperand::Move(place) => place.ty(),
         }
     }

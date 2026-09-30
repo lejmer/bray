@@ -29,7 +29,7 @@ pub(crate) enum CompilationInputKey {
     PackageInterfaceExport,
     CodegenConfiguration,
     StandardLibrary,
-    StandardLibraryProviders,
+    NativeImplementations,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -85,7 +85,7 @@ impl CompilationInputKey {
         Self::PackageInterfaceExport,
         Self::CodegenConfiguration,
         Self::StandardLibrary,
-        Self::StandardLibraryProviders,
+        Self::NativeImplementations,
     ];
 
     pub(super) const fn fixed_bit(&self) -> Option<u32> {
@@ -105,7 +105,7 @@ impl CompilationInputKey {
             Self::PackageInterfaceExport => 12,
             Self::CodegenConfiguration => 13,
             Self::StandardLibrary => 14,
-            Self::StandardLibraryProviders => 15,
+            Self::NativeImplementations => 15,
             Self::Source(_) | Self::DependencyInterface(_) | Self::DependencyImplementation(_) => {
                 return None;
             }
@@ -204,17 +204,11 @@ mod tests {
     fn provider_artifacts_do_not_change_the_semantic_identity_namespace() {
         let mut first = CompilationInputs::default();
 
-        first.insert(
-            CompilationInputKey::StandardLibraryProviders,
-            &"providers-a",
-        );
+        first.insert(CompilationInputKey::NativeImplementations, &"providers-a");
 
         let mut second = CompilationInputs::default();
 
-        second.insert(
-            CompilationInputKey::StandardLibraryProviders,
-            &"providers-b",
-        );
+        second.insert(CompilationInputKey::NativeImplementations, &"providers-b");
 
         assert!(first.has_same_identity_namespace(&second));
 

@@ -1,0 +1,38 @@
+module numbers;
+
+using std.io;
+
+struct Stored
+{
+    value: i32;
+}
+
+impl Stored
+{
+    finalize()
+    {
+        if self.value == 65
+        {
+            std.io.print("A");
+        }
+        else
+        {
+            std.io.print("B");
+        }
+    }
+}
+
+static STORED<const N: i32>: Stored = Stored
+{
+    value = N
+};
+
+public func answer() -> i32
+{
+    return STORED<65>.value;
+}
+
+public func value<const N: i32>() -> i32
+{
+    return STORED<N>.value;
+}

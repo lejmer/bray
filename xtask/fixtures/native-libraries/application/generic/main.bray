@@ -1,0 +1,12 @@
+module app;
+
+using fixture.base.numbers;
+using fixture.middle.numbers;
+
+func main() -> i32
+{
+    let first = fixture.base.numbers.value<66>();
+    let second = fixture.base.numbers.value<65>();
+
+    return fixture.middle.numbers.result() + first + second - 196;
+}

@@ -1,9 +1,32 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+/// Returns roots and every reachable dependency in deterministic identity order.
+/// Cycles are visited once, and identities need not be small or copyable.
+pub fn transitive_dependencies<N, I>(
+    roots: impl IntoIterator<Item = N>,
+    dependencies: impl Fn(&N) -> I,
+) -> BTreeSet<N>
+where
+    N: Clone + Ord,
+    I: IntoIterator<Item = N>,
+{
+    let mut pending = roots.into_iter().collect::<Vec<_>>();
+    let mut retained = BTreeSet::new();
+
+    while let Some(key) = pending.pop() {
+        if retained.insert(key.clone()) {
+            pending.extend(dependencies(&key));
+        }
+    }
+
+    retained
+}
+
 /// Partitions a directed graph into strongly connected components without recursive traversal.
 ///
 /// Roots and their reachable successors form the graph. Components and members follow the supplied
-/// root and successor order. Vertices may be typed identities or storage indices.
+/// root and successor order. An edge between distinct components points from an earlier
+/// component to a later component. Vertices may be typed identities or storage indices.
 pub fn strongly_connected_components<N, I>(
     roots: impl IntoIterator<Item = N>,
     successors: impl Fn(N) -> I,
@@ -83,6 +106,18 @@ mod tests {
         let mut components = strongly_connected_components(edges.keys().copied(), |node| {
             edges.get(&node).into_iter().flatten().copied()
         });
+
+        let positions = components
+            .iter()
+            .enumerate()
+            .flat_map(|(index, members)| members.iter().map(move |&member| (member, index)))
+            .collect::<BTreeMap<_, _>>();
+
+        for (source, successors) in &edges {
+            for successor in successors {
+                assert!(positions[source] <= positions[successor]);
+            }
+        }
 
         for component in &mut components {
             component.sort_unstable();

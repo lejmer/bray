@@ -49,6 +49,25 @@ pub enum RuntimeObservationMode {
     Memory,
 }
 
+impl RuntimeObservationMode {
+    /// Returns runtime calls introduced by this instrumentation policy.
+    pub const fn runtime_roles(self) -> &'static [bray_runtime_interface::RuntimeAbiRole] {
+        use bray_runtime_interface::RuntimeAbiRole as Role;
+
+        match self {
+            Self::None => &[],
+            Self::Memory => &[
+                Role::MemoryObservationBegin,
+                Role::MemoryAllocationObservation,
+                Role::MemoryCopyObservation,
+            ],
+            Self::PerformanceInterval { .. } => {
+                &[Role::PerformanceIntervalBegin, Role::PerformanceIntervalEnd]
+            }
+        }
+    }
+}
+
 /// Immutable backend-neutral generation policy for one codegen unit.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CodegenOptions {

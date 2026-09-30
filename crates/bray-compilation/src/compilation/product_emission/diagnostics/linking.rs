@@ -206,7 +206,6 @@ const fn diagnostic_link_input_kind(kind: LinkInputKind) -> DiagnosticLinkInputK
         LinkInputKind::Archive => DiagnosticLinkInputKind::Archive,
         LinkInputKind::StartupObject => DiagnosticLinkInputKind::StartupObject,
         LinkInputKind::TerminationObject => DiagnosticLinkInputKind::TerminationObject,
-        LinkInputKind::RuntimeComponent => DiagnosticLinkInputKind::RuntimeComponent,
         LinkInputKind::NativeLibrary => DiagnosticLinkInputKind::NativeLibrary,
         LinkInputKind::Framework => DiagnosticLinkInputKind::Framework,
     }

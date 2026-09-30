@@ -24,6 +24,7 @@ bray-target = { path = "../bray-target" }
 zstd = { version = "=0.13.3", default-features = false }
 
 [dev-dependencies]
+tempfile = "3"
 bray-messages = { path = "../bray-messages" }
 
 [lints]

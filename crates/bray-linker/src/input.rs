@@ -34,12 +34,20 @@ pub enum LinkInputKind {
     StartupObject,
     /// Target termination object placed after ordinary product inputs.
     TerminationObject,
-    /// File-backed component of the selected private execution ABI.
-    RuntimeComponent,
     /// Native library selected by canonical library name.
     NativeLibrary,
     /// Platform framework selected by canonical framework name.
     Framework,
+}
+
+impl From<bray_native_artifact::NativeUnitKind> for LinkInputKind {
+    fn from(kind: bray_native_artifact::NativeUnitKind) -> Self {
+        match kind {
+            bray_native_artifact::NativeUnitKind::Object => Self::RelocatableObject,
+            bray_native_artifact::NativeUnitKind::Bitcode => Self::Bitcode,
+            bray_native_artifact::NativeUnitKind::OpaqueArchive => Self::Archive,
+        }
+    }
 }
 
 impl LinkInputKind {
@@ -49,8 +57,7 @@ impl LinkInputKind {
             | Self::Bitcode
             | Self::Archive
             | Self::StartupObject
-            | Self::TerminationObject
-            | Self::RuntimeComponent => matches!(source, LinkInputSource::File(_)),
+            | Self::TerminationObject => matches!(source, LinkInputSource::File(_)),
             Self::NativeLibrary => matches!(source, LinkInputSource::NativeLibrary(_)),
             Self::Framework => matches!(source, LinkInputSource::Framework(_)),
         }
@@ -173,6 +180,16 @@ impl LinkInputSpec {
         })
     }
 
+    /// Creates one authenticated runtime input without changing its physical category.
+    pub fn runtime_unit(runtime: &RuntimeArtifactId, unit: &RuntimeNativeUnit) -> Self {
+        Self {
+            kind: unit.kind().into(),
+            source: LinkInputSource::file(unit.path()),
+            provenance: LinkInputProvenance::Runtime(runtime.clone()),
+            mode: LinkInputMode::Ordinary,
+        }
+    }
+
     /// Returns the native input category.
     pub const fn kind(&self) -> LinkInputKind {
         self.kind
@@ -218,16 +235,6 @@ impl LinkInput {
         provenance: LinkInputProvenance,
     ) -> Option<Self> {
         LinkInputSpec::try_native_library(name, provenance).map(|spec| spec.with_id(id))
-    }
-
-    /// Creates one authenticated runtime native unit with runtime provenance.
-    pub fn runtime_unit(id: LinkInputId, runtime: &RuntimeArtifactId, unit: &RuntimeNativeUnit) -> Self {
-        LinkInputSpec {
-            kind: LinkInputKind::RuntimeComponent,
-            source: LinkInputSource::file(unit.path()),
-            provenance: LinkInputProvenance::Runtime(runtime.clone()),
-            mode: LinkInputMode::Ordinary,
-        }.with_id(id)
     }
 
     /// Returns the stable input identity.
@@ -362,5 +369,4 @@ mod tests {
             Err(LinkInputBuildError::EmptyFilePath)
         );
     }
-
 }

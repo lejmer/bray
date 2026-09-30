@@ -917,7 +917,7 @@ mod tests {
     fn runtime_input(ordinal: u32, runtime: RuntimeArtifactId) -> LinkInput {
         let Ok(input) = LinkInput::try_new(
             LinkInputId::new(ordinal),
-            LinkInputKind::RuntimeComponent,
+            LinkInputKind::RelocatableObject,
             LinkInputSource::file("runtime.o"),
             LinkInputProvenance::Runtime(runtime),
             LinkInputMode::Ordinary,

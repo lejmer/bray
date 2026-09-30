@@ -6,3 +6,18 @@ func contribution_counter_value() -> i32
 {
     return SHARED_COUNTER;
 }
+
+func thread_cleanup_value() -> i32
+{
+    return ASYNC_THREAD_CLEANUP_PROBE.state;
+}
+
+func thread_answer_value() -> i32
+{
+    return THREAD_ANSWER;
+}
+
+func contribution_counter_alias() -> &i32
+{
+    return SHARED_ALIAS;
+}

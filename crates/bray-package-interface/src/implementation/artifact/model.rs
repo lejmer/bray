@@ -88,7 +88,9 @@ pub struct PackageImplementationArtifact {
     pub(super) artifact_hash: [u8; 32],
     pub(super) directory: Arc<[ImplementationDirectoryEntry]>,
     pub(super) decoded: Arc<[OnceLock<Result<Arc<[u8]>, InterfaceValidationError>>]>,
-    pub(super) native_resolver: Arc<OnceLock<Option<bray_native_artifact::NativeUnitResolver>>>,
+    pub(super) native_indexes: Arc<
+        OnceLock<std::collections::BTreeMap<[u8; 32], bray_native_artifact::NativeArtifactIndex>>,
+    >,
     pub(super) limits: InterfaceValidationLimits,
 }
 

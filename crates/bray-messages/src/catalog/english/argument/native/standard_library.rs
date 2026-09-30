@@ -76,7 +76,6 @@ pub(super) const fn format_english_native_artifact_problem(
         Cause::InvalidSummary => "native unit summary is invalid",
         Cause::DuplicateDefinition => "native unit defines a symbol twice",
         Cause::InvalidAssociation => "native unit association is invalid",
-        Cause::InvalidLinkOption => "native unit link option is invalid",
         Cause::NoncanonicalSummary => "native unit summary is not canonical",
         Cause::MissingCoRetentionMember => "native unit retention member is missing",
         Cause::DuplicateCoRetentionGroup => "native unit retention group is duplicated",
@@ -91,7 +90,9 @@ pub(super) const fn format_english_native_artifact_problem(
 
 #[cfg(test)]
 mod tests {
-    use bray_diagnostics::{DiagnosticNativeArtifactCause, DiagnosticStandardLibraryManifestProblem};
+    use bray_diagnostics::{
+        DiagnosticNativeArtifactCause, DiagnosticStandardLibraryManifestProblem,
+    };
 
     use super::format_english_standard_library_manifest_problem;
 

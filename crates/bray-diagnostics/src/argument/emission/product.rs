@@ -91,22 +91,6 @@ impl DiagnosticNativeProductFailureDetail {
 /// Exact native link-input failure retained by native product planning.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticNativeLinkInputFailure {
-    /// An imported standard-library artifact has no supported static link representation.
-    UnsupportedStandardLibraryArtifact {
-        /// Exact imported artifact path.
-        path: std::path::PathBuf,
-        /// Stable rejected standard-library artifact category.
-        artifact_kind: &'static str,
-    },
-    /// An imported standard-library artifact could not form a link-input specification.
-    InvalidStandardLibraryArtifact {
-        /// Exact imported artifact path.
-        path: std::path::PathBuf,
-        /// Stable selected linker-input category.
-        input_kind: &'static str,
-        /// Stable exact link-input contract failure.
-        cause: &'static str,
-    },
     /// A source or platform native-link requirement could not form a linker input.
     InvalidRequirement {
         /// Exact requested native input name.
@@ -124,12 +108,6 @@ impl DiagnosticNativeLinkInputFailure {
     /// Returns the stable machine key for this link-input failure.
     pub const fn as_str(&self) -> &'static str {
         match self {
-            Self::UnsupportedStandardLibraryArtifact { .. } => {
-                "native_link_input_unsupported_standard_library_artifact"
-            }
-            Self::InvalidStandardLibraryArtifact { .. } => {
-                "native_link_input_invalid_standard_library_artifact"
-            }
             Self::InvalidRequirement { .. } => "native_link_input_invalid_requirement",
         }
     }
@@ -153,8 +131,6 @@ pub enum DiagnosticNativeProductFailureKind {
     MissingProductRoot,
     InvalidEntryResult,
     MissingRuntime,
-    LibraryCleanupRequiresMainThread,
-    InvalidSymbolName,
     InvalidNativeLinkInput(DiagnosticNativeLinkInputFailure),
     EvaluationCancelled,
     EvaluationCycle(crate::DiagnosticEvaluationFailureDetail),
@@ -203,11 +179,11 @@ pub enum DiagnosticNativeProductFailureKind {
     ExecutableHostMissingMainThreadLane,
     ExecutableHostMissingProtectedFrameAbi,
     ExecutableHostMissingRole(DiagnosticNativeProductFailureDetail),
+    NativeResolution(DiagnosticNativeProductFailureDetail),
     RuntimeSelectionIncompatible(DiagnosticNativeProductFailureDetail),
     RuntimeSelectionMissingRoleOwner(DiagnosticNativeProductFailureDetail),
     RuntimeSelectionMissingCapabilityOwner(DiagnosticNativeProductFailureDetail),
     /// The configured standard library could not supply a required native artifact.
-    StandardLibraryUnavailable,
     LinkTargetEmptyTriple,
     CodegenBackendUnsupportedTarget,
     CodegenBackendUnsupportedTargetDetail(DiagnosticNativeProductFailureDetail),
@@ -254,8 +230,6 @@ impl DiagnosticNativeProductFailureKind {
             Self::MissingProductRoot => "missing_product_root",
             Self::InvalidEntryResult => "invalid_entry_result",
             Self::MissingRuntime => "missing_runtime",
-            Self::LibraryCleanupRequiresMainThread => "library_cleanup_requires_main_thread",
-            Self::InvalidSymbolName => "invalid_symbol_name",
             Self::InvalidNativeLinkInput(failure) => failure.as_str(),
             Self::EvaluationCancelled => "evaluation_cancelled",
             Self::EvaluationCycle(_) => "evaluation_cycle",
@@ -320,10 +294,10 @@ impl DiagnosticNativeProductFailureKind {
             Self::ExecutableHostMissingProtectedFrameAbi => {
                 "executable_host_missing_protected_frame_abi"
             }
-            Self::RuntimeSelectionIncompatible(detail)
+            Self::NativeResolution(detail)
+            | Self::RuntimeSelectionIncompatible(detail)
             | Self::RuntimeSelectionMissingRoleOwner(detail)
             | Self::RuntimeSelectionMissingCapabilityOwner(detail) => detail.reason(),
-            Self::StandardLibraryUnavailable => "standard_library_unavailable",
             Self::LinkTargetEmptyTriple => "link_target_empty_triple",
             Self::CodegenBackendUnsupportedTarget => "codegen_backend_unsupported_target",
             Self::CodegenBackendUnsupportedTargetDetail(detail)

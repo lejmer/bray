@@ -3,8 +3,7 @@ use bray_diagnostics::DiagnosticBag;
 use bray_emitter::{
     ArtifactContribution, ArtifactKind, ArtifactProducer, BackendContributionSet, EmissionBackend,
     EmissionOutcome, EmissionPlan, EmissionPlanner, EmissionRequest, EmissionStatus, LinkStaging,
-    OutputSinkResolver, ProductLinkInputs, PublicationValidator,
-    construct_link_plan,
+    OutputSinkResolver, ProductLinkInputs, PublicationValidator, construct_link_plan,
 };
 use bray_linker::Linker;
 use bray_package_interface::encode_package_interface;
@@ -12,7 +11,9 @@ use bray_target::TargetOutputDescription;
 use std::path::Path;
 use std::sync::Arc;
 
-use super::native::{package_native_implementation, product_staging_error, stage_selected_native_inputs};
+use super::native::{
+    package_native_implementation, product_staging_error, stage_selected_native_inputs,
+};
 use super::publishing::{
     package_implementation_contribution, publisher, test_catalog_contribution,
 };
@@ -414,6 +415,7 @@ impl Compilation {
 
         let requires_implementation = request
             .artifact(ArtifactKind::PackageImplementation)
+            .or_else(|| request.artifact(ArtifactKind::PackageNativeImplementation))
             .is_some();
 
         let inputs = self
@@ -540,8 +542,8 @@ impl Compilation {
             );
         }
 
-        let implementation = implementation_required
-            .then(|| (artifact.clone(), Arc::clone(bundle)));
+        let implementation =
+            implementation_required.then(|| (artifact.clone(), Arc::clone(bundle)));
 
         cancellation
             .check()
@@ -598,7 +600,10 @@ impl Compilation {
         &self,
         plan: &EmissionPlan,
         backend: Option<BackendContributionSet>,
-        package_implementation: Option<(bray_package_interface::InterfaceArtifact, Arc<bray_package_interface::PackageInterfaceExportBundle>)>,
+        package_implementation: Option<(
+            bray_package_interface::InterfaceArtifact,
+            Arc<bray_package_interface::PackageInterfaceExportBundle>,
+        )>,
         test_catalog: Option<ArtifactContribution>,
         linking: Option<ProductLinkingInputs<'_>>,
         native: Option<&NativeProductPlan>,
@@ -612,126 +617,167 @@ impl Compilation {
             .iter()
             .any(|artifact| matches!(artifact.producer(), ArtifactProducer::Linker(_)));
 
-        match (requires_linking, linking) {
-            (false, None) => {
-                let package_implementation = package_implementation
-                    .map(|(interface, bundle)| {
-                        bray_package_interface::PackageImplementationArtifact::try_from_export_bundle(
-                            &interface,
-                            &bundle,
-                            bray_package_interface::InterfaceValidationLimits::default(),
-                        )
-                        .map_err(ProductEmissionErrorKind::PackageImplementation)
-                        .and_then(|artifact| package_implementation_contribution(plan, artifact))
-                    })
-                    .transpose()?;
+        if requires_linking && linking.is_none() {
+            return Err(ProductEmissionErrorKind::MissingLinker);
+        }
 
-                let contributions = backend
-                    .iter()
-                    .flat_map(|contributions| contributions.published(plan))
-                    .cloned()
-                    .chain(package_implementation)
-                    .chain(test_catalog);
+        if !requires_linking
+            && linking.is_some()
+            && plan
+                .request()
+                .artifact(ArtifactKind::PackageNativeImplementation)
+                .is_none()
+        {
+            return Err(ProductEmissionErrorKind::UnexpectedLinker);
+        }
 
-                let publisher = publisher(cancellation, resolver, validation);
+        let staging = if requires_linking || plan.staged_artifacts().next().is_some() {
+            let staged = backend
+                .iter()
+                .flat_map(|contributions| contributions.staged(plan))
+                .cloned();
 
-                Ok(publisher.publish(plan, contributions))
-            }
-            (false, Some(_)) => Err(ProductEmissionErrorKind::UnexpectedLinker),
-            (true, None) => Err(ProductEmissionErrorKind::MissingLinker),
-            (true, Some(linking)) => {
-                let staged = backend
-                    .iter()
-                    .flat_map(|contributions| contributions.staged(plan))
-                    .cloned();
-
-                let staging = crate::profile::profile_operation(
+            Some(
+                crate::profile::profile_operation(
                     self.state.fact_runtime.profile(),
                     crate::profile::ProfileOperation::LinkInputStaging,
                     || LinkStaging::prepare(plan, staged, cancellation),
                     crate::profile::result_outcome,
                 )
-                .map_err(product_staging_error)?;
+                .map_err(product_staging_error)?,
+            )
+        } else {
+            None
+        };
 
-                let package_implementation = package_implementation
-                    .map(|(interface, bundle)| {
-                        let artifact = match (native, inspection) {
-                            (Some(native), Some(inspection)) => crate::profile::profile_operation(
-                                self.state.fact_runtime.profile(),
-                                crate::profile::ProfileOperation::NativeUnitInspection,
-                                || package_native_implementation(
-                                    self, plan, &staging, native, inspection, &interface, &bundle,
-                                ),
-                                crate::profile::result_outcome,
-                            )?,
-                            (Some(_), None) => return Err(ProductEmissionErrorKind::MissingNativeInspector),
-                            (None, _) => bray_package_interface::PackageImplementationArtifact::try_from_export_bundle(
-                                &interface,
-                                &bundle,
-                                bray_package_interface::InterfaceValidationLimits::default(),
-                            ).map_err(ProductEmissionErrorKind::PackageImplementation)?,
-                        };
+        let linked = if let Some(linking) = linking.filter(|_| requires_linking) {
+            let staging = staging.as_ref().expect("linked products must have staging");
+            let mut link_inputs = linking.inputs.clone();
 
-                        package_implementation_contribution(plan, artifact)
-                    })
-                    .transpose()?;
+            if let Some(native) = native {
+                link_inputs = link_inputs.with_additional_native_inputs(
+                    stage_selected_native_inputs(native, staging, cancellation)?,
+                );
+            }
 
-                let published = backend
+            let link_plan = construct_link_plan(
+                plan,
+                staging
+                    .inputs()
                     .iter()
-                    .flat_map(|contributions| contributions.published(plan))
-                    .cloned()
-                    .chain(package_implementation)
-                    .chain(test_catalog);
+                    .filter(|staged| {
+                        plan.artifact(staged.artifact())
+                            .expect("staged artifact must be planned")
+                            .role()
+                            == bray_emitter::ArtifactRole::LinkInput
+                    })
+                    .cloned(),
+                staging.outputs().iter().cloned(),
+                &link_inputs,
+                linking.linker,
+            )
+            .map_err(ProductEmissionErrorKind::LinkPlan)?;
 
-                // The staged import paths belong to this transaction, not the cached native plan.
-                let mut link_inputs = linking.inputs.clone();
+            let outcome = crate::profile::profile_operation(
+                self.state.fact_runtime.profile(),
+                crate::profile::ProfileOperation::EmissionLinking,
+                || self.link_product_with_cancellation(linking.linker, &link_plan, cancellation),
+                crate::profile::result_outcome,
+            )
+            .map_err(ProductEmissionErrorKind::Query)?;
 
-                if let Some(native) = native {
-                    link_inputs = link_inputs.with_additional_native_inputs(
-                        stage_selected_native_inputs(native, &staging, cancellation)?,
-                    );
-                }
+            Some((link_plan, outcome))
+        } else {
+            None
+        };
 
-                let link_plan = construct_link_plan(
-                    plan,
-                    staging.inputs().iter().cloned(),
-                    staging.outputs().iter().cloned(),
-                    &link_inputs,
-                    linking.linker,
-                )
-                .map_err(ProductEmissionErrorKind::LinkPlan)?;
+        let publisher = publisher(cancellation, resolver, validation);
 
-                crate::profile::profile_operation(
-                    self.state.fact_runtime.profile(),
-                    crate::profile::ProfileOperation::EmissionLinking,
-                    || {
-                        self.emit_linked_product_with_publication_validation(
-                            linking.linker,
-                            plan,
-                            &link_plan,
-                            published,
-                            resolver,
-                            validation,
-                            cancellation,
-                        )
-                    },
-                    crate::profile::result_outcome,
-                )
-                .map_err(product_linked_emission_error)
+        let mut contributions = backend
+            .iter()
+            .flat_map(|contributions| contributions.published(plan))
+            .cloned()
+            .chain(test_catalog)
+            .collect::<Vec<_>>();
+
+        if let Some((link, outcome)) = &linked {
+            if !matches!(outcome.status(), bray_linker::LinkStatus::Complete(_)) {
+                return Ok(publisher.publish_linked(plan, contributions, link, outcome));
             }
         }
+
+        if let Some((interface, bundle)) = package_implementation {
+            let artifacts = match (native, staging.as_ref(), inspection) {
+                (Some(native), Some(staging), Some(inspection)) => {
+                    crate::profile::profile_operation(
+                        self.state.fact_runtime.profile(),
+                        crate::profile::ProfileOperation::NativeUnitInspection,
+                        || {
+                            package_native_implementation(
+                                self,
+                                plan,
+                                staging,
+                                native,
+                                inspection,
+                                &interface,
+                                &bundle,
+                                linking.map(|linking| (linking.linker, linking.inputs)),
+                                cancellation,
+                            )
+                        },
+                        crate::profile::result_outcome,
+                    )?
+                }
+                (Some(_), Some(_), None) => {
+                    return Err(ProductEmissionErrorKind::MissingNativeInspector);
+                }
+                _ => vec![(
+                    ArtifactKind::PackageImplementation,
+                    bray_package_interface::PackageImplementationArtifact::try_from_export_bundle(
+                        &interface,
+                        &bundle,
+                        bray_package_interface::InterfaceValidationLimits::default(),
+                    )
+                    .map_err(ProductEmissionErrorKind::PackageImplementation)?,
+                )],
+            };
+
+            for (kind, artifact) in artifacts {
+                contributions.push(package_implementation_contribution(plan, artifact, kind)?);
+            }
+        }
+
+        crate::profile::profile_operation(
+            self.state.fact_runtime.profile(),
+            crate::profile::ProfileOperation::ArtifactPublication,
+            || {
+                Ok(match &linked {
+                    Some((link, outcome)) => {
+                        publisher.publish_linked(plan, contributions, link, outcome)
+                    }
+                    None => publisher.publish(plan, contributions),
+                })
+            },
+            crate::profile::result_outcome,
+        )
     }
 }
 
 struct ProductEmissionPreparation {
     package_interface: Option<bray_package_interface::InterfaceArtifact>,
-    package_implementation: Option<(bray_package_interface::InterfaceArtifact, Arc<bray_package_interface::PackageInterfaceExportBundle>)>,
+    package_implementation: Option<(
+        bray_package_interface::InterfaceArtifact,
+        Arc<bray_package_interface::PackageInterfaceExportBundle>,
+    )>,
     diagnostics: DiagnosticBag,
 }
 
 struct ProductInterfaceArtifacts {
     interface: Option<bray_package_interface::InterfaceArtifact>,
-    implementation: Option<(bray_package_interface::InterfaceArtifact, Arc<bray_package_interface::PackageInterfaceExportBundle>)>,
+    implementation: Option<(
+        bray_package_interface::InterfaceArtifact,
+        Arc<bray_package_interface::PackageInterfaceExportBundle>,
+    )>,
 }
 
 enum ProductEmissionInput {
@@ -749,14 +795,6 @@ fn product_query_error(error: FactQueryError) -> ProductEmissionErrorKind {
         ProductEmissionErrorKind::Cancelled
     } else {
         ProductEmissionErrorKind::Query(error)
-    }
-}
-
-fn product_linked_emission_error(
-    error: crate::LinkedProductEmissionError,
-) -> ProductEmissionErrorKind {
-    match error {
-        crate::LinkedProductEmissionError::Query(error) => product_query_error(error),
     }
 }
 

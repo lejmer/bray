@@ -191,7 +191,13 @@ pub(super) fn standard_library_compilation(
     .with_native_link_inputs(native_links);
 
     let request = CompilationRequest::with_options(package, sources, options)
-        .with_standard_library_source_authority();
+        .with_standard_library_source_authority()
+        .with_standard_library_root(
+            bray_standard_library::StandardLibraryRoot::try_new(
+                super::core::standard_library_root(root),
+            )
+            .expect("native fixtures must have a nonempty standard-library root"),
+        );
 
     load_llvm_compilation(request)
         .map_err(|error| format!("LLVM compiler backend is unavailable: {error}"))

@@ -151,7 +151,6 @@ fn native_product_failure_keys_are_unique_and_domain_named() {
         Kind::MissingProductRoot,
         Kind::InvalidEntryResult,
         Kind::MissingRuntime,
-        Kind::InvalidSymbolName,
         Kind::InvalidNativeLinkInput(DiagnosticNativeLinkInputFailure::InvalidRequirement {
             name: "native".to_owned(),
             link_kind: "dynamic".to_owned(),
@@ -201,7 +200,6 @@ fn native_product_failure_keys_are_unique_and_domain_named() {
         Kind::RuntimeSelectionMissingCapabilityOwner(native_product_detail(
             "runtime_selection_missing_capability_owner",
         )),
-        Kind::StandardLibraryUnavailable,
         Kind::LinkTargetEmptyTriple,
         Kind::CodegenBackendUnsupportedTarget,
         Kind::CodegenBackendUnsupportedArtifact(native_product_detail(

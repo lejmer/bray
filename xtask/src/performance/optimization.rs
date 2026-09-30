@@ -35,23 +35,24 @@ impl OptimizationCatalog {
         let mut entries = selected
             .artifacts()
             .iter()
-            .filter(|artifact| matches!(
-                artifact.kind(),
-                StandardLibraryArtifactKind::PackageImplementation
-                    | StandardLibraryArtifactKind::NativeImplementation
-            ))
-            .map(|artifact| {
-                OptimizationEntry {
-                    partition: match artifact.kind() {
-                        StandardLibraryArtifactKind::PackageImplementation => "native-object",
-                        StandardLibraryArtifactKind::NativeImplementation => "native-bitcode",
-                        _ => unreachable!("filtered implementation kinds"),
-                    }.to_owned(),
-                    path: artifact.path().to_owned(),
-                    bytes: artifact.byte_len(),
-                    fallback: fallback.path().to_owned(),
-                    symbols: BTreeSet::new(),
+            .filter(|artifact| {
+                matches!(
+                    artifact.kind(),
+                    StandardLibraryArtifactKind::PackageImplementation
+                        | StandardLibraryArtifactKind::NativeImplementation
+                )
+            })
+            .map(|artifact| OptimizationEntry {
+                partition: match artifact.kind() {
+                    StandardLibraryArtifactKind::PackageImplementation => "native-object",
+                    StandardLibraryArtifactKind::NativeImplementation => "native-bitcode",
+                    _ => unreachable!("filtered implementation kinds"),
                 }
+                .to_owned(),
+                path: artifact.path().to_owned(),
+                bytes: artifact.byte_len(),
+                fallback: fallback.path().to_owned(),
+                symbols: BTreeSet::new(),
             })
             .collect::<Vec<_>>();
 
@@ -184,11 +185,15 @@ fn retained_input_identity(input: &RetainedInput) -> Option<String> {
 }
 
 fn workload_selects_index(workload: &WorkloadReport, path: &str) -> bool {
-    workload.compiler_profile.native_codegen.as_ref().is_some_and(|codegen| {
-        codegen.standard_library_artifacts.iter().any(|artifact| {
-            Path::new(&artifact.path).file_name() == Path::new(path).file_name()
+    workload
+        .compiler_profile
+        .native_codegen
+        .as_ref()
+        .is_some_and(|codegen| {
+            codegen.library_artifacts.iter().any(|artifact| {
+                Path::new(&artifact.path).file_name() == Path::new(path).file_name()
+            })
         })
-    })
 }
 
 #[cfg(test)]

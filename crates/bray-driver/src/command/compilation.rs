@@ -2,8 +2,8 @@ use std::path::{Path, PathBuf};
 
 use bray_base::NonEmptySharedStr;
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind,
-    DiagnosticNote, DiagnosticNoteKind, DiagnosticProjectSelectionProblem, SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind,
+    DiagnosticProjectSelectionProblem, SeverityKind,
 };
 use bray_messages::command_help as help;
 use bray_package_interface::{
@@ -59,94 +59,22 @@ impl DriverDependencyInterface {
         &self.path
     }
 
-    pub(crate) fn load(&self) -> Result<bray_compilation::DependencyInterfaceInput, DiagnosticBag> {
-        let bytes = std::fs::read(&self.path)
-            .map_err(|error| dependency_artifact_read_diagnostics(&self.path, error.kind()))?;
-
-        let mut input = bray_compilation::DependencyInterfaceInput::new(
+    pub(crate) fn input(&self) -> bray_compilation::DependencyInterfaceInput {
+        let mut input = bray_compilation::DependencyInterfaceInput::from_artifact(
             self.package.clone(),
             self.product.clone(),
-            self.path.clone(),
-            bytes,
+            bray_package_interface::PackageArtifactInput::file(self.path.clone(), None),
             InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
         );
 
         if let Some(path) = &self.implementation_path {
-            let bytes = std::fs::read(path)
-                .map_err(|error| dependency_artifact_read_diagnostics(path, error.kind()))?;
-
-            let artifact = bray_package_interface::PackageImplementationArtifact::try_from_bytes(
-                bytes,
-                bray_package_interface::InterfaceValidationLimits::default(),
-            )
-            .map_err(|error| dependency_implementation_diagnostics(self, path, error))?;
-
-            artifact.native_artifact()
-                .map_err(|error| dependency_native_implementation_diagnostics(self, path, error))?;
-
-            input = input.with_implementation_artifact(path, std::sync::Arc::new(artifact));
+            input = input.with_implementation_input(
+                bray_package_interface::PackageArtifactInput::file(path, None),
+            );
         }
 
-        Ok(input)
+        input
     }
-}
-
-fn dependency_artifact_read_diagnostics(path: &Path, kind: std::io::ErrorKind) -> DiagnosticBag {
-    DiagnosticBag::single(
-        Diagnostic::new(
-            DiagnosticId::new(0),
-            DiagnosticKind::SourceFileReadFailed,
-            SeverityKind::Error,
-        )
-        .with_arg(DiagnosticArg::file_path(path))
-        .with_arg(DiagnosticArg::io_error_kind(DiagnosticIoErrorKind::from(
-            kind,
-        )))
-        .with_note(DiagnosticNote::new(
-            DiagnosticNoteKind::SourceFileMustBeReadable,
-        )),
-    )
-}
-
-fn dependency_implementation_diagnostics(
-    dependency: &DriverDependencyInterface,
-    path: &Path,
-    error: bray_package_interface::InterfaceValidationError,
-) -> DiagnosticBag {
-    DiagnosticBag::single(
-        error.into_diagnostic(DiagnosticId::new(0))
-            .with_note(dependency_implementation_note(dependency, path)),
-    )
-}
-
-fn dependency_native_implementation_diagnostics(
-    dependency: &DriverDependencyInterface,
-    path: &Path,
-    error: bray_package_interface::PackageNativeArtifactError,
-) -> DiagnosticBag {
-    DiagnosticBag::single(
-        Diagnostic::new(
-            DiagnosticId::new(0),
-            DiagnosticKind::InterfaceValidationFailed,
-            SeverityKind::Error,
-        )
-        .with_arg(DiagnosticArg::interface_validation_failure(error.into_diagnostic_failure()))
-        .with_note(dependency_implementation_note(dependency, path)),
-    )
-}
-
-fn dependency_implementation_note(
-    dependency: &DriverDependencyInterface,
-    path: &Path,
-) -> DiagnosticNote {
-    DiagnosticNote::new(DiagnosticNoteKind::InterfaceDependencyContext)
-        .with_arg(DiagnosticArg::expected_package_identity(
-            dependency.package().as_str(),
-        ))
-        .with_arg(DiagnosticArg::expected_product_identity(
-            dependency.product().as_str(),
-        ))
-        .with_arg(DiagnosticArg::artifact_path(path))
 }
 
 /// Exact package product and dependency context for one compiler invocation.

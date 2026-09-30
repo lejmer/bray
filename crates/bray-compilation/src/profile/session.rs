@@ -20,9 +20,8 @@ use super::subject::{ProfileSubjectRecord, profile_subject};
 use crate::fact::CompilationFactKey;
 use bray_profile::{
     COMPILATION_PROFILE_SCHEMA_REVISION, CompilationProfileConfiguration,
-    CompilationProfileContext, CompilationProfileNativeCodegen,
-    CompilationProfileStandardLibraryArtifact, CompilationProfileOutcome, CompilationProfileReport,
-    CompilationProfileRuntimeArtifact,
+    CompilationProfileContext, CompilationProfileLibraryArtifact, CompilationProfileNativeCodegen,
+    CompilationProfileOutcome, CompilationProfileReport, CompilationProfileRuntimeArtifact,
 };
 
 #[inline(always)]
@@ -396,6 +395,20 @@ impl ProfileSession {
         units: &[bray_codegen::CodegenUnit],
         mappings: &[bray_codegen::CodegenMappings],
     ) {
+        let runtime_roles = host
+            .iter()
+            .flat_map(|host| host.requirements().roles())
+            .map(|role| role.as_str());
+
+        let native_callback_entries = mappings
+            .iter()
+            .flat_map(bray_codegen::CodegenMappings::symbols)
+            .filter_map(bray_codegen::CodegenSymbolMapping::native_entry)
+            .map(bray_codegen::CodegenNativeEntryMapping::name)
+            .map(bray_runtime_interface::BinarySymbolName::as_str);
+
+        self.add_native_product_contract(runtime_roles, native_callback_entries);
+
         let mut inventory = self
             .native_codegen
             .lock()
@@ -411,16 +424,13 @@ impl ProfileSession {
         );
     }
 
-    pub(crate) fn set_standard_library_artifacts(
-        &self,
-        artifacts: Vec<CompilationProfileStandardLibraryArtifact>,
-    ) {
+    pub(crate) fn set_library_artifacts(&self, artifacts: Vec<CompilationProfileLibraryArtifact>) {
         let mut inventory = self
             .native_codegen
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
 
-        inventory.standard_library_artifacts = artifacts;
+        inventory.library_artifacts = artifacts;
     }
 
     pub(crate) fn report(&self) -> CompilationProfileReport {
@@ -475,7 +485,7 @@ impl ProfileSession {
             .clone();
 
         let native_codegen = (!native_codegen.instances.is_empty()
-            || !native_codegen.standard_library_artifacts.is_empty())
+            || !native_codegen.library_artifacts.is_empty())
         .then_some(native_codegen);
 
         CompilationProfileReport {

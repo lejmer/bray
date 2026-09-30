@@ -56,9 +56,8 @@ impl Compilation {
             request = request.with_standard_library_root(resolver.root().clone());
         }
 
-        if let Some(resolver) = self.state.standard_library_providers.as_ref() {
-            request = request.with_standard_library_provider_root(resolver.root().clone());
-        }
+        request =
+            request.with_native_implementations(self.state.native_implementations.iter().cloned());
 
         if let Some(export) = self.state.package_interface_export.clone() {
             request = request.with_package_interface_export(export);
@@ -591,7 +590,7 @@ mod tests {
             .with_standard_library_root(root.clone()),
         )
         .unwrap_or_else(|error| {
-            panic!("compilation must load without reading the root: {error:?}")
+            panic!("compilation must retain root discovery diagnostics: {error:?}")
         });
 
         let updated = previous
@@ -614,24 +613,28 @@ mod tests {
                 .iter()
                 .filter(|input| input.is_standard_library())
                 .count(),
-            1
+            0
         );
+
+        assert_eq!(updated.source_diagnostics(), previous.source_diagnostics());
     }
 
     #[test]
-    fn updated_source_snapshots_preserve_provider_selection_without_importing_std() {
+    fn updated_source_snapshots_preserve_native_dependencies_without_semantic_imports() {
         let directory = tempfile::tempdir()
             .unwrap_or_else(|error| panic!("fixture directory must exist: {error}"));
 
-        let root = bray_standard_library::StandardLibraryRoot::try_new(directory.path())
-            .unwrap_or_else(|| panic!("temporary root must be absolute"));
+        let artifact = bray_package_interface::PackageArtifactInput::file(
+            directory.path().join("native.brayimpl"),
+            None,
+        );
 
         let previous = Compilation::load(
             request(
                 [source(10, 0, "module app;\n")],
                 options(ProductKind::Executable, SelectedTarget::baseline()),
             )
-            .with_standard_library_provider_root(root.clone()),
+            .with_native_implementations([artifact.clone()]),
         )
         .unwrap_or_else(|error| panic!("provider-only compilation must load: {error:?}"));
 
@@ -639,15 +642,7 @@ mod tests {
             .updated_sources(vec![source(10, 1, "module app;\n")])
             .unwrap_or_else(|error| panic!("updated compilation must load: {error:?}"));
 
-        assert_eq!(
-            updated
-                .state
-                .standard_library_providers
-                .as_ref()
-                .map(|resolver| resolver.root()),
-            Some(&root)
-        );
-
+        assert_eq!(updated.state.native_implementations, [artifact]);
         assert!(updated.state.standard_library.is_none());
 
         assert!(

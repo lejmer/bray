@@ -61,11 +61,21 @@ fn smoke_test_direct_hooks(
     let metadata = crate::native_toolchain::runtime_artifact_metadata(&package.metadata)
         .map_err(CommandError::ObservationSmoke)?;
 
-    let artifact = bray_tooling::load_runtime_artifact(&package.metadata, metadata.contract().target(), metadata.contract().abi_version())
-        .map_err(|error| CommandError::ObservationSmoke(format!("could not load runtime native units: {error:?}")))?;
+    let artifact = bray_tooling::load_runtime_artifact(
+        &package.metadata,
+        metadata.contract().target(),
+        metadata.contract().abi_version(),
+    )
+    .map_err(|error| {
+        CommandError::ObservationSmoke(format!("could not load runtime native units: {error:?}"))
+    })?;
 
-    let native_links = artifact.native_indexes()[0].index().units().iter()
+    let native_links = artifact.native_indexes()[0]
+        .index()
+        .units()
+        .iter()
         .flat_map(bray_native_artifact::NativeUnit::native_links)
+        .chain(&package.native_links)
         .cloned()
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()

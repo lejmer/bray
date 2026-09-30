@@ -127,6 +127,20 @@ impl IntegerConstant {
         }
     }
 
+    /// Returns the exact additive inverse, preserving canonical zero.
+    pub fn negated(&self) -> Self {
+        let sign = if self.is_zero() || self.sign == IntegerSign::Negative {
+            IntegerSign::NonNegative
+        } else {
+            IntegerSign::Negative
+        };
+
+        Self {
+            sign,
+            magnitude: Arc::clone(&self.magnitude),
+        }
+    }
+
     /// Returns this integer's canonical sign.
     pub const fn sign(&self) -> IntegerSign {
         self.sign
@@ -573,6 +587,9 @@ mod tests {
         assert!(zero.is_zero());
 
         assert_eq!(positive.magnitude(), &[5]);
+        assert_eq!(zero.negated(), zero);
+        assert_eq!(positive.negated().negated(), positive);
+        assert_eq!(positive.negated().sign(), IntegerSign::Negative);
     }
 
     #[test]

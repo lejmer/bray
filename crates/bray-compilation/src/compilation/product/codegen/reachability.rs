@@ -115,7 +115,7 @@ fn finish_codegen_reachability(
                     }
 
                     builder.push_external(key.clone())
-                },
+                }
                 ReachabilityEvaluation::Instance { instance, .. } => {
                     builder.push_instance(instance)
                 }
@@ -217,9 +217,18 @@ impl Compilation {
         generated_host: Option<(MirUnit, Vec<ConcreteCodegenRoot>)>,
         target: &CodegenTarget,
         options: CodegenOptions,
+        allow_bitcode: bool,
         cancellation: &CancellationToken,
     ) -> Result<ConcreteCodegenReachability, NativeProductPlanningError> {
-        self.codegen_reachability_from(roots, generated_host, None, target, options, cancellation)
+        self.codegen_reachability_from(
+            roots,
+            generated_host,
+            None,
+            target,
+            options,
+            allow_bitcode,
+            cancellation,
+        )
     }
 
     pub(super) fn extend_codegen_reachability(
@@ -229,6 +238,7 @@ impl Compilation {
         generated_host: (MirUnit, Vec<ConcreteCodegenRoot>),
         target: &CodegenTarget,
         options: CodegenOptions,
+        allow_bitcode: bool,
         cancellation: &CancellationToken,
     ) -> Result<ConcreteCodegenReachability, NativeProductPlanningError> {
         self.codegen_reachability_from(
@@ -237,6 +247,7 @@ impl Compilation {
             Some(previous),
             target,
             options,
+            allow_bitcode,
             cancellation,
         )
     }
@@ -248,6 +259,7 @@ impl Compilation {
         previous: Option<ConcreteCodegenReachability>,
         target: &CodegenTarget,
         options: CodegenOptions,
+        allow_bitcode: bool,
         cancellation: &CancellationToken,
     ) -> Result<ConcreteCodegenReachability, NativeProductPlanningError> {
         let roots: Vec<_> = roots.into_iter().collect();
@@ -293,8 +305,15 @@ impl Compilation {
                             return Ok(BatchWork::leaf(ReachabilityEvaluation::External(None)));
                         }
 
-                        if let Some(selected) = self.selected_imported_native_unit(key, options, cancellation)? {
-                            return Ok(BatchWork::leaf(ReachabilityEvaluation::External(Some(selected))));
+                        if let Some(selected) = self.selected_imported_native_unit(
+                            key,
+                            options,
+                            allow_bitcode,
+                            cancellation,
+                        )? {
+                            return Ok(BatchWork::leaf(ReachabilityEvaluation::External(Some(
+                                selected,
+                            ))));
                         }
 
                         let mir = if let Some((host_key, host_mir, _)) = &generated_host
@@ -418,6 +437,7 @@ impl Compilation {
             None,
             &target,
             CodegenOptions::default(),
+            false,
             &self.state.cancellation,
         )?;
 

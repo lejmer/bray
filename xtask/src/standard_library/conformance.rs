@@ -16,8 +16,8 @@ use bray_source::{SourceIdentity, SourceInput, SourceVersion};
 use bray_standard_library::{
     PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY, PUBLIC_STANDARD_LIBRARY_PRODUCT_IDENTITY,
     PUBLIC_STANDARD_LIBRARY_SURFACE_IDENTITY, STANDARD_LIBRARY_MANIFEST_FILE_NAME,
-    StandardLibraryBundleManifest, StandardLibraryLoadError,
-    StandardLibraryResolver, StandardLibraryRoot,
+    StandardLibraryBundleManifest, StandardLibraryLoadError, StandardLibraryResolver,
+    StandardLibraryRoot,
 };
 use bray_symbols::{PackageIdentity, ProductKind};
 use bray_target::{NativeTarget, TargetIdentity};
@@ -109,15 +109,63 @@ fn verify_native_indexes(
     manifest: &StandardLibraryBundleManifest,
 ) -> Result<(), BuildError> {
     for target in manifest.targets() {
-        let (_, _, objects) = resolver
-            .native_object_artifact(target.target(), target.runtime_abi())
-            .map_err(|error| BuildError::conformance("native-index", format!("{error:?}")))?
-            .ok_or_else(|| BuildError::conformance("native-index", "object index is missing"))?;
+        let inputs = resolver
+            .target_artifacts(target.target(), target.runtime_abi())
+            .map_err(|error| BuildError::conformance("native-index", format!("{error:?}")))?;
 
-        let (_, _, bitcode) = resolver
-            .native_artifact(target.target(), target.runtime_abi(), objects.producer())
-            .map_err(|error| BuildError::conformance("native-index", format!("{error:?}")))?
-            .ok_or_else(|| BuildError::conformance("native-index", "bitcode index is missing"))?;
+        let read = |kind| {
+            for input in inputs.iter() {
+                let artifact_kind = input.metadata().kind();
+
+                if !matches!(
+                    artifact_kind,
+                    bray_standard_library::StandardLibraryArtifactKind::PackageImplementation
+                        | bray_standard_library::StandardLibraryArtifactKind::NativeImplementation
+                ) {
+                    continue;
+                }
+
+                let package =
+                    bray_package_interface::PackageImplementationArtifact::try_from_bytes(
+                        input.shared_bytes(),
+                        bray_package_interface::InterfaceValidationLimits::default(),
+                    )
+                    .map_err(|error| {
+                        BuildError::conformance("native-index", format!("{error:?}"))
+                    })?;
+
+                if package.identity().interface().package().as_str()
+                    != PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY
+                {
+                    continue;
+                }
+
+                if let Some(index) = package.native_variant(kind).map_err(|error| {
+                    BuildError::conformance("native-index", format!("{error:?}"))
+                })? {
+                    return Ok(index);
+                }
+
+                if kind == NativeUnitKind::Object
+                    && artifact_kind
+                        == bray_standard_library::StandardLibraryArtifactKind::PackageImplementation
+                {
+                    if let Some(index) = package.native_artifact().map_err(|error| {
+                        BuildError::conformance("native-index", format!("{error:?}"))
+                    })? {
+                        return Ok(index);
+                    }
+                }
+            }
+
+            Err(BuildError::conformance(
+                "native-index",
+                format!("{kind:?} index is missing"),
+            ))
+        };
+
+        let objects = read(NativeUnitKind::Object)?;
+        let bitcode = read(NativeUnitKind::Bitcode)?;
 
         for (name, index, kind) in [
             ("object", objects, NativeUnitKind::Object),
@@ -125,13 +173,18 @@ fn verify_native_indexes(
         ] {
             let units = index.units();
 
-            if !units.iter().any(|unit| unit.kind() == kind
-                && matches!(unit.summary(), NativeUnitSummary::Exact { .. }))
-                && !units.iter().any(|unit| unit.kind() == NativeUnitKind::OpaqueArchive)
+            if !units.iter().any(|unit| {
+                unit.kind() == kind && matches!(unit.summary(), NativeUnitSummary::Exact { .. })
+            }) && !units
+                .iter()
+                .any(|unit| unit.kind() == NativeUnitKind::OpaqueArchive)
             {
                 return Err(BuildError::conformance(
                     "native-index",
-                    format!("{} {name} index has no exact units or fallback archive", target.target().as_str()),
+                    format!(
+                        "{} {name} index has no exact units or fallback archive",
+                        target.target().as_str()
+                    ),
                 ));
             }
         }
@@ -313,7 +366,7 @@ fn verify_missing_artifact_diagnostic(bundle: &Path, missing: &Path) -> Result<(
     let result = standard_library_interface_result(&compilation)?;
     let diagnostics = diagnostic_kinds(result.diagnostics());
 
-    if diagnostics != [DiagnosticKind::StandardLibraryArtifactReadFailed] {
+    if diagnostics != [DiagnosticKind::PackageArtifactReadFailed] {
         return Err(BuildError::conformance(
             "missing-artifact-diagnostic",
             format!("unexpected diagnostics: {diagnostics:?}"),

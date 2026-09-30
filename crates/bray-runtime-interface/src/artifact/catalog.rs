@@ -49,17 +49,27 @@ impl RuntimeNativeIndexMetadata {
             return Err(RuntimeArtifactMetadataBuildError::InvalidNativeIndexFileName);
         }
 
-        Ok(Self { purpose, file_name, digest })
+        Ok(Self {
+            purpose,
+            file_name,
+            digest,
+        })
     }
 
     /// Returns the runtime product category covered by this index.
-    pub const fn purpose(&self) -> RuntimeArtifactPurpose { self.purpose }
+    pub const fn purpose(&self) -> RuntimeArtifactPurpose {
+        self.purpose
+    }
 
     /// Returns the index file name beneath the artifact directory.
-    pub fn file_name(&self) -> &str { self.file_name.as_str() }
+    pub fn file_name(&self) -> &str {
+        self.file_name.as_str()
+    }
 
     /// Returns the digest of the exact encoded index bytes.
-    pub const fn digest(&self) -> RuntimeArtifactDigest { self.digest }
+    pub const fn digest(&self) -> RuntimeArtifactDigest {
+        self.digest
+    }
 }
 
 impl RuntimeArtifactPurpose {
@@ -145,7 +155,6 @@ impl RuntimeArtifactComponentMetadata {
     pub fn platform_services(&self) -> &[PlatformServiceRole] {
         &self.platform_services
     }
-
 }
 
 /// Immutable compiler-readable metadata published beside a runtime artifact catalog.
@@ -173,13 +182,19 @@ impl RuntimeArtifactMetadata {
         let mut indexes = native_indexes.into_iter().collect::<Vec<_>>();
         indexes.sort_by_key(RuntimeNativeIndexMetadata::purpose);
 
-        if indexes.iter().map(RuntimeNativeIndexMetadata::purpose)
+        if indexes
+            .iter()
+            .map(RuntimeNativeIndexMetadata::purpose)
             .ne(RuntimeArtifactPurpose::ALL)
         {
             return Err(RuntimeArtifactMetadataBuildError::InvalidNativeIndexes);
         }
 
-        Ok(Self { contract, components: components.into(), native_indexes: indexes.into() })
+        Ok(Self {
+            contract,
+            components: components.into(),
+            native_indexes: indexes.into(),
+        })
     }
 
     /// Decodes and validates one bounded JSON metadata document.
@@ -273,7 +288,9 @@ impl RuntimeArtifactMetadata {
             .map(ComponentWire::into_metadata)
             .collect::<Result<Vec<_>, _>>()?;
 
-        let indexes = wire.native_indexes.into_iter()
+        let indexes = wire
+            .native_indexes
+            .into_iter()
             .map(NativeIndexWire::into_metadata)
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -427,7 +444,8 @@ impl ArtifactWire {
                 .iter()
                 .map(ComponentWire::from_metadata)
                 .collect(),
-            native_indexes: metadata.native_indexes()
+            native_indexes: metadata
+                .native_indexes()
                 .iter()
                 .map(NativeIndexWire::from_metadata)
                 .collect(),
@@ -452,7 +470,9 @@ impl NativeIndexWire {
         }
     }
 
-    fn into_metadata(self) -> Result<RuntimeNativeIndexMetadata, RuntimeArtifactMetadataDecodeError> {
+    fn into_metadata(
+        self,
+    ) -> Result<RuntimeNativeIndexMetadata, RuntimeArtifactMetadataDecodeError> {
         let purpose = RuntimeArtifactPurpose::from_name(&self.purpose)
             .ok_or(RuntimeArtifactMetadataDecodeError::UnknownComponentPurpose)?;
 
@@ -533,14 +553,9 @@ impl ComponentWire {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        RuntimeArtifactComponentMetadata::try_new(
-            identity,
-            purpose,
-            roles,
-            capabilities,
-        )
-        .map(|metadata| metadata.with_platform_services(platform_services))
-        .map_err(RuntimeArtifactMetadataDecodeError::InvalidMetadata)
+        RuntimeArtifactComponentMetadata::try_new(identity, purpose, roles, capabilities)
+            .map(|metadata| metadata.with_platform_services(platform_services))
+            .map_err(RuntimeArtifactMetadataDecodeError::InvalidMetadata)
     }
 }
 
@@ -657,22 +672,25 @@ fn is_file_name(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use bray_base::NonEmptySharedStr;
-    use bray_native_artifact::{NativeArtifactIndex, NativeDefinition, NativeDefinitionSelection, NativeUnit, NativeUnitKind, NativeUnitSummary};
+    use bray_native_artifact::{
+        NativeArtifactIndex, NativeDefinition, NativeDefinitionSelection, NativeUnit,
+        NativeUnitKind, NativeUnitSummary,
+    };
     use bray_runtime_abi::symbols::MAIN_THREAD_LANE_STARTUP_SYMBOL;
     use bray_symbols::NativeSymbolContract;
     use bray_target::{NativeTarget, TargetIdentity};
 
     use super::{
-        MAXIMUM_METADATA_BYTES, RuntimeArtifactComponentMetadata, RuntimeArtifactDigest, RuntimeNativeIndexMetadata,
+        MAXIMUM_METADATA_BYTES, RuntimeArtifactComponentMetadata, RuntimeArtifactDigest,
         RuntimeArtifactMetadata, RuntimeArtifactMetadataBuildError,
         RuntimeArtifactMetadataDecodeError, RuntimeArtifactMetadataEncodeError,
-        RuntimeArtifactPurpose,
+        RuntimeArtifactPurpose, RuntimeNativeIndexMetadata,
     };
     use crate::{
         BinarySymbolName, PanicAbiIdentity, PlatformServiceRole, ProtectedFrameAbiVersions,
-        RuntimeAbiRole, RuntimeAbiVersion, RuntimeArtifact,
-        RuntimeArtifactId, RuntimeCapability, RuntimeContract,
-        RuntimeIdentity, RuntimeRequirements, RuntimeRoleBinding, RuntimeRoleImplementation,
+        RuntimeAbiRole, RuntimeAbiVersion, RuntimeArtifact, RuntimeArtifactId, RuntimeCapability,
+        RuntimeContract, RuntimeIdentity, RuntimeRequirements, RuntimeRoleBinding,
+        RuntimeRoleImplementation,
     };
 
     #[test]
@@ -700,14 +718,22 @@ mod tests {
         assert_eq!(metadata.native_indexes().len(), 2);
 
         assert_eq!(
-            RuntimeArtifactMetadata::try_new(metadata.contract().clone(), metadata.components().to_vec(), []),
+            RuntimeArtifactMetadata::try_new(
+                metadata.contract().clone(),
+                metadata.components().to_vec(),
+                []
+            ),
             Err(RuntimeArtifactMetadataBuildError::InvalidNativeIndexes),
         );
 
-        let mut document: serde_json::Value = serde_json::from_slice(&metadata.encode_json().unwrap())
-            .expect("test metadata must parse");
+        let mut document: serde_json::Value =
+            serde_json::from_slice(&metadata.encode_json().unwrap())
+                .expect("test metadata must parse");
 
-        document.as_object_mut().expect("metadata must be an object").remove("native_indexes");
+        document
+            .as_object_mut()
+            .expect("metadata must be an object")
+            .remove("native_indexes");
 
         assert_eq!(
             RuntimeArtifactMetadata::decode_json(&serde_json::to_vec(&document).unwrap()),
@@ -769,14 +795,18 @@ mod tests {
 
         let index = native_index(directory.path());
 
-        let artifact = RuntimeArtifact::try_new(metadata(), directory.path().to_path_buf(), [index.clone(), index])
-            .unwrap_or_else(|error| panic!("test runtime must resolve: {error:?}"));
+        let artifact = RuntimeArtifact::try_new(
+            metadata(),
+            directory.path().to_path_buf(),
+            [index.clone(), index],
+        )
+        .unwrap_or_else(|error| panic!("test runtime must resolve: {error:?}"));
 
         let empty = requirements([], []);
 
         assert!(
             artifact
-                .select(RuntimeArtifactPurpose::Product, &empty)
+                .plan(RuntimeArtifactPurpose::Product, &empty)
                 .unwrap_or_else(|error| panic!("empty selection must succeed: {error:?}"))
                 .components()
                 .is_empty()
@@ -785,7 +815,7 @@ mod tests {
         let main_thread = requirements([], [RuntimeCapability::MainThreadLane]);
 
         let selected = artifact
-            .select(RuntimeArtifactPurpose::Product, &main_thread)
+            .plan(RuntimeArtifactPurpose::Product, &main_thread)
             .unwrap_or_else(|error| panic!("capability selection must succeed: {error:?}"));
 
         assert_eq!(
@@ -796,14 +826,13 @@ mod tests {
         let startup = requirements([RuntimeAbiRole::MainThreadLaneStartup], []);
 
         let selected = artifact
-            .select(RuntimeArtifactPurpose::TestRunner, &startup)
+            .plan(RuntimeArtifactPurpose::TestRunner, &startup)
             .unwrap_or_else(|error| panic!("role selection must succeed: {error:?}"));
 
         assert_eq!(
             selected.components()[0].identity().as_str(),
             "runtime.test.execution"
         );
-
     }
 
     #[test]
@@ -816,7 +845,11 @@ mod tests {
             .cloned();
 
         assert_eq!(
-            RuntimeArtifactMetadata::try_new(contract("bray.runtime.reference"), incomplete, test_index_refs()),
+            RuntimeArtifactMetadata::try_new(
+                contract("bray.runtime.reference"),
+                incomplete,
+                test_index_refs()
+            ),
             Err(RuntimeArtifactMetadataBuildError::MissingCapabilityOwner {
                 purpose: RuntimeArtifactPurpose::Product,
                 capability: RuntimeCapability::MainThreadLane,
@@ -858,7 +891,11 @@ mod tests {
         });
 
         assert_eq!(
-            RuntimeArtifactMetadata::try_new(contract("bray.runtime.reference"), components, test_index_refs()),
+            RuntimeArtifactMetadata::try_new(
+                contract("bray.runtime.reference"),
+                components,
+                test_index_refs()
+            ),
             Err(
                 RuntimeArtifactMetadataBuildError::DuplicatePlatformServiceOwner {
                     purpose: RuntimeArtifactPurpose::Product,
@@ -909,8 +946,12 @@ mod tests {
 
     fn test_index_refs() -> [RuntimeNativeIndexMetadata; 2] {
         RuntimeArtifactPurpose::ALL.map(|purpose| {
-            RuntimeNativeIndexMetadata::try_new(purpose, format!("{}.json", purpose.as_str()), RuntimeArtifactDigest::new([7; 32]))
-                .unwrap_or_else(|error| panic!("test native index reference must be valid: {error:?}"))
+            RuntimeNativeIndexMetadata::try_new(
+                purpose,
+                format!("{}.json", purpose.as_str()),
+                RuntimeArtifactDigest::new([7; 32]),
+            )
+            .unwrap_or_else(|error| panic!("test native index reference must be valid: {error:?}"))
         })
     }
 
@@ -932,13 +973,30 @@ mod tests {
 
     fn native_index(directory: &std::path::Path) -> bray_native_artifact::ValidatedNativeArtifact {
         let bytes = b"test runtime native unit";
-        let digest = RuntimeArtifactDigest::new(bray_base::sha256_reader(&bytes[..]).expect("in-memory bytes must hash"));
-        let symbol = NativeSymbolContract::required_name(NonEmptySharedStr::try_new(MAIN_THREAD_LANE_STARTUP_SYMBOL).expect("startup symbol must be nonempty"));
 
-        let unit = NativeUnit::new(digest, NativeUnitKind::Object, NativeUnitSummary::Exact {
-            definitions: [NativeDefinition::new(symbol, NativeDefinitionSelection::Ordinary)].into(),
-            references: [].into(), roots: [].into(),
-        }, [], []);
+        let digest = RuntimeArtifactDigest::new(
+            bray_base::sha256_reader(&bytes[..]).expect("in-memory bytes must hash"),
+        );
+
+        let symbol = NativeSymbolContract::required_name(
+            NonEmptySharedStr::try_new(MAIN_THREAD_LANE_STARTUP_SYMBOL)
+                .expect("startup symbol must be nonempty"),
+        );
+
+        let unit = NativeUnit::new(
+            digest,
+            NativeUnitKind::Object,
+            NativeUnitSummary::Exact {
+                definitions: [NativeDefinition::new(
+                    symbol,
+                    NativeDefinitionSelection::Ordinary,
+                )]
+                .into(),
+                references: [].into(),
+                roots: [].into(),
+            },
+            [],
+        );
 
         let target = NativeTarget::X86_64WindowsMsvc;
         let producer = RuntimeArtifactDigest::new([9; 32]);
@@ -947,10 +1005,19 @@ mod tests {
             .unwrap_or_else(|error| panic!("test index must be valid: {error:?}"));
 
         let encoded = index.encode().expect("test index must encode");
-        let index_digest = RuntimeArtifactDigest::new(bray_base::sha256_reader(&encoded[..]).expect("in-memory index must hash"));
+
+        let index_digest = RuntimeArtifactDigest::new(
+            bray_base::sha256_reader(&encoded[..]).expect("in-memory index must hash"),
+        );
+
         let native = directory.join("native");
         std::fs::create_dir_all(&native).expect("test native directory must exist");
-        std::fs::write(native.join(NativeUnitKind::Object.file_name(digest, target)), bytes).expect("test native payload must exist");
+
+        std::fs::write(
+            native.join(NativeUnitKind::Object.file_name(digest, target)),
+            bytes,
+        )
+        .expect("test native payload must exist");
 
         NativeArtifactIndex::import(&encoded, index_digest, target, producer, &native)
             .unwrap_or_else(|error| panic!("test index must import: {error:?}"))

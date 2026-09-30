@@ -129,7 +129,22 @@ impl Lowerer<'_> {
             );
         };
 
-        let lowered = self.lower_implicit_borrow(id, receiver, block, borrow_kind)?;
+        let target = requirement.subject();
+
+        let receiver_type = self.input.semantic_values().intern_type(TypeData::Borrow {
+            kind: borrow_kind,
+            target,
+        })?;
+
+        let lowered = self.lower_storage_borrow(
+            receiver,
+            id,
+            block,
+            borrow_kind,
+            target,
+            receiver_type,
+            self.expression_source(receiver),
+        )?;
 
         let Some(continuation) = lowered.block else {
             return Ok(lowered);

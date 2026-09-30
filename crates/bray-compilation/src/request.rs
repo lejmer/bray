@@ -12,7 +12,7 @@ use bray_source::{SourceInput, SourceSpan};
 pub use bray_standard_library::PackageSourceAuthority;
 use bray_standard_library::{
     PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY, PUBLIC_STANDARD_LIBRARY_PRODUCT_IDENTITY,
-    StandardLibraryLoadError, StandardLibraryResolver, standard_library_target_artifact_directory,
+    StandardLibraryLoadError, StandardLibraryResolver,
 };
 use bray_symbols::{NativeLinkRequirement, PackageIdentity, ProductKind};
 
@@ -137,7 +137,7 @@ pub struct CompilationRequest {
     package_identity: PackageIdentity,
     package_source_authority: PackageSourceAuthority,
     standard_library_root: Option<bray_standard_library::StandardLibraryRoot>,
-    standard_library_provider_root: Option<bray_standard_library::StandardLibraryRoot>,
+    native_implementations: Vec<bray_package_interface::PackageArtifactInput>,
     options: CompilationOptions,
     sources: Vec<SourceInput>,
     dependency_interfaces: Vec<DependencyInterfaceInput>,
@@ -192,24 +192,11 @@ impl PackageInterfaceExportRequest {
 pub struct DependencyInterfaceInput {
     package: PackageIdentity,
     product: InterfaceProductIdentity,
-    source: DependencyInterfaceSource,
+    source: bray_package_interface::PackageArtifactInput,
+    native_implementations: Vec<bray_package_interface::PackageArtifactInput>,
     dependency_span: Option<SourceSpan>,
     validation_policy: InterfaceValidationPolicy,
-    implementation_artifact_path: Option<Arc<Path>>,
-    implementation_artifact: Option<Arc<bray_package_interface::PackageImplementationArtifact>>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum DependencyInterfaceSource {
-    Bytes {
-        artifact_path: Arc<Path>,
-        bytes: Arc<[u8]>,
-    },
-    StandardLibrary {
-        artifact_path: Arc<Path>,
-        resolver: StandardLibraryResolver,
-        target: SelectedTarget,
-    },
+    implementation: Option<bray_package_interface::PackageArtifactInput>,
 }
 
 impl DependencyInterfaceInput {
@@ -224,14 +211,11 @@ impl DependencyInterfaceInput {
         Self {
             package,
             product,
-            source: DependencyInterfaceSource::Bytes {
-                artifact_path: Arc::from(artifact_path.into()),
-                bytes: bytes.into(),
-            },
+            source: bray_package_interface::PackageArtifactInput::memory(artifact_path, bytes),
+            native_implementations: Vec::new(),
             dependency_span: None,
             validation_policy,
-            implementation_artifact_path: None,
-            implementation_artifact: None,
+            implementation: None,
         }
     }
 
@@ -248,8 +232,13 @@ impl DependencyInterfaceInput {
         artifact_path: impl Into<PathBuf>,
         artifact: Arc<bray_package_interface::PackageImplementationArtifact>,
     ) -> Self {
-        self.implementation_artifact_path = Some(Arc::from(artifact_path.into()));
-        self.implementation_artifact = Some(artifact);
+        // The input retains the immutable implementation independently of the caller.
+        self.implementation = Some(
+            bray_package_interface::PackageArtifactInput::implementation(
+                artifact_path,
+                artifact.as_ref().clone(),
+            ),
+        );
 
         self
     }
@@ -266,10 +255,7 @@ impl DependencyInterfaceInput {
 
     /// Returns the stable artifact path supplied by package resolution.
     pub fn artifact_path(&self) -> &Path {
-        match &self.source {
-            DependencyInterfaceSource::Bytes { artifact_path, .. }
-            | DependencyInterfaceSource::StandardLibrary { artifact_path, .. } => artifact_path,
-        }
+        self.source.path()
     }
 
     /// Returns the source dependency that selected this artifact, when available.
@@ -277,95 +263,115 @@ impl DependencyInterfaceInput {
         self.dependency_span
     }
 
-    /// Returns the immutable untrusted artifact bytes.
-    pub fn bytes(&self) -> Option<&[u8]> {
-        match &self.source {
-            DependencyInterfaceSource::Bytes { bytes, .. } => Some(bytes),
-            DependencyInterfaceSource::StandardLibrary { .. } => None,
-        }
+    pub(crate) fn interface_input(&self) -> &bray_package_interface::PackageArtifactInput {
+        &self.source
     }
 
     /// Returns the selected implementation artifact path, when one was supplied.
     pub fn implementation_artifact_path(&self) -> Option<&Path> {
-        self.implementation_artifact_path.as_deref()
+        self.implementation.as_ref().map(|input| input.path())
     }
 
-    /// Returns the selected implementation artifact, when one was supplied.
-    pub fn implementation_artifact(
-        &self,
-    ) -> Option<&bray_package_interface::PackageImplementationArtifact> {
-        self.implementation_artifact.as_deref()
+    /// Supplies an immutable implementation file without reading its payloads.
+    pub fn with_implementation_input(
+        mut self,
+        input: bray_package_interface::PackageArtifactInput,
+    ) -> Self {
+        self.implementation = Some(input);
+
+        self
     }
 
-    pub(crate) fn shared_bytes(&self) -> Result<Arc<[u8]>, StandardLibraryLoadError> {
-        match &self.source {
-            DependencyInterfaceSource::Bytes { bytes, .. } => {
-                // Validation retains immutable request bytes, so sharing avoids copying files.
-                Ok(Arc::clone(bytes))
-            }
-            DependencyInterfaceSource::StandardLibrary {
-                resolver, target, ..
-            } => resolver
-                .interface(target.profile().identity(), target.runtime_abi())
-                .map(|artifact| artifact.shared_bytes()),
+    /// Selects an interface file through the shared lazy package loader.
+    pub fn from_artifact(
+        package: PackageIdentity,
+        product: InterfaceProductIdentity,
+        input: bray_package_interface::PackageArtifactInput,
+        validation_policy: InterfaceValidationPolicy,
+    ) -> Self {
+        Self {
+            package,
+            product,
+            source: input,
+            native_implementations: Vec::new(),
+            dependency_span: None,
+            validation_policy,
+            implementation: None,
         }
+    }
+
+    pub(crate) fn implementation_input(
+        &self,
+    ) -> Option<&bray_package_interface::PackageArtifactInput> {
+        self.implementation.as_ref()
+    }
+
+    /// Supplies additional native representations published by the dependency.
+    pub fn with_native_implementations(
+        mut self,
+        inputs: impl IntoIterator<Item = bray_package_interface::PackageArtifactInput>,
+    ) -> Self {
+        self.native_implementations = inputs.into_iter().collect();
+
+        self
+    }
+
+    pub(crate) fn native_implementations(&self) -> &[bray_package_interface::PackageArtifactInput] {
+        &self.native_implementations
+    }
+
+    pub(crate) fn shared_bytes(
+        &self,
+    ) -> Result<Arc<[u8]>, bray_package_interface::PackageArtifactLoadError> {
+        self.source.read()
     }
 
     pub(crate) fn shared_implementation_artifact(
         &self,
-    ) -> Result<Option<bray_package_interface::PackageImplementationArtifact>, StandardLibraryLoadError> {
-        match &self.source {
-            DependencyInterfaceSource::Bytes { .. } => Ok(None),
-            DependencyInterfaceSource::StandardLibrary {
-                resolver, target, ..
-            } => resolver
-                .implementation_artifact(target.profile().identity(), target.runtime_abi())
-                .map(|(_, artifact)| Some(artifact)),
-        }
+    ) -> Result<
+        Option<bray_package_interface::PackageImplementationArtifact>,
+        bray_package_interface::PackageArtifactLoadError,
+    > {
+        self.implementation
+            .as_ref()
+            .map(|input| input.load_implementation())
+            .transpose()
     }
 
     pub(crate) fn for_standard_library(
         resolver: StandardLibraryResolver,
         target: SelectedTarget,
-    ) -> Self {
-        let package = PackageIdentity::try_new(PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY)
-            .unwrap_or_else(|| panic!("standard library package identity must be valid"));
+    ) -> Result<(Self, Vec<bray_package_interface::PackageArtifactInput>), StandardLibraryLoadError>
+    {
+        let inventory =
+            resolver.target_inventory(target.profile().identity(), target.runtime_abi())?;
 
-        let product = InterfaceProductIdentity::try_new(PUBLIC_STANDARD_LIBRARY_PRODUCT_IDENTITY)
-            .unwrap_or_else(|| panic!("standard library product identity must be valid"));
+        let artifact = |record: &bray_standard_library::StandardLibraryArtifact| {
+            bray_package_interface::PackageArtifactInput::file(
+                record.beneath(resolver.root().path()),
+                Some(record.digest().bytes()),
+            )
+        };
 
-        let target_root = standard_library_target_artifact_directory(
-            target.profile().identity(),
-            target.runtime_abi(),
+        let interface = Self::from_artifact(
+            PackageIdentity::try_new(PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY)
+                .expect("standard library package identity must be valid"),
+            InterfaceProductIdentity::try_new(PUBLIC_STANDARD_LIBRARY_PRODUCT_IDENTITY)
+                .expect("standard library product identity must be valid"),
+            artifact(inventory.package_interface()),
+            InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
         )
-        .split('/')
-        .fold(resolver.root().path().to_path_buf(), |path, component| {
-            path.join(component)
-        });
+        .with_implementation_input(artifact(inventory.package_implementation()))
+        .with_native_implementations(inventory.native_implementations().map(artifact));
 
-        let artifact_path = target_root.join("std.brayi");
-        let implementation_path = target_root.join("std.brayimpl");
-
-        Self {
-            package,
-            product,
-            source: DependencyInterfaceSource::StandardLibrary {
-                artifact_path: Arc::from(artifact_path),
-                resolver,
-                target,
-            },
-            dependency_span: None,
-            validation_policy: InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
-            implementation_artifact_path: Some(Arc::from(implementation_path)),
-            implementation_artifact: None,
-        }
+        Ok((
+            interface,
+            inventory.native_dependencies().map(artifact).collect(),
+        ))
     }
 
-    pub(crate) const fn is_standard_library(&self) -> bool {
-        matches!(
-            &self.source,
-            DependencyInterfaceSource::StandardLibrary { .. }
-        )
+    pub(crate) fn is_standard_library(&self) -> bool {
+        self.package.as_str() == PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY
     }
 
     /// Returns the compatibility and resource policy for this artifact.
@@ -390,7 +396,7 @@ impl CompilationRequest {
             package_identity,
             package_source_authority: PackageSourceAuthority::Ordinary,
             standard_library_root: None,
-            standard_library_provider_root: None,
+            native_implementations: Vec::new(),
             options,
             sources,
             dependency_interfaces: Vec::new(),
@@ -423,18 +429,16 @@ impl CompilationRequest {
         root: bray_standard_library::StandardLibraryRoot,
     ) -> Self {
         self.standard_library_root = Some(root);
-        self.standard_library_provider_root = None;
 
         self
     }
 
-    /// Returns a copy with a bundle root used only for native provider artifacts.
-    pub fn with_standard_library_provider_root(
+    /// Supplies native-only dependencies without adding source import visibility.
+    pub fn with_native_implementations(
         mut self,
-        root: bray_standard_library::StandardLibraryRoot,
+        inputs: impl IntoIterator<Item = bray_package_interface::PackageArtifactInput>,
     ) -> Self {
-        self.standard_library_root = None;
-        self.standard_library_provider_root = Some(root);
+        self.native_implementations = inputs.into_iter().collect();
 
         self
     }
@@ -513,11 +517,9 @@ impl CompilationRequest {
         self.standard_library_root.as_ref()
     }
 
-    /// Returns the provider-only standard library bundle root, when selected.
-    pub const fn standard_library_provider_root(
-        &self,
-    ) -> Option<&bray_standard_library::StandardLibraryRoot> {
-        self.standard_library_provider_root.as_ref()
+    /// Returns native-only dependencies selected by package resolution.
+    pub fn native_implementations(&self) -> &[bray_package_interface::PackageArtifactInput] {
+        &self.native_implementations
     }
 
     /// Returns the compilation options.
@@ -567,7 +569,7 @@ impl CompilationRequest {
         PackageIdentity,
         PackageSourceAuthority,
         Option<bray_standard_library::StandardLibraryRoot>,
-        Option<bray_standard_library::StandardLibraryRoot>,
+        Vec<bray_package_interface::PackageArtifactInput>,
         CompilationOptions,
         Vec<SourceInput>,
         Vec<DependencyInterfaceInput>,
@@ -581,7 +583,7 @@ impl CompilationRequest {
             self.package_identity,
             self.package_source_authority,
             self.standard_library_root,
-            self.standard_library_provider_root,
+            self.native_implementations,
             self.options,
             self.sources,
             self.dependency_interfaces,
@@ -717,29 +719,23 @@ mod tests {
     }
 
     #[test]
-    fn standard_library_semantics_and_provider_selection_are_exclusive() {
-        let directory = std::path::absolute("standard-library")
-            .unwrap_or_else(|error| panic!("test root must resolve: {error:?}"));
+    fn native_artifact_inputs_are_independent_of_standard_library_discovery() {
+        let directory = std::path::absolute("standard-library").expect("absolute fixture path");
 
-        let root = bray_standard_library::StandardLibraryRoot::try_new(directory)
-            .unwrap_or_else(|| panic!("absolute test root must be valid"));
+        let root =
+            bray_standard_library::StandardLibraryRoot::try_new(directory).expect("valid root");
 
-        let package_identity = PackageIdentity::try_new("test.package")
-            .unwrap_or_else(|| panic!("test package identity must be valid"));
+        let package = PackageIdentity::try_new("test.package").expect("valid package");
 
-        let semantic = CompilationRequest::new(package_identity.clone(), Vec::new())
-            .with_standard_library_provider_root(root.clone())
+        let artifact =
+            bray_package_interface::PackageArtifactInput::file("dependency.brayimpl", None);
+
+        let request = CompilationRequest::new(package, Vec::new())
+            .with_native_implementations([artifact.clone()])
             .with_standard_library_root(root.clone());
 
-        assert_eq!(semantic.standard_library_root(), Some(&root));
-        assert!(semantic.standard_library_provider_root().is_none());
-
-        let providers = CompilationRequest::new(package_identity, Vec::new())
-            .with_standard_library_root(root.clone())
-            .with_standard_library_provider_root(root.clone());
-
-        assert!(providers.standard_library_root().is_none());
-        assert_eq!(providers.standard_library_provider_root(), Some(&root));
+        assert_eq!(request.standard_library_root(), Some(&root));
+        assert_eq!(request.native_implementations(), &[artifact]);
     }
 
     #[test]

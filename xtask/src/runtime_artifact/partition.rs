@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use bray_native_artifact::{
-    NativeArtifactIndex, NativeContentDigest, NativeUnit, NativeUnitKind, NativeUnitResolver,
-    NativeUnitSummary, scan_object_unit_summary,
+    NativeArtifactIndex, NativeCoRetentionGroup, NativeContentDigest, NativeUnit, NativeUnitKind,
+    NativeUnitResolver, NativeUnitSummary, scan_object_unit_summary,
 };
 use bray_target::NativeTarget;
 use sha2::{Digest, Sha256};
@@ -65,10 +65,10 @@ impl RuntimeArchivePartitioner {
                 .ok_or(CommandError::RuntimePartitionFailed)?
                 .to_owned();
 
-            let summary = scan_object_unit_summary(&member.bytes)
-                .unwrap_or(NativeUnitSummary::Opaque);
+            let summary =
+                scan_object_unit_summary(&member.bytes).unwrap_or(NativeUnitSummary::opaque([]));
 
-            units.push(NativeUnit::new(digest, NativeUnitKind::Object, summary, [], []));
+            units.push(NativeUnit::new(digest, NativeUnitKind::Object, summary, []));
             member_bytes.insert(digest, member.bytes);
 
             if name.starts_with(crate_member_prefix) {
@@ -84,14 +84,30 @@ impl RuntimeArchivePartitioner {
             bray_base::sha256_file(archive).map_err(|error| CommandError::read(archive, error))?,
         );
 
-        let index = NativeArtifactIndex::try_new(self.target, producer, units, [])
+        // An opaque member may reference any sibling, including assembly that has an
+        // exact summary. Keep that physical archive indivisible during partitioning.
+        let groups = units
+            .iter()
+            .any(|unit| matches!(unit.summary(), NativeUnitSummary::Opaque { .. }))
+            .then(|| NativeCoRetentionGroup::try_new(units.iter().map(NativeUnit::digest)))
+            .flatten();
+
+        let index = NativeArtifactIndex::try_new(self.target, producer, units, groups)
             .map_err(CommandError::RuntimePartitionIndex)?;
 
-        let reachable = NativeUnitResolver::new(index)
-            .select_seeded(owned.keys().copied())
-            .map_err(CommandError::RuntimePartitionResolution)?;
+        let reachable =
+            NativeUnitResolver::new([index])
+                .select_seeded(owned.keys().map(|&digest| {
+                    bray_native_artifact::NativeUnitLocation {
+                        artifact: 0,
+                        digest,
+                    }
+                }))
+                .map_err(CommandError::RuntimePartitionResolution)?;
 
-        for &digest in reachable.units() {
+        for location in reachable.units() {
+            let digest = location.digest;
+
             let bytes = member_bytes
                 .remove(&digest)
                 .ok_or(CommandError::RuntimePartitionFailed)?;
@@ -142,18 +158,18 @@ impl RuntimeArchivePartitioner {
 
             fs::write(&archive, bytes).map_err(|error| CommandError::write(&archive, error))?;
 
-            support.push(RuntimeSupportArchive {
-                owners,
-                archive,
-            });
+            support.push(RuntimeSupportArchive { owners, archive });
         }
 
         for (kind, members) in self.components {
             let archive = output.join(super::command::archive_file_name(target, kind));
 
             let bytes = crate::native_archive::archive_bytes(
-                &self.tool, &members.into_values().collect::<Vec<_>>(), "o",
-            ).map_err(CommandError::RuntimePartitionTool)?;
+                &self.tool,
+                &members.into_values().collect::<Vec<_>>(),
+                "o",
+            )
+            .map_err(CommandError::RuntimePartitionTool)?;
 
             fs::write(&archive, bytes).map_err(|error| CommandError::write(&archive, error))?;
         }
@@ -184,7 +200,10 @@ pub(super) struct ArchiveMember {
     pub(super) bytes: Vec<u8>,
 }
 
-pub(super) fn extract_members(tool: &Path, archive: &Path) -> Result<Vec<ArchiveMember>, CommandError> {
+pub(super) fn extract_members(
+    tool: &Path,
+    archive: &Path,
+) -> Result<Vec<ArchiveMember>, CommandError> {
     let listing = Command::new(tool)
         .arg("t")
         .arg(archive)

@@ -87,6 +87,20 @@ pub fn lower_executable_host(
 
     let entry = builder.push_block(source.clone(), MirBlockKind::Ordinary)?;
 
+    if contract
+        .requirements()
+        .requires_role(RuntimeAbiRole::RuntimeInitialization)
+    {
+        builder.push_operation(
+            entry,
+            source.clone(),
+            MirOperationKind::Host(MirHostOperation::InitializeRuntime {
+                runtime: runtime_reference(RuntimeAbiRole::RuntimeInitialization, runtime_abi),
+            }),
+            None,
+        )?;
+    }
+
     for static_instance in statics.into_iter().rev() {
         let storage = builder.push_storage(
             source.clone(),

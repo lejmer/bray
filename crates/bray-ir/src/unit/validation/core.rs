@@ -45,6 +45,24 @@ fn validate_host_sequence(unit: &MirUnit) -> Option<()> {
         return None;
     }
 
+    let preceding = if host
+        .requirements()
+        .requires_role(bray_runtime_interface::RuntimeAbiRole::RuntimeInitialization)
+    {
+        let (initialization, preceding) = preceding.split_first()?;
+
+        if !matches!(
+            initialization,
+            crate::MirOperationKind::Host(crate::MirHostOperation::InitializeRuntime { .. })
+        ) {
+            return None;
+        }
+
+        preceding
+    } else {
+        preceding
+    };
+
     let materialized = preceding.partition_point(|operation| {
         matches!(
             operation,

@@ -300,7 +300,6 @@ const fn diagnostic_input_requirement(value: crate::LinkInputKind) -> Diagnostic
         crate::LinkInputKind::TerminationObject => {
             DiagnosticLinkRequirement::InputTerminationObject
         }
-        crate::LinkInputKind::RuntimeComponent => DiagnosticLinkRequirement::InputRuntimeComponent,
         crate::LinkInputKind::NativeLibrary => DiagnosticLinkRequirement::InputNativeLibrary,
         crate::LinkInputKind::Framework => DiagnosticLinkRequirement::InputFramework,
     }

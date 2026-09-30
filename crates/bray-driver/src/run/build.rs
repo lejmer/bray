@@ -4,10 +4,9 @@ use std::process::ExitCode;
 use bray_compilation::ProductEmissionInputs;
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticEmissionFailure, DiagnosticId,
-    DiagnosticIoErrorKind, DiagnosticKind, DiagnosticNote, DiagnosticNoteKind,
-    DiagnosticProjectCommandFailure, DiagnosticProjectOperation, DiagnosticTestCatalogFailure,
-    DiagnosticLlvmToolRole,
-    SeverityKind,
+    DiagnosticIoErrorKind, DiagnosticKind, DiagnosticLlvmToolRole, DiagnosticNote,
+    DiagnosticNoteKind, DiagnosticProjectCommandFailure, DiagnosticProjectOperation,
+    DiagnosticTestCatalogFailure, SeverityKind,
 };
 use bray_emitter::{
     ArtifactKind, ArtifactRequirement, EmissionRequest, EmissionStatus, ProductBuildIdentity,
@@ -42,7 +41,16 @@ pub fn run_build_request(
     let product = compilation_configuration.product().clone();
     let product_kind = compilation_configuration.product_kind();
     let artifacts = required_artifacts(product_kind, native_target, &configuration);
-    let export_interface = artifacts.contains(&TargetOutputKind::PackageInterface);
+
+    let export_interface = artifacts.iter().any(|kind| {
+        matches!(
+            kind,
+            TargetOutputKind::PackageInterface
+                | TargetOutputKind::PackageImplementation
+                | TargetOutputKind::PackageNativeImplementation
+        )
+    });
+
     let linked = artifacts.iter().any(|artifact| is_linked(*artifact));
     let build = native_build_configuration(configuration.build(), linked);
 
@@ -50,7 +58,10 @@ pub fn run_build_request(
         .iter()
         .copied()
         .map(ArtifactKind::from)
-        .any(|artifact| artifact.backend_kind().is_some());
+        .any(|artifact| {
+            artifact.backend_kind().is_some()
+                || artifact == ArtifactKind::PackageNativeImplementation
+        });
 
     let requires_generation = linked || requires_codegen;
 
@@ -91,7 +102,7 @@ pub fn run_build_request(
         }
     };
 
-    let linker = if linked {
+    let linker = if linked || artifacts.contains(&TargetOutputKind::PackageNativeImplementation) {
         // The driver retains its selections while the linker owns its independent output path.
         match native_linker(
             native_target,
@@ -124,7 +135,17 @@ pub fn run_build_request(
             build,
             runtime,
             configuration.required_capabilities().iter().copied(),
-            linker.as_ref().map(bray_tooling::NativeLinker::linker),
+            linker.as_ref().map(|linker| {
+                let kind = if artifacts.contains(&TargetOutputKind::SharedLibrary) {
+                    bray_linker::LinkedProductKind::SharedLibrary
+                } else if product_kind == ProductKind::Library {
+                    bray_linker::LinkedProductKind::StaticLibrary
+                } else {
+                    bray_linker::LinkedProductKind::Executable
+                };
+
+                (linker.linker(), kind)
+            }),
         ) {
             Ok(native) => Some(native),
             Err(error) => {
@@ -178,7 +199,13 @@ pub fn run_build_request(
     );
 
     let native_inspectors = if product_kind == ProductKind::Library
-        && artifacts.contains(&TargetOutputKind::PackageImplementation)
+        && artifacts.iter().any(|kind| {
+            matches!(
+                kind,
+                TargetOutputKind::PackageImplementation
+                    | TargetOutputKind::PackageNativeImplementation
+            )
+        })
         && requires_generation
     {
         let tools = [
@@ -192,13 +219,18 @@ pub fn run_build_request(
         match tools {
             Ok(tools) => Some(tools),
             Err(error) => {
-                let diagnostics = compilation.check_diagnostics().merged(&DiagnosticBag::single(
-                    NativeLinkerBuildError::Tool(error)
-                        .diagnostic(selected_target.profile().identity().as_str()),
-                ));
+                let diagnostics = compilation
+                    .check_diagnostics()
+                    .merged(&DiagnosticBag::single(
+                        NativeLinkerBuildError::Tool(error)
+                            .diagnostic(selected_target.profile().identity().as_str()),
+                    ));
 
                 return driver_result_from_compilation(
-                    compilation, diagnostics, output_format, ExitCode::FAILURE,
+                    compilation,
+                    diagnostics,
+                    output_format,
+                    ExitCode::FAILURE,
                 );
             }
         }
@@ -235,7 +267,17 @@ pub fn run_build_request(
         (None, _) => {}
     }
 
-    match compilation.emit_product(request, inputs) {
+    let outcome = compilation.emit_product(request, inputs);
+
+    emission_result(compilation, outcome, output_format)
+}
+
+fn emission_result(
+    compilation: bray_compilation::Compilation,
+    outcome: Result<bray_emitter::EmissionOutcome, bray_compilation::ProductEmissionError>,
+    output_format: OutputFormat,
+) -> DriverRunResult {
+    match outcome {
         Ok(outcome) => {
             let diagnostics = outcome.diagnostics().clone();
 
@@ -490,7 +532,6 @@ fn verify_reusable_build_environment(
 
     let Some(standard_library_root) = options
         .standard_library_root()
-        .or_else(|| options.standard_library_provider_root())
         .map(bray_standard_library::StandardLibraryRoot::path)
     else {
         return Err(reusable_identity_mismatch_diagnostics(
@@ -604,9 +645,6 @@ fn native_product_failure_result(
     error: &bray_compilation::NativeProductPlanningError,
 ) -> DriverRunResult {
     let diagnostics = match error {
-        bray_compilation::NativeProductPlanningError::StandardLibrary { cause, .. } => compilation
-            .check_diagnostics()
-            .merged(&compilation.standard_library_load_diagnostics(cause)),
         error if let Some(diagnostics) = error.diagnostics() => {
             compilation.check_diagnostics().merged(diagnostics)
         }

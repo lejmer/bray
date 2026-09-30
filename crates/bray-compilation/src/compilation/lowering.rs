@@ -108,8 +108,8 @@ impl Compilation {
         let body = self.body_semantics_with_cancellation(key.clone(), cancellation)?;
         let behavior = self.body_behavior_with_cancellation(key.clone(), cancellation)?;
 
-        let (constant_reference_operands, constant_reference_diagnostics) =
-            self.constant_reference_operands(
+        let (constant_reference_operands, constant_reference_diagnostics) = self
+            .constant_reference_operands(
                 unit.result().value(),
                 expressions.result().value().types(),
                 cancellation,
@@ -373,7 +373,10 @@ impl Compilation {
 
             let operand = match resolution {
                 ConstantReferenceResolution::Value(value) => MirOperand::Constant { value, ty },
-                ConstantReferenceResolution::Evaluated(result) => MirOperand::Constant { value: result.value(), ty },
+                ConstantReferenceResolution::Evaluated(result) => MirOperand::Constant {
+                    value: result.value(),
+                    ty,
+                },
                 ConstantReferenceResolution::Term(term) => MirOperand::ConstantTerm { term, ty },
                 ConstantReferenceResolution::Cycle { .. }
                 | ConstantReferenceResolution::Invalid => continue,
@@ -923,6 +926,72 @@ mod tests {
                 MirTerminatorKind::Iterate { .. }
             ))
         );
+    }
+
+    #[test]
+    fn negative_integer_literals_publish_representable_mir_constants() {
+        let compilation = compilation(
+            r#"
+            module app;
+
+            func minimum() -> i8
+            {
+                return -128;
+            }
+
+            func ordinary() -> i8
+            {
+                return -42;
+            }
+
+            func zero() -> u8
+            {
+                return -0;
+            }
+        "#,
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let values = compilation.semantic_value_store().unwrap();
+
+        for (name, sign, magnitude) in [
+            ("minimum", bray_symbols::IntegerSign::Negative, vec![128]),
+            ("ordinary", bray_symbols::IntegerSign::Negative, vec![42]),
+            ("zero", bray_symbols::IntegerSign::NonNegative, vec![]),
+        ] {
+            let lowered = compilation
+                .lowered_unit(source_function_body_key(&compilation, name))
+                .unwrap();
+
+            let mir = lowered_mir(&lowered);
+
+            let value = mir
+                .blocks()
+                .iter()
+                .find_map(|block| match block.terminator().kind() {
+                    MirTerminatorKind::Return(Some(MirOperand::Constant { value, .. })) => {
+                        Some(*value)
+                    }
+                    _ => None,
+                })
+                .expect("negative literal must lower directly to a typed constant");
+
+            assert_eq!(
+                values.constant_value_data(value).kind(),
+                &ConstantValueKind::Integer(bray_symbols::IntegerConstant::new(sign, magnitude))
+            );
+
+            assert!(
+                !mir.operations()
+                    .iter()
+                    .any(|operation| matches!(operation.kind(), MirOperationKind::Unary { .. }))
+            );
+        }
     }
 
     #[test]
@@ -2164,14 +2233,13 @@ func observe(pos values: Values) -> i32
     return values[0].value;
 }
 
-func borrow_shared(pos values: Values)
+func borrow_shared(pos values: &Values)
 {
     let selected: &Item = &values[0];
 }
 
-func borrow_mutable(pos input: Values)
+func borrow_mutable(pos values: &mut Values)
 {
-    let mut values: Values = input;
     let selected: &mut Item = &mut values[0];
 }
 
@@ -2254,6 +2322,27 @@ func both_bounds(pos values: Values) -> i32
                 .unwrap_or_else(|error| panic!("{function} MIR must be available: {error:?}"));
 
             let mir = lowered_mir(&result);
+
+            let receiver = mir
+                .operations()
+                .iter()
+                .find_map(|operation| match operation.kind() {
+                    MirOperationKind::Borrow { place, .. } => Some(place),
+                    _ => None,
+                })
+                .expect("custom index must borrow its receiver");
+
+            assert!(
+                matches!(
+                    compilation
+                        .semantic_value_store()
+                        .unwrap()
+                        .type_data(receiver.ty())
+                        .as_ref(),
+                    bray_symbols::TypeData::Named { .. }
+                ),
+                "custom index must borrow Values, not its parameter borrow: {mir:#?}"
+            );
 
             assert!(
                 mir.operations().iter().any(|operation| matches!(

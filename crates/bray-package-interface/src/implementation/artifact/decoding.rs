@@ -121,9 +121,9 @@ impl PackageImplementationArtifact {
 
         if declared_file_length != actual_file_length {
             return Err(InterfaceValidationError::Malformed {
-                context: crate::InterfaceValidationContext::Header,
+                context: InterfaceValidationContext::Header,
                 cause: crate::InterfaceMalformedCause::LengthMismatch {
-                    field: crate::InterfaceValidationField::DeclaredFileLength,
+                    field: InterfaceValidationField::DeclaredFileLength,
                     expected: declared_file_length,
                     actual: actual_file_length,
                 },
@@ -132,8 +132,8 @@ impl PackageImplementationArtifact {
 
         let actual_artifact_hash =
             compute_artifact_hash(&bytes).ok_or(InterfaceValidationError::DigestUnavailable {
-                context: crate::InterfaceValidationContext::Artifact,
-                field: crate::InterfaceValidationField::ArtifactHash,
+                context: InterfaceValidationContext::Artifact,
+                field: InterfaceValidationField::ArtifactHash,
             })?;
 
         if actual_artifact_hash != artifact_hash {
@@ -143,20 +143,18 @@ impl PackageImplementationArtifact {
             });
         }
 
-        let directory_offset = usize::try_from(directory_offset).map_err(|_| {
-            crate::implementation::invalid_value(crate::InterfaceValidationField::Value)
-        })?;
+        let directory_offset = usize::try_from(directory_offset)
+            .map_err(|_| crate::implementation::invalid_value(InterfaceValidationField::Value))?;
 
-        let directory_length = usize::try_from(directory_length).map_err(|_| {
-            crate::implementation::invalid_value(crate::InterfaceValidationField::Value)
-        })?;
+        let directory_length = usize::try_from(directory_length)
+            .map_err(|_| crate::implementation::invalid_value(InterfaceValidationField::Value))?;
 
         if directory_offset < HEADER_LENGTH
             || directory_offset.checked_add(directory_length) != Some(bytes.len())
             || directory_length % DIRECTORY_ENTRY_LENGTH != 0
         {
             return Err(crate::implementation::invalid_value(
-                crate::InterfaceValidationField::Value,
+                InterfaceValidationField::Value,
             ));
         }
 
@@ -171,8 +169,8 @@ impl PackageImplementationArtifact {
             bytes
                 .get(directory_offset..)
                 .ok_or(InterfaceValidationError::Truncated {
-                    context: crate::InterfaceValidationContext::Directory,
-                    field: crate::InterfaceValidationField::DirectoryLength,
+                    context: InterfaceValidationContext::Directory,
+                    field: InterfaceValidationField::DirectoryLength,
                     offset: directory_offset as u64,
                     expected_length: directory_length as u64,
                     actual_length: bytes.len().saturating_sub(directory_offset) as u64,
@@ -183,8 +181,8 @@ impl PackageImplementationArtifact {
 
         let mut directory = budget.allocate_items(
             &directory_reader,
-            crate::InterfaceValidationContext::Directory,
-            crate::InterfaceValidationField::EntryKind,
+            InterfaceValidationContext::Directory,
+            InterfaceValidationField::EntryKind,
             count,
         )?;
 
@@ -202,7 +200,7 @@ impl PackageImplementationArtifact {
             )?;
 
             decoded_total = decoded_total.checked_add(entry.decoded_length).ok_or(
-                crate::implementation::invalid_value(crate::InterfaceValidationField::Value),
+                crate::implementation::invalid_value(InterfaceValidationField::Value),
             )?;
 
             limits.check(InterfaceLimit::DecodedAllocation, decoded_total)?;
@@ -215,7 +213,7 @@ impl PackageImplementationArtifact {
                 })
             {
                 return Err(crate::implementation::invalid_value(
-                    crate::InterfaceValidationField::Value,
+                    InterfaceValidationField::Value,
                 ));
             }
 
@@ -230,9 +228,9 @@ impl PackageImplementationArtifact {
 
         if expected_offset != directory_offset {
             return Err(InterfaceValidationError::Malformed {
-                context: crate::InterfaceValidationContext::Directory,
+                context: InterfaceValidationContext::Directory,
                 cause: crate::InterfaceMalformedCause::LengthMismatch {
-                    field: crate::InterfaceValidationField::DirectoryOffset,
+                    field: InterfaceValidationField::DirectoryOffset,
                     expected: directory_offset as u64,
                     actual: expected_offset as u64,
                 },
@@ -262,7 +260,7 @@ impl PackageImplementationArtifact {
             artifact_hash,
             directory: directory.into(),
             decoded,
-            native_resolver: Arc::new(OnceLock::new()),
+            native_indexes: Arc::new(OnceLock::new()),
             limits,
         })
     }
@@ -281,7 +279,7 @@ fn decode_implementation_identity(
 
     let [identity_entry] = identity_entries.as_slice() else {
         return Err(crate::implementation::invalid_value(
-            crate::InterfaceValidationField::Value,
+            InterfaceValidationField::Value,
         ));
     };
 
@@ -290,7 +288,7 @@ fn decode_implementation_identity(
 
     if identity.language_revision() != language_revision {
         return Err(crate::implementation::invalid_value(
-            crate::InterfaceValidationField::Value,
+            InterfaceValidationField::Value,
         ));
     }
 
@@ -316,7 +314,7 @@ fn validate_encoded_executable_template_families(
                 first
             } else {
                 entries.next().ok_or(crate::implementation::invalid_value(
-                    crate::InterfaceValidationField::Value,
+                    InterfaceValidationField::Value,
                 ))?
             };
 
@@ -326,7 +324,7 @@ fn validate_encoded_executable_template_families(
                 || (expected != 0 && entry.platform_service.is_some())
             {
                 return Err(crate::implementation::invalid_value(
-                    crate::InterfaceValidationField::Value,
+                    InterfaceValidationField::Value,
                 ));
             }
 
@@ -334,14 +332,14 @@ fn validate_encoded_executable_template_families(
                 && !platform_services.insert(role)
             {
                 return Err(crate::implementation::invalid_value(
-                    crate::InterfaceValidationField::Value,
+                    InterfaceValidationField::Value,
                 ));
             }
         }
 
         if entries.peek().is_some_and(|entry| entry.owner == owner) {
             return Err(crate::implementation::invalid_value(
-                crate::InterfaceValidationField::Value,
+                InterfaceValidationField::Value,
             ));
         }
     }

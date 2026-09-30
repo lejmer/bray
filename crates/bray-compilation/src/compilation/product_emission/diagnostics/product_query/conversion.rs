@@ -126,27 +126,6 @@ pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_
             "product_query_outgoing_capacity_overflow",
             vec![identity_field("constant_value", value)],
         ),
-        Failure::StaticDependencyOverflow { static_instance } => (
-            "product_query_static_dependency_overflow",
-            vec![identity_field("static_instance", static_instance)],
-        ),
-        Failure::StaticDependencyUnderflow { static_instance } => (
-            "product_query_static_dependency_underflow",
-            vec![identity_field("static_instance", static_instance)],
-        ),
-        Failure::StaticLifecycleCycle { instances } => (
-            "product_query_static_lifecycle_cycle",
-            vec![DiagnosticFailureField::new(
-                "static_instances",
-                DiagnosticFailureValue::IdentityList(
-                    instances
-                        .iter()
-                        .map(identity)
-                        .collect::<Vec<_>>()
-                        .into_boxed_slice(),
-                ),
-            )],
-        ),
         Failure::ConflictingConcreteInstance { key } => (
             "product_query_conflicting_concrete_instance",
             vec![identity_field("instance", key)],
@@ -609,8 +588,6 @@ const fn product_value_kind(kind: ProductValueKind) -> &'static str {
         ProductValueKind::PredicateConstraint => "predicate_constraint",
         ProductValueKind::TypeEqualityConstraint => "type_equality_constraint",
         ProductValueKind::GenericTypeArgument => "generic_type_argument",
-        ProductValueKind::ClosedStaticReference => "closed_static_reference",
-        ProductValueKind::OpenStaticReference => "open_static_reference",
         ProductValueKind::NamedType => "named_type",
         ProductValueKind::CallableType => "callable_type",
         ProductValueKind::LifecycleRepresentableType => "lifecycle_representable_type",
@@ -644,8 +621,6 @@ const fn product_data_kind(kind: ProductDataKind) -> &'static str {
         ProductDataKind::CompilerKnownRepresentation => "compiler_known_representation",
         ProductDataKind::LifecycleRole => "lifecycle_role",
         ProductDataKind::LifecycleType => "lifecycle_type",
-        ProductDataKind::RealizedStatic => "realized_static",
-        ProductDataKind::StaticDependencyCounter => "static_dependency_counter",
         ProductDataKind::StaticInitializer => "static_initializer",
         ProductDataKind::ImplementationHeader => "implementation_header",
         ProductDataKind::TestDiscovery => "test_discovery",
@@ -656,10 +631,6 @@ const fn product_data_kind(kind: ProductDataKind) -> &'static str {
         ProductDataKind::Module => "module",
         ProductDataKind::ReachabilityRealization => "reachability_realization",
         ProductDataKind::ReachabilityEvaluation => "reachability_evaluation",
-        ProductDataKind::PartitionInstance => "partition_instance",
-        ProductDataKind::CodegenUnitMapping => "codegen_unit_mapping",
-        ProductDataKind::ProductHostOwnerUnit => "product_host_owner_unit",
-        ProductDataKind::ProductHostStaticMapping => "product_host_static_mapping",
         ProductDataKind::ResultRepresentation => "result_representation",
         ProductDataKind::CallableSignature => "callable_signature",
         ProductDataKind::RuntimeDefaultSubject => "runtime_default_subject",

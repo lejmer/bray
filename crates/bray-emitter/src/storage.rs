@@ -27,6 +27,7 @@ pub use report::{
     StorageCategory, StorageEntryReport, StorageKind, StorageSelection, clean_storage,
     inspect_storage,
 };
+pub(crate) use resource::prepare_store;
 pub use resource::{ManagedCache, ManagedOperation};
 pub(crate) use tree::{check_cancelled, children, remove_owned_tree};
 

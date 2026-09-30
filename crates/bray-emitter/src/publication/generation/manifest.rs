@@ -174,6 +174,7 @@ pub(super) const fn permission_key(kind: ArtifactKind) -> &'static str {
         | ArtifactKind::RelocatableObject
         | ArtifactKind::DebugCompanion
         | ArtifactKind::PackageInterface
+        | ArtifactKind::PackageNativeImplementation
         | ArtifactKind::PackageImplementation
         | ArtifactKind::DependencyMetadata
         | ArtifactKind::TestCatalog
@@ -195,6 +196,7 @@ const fn role_key(role: ArtifactRole) -> &'static str {
         ArtifactRole::Product => "product",
         ArtifactRole::Inspection => "inspection",
         ArtifactRole::LinkInput => "link_input",
+        ArtifactRole::PackageInput => "package_input",
         ArtifactRole::Companion => "companion",
     }
 }

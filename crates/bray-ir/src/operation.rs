@@ -552,6 +552,11 @@ pub enum MirAsyncOperation {
 /// Explicit compiler-generated product-host operation.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum MirHostOperation {
+    /// Initialize execution infrastructure for the entire product-host lifetime.
+    InitializeRuntime {
+        /// Selected private runtime-initialization ABI role.
+        runtime: MirRuntimeReference,
+    },
     /// Materialize one demanded static before product entry opens.
     MaterializeStatic {
         /// Exact static place whose initializer must complete.

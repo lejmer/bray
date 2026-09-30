@@ -22,7 +22,7 @@ pub(super) enum BrayRuntimeComponent {
 }
 
 impl BrayRuntimeComponent {
-    const ALL: [Self; 2] = [Self::Bootstrap, Self::Observation];
+    pub(super) const ALL: [Self; 2] = [Self::Bootstrap, Self::Observation];
 
     const fn package(self) -> &'static str {
         match self {
@@ -31,11 +31,33 @@ impl BrayRuntimeComponent {
         }
     }
 
-    const fn product(self) -> &'static str {
+    pub(super) const fn product(self) -> &'static str {
         match self {
             Self::Bootstrap => "runtime",
             Self::Observation => "observation",
         }
+    }
+
+    pub(super) const fn archive_kind(self) -> super::command::RuntimeArchiveKind {
+        match self {
+            Self::Bootstrap => super::command::RuntimeArchiveKind::Bootstrap,
+            Self::Observation => super::command::RuntimeArchiveKind::Observation,
+        }
+    }
+
+    pub(super) fn implementation_path(
+        self,
+        output: &Path,
+        target: NativeTarget,
+    ) -> std::path::PathBuf {
+        let name = TargetOutputName::for_native(
+            target.object_format(),
+            TargetOutputKind::PackageImplementation,
+        )
+        .file_name(self.product())
+        .expect("runtime implementation artifact name must be valid");
+
+        output.join(name)
     }
 
     const fn role_artifact(self) -> bray_runtime_interface::RuntimeRoleArtifact {
@@ -202,7 +224,7 @@ fn build_component(
         OutputFormat::Text,
         compilation,
         Some(standard_library),
-        None,
+        Vec::new(),
         PackageSourceAuthority::Ordinary,
     );
 

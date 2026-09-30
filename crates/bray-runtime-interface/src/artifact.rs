@@ -6,10 +6,9 @@ mod selection;
 pub use catalog::{
     RuntimeArtifactComponentMetadata, RuntimeArtifactDigest, RuntimeArtifactMetadata,
     RuntimeArtifactMetadataBuildError, RuntimeArtifactMetadataDecodeError,
-    RuntimeArtifactMetadataEncodeError, RuntimeArtifactPurpose,
-    RuntimeNativeIndexMetadata,
+    RuntimeArtifactMetadataEncodeError, RuntimeArtifactPurpose, RuntimeNativeIndexMetadata,
 };
 pub use selection::{
-    RuntimeArtifact, RuntimeArtifactBuildError, RuntimeArtifactSelection,
+    RuntimeArtifact, RuntimeArtifactBuildError, RuntimeArtifactPlan, RuntimeArtifactSelection,
     RuntimeArtifactSelectionError, RuntimeNativeUnit,
 };

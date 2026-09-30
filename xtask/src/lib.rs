@@ -10,6 +10,7 @@ mod input_identity;
 mod json;
 mod link_map;
 mod native_archive;
+mod native_package;
 mod native_product;
 mod native_symbols;
 mod native_test_report;

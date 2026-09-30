@@ -1,8 +1,8 @@
 use bray_bound_tree::{BoundExpressionId, BoundUnitKey};
 use bray_checker::TargetValidityRequest;
 use bray_codegen::{
-    BackendArtifactRequest, BackendCapabilityRevision, BackendIdentity, CodegenMappings,
-    CodegenInstanceKey, CodegenOptions, CodegenTarget, CodegenUnitKey,
+    BackendArtifactRequest, BackendCapabilityRevision, BackendIdentity, CodegenInstanceKey,
+    CodegenMappings, CodegenOptions, CodegenTarget, CodegenUnitKey,
 };
 use bray_declarations::ModulePartId;
 use bray_linker::LinkerDriverIdentity;
@@ -57,6 +57,7 @@ impl ImportedExecutableTemplateAddress {
 pub(crate) struct NativeProductQueryKey {
     product: ProductIdentity,
     configuration: crate::BuildConfiguration,
+    linked_product: Option<bray_linker::LinkedProductKind>,
     runtime: Option<std::sync::Arc<[RuntimeNativeIndexQueryIdentity]>>,
     required_capabilities: std::sync::Arc<[RuntimeCapability]>,
     linker_drivers: std::sync::Arc<[LinkerDriverIdentity]>,
@@ -66,6 +67,7 @@ impl NativeProductQueryKey {
     pub(crate) fn new(
         product: ProductIdentity,
         configuration: crate::BuildConfiguration,
+        linked_product: Option<bray_linker::LinkedProductKind>,
         runtime: Option<std::sync::Arc<[RuntimeNativeIndexQueryIdentity]>>,
         required_capabilities: impl Into<std::sync::Arc<[RuntimeCapability]>>,
         linker_drivers: impl Into<std::sync::Arc<[LinkerDriverIdentity]>>,
@@ -73,6 +75,7 @@ impl NativeProductQueryKey {
         Self {
             product,
             configuration,
+            linked_product,
             runtime,
             required_capabilities: required_capabilities.into(),
             linker_drivers: linker_drivers.into(),
@@ -85,6 +88,10 @@ impl NativeProductQueryKey {
 
     pub(crate) const fn configuration(&self) -> crate::BuildConfiguration {
         self.configuration
+    }
+
+    pub(crate) const fn linked_product(&self) -> Option<bray_linker::LinkedProductKind> {
+        self.linked_product
     }
 
     pub(crate) fn runtime(&self) -> Option<&[RuntimeNativeIndexQueryIdentity]> {

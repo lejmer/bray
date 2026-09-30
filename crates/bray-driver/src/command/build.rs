@@ -341,6 +341,8 @@ enum CliArtifact {
     PackageInterface,
     #[value(help = help::ARTIFACT_PACKAGE_IMPLEMENTATION)]
     PackageImplementation,
+    #[value(help = help::ARTIFACT_PACKAGE_NATIVE_IMPLEMENTATION)]
+    PackageNativeImplementation,
     #[value(help = help::ARTIFACT_DEPENDENCY_METADATA)]
     DependencyMetadata,
     #[value(help = help::ARTIFACT_EXECUTABLE)]
@@ -364,6 +366,7 @@ impl From<CliArtifact> for TargetOutputKind {
             CliArtifact::DebugCompanion => Self::DebugCompanion,
             CliArtifact::PackageInterface => Self::PackageInterface,
             CliArtifact::PackageImplementation => Self::PackageImplementation,
+            CliArtifact::PackageNativeImplementation => Self::PackageNativeImplementation,
             CliArtifact::DependencyMetadata => Self::DependencyMetadata,
             CliArtifact::Executable => Self::Executable,
             CliArtifact::StaticLibrary => Self::StaticLibrary,

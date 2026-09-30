@@ -10,7 +10,9 @@ use bray_codegen::{
 };
 use bray_ir::{MirStorageKind, MirUnitKey, MirUnitKind};
 use bray_runtime_interface::{BinarySymbolName, ExecutableHostContract, ProtectedFrameOperation};
-use bray_symbols::{AnySymbolId, CallableAbi, PackageIdentity, ProductIdentity, SymbolKey, SymbolKeyData};
+use bray_symbols::{
+    AnySymbolId, CallableAbi, PackageIdentity, ProductIdentity, SymbolKey, SymbolKeyData,
+};
 
 use super::super::super::CodegenPreparationError;
 use super::super::super::Compilation;
@@ -19,9 +21,7 @@ use super::super::specialization::{ConcreteCodegenInstance, ConcreteCodegenReach
 use super::names::{
     binary_symbol_name, generated_frame_symbol_name, generated_instance_symbol_name,
 };
-use super::support::{
-    native_boundary_mapping, source_backed_symbol_key, void_signature,
-};
+use super::support::{native_boundary_mapping, source_backed_symbol_key, void_signature};
 use crate::compilation::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
 use crate::fact::{CancellationToken, FactQueryError};
 
@@ -72,12 +72,16 @@ fn default_instance_linkage(
     instance: &CodegenInstance,
     roots: &BTreeSet<bray_codegen::CodegenInstanceKey>,
 ) -> CodegenLinkage {
-    if roots.contains(instance.key()) {
-        CodegenLinkage::Export
-    } else if matches!(instance.key().template(), MirUnitKey::ImportedExecutable(_)) {
-        CodegenLinkage::LinkOnce
-    } else {
-        CodegenLinkage::Internal
+    // Package-portable bodies may be emitted by their producer and consumers.
+    match instance.key().template() {
+        MirUnitKey::ImportedExecutable(_) => CodegenLinkage::LinkOnce,
+        MirUnitKey::Bound(unit)
+            if unit.kind() == bray_bound_tree::BoundUnitKind::RuntimeDefault =>
+        {
+            CodegenLinkage::LinkOnce
+        }
+        _ if roots.contains(instance.key()) => CodegenLinkage::Export,
+        _ => CodegenLinkage::Internal,
     }
 }
 
@@ -93,10 +97,6 @@ pub(in crate::compilation::product) enum NativeBoundaryMapping {
 }
 
 impl NativeBoundaryMapping {
-    pub(in crate::compilation::product) const fn is_callback(&self) -> bool {
-        matches!(self, Self::Callback { .. })
-    }
-
     const fn definition_linkage(&self) -> CodegenLinkage {
         match self {
             Self::Direct { linkage, .. } => *linkage,
@@ -121,46 +121,25 @@ impl Compilation {
         let mut symbols = Vec::new();
 
         for instance in unit.instances() {
-            let (name, linkage, signature, native_entry) = match instance.mir().kind() {
-                MirUnitKind::ExecutableHost(host) => (
-                    host.native_entry().clone(),
-                    CodegenLinkage::Export,
-                    void_signature(CallableAbi::Bray),
-                    None,
-                ),
+            let (name, linkage, native_entry) = self.codegen_emitted_symbol_boundary(
+                product,
+                instance,
+                platform_overrides,
+                target,
+                roots,
+                reachability,
+                cancellation,
+            )?;
+
+            let signature = match instance.mir().kind() {
+                MirUnitKind::ExecutableHost(_) => void_signature(CallableAbi::Bray),
                 MirUnitKind::GeneratedLifecycle(reference) => {
-                    let name = generated_instance_symbol_name(
-                        target,
-                        CodegenLinkage::LinkOnce,
-                        instance.key(),
-                    )?;
-
-                    let signature = self.generated_lifecycle_signature(reference, cancellation)?;
-
-                    (name, CodegenLinkage::LinkOnce, signature, None)
+                    self.generated_lifecycle_signature(reference, cancellation)?
                 }
                 MirUnitKind::Synchronous | MirUnitKind::ProtectedAsyncFrame(_) => {
-                    let realization = reachability.instance(instance.key()).ok_or_else(|| {
-                        ProductQueryFailure::missing(
-                            ProductQueryContext::Instance(instance.key().clone()),
-                            ProductDataKind::ConcreteInstance,
-                        )
-                    })?;
-
-                    let boundary = self.codegen_native_boundary(
-                        instance.key(),
-                        platform_overrides,
-                        cancellation,
-                    )?;
-
-                    let (name, linkage, native_entry) = self.codegen_callable_symbol_boundary(
-                        product,
-                        target,
-                        realization,
-                        boundary,
-                        default_instance_linkage(instance, roots),
-                        cancellation,
-                    )?;
+                    let realization = reachability
+                        .instance(instance.key())
+                        .expect("retained codegen instance must have a concrete realization");
 
                     let signature = self.codegen_instance_signature(realization, cancellation)?;
 
@@ -184,7 +163,7 @@ impl Compilation {
                         }
                     }
 
-                    (name, linkage, signature, native_entry)
+                    signature
                 }
             };
 
@@ -316,7 +295,57 @@ impl Compilation {
         Ok(symbols)
     }
 
-    fn codegen_callable_symbol_boundary(
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "symbol boundaries require the existing product, target, and reachability contracts"
+    )]
+    pub(in crate::compilation::product) fn codegen_emitted_symbol_boundary(
+        &self,
+        product: &ProductIdentity,
+        instance: &CodegenInstance,
+        platform_overrides: &BTreeSet<bray_runtime_interface::PlatformServiceRole>,
+        target: &CodegenTarget,
+        roots: &BTreeSet<bray_codegen::CodegenInstanceKey>,
+        reachability: &ConcreteCodegenReachability,
+        cancellation: &CancellationToken,
+    ) -> Result<
+        (
+            BinarySymbolName,
+            CodegenLinkage,
+            Option<CodegenNativeEntryMapping>,
+        ),
+        CodegenPreparationError,
+    > {
+        match instance.mir().kind() {
+            MirUnitKind::ExecutableHost(host) => {
+                Ok((host.native_entry().clone(), CodegenLinkage::Export, None))
+            }
+            MirUnitKind::GeneratedLifecycle(_) => Ok((
+                generated_instance_symbol_name(target, CodegenLinkage::LinkOnce, instance.key())?,
+                CodegenLinkage::LinkOnce,
+                None,
+            )),
+            MirUnitKind::Synchronous | MirUnitKind::ProtectedAsyncFrame(_) => {
+                let realization = reachability
+                    .instance(instance.key())
+                    .expect("retained codegen instance must have a concrete realization");
+
+                let boundary =
+                    self.codegen_native_boundary(instance.key(), platform_overrides, cancellation)?;
+
+                self.codegen_callable_symbol_boundary(
+                    product,
+                    target,
+                    realization,
+                    boundary,
+                    default_instance_linkage(instance, roots),
+                    cancellation,
+                )
+            }
+        }
+    }
+
+    pub(in crate::compilation::product) fn codegen_callable_symbol_boundary(
         &self,
         product: &bray_symbols::ProductIdentity,
         target: &CodegenTarget,
@@ -399,13 +428,22 @@ impl Compilation {
         let source_namespace = match instance.key().template() {
             MirUnitKey::ImportedExecutable(_)
                 if !instance.mir().storages().iter().any(|storage| {
-                    matches!(storage.kind(), MirStorageKind::Static(_) | MirStorageKind::NativeStatic(_))
-                }) => [0; 32],
+                    matches!(
+                        storage.kind(),
+                        MirStorageKind::Static(_) | MirStorageKind::NativeStatic(_)
+                    )
+                }) =>
+            {
+                [0; 32]
+            }
             _ => product.source_namespace(),
         };
 
         Ok(CodegenPartitionCompatibility::new(
-            package, source_namespace, linkage, visibility,
+            package,
+            source_namespace,
+            linkage,
+            visibility,
         ))
     }
 

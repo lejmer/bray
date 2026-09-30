@@ -1,14 +1,9 @@
 use std::collections::BTreeMap;
-use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use bray_native_artifact::{
-    NativeArtifactIndex, NativeContentDigest, NativeIndexError, NativeResolutionError,
-    NativeUnitKind,
-};
-use bray_package_interface::{InterfaceValidationError, InterfaceValidationLimits, PackageImplementationArtifact, PackageNativeArtifactError};
+use bray_package_interface::{InterfaceValidationError, PackageImplementationArtifact};
 use bray_runtime_interface::RuntimeAbiVersion;
 use bray_target::TargetIdentity;
 
@@ -24,7 +19,7 @@ pub struct ResolvedStandardLibraryArtifact {
     metadata: StandardLibraryArtifact,
     path: Arc<Path>,
     bytes: Arc<[u8]>,
-    implementation: Arc<OnceLock<Result<PackageImplementationArtifact, InterfaceValidationError>>>,
+    input: bray_package_interface::PackageArtifactInput,
 }
 
 impl PartialEq for ResolvedStandardLibraryArtifact {
@@ -100,6 +95,18 @@ impl StandardLibraryResolver {
             .clone()
     }
 
+    /// Discovers the target inventory without reading implementation payloads.
+    pub fn target_inventory(
+        &self,
+        target: &TargetIdentity,
+        runtime_abi: RuntimeAbiVersion,
+    ) -> Result<crate::StandardLibraryTargetArtifacts, StandardLibraryLoadError> {
+        let manifest = self.manifest()?;
+
+        // The inventory shares immutable metadata independently of the manifest borrow.
+        target_inventory(&manifest, target, runtime_abi).cloned()
+    }
+
     /// Returns the public package interface selected for a target and runtime ABI.
     pub fn interface(
         &self,
@@ -142,13 +149,23 @@ impl StandardLibraryResolver {
     ) -> Result<(PathBuf, PackageImplementationArtifact), StandardLibraryLoadError> {
         let path = resolved.path().to_path_buf();
 
-        let artifact = resolved.implementation.get_or_init(|| {
-            PackageImplementationArtifact::try_from_bytes(
-                resolved.shared_bytes(), InterfaceValidationLimits::default(),
-            )
-        }).clone().map_err(|cause| StandardLibraryLoadError::Implementation {
-            path: path.clone(), cause,
-        })?;
+        let artifact = resolved
+            .input
+            .load_implementation()
+            .map_err(|cause| match cause {
+                bray_package_interface::PackageArtifactLoadError::Read(kind) => {
+                    StandardLibraryLoadError::Read {
+                        path: path.clone(),
+                        kind,
+                    }
+                }
+                bray_package_interface::PackageArtifactLoadError::Validation(cause) => {
+                    StandardLibraryLoadError::Implementation {
+                        path: path.clone(),
+                        cause,
+                    }
+                }
+            })?;
 
         Ok((path, artifact))
     }
@@ -169,61 +186,6 @@ impl StandardLibraryResolver {
             .map(|artifact| self.resolve(artifact))
             .collect::<Result<Vec<_>, _>>()
             .map(Arc::from)
-    }
-
-    /// Authenticates compatible optimized units, or returns None for another producer policy.
-    pub fn native_artifact(
-        &self,
-        target: &TargetIdentity,
-        runtime_abi: RuntimeAbiVersion,
-        expected_producer: NativeContentDigest,
-    ) -> Result<Option<(PathBuf, PackageImplementationArtifact, NativeArtifactIndex)>, StandardLibraryLoadError> {
-        self.native_artifact_for_kind(target, runtime_abi, NativeUnitKind::Bitcode, Some(expected_producer))
-    }
-
-    /// Authenticates object units published for configurations without cross-module optimization.
-    pub fn native_object_artifact(
-        &self,
-        target: &TargetIdentity,
-        runtime_abi: RuntimeAbiVersion,
-    ) -> Result<Option<(PathBuf, PackageImplementationArtifact, NativeArtifactIndex)>, StandardLibraryLoadError> {
-        self.native_artifact_for_kind(target, runtime_abi, NativeUnitKind::Object, None)
-    }
-
-    fn native_artifact_for_kind(
-        &self,
-        target: &TargetIdentity,
-        runtime_abi: RuntimeAbiVersion,
-        kind: NativeUnitKind,
-        expected_producer: Option<NativeContentDigest>,
-    ) -> Result<Option<(PathBuf, PackageImplementationArtifact, NativeArtifactIndex)>, StandardLibraryLoadError> {
-        let resolved = if kind == NativeUnitKind::Bitcode {
-            let manifest = self.manifest()?;
-            let selected = target_inventory(&manifest, target, runtime_abi)?;
-
-            let Some(record) = selected.native_implementation() else {
-                return Ok(None);
-            };
-
-            self.resolve(record)?
-        } else {
-            self.implementation(target, runtime_abi)?
-        };
-
-        let (path, implementation) = Self::parse_implementation(resolved)?;
-
-        let Some(index) = implementation.native_variant(kind)
-            .map_err(|cause| StandardLibraryLoadError::NativePackage {
-                path: path.clone(), cause,
-            })? else {
-            return Ok(None);
-        };
-
-        if expected_producer.is_some_and(|producer| producer != index.producer()) {
-            return Ok(None);
-        }
-
-        Ok(Some((path, implementation, index)))
     }
 
     fn resolve(
@@ -278,9 +240,21 @@ fn load_manifest(
 ) -> Result<Arc<StandardLibraryBundleManifest>, StandardLibraryLoadError> {
     let path = root.path().join(STANDARD_LIBRARY_MANIFEST_FILE_NAME);
 
-    let bytes = fs::read(&path).map_err(|error| StandardLibraryLoadError::Read {
-        path: path.clone(),
-        kind: error.kind(),
+    let input = bray_package_interface::PackageArtifactInput::file(path.clone(), None);
+
+    let bytes = input.read().map_err(|cause| match cause {
+        bray_package_interface::PackageArtifactLoadError::Read(kind) => {
+            StandardLibraryLoadError::Read {
+                path: path.clone(),
+                kind,
+            }
+        }
+        bray_package_interface::PackageArtifactLoadError::Validation(cause) => {
+            StandardLibraryLoadError::Implementation {
+                path: path.clone(),
+                cause,
+            }
+        }
     })?;
 
     decode_standard_library_manifest(&bytes)
@@ -294,9 +268,21 @@ fn load_artifact(
 ) -> Result<ResolvedStandardLibraryArtifact, StandardLibraryLoadError> {
     let path = artifact.beneath(root.path());
 
-    let bytes = fs::read(&path).map_err(|error| StandardLibraryLoadError::Read {
-        path: path.clone(),
-        kind: error.kind(),
+    let input = bray_package_interface::PackageArtifactInput::file(path.clone(), None);
+
+    let bytes = input.read().map_err(|cause| match cause {
+        bray_package_interface::PackageArtifactLoadError::Read(kind) => {
+            StandardLibraryLoadError::Read {
+                path: path.clone(),
+                kind,
+            }
+        }
+        bray_package_interface::PackageArtifactLoadError::Validation(cause) => {
+            StandardLibraryLoadError::Implementation {
+                path: path.clone(),
+                cause,
+            }
+        }
     })?;
 
     let byte_len = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
@@ -321,9 +307,9 @@ fn load_artifact(
 
     Ok(ResolvedStandardLibraryArtifact {
         metadata: artifact.clone(),
+        input,
         path: Arc::from(path),
-        bytes: Arc::from(bytes),
-        implementation: Arc::new(OnceLock::new()),
+        bytes,
     })
 }
 
@@ -373,38 +359,12 @@ pub enum StandardLibraryLoadError {
         /// ABI recorded by the bundle.
         actual: RuntimeAbiVersion,
     },
-    /// The bundle has no native index for the selected target and configuration.
-    OptimizationUnavailable {
-        /// Exact selected target identity.
-        target: TargetIdentity,
-    },
-    /// The published native index or one indexed payload is invalid.
-    NativeIndex {
-        /// Validated manifest path for the native index.
-        path: PathBuf,
-        /// Exact native index or payload failure.
-        cause: NativeIndexError,
-    },
     /// The shared package container is invalid.
     Implementation {
         /// Exact selected implementation path.
         path: PathBuf,
         /// Exact container validation failure.
         cause: InterfaceValidationError,
-    },
-    /// An indexed native route in the package container is invalid.
-    NativePackage {
-        /// Exact selected implementation path.
-        path: PathBuf,
-        /// Exact native package failure.
-        cause: PackageNativeArtifactError,
-    },
-    /// Native demands cannot close over the published unit set.
-    NativeResolution {
-        /// Validated manifest path for the native index.
-        path: PathBuf,
-        /// Exact unresolved or conflicting native symbol.
-        cause: NativeResolutionError,
     },
     /// Resolver cache coordination failed for one exact selected artifact.
     Infrastructure {
@@ -624,12 +584,12 @@ mod tests {
             )
             .unwrap_or_else(|error| panic!("archive metadata must be valid: {error:?}"));
 
-            let target = bray_target::TargetIdentity::try_new("x86_64-unknown-linux-gnu")
+            let target = TargetIdentity::try_new("x86_64-unknown-linux-gnu")
                 .unwrap_or_else(|| panic!("target identity must be valid"));
 
             let target = target_artifacts_for_test(
                 target,
-                bray_runtime_interface::RuntimeAbiVersion::new(1, 0),
+                RuntimeAbiVersion::new(1, 0),
                 vec![interface, implementation, archive],
             )
             .unwrap_or_else(|error| panic!("target metadata must be valid: {error:?}"));
