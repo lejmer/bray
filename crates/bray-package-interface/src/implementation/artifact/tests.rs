@@ -104,6 +104,7 @@ fn primary_native_selection_preserves_opaque_bitcode_provenance() {
 #[test]
 fn variant_only_packages_validate_the_complete_native_payload_set() {
     use crate::PackageNativeArtifactError;
+
     let fixture = artifact_fixture();
     let encoded = encode_package_interface(&fixture.bundle).unwrap();
 
@@ -1486,6 +1487,7 @@ fn packed_file_reads_only_metadata_and_demanded_bodies_and_shares_parallel_cache
     let bytes = encode_artifact(&identity, &bodies, &[], &[], &[], None, &[], &[]).unwrap();
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("large.brayimpl");
+
     std::fs::write(&path, &bytes).unwrap();
 
     let input = crate::PackageArtifactInput::packed_file(
@@ -1495,6 +1497,7 @@ fn packed_file_reads_only_metadata_and_demanded_bodies_and_shares_parallel_cache
 
     let artifact = input.load_implementation().unwrap();
     let metadata = artifact.access_statistics();
+
     assert_eq!(metadata.opens, 1);
     assert_eq!(metadata.reads, 3);
     assert!(metadata.bytes_read < bytes.len() as u64);
@@ -1528,6 +1531,7 @@ fn packed_file_reads_only_metadata_and_demanded_bodies_and_shares_parallel_cache
     });
 
     let demanded = artifact.access_statistics();
+
     assert_eq!(demanded.reads, metadata.reads + 1);
 
     assert_eq!(
@@ -1603,9 +1607,12 @@ fn unread_corruption_is_rejected_on_selection_and_complete_verification() {
         .unwrap();
 
     let mut corrupt = bytes.to_vec();
+
     corrupt[entry.payload.start] ^= 1;
+
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("library.brayimpl");
+
     std::fs::write(&path, &corrupt).unwrap();
 
     let artifact = crate::PackageArtifactInput::packed_file(&path, *pristine.artifact_hash())
@@ -1633,6 +1640,7 @@ fn unread_corruption_is_rejected_on_selection_and_complete_verification() {
 
     let mut metadata_corrupt = bytes.to_vec();
     let last = metadata_corrupt.len() - 1;
+
     metadata_corrupt[last] ^= 1;
     std::fs::write(&path, &metadata_corrupt).unwrap();
 
@@ -1664,9 +1672,12 @@ fn open_file_snapshot_survives_path_replacement_and_new_input_detects_corruption
     let bytes = artifact.shared_bytes().unwrap();
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("library.brayimpl");
+
     std::fs::write(&path, &bytes).unwrap();
+
     let input = crate::PackageArtifactInput::file(&path, None);
     let old = input.load_implementation().unwrap();
+
     std::fs::rename(&path, directory.path().join("old.brayimpl")).unwrap();
     std::fs::write(&path, b"corrupt replacement").unwrap();
 
@@ -1744,6 +1755,7 @@ fn object_only_selection_leaves_bitcode_payloads_untouched() {
 
     bytes[bitcode_entry.payload.start] ^= 1;
     std::fs::write(&path, bytes).unwrap();
+
     let input = crate::PackageArtifactInput::packed_file(&path, *variants.artifact_hash());
     let loaded = input.load_implementation().unwrap();
 
@@ -1790,6 +1802,7 @@ fn packed_read_errors_preserve_path_and_exact_io_cause() {
     .unwrap();
 
     let bytes = artifact.shared_bytes().unwrap();
+
     std::fs::write(&path, &bytes).unwrap();
 
     let selected = crate::PackageArtifactInput::file(&path, None)
@@ -1829,6 +1842,7 @@ fn packed_metadata_and_full_digest_promises_are_distinct_and_enforced() {
     let bytes = artifact.shared_bytes().unwrap();
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("library.brayimpl");
+
     std::fs::write(&path, &bytes).unwrap();
 
     assert!(matches!(
@@ -1847,6 +1861,7 @@ fn packed_metadata_and_full_digest_promises_are_distinct_and_enforced() {
         .unwrap();
 
     let mut damaged = bytes.to_vec();
+
     damaged[entry.payload.start] ^= 1;
     std::fs::write(&path, damaged).unwrap();
 
@@ -1884,6 +1899,7 @@ fn complete_verification_rechecks_in_place_metadata_and_file_length() {
     let bytes = artifact.shared_bytes().unwrap();
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("library.brayimpl");
+
     std::fs::write(&path, &bytes).unwrap();
 
     let selected = crate::PackageArtifactInput::file(&path, None)
@@ -1891,6 +1907,7 @@ fn complete_verification_rechecks_in_place_metadata_and_file_length() {
         .unwrap();
 
     let mut damaged = bytes.to_vec();
+
     *damaged.last_mut().unwrap() ^= 1;
     std::fs::write(&path, damaged).unwrap();
 
@@ -2001,6 +2018,7 @@ fn packed_native_index_above_sixteen_mib_has_its_own_bounded_metadata_budget() {
     .unwrap();
 
     let encoded = index.encode().unwrap();
+
     assert!(encoded.len() > 16 * 1024 * 1024);
 
     let artifact = PackageImplementationArtifact::try_from_export_bundle_with_native(
@@ -2105,6 +2123,7 @@ fn complete_reads_enforce_metadata_promises_and_share_their_immutable_snapshot()
     let bytes = artifact.shared_bytes().unwrap();
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("library.brayimpl");
+
     std::fs::write(&path, &bytes).unwrap();
 
     assert!(matches!(
@@ -2115,9 +2134,12 @@ fn complete_reads_enforce_metadata_promises_and_share_their_immutable_snapshot()
     ));
 
     let input = crate::PackageArtifactInput::packed_file(&path, *artifact.artifact_hash());
+
     assert_eq!(input.read().unwrap(), bytes);
     std::fs::write(&path, b"replacement").unwrap();
+
     let loaded = input.load_implementation().unwrap();
+
     assert_eq!(loaded.access_statistics().opens, 0);
 
     assert!(

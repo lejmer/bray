@@ -25,6 +25,7 @@ pub(super) fn replacement_plans<C: CheckerRequestContext + ?Sized>(
             && let Some(access) = storage.access(decision.access())
         {
             let ty = access.reached_type();
+
             cleanup = cleanup_requirement(shapes.resolve(ty)?);
 
             shapes

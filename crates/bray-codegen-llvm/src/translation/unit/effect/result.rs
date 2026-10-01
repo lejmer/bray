@@ -281,6 +281,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         if self.host_role_implementation(panic) != RuntimeRoleImplementation::CompilerLowering {
             let report = super::super::support::extract_value(&self.builder, outcome.into(), 2)?;
+
             self.invoke_native_runtime_if(panicked, panic, &[report])?;
         }
 

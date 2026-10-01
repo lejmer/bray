@@ -845,6 +845,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("test format revision must fit one byte: {error}"));
 
         let mut invalid_magic = MAGIC;
+
         invalid_magic[0] = 0;
 
         assert_mutation_error(
@@ -1437,6 +1438,7 @@ mod tests {
         }]);
 
         let mut corrupted_section = bytes.clone();
+
         corrupted_section[InterfaceHeader::LENGTH] = b'P';
 
         let error = ValidatedPackageInterface::try_new(corrupted_section, policy())
@@ -1455,6 +1457,7 @@ mod tests {
             InterfaceHeader::ARTIFACT_HASH_OFFSET,
         ] {
             let mut corrupted_hash = bytes.clone();
+
             corrupted_hash[offset] = 0xff;
 
             let error = ValidatedPackageInterface::try_new(corrupted_hash, policy())

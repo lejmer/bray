@@ -2570,6 +2570,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         entries.push((root, expected));
+
         let types = checked_expression_types(&unit, entries);
 
         let selections = bray_bound_tree::CheckedSemanticSelections::try_new(

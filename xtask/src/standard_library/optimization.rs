@@ -335,6 +335,7 @@ mod tests {
     fn llvm_module_contract_is_read_in_process() {
         let context = Context::create();
         let module = context.create_module("inspection.test");
+
         module.set_triple(&TargetTriple::create("x86_64-pc-windows-msvc"));
         module.set_data_layout(&TargetData::create("e-p:64:64").get_data_layout());
         module.add_global(context.i32_type(), None, "llvm.global_ctors");

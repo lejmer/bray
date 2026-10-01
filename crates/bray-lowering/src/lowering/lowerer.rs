@@ -541,7 +541,9 @@ mod tests {
         assert_eq!(else_edge.target(), retained);
         assert!(mir.block(entry).unwrap().operations().is_empty());
         assert!(mir.block(retained).unwrap().operations().is_empty());
+
         let bridge = mir.block(then_edge.target()).unwrap();
+
         assert_eq!(bridge.operations().len(), 1);
 
         assert!(

@@ -167,6 +167,7 @@ impl Compilation {
 
                 for property in [ExecutionProperty::Pure, ExecutionProperty::Total] {
                     let candidate = check(Some(property), &requirements, &[])?;
+
                     diagnostics.add_range(candidate.diagnostics().iter().cloned());
 
                     candidates.insert(
@@ -202,6 +203,7 @@ impl Compilation {
                     if !domain.guards.is_empty() {
                         for property in &domain.properties {
                             let candidate = check(Some(property.property), &assumptions, &[])?;
+
                             diagnostics.add_range(candidate.diagnostics().iter().cloned());
 
                             candidates.insert(
@@ -229,6 +231,7 @@ impl Compilation {
                             .collect::<Vec<_>>();
 
                         let candidate = check(None, &assumptions, &conditions)?;
+
                         diagnostics.add_range(candidate.diagnostics().iter().cloned());
 
                         candidates.insert(
@@ -757,6 +760,7 @@ mod tests {
             "#,
         ] {
             let compilation = compilation(source);
+
             assert!(compilation.check_diagnostics().has_errors(), "{source}");
 
             if compilation.syntax_tree_result().diagnostics().is_empty() {

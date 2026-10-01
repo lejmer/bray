@@ -558,6 +558,7 @@ fn remap_constant_term_fields(
     for field in fields {
         // Field identity remains unchanged while the selected record ID is remapped.
         let identity = field.field().clone();
+
         *field = bray_symbols::ConstantField::new(identity, maps.constant_term_id(*field.value())?);
     }
 

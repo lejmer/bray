@@ -39,6 +39,7 @@ pub(crate) fn archive_bytes(
 
     for (index, bytes) in members.iter().enumerate() {
         let name = format!("{index:04}.{extension}");
+
         fs::write(directory.path().join(&name), bytes)?;
         names.push(name);
     }

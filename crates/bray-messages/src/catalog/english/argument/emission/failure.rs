@@ -28,7 +28,7 @@ pub(crate) fn format_english_emission_failure(
             "native package index exceeds its supported size".to_owned()
         }
         Failure::NativeRead { path, kind } => format!(
-            "could not read compilation output {}: {}",
+            "could not read temporary compiler output {}: {}",
             format_english_path(path),
             format_english_io_error_kind(*kind),
         ),

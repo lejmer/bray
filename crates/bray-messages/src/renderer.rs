@@ -350,6 +350,7 @@ mod tests {
             }
 
             let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
             assert_eq!(rendered.message(), message);
             assert_eq!(rendered.primary_span(), Some(span));
             assert_eq!(rendered.notes().len(), 1);
@@ -432,6 +433,7 @@ mod tests {
             }
 
             let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
             assert_eq!(rendered.message(), expected);
 
             assert_eq!(
@@ -670,8 +672,10 @@ mod tests {
         ));
 
         let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
         assert!(rendered.message().contains("example.math"));
         assert!(rendered.message().contains("build/math.lib"));
+        assert!(rendered.message().contains("temporary compiler output"));
         assert!(rendered.message().contains("permission denied"));
         assert_eq!(forbidden_ordinary_diagnostic_term(rendered.message()), None);
         assert!(!rendered.message().contains(INTERNAL_COMPILER_ERROR));
@@ -691,8 +695,11 @@ mod tests {
         ));
 
         let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
         assert!(rendered.message().contains("x86_64-pc-windows-msvc"));
         assert!(rendered.message().contains("permission denied"));
+        assert!(rendered.message().contains("bitcode"));
+        assert!(!rendered.message().contains("LLVM bitcode"));
         assert_eq!(forbidden_ordinary_diagnostic_term(rendered.message()), None);
         assert!(!rendered.message().contains(INTERNAL_COMPILER_ERROR));
     }

@@ -157,6 +157,7 @@ fn execute(options: Options) -> Result<(), String> {
 
 fn prepare_workspace(root: &Path, workspace: &Path, target: NativeTarget) -> Result<(), String> {
     let fixtures = root.join("xtask/fixtures/composition");
+
     crate::native_toolchain::copy_directory(&fixtures, workspace)?;
 
     for source_root in std::iter::once("library").chain(CASES.iter().copied()) {
@@ -238,6 +239,7 @@ fn run_case(
 
     if !no_build {
         let rerun = invoke(root, workspace, toolchain, directory, case, true)?;
+
         report::same_generation(&first, &rerun)?;
 
         if case == "synchronous" {
@@ -251,6 +253,7 @@ fn run_case(
 
             let restored = invoke(root, workspace, toolchain, directory, case, false)?;
             let restored_rerun = invoke(root, workspace, toolchain, directory, case, true)?;
+
             report::same_generation(&restored, &restored_rerun)?;
         }
     }

@@ -657,6 +657,7 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
 
             if item.kind() == SyntaxKind::WhitespaceTrivia {
                 let item_line_breaks = line_ending::count(text);
+
                 line_breaks = line_breaks.saturating_add(item_line_breaks);
 
                 if item_line_breaks == 0 && !text.is_empty() {

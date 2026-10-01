@@ -1752,6 +1752,7 @@ mod tests {
         );
 
         let mut report = outcome.take_report();
+
         assert_eq!(report.consume(false), NativeRuntimeStatus::SUCCESS);
 
         assert_eq!(
@@ -2106,6 +2107,7 @@ mod tests {
     impl DeepAwaitCallback {
         fn enter() -> Self {
             let depth = DEEP_AWAIT_CALLBACK_DEPTH.fetch_add(1, Ordering::Relaxed) + 1;
+
             DEEP_AWAIT_MAX_CALLBACK_DEPTH.fetch_max(depth, Ordering::Relaxed);
 
             Self

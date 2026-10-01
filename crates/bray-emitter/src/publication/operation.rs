@@ -1585,6 +1585,7 @@ mod tests {
             .to_owned();
 
         drop(old);
+
         let plan = profile_plan("release");
 
         let current = ArtifactPublisher::new(&never_cancelled)
@@ -1712,6 +1713,7 @@ mod tests {
 
         drop(product);
         std::fs::write(&unmanaged, b"user data").unwrap();
+
         let mut managed = crate::storage::ManagedStore::open(output.path()).unwrap();
 
         managed
@@ -1764,6 +1766,7 @@ mod tests {
 
         std::fs::write(&public, b"uncommitted").unwrap();
         std::fs::write(&extra, b"unfinished").unwrap();
+
         let mut managed = crate::storage::ManagedStore::open(output.path()).unwrap();
         let cancelled = || std::fs::read(&public).is_ok_and(|bytes| bytes == b"committed");
 
@@ -1887,6 +1890,7 @@ mod tests {
 
                 scope.spawn(move || {
                     let contribution = contribution(&plan, bytes, None);
+
                     barrier.wait();
 
                     ArtifactPublisher::new(&never_cancelled).publish(&plan, [contribution])
@@ -1895,6 +1899,7 @@ mod tests {
 
             let first = publish(b"first concurrent product");
             let second = publish(b"second concurrent product");
+
             barrier.wait();
 
             [

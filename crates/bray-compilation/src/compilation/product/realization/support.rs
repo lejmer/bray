@@ -1211,6 +1211,7 @@ mod tests {
         let absent = generated.block(branch.1).expect("absent block must exist");
 
         let operations = reachable_cleanup_operations(&generated, branch.0);
+
         assert_eq!(operations.len(), 2);
         assert!(absent.operations().is_empty());
 
@@ -1281,7 +1282,9 @@ mod tests {
             .expect("absent cleanup block must exist");
 
         assert_eq!(present.kind(), MirBlockKind::CleanupBroadcast);
+
         let operations = reachable_cleanup_operations(&generated, branch.0);
+
         assert_eq!(operations.len(), 1);
         assert!(absent.operations().is_empty());
 

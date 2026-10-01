@@ -668,6 +668,7 @@ fn comparison_rejects_non_equivalent_corpora_and_suppresses_noisy_claims() {
     assert!(compare(&baseline, &different).is_err());
 
     let mut different_toolchain = report("corpus", 102, 4);
+
     different_toolchain.identity.llvm_version = "other llvm".to_owned();
 
     assert!(compare(&baseline, &different_toolchain).is_err());
@@ -686,6 +687,7 @@ fn comparison_rejects_reports_with_inconsistent_statistics_or_corpus_contracts()
     assert!(compare(&baseline, &invalid_statistics).is_err());
 
     let mut invalid_output = report("corpus", 102, 4);
+
     invalid_output.workloads[0].expected_output_sha256 = "0".repeat(64);
 
     assert!(compare(&baseline, &invalid_output).is_err());

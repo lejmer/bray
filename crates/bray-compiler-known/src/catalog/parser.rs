@@ -93,9 +93,11 @@ impl CatalogParser {
 
     fn parse_file(&mut self) -> Option<ParsedCatalogSource> {
         self.expect_word(CATALOG_WORD)?;
+
         let declared_kind = self.parse_catalog_kind()?;
 
         self.expect_word(REVISION_WORD)?;
+
         let declared_revision = self.parse_catalog_revision()?;
 
         self.expect_kind(SyntaxKind::SemicolonToken, CatalogExpectation::Semicolon)?;
@@ -216,6 +218,7 @@ impl CatalogParser {
 
     fn parse_scope(&mut self) -> Option<ParsedScope> {
         self.expect_word(SCOPE_WORD)?;
+
         let key = self.parse_stable_key()?;
 
         self.expect_word(AT_WORD)?;
@@ -259,6 +262,7 @@ impl CatalogParser {
 
         while self.at(SyntaxKind::DotToken) {
             self.tokens.consume();
+
             let segment = self.consume_identifier(CatalogExpectation::Identifier)?;
 
             end = segment.end();
@@ -296,6 +300,7 @@ impl CatalogParser {
 
     fn parse_declaration(&mut self) -> Option<ParsedDeclaration> {
         self.expect_word(DECLARATION_WORD)?;
+
         let key = self.parse_stable_key()?;
 
         self.expect_kind(SyntaxKind::OpenBraceToken, CatalogExpectation::OpenBrace)?;
@@ -344,6 +349,7 @@ impl CatalogParser {
                 .map(ParsedDeclarationField::Operation),
             SURFACE_WORD => {
                 self.expect_word(SURFACE_WORD)?;
+
                 let anchor = self.parse_braced_fragment()?;
                 let surface = CatalogDeclarationSurface(anchor);
 
@@ -371,6 +377,7 @@ impl CatalogParser {
 
     fn parse_declaration_identity(&mut self) -> Option<Anchored<ParsedDeclarationIdentity>> {
         self.expect_word(IDENTITY_WORD)?;
+
         let identity_kind = self.consume_identifier(CatalogExpectation::DeclarationIdentityKind)?;
         let spelling = self.token_text(&identity_kind);
 
@@ -422,6 +429,7 @@ impl CatalogParser {
 
     fn parse_value(&mut self) -> Option<ParsedValue> {
         self.expect_word(VALUE_WORD)?;
+
         let key = self.parse_stable_key()?;
 
         self.expect_kind(SyntaxKind::OpenBraceToken, CatalogExpectation::OpenBrace)?;
@@ -471,6 +479,7 @@ impl CatalogParser {
             }
             TYPE_WORD => {
                 self.expect_word(TYPE_WORD)?;
+
                 let anchor = self.parse_braced_fragment()?;
                 let surface = CatalogTypeSurface(anchor);
 
@@ -600,6 +609,7 @@ impl CatalogParser {
     fn skip_unknown_field(&mut self) {
         if self.at(SyntaxKind::OpenBraceToken) {
             let _ = self.parse_braced_fragment();
+
             return;
         }
 

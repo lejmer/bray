@@ -607,7 +607,9 @@ impl Coverage {
         };
 
         let omitted = missing.len().saturating_sub(MAX_REPORTED_CASES);
+
         missing.truncate(MAX_REPORTED_CASES);
+
         let omitted = u64::try_from(omitted).unwrap_or(u64::MAX);
 
         Ok((missing, omitted))

@@ -83,6 +83,7 @@ impl Lowerer<'_> {
     ) -> Result<LoweredExpression, LoweringError> {
         let retained = self.input_temporaries.len();
         let result = self.lower_aggregate_inputs(id, expression, current);
+
         self.input_temporaries.truncate(retained);
 
         result
@@ -141,6 +142,7 @@ impl Lowerer<'_> {
     ) -> Result<LoweredExpression, LoweringError> {
         let retained = self.input_temporaries.len();
         let result = self.lower_construction_inputs(id, current);
+
         self.input_temporaries.truncate(retained);
 
         result
@@ -245,6 +247,7 @@ impl Lowerer<'_> {
                             )?;
 
                             block = continued;
+
                             let ty = self.builder.operand_type(&value);
 
                             let value =

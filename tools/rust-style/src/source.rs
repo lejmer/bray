@@ -9,6 +9,7 @@ const EXCLUDED_DIRECTORIES: [&str; 4] = [".cargo-targets", ".git", ".worktrees",
 
 pub(super) fn rust_source_paths(root: &Path) -> Result<Vec<PathBuf>, String> {
     let mut paths = Vec::new();
+
     collect_rust_source_paths(root, root, &mut paths)?;
     paths.sort();
 

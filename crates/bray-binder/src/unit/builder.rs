@@ -374,6 +374,7 @@ impl BoundUnitLocalBuilder {
         }
 
         self.local_symbols.rollback(checkpoint.local_symbols);
+
         let tree_rolled_back = self.tree.rollback(checkpoint.tree);
 
         if !tree_rolled_back {

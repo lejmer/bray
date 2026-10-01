@@ -36,6 +36,7 @@ impl ProductIdentity {
     /// Returns a stable namespace for this product's source coordinates.
     pub fn source_namespace(&self) -> [u8; 32] {
         let mut digest = StableDigestHasher::new();
+
         digest.write(b"bray.product-source.v1\0");
         self.hash(&mut digest);
 

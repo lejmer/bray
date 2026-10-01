@@ -47,6 +47,7 @@ fn ordinary_user_messages_do_not_expose_compiler_implementation_terms() {
 fn english_source_inventory_covers_every_renderer_leaf() {
     let english_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/catalog/english");
     let mut actual = BTreeSet::new();
+
     collect_rust_sources(&english_root, &english_root, &mut actual);
     actual.remove("argument/catalog.rs");
     actual.remove("argument/tests.rs");

@@ -490,12 +490,14 @@ mod tests {
 
         for source in generator_input_inventory().sources() {
             let path = directory.path().join(source.relative_path());
+
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(path, source.text()).unwrap();
         }
 
         let catalog = directory.path().join("catalog");
         let manifest = catalog.join("catalog.braydef-manifest");
+
         std::fs::write(&manifest, MANIFEST).unwrap();
 
         assert_eq!(
@@ -505,6 +507,7 @@ mod tests {
 
         for path in [manifest, catalog.join("ambient/fundamentals.braydef")] {
             let original = std::fs::read(&path).unwrap();
+
             std::fs::write(&path, b"different input").unwrap();
 
             let error = generate_catalog_output(&catalog).unwrap_err();

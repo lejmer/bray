@@ -46,9 +46,11 @@ pub(in crate::implementation) fn configuration_identity(
     configuration: &PackageImplementationConfiguration,
 ) -> [u8; 32] {
     let mut encoder = WireEncoder::new();
+
     write_configuration(&mut encoder, configuration);
 
     let mut digest = StableDigestHasher::new();
+
     digest.write(b"bray.package-implementation.configuration.v1");
     digest.write(encoder.bytes());
 

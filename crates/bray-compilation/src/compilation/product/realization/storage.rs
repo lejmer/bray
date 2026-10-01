@@ -101,6 +101,7 @@ impl Compilation {
 
         for key in &keys {
             cancellation.check()?;
+
             let mut effects = CallableEffects::default();
             let mut dependencies = Vec::new();
 
@@ -199,6 +200,7 @@ impl Compilation {
         // The SCC order places callers before callees. Recursive callables share one summary.
         for (component, members) in components.iter().enumerate().rev() {
             cancellation.check()?;
+
             let mut effects = CallableEffects::default();
             let mut dependencies = BTreeSet::new();
 

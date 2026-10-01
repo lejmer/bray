@@ -250,6 +250,7 @@ mod tests {
     fn poisoned_embedded_constant_expectation_write_reports_runtime_component() {
         let compilation = compilation();
         let occurrence = occurrence();
+
         poison_embedded_constant_expectations(&compilation);
 
         assert_eq!(
@@ -262,6 +263,7 @@ mod tests {
     fn poisoned_embedded_constant_expectation_read_stays_distinct_from_cancellation() {
         let compilation = compilation();
         let occurrence = occurrence();
+
         poison_embedded_constant_expectations(&compilation);
 
         assert_eq!(
@@ -270,6 +272,7 @@ mod tests {
         );
 
         let cancellation = CancellationToken::new();
+
         cancellation.cancel();
 
         assert_eq!(cancellation.check(), Err(FactQueryError::Cancelled));

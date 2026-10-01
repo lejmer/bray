@@ -17,7 +17,9 @@ impl ValueInputs {
         patterns: &CheckedPatterns,
     ) {
         self.collect_aggregate_projections(unit, selections);
+
         let initializers = self.collect_binding_initializers(unit, patterns);
+
         self.collect_initialized_fields(unit, selections, &initializers);
     }
 

@@ -378,6 +378,7 @@ fn render_metadata(inputs: &[Input]) -> Result<Vec<u8>, String> {
     };
 
     let mut output = serde_json::to_vec_pretty(&metadata).map_err(|error| error.to_string())?;
+
     output.push(b'\n');
 
     Ok(output)

@@ -112,6 +112,7 @@ pub(super) fn resolve<C: CheckerRequestContext + ?Sized>(
 
     loop {
         resolver.changed = false;
+
         let result = resolver.requirements(requirements)?;
 
         if !resolver.changed {
@@ -146,7 +147,9 @@ impl<C: CheckerRequestContext + ?Sized> ResultResolver<'_, C> {
             DependencyContractTemplateData::new(self.requirements(template.requirements())?);
 
         self.active.remove(&key);
+
         let result = result.requirements().to_vec();
+
         self.changed |= self.results.get(&key) != Some(&result);
 
         // The memoized fixed-point value and this caller need independent owned snapshots.
@@ -175,6 +178,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultResolver<'_, C> {
 
         let evaluated = loop {
             self.equations[scope].changed = false;
+
             let evaluated = self.requirements(result)?;
 
             if super::equations::has_variables(&evaluated, true) {
@@ -241,8 +245,11 @@ impl<C: CheckerRequestContext + ?Sized> ResultResolver<'_, C> {
         }
 
         let previous = self.scope;
+
         self.scope = Some(scope);
+
         let value = self.requirements(&definition)?;
+
         self.scope = previous;
         self.equations[scope].active.remove(&ordinal.raw());
 

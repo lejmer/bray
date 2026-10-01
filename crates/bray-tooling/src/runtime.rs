@@ -241,6 +241,7 @@ mod tests {
         let directory = tempfile::tempdir_in(".").unwrap();
         let metadata_path = directory.path().join("bray-runtime.brayrt");
         let archive = directory.path().join("runtime.lib");
+
         std::fs::write(&archive, b"!<arch>\n").unwrap();
 
         let indexes = RuntimeArtifactPurpose::ALL.map(|purpose| {
@@ -263,6 +264,7 @@ mod tests {
         for index in artifact.native_indexes() {
             for unit in index.index().units() {
                 let path = index.payload(unit.digest()).unwrap();
+
                 assert!(path.is_absolute());
                 assert!(path.starts_with(directory.join("native")));
             }

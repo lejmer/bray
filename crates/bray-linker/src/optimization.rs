@@ -180,6 +180,7 @@ impl OptimizationReportRequest {
 
 pub(crate) fn partial_report_path(path: &Path) -> PathBuf {
     let mut partial = path.as_os_str().to_owned();
+
     partial.push(".partial");
 
     PathBuf::from(partial)

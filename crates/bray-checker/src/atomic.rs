@@ -438,6 +438,7 @@ where
 
     // The support remains available to other consumers, so retain its diagnostics here.
     diagnostics.add_range(representation.diagnostics().clone());
+
     let representation = representation.value();
 
     if representation.is_recovered() || !representation.has_finite_size() {

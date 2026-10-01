@@ -48,6 +48,7 @@ impl CleanupOutcome {
         runtime_abi: RuntimeAbiVersion,
     ) -> Result<Self, MirCapacityError> {
         let outcome = Self::allocate(builder, source, boolean, report, unit, runtime_abi)?;
+
         outcome.begin(builder, block, source)?;
 
         Ok(outcome)
@@ -275,6 +276,7 @@ impl CleanupOutcome {
         cancelled: MirBlockId,
     ) -> Result<MirBlockId, MirCapacityError> {
         self.end_shield(builder, block, source)?;
+
         let kind = builder.block_kind(block);
         let no_panic = builder.push_block(source.clone(), kind)?;
         let completed = builder.push_block(source.clone(), kind)?;

@@ -27,7 +27,9 @@ impl Lowerer<'_> {
 
         let AsyncStorageCleanupRequirement::Cleanup(phases) = plan.cleanup() else {
             let ty = destination.ty();
+
             self.install_replacement(block, source, destination, value)?;
+
             let storage = self.input.storage_plan();
 
             if storage.resolved_projections(plan.access()) == Some(&[])
@@ -70,6 +72,7 @@ impl Lowerer<'_> {
         )?;
 
         let report = self.representation_type(RepresentationRole::PanicReport)?;
+
         self.cleanup_outcome = Some(self.create_cleanup_outcome(block, source)?);
 
         let broadcast = self.builder.push_block(

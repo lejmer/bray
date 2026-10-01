@@ -57,6 +57,7 @@ impl DiagnosticBag {
     /// Creates a diagnostic bag containing one diagnostic.
     pub fn single(diagnostic: Diagnostic) -> Self {
         let mut bag = Self::with_capacity(1);
+
         bag.add(diagnostic);
 
         bag
@@ -333,6 +334,7 @@ impl Extend<Diagnostic> for DiagnosticBag {
 impl FromIterator<Diagnostic> for DiagnosticBag {
     fn from_iter<T: IntoIterator<Item = Diagnostic>>(iter: T) -> Self {
         let mut bag = Self::new();
+
         bag.extend(iter);
 
         bag

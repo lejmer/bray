@@ -557,6 +557,7 @@ mod tests {
     #[test]
     fn validation_rejects_unknown_and_duplicate_observation_descriptors() {
         let mut unknown = report(1_000_000);
+
         unknown.operations[0].id = 99;
 
         assert_eq!(
@@ -568,6 +569,7 @@ mod tests {
         );
 
         let mut duplicate = report(1_000_000);
+
         duplicate.operations.push(duplicate.operations[0].clone());
 
         assert_eq!(
@@ -620,6 +622,7 @@ mod tests {
     #[test]
     fn validation_requires_canonical_runtime_roles_and_callback_entries() {
         let mut invalid_role = report(1_000_000);
+
         invalid_role.runtime_roles = vec![" ".to_owned()];
 
         assert_eq!(
@@ -628,6 +631,7 @@ mod tests {
         );
 
         let mut duplicate_role = report(1_000_000);
+
         duplicate_role.runtime_roles = vec!["panic_reporting".to_owned(); 2];
 
         assert_eq!(
@@ -641,6 +645,7 @@ mod tests {
         );
 
         let mut invalid_entry = report(1_000_000);
+
         invalid_entry.native_callback_entries = vec![String::new()];
 
         assert_eq!(
@@ -649,6 +654,7 @@ mod tests {
         );
 
         let mut duplicate_entry = report(1_000_000);
+
         duplicate_entry.native_callback_entries = vec!["callback".to_owned(); 2];
 
         assert_eq!(
@@ -755,9 +761,11 @@ mod tests {
         );
 
         let mut native_root = report(1_000_000);
+
         native_root.native_codegen = Some(inventory.clone());
         native_root.native_codegen.as_mut().unwrap().runtime_demands[0].predecessor = None;
         assert!(native_root.validate().is_ok());
+
         let encoded = serde_json::to_vec(&native_root).expect("native root profile must serialize");
 
         let decoded: crate::CompilationProfileReport =

@@ -588,6 +588,7 @@ mod tests {
         assert_eq!(first_plan.backend_requests().len(), 2);
 
         let mut expected_units = [first_unit, second_unit];
+
         expected_units.sort();
 
         assert_eq!(first_plan.backend_requests()[0].unit(), &expected_units[0]);

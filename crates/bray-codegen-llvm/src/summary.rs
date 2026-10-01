@@ -272,6 +272,7 @@ fn module_assembly_summary(
     )?;
 
     machine.configure_module(module);
+
     let bytes = machine.serialize(module, inkwell::targets::FileType::Object)?;
 
     let native = scan_object_unit_summary(&bytes).unwrap_or_else(|error| {
@@ -313,6 +314,7 @@ fn alias_name(line: &str) -> Option<std::borrow::Cow<'_, str>> {
             if byte == b'\\' {
                 let high = char::from(input.next()?).to_digit(16)?;
                 let low = char::from(input.next()?).to_digit(16)?;
+
                 bytes.push(u8::try_from(high * 16 + low).expect("two hex digits fit a byte"));
             } else {
                 bytes.push(byte);
@@ -725,6 +727,7 @@ mod tests {
             );
 
             let observed = summary(&ir, target);
+
             assert!(matches!(observed, NativeUnitSummary::Opaque { .. }));
 
             assert!(

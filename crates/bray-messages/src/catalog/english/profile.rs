@@ -629,6 +629,7 @@ fn display_name(canonical: &str) -> String {
     }
 
     let mut shortened = name.chars().take(NAME_WIDTH - 1).collect::<String>();
+
     shortened.push('…');
 
     shortened

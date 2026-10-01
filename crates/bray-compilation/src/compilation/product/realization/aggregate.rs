@@ -482,6 +482,7 @@ impl Compilation {
         self.codegen_type(element, target, cancellation, mappings, pending)?;
 
         let element_layout = sized_layout(mappings, element)?;
+
         alignment = alignment.max(element_layout.alignment());
 
         if let Some(requested) = requested_alignment.and_then(NonZeroU64::new) {

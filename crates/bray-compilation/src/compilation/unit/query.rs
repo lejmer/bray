@@ -895,9 +895,13 @@ mod tests {
             );
 
             let application = compilation(&source);
+
             assert!(application.source_diagnostics().is_empty(), "{source}");
+
             let syntax = application.syntax_tree_result().diagnostics();
+
             assert!(syntax.has_errors(), "{source}");
+
             let diagnostics = application.check_diagnostics();
 
             for diagnostic in syntax.iter() {
@@ -2279,6 +2283,7 @@ mod tests {
                     .unwrap();
 
                 assert!(!good.diagnostics().has_errors(), "{:?}", good.diagnostics());
+
                 let _ = finished.send(());
             });
         }
@@ -3658,6 +3663,7 @@ mod tests {
         let lowered = compilation.lowered_unit(key).unwrap();
         let mir = lowered.value().as_ref().unwrap().mir().unwrap();
         let calls: Vec<_> = mir.operations().iter().filter(|operation| matches!(operation.kind(), bray_ir::MirOperationKind::Call(call) if matches!(call.target(), bray_ir::MirCallTarget::Direct(_)))).collect();
+
         assert_eq!(calls.len(), 1, "{calls:#?}");
     }
 
@@ -4948,6 +4954,7 @@ mod tests {
             };
 
             assert_eq!(decision.state(), expected, "{source}");
+
             let analysis = compilation.async_analysis(key.clone()).unwrap();
 
             let [plan] = analysis.value().replacements() else {
@@ -5003,6 +5010,7 @@ mod tests {
             );
 
             let lowered = compilation.lowered_unit(key);
+
             assert!(lowered.is_ok(), "{name}: {lowered:?}");
             assert!(lowered.unwrap().value().is_some(), "{name}");
         }
@@ -5036,6 +5044,7 @@ mod tests {
             "main",
         ] {
             let lowered = compilation.lowered_unit(source_function_body_key(&compilation, name));
+
             assert!(lowered.is_ok(), "{name}: {lowered:?}");
             assert!(lowered.unwrap().value().is_some(), "{name}");
         }
@@ -5588,6 +5597,7 @@ func main(pos value: &(Guard?, Guard?)) -> usize
                 .collect::<Vec<_>>();
 
             assert_eq!(expected.len(), 1, "{source}: {:?}", bound.diagnostics());
+
             let span = expected[0].primary_span().unwrap();
 
             assert_eq!(
@@ -6026,6 +6036,7 @@ func main(pos value: &Guard?) -> usize
         };
 
         let constant = types_for_kind(&compilation, &keys, BoundUnitKind::ConstantTemplate);
+
         assert!(has_value_kind(constant.value(), SymbolKind::Constant));
 
         assert!(has_constraint_kind(
@@ -8221,7 +8232,9 @@ func reinitialized(pos flag: bool, pos mut guard: Guard) -> i32
             let key = source_function_body_key(&compilation, name);
             let analysis = compilation.async_analysis(key.clone()).unwrap();
             let lowered = compilation.lowered_unit(key).unwrap();
+
             assert!(lowered.value().is_some(), "{name}: {lowered:?}");
+
             let mir = lowered.value().as_ref().unwrap().mir().unwrap();
 
             if name == "conditional" {
@@ -8295,7 +8308,9 @@ func tupled(pos flag: bool, pos pair: (Guard, Guard)) -> i32
             assert_eq!(partitions[0].len(), 2, "{name}: {analysis:?}");
 
             let lowered = compilation.lowered_unit(key).unwrap();
+
             assert!(lowered.value().is_some(), "{name}: {lowered:?}");
+
             let mir = lowered.value().as_ref().unwrap().mir().unwrap();
 
             assert!(mir.operations().iter().any(|operation| matches!(operation.kind(),
@@ -8566,6 +8581,7 @@ func tupled(pos flag: bool, pos pair: (Guard, Guard)) -> i32
         );
 
         let key = source_function_body_key(&compilation, "invalid_borrow_move");
+
         assert!(compilation.lowered_unit(key).unwrap().value().is_none());
     }
 

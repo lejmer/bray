@@ -503,7 +503,9 @@ mod tests {
                 );
 
                 assert_eq!(layer.mut_token().is_some(), mutable);
+
                 let inner = layer.type_expressions().next().unwrap();
+
                 layer = inner;
             }
 

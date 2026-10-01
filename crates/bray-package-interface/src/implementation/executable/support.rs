@@ -95,13 +95,17 @@ mod tests {
         };
 
         let mut boolean = WireEncoder::new();
+
         boolean.write_u32(2);
+
         let mut boolean_reader = WireReader::new(boolean.bytes());
 
         assert_eq!(read_bool(&mut boolean_reader), Err(expected(2)));
 
         let mut optional = WireEncoder::new();
+
         optional.write_u32(3);
+
         let mut optional_reader = WireReader::new(optional.bytes());
 
         assert_eq!(

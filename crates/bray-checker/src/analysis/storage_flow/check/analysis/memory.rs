@@ -253,6 +253,7 @@ where
 
             if let Some(kind) = memory_diagnostic_kind(status) {
                 let origins = self.memory_failure_origins(state, operation, status);
+
                 self.add_memory_diagnostic(kind, operation, origins);
             }
         }

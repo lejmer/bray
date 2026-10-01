@@ -672,6 +672,7 @@ fn queue_diagnostics(
     );
 
     let mut task = diagnostic_task(document, id);
+
     task.cancellation = cancellation;
 
     pending.push_back(task);

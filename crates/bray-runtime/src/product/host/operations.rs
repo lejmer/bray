@@ -783,6 +783,7 @@ mod tests {
     impl Drop for ProviderIncident {
         fn drop(&mut self) {
             let provider = control(self.0, NativeProductHostOperation::OBSERVE);
+
             RELEASED_PROVIDER.set(Some((provider.state(), provider.thread_attachments())));
         }
     }
@@ -1509,6 +1510,7 @@ mod tests {
         );
 
         let rejected = control(&descriptor, NativeProductHostOperation::FINISH_ROOT);
+
         assert_eq!(rejected.status(), NativeProductHostStatus::INVALID_ARGUMENT);
         assert_eq!(rejected.state(), NativeProductHostState::OPEN);
         assert_eq!(rejected.thread_attachments(), 1);

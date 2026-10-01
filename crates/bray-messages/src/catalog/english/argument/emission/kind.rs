@@ -7,7 +7,7 @@ use bray_diagnostics::{
 pub(crate) const fn format_english_link_input_kind(kind: DiagnosticLinkInputKind) -> &'static str {
     match kind {
         DiagnosticLinkInputKind::RelocatableObject => "relocatable object",
-        DiagnosticLinkInputKind::Bitcode => "LLVM bitcode",
+        DiagnosticLinkInputKind::Bitcode => "bitcode",
         DiagnosticLinkInputKind::Archive => "native archive",
         DiagnosticLinkInputKind::StartupObject => "startup object",
         DiagnosticLinkInputKind::TerminationObject => "termination object",

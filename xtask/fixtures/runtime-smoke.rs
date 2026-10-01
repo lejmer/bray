@@ -477,6 +477,7 @@ extern "C" fn release_report(id: usize, _: usize, outcome: &mut RunOutcome) {
     assert!(outcome.state == RunState::COMPLETED);
 
     let previous = REPORT_RELEASES.fetch_add(id, Ordering::Relaxed);
+
     assert_eq!(previous, if id == 1 { 0 } else { 1 });
 }
 
@@ -497,6 +498,7 @@ fn admitted_reports_survive_failed_reservation() {
 
     let mut reports = records.into_iter().enumerate().map(|(index, record)| {
         let mut report = PanicReport::empty();
+
         report.source = [1, 17, 23, 29];
         report.source_version = 31;
         report.cause = 1;
@@ -517,6 +519,7 @@ fn admitted_reports_survive_failed_reservation() {
 
     let mut primary = reports.next().unwrap();
     let mut incident = reports.next().unwrap();
+
     bray_runtime_outgoing_discharge(2);
 
     // This valid-layout request exceeds the address space on supported 64-bit hosts.
@@ -532,6 +535,7 @@ fn admitted_reports_survive_failed_reservation() {
     }
 
     let mut report = bray_runtime_panic_report_suppression(&mut primary, &mut incident);
+
     assert_eq!(report.source, [1, 17, 23, 29]);
     assert_eq!(report.source_version, 31);
     assert_eq!(report.count, 1);

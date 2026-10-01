@@ -59,6 +59,7 @@ impl Compilation {
                 && let Some(owner) = self.execution_contract_owner(symbol)?
             {
                 let declared = self.execution_declaration(declaration.syntax_anchor())?;
+
                 diagnostics.add_range(declared.diagnostics().iter().cloned());
 
                 for domain in declared.value().domains() {

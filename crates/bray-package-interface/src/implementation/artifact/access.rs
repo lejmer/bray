@@ -75,6 +75,7 @@ impl PackageImplementationArtifact {
     /// Authenticates every payload, including otherwise unread implementation.
     pub fn verify_all(&self) -> Result<(), super::native::PackageNativeArtifactError> {
         self.storage.verify_length()?;
+
         let header = self.storage.read(0..super::HEADER_LENGTH)?;
 
         let directory_offset =

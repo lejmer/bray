@@ -176,6 +176,7 @@ impl ImplementationStorage {
                 })?;
 
                 bytes.resize(range.len(), 0);
+
                 let mut file = file.lock().expect("implementation read mutex poisoned");
 
                 file.seek(SeekFrom::Start(range.start as u64))

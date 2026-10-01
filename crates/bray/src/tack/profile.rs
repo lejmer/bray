@@ -372,6 +372,7 @@ mod tests {
     #[test]
     fn stored_profiles_reject_unsupported_schema_revisions() {
         let mut unsupported = report(1_000_000);
+
         unsupported.schema_revision = COMPILATION_PROFILE_SCHEMA_REVISION.saturating_add(1);
 
         let file = report_file(&unsupported);

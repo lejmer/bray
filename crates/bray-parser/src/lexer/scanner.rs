@@ -41,10 +41,12 @@ pub(super) fn scan_token_at(
     }
 
     let token_scan = scan_token_core(snapshot, token_start, mode);
+
     diagnostics = diagnostics.merged(token_scan.diagnostics());
 
     let token = token_scan.into_token();
     let trailing_trivia = scan_trailing_trivia(snapshot, token.end());
+
     diagnostics = diagnostics.merged(trailing_trivia.diagnostics());
 
     if trailing_trivia.reached_eof() {

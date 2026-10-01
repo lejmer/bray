@@ -729,6 +729,7 @@ mod tests {
             .unwrap();
 
             let substitution = store.intern_generic_substitution(data).unwrap();
+
             assert_eq!(store.substitution_is_concrete(substitution), expected);
         }
     }
@@ -931,6 +932,7 @@ mod tests {
 
         for _ in 0..8 {
             let store = Arc::clone(&store);
+
             threads.push(thread::spawn(move || store.intern_type(TypeData::Error)));
         }
 
@@ -986,6 +988,7 @@ mod tests {
         }
 
         assert_eq!(values.unborrowed_type(nullable), nullable);
+
         let foreign = store().intern_type(TypeData::tuple([])).unwrap();
 
         assert!(

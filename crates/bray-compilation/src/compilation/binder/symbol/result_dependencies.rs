@@ -92,6 +92,7 @@ fn infer_reachable_results(
                 && let BoundCallableTarget::Declaration(instance) = call.target()
             {
                 let callee = instance.definition().callable_symbol();
+
                 pending.push(callee);
                 edges.entry(callable).or_default().insert(callee);
             }
@@ -125,6 +126,7 @@ fn infer_reachable_results(
 
     loop {
         context.cancellation.check().map_err(binder_error)?;
+
         let mut changed = false;
 
         for (callable, (key, bound, expressions, patterns)) in &units {

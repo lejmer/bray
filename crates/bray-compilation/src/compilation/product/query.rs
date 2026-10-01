@@ -759,6 +759,7 @@ func main()
         );
 
         let semantics = product_semantics(&compilation);
+
         assert_goal_state_diagnostics(semantics.diagnostics());
 
         assert_goal_state_diagnostic_kind(
@@ -792,6 +793,7 @@ func main()
         );
 
         let semantics = product_semantics(&compilation);
+
         assert_goal_state_diagnostics(semantics.diagnostics());
 
         assert_goal_state_diagnostic_kind(
@@ -826,6 +828,7 @@ func main()
         );
 
         let semantics = product_semantics(&compilation);
+
         assert_goal_state_diagnostics(semantics.diagnostics());
 
         assert_goal_state_diagnostic_kind(
@@ -863,6 +866,7 @@ func main()
         );
 
         let semantics = product_semantics(&compilation);
+
         assert_goal_state_diagnostics(semantics.diagnostics());
 
         assert_goal_state_diagnostic_kind(
@@ -892,6 +896,7 @@ func main()
         );
 
         let semantics = product_semantics(&compilation);
+
         assert_goal_state_diagnostics(semantics.diagnostics());
 
         assert_goal_state_diagnostic_kind(

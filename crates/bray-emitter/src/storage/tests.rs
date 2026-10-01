@@ -161,6 +161,7 @@ fn public_path_claims_prevent_cross_product_ownership() {
         .unwrap();
 
     drop(second_lease);
+
     let public = root.path().join("application.brayi");
 
     std::fs::write(&public, b"second product").unwrap();
@@ -204,6 +205,7 @@ fn expired_product_cannot_be_pinned_and_renewed_before_maintenance() {
         .replace('\\', "/");
 
     let expired_at = SystemTime::now() - Duration::from_secs(2);
+
     store.index.entries.get_mut(&key).unwrap().last_used = expired_at;
     store.save().unwrap();
 
@@ -404,7 +406,9 @@ fn abandoned_operation_child() {
 fn storage_metadata_rejects_invalid_owners_and_non_directory_managed_roots() {
     let root = tempfile::tempdir().unwrap();
     let cache = ManagedCache::thin_lto(root.path(), &target_identity(), "llvm", &|| false).unwrap();
+
     drop(cache);
+
     let index = root.path().join(".bray/storage-index.json");
 
     let mut value: serde_json::Value =
@@ -439,6 +443,7 @@ fn storage_metadata_rejects_invalid_owners_and_non_directory_managed_roots() {
     ));
 
     let root = tempfile::tempdir().unwrap();
+
     std::fs::write(root.path().join(".bray"), b"unmanaged file").unwrap();
 
     let error = crate::clean_storage(root.path(), &StorageSelection::default(), false, &|| false)
@@ -458,8 +463,11 @@ fn cleanup_rejects_symlinks_without_touching_their_target() {
     let root = tempfile::tempdir().unwrap();
     let outside = tempfile::tempdir().unwrap();
     let file = outside.path().join("user-data");
+
     std::fs::write(&file, b"keep").unwrap();
+
     let cache = ManagedCache::thin_lto(root.path(), &target_identity(), "llvm", &|| false).unwrap();
+
     std::os::unix::fs::symlink(&file, cache.directory().join("link")).unwrap();
     drop(cache);
 

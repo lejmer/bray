@@ -143,6 +143,7 @@ impl TestFrame {
 
     pub(crate) fn failing_with_cleanup_panic() -> Self {
         let mut frame = Self::sequence([FrameProgress::RuntimeFailure], 1);
+
         frame.cleanup_panics = true;
 
         frame

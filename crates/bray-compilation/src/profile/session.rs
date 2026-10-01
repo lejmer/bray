@@ -876,6 +876,7 @@ mod tests {
         );
 
         let ready = session.start_query_request(ProfileQueryKind::SyntaxTree);
+
         clock.advance(3);
         ready.finish_hit();
 
@@ -895,6 +896,7 @@ mod tests {
 
         {
             let _activity = session.start_worker_activity();
+
             clock.advance(11);
         }
 
@@ -1036,9 +1038,11 @@ mod tests {
         );
 
         let outer = session.start(ProfileOperation::CompilationLoad, None);
+
         clock.advance(3);
 
         let inner = session.start(ProfileOperation::QueryEvaluation, None);
+
         clock.advance(5);
         inner.finish(CompilationProfileOutcome::Completed);
 

@@ -129,6 +129,7 @@ impl ValueInputs {
         >,
     ) -> Result<Self, crate::CheckerQueryError<C::UpstreamError>> {
         let mut inputs = Self::new(request.unit(), selections, patterns);
+
         inputs.collect_returned_borrows(request, types, selections, declaration)?;
         inputs.collect_projections(request.unit(), selections, patterns);
         inputs.writes = super::assignment::assignment_inputs(request.unit(), selections, &inputs);

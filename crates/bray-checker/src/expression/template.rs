@@ -192,6 +192,7 @@ where
     };
 
     let mut arguments = Vec::with_capacity(parameters.len());
+
     arguments.extend_from_slice(explicit);
     arguments.extend(open_generic_arguments(request, remaining)?);
 

@@ -128,6 +128,7 @@ pub(crate) fn execute_synchronous_root<T>(
     outgoing: &mut crate::outgoing::OutgoingRecords,
 ) -> RunOutcome<T> {
     let cancellation = CancellationContext::root();
+
     on_started(RootCancellationHandle::new(cancellation.clone()));
 
     with_run_cancellation_context(cancellation, || {

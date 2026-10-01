@@ -331,6 +331,7 @@ fn cache_budget_rows(
         }
 
         check_cancelled(&store.metadata, cancellation)?;
+
         let path = store.metadata.join(key);
 
         if !managed_directory_exists(&store.metadata, Path::new(key))? {

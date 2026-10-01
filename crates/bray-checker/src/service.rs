@@ -693,6 +693,7 @@ mod tests {
 
         let entry = SemanticUnitContext::RuntimeDefault(declaration);
         let context = TestCheckerContext::new(false);
+
         CheckerUnitView::new(&unit, &entry, &context);
     }
 

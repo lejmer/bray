@@ -519,6 +519,7 @@ mod tests {
                 Object::new(BinaryFormat::Coff, Architecture::X86_64, Endianness::Little);
 
             let text = object.section_id(StandardSection::Text);
+
             object.append_section_data(text, &[0xc3], 1);
             object.section_symbol(text);
 
@@ -534,6 +535,7 @@ mod tests {
             });
 
             let data = object.section_id(StandardSection::Data);
+
             object.append_section_data(data, &[0; 8], 8);
             object.section_symbol(data);
 
@@ -592,6 +594,7 @@ mod tests {
         for format in [BinaryFormat::Coff, BinaryFormat::Elf] {
             let mut object = Object::new(format, Architecture::X86_64, Endianness::Little);
             let data = object.section_id(StandardSection::Tls);
+
             object.append_section_data(data, &[0; 8], 8);
 
             object.add_symbol(Symbol {
@@ -622,6 +625,7 @@ mod tests {
     fn object_fixture(format: BinaryFormat, lifecycle_section: &str) -> Vec<u8> {
         let mut object = Object::new(format, Architecture::X86_64, Endianness::Little);
         let text = object.section_id(StandardSection::Text);
+
         object.append_section_data(text, &[0xc3], 1);
 
         object.add_symbol(Symbol {

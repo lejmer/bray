@@ -757,6 +757,7 @@ fn map_arguments(
         }
 
         supplied[parameter_index] = Some(argument.expression());
+
         let parameter = signatures.map(|signatures| signatures[parameter_index].parameter());
 
         let Ok(ordinal) = u32::try_from(parameter_index) else {
@@ -914,6 +915,7 @@ fn map_argument_parameter_indices_for_diagnostic(
             }
             None => {
                 let index = positional_index;
+
                 positional_index += 1;
 
                 let Some(parameter) = parameters.get(index) else {
@@ -973,6 +975,7 @@ pub(crate) fn map_argument_parameter_indices(
             None if saw_named => return None,
             None => {
                 let index = positional_index;
+
                 positional_index += 1;
 
                 match parameters.get(index) {

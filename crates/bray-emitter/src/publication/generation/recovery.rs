@@ -85,6 +85,7 @@ pub(super) fn recover_publication(
 
         for artifact in manifest.artifacts {
             check_cancelled(store, cancellation)?;
+
             let source = artifact_path(&generation, &artifact.path)?;
             let destination = artifact_path(root, &artifact.published_path)?;
 

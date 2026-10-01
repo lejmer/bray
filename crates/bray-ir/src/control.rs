@@ -780,7 +780,9 @@ mod tests {
 
         assert_eq!(result, Err(first));
         assert_eq!(visited, [first]);
+
         let mut successors = Vec::new();
+
         terminator.for_each_successor(|block| successors.push(block));
         assert_eq!(successors, [replacement, second]);
     }

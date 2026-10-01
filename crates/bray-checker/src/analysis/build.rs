@@ -418,6 +418,7 @@ where
         {
             // Old cleanup failure is observable only after the replacement is installed.
             let continuation = self.push_block();
+
             self.push_edge(current, continuation, AnalysisEdgeKind::Sequential, None);
             self.push_exit(current, AnalysisExitKind::Panic, id.into());
             self.push_exit(current, AnalysisExitKind::Cancellation, id.into());
@@ -625,6 +626,7 @@ where
 
                 if let Some(context) = target_result {
                     self.push_cleanup_failures(block, context.scope_depth, id.into());
+
                     let block = self.resolve_scopes(block, context.scope_depth, id.into());
 
                     self.push_edge(block, context.completion, AnalysisEdgeKind::Yield, None);
@@ -652,6 +654,7 @@ where
             BoundControlTransferKind::Break => match target_loop {
                 Some(context) => {
                     self.push_cleanup_failures(block, context.scope_depth, id.into());
+
                     let block = self.resolve_scopes(block, context.scope_depth, id.into());
 
                     self.push_edge(block, context.completion, AnalysisEdgeKind::LoopBreak, None);
@@ -668,6 +671,7 @@ where
                 Some(context) => match context.continue_target {
                     Some(header) => {
                         self.push_cleanup_failures(block, context.scope_depth, id.into());
+
                         let block = self.resolve_scopes(block, context.scope_depth, id.into());
 
                         self.push_edge(block, header, AnalysisEdgeKind::LoopContinue, None);

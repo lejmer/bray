@@ -649,6 +649,7 @@ fn run_one(
     };
 
     let mut result = result_from_outputs(outputs, output_format);
+
     result.set_exit_code(exit_code);
 
     result
@@ -1584,12 +1585,17 @@ mod tests {
             }
 
             let result = run_tack_result_with_input(arguments, &executor, Cursor::new(Vec::new()));
+
             assert_eq!(result.exit_code(), ExitCode::SUCCESS, "{result:#?}");
+
             let report: serde_json::Value = serde_json::from_str(result.stdout()).unwrap();
+
             assert_eq!(report["kind"], "storage_report");
             assert_eq!(report["clean"], command == "clean");
             assert_eq!(report["dry_run"], dry_run);
+
             let row = &report["entries"][0];
+
             assert_eq!(row["bytes"], 14);
             assert_eq!(row["shared_bytes"], 0);
             assert_eq!(row["target"], target.as_str());
@@ -2222,6 +2228,7 @@ mod tests {
     #[test]
     fn build_does_not_substitute_a_default_product_artifact() {
         let workspace = ProjectWorkspace::basic();
+
         workspace.set_product_outputs(&["backend_ir"]);
 
         let executor = RecordingExecutor::default();
@@ -2363,6 +2370,7 @@ mod tests {
     #[test]
     fn formatter_configuration_paths_follow_workspace_and_invocation_ownership() {
         let workspace = ProjectWorkspace::basic();
+
         workspace.set_formatter_configuration("configuration/workspace.json");
 
         let workspace_executor = RecordingExecutor::default();

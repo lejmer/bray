@@ -200,6 +200,7 @@ impl CallableCandidate {
         };
 
         let mut defaults = defaults.into_iter().collect::<Vec<_>>();
+
         defaults.sort_unstable_by_key(|(parameter, _)| *parameter);
 
         self.declaration_signature = Some(signature);

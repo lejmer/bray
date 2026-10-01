@@ -108,6 +108,7 @@ pub(super) fn compute_metadata_hash(header: &[u8], directory: &[u8]) -> Option<[
     let (_, after) = after_hash.split_at_checked(32)?;
 
     let mut hasher = Hasher::new();
+
     hasher.update(b"bray.package-implementation.metadata.v1");
     hasher.update(before);
     hasher.update(&[0; 32]);

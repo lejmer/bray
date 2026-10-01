@@ -155,7 +155,9 @@ impl<'bytes> RecordTable<'bytes> {
         let previous = context.replace_validation(validation);
         let mut reader = WireReader::new(self.record(index)?);
         let value = decode(&mut reader, context).map_err(|error| with_context(error, validation));
+
         context.replace_validation(previous);
+
         let value = value?;
 
         reader.finish().map_err(wire_error(

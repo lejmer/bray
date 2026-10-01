@@ -354,6 +354,7 @@ impl Compilation {
                 )?;
 
                 let valid = *conformance.value();
+
                 diagnostics.add_range(conformance.into_parts().1);
 
                 if valid {
@@ -1656,6 +1657,7 @@ mod tests {
 
             if valid {
                 let diagnostics = compilation.check_diagnostics();
+
                 assert!(!diagnostics.has_errors(), "{source}: {diagnostics:?}");
             }
         }

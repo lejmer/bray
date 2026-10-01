@@ -180,6 +180,7 @@ mod tests {
             "bray_platform_unprojected_operation",
         ] {
             let mut host = exports(RuntimeArchiveKind::Host);
+
             host.push(symbol.to_owned());
 
             assert!(matches!(validate(RuntimeArchiveKind::Host, &host),
@@ -190,6 +191,7 @@ mod tests {
         let misplaced = support_exports(RuntimeArchiveKind::Host).next().unwrap();
 
         let mut callback = exports(RuntimeArchiveKind::Callback);
+
         callback.push(misplaced.to_owned());
 
         assert!(matches!(validate(RuntimeArchiveKind::Callback, &callback),
@@ -209,6 +211,7 @@ mod tests {
 
             for symbol in owners.into_iter().flat_map(support_exports) {
                 let mut missing = exports(kind);
+
                 missing.retain(|candidate| candidate != symbol);
 
                 assert!(matches!(validate(kind, &missing),
@@ -216,6 +219,7 @@ mod tests {
                 if error.missing == [symbol]));
 
                 let mut duplicate = exports(kind);
+
                 duplicate.push(symbol.to_owned());
 
                 assert!(matches!(validate(kind, &duplicate),
@@ -284,6 +288,7 @@ mod tests {
         assert!(validate_exports(kind, &exports(kind), std::slice::from_ref(&fallback)).is_ok());
 
         let mut strong = exports(kind);
+
         strong.push(fallback.clone());
 
         assert!(matches!(validate_exports(kind, &strong, &[]),

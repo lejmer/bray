@@ -926,6 +926,7 @@ mod tests {
         );
 
         let completed = checked_memory_continuation(&mut builder, entry, &source, types);
+
         builder.set_terminator(completed, source.clone(), MirTerminatorKind::Return(None));
 
         let mir = builder.finish(entry);

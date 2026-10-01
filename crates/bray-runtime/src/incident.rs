@@ -506,6 +506,7 @@ mod tests {
     extern "C-unwind" fn reentrant_report(payload: usize) -> NativeRuntimeStatus {
         REENTRANT.with_borrow(|sink| {
             let sink = sink.as_ref().unwrap();
+
             transfer(sink, Box::new(Release(3)));
             sink.drain(|_| panic!("nested reporting must defer to the active drain"));
         });
@@ -520,6 +521,7 @@ mod tests {
     ) {
         REENTRANT.with_borrow(|sink| {
             let sink = sink.as_ref().unwrap();
+
             transfer(sink, Box::new(Release(4)));
             sink.drain(|_| panic!("nested release must defer to the active drain"));
         });

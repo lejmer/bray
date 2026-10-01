@@ -36,6 +36,7 @@ impl OutgoingRecords {
         }
 
         let mut outcome = NativeRunOutcome::new(NativeRunState::COMPLETED, 0);
+
         provider::bray_runtime_outgoing_admission(count, &mut outcome);
 
         if outcome.state() != NativeRunState::COMPLETED {
@@ -51,6 +52,7 @@ impl OutgoingRecords {
 
     pub(crate) fn take(&mut self, count: usize) -> Self {
         let mut taken = Self::default();
+
         provider::bray_runtime_report_records_take(&mut self.0, count, &mut taken.0);
 
         taken
@@ -86,6 +88,7 @@ impl OutgoingRecords {
     ) -> (NativePanicPrimary, Self) {
         let mut reserved = self.take(1);
         let mut primary = NativePanicPrimary::empty();
+
         reserved.exchange(&mut primary);
         crate::frame::attach_rust_panic_payload(&mut primary, payload);
 
@@ -102,6 +105,7 @@ impl OutgoingRecords {
         }
 
         let mut primary = NativePanicPrimary::empty();
+
         provider::bray_runtime_report_records_pop(&mut self.0, &mut primary);
 
         Some(primary)
@@ -114,6 +118,7 @@ impl OutgoingRecords {
         admitted: &mut Self,
     ) {
         let mut incident = panic.into_records(admitted);
+
         provider::bray_runtime_report_segment_mark(&mut incident.0, &metadata.into_native());
         self.append(&mut incident);
     }
@@ -125,6 +130,7 @@ impl OutgoingRecords {
 
         let mut metadata = NativeReportSegment::default();
         let mut incident = Self::default();
+
         provider::bray_runtime_report_segment_take(&mut self.0, &mut metadata, &mut incident.0);
 
         Some(crate::shutdown::CleanupIncident::new(

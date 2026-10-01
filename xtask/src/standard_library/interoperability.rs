@@ -252,6 +252,7 @@ fn build_native_fixture(
     )?);
 
     let clang = native_tool(DiagnosticLlvmToolRole::CompilerDriver)?;
+
     compile_native_fixture_source(&clang, &source, &shared_object, true)?;
 
     let mut shared_command = Command::new(&clang);

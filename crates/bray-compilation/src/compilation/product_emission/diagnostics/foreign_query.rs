@@ -225,6 +225,7 @@ fn context_with_data(
     data: ForeignDataKind,
 ) -> Vec<DiagnosticFailureField> {
     let mut fields = foreign_query_context(context);
+
     fields.push(text_field("data_kind", foreign_data_kind(data)));
 
     fields

@@ -46,6 +46,7 @@ impl PackageImplementationArtifact {
         limits: InterfaceValidationLimits,
     ) -> Result<Self, InterfaceValidationError> {
         limits.check(InterfaceLimit::FileSize, storage.len() as u64)?;
+
         let header = storage.read(0..HEADER_LENGTH.min(storage.len()))?;
 
         let mut reader = WireReader::new(&header);
@@ -168,6 +169,7 @@ impl PackageImplementationArtifact {
         )?;
 
         limits.check(InterfaceLimit::DecodedAllocation, directory_length as u64)?;
+
         let directory_bytes = storage.read(directory_offset..storage.len())?;
 
         let actual_artifact_hash = compute_metadata_hash(&header, &directory_bytes).ok_or(

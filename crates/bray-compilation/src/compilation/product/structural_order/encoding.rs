@@ -30,6 +30,7 @@ impl From<Vec<u8>> for OrderKey {
 
 pub(super) fn sequence(parts: impl IntoIterator<Item = OrderKey>) -> OrderKey {
     let mut bytes = sequence_prefix(parts);
+
     bytes.push(0);
 
     OrderKey(bytes)
@@ -63,6 +64,7 @@ pub(super) fn integer(value: &IntegerConstant) -> OrderKey {
     let negative = value.sign() == IntegerSign::Negative;
 
     let mut bytes = Vec::with_capacity(9 + value.magnitude().len());
+
     bytes.push(u8::from(!negative));
 
     bytes.extend_from_slice(

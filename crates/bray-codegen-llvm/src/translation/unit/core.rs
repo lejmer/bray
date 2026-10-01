@@ -740,6 +740,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                             self.storages.insert(storage, pointer);
                         } else {
                             let destination = self.storage(storage)?;
+
                             llvm(self.builder.build_store(destination, value))?;
                         }
                     }
@@ -764,6 +765,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                     if let Some(storage) = storage {
                         let destination = self.storage(storage)?;
+
                         llvm(self.builder.build_store(destination, value))?;
                     }
 

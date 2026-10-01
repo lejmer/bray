@@ -1179,6 +1179,7 @@ mod large_metadata_tests {
     fn ten_thousand_units_round_trip_above_the_old_sixteen_mib_ceiling() {
         let definitions = (0..10_000u32).map(|number| {
             let mut digest = [0; 32];
+
             digest[..4].copy_from_slice(&number.to_be_bytes());
 
             let symbol =
@@ -1215,7 +1216,9 @@ mod large_metadata_tests {
         .unwrap();
 
         let bytes = index.encode().unwrap();
+
         assert!(bytes.len() > 16 * 1024 * 1024);
+
         let digest = NativeContentDigest::new(bray_base::sha256_reader(bytes.as_slice()).unwrap());
 
         assert_eq!(

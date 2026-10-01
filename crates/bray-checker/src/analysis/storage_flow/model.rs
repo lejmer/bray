@@ -295,6 +295,7 @@ impl StorageFlowState {
                 };
 
                 let count = origins.len();
+
                 origins.extend(incoming_origins.iter().copied());
                 memory_origins_changed |= origins.len() != count;
 
@@ -310,6 +311,7 @@ impl StorageFlowState {
             };
 
             let count = origins.len();
+
             origins.extend(incoming_origins.iter().copied());
             memory_origins_changed |= origins.len() != count;
 
@@ -319,6 +321,7 @@ impl StorageFlowState {
         for (&storage, incoming_origins) in &incoming.allocation_origins {
             let origins = self.allocation_origins.entry(storage).or_default();
             let count = origins.len();
+
             origins.extend(incoming_origins.iter().copied());
             memory_origins_changed |= origins.len() != count;
         }
@@ -326,6 +329,7 @@ impl StorageFlowState {
         for (&storage, incoming_origins) in &incoming.invalidated_allocations {
             let origins = self.invalidated_allocations.entry(storage).or_default();
             let count = origins.len();
+
             origins.extend(incoming_origins.iter().copied());
             memory_origins_changed |= origins.len() != count;
         }
@@ -472,6 +476,7 @@ where
 
         if edge.kind() == AnalysisEdgeKind::Recovery {
             let mut incoming = source.clone();
+
             incoming.recovered = true;
 
             return target.merge(&incoming);
@@ -516,12 +521,14 @@ mod tests {
         let (identity, _) = storage_and_expressions(78);
 
         let mut observed = reachable_state();
+
         observed.observed_pattern_bindings.insert(identity);
 
         assert!(observed.live.is_empty());
         assert!(observed.initialized.is_empty());
 
         let mut merged = observed.clone();
+
         assert!(!merged.merge(&observed));
         assert!(merged.observed_pattern_bindings.contains(&identity));
         assert!(merged.merge(&reachable_state()));
@@ -629,6 +636,7 @@ mod tests {
         let (identity, _) = storage_and_expressions(80);
 
         let mut initialized = reachable_state();
+
         initialized.live.insert(identity);
         initialized.initialized.insert(identity);
 

@@ -296,6 +296,7 @@ where
     I: Copy + Ord,
 {
     let mut entries = entries.into_iter().collect::<Vec<_>>();
+
     entries.sort_unstable_by_key(|(occurrence, _)| *occurrence);
 
     let mut output = Vec::with_capacity(entries.len());

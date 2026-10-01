@@ -113,6 +113,7 @@ impl DeclaredValueTypeBinding<'_> {
 
         for (parameter, ty) in callable_parameter_templates(self.context, signature)? {
             let ty = self.callable_body_type(owner, &ty)?;
+
             self.add_evidence(surface_value(parameter.into()), ty);
         }
 

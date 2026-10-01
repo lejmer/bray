@@ -228,6 +228,7 @@ impl LexerTokenSource {
 
     fn scan_token_at(&mut self, offset: TextSize, mode: LexerScanMode) -> SyntaxToken {
         let scan = scan_token_at(&self.snapshot, offset, mode);
+
         self.record_diagnostics(scan.diagnostics());
 
         scan.into_token()
@@ -420,6 +421,7 @@ mod tests {
             LexerTokenSource::with_cache_policy(snapshot, LexerCachePolicy::DoNotCacheTokens);
 
         assert_eq!(source.cache_policy(), LexerCachePolicy::DoNotCacheTokens);
+
         let peeked = source.peek();
         let lookahead = source.lookahead(1);
         let first = source.consume();

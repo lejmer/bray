@@ -702,10 +702,12 @@ mod tests {
                 _: &dyn bray_base::Cancellation,
             ) -> Result<BackendBitcodeOptimizationOutcome, CodegenFailure> {
                 self.0.fetch_add(1, Ordering::Relaxed);
+
                 let context = Context::create();
                 let bytes = content.read_shared().unwrap();
                 let module = crate::parse_bitcode(&bytes, &context)?;
                 let storage = module.add_global(context.i32_type(), None, "finalized_storage");
+
                 storage.set_initializer(&context.i32_type().const_int(7, false));
 
                 Ok(BackendBitcodeOptimizationOutcome::Complete(

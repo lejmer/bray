@@ -131,6 +131,7 @@ fn bounded_reuse(entries: impl IntoIterator<Item = RetainedInput>) -> BoundedLis
     entries.dedup();
 
     let omitted_count = entries.len().saturating_sub(MAX_RETAINED_INPUT_COUNT);
+
     entries.truncate(MAX_RETAINED_INPUT_COUNT);
 
     BoundedList {

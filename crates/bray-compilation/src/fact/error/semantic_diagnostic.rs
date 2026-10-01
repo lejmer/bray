@@ -22,6 +22,7 @@ pub(crate) fn diagnostic_semantic_query_failure(
         }
         SemanticQueryFailure::CallableSignature { callable, cause } => {
             let mut context = Vec::new();
+
             push_optional_symbol(&mut context, "callable_kind", "callable", *callable);
 
             (
@@ -162,6 +163,7 @@ pub(crate) fn diagnostic_semantic_query_failure(
             cause,
         } => {
             let mut context = Vec::new();
+
             push_symbol(&mut context, "symbol_kind", "symbol", *symbol);
             push_preparsed_syntax_failure(&mut context, cause);
 

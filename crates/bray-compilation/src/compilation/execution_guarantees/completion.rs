@@ -532,6 +532,7 @@ mod tests {
 
         let lowered = compilation.lowered_unit(key).unwrap();
         let mir = lowered.value().as_ref().unwrap().mir().unwrap();
+
         assert_eq!(mir.operations().iter().any(|operation| matches!(operation.kind(), MirOperationKind::Destroy(place) if place.ty() == ty)), completed, "{source}");
 
         mir.clone()

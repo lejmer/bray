@@ -547,7 +547,9 @@ pub(super) fn part_guard_for_place(
                 };
 
                 let source_type = *part.array_types.get(dimensions)?;
+
                 dimensions += 1;
+
                 let result_type = part.array_types.get(dimensions).copied().unwrap_or(boolean);
 
                 guard_projections.push(MirProjection::new(kind, source_type, result_type));

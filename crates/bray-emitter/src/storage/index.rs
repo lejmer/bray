@@ -187,6 +187,7 @@ impl ManagedStore {
         cancellation: &dyn Cancellation,
     ) -> Result<StorageLease, StorageError> {
         validate_entry_key(&self.metadata, key, kind)?;
+
         let path = self.metadata.join(key);
 
         if self

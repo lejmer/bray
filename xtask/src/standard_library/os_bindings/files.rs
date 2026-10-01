@@ -130,6 +130,7 @@ fn read_input(input: &Path) -> Result<(Description, String), String> {
 
         digest.update((name.len() as u64).to_le_bytes());
         digest.update(name.as_bytes());
+
         let canonical = normalize_line_endings(&bytes);
 
         digest.update((canonical.len() as u64).to_le_bytes());

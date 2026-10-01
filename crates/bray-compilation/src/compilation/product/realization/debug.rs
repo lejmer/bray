@@ -50,6 +50,7 @@ impl Compilation {
                         })?;
 
                         let file = codegen_source_file(source)?;
+
                         sources.insert(syntax.source_id(), (index, file));
                     }
 

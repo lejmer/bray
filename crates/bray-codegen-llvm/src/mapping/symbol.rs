@@ -944,6 +944,7 @@ mod tests {
         );
 
         let target = CodegenTarget::for_native(NativeTarget::X86_64WindowsMsvc);
+
         apply_linkage(&module, function, &exported, &target, true).unwrap();
         assert_eq!(function.get_linkage(), Linkage::External);
 

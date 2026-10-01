@@ -72,6 +72,7 @@ pub fn check_execution_candidate<C: CheckerRequestContext + ?Sized>(
         }
         super::super::fixed_point::FixedPointOutcome::ConvergenceInvariantViolated => {
             let mut candidate = ExecutionCandidate::default();
+
             record_failure(request, &mut candidate, request.unit().root().into());
 
             return CheckerOutcome::complete(candidate, DiagnosticBag::new());

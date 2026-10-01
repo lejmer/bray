@@ -430,6 +430,7 @@ fn rebuild_unit(
     if let Some(descriptor) = unit.frame_descriptor() {
         // The output descriptor owns its state table independently of the input snapshot.
         let mut descriptor: MirFrameDescriptor = descriptor.clone();
+
         descriptor.remap_local_ids(mappings);
         builder.set_frame_descriptor(descriptor);
     }
@@ -479,6 +480,7 @@ fn push_operations_before(
         }
 
         let _ = push_operation(unit, mappings, owners, builder, *next, None)?;
+
         *next += 1;
     }
 
@@ -501,6 +503,7 @@ fn push_operation(
 
     let operation = &unit.operations()[index];
     let mut kind = operation.kind().clone();
+
     remap_operation(&mut kind, mappings);
 
     let owner = owners[index];

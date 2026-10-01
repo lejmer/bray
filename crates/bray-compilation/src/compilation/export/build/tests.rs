@@ -305,6 +305,7 @@ fn execution_guarantees_export_only_certified_evidence() {
 
         let compilation = compilation(&source);
         let result = compilation.package_interface_export_bundle().unwrap();
+
         assert_eq!(result.is_ok(), valid, "{source}: {result:?}");
     }
 }
@@ -998,6 +999,7 @@ fn runtime_defaults_reborrow_array_targets() {
 
         for consumer in [&source, &imported] {
             let diagnostics = consumer.check_diagnostics();
+
             assert!(!diagnostics.has_errors(), "{expression}: {diagnostics:?}");
         }
     }
@@ -1090,6 +1092,7 @@ func check(pos caller: &mut bool)
                 bray_testing::assert_goal_state_diagnostic_kind(&diagnostics, expected);
             } else {
                 assert!(!diagnostics.has_errors(), "{body}: {diagnostics:?}");
+
                 let key = source_function_body_key(consumer, "check");
 
                 let lowered = consumer
@@ -1942,7 +1945,9 @@ fn imported_finalizers_use_verified_entry_conditions() {
             .unwrap();
 
         assert_eq!(!selected.is_empty(), completed);
+
         let lowered = consumer.lowered_unit(key).unwrap();
+
         assert!(lowered.value().as_ref().unwrap().mir().is_some());
     }
 }
@@ -2341,6 +2346,7 @@ fn imported_construction_defaults_use_the_declaring_type_specialization() {
     );
 
     let result = consumer.imported_codegen_instance_count_for_test();
+
     assert_eq!(result.unwrap(), 4);
 }
 
@@ -5014,6 +5020,7 @@ fn indexed_constant_templates_evaluate_after_import() {
             }
 
             assert!(!diagnostics.has_errors(), "{expression}: {diagnostics:?}");
+
             let graph = consumer.symbol_graph().unwrap();
 
             let definition = graph
@@ -5384,6 +5391,7 @@ fn aggregate_static_initializers_export_for_source_independent_consumers() {
 
         let value = imported_static_initializer_value(&consumer, function);
         let mut actual = Vec::new();
+
         collect_integer_constants(&consumer, value, &mut actual);
 
         assert_eq!(actual, expected, "{function}");

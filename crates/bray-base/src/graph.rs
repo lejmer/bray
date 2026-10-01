@@ -61,6 +61,7 @@ where
     }
 
     visited.clear();
+
     let mut components = Vec::new();
 
     for root in order.into_iter().rev() {

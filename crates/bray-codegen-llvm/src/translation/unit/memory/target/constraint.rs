@@ -48,6 +48,7 @@ pub(super) fn assembly_constraints(
             append_constraint(&mut normalized, &output.to_string());
         } else {
             let constraint = operand_constraint(constraints, *descriptor);
+
             append_constraint(&mut normalized, "");
 
             append_constraint_class(&mut normalized, control, constraint, descriptor.kind());

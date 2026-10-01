@@ -34,6 +34,7 @@ pub(super) fn fix_source(source: &str) -> Result<(String, usize), String> {
 
             previous_offset = Some(diagnostic.offset);
             apply_fix(&mut fixed, diagnostic)?;
+
             fix_count += 1;
         }
     }
@@ -66,6 +67,7 @@ fn apply_fix(source: &mut String, diagnostic: Diagnostic) -> Result<(), String> 
         Rule::CommentSeparation
         | Rule::DestructuringLetSeparation
         | Rule::LetElseSeparation
+        | Rule::LetGroupSeparation
         | Rule::MultilineStatementSeparation
         | Rule::ReturnedExpressionSeparation => {
             insert_blank_line(source, diagnostic.offset);
@@ -225,6 +227,7 @@ fn comment_is_separated(comment: &SyntaxToken) -> bool {
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum Separation {
     None,
+    LetGroup,
     Multiline,
     DestructuringLet,
     LetElse,
@@ -235,6 +238,7 @@ impl Separation {
     fn rule(self) -> Option<Rule> {
         match self {
             Self::None => None,
+            Self::LetGroup => Some(Rule::LetGroupSeparation),
             Self::Multiline => Some(Rule::MultilineStatementSeparation),
             Self::DestructuringLet => Some(Rule::DestructuringLetSeparation),
             Self::LetElse => Some(Rule::LetElseSeparation),
@@ -294,6 +298,7 @@ fn statement_info(source: &str, statement: &ast::Stmt) -> Statement {
         {
             Separation::DestructuringLet
         }
+        ast::Stmt::LetStmt(_) if !source_text(source, range).contains('\n') => Separation::LetGroup,
         _ => multiline_separation(source, range),
     };
 
@@ -315,6 +320,7 @@ fn check_statement_boundary(
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let separation = match (previous.separation, next.separation) {
+        (Separation::LetGroup, Separation::LetGroup) => Separation::None,
         (_, Separation::ReturnedExpression) => Separation::ReturnedExpression,
         (Separation::ReturnedExpression, next) => next,
         (previous, next) => previous.max(next),
@@ -366,6 +372,142 @@ fn example() {
 "#;
 
         assert_eq!(rules(source), []);
+    }
+
+    #[test]
+    fn single_line_let_groups_are_separated_from_other_statements() {
+        let source = "\
+fn example() {
+    prepare();
+    let first = 1;
+    let second = 2;
+    assert_eq!(first, 1);
+    assert_eq!(second, 2);
+    let third = 3;
+    consume(third);
+}
+";
+
+        let expected = "\
+fn example() {
+    prepare();
+
+    let first = 1;
+    let second = 2;
+
+    assert_eq!(first, 1);
+    assert_eq!(second, 2);
+
+    let third = 3;
+
+    consume(third);
+}
+";
+
+        for line_ending in ["\n", "\r\n"] {
+            let source = source.replace('\n', line_ending);
+            let expected = expected.replace('\n', line_ending);
+
+            assert_eq!(rules(&source), [Rule::LetGroupSeparation; 4]);
+
+            let (fixed, count) = fixed_source(&source);
+
+            assert_eq!(fixed, expected);
+            assert_eq!(count, 4);
+            assert_eq!(fixed_source(&fixed), (fixed, 0));
+        }
+    }
+
+    #[test]
+    fn optional_boundaries_between_single_line_lets_are_preserved() {
+        for source in [
+            "fn example() {\n    let first = 1;\n    let second = 2;\n}\n",
+            "fn example() {\n    let first = 1;\n\n    let second = 2;\n}\n",
+        ] {
+            assert_eq!(rules(source), []);
+            assert_eq!(fixed_source(source), (source.to_owned(), 0));
+        }
+    }
+
+    #[test]
+    fn each_multiline_let_remains_an_individual_group() {
+        let source = "\
+fn example() {
+    let first = 1;
+    let second = combine(
+        first,
+    );
+    let third = combine(
+        second,
+    );
+    let fourth = 4;
+    let fifth = 5;
+}
+";
+
+        let expected = "\
+fn example() {
+    let first = 1;
+
+    let second = combine(
+        first,
+    );
+
+    let third = combine(
+        second,
+    );
+
+    let fourth = 4;
+    let fifth = 5;
+}
+";
+
+        assert_eq!(rules(source), [Rule::MultilineStatementSeparation; 3]);
+
+        let (fixed, count) = fixed_source(source);
+
+        assert_eq!(fixed, expected);
+        assert_eq!(count, 3);
+        assert_eq!(fixed_source(&fixed), (fixed, 0));
+    }
+
+    #[test]
+    fn nested_let_groups_are_checked_without_reclassifying_if_let_conditions() {
+        let source = "\
+fn example() {
+    prepare();
+    if let Some(value) = input {
+        let first = value;
+        let second = first;
+        consume(second);
+        let third = 3;
+        consume(third);
+    }
+}
+";
+
+        assert_eq!(
+            rules(source),
+            [
+                Rule::ReturnedExpressionSeparation,
+                Rule::LetGroupSeparation,
+                Rule::LetGroupSeparation,
+                Rule::LetGroupSeparation
+            ]
+        );
+
+        let (fixed, count) = fixed_source(source);
+
+        assert!(fixed.contains(
+            "let first = value;\n        let second = first;\n\n        consume(second);"
+        ));
+
+        assert!(
+            fixed.contains("consume(second);\n\n        let third = 3;\n\n        consume(third);")
+        );
+
+        assert_eq!(count, 4);
+        assert_eq!(fixed_source(&fixed), (fixed, 0));
     }
 
     #[test]

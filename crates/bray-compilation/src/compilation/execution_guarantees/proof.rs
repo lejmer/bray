@@ -45,6 +45,7 @@ impl Compilation {
         let mut diagnostics = declared.diagnostics().clone();
         let mut certified = ExecutionCertification::default();
         let candidates = self.execution_candidates_with_cancellation(root.clone(), cancellation)?;
+
         diagnostics.add_range(candidates.result().diagnostics().iter().cloned());
 
         for domain in declared.value().domains() {
@@ -136,6 +137,7 @@ impl Compilation {
 
         while let Some((key, obligation)) = pending.pop() {
             cancellation.check()?;
+
             let proof_key = (key.source().syntax(), obligation);
 
             if !visited.insert(proof_key) {
@@ -241,6 +243,7 @@ impl Compilation {
                 };
 
                 let declaration = self.execution_declaration(anchor)?;
+
                 diagnostics.add_range(declaration.diagnostics().iter().cloned());
 
                 if declaration.diagnostics().has_errors() {

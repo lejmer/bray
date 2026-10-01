@@ -43,6 +43,7 @@ pub(crate) fn expand_result_defaults<C: CheckerRequestContext + ?Sized>(
                 .collect::<Result<Vec<_>, _>>()?;
 
             let roots = expand_witness_input_defaults(request, call, &roots)?;
+
             result.push(DependencyRequirement::fixed_point(definitions, roots));
             continue;
         }

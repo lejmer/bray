@@ -187,6 +187,7 @@ mod tests {
         assert_eq!(decode_standard_library_manifest(&bytes), Ok(manifest));
 
         let mut whitespace = bytes.clone();
+
         whitespace.push(b'\n');
 
         assert_eq!(
@@ -195,6 +196,7 @@ mod tests {
         );
 
         let mut tampered: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+
         tampered["targets"][0]["artifacts"][0]["byte_len"] = serde_json::json!(1);
 
         assert_eq!(
@@ -213,6 +215,7 @@ mod tests {
         );
 
         let mut wrong_revision: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+
         wrong_revision["format"] = serde_json::json!(2);
 
         assert_eq!(

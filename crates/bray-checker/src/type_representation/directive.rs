@@ -549,6 +549,7 @@ where
         previous: &[SourceSpan],
     ) {
         let diagnostic = self.layout_diagnostic(problem, span, previous);
+
         self.diagnostics.add(diagnostic);
     }
 

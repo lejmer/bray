@@ -582,6 +582,7 @@ mod tests {
 
         let first = crate::fact::fact_fingerprint(&fact, &1_u8);
         let changed = crate::fact::fact_fingerprint(&fact, &2_u8);
+
         context.record_input(&input, first).unwrap();
         context.record_input(&input, first).unwrap();
 

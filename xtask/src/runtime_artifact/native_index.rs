@@ -30,6 +30,7 @@ pub(super) fn publish(
     support: &[BuiltSupportComponent],
 ) -> Result<[PublishedNativeIndex; 2], CommandError> {
     let payloads = output.join("native");
+
     fs::create_dir_all(&payloads).map_err(|error| CommandError::write(&payloads, error))?;
 
     let published = RuntimeArtifactPurpose::ALL
@@ -116,6 +117,7 @@ pub(super) fn publish(
 
             let file_name = format!("runtime-{}-native-index.json", purpose.as_str());
             let path = output.join(&file_name);
+
             fs::write(&path, &bytes).map_err(|error| CommandError::write(&path, error))?;
 
             Ok(PublishedNativeIndex {

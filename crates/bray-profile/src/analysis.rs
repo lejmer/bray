@@ -726,6 +726,7 @@ mod tests {
         assert_eq!(query.after_evaluation_self_nanoseconds, 1_500_000);
 
         let mut other_target = report(1_500_000);
+
         other_target.context.target = "aarch64-test".to_owned();
 
         assert!(matches!(
@@ -737,14 +738,17 @@ mod tests {
     #[test]
     fn result_and_diagnostic_rankings_preserve_distinct_domains() {
         let mut report = report(1_000_000);
+
         report.queries[0].cloned_values = 100;
         report.queries[0].diagnostic_collections = 0;
 
         let mut diagnostic_descriptor = report.descriptors.queries[0].clone();
+
         diagnostic_descriptor.id = 1_001;
         diagnostic_descriptor.name = "check_diagnostics".to_owned();
 
         let mut diagnostic_query = report.queries[0].clone();
+
         diagnostic_query.id = 1_001;
         diagnostic_query.published_values = 0;
         diagnostic_query.cloned_values = 0;

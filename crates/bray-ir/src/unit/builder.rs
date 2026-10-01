@@ -464,6 +464,7 @@ impl MirUnitBuilder {
         assert_eq!(block.unit(), self.unit, "MIR block belongs to another unit");
 
         let index = block.to_index().expect("MIR block has no valid slot");
+
         assert!(index < self.blocks.len(), "MIR block was not allocated");
 
         index
@@ -618,8 +619,10 @@ mod tests {
             .unwrap();
 
         let value = builder.push_block_parameter(entry, source, ty).unwrap();
+
         assert_eq!(builder.block_kind(entry), MirBlockKind::Ordinary);
         assert_eq!(builder.operand_type(&MirOperand::Value(value)), ty);
+
         let foreign = crate::MirValueId::from_slot(crate::MirUnitId::new(97), 0);
         let missing = crate::MirValueId::from_slot(entry.unit(), 10);
 

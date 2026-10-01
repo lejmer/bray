@@ -87,7 +87,7 @@ pub(crate) fn format_english_link_requirement(requirement: &DiagnosticLinkRequir
         Requirement::ProductSharedLibrary => "shared-library product".to_owned(),
         Requirement::ProductStaticLibrary => "static-library product".to_owned(),
         Requirement::InputRelocatableObject => "relocatable object".to_owned(),
-        Requirement::InputBitcode => "LLVM bitcode".to_owned(),
+        Requirement::InputBitcode => "bitcode".to_owned(),
         Requirement::InputArchive => "native archive".to_owned(),
         Requirement::InputStartupObject => "startup object".to_owned(),
         Requirement::InputTerminationObject => "termination object".to_owned(),

@@ -2076,6 +2076,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
         }
 
         let operands = contract.operands().collect::<Vec<_>>();
+
         write_count(&mut self.wire, operands.len());
 
         for operand in operands {

@@ -91,6 +91,7 @@ impl LineIndex {
                     }
 
                     let next_line_start = TextSize::try_from(byte_index + line_break.byte_len)?;
+
                     current_line = LineMetrics::new(next_line_start);
                 }
                 None => current_line.push_character(offset, character),

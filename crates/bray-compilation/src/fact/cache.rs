@@ -934,6 +934,7 @@ mod tests {
         );
 
         let cancelled = CancellationToken::new();
+
         cancelled.cancel();
 
         assert_eq!(

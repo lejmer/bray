@@ -549,6 +549,7 @@ fn order_product_statics(
     order_keys: &BTreeMap<bray_runtime_abi::NativeStaticIdentity, &[u8]>,
 ) -> Result<Vec<CodegenProductHostStatic>, bray_native_artifact::NativeResolutionError> {
     use bray_native_artifact::NativeResolutionError as Error;
+
     let mut unique = BTreeMap::<_, CodegenProductHostStatic>::new();
     let mut order_identities = BTreeMap::new();
 
