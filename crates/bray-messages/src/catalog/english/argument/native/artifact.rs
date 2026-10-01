@@ -292,6 +292,7 @@ fn format_english_native_product_failure_detail(
         Kind::CodegenBackendArtifactConstruction(_) => {
             "a requested native artifact could not be constructed"
         }
+        Kind::CodegenBackendArtifactRead(_) => "native artifact storage could not be read",
         Kind::CodegenBackendUnavailable => "no native-code generator is available",
         Kind::CodegenMirUnavailable(_) => "the program is not ready for native code generation",
         Kind::CodegenMissingCallableImplementation { callable, .. } => {

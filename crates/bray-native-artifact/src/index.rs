@@ -72,6 +72,12 @@ impl NativeArtifactIndex {
                 return Err(NativeIndexError::NoncanonicalSummary(unit.digest()));
             }
 
+            if let NativeUnitSummary::Opaque { provided, .. } = unit.summary()
+                && !strictly_sorted(provided)
+            {
+                return Err(NativeIndexError::NoncanonicalSummary(unit.digest()));
+            }
+
             if let NativeUnitSummary::Exact {
                 definitions, roots, ..
             } = unit.summary()
@@ -556,6 +562,68 @@ mod tests {
                 (archive_id, archive),
             ],
         )
+    }
+
+    #[test]
+    fn opaque_member_inventory_roundtrips_without_suppressing_deferred_providers() {
+        use bray_base::NonEmptySharedStr;
+        use bray_symbols::{NativeSymbolContract, NativeSymbolIdentity};
+
+        let name =
+            |value: &str| NativeSymbolIdentity::Name(NonEmptySharedStr::try_new(value).unwrap());
+
+        let required = |value: &str| {
+            NativeSymbolContract::required_name(NonEmptySharedStr::try_new(value).unwrap())
+        };
+
+        let summary = NativeUnitSummary::opaque_archive(
+            [name("internal")],
+            [required("internal"), required("public_provider")],
+        );
+
+        let unit = NativeUnit::new(
+            NativeContentDigest::new([1; 32]),
+            NativeUnitKind::OpaqueArchive,
+            summary,
+            [],
+        );
+
+        let index = NativeArtifactIndex::try_new(
+            bray_target::NativeTarget::X86_64WindowsMsvc,
+            NativeContentDigest::new([2; 32]),
+            [unit],
+            [],
+        )
+        .unwrap();
+
+        let encoded = index.encode().unwrap();
+
+        let decoded = NativeArtifactIndex::decode_authenticated(
+            &encoded,
+            bray_target::NativeTarget::X86_64WindowsMsvc,
+        )
+        .unwrap();
+
+        assert_eq!(index, decoded);
+
+        assert_eq!(
+            decoded.units()[0].summary().references(),
+            [required("public_provider")]
+        );
+
+        assert_eq!(
+            decoded.units()[0]
+                .summary()
+                .defined_symbols()
+                .cloned()
+                .collect::<Vec<_>>(),
+            [name("internal")]
+        );
+
+        assert!(matches!(
+            decoded.units()[0].summary(),
+            NativeUnitSummary::Opaque { .. }
+        ));
     }
 
     #[test]

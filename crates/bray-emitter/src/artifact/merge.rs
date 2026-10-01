@@ -62,13 +62,20 @@ impl BackendContributionSet {
                 continue;
             };
 
-            contributions.push(ArtifactContribution::new(
+            let mut merged = ArtifactContribution::new(
                 planned.id().clone(),
                 planned.producer().clone(),
                 // The merged set must retain immutable content after the codegen outcome borrow ends.
                 contribution.content().clone(),
                 Some(digest.clone()),
-            ));
+            );
+
+            if let Some(unit) = contribution.native_unit() {
+                // Native index records retain shared immutable contracts after the outcome borrow ends.
+                merged = merged.with_native_unit(unit.clone());
+            }
+
+            contributions.push(merged);
         }
 
         Ok(Self::new(contributions))
@@ -196,7 +203,18 @@ mod tests {
         );
 
         let fixture = codegen_request_for_backend(backend);
-        let artifact = contribution(fixture.required_artifact().clone());
+
+        let artifact = contribution(fixture.required_artifact().clone()).with_native_unit(
+            bray_native_artifact::NativeUnit::new(
+                bray_native_artifact::NativeContentDigest::new(
+                    bray_base::sha256_reader([1_u8, 2, 3].as_slice()).unwrap(),
+                ),
+                bray_native_artifact::NativeUnitKind::Object,
+                bray_native_artifact::NativeUnitSummary::opaque([]),
+                [],
+            ),
+        );
+
         let outcome = complete_outcome([artifact]);
 
         let Some(artifacts) = outcome.artifacts() else {
@@ -210,6 +228,19 @@ mod tests {
         };
 
         assert_eq!(merged.contributions().len(), 2);
+
+        assert!(
+            merged
+                .contributions()
+                .iter()
+                .all(|contribution| contribution.native_unit().is_some())
+        );
+
+        assert_eq!(
+            merged.contributions()[0].native_unit(),
+            merged.contributions()[1].native_unit()
+        );
+
         assert_eq!(merged.contributions()[0].id().ordinal(), 0);
         assert_eq!(merged.contributions()[1].id().ordinal(), 1);
         assert_eq!(merged.published(&plan).count(), 1);
@@ -250,7 +281,13 @@ mod tests {
             fixture.required_artifact().clone(),
             content,
             Some(digest),
-        );
+        )
+        .with_native_unit(bray_native_artifact::NativeUnit::new(
+            bray_native_artifact::NativeContentDigest::new([0; 32]),
+            bray_native_artifact::NativeUnitKind::Object,
+            bray_native_artifact::NativeUnitSummary::opaque([]),
+            [],
+        ));
 
         let mismatched = complete_outcome([mismatched]);
 

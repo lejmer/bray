@@ -16,13 +16,12 @@ use bray_diagnostics::{
     DiagnosticInterfaceSymbolKind, DiagnosticInterfaceSynthesizedIdentity, DiagnosticKind,
     DiagnosticLayoutOption, DiagnosticLayoutProblem, DiagnosticMemoryOperation,
     DiagnosticModuleTrust, DiagnosticNameKind, DiagnosticNamedType,
-    DiagnosticNativeProductFailureKind, DiagnosticNote,
-    DiagnosticNoteKind, DiagnosticOutputSink, DiagnosticPatternCoverage,
-    DiagnosticPatternMissingCase, DiagnosticProductQueryFailure, DiagnosticProjectCommandFailure,
-    DiagnosticProjectManifestField, DiagnosticPropagationProblem, DiagnosticRefinementCapacity,
-    DiagnosticRefinementCapacitySurface, DiagnosticRejectedSelectionCandidate,
-    DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, DiagnosticRuntimeAbiVersion,
-    DiagnosticRuntimeArtifactProblem, DiagnosticSelectionCandidate,
+    DiagnosticNativeProductFailureKind, DiagnosticNote, DiagnosticNoteKind, DiagnosticOutputSink,
+    DiagnosticPatternCoverage, DiagnosticPatternMissingCase, DiagnosticProductQueryFailure,
+    DiagnosticProjectCommandFailure, DiagnosticProjectManifestField, DiagnosticPropagationProblem,
+    DiagnosticRefinementCapacity, DiagnosticRefinementCapacitySurface,
+    DiagnosticRejectedSelectionCandidate, DiagnosticRelatedLocation, DiagnosticRelatedLocationKind,
+    DiagnosticRuntimeAbiVersion, DiagnosticRuntimeArtifactProblem, DiagnosticSelectionCandidate,
     DiagnosticSelectionCandidateIdentity, DiagnosticSelectionCandidateSignature,
     DiagnosticSelectionCandidates, DiagnosticSelectionKind, DiagnosticSelectionRejectionReason,
     DiagnosticSelectionRejections, DiagnosticSemanticQueryFailure, DiagnosticSemanticValueFailure,
@@ -160,7 +159,6 @@ fn json_output_serializes_runtime_artifact_problems_with_typed_details() {
     );
 
     assert_eq!(argument["value"]["value"]["component"], "runtime.scheduler");
-
 }
 
 #[test]
@@ -1745,4 +1743,38 @@ fn callable_result_diagnostic_preserves_json_context() {
     assert_eq!(diagnostic["args"][1]["name"], "expected_type");
     assert_eq!(diagnostic["labels"][0]["kind"], "callable_result_required");
     assert_eq!(diagnostic["notes"][0]["kind"], "return_required_result");
+}
+
+#[test]
+fn native_artifact_read_json_preserves_typed_path_and_io_cause() {
+    let diagnostic = Diagnostic::new(
+        DiagnosticId::new(0),
+        DiagnosticKind::EmissionFailed,
+        SeverityKind::Error,
+    )
+    .with_arg(DiagnosticArg::emission_failure(
+        DiagnosticEmissionFailure::NativeRead {
+            path: PathBuf::from("build/math.lib"),
+            kind: bray_diagnostics::DiagnosticIoErrorKind::PermissionDenied,
+        },
+    ));
+
+    let mut bytes = Vec::new();
+    write_json_diagnostics(&DiagnosticBag::single(diagnostic), None, &mut bytes).unwrap();
+    let output: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let failure = &output["diagnostics"][0]["args"][0]["value"]["value"];
+    assert_eq!(failure["category"], "native_read");
+    assert_eq!(failure["reason"], "read");
+    let context = failure["context"].as_array().unwrap();
+
+    assert!(
+        context
+            .iter()
+            .any(|field| field["name"] == "path" && field["value"]["kind"] == "path")
+    );
+
+    assert!(
+        context.iter().any(|field| field["name"] == "io_error_kind"
+            && field["value"]["value"] == "permission_denied")
+    );
 }

@@ -8,7 +8,6 @@ use bray_emitter::{
 use bray_linker::Linker;
 use bray_package_interface::encode_package_interface;
 use bray_target::TargetOutputDescription;
-use std::path::Path;
 use std::sync::Arc;
 
 use super::native::{
@@ -33,7 +32,6 @@ pub struct ProductEmissionInputs<'operation> {
     test_catalog: Option<&'operation [u8]>,
     sink_resolver: Option<&'operation dyn OutputSinkResolver>,
     publication_validation: Option<&'operation dyn PublicationValidator>,
-    native_inspection: Option<NativeInspectionInputs<'operation>>,
 }
 
 impl<'operation> ProductEmissionInputs<'operation> {
@@ -46,7 +44,6 @@ impl<'operation> ProductEmissionInputs<'operation> {
             test_catalog: None,
             sink_resolver: None,
             publication_validation: None,
-            native_inspection: None,
         }
     }
 
@@ -120,17 +117,6 @@ impl<'operation> ProductEmissionInputs<'operation> {
         self
     }
 
-    /// Supplies the selected LLVM tools for inspecting published bitcode units.
-    pub const fn with_native_inspection(
-        mut self,
-        symbols: &'operation Path,
-        bitcode: &'operation Path,
-    ) -> Self {
-        self.native_inspection = Some(NativeInspectionInputs { symbols, bitcode });
-
-        self
-    }
-
     /// Requires one final host validation after generation and before publication.
     pub const fn with_publication_validation(
         mut self,
@@ -140,12 +126,6 @@ impl<'operation> ProductEmissionInputs<'operation> {
 
         self
     }
-}
-
-#[derive(Clone, Copy)]
-pub(super) struct NativeInspectionInputs<'operation> {
-    pub(super) symbols: &'operation Path,
-    pub(super) bitcode: &'operation Path,
 }
 
 #[derive(Clone, Copy)]
@@ -355,7 +335,6 @@ impl Compilation {
                 test_catalog,
                 inputs.linking,
                 inputs.generation.native(),
-                inputs.native_inspection,
                 inputs.sink_resolver,
                 inputs.publication_validation,
                 cancellation,
@@ -607,7 +586,6 @@ impl Compilation {
         test_catalog: Option<ArtifactContribution>,
         linking: Option<ProductLinkingInputs<'_>>,
         native: Option<&NativeProductPlan>,
-        inspection: Option<NativeInspectionInputs<'_>>,
         resolver: Option<&dyn OutputSinkResolver>,
         validation: Option<&dyn PublicationValidator>,
         cancellation: &CancellationToken,
@@ -707,30 +685,25 @@ impl Compilation {
         }
 
         if let Some((interface, bundle)) = package_implementation {
-            let artifacts = match (native, staging.as_ref(), inspection) {
-                (Some(native), Some(staging), Some(inspection)) => {
-                    crate::profile::profile_operation(
-                        self.state.fact_runtime.profile(),
-                        crate::profile::ProfileOperation::NativeUnitInspection,
-                        || {
-                            package_native_implementation(
-                                self,
-                                plan,
-                                staging,
-                                native,
-                                inspection,
-                                &interface,
-                                &bundle,
-                                linking.map(|linking| (linking.linker, linking.inputs)),
-                                cancellation,
-                            )
-                        },
-                        crate::profile::result_outcome,
-                    )?
-                }
-                (Some(_), Some(_), None) => {
-                    return Err(ProductEmissionErrorKind::MissingNativeInspector);
-                }
+            let artifacts = match (native, staging.as_ref(), backend.as_ref()) {
+                (Some(native), Some(staging), Some(backend)) => crate::profile::profile_operation(
+                    self.state.fact_runtime.profile(),
+                    crate::profile::ProfileOperation::NativePackageAssembly,
+                    || {
+                        package_native_implementation(
+                            self,
+                            plan,
+                            staging,
+                            native,
+                            backend,
+                            &interface,
+                            &bundle,
+                            linking.map(|linking| (linking.linker, linking.inputs)),
+                            cancellation,
+                        )
+                    },
+                    crate::profile::result_outcome,
+                )?,
                 _ => vec![(
                     ArtifactKind::PackageImplementation,
                     bray_package_interface::PackageImplementationArtifact::try_from_export_bundle(

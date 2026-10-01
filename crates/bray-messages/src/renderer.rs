@@ -654,6 +654,50 @@ mod tests {
     }
 
     #[test]
+    fn native_artifact_read_failures_identify_output_and_io_cause() {
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(10),
+            DiagnosticKind::EmissionFailed,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::actual_product_identity("example.math"))
+        .with_arg(DiagnosticArg::target_triple("x86_64-pc-windows-msvc"))
+        .with_arg(DiagnosticArg::emission_failure(
+            DiagnosticEmissionFailure::NativeRead {
+                path: std::path::PathBuf::from("build/math.lib"),
+                kind: bray_diagnostics::DiagnosticIoErrorKind::PermissionDenied,
+            },
+        ));
+
+        let rendered = DiagnosticRenderer::english().render(&diagnostic);
+        assert!(rendered.message().contains("example.math"));
+        assert!(rendered.message().contains("build/math.lib"));
+        assert!(rendered.message().contains("permission denied"));
+        assert_eq!(forbidden_ordinary_diagnostic_term(rendered.message()), None);
+        assert!(!rendered.message().contains(INTERNAL_COMPILER_ERROR));
+
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(11),
+            DiagnosticKind::CodegenArtifactReadFailed,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::target_triple("x86_64-pc-windows-msvc"))
+        .with_arg(DiagnosticArg::codegen_backend_identity("llvm"))
+        .with_arg(DiagnosticArg::artifact_kind(
+            bray_diagnostics::DiagnosticArtifactKind::BackendBitcode,
+        ))
+        .with_arg(DiagnosticArg::io_error_kind(
+            bray_diagnostics::DiagnosticIoErrorKind::PermissionDenied,
+        ));
+
+        let rendered = DiagnosticRenderer::english().render(&diagnostic);
+        assert!(rendered.message().contains("x86_64-pc-windows-msvc"));
+        assert!(rendered.message().contains("permission denied"));
+        assert_eq!(forbidden_ordinary_diagnostic_term(rendered.message()), None);
+        assert!(!rendered.message().contains(INTERNAL_COMPILER_ERROR));
+    }
+
+    #[test]
     fn backend_support_program_failures_render_captured_output_as_text() {
         let diagnostic = Diagnostic::new(
             DiagnosticId::new(10),

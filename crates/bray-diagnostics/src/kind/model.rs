@@ -605,6 +605,8 @@ define_diagnostic_kinds! {
     CodegenBackendToolExited,
     /// A requested backend artifact could not be constructed.
     CodegenArtifactConstructionFailed,
+    /// Compiler-owned backend artifact storage could not be read.
+    CodegenArtifactReadFailed,
     /// Native product planning could not complete for an exact structured reason.
     NativeProductPreparationFailed,
     /// The selected linker does not support the exact target.
@@ -962,6 +964,7 @@ impl DiagnosticKind {
             Self::CodegenBackendLibraryFailed => 9055,
             Self::CodegenBackendToolExited => 9060,
             Self::CodegenArtifactConstructionFailed => 9057,
+            Self::CodegenArtifactReadFailed => 9061,
             Self::NativeProductPreparationFailed => 9058,
             Self::LinkerUnsupportedTarget => 9101,
             Self::LinkerUnsupportedProduct => 9102,
@@ -1425,6 +1428,7 @@ impl DiagnosticKind {
             Self::CodegenBackendLibraryFailed => "codegen_backend_library_failed",
             Self::CodegenBackendToolExited => "codegen_backend_tool_exited",
             Self::CodegenArtifactConstructionFailed => "codegen_artifact_construction_failed",
+            Self::CodegenArtifactReadFailed => "codegen_artifact_read_failed",
             Self::NativeProductPreparationFailed => "native_product_preparation_failed",
             Self::LinkerUnsupportedTarget => "linker_unsupported_target",
             Self::LinkerUnsupportedProduct => "linker_unsupported_product",

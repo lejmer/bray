@@ -7743,22 +7743,11 @@ define void @{symbol}(ptr %out) {{
             let summary = if kind == bray_native_artifact::NativeUnitKind::Object {
                 bray_native_artifact::scan_object_unit_summary(&bytes).unwrap()
             } else {
-                let symbols = run(
-                    "llvm-nm",
-                    vec![
-                        "--extern-only".into(),
-                        "--format=posix".into(),
-                        payload.into(),
-                    ],
-                );
-
-                let structure = run("llvm-dis", vec![payload.into(), "-o".into(), "-".into()]);
-
-                bray_native_artifact::scan_bitcode_unit_summary(
-                    &String::from_utf8_lossy(&symbols.stdout),
-                    &String::from_utf8_lossy(&structure.stdout),
+                bray_codegen_llvm::inspect_bitcode_unit_summary(
+                    &bytes,
                     NativeTarget::X86_64WindowsMsvc,
                 )
+                .unwrap()
             };
 
             let bray_native_artifact::NativeUnitSummary::Exact {

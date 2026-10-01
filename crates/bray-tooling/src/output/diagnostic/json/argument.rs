@@ -531,6 +531,7 @@ impl DiagnosticNativeProductFailureJson {
             | Kind::CodegenBackendInvalidConfigurationDetail(detail)
             | Kind::CodegenBackendLibraryFailure(detail)
             | Kind::CodegenBackendToolFailure(detail)
+            | Kind::CodegenBackendArtifactRead(detail)
             | Kind::CodegenBackendArtifactConstruction(detail)
             | Kind::CodegenBackendResourceLimit(detail)
             | Kind::CodegenMirUnavailable(detail)

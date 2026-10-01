@@ -187,7 +187,10 @@ impl LlvmCodeGenerator {
 
         verify_generated_module(&module, request.target(), "after optimization");
 
-        let mut serialized: BTreeMap<BackendArtifactKind, ArtifactContent> = BTreeMap::new();
+        let mut serialized: BTreeMap<
+            BackendArtifactKind,
+            (ArtifactContent, Option<bray_native_artifact::NativeUnit>),
+        > = BTreeMap::new();
 
         let mut contributions = Vec::new();
 
@@ -198,8 +201,8 @@ impl LlvmCodeGenerator {
 
             let kind = entry.id().kind();
 
-            let content = if let Some(content) = serialized.get(&kind) {
-                // Artifact content is an Arc-backed immutable handle reused for repeated requests.
+            let (content, native_unit) = if let Some(content) = serialized.get(&kind) {
+                // Artifact bytes and native obligations share immutable storage across repeated requests.
                 content.clone()
             } else {
                 match self.serialize_artifact(request, &machine, &module, kind) {
@@ -217,12 +220,18 @@ impl LlvmCodeGenerator {
                 }
             };
 
-            contributions.push(BackendArtifactContribution::new(
+            let mut contribution = BackendArtifactContribution::new(
                 // Contributions retain Arc-backed request identities after generation returns.
                 entry.id().clone(),
                 content,
                 None,
-            ));
+            );
+
+            if let Some(unit) = native_unit {
+                contribution = contribution.with_native_unit(unit);
+            }
+
+            contributions.push(contribution);
         }
 
         if request.cancellation().is_cancelled() {
@@ -241,25 +250,34 @@ impl LlvmCodeGenerator {
         machine: &LlvmTargetMachine,
         module: &Module<'_>,
         kind: BackendArtifactKind,
-    ) -> Result<Option<ArtifactContent>, CodegenFailure> {
+    ) -> Result<Option<(ArtifactContent, Option<bray_native_artifact::NativeUnit>)>, CodegenFailure>
+    {
         let content = serialize_artifact(machine, module, kind)?;
 
-        if kind != BackendArtifactKind::BackendBitcode
-            || request.artifacts().serialization().bitcode_semantics()
-                != bray_codegen::BackendBitcodeSemantics::ThinLto
+        let content = if kind == BackendArtifactKind::BackendBitcode
+            && request.artifacts().serialization().bitcode_semantics()
+                == bray_codegen::BackendBitcodeSemantics::ThinLto
         {
-            return Ok(Some(content));
-        }
+            let optimizer = self
+                .bitcode_optimizer
+                .as_ref()
+                .ok_or(CodegenFailure::InvalidConfiguration)?;
 
-        let optimizer = self
-            .bitcode_optimizer
-            .as_ref()
-            .ok_or(CodegenFailure::InvalidConfiguration)?;
+            match optimizer.add_thin_lto_summary(&content, request.cancellation())? {
+                BackendBitcodeOptimizationOutcome::Complete(content) => content,
+                BackendBitcodeOptimizationOutcome::Cancelled => return Ok(None),
+            }
+        } else {
+            content
+        };
 
-        match optimizer.add_thin_lto_summary(&content, request.cancellation())? {
-            BackendBitcodeOptimizationOutcome::Complete(content) => Ok(Some(content)),
-            BackendBitcodeOptimizationOutcome::Cancelled => Ok(None),
-        }
+        let native_unit = if request.product() == ProductKind::Library {
+            crate::serialization::native_unit(&content, kind, request.target())?
+        } else {
+            None
+        };
+
+        Ok(Some((content, native_unit)))
     }
 }
 
@@ -431,6 +449,9 @@ fn representative_triple(machine: &bray_target::TargetMachineProperties) -> &'st
 
 #[cfg(test)]
 mod tests {
+    use bray_codegen::CodegenRequest;
+    use bray_symbols::ProductKind;
+    use inkwell::context::Context;
     use std::collections::BTreeMap;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -668,6 +689,83 @@ mod tests {
         assert!(artifacts.iter().all(|contribution| {
             contribution.id().kind() == BackendArtifactKind::BackendBitcode
         }));
+    }
+
+    #[test]
+    fn native_summary_and_digest_observe_post_serialization_bytes_once() {
+        struct FinalizingOptimizer(std::sync::atomic::AtomicUsize);
+
+        impl BackendBitcodeOptimizer for FinalizingOptimizer {
+            fn add_thin_lto_summary(
+                &self,
+                content: &ArtifactContent,
+                _: &dyn bray_base::Cancellation,
+            ) -> Result<BackendBitcodeOptimizationOutcome, CodegenFailure> {
+                self.0.fetch_add(1, Ordering::Relaxed);
+                let context = Context::create();
+                let bytes = content.read_shared().unwrap();
+                let module = crate::parse_bitcode(&bytes, &context)?;
+                let storage = module.add_global(context.i32_type(), None, "finalized_storage");
+                storage.set_initializer(&context.i32_type().const_int(7, false));
+
+                Ok(BackendBitcodeOptimizationOutcome::Complete(
+                    ArtifactContent::try_memory(crate::bitcode_bytes(&module)).unwrap(),
+                ))
+            }
+        }
+
+        let optimizer = Arc::new(FinalizingOptimizer(AtomicUsize::new(0)));
+
+        let backend = LlvmCodeGenerator::try_with_bitcode_optimizer(Some(
+            Arc::clone(&optimizer) as Arc<dyn BackendBitcodeOptimizer>
+        ))
+        .unwrap();
+
+        let fixture =
+            codegen_request_for_backend(backend.identity().clone()).with_thin_lto_bitcode();
+
+        let input = fixture.request();
+
+        let request = CodegenRequest::new(
+            input.unit(),
+            input.backend(),
+            input.capability_revision(),
+            ProductKind::Library,
+            input.target(),
+            input.mappings(),
+            input.options(),
+            input.artifacts(),
+            input.cancellation(),
+        );
+
+        let outcome = backend.generate(request);
+        let artifacts = outcome.artifacts().unwrap();
+
+        assert_eq!(optimizer.0.load(Ordering::Relaxed), 1);
+        assert_eq!(artifacts.len(), 2);
+
+        for contribution in artifacts {
+            let unit = contribution.native_unit().unwrap();
+            let bytes = contribution.content().read_shared().unwrap();
+
+            assert_eq!(
+                unit.digest().bytes(),
+                bray_base::sha256_reader(bytes.as_ref()).unwrap()
+            );
+
+            assert!(
+                unit.summary()
+                    .defined_symbols()
+                    .any(|name| name.name() == Some("finalized_storage"))
+            );
+
+            assert_eq!(
+                contribution.digest().unwrap().bytes(),
+                unit.digest().bytes()
+            );
+        }
+
+        assert_eq!(artifacts[0].native_unit(), artifacts[1].native_unit());
     }
 
     #[test]

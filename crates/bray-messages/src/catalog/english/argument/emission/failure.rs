@@ -5,7 +5,7 @@ use super::super::native::{
 };
 use super::super::source::{
     format_english_artifact_digest, format_english_artifact_kind, format_english_io_error_kind,
-    format_english_output_sink,
+    format_english_output_sink, format_english_path,
 };
 use super::kind::{
     format_english_assembly_syntax, format_english_debug_information_mode,
@@ -27,28 +27,11 @@ pub(crate) fn format_english_emission_failure(
         Failure::NativeIndexSizeLimitExceeded => {
             "native package index exceeds its supported size".to_owned()
         }
-        Failure::NativeInspection { tool, path, reason } => {
-            use bray_diagnostics::DiagnosticNativeInspectionFailure as Reason;
-
-            let subject = tool.map_or_else(
-                || "native unit".to_owned(),
-                |tool| tool.executable_name().to_owned(),
-            );
-
-            let location = path.as_ref().map_or_else(String::new, |path| {
-                format!(" for {}", path.display())
-            });
-
-            let cause = match reason {
-                Reason::MissingToolchain => "has no selected inspector toolchain".to_owned(),
-                Reason::Read(error) => format!("could not read input: {}", format_english_io_error_kind(*error)),
-                Reason::Invoke(error) => format!("could not start: {}", format_english_io_error_kind(*error)),
-                Reason::Failed(status) => format!("exited unsuccessfully with status {status:?}"),
-                Reason::Encoding => "returned invalid UTF-8 output".to_owned(),
-            };
-
-            format!("{subject}{location} {cause}")
-        }
+        Failure::NativeRead { path, kind } => format!(
+            "could not read compilation output {}: {}",
+            format_english_path(path),
+            format_english_io_error_kind(*kind),
+        ),
         Failure::LinkPlan(failure) => format_english_emission_link_plan_failure(failure),
         Failure::Evaluation(failure) => format_english_emission_evaluation_failure(failure),
         Failure::TestCatalog(_) => {

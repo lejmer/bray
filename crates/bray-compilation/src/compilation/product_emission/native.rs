@@ -1,19 +1,16 @@
 use std::collections::BTreeMap;
 use std::io;
-use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::Arc;
 
 use bray_base::NonEmptySharedStr;
 use bray_codegen::{BackendArtifactKind, CodegenSpecialization, CodegenSymbolKey, CodegenUnitKey};
-use bray_diagnostics::DiagnosticLlvmToolRole;
 use bray_emitter::{
     ArtifactKind, ArtifactRole, EmissionPlan, LinkStaging, LinkStagingError, StagedArtifact,
 };
 use bray_linker::{LinkInputMode, LinkInputProvenance, LinkInputSource, LinkInputSpec};
 use bray_native_artifact::{
     NativeArtifactIndex, NativeContentDigest, NativeIndexError, NativeUnit, NativeUnitKind,
-    NativeUnitSummary, scan_bitcode_unit_summary, scan_object_unit_summary,
+    NativeUnitSummary,
 };
 use bray_package_interface::{
     CURRENT_TEMPLATE_SCHEMA_REVISION, ImplementationExternalSymbolIdentity, InterfaceArtifact,
@@ -22,10 +19,8 @@ use bray_package_interface::{
 };
 use bray_symbols::SymbolKeyData;
 use bray_target::NativeTarget;
-use rayon::prelude::{IntoParallelRefIterator, ParallelIterator};
 
 use super::diagnostics::ProductEmissionErrorKind;
-use super::execution::NativeInspectionInputs;
 use crate::compilation::{Compilation, NativeProductPlan};
 use crate::fact::CancellationToken;
 
@@ -90,7 +85,7 @@ pub(super) fn package_native_implementation(
     plan: &EmissionPlan,
     staging: &LinkStaging,
     native: &NativeProductPlan,
-    tools: NativeInspectionInputs<'_>,
+    contributions: &bray_emitter::BackendContributionSet,
     interface: &InterfaceArtifact,
     bundle: &PackageInterfaceExportBundle,
     linking: Option<(&bray_linker::Linker, &bray_emitter::ProductLinkInputs)>,
@@ -119,77 +114,74 @@ pub(super) fn package_native_implementation(
     let mut bitcode_members = Vec::new();
     let mut bitcode_is_opaque = false;
 
-    // Keep at most eight LLVM inspector processes active while retaining stable staging order.
-    for batch in staging.inputs().chunks(8) {
-        let inspected = batch
-            .par_iter()
-            .map(|staged| {
-                inspect_staged_unit(
-                    plan,
-                    staged,
-                    tools,
-                    compilation.native_link_inputs(),
-                    target,
-                )
-            })
-            .collect::<Vec<_>>();
+    let contributions: BTreeMap<_, _> = contributions
+        .contributions()
+        .iter()
+        .map(|contribution| (contribution.id(), contribution))
+        .collect();
 
-        for (staged, result) in batch.iter().zip(inspected) {
-            let Some((key, unit, bytes)) = result? else {
-                continue;
-            };
+    for staged in staging.inputs() {
+        let result = native_contribution_unit(
+            plan,
+            staged,
+            contributions[staged.artifact()],
+            compilation.native_link_inputs(),
+        )?;
 
-            let mapping = native
-                .mappings()
+        let Some((key, unit, bytes)) = result else {
+            continue;
+        };
+
+        let mapping = native
+            .mappings()
+            .iter()
+            .find(|mapping| mapping.unit() == &key)
+            .expect("staged native unit must have mappings");
+
+        let unit = unit.with_statics(
+            native
+                .native_statics()
                 .iter()
-                .find(|mapping| mapping.unit() == &key)
-                .expect("staged native unit must have mappings");
-
-            let unit = unit.with_statics(
-                native
-                    .native_statics()
-                    .iter()
-                    .filter(|entry| {
-                        mapping.static_storages().iter().any(|storage| {
-                            storage.defines_storage() && storage.host_name() == entry.symbol()
-                        })
+                .filter(|entry| {
+                    mapping.static_storages().iter().any(|storage| {
+                        storage.defines_storage() && storage.host_name() == entry.symbol()
                     })
-                    .cloned(),
-            );
+                })
+                .cloned(),
+        );
 
-            let digest = unit.digest();
+        let digest = unit.digest();
 
-            if wants_bitcode && unit.kind() == NativeUnitKind::Bitcode {
-                bitcode_members.push(staged.clone());
-
-                if matches!(unit.summary(), NativeUnitSummary::Opaque { .. }) {
-                    bitcode_is_opaque = true;
-                } else {
-                    bitcode_units.push(unit.clone());
-                    bitcode_payloads.push((digest.bytes(), Arc::clone(&bytes)));
-                }
-            }
-
-            if plan
-                .artifact(staged.artifact())
-                .expect("staged native artifact must be planned")
-                .role()
-                != ArtifactRole::LinkInput
-            {
-                continue;
-            }
-
-            primary_members.push(staged.clone());
-            primary_has_bitcode |= unit.kind() == NativeUnitKind::Bitcode;
+        if wants_bitcode && unit.kind() == NativeUnitKind::Bitcode {
+            bitcode_members.push(staged.clone());
 
             if matches!(unit.summary(), NativeUnitSummary::Opaque { .. }) {
-                primary_is_opaque = true;
-                opaque_keys.push(key);
+                bitcode_is_opaque = true;
             } else {
-                units.push(unit);
-                payloads.push((digest.bytes(), bytes));
-                unit_digests.insert(key, digest);
+                bitcode_units.push(unit.clone());
+                bitcode_payloads.push((digest.bytes(), Arc::clone(&bytes)));
             }
+        }
+
+        if plan
+            .artifact(staged.artifact())
+            .expect("staged native artifact must be planned")
+            .role()
+            != ArtifactRole::LinkInput
+        {
+            continue;
+        }
+
+        primary_members.push(staged.clone());
+        primary_has_bitcode |= unit.kind() == NativeUnitKind::Bitcode;
+
+        if matches!(unit.summary(), NativeUnitSummary::Opaque { .. }) {
+            primary_is_opaque = true;
+            opaque_keys.push(key);
+        } else {
+            units.push(unit);
+            payloads.push((digest.bytes(), bytes));
+            unit_digests.insert(key, digest);
         }
     }
 
@@ -204,7 +196,7 @@ pub(super) fn package_native_implementation(
                 &primary_members,
                 linking,
                 cancellation,
-                tools.symbols,
+                &contributions,
             )
         })
         .transpose()?
@@ -275,7 +267,7 @@ pub(super) fn package_native_implementation(
                     &bitcode_members,
                     linking,
                     cancellation,
-                    tools.symbols,
+                    &contributions,
                 )?,
             };
 
@@ -319,7 +311,7 @@ fn package_opaque_archive(
     members: &[StagedArtifact],
     linking: Option<(&bray_linker::Linker, &bray_emitter::ProductLinkInputs)>,
     cancellation: &CancellationToken,
-    symbols: &Path,
+    contributions: &BTreeMap<&bray_emitter::ArtifactId, &bray_emitter::ArtifactContribution>,
 ) -> Result<(NativeUnit, Arc<[u8]>), ProductEmissionErrorKind> {
     let (linker, inputs) = linking.ok_or(ProductEmissionErrorKind::MissingLinker)?;
 
@@ -343,30 +335,40 @@ fn package_opaque_archive(
 
     let path = archive.outputs()[0].destination().path();
 
-    let bytes = std::fs::read(path).map_err(|error| {
-        ProductEmissionErrorKind::NativeInspection(NativeInspectionError::Read {
-            path: path.to_path_buf(),
-            kind: error.kind(),
-        })
+    let bytes = std::fs::read(path).map_err(|error| ProductEmissionErrorKind::NativeRead {
+        path: path.to_path_buf(),
+        kind: error.kind(),
     })?;
 
     let digest = NativeContentDigest::new(
         bray_base::sha256_reader(bytes.as_slice()).expect("hashing archive memory cannot fail"),
     );
 
-    let symbols = run_inspector(
-        symbols,
-        DiagnosticLlvmToolRole::SymbolInspector,
-        &["--format=posix", "--extern-only"],
-        path,
-    )
-    .map_err(ProductEmissionErrorKind::NativeInspection)?;
+    let member_units = members
+        .iter()
+        .map(|member| {
+            contributions[member.artifact()]
+                .native_unit()
+                .expect("compiler-produced archive member must have native obligations")
+        })
+        .collect::<Vec<_>>();
+
+    let summary = NativeUnitSummary::opaque_archive(
+        member_units
+            .iter()
+            .flat_map(|unit| unit.summary().defined_symbols())
+            .cloned(),
+        member_units
+            .iter()
+            .flat_map(|unit| unit.summary().references())
+            .cloned(),
+    );
 
     Ok((
         NativeUnit::new(
             digest,
             NativeUnitKind::OpaqueArchive,
-            NativeUnitSummary::opaque(bray_native_artifact::scan_symbol_references(&symbols)),
+            summary,
             compilation.native_link_inputs().iter().cloned(),
         ),
         Arc::from(bytes),
@@ -485,12 +487,11 @@ fn native_bindings(
     Ok(bindings)
 }
 
-fn inspect_staged_unit(
+fn native_contribution_unit(
     plan: &EmissionPlan,
     staged: &StagedArtifact,
-    tools: NativeInspectionInputs<'_>,
+    contribution: &bray_emitter::ArtifactContribution,
     native_links: &[bray_symbols::NativeLinkRequirement],
-    target: NativeTarget,
 ) -> Result<Option<(CodegenUnitKey, NativeUnit, Arc<[u8]>)>, ProductEmissionErrorKind> {
     let planned = plan
         .artifact(staged.artifact())
@@ -500,113 +501,31 @@ fn inspect_staged_unit(
         return Ok(None);
     };
 
-    let kind = match artifact.kind() {
-        BackendArtifactKind::RelocatableObject => NativeUnitKind::Object,
-        BackendArtifactKind::BackendBitcode => NativeUnitKind::Bitcode,
-        _ => return Ok(None),
-    };
-
-    let bytes = std::fs::read(staged.path()).map_err(|error| {
-        ProductEmissionErrorKind::NativeInspection(NativeInspectionError::Read {
-            path: staged.path().to_path_buf(),
-            kind: error.kind(),
-        })
-    })?;
-
-    let digest = NativeContentDigest::new(
-        bray_base::sha256_reader(bytes.as_slice())
-            .expect("reading an in-memory native unit cannot fail"),
-    );
-
-    let summary = match kind {
-        NativeUnitKind::Object => scan_object_unit_summary(&bytes).unwrap_or_else(|error| {
-            panic!(
-                "compiler-produced object {} must be readable: {error}",
-                staged.path().display()
-            )
-        }),
-        NativeUnitKind::Bitcode => {
-            let symbols = run_inspector(
-                tools.symbols,
-                DiagnosticLlvmToolRole::SymbolInspector,
-                &["--format=posix", "--extern-only"],
-                staged.path(),
-            )
-            .map_err(ProductEmissionErrorKind::NativeInspection)?;
-
-            let structure = run_inspector(
-                tools.bitcode,
-                DiagnosticLlvmToolRole::BitcodeInspector,
-                &["-o", "-"],
-                staged.path(),
-            )
-            .map_err(ProductEmissionErrorKind::NativeInspection)?;
-
-            scan_bitcode_unit_summary(&symbols, &structure, target)
-        }
-        NativeUnitKind::OpaqueArchive => unreachable!("backend linkable artifact is a unit"),
-    };
-
-    // The published unit map must outlive this borrowed backend artifact identifier.
-    let key = artifact.unit().clone();
-
-    Ok(Some((
-        key,
-        NativeUnit::new(digest, kind, summary, native_links.iter().cloned()),
-        Arc::from(bytes),
-    )))
-}
-
-fn run_inspector(
-    program: &Path,
-    role: DiagnosticLlvmToolRole,
-    arguments: &[&str],
-    path: &Path,
-) -> Result<String, NativeInspectionError> {
-    let output = Command::new(program)
-        .args(arguments)
-        .arg(path)
-        .output()
-        .map_err(|error| NativeInspectionError::Invoke {
-            tool: role,
-            path: path.to_path_buf(),
-            kind: error.kind(),
-        })?;
-
-    if !output.status.success() {
-        return Err(NativeInspectionError::Failed {
-            tool: role,
-            path: path.to_path_buf(),
-            status: output.status.code(),
-        });
+    if !matches!(
+        artifact.kind(),
+        BackendArtifactKind::RelocatableObject | BackendArtifactKind::BackendBitcode
+    ) {
+        return Ok(None);
     }
 
-    String::from_utf8(output.stdout).map_err(|_| NativeInspectionError::Encoding {
-        tool: role,
-        path: path.to_path_buf(),
-    })
-}
+    let unit = contribution
+        .native_unit()
+        .expect("compiler-produced native contribution must carry final-byte obligations");
 
-/// Exact host or tool failure while inspecting one completed native unit.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum NativeInspectionError {
-    /// A completed backend unit could not be read.
-    Read { path: PathBuf, kind: io::ErrorKind },
-    /// The selected LLVM inspection tool could not be started.
-    Invoke {
-        tool: DiagnosticLlvmToolRole,
-        path: PathBuf,
-        kind: io::ErrorKind,
-    },
-    /// The selected LLVM inspection tool rejected a unit.
-    Failed {
-        tool: DiagnosticLlvmToolRole,
-        path: PathBuf,
-        status: Option<i32>,
-    },
-    /// The selected LLVM inspection tool returned invalid UTF-8.
-    Encoding {
-        tool: DiagnosticLlvmToolRole,
-        path: PathBuf,
-    },
+    let bytes = contribution.content().read_shared().map_err(|error| {
+        ProductEmissionErrorKind::NativeRead {
+            path: staged.path().to_path_buf(),
+            kind: error.source().map_or(io::ErrorKind::Other, io::Error::kind),
+        }
+    })?;
+
+    // The index retains shared summary arrays after the contribution set is released.
+    let unit = NativeUnit::new(
+        unit.digest(),
+        unit.kind(),
+        unit.summary().clone(),
+        native_links.iter().cloned(),
+    );
+
+    Ok(Some((artifact.unit().clone(), unit, bytes)))
 }

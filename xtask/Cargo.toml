@@ -12,6 +12,7 @@ workspace = true
 bray-base = { path = "../crates/bray-base" }
 bray-llvm-toolchain = { path = "../tools/llvm-toolchain" }
 bray-codegen = { path = "../crates/bray-codegen" }
+bray-codegen-llvm = { path = "../crates/bray-codegen-llvm" }
 bray-compilation = { path = "../crates/bray-compilation" }
 bray-compiler-known = { path = "../crates/bray-compiler-known", features = ["generation"] }
 bray-diagnostics = { path = "../crates/bray-diagnostics" }

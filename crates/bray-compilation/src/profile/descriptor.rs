@@ -28,7 +28,7 @@ pub(crate) enum ProfileOperation {
     NativePlanFinalization,
     InterfaceFragmentDiscovery,
     InterfaceCommit,
-    NativeUnitInspection,
+    NativePackageAssembly,
 }
 
 impl ProfileOperation {
@@ -61,7 +61,7 @@ impl ProfileOperation {
             Self::NativePartitioning => "compiler.native.partition",
             Self::NativeMapping => "compiler.native.mapping",
             Self::NativePlanFinalization => "compiler.native.finalize",
-            Self::NativeUnitInspection => "compiler.emit.native.inspect",
+            Self::NativePackageAssembly => "compiler.emit.native.assemble",
         }
     }
 
@@ -88,7 +88,7 @@ impl ProfileOperation {
             Self::NativePartitioning => 17,
             Self::NativeMapping => 18,
             Self::NativePlanFinalization => 19,
-            Self::NativeUnitInspection => 22,
+            Self::NativePackageAssembly => 22,
         }
     }
 
@@ -114,7 +114,7 @@ impl ProfileOperation {
             | Self::NativePartitioning
             | Self::NativeMapping
             | Self::NativePlanFinalization
-            | Self::NativeUnitInspection => CompilationProfileCategory::Work,
+            | Self::NativePackageAssembly => CompilationProfileCategory::Work,
         }
     }
 
@@ -147,7 +147,7 @@ impl ProfileOperation {
             | Self::NativePartitioning
             | Self::NativeMapping
             | Self::NativePlanFinalization
-            | Self::NativeUnitInspection => &[Product],
+            | Self::NativePackageAssembly => &[Product],
             Self::Emission | Self::LinkInputStaging | Self::ArtifactPublication => {
                 &[Product, Artifact]
             }
@@ -177,7 +177,7 @@ impl ProfileOperation {
             Self::NativePlanFinalization,
             Self::InterfaceFragmentDiscovery,
             Self::InterfaceCommit,
-            Self::NativeUnitInspection,
+            Self::NativePackageAssembly,
         ]
     }
 }
@@ -248,9 +248,10 @@ impl ProfileMetricKind {
             }
             Self::InterfaceBytes => ("compiler.interface.bytes", CompilationProfileUnit::Bytes),
             Self::LinkInputs => ("compiler.link.inputs", CompilationProfileUnit::Count),
-            Self::RuntimeNativeUnits => {
-                ("compiler.runtime.native_units", CompilationProfileUnit::Count)
-            }
+            Self::RuntimeNativeUnits => (
+                "compiler.runtime.native_units",
+                CompilationProfileUnit::Count,
+            ),
             Self::RuntimeNativeBytes => (
                 "compiler.runtime.native_bytes",
                 CompilationProfileUnit::Bytes,
@@ -673,8 +674,8 @@ mod tests {
             ProfileMetricKind::all().map(ProfileMetricKind::id),
             [
                 2_000, 2_001, 2_002, 2_003, 2_004, 2_005, 2_006, 2_007, 2_008, 2_009, 2_010, 2_011,
-                2_012, 2_013, 2_016, 2_017, 2_018, 2_033, 2_019, 2_020, 2_021, 2_022, 2_023,
-                2_024, 2_025, 2_026, 2_027, 2_028, 2_029, 2_030, 2_031, 2_032, 2_014, 2_015,
+                2_012, 2_013, 2_016, 2_017, 2_018, 2_033, 2_019, 2_020, 2_021, 2_022, 2_023, 2_024,
+                2_025, 2_026, 2_027, 2_028, 2_029, 2_030, 2_031, 2_032, 2_014, 2_015,
             ]
         );
 

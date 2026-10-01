@@ -49,6 +49,12 @@ pub enum CodegenFailure {
         artifact: BackendArtifactKind,
         report: Arc<str>,
     },
+    /// Final artifact storage could not be read.
+    ArtifactRead {
+        artifact: BackendArtifactKind,
+        operation: crate::ArtifactSpoolOperation,
+        kind: std::io::ErrorKind,
+    },
     /// Serialized bytes could not form immutable artifact content.
     InvalidArtifactContent {
         artifact: BackendArtifactKind,
@@ -236,6 +242,9 @@ pub fn codegen_failure_diagnostic(
             DiagnosticKind::CodegenArtifactConstructionFailed,
             Some(*artifact),
         ),
+        CodegenFailure::ArtifactRead { artifact, .. } => {
+            (DiagnosticKind::CodegenArtifactReadFailed, Some(*artifact))
+        }
     };
 
     let mut diagnostic = Diagnostic::new(DiagnosticId::new(0), kind, SeverityKind::Error)
@@ -270,6 +279,9 @@ pub fn codegen_failure_diagnostic(
         CodegenFailure::InvalidArtifactContent { cause, .. } => {
             diagnostic =
                 diagnostic.with_arg(DiagnosticArg::codegen_backend_report(format!("{cause:?}")));
+        }
+        CodegenFailure::ArtifactRead { kind, .. } => {
+            diagnostic = diagnostic.with_arg(DiagnosticArg::io_error_kind((*kind).into()));
         }
         CodegenFailure::BackendToolExited { program, exit } => {
             diagnostic = diagnostic
@@ -431,6 +443,30 @@ mod tests {
             artifact_construction.diagnostics(),
             DiagnosticKind::CodegenArtifactConstructionFailed,
         );
+    }
+
+    #[test]
+    fn artifact_storage_read_failure_is_operational_and_keeps_io_cause() {
+        let diagnostic = super::codegen_failure_diagnostic(
+            "llvm",
+            "x86_64-pc-windows-msvc",
+            &CodegenFailure::ArtifactRead {
+                artifact: crate::BackendArtifactKind::BackendBitcode,
+                operation: crate::ArtifactSpoolOperation::Read,
+                kind: std::io::ErrorKind::PermissionDenied,
+            },
+        );
+
+        assert_eq!(diagnostic.kind(), DiagnosticKind::CodegenArtifactReadFailed);
+
+        assert!(diagnostic.args().iter().any(|arg| matches!(
+            arg.value(),
+            bray_diagnostics::DiagnosticArgValue::IoErrorKind(
+                bray_diagnostics::DiagnosticIoErrorKind::PermissionDenied
+            )
+        )));
+
+        assert!(diagnostic.notes().is_empty());
     }
 
     #[test]

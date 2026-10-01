@@ -17,8 +17,6 @@ pub enum DiagnosticLlvmToolRole {
     SymbolInspector,
     /// LLVM object-file inspector.
     ObjectInspector,
-    /// LLVM bitcode structure inspector.
-    BitcodeInspector,
 }
 
 impl DiagnosticLlvmToolRole {
@@ -31,7 +29,6 @@ impl DiagnosticLlvmToolRole {
             Self::Optimizer => "optimizer",
             Self::SymbolInspector => "symbol_inspector",
             Self::ObjectInspector => "object_inspector",
-            Self::BitcodeInspector => "bitcode_inspector",
         }
     }
 
@@ -44,7 +41,6 @@ impl DiagnosticLlvmToolRole {
             Self::Optimizer => "opt",
             Self::SymbolInspector => "llvm-nm",
             Self::ObjectInspector => "llvm-readobj",
-            Self::BitcodeInspector => "llvm-dis",
         }
     }
 }

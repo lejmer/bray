@@ -56,6 +56,10 @@ and preserves the separate cancellation and lifecycle phases described in [async
 An emitter-owned immutable plan supplies each unit's artifact request before serialization. Backend contributions have
 logical identities and immutable content, without final paths or overwrite policy.
 
+Native library contributions carry backend-neutral symbol summaries observed from their final serialized bytes and
+bound to those bytes by a content digest. Package publication reuses that evidence without inspecting native units
+again; incomplete observations retain opaque selection with the physical definitions and references that are known.
+
 Objects needed for native linking and optional inspection outputs share this boundary. Content can be memory-backed or
 spooled so large artifacts do not require duplicate in-memory copies.
 

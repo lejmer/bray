@@ -195,6 +195,7 @@ pub enum DiagnosticNativeProductFailureKind {
     CodegenBackendLibraryFailure(DiagnosticNativeProductFailureDetail),
     CodegenBackendToolFailure(DiagnosticNativeProductFailureDetail),
     CodegenBackendArtifactConstruction(DiagnosticNativeProductFailureDetail),
+    CodegenBackendArtifactRead(DiagnosticNativeProductFailureDetail),
     CodegenBackendUnavailable,
     CodegenMirUnavailable(DiagnosticNativeProductFailureDetail),
     /// A demanded callable has no executable implementation or valid native import.
@@ -305,7 +306,8 @@ impl DiagnosticNativeProductFailureKind {
             | Self::CodegenBackendInvalidConfigurationDetail(detail)
             | Self::CodegenBackendLibraryFailure(detail)
             | Self::CodegenBackendToolFailure(detail)
-            | Self::CodegenBackendArtifactConstruction(detail) => detail.reason(),
+            | Self::CodegenBackendArtifactConstruction(detail)
+            | Self::CodegenBackendArtifactRead(detail) => detail.reason(),
             Self::CodegenBackendInvalidConfiguration => "codegen_backend_invalid_configuration",
             Self::CodegenBackendResourceExhausted => "codegen_backend_resource_exhausted",
             Self::CodegenBackendResourceLimit(detail) => detail.reason(),
