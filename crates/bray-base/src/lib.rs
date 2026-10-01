@@ -15,10 +15,7 @@ mod text;
 
 pub use cancellation::Cancellation;
 pub use digest::{Sha256Reader, StableDigestHasher, sha256_file, sha256_reader};
-pub use directory::{
-    atomic_rename_exclusive, atomic_rename_exclusive_is_supported, retry_permission_denied,
-    sync_directory,
-};
+pub use directory::{atomic_rename_exclusive, retry_permission_denied, sync_directory};
 pub use file_staging::{
     CompletedStagedFile, FileReplacementMode, StagedFile, is_staged_file_name,
     write_file_atomically,

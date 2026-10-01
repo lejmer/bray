@@ -74,11 +74,6 @@ fn retry_permission_denied_with_policy<T>(
     operation()
 }
 
-/// Returns whether the filesystem can atomically rename without replacement.
-pub fn atomic_rename_exclusive_is_supported(path: &Path) -> io::Result<bool> {
-    renamore::rename_exclusive_is_atomic(path)
-}
-
 /// Flushes directory-entry changes to the filesystem's durable storage boundary.
 #[cfg(unix)]
 pub fn sync_directory(path: &Path) -> io::Result<()> {
@@ -114,13 +109,10 @@ mod tests {
     use std::io::ErrorKind;
     use std::time::Duration;
 
-    use super::{
-        atomic_rename_exclusive, atomic_rename_exclusive_is_supported,
-        retry_permission_denied_with_policy, sync_directory,
-    };
+    use super::{atomic_rename_exclusive, retry_permission_denied_with_policy, sync_directory};
 
     #[test]
-    fn directories_support_durable_exclusive_publication() {
+    fn directories_publish_durably_without_replacing_existing_content() {
         let Ok(root) = tempfile::tempdir() else {
             panic!("test output directory must be created");
         };
@@ -131,10 +123,8 @@ mod tests {
         std::fs::create_dir(&source)
             .unwrap_or_else(|error| panic!("private directory must be created: {error}"));
 
-        assert!(matches!(
-            atomic_rename_exclusive_is_supported(root.path()),
-            Ok(true)
-        ));
+        std::fs::write(source.join("content"), b"original")
+            .unwrap_or_else(|error| panic!("private content must be written: {error}"));
 
         atomic_rename_exclusive(&source, &destination)
             .unwrap_or_else(|error| panic!("directory must publish exclusively: {error}"));
@@ -144,6 +134,27 @@ mod tests {
 
         assert!(!source.exists());
         assert!(destination.is_dir());
+
+        std::fs::create_dir(&source)
+            .unwrap_or_else(|error| panic!("replacement directory must be created: {error}"));
+
+        std::fs::write(source.join("content"), b"replacement")
+            .unwrap_or_else(|error| panic!("replacement content must be written: {error}"));
+
+        assert!(atomic_rename_exclusive(&source, &destination).is_err());
+
+        assert_eq!(
+            std::fs::read(destination.join("content"))
+                .unwrap_or_else(|error| panic!("published content must remain readable: {error}")),
+            b"original"
+        );
+
+        assert_eq!(
+            std::fs::read(source.join("content")).unwrap_or_else(|error| panic!(
+                "replacement content must remain readable: {error}"
+            )),
+            b"replacement"
+        );
     }
 
     #[test]

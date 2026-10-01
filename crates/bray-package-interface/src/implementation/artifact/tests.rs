@@ -1974,6 +1974,66 @@ fn packed_read_diagnostic_supplies_the_message_protocol_arguments() {
 }
 
 #[test]
+fn native_units_above_sixteen_mib_use_the_bounded_allocation_budget() {
+    let fixture = artifact_fixture();
+    let interface = encode_package_interface(&fixture.bundle).unwrap();
+
+    let target =
+        NativeTarget::for_identity(fixture.bundle.implementation_configuration().target()).unwrap();
+
+    let payload: Arc<[u8]> = vec![7_u8; 24 * 1024 * 1024].into();
+    let digest = native_digest(&payload);
+
+    let index = NativeArtifactIndex::try_new(
+        target,
+        native_digest(b"producer"),
+        [NativeUnit::new(
+            digest,
+            NativeUnitKind::OpaqueArchive,
+            NativeUnitSummary::opaque([]),
+            [],
+        )],
+        [],
+    )
+    .unwrap();
+
+    let encoded = index.encode().unwrap();
+
+    let artifact = PackageImplementationArtifact::try_from_export_bundle_with_native(
+        &interface,
+        &fixture.bundle,
+        &encoded,
+        &[(digest.bytes(), payload.clone())],
+        &[],
+        InterfaceValidationLimits::default(),
+    )
+    .unwrap();
+
+    assert_eq!(artifact.native_artifact().unwrap(), Some(index));
+
+    assert_eq!(
+        artifact.native_unit_bytes(digest.bytes()).unwrap(),
+        Some(payload)
+    );
+
+    artifact.verify_all().unwrap();
+
+    let error = PackageImplementationArtifact::try_from_bytes(
+        artifact.shared_bytes().unwrap(),
+        InterfaceValidationLimits::default().with_decoded_allocation(16 * 1024 * 1024),
+    );
+
+    assert!(matches!(
+        error,
+        Err(InterfaceValidationError::ResourceLimitExceeded {
+            limit: crate::InterfaceLimit::DecodedAllocation,
+            actual: 25_165_824,
+            maximum: 16_777_216,
+        })
+    ));
+}
+
+#[test]
 fn packed_native_index_above_sixteen_mib_has_its_own_bounded_metadata_budget() {
     let fixture = artifact_fixture();
     let interface = encode_package_interface(&fixture.bundle).unwrap();
@@ -2032,6 +2092,7 @@ fn packed_native_index_above_sixteen_mib_has_its_own_bounded_metadata_budget() {
     .unwrap();
 
     assert_eq!(artifact.native_artifact().unwrap(), Some(index));
+
     artifact.verify_all().unwrap();
 
     let error = PackageImplementationArtifact::try_from_bytes(
@@ -2136,6 +2197,7 @@ fn complete_reads_enforce_metadata_promises_and_share_their_immutable_snapshot()
     let input = crate::PackageArtifactInput::packed_file(&path, *artifact.artifact_hash());
 
     assert_eq!(input.read().unwrap(), bytes);
+
     std::fs::write(&path, b"replacement").unwrap();
 
     let loaded = input.load_implementation().unwrap();

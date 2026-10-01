@@ -118,20 +118,21 @@ pub(super) fn decode_directory_entry(
         .read_array::<32>()
         .map_err(wire_error(context, InterfaceValidationField::ContentHash))?;
 
-    if ImplementationPayloadKind::from_raw(raw_kind) == Some(ImplementationPayloadKind::NativeIndex)
-    {
-        let index_limits = limits.with_decoded_allocation(
-            limits
-                .maximum(InterfaceLimit::DecodedAllocation)
-                .min(bray_native_artifact::NativeArtifactIndex::MAXIMUM_BYTES as u64),
-        );
+    let (payload_limits, payload_limit) = match ImplementationPayloadKind::from_raw(raw_kind) {
+        Some(ImplementationPayloadKind::NativeIndex) => (
+            limits.with_decoded_allocation(
+                limits
+                    .maximum(InterfaceLimit::DecodedAllocation)
+                    .min(bray_native_artifact::NativeArtifactIndex::MAXIMUM_BYTES as u64),
+            ),
+            InterfaceLimit::DecodedAllocation,
+        ),
+        Some(ImplementationPayloadKind::NativeUnit) => (limits, InterfaceLimit::DecodedAllocation),
+        _ => (limits, InterfaceLimit::BlobLength),
+    };
 
-        index_limits.check(InterfaceLimit::DecodedAllocation, encoded_length)?;
-        index_limits.check(InterfaceLimit::DecodedAllocation, decoded_length)?;
-    } else {
-        limits.check(InterfaceLimit::BlobLength, encoded_length)?;
-        limits.check(InterfaceLimit::BlobLength, decoded_length)?;
-    }
+    payload_limits.check(payload_limit, encoded_length)?;
+    payload_limits.check(payload_limit, decoded_length)?;
 
     limits.check(InterfaceLimit::RecordCount, record_count)?;
 

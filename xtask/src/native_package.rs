@@ -137,7 +137,7 @@ pub(crate) fn publish(
                 bray_package_interface::PackageImplementationArtifactBuildError::InvalidArtifact,
             )
         })
-        .map_err(|error| format!("foreign native package encoding failed: {error:?}"))
+        .map_err(|error| format!("foreign native package {name} encoding failed: {error:?}"))
 }
 
 /// Loads the standard-library closure used by foreign hosts of Bray package archives.
