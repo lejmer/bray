@@ -21,6 +21,47 @@ Cross-language syntax may differ in verbosity, so source byte counts remain comp
 no more than eight times the smallest. A row with incomplete or different compilation inputs is explicitly
 non-comparable, records exact reasons, and cannot publish a winner.
 
+## Dependent-build comparisons
+
+The corpus application lane consumes already published libraries. It does not measure the transition from producing a
+library to starting its consumer. The library lane measures a separate source build. Do not combine their durations to
+claim a complete-workspace duration or use one condition as the baseline for the other.
+
+For a dependent-build regression, retain two separate conditions using the existing compiler and project commands:
+
+- **Published consumer.** Invoke `brayc build` with the recorded consumer arguments and unchanged, already published
+  dependency artifacts. Measure the compiler process, including its linker and publication work.
+- **Immediate pipeline.** Invoke `bray build` for the same workspace and product. Keep dependency production and the
+  immediate importing build inside one measured workspace interval. Record library, consumer and workspace durations
+  separately. When isolating a producer change, keep the consumer executable fixed and invoke it immediately after each
+  producer, with no intervening inspection or cache preparation.
+
+Freeze source, manifests, compiler executable digests and build configuration, target, effective options, workers,
+installed runtime/library artifacts and output/cache paths before comparing. Preserve exact compiler arguments and
+artifact digests beside the samples. An artifact match establishes equal inputs or output bytes, but does not establish
+matched host load or cache conditions.
+
+Run a warmup for every condition, then at least five unprofiled samples. Rotate baseline and candidate invocation order
+within each condition rather than collecting all baseline samples before all candidate samples. Preserve every sample,
+including warmups and outliers, with its condition, compiler identity, position in the round and elapsed duration. Do not
+rewrite dependencies between published-consumer samples. Keep artifact checks and profiling outside measured intervals,
+and keep all producer work inside the pipeline interval.
+
+Record concurrent build/editor activity and cache preparation for each batch. A background build, compiler rebuild or
+artifact publication can change the conditions of later samples even when every compiler argument is identical. If host
+activity changes during a round, retain and label that round, then collect another complete matched batch. Do not remove
+individual slow samples, insert waits, restore redundant artifact reads or slow a producer to make a comparison pass.
+
+Use separate summary-profile invocations and `bray profile compare` to examine import work, native demand, cache outcomes,
+staging and linking. Compare counts as well as durations, and do not add inclusive operation times. A difference between
+published-consumer and pipeline results supports investigating the producer handoff. A slowdown shared by unchanged
+consumer executables across both conditions supports investigating host/cache drift. Neither observation alone identifies
+a particular filesystem filter, background service or clock policy.
+
+Report the matched medians for library, consumer and complete workspace against the protected implementation baseline.
+A consumer improvement does not excuse a library or workspace regression. Keep the historical samples, the new matched
+samples and any observed host disturbance distinct when recording an attribution.
+
 ## Runtime peers and sample ordering
 
 Every workload also builds maintained Rust and C++ runtime peers directly through `rustc` and `clang++`. The report
