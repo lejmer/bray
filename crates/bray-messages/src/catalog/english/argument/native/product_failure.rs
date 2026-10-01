@@ -65,7 +65,8 @@ pub(super) const fn native_product_failure_is_internal(
         | Kind::CodegenInvalidAbiMapping(_)
         | Kind::CodegenMissingHelperInstance(_)
         | Kind::CodegenInvalidSymbolName => true,
-        Kind::CodegenBackendNotSelected
+        Kind::CodegenBackendArtifactRead(_)
+        | Kind::CodegenBackendNotSelected
         | Kind::MissingProductRoot
         | Kind::InvalidEntryResult
         | Kind::MissingRuntime

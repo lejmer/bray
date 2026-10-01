@@ -321,6 +321,7 @@ fn compile_smoke(
     });
 
     let report = directory.join("panic_report.rs");
+
     fs::write(&report, PANIC_REPORT_SOURCE).map_err(|error| CommandError::write(&report, error))?;
     fs::write(&source, source_text).map_err(|error| CommandError::write(&source, error))?;
 
@@ -330,6 +331,7 @@ fn compile_smoke(
 
     for archive in archives {
         let archive = archive.to_str().ok_or(CommandError::NonUtf8Path)?;
+
         command.arg("-C").arg(format!("link-arg={archive}"));
     }
 

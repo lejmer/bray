@@ -2844,6 +2844,16 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::CodegenArtifactConstructionFailed => {
             MessageTemplate::new(CODEGEN_ARTIFACT_CONSTRUCTION_FAILED)
         }
+        DiagnosticKind::CodegenArtifactReadFailed => MessageTemplate::new(&[
+            MessageTemplatePart::Text("native-code generator "),
+            MessageTemplatePart::Arg(DiagnosticArgName::CodegenBackendIdentity),
+            MessageTemplatePart::Text(" could not read "),
+            MessageTemplatePart::Arg(DiagnosticArgName::ArtifactKind),
+            MessageTemplatePart::Text(" storage for target "),
+            MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
+            MessageTemplatePart::Text(": "),
+            MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
+        ]),
         DiagnosticKind::NativeProductPreparationFailed => {
             MessageTemplate::new(NATIVE_PRODUCT_PREPARATION_FAILED)
         }

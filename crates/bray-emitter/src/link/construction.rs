@@ -1223,6 +1223,7 @@ mod tests {
         let bytes = b"!<arch>\n";
 
         let archive = directory.path().join("test-runtime.a");
+
         std::fs::write(&archive, bytes).expect("test runtime archive must be written");
 
         let roles = contract

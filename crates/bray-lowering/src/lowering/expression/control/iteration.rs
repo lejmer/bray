@@ -83,6 +83,7 @@ impl Lowerer<'_> {
             self.lower_pattern_bindings(expression.pattern(), pattern_subject, iteration.item)?;
 
         let body = self.lower_block(expression.body(), item)?;
+
         self.finish_edge(body, iteration.header)?;
 
         self.finish_iteration_else(
@@ -336,6 +337,7 @@ impl Lowerer<'_> {
             self.lower_pattern_bindings(expression.pattern(), pattern_subject, iteration.item)?;
 
         let body = self.lower_block(expression.body(), item)?;
+
         self.finish_edge(body, iteration.header)?;
 
         self.loop_targets.pop();

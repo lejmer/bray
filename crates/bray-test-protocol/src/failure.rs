@@ -95,6 +95,7 @@ mod tests {
         assert_eq!(explicit.message(), "fixture setup failed");
 
         let source_free = ExplicitTestFailure::new(None, "source unavailable");
+
         assert_eq!(source_free.source(), None);
         assert_eq!(source_free.message(), "source unavailable");
     }

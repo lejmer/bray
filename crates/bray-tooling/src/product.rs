@@ -734,6 +734,7 @@ mod tests {
             );
 
             let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
             assert!(rendered.message().contains(expected));
         }
     }

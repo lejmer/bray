@@ -154,6 +154,7 @@ impl ScalarAnalysis<'_> {
                 if let MirOperand::Value(value) = operand {
                     let value = aliases.get(value).copied().unwrap_or(*value);
                     let count = &mut uses[slot(value.slot())];
+
                     *count -= 1;
 
                     if *count == 0
@@ -177,6 +178,7 @@ impl ScalarAnalysis<'_> {
 fn count_use(operand: &MirOperand, uses: &mut [usize], aliases: &BTreeMap<MirValueId, MirValueId>) {
     if let MirOperand::Value(value) = operand {
         let value = aliases.get(value).copied().unwrap_or(*value);
+
         uses[slot(value.slot())] += 1;
     }
 }

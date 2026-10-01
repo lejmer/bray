@@ -154,32 +154,12 @@ pub fn inline_scalar_call(
 
     for (old, block) in caller.blocks_with_ids() {
         let terminator = if old == call_block_id {
-            let arguments = parameters
-                .keys()
-                .map(|position| {
-                    let value = call
-                        .arguments()
-                        .iter()
-                        .find_map(|argument| match argument {
-                            MirCallArgument::Explicit { ordinal, value, .. }
-                                if ordinal == position =>
-                            {
-                                Some(value)
-                            }
-                            _ => None,
-                        })
-                        .expect("matched call argument");
-
-                    let mut value = value.clone();
-                    value.remap_local_ids(&caller_ids);
-
-                    value
-                })
-                .collect::<Vec<_>>();
+            let arguments = scalar_call_arguments(call, &parameters, &caller_ids);
 
             MirTerminatorKind::Goto(MirEdge::new(callee_ids.block(callee.entry()), arguments))
         } else {
             let mut kind = block.terminator().kind().clone();
+
             remap_terminator(&mut kind, &caller_ids);
 
             kind
@@ -201,6 +181,7 @@ pub fn inline_scalar_call(
                     .iter()
                     .map(|value| {
                         let mut value = value.clone();
+
                         value.remap_local_ids(&callee_ids);
 
                         value
@@ -211,6 +192,7 @@ pub fn inline_scalar_call(
             }
             other => {
                 let mut kind = other.clone();
+
                 remap_terminator(&mut kind, &callee_ids);
 
                 kind.try_for_each_edge_mut::<()>(|edge| {
@@ -241,6 +223,7 @@ pub fn inline_scalar_call(
     }
 
     let mut normal = MirTerminatorKind::Goto(completed.clone());
+
     remap_terminator(&mut normal, &caller_ids);
     builder.set_terminator(join, source, normal);
 
@@ -255,6 +238,36 @@ pub fn inline_scalar_call(
     );
 
     Ok(Some(inlined))
+}
+
+fn scalar_call_arguments(
+    call: &MirCall,
+    parameters: &BTreeMap<u32, MirStorageId>,
+    caller_ids: &LocalIds<'_>,
+) -> Vec<MirOperand> {
+    parameters
+        .keys()
+        .map(|position| {
+            let value = call
+                .arguments()
+                .iter()
+                .find_map(|argument| match argument {
+                    MirCallArgument::Explicit { ordinal, value, .. }
+                        if ordinal == position =>
+                    {
+                        Some(value)
+                    }
+                    _ => None,
+                })
+                .expect("matched call argument");
+
+            let mut value = value.clone();
+
+            value.remap_local_ids(caller_ids);
+
+            value
+        })
+        .collect()
 }
 
 fn scalar_arguments_match(
@@ -385,6 +398,7 @@ fn copy_unit_operations(
 
             let original = unit.operation(*operation_id).expect("valid operation");
             let mut kind = original.kind().clone();
+
             remap_operation(&mut kind, ids);
 
             let ty = original

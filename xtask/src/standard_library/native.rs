@@ -570,6 +570,7 @@ fn audit_outcomes(
 
     let catalog = product_catalog(workspace, target, OUTCOME_PRODUCT)?;
     let catalog = read_artifact(&catalog)?;
+
     require_catalog_separation(&catalog)?;
 
     let (catalog, _) = decode_test_catalog(&catalog).map_err(|error| {

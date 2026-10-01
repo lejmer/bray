@@ -95,7 +95,7 @@ pub(super) const fn format_english_artifact_kind(kind: DiagnosticArtifactKind) -
     match kind {
         DiagnosticArtifactKind::Assembly => "assembly",
         DiagnosticArtifactKind::BackendIr => "backend IR",
-        DiagnosticArtifactKind::BackendBitcode => "backend bitcode",
+        DiagnosticArtifactKind::BackendBitcode => "bitcode",
         DiagnosticArtifactKind::RelocatableObject => "relocatable object",
         DiagnosticArtifactKind::ExecutableModule => "executable module",
         DiagnosticArtifactKind::DebugCompanion => "debug companion",

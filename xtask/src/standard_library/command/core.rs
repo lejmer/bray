@@ -6,7 +6,6 @@ use bray_compilation::{
     BuildConfiguration, CompilationProfileReport, ProductEmissionInputs, SelectedTarget,
     WorkerBudget,
 };
-use bray_diagnostics::DiagnosticLlvmToolRole;
 use bray_emitter::{
     ArtifactKind, ArtifactRequirement, EmissionRequest, EmissionStatus,
     ManagedFilesystemDestination, ManagedOutputDirectory, OutputSink, ReplacementPolicy,
@@ -24,7 +23,7 @@ use bray_symbols::{NativeLinkRequirement, PackageIdentity, PackageVersion, Produ
 use bray_target::{
     NativeTarget, TargetIdentity, TargetOutputDescription, TargetOutputKind, TargetOutputName,
 };
-use bray_tooling::{llvm_tool_path, load_llvm_compilation, native_linker};
+use bray_tooling::{load_llvm_compilation, native_linker};
 
 use super::error::BuildError;
 use super::options::{BuildOptions, BuildProfileOptions, path_argument, required_argument};
@@ -665,18 +664,8 @@ fn build_target(
     .map_err(|error| BuildError::EmissionRequest(format!("{error:?}")))?
     .with_storage_profile(BuildConfiguration::ObjectRelease.as_str());
 
-    let inspectors = [
-        DiagnosticLlvmToolRole::SymbolInspector,
-        DiagnosticLlvmToolRole::BitcodeInspector,
-    ]
-    .map(llvm_tool_path)
-    .into_iter()
-    .collect::<Result<Vec<_>, _>>()
-    .map_err(BuildError::InspectorUnavailable)?;
-
     let inputs = ProductEmissionInputs::new(&output_description)
-        .with_native_product(&native_plan, linker.linker())
-        .with_native_inspection(&inspectors[0], &inspectors[1]);
+        .with_native_product(&native_plan, linker.linker());
 
     let outcome = crate::progress::run("Emitting standard library artifacts", || {
         compilation.emit_product(request, inputs).map_err(|error| {

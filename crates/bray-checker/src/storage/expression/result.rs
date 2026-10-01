@@ -144,6 +144,7 @@ impl<C: CheckerRequestContext + ?Sized> Planner<'_, C> {
 
         if creates_capability {
             let source = self.access_with_reached_type(expression, access, target)?;
+
             access = self.borrow_access(expression, source, kind)?;
         }
 

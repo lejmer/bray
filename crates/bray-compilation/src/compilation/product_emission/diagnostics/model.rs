@@ -80,10 +80,11 @@ pub enum ProductEmissionErrorKind {
     PackageImplementationContent(bray_codegen::ArtifactContentBuildError),
     /// The native index exceeds its bounded wire format.
     NativeIndexSizeLimitExceeded,
-    /// The native library has no selected inspector toolchain.
-    MissingNativeInspector,
-    /// The selected LLVM inspector could not inspect a staged native unit.
-    NativeInspection(super::super::native::NativeInspectionError),
+    /// Completed native artifact storage could not be read.
+    NativeRead {
+        path: std::path::PathBuf,
+        kind: std::io::ErrorKind,
+    },
     /// A requested test catalog has no matching planned artifact.
     MissingTestCatalogArtifact,
     /// The encoded test catalog cannot be represented as artifact content.

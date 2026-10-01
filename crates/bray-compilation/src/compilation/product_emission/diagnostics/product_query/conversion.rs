@@ -178,6 +178,7 @@ pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_
         ),
         Failure::ExternalSymbolIdentity { symbol, cause } => {
             let mut fields = Vec::new();
+
             push_symbol(&mut fields, "symbol_kind", "symbol", *symbol);
             super::export::push_package_interface_export_failure(&mut fields, cause);
 
@@ -234,6 +235,7 @@ pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_
             actual,
         } => {
             let mut fields = Vec::new();
+
             push_symbol(&mut fields, "symbol_kind", "symbol", *symbol);
 
             fields.extend([
@@ -264,6 +266,7 @@ pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_
         }
         Failure::InvalidCleanupCallTarget { context, target } => {
             let mut fields = product_query_context(context);
+
             push_mir_call_target(&mut fields, target);
 
             ("product_query_invalid_cleanup_call_target", fields)
@@ -303,12 +306,14 @@ pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_
             actual,
         } => {
             let mut fields = vec![identity_field("requirement", requirement)];
+
             push_implementation_selection(&mut fields, actual);
 
             ("product_query_implementation_selection_mismatch", fields)
         }
         Failure::UnsupportedRuntimeDefaultSubject { provider, subject } => {
             let mut fields = Vec::new();
+
             push_symbol(&mut fields, "provider_kind", "provider", *provider);
             push_symbol(&mut fields, "subject_kind", "subject", *subject);
 
@@ -316,6 +321,7 @@ pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_
         }
         Failure::InvalidCallableDefinitionSymbol { symbol, actual } => {
             let mut fields = Vec::new();
+
             push_symbol(&mut fields, "symbol_kind", "symbol", *symbol);
             fields.push(text_field("actual_symbol_kind", actual.as_str()));
 
@@ -437,6 +443,7 @@ fn context_with_data(
     data: ProductDataKind,
 ) -> Vec<DiagnosticFailureField> {
     let mut fields = product_query_context(context);
+
     fields.push(text_field("data_kind", product_data_kind(data)));
 
     fields

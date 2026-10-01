@@ -266,6 +266,7 @@ impl Lowerer<'_> {
 
             let ty = self.storage_identity_type(identity);
             let origin = bray_bound_tree::BoundNodeOrigin::source(self.input.unit().key().source());
+
             storages.push(self.place_for_identity(identity, ty, origin)?.storage());
         }
 

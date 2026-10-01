@@ -285,6 +285,7 @@ pub(super) fn validate_dependency_template_data(
     data: &DependencyContractTemplateData,
 ) {
     validate_dependency_variables(data.requirements(), &mut Vec::new());
+
     let mut pending: Vec<_> = data.requirements().iter().collect();
 
     while let Some(requirement) = pending.pop() {

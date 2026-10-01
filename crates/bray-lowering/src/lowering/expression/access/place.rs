@@ -153,7 +153,9 @@ impl Lowerer<'_> {
             };
 
         let mut lowered = Vec::with_capacity(root.projections().len() + projections.len() + 2);
+
         lowered.extend(root.projections().iter().cloned());
+
         let mut storage = root.storage();
 
         let mut source_type = self.append_entry_dereference(

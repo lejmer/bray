@@ -221,6 +221,7 @@ pub(super) fn case_alternative_binding_occurrences(
         .case_patterns()
         .map(|alternative| {
             let mut occurrences = Vec::new();
+
             collect_case_binding_occurrences(&alternative, &mut occurrences);
 
             occurrences

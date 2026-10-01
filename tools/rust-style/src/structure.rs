@@ -219,6 +219,7 @@ mod tests {
     #[test]
     fn module_size_uses_a_warning_boundary_and_excludes_tests() {
         let mut source = "const VALUE: usize = 0;\n".repeat(MODULE_LINE_WARNING);
+
         source.push_str("#[cfg(test)]\nmod tests {\n");
         source.push_str(&"const TEST_VALUE: usize = 0;\n".repeat(20));
         source.push_str("}\n");

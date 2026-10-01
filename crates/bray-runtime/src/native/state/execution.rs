@@ -573,6 +573,7 @@ impl NativeRuntime {
                     .clear();
 
                 self.transfer_cleanup_incidents(&task);
+
                 let outcome = task_outcome(outcome);
 
                 self.tasks
@@ -597,6 +598,7 @@ impl NativeRuntime {
                     .clear();
 
                 self.transfer_cleanup_incidents(&task);
+
                 let outcome = runtime_failure(NativeRuntimeStatus::RUNTIME_FAILURE);
 
                 self.tasks

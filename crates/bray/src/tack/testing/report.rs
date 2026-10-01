@@ -739,6 +739,7 @@ mod tests {
         .with_duration(TestDuration::from_nanoseconds(12_000_000));
 
         let mut build = TestBuildProvenance::new(false);
+
         build.push("example/tests".to_owned(), "0123".to_owned());
 
         let rendered = render_report(&report, &build, OutputFormat::Json, false, false)

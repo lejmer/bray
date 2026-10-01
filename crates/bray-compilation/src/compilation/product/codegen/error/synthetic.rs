@@ -68,6 +68,7 @@ mod tests {
             native_product_preparation_diagnostic(failure, &product, "x86_64-pc-windows-msvc");
 
         let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
         assert!(rendered.message().contains("application"));
         assert!(rendered.message().contains("internal compiler error"));
 
@@ -118,6 +119,7 @@ mod tests {
         );
 
         let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
         assert!(rendered.message().contains("missing"));
         assert!(rendered.message().contains("application"));
 

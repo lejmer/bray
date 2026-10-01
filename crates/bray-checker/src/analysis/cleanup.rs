@@ -113,9 +113,11 @@ where
 
             if let Some(catch) = catch {
                 let failure = self.resolve_scopes(block, catch.scope_depth, exit);
+
                 self.push_edge(failure, catch.target, AnalysisEdgeKind::Catch, None);
             } else {
                 let failure = self.resolve_scopes(block, 0, exit);
+
                 self.storage.push_exit(failure, AnalysisExitKind::Panic);
             }
         }

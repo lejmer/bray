@@ -114,6 +114,7 @@ fn translate_constructor<'context>(
     let context = types.context();
     let builder = context.create_builder();
     let block = context.append_basic_block(function, "frame.create");
+
     builder.position_at_end(block);
 
     let pointer = context.ptr_type(AddressSpace::default());
@@ -324,6 +325,7 @@ fn translate_frame_adapter<'context>(
     let context = types.context();
     let builder = context.create_builder();
     let block = context.append_basic_block(function, "frame.adapter");
+
     builder.position_at_end(block);
 
     let completion = types.map(descriptor.result_type())?;

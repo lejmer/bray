@@ -11,6 +11,7 @@ pub struct ArtifactContribution {
     producer: ArtifactProducer,
     content: ArtifactContent,
     digest: Option<ArtifactDigest>,
+    native_unit: Option<bray_native_artifact::NativeUnit>,
 }
 
 impl ArtifactContribution {
@@ -26,7 +27,21 @@ impl ArtifactContribution {
             producer,
             content,
             digest,
+            native_unit: None,
         }
+    }
+
+    /// Attaches native selection and retention obligations for these exact artifact bytes.
+    /// The unit must describe this contribution's final bytes and physical artifact kind.
+    pub(crate) fn with_native_unit(mut self, unit: bray_native_artifact::NativeUnit) -> Self {
+        self.native_unit = Some(unit);
+
+        self
+    }
+
+    /// Returns final-byte native selection and retention obligations when supplied.
+    pub const fn native_unit(&self) -> Option<&bray_native_artifact::NativeUnit> {
+        self.native_unit.as_ref()
     }
 
     /// Returns the planned logical artifact identity.

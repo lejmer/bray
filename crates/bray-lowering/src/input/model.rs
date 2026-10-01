@@ -715,6 +715,7 @@ mod tests {
         .unwrap_or_else(|error| panic!("storage exit must build: {error:?}"));
 
         let mut analysis = empty_expression_inputs(&unit);
+
         analysis.storage = storage;
         analysis.storage_flow = storage_flow;
 

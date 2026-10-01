@@ -890,6 +890,7 @@ mod tests {
 
         previous.source_unit_syntax(SourceId::new(0));
         previous.selected_target();
+
         let _ = previous.product_source_graph();
 
         let updated = previous

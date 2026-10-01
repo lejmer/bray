@@ -9,8 +9,7 @@ mod wire;
 
 pub use index::{NativeArtifactIndex, NativeIndexError, ValidatedNativeArtifact};
 pub use inspection::{
-    scan_bitcode_unit_summary, scan_object_archive_summary, scan_object_unit_summary,
-    scan_symbol_references,
+    alternate_name, scan_object_archive_summary, scan_object_unit_summary, summarize_native_unit,
 };
 pub use lifecycle::NativeStatic;
 pub use model::{

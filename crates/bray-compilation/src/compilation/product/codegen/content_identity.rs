@@ -287,7 +287,9 @@ mod tests {
         let second_values = second.semantic_value_store().expect("second semantic store must exist");
 
         let first_type = first_values.intern_type(TypeData::tuple([])).expect("first type must intern");
+
         second_values.intern_type(TypeData::Error).expect("unrelated type must intern");
+
         let second_type = second_values.intern_type(TypeData::tuple([])).expect("second type must intern");
 
         assert_ne!(first_type.store_id(), second_type.store_id());

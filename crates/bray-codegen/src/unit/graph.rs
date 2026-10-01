@@ -249,6 +249,7 @@ mod tests {
         assert!(host_builder.take_frontier().is_empty());
 
         let graph = host_builder.finish().expect("host graph closes");
+
         assert_eq!(graph.roots(), &[host_key]);
         assert_eq!(graph.instances().len(), 2);
         assert!(graph.instance(&source_key).is_some());

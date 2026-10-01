@@ -198,6 +198,7 @@ pub(super) fn evaluation_failure_context(
     match failure {
         Failure::Cycle(failure) => {
             let mut context = vec![text_field("cause", failure.reason())];
+
             context.extend(diagnostic_failure_context(failure.context()));
 
             context
@@ -205,6 +206,7 @@ pub(super) fn evaluation_failure_context(
         Failure::Runtime(failure) => fact_runtime_failure_context(failure),
         Failure::SemanticQuery(failure) => {
             let mut context = vec![text_field("category", failure.category())];
+
             context.extend(diagnostic_failure_context(failure.context()));
 
             context

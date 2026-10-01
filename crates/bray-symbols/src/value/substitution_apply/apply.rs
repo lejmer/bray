@@ -511,6 +511,7 @@ impl SemanticValueStore {
         };
 
         let value = self.intern_constant_value(ConstantValueData::new(ty, kind))?;
+
         substituted.insert(source, value);
 
         Ok(value)

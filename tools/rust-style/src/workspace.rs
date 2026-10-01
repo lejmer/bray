@@ -124,6 +124,7 @@ fn source_diagnostics(
     diagnostics.extend(failure::check(path, source, &file, failure_policy));
 
     let mut diagnostics = exemption::apply(source, &file, diagnostics);
+
     diagnostics.sort_by_key(|diagnostic| (diagnostic.offset, diagnostic.rule));
     diagnostics.dedup();
 

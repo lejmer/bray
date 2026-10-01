@@ -285,6 +285,7 @@ fn callable_results_invalidate_execution_certificates() {
 
     let key = crate::test_support::source_function_body_key(&compilation, "missing");
     let proof = compilation.execution_properties(key).unwrap();
+
     assert!(proof.value().properties.is_empty());
 
     assert_goal_state_diagnostic_kind(

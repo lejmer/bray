@@ -125,6 +125,7 @@ where
 
             if let Some((pattern, source)) = iteration {
                 let values = inference.values.get(&source).cloned().unwrap_or_default();
+
                 changed |= inference.bind_pattern(pattern, source, values)?;
             }
 

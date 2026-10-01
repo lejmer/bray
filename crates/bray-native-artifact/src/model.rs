@@ -146,6 +146,8 @@ pub enum NativeUnitSummary {
     },
     /// The payload remains conservative while its known external references close normally.
     Opaque {
+        /// Known symbols provided by the payload, without exact selection or retention claims.
+        provided: Arc<[NativeSymbolIdentity]>,
         /// Known references outside this physical payload. This inventory may be incomplete.
         references: Arc<[NativeSymbolContract]>,
     },
@@ -155,14 +157,57 @@ impl NativeUnitSummary {
     /// Creates a conservative summary without discarding known external dependencies.
     pub fn opaque(references: impl IntoIterator<Item = NativeSymbolContract>) -> Self {
         Self::Opaque {
+            provided: Arc::from([]),
             references: sorted(references.into_iter().collect()),
         }
+    }
+
+    /// Creates conservative retention while preserving known providers and external references.
+    pub fn opaque_with_providers(
+        provided: impl IntoIterator<Item = NativeSymbolIdentity>,
+        references: impl IntoIterator<Item = NativeSymbolContract>,
+    ) -> Self {
+        Self::Opaque {
+            provided: sorted(provided.into_iter().collect()),
+            references: sorted(references.into_iter().collect()),
+        }
+    }
+
+    /// Iterates known physical definitions, excluding deferred fallback-provider names.
+    pub fn defined_symbols(&self) -> impl Iterator<Item = &NativeSymbolIdentity> {
+        let (exact, opaque) = match self {
+            Self::Exact { definitions, .. } => (definitions.as_ref(), &[][..]),
+            Self::Opaque { provided, .. } => (&[][..], provided.as_ref()),
+        };
+
+        exact
+            .iter()
+            .filter(|definition| definition.selection() != &NativeDefinitionSelection::Fallback)
+            .map(|definition| definition.symbol().identity())
+            .chain(opaque)
+    }
+
+    /// Combines known member symbols while retaining an archive as an opaque linker input.
+    pub fn opaque_archive(
+        provided: impl IntoIterator<Item = NativeSymbolIdentity>,
+        references: impl IntoIterator<Item = NativeSymbolContract>,
+    ) -> Self {
+        let provided = provided
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>();
+
+        let references = references
+            .into_iter()
+            .filter(|reference| !provided.contains(reference.identity()))
+            .collect::<Vec<_>>();
+
+        Self::opaque_with_providers(provided, references)
     }
 
     /// Returns native references known to leave this physical payload.
     pub fn references(&self) -> &[NativeSymbolContract] {
         match self {
-            Self::Exact { references, .. } | Self::Opaque { references } => references,
+            Self::Exact { references, .. } | Self::Opaque { references, .. } => references,
         }
     }
 }
@@ -216,7 +261,11 @@ impl NativeUnit {
                 references: sorted(references),
                 roots: sorted(roots),
             },
-            NativeUnitSummary::Opaque { references } => NativeUnitSummary::Opaque {
+            NativeUnitSummary::Opaque {
+                provided,
+                references,
+            } => NativeUnitSummary::Opaque {
+                provided: sorted(provided),
                 references: sorted(references),
             },
         };

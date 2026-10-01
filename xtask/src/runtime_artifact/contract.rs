@@ -239,7 +239,9 @@ mod tests {
     fn undeclared_native_adapters_fail_even_without_a_reserved_prefix() {
         let directory = tempfile::tempdir().expect("test directory exists");
         let sources = directory.path().join("crates/bray-runtime-adapter/src");
+
         std::fs::create_dir_all(&sources).expect("adapter directory exists");
+
         let source = sources.join("unprojected.rs");
 
         std::fs::write(

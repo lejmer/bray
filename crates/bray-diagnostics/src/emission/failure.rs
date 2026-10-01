@@ -40,10 +40,9 @@ pub enum DiagnosticEmissionFailure {
     Staging(DiagnosticEmissionStagingFailure),
     /// The published native package index exceeds its supported size.
     NativeIndexSizeLimitExceeded,
-    NativeInspection {
-        tool: Option<crate::DiagnosticLlvmToolRole>,
-        path: Option<PathBuf>,
-        reason: DiagnosticNativeInspectionFailure,
+    NativeRead {
+        path: std::path::PathBuf,
+        kind: DiagnosticIoErrorKind,
     },
     LinkPlan(DiagnosticEmissionLinkPlanFailure),
     Evaluation(DiagnosticEmissionEvaluationFailure),
@@ -55,28 +54,6 @@ pub enum DiagnosticEmissionFailure {
     Linking,
     // rust-style: broad-failure
     IncompleteProduct,
-}
-
-/// Exact failure while publishing a native unit summary.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum DiagnosticNativeInspectionFailure {
-    MissingToolchain,
-    Read(DiagnosticIoErrorKind),
-    Invoke(DiagnosticIoErrorKind),
-    Failed(Option<i32>),
-    Encoding,
-}
-
-impl DiagnosticNativeInspectionFailure {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::MissingToolchain => "missing_toolchain",
-            Self::Read(_) => "read",
-            Self::Invoke(_) => "invoke",
-            Self::Failed(_) => "failed",
-            Self::Encoding => "encoding",
-        }
-    }
 }
 
 /// Exact test-catalog protocol failure observed before publication.
@@ -476,7 +453,7 @@ impl DiagnosticEmissionFailure {
             Self::Codegen(_) => "codegen",
             Self::Staging(_) => "staging",
             Self::NativeIndexSizeLimitExceeded => "native_index",
-            Self::NativeInspection { .. } => "native_inspection",
+            Self::NativeRead { .. } => "native_read",
             Self::LinkPlan(_) => "link_plan",
             Self::Evaluation(_) => "evaluation",
             Self::TestCatalog(_) => "test_catalog",
@@ -496,7 +473,7 @@ impl DiagnosticEmissionFailure {
             Self::Codegen(failure) => failure.as_str(),
             Self::Staging(failure) => failure.as_str(),
             Self::NativeIndexSizeLimitExceeded => "size_limit_exceeded",
-            Self::NativeInspection { reason, .. } => reason.as_str(),
+            Self::NativeRead { .. } => "read",
             Self::LinkPlan(failure) => failure.as_str(),
             Self::Evaluation(failure) => failure.as_str(),
             Self::TestCatalog(failure) => failure.as_str(),
@@ -592,9 +569,7 @@ impl DiagnosticPackageInterfaceFailure {
             Self::ImplementationDuplicateNativeBinding(_) => {
                 "implementation_duplicate_native_binding"
             }
-            Self::ImplementationInvalidNativeBinding(_) => {
-                "implementation_invalid_native_binding"
-            }
+            Self::ImplementationInvalidNativeBinding(_) => "implementation_invalid_native_binding",
             Self::ImplementationDuplicateSpecialization => {
                 "implementation_duplicate_specialization"
             }

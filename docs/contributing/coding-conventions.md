@@ -302,11 +302,14 @@ the same diagnostics without changing files.
 
 ### Mechanically enforced blank-line rules
 
+- Add a blank line between a group of single-line `let` statements and adjacent non-`let` statements.
+  Keep any blank lines already between single-line `let` statements.
 - Isolate `let ... else` guard clauses from both the setup before them and the work after them, even when the guard
   directly validates the preceding value.
 - Do not add blank lines inside argument lists, parameter lists, struct literals, enum variants, or match cases.
 - Use one blank line as a separator. Do not add multiple consecutive blank lines for decoration.
-- Separate multiline statements and expressions (like multiline `let` expressions or `assert*` macros) with blank lines.
+- Separate each multiline statement or expression from adjacent statements with blank lines.
+  This includes multiline `let` statements and assertions.
 - In blocks, always put a blank line above any comment unless the comment is the absolute first thing in that block.
 - Tuple and bracket destructuring `let` expressions (`let (a, b) = ...` and `let [a, b] = ...`) should be separated with
   blank lines.

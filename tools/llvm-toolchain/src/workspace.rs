@@ -58,6 +58,7 @@ mod tests {
 
     fn workspace(parent: &Path, name: &str) -> PathBuf {
         let root = parent.join(name);
+
         fs::create_dir_all(root.join("xtask/src")).unwrap();
         fs::create_dir_all(root.join("toolchains")).unwrap();
 
@@ -98,6 +99,7 @@ mod tests {
     #[test]
     fn cargo_discovery_failures_preserve_the_manifest_error() {
         let directory = tempfile::tempdir().unwrap();
+
         fs::write(directory.path().join("Cargo.toml"), "[workspace").unwrap();
 
         let error = root_from(directory.path()).unwrap_err();
@@ -115,6 +117,7 @@ mod tests {
     #[test]
     fn unrelated_cargo_workspaces_are_rejected() {
         let directory = tempfile::tempdir().unwrap();
+
         fs::write(directory.path().join("Cargo.toml"), "[workspace]\n").unwrap();
 
         let error = root_from(directory.path()).unwrap_err();

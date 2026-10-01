@@ -67,6 +67,7 @@ where
     .map_err(DependencyContractInstantiationError::Resolution)?;
 
     let mut result_context = CallInstantiationContext::new(request, storage, expression, call);
+
     result_context.set_result_values(values);
 
     let concrete = DependencyContractTemplateData::new(

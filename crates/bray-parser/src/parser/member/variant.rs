@@ -147,7 +147,9 @@ impl Parser {
 
         if self.at(SyntaxKind::EqualsToken) {
             builder.push_equals_token(self.expect(SyntaxKind::EqualsToken));
+
             let mut at_default_boundary = Parser::at_union_payload_field_default_boundary;
+
             builder.push_expression(self.parse_expression_until(&mut at_default_boundary));
         }
 

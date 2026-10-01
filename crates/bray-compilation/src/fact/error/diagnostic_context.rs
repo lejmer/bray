@@ -29,6 +29,7 @@ pub(crate) fn identity_field(name: &'static str, value: &impl Hash) -> Diagnosti
 
 pub(crate) fn identity(value: &impl Hash) -> [u8; 32] {
     let mut hasher = StableDigestHasher::new();
+
     value.hash(&mut hasher);
 
     hasher.finalize()

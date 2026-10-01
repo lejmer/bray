@@ -831,6 +831,7 @@ impl Lowerer<'_> {
     ) -> Result<LoweredExpression, LoweringError> {
         let retained = self.input_temporaries.len();
         let result = self.lower_call_inputs(id, current);
+
         self.input_temporaries.truncate(retained);
 
         result
@@ -1073,6 +1074,7 @@ impl Lowerer<'_> {
                     )?;
 
                     current = continued;
+
                     let value = self.materialize_owned_input(id, current, &source, value, *ty)?;
 
                     arguments.push(MirCallArgument::Explicit {
@@ -1112,6 +1114,7 @@ impl Lowerer<'_> {
                     )?;
 
                     current = continuation;
+
                     let ty = self.builder.operand_type(&value);
                     let value = self.materialize_owned_input(id, current, &source, value, ty)?;
 

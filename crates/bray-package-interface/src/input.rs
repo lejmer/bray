@@ -79,6 +79,7 @@ impl PackageArtifactInput {
     /// Selects a packed artifact with an externally committed metadata identity.
     pub fn packed_file(path: impl Into<PathBuf>, metadata_digest: [u8; 32]) -> Self {
         let mut input = Self::file(path, None);
+
         input.metadata_digest = Some(metadata_digest);
 
         input
@@ -87,6 +88,7 @@ impl PackageArtifactInput {
     /// Supplies immutable bytes directly, as used by in-process publication and tests.
     pub fn memory(path: impl Into<PathBuf>, bytes: impl Into<Arc<[u8]>>) -> Self {
         let mut input = Self::file(path, None);
+
         input.file_snapshot = None;
         input.supplied_bytes = Some(bytes.into());
 
@@ -99,6 +101,7 @@ impl PackageArtifactInput {
         artifact: PackageImplementationArtifact,
     ) -> Self {
         let mut input = Self::file(path, None);
+
         input.metadata_digest = Some(*artifact.artifact_hash());
 
         input
@@ -267,6 +270,7 @@ mod tests {
 
     fn fingerprint(input: &PackageArtifactInput) -> u64 {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
+
         input.hash(&mut hasher);
 
         hasher.finish()
@@ -279,10 +283,13 @@ mod tests {
         let first = PackageArtifactInput::file(&path, None);
         let clone = first.clone();
         let identity = fingerprint(&first);
+
         std::fs::write(&path, b"first").expect("write first artifact");
         assert_eq!(first.read().expect("lazy read").as_ref(), b"first");
         std::fs::write(&path, b"second").expect("replace artifact");
+
         let second = PackageArtifactInput::file(&path, None);
+
         assert_eq!(clone.read().expect("same snapshot").as_ref(), b"first");
         assert_eq!(second.read().expect("new snapshot").as_ref(), b"second");
         assert_eq!(identity, fingerprint(&first));
@@ -298,6 +305,7 @@ mod tests {
         let digest = *blake3::hash(b"expected").as_bytes();
         let first = PackageArtifactInput::file(&path, Some(digest));
         let second = PackageArtifactInput::file(&path, Some(digest));
+
         assert_eq!(first, second);
         std::fs::write(&path, b"wrong").expect("write mismatched artifact");
 
@@ -358,6 +366,7 @@ mod tests {
         for mode in 0..3 {
             let directory = tempfile::tempdir().unwrap();
             let path = directory.path().join("library.brayimpl");
+
             std::fs::write(&path, &original).unwrap();
 
             let input = match mode {
@@ -380,6 +389,7 @@ mod tests {
                     .bytes
                     .get_or_init(|| {
                         let bytes = std::fs::read(reader.path()).unwrap();
+
                         opened.send(()).unwrap();
                         released.recv().unwrap();
 
@@ -392,6 +402,7 @@ mod tests {
             ready.recv().unwrap();
             std::fs::rename(&path, directory.path().join("original.brayimpl")).unwrap();
             std::fs::write(&path, &replacement).unwrap();
+
             let loader = input.clone();
 
             let (completed, completion) = std::sync::mpsc::channel();
@@ -406,8 +417,10 @@ mod tests {
             ));
 
             resume.send(()).unwrap();
+
             let bytes = reading.join().unwrap();
             let loaded = completion.recv().unwrap().unwrap();
+
             loading.join().unwrap();
             assert_eq!(bytes, original);
             assert_eq!(loaded.artifact_hash(), artifact.artifact_hash());

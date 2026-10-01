@@ -135,6 +135,7 @@ mod tests {
         );
 
         let mut expected = [first.clone(), second];
+
         expected.sort();
 
         assert_eq!(backend.units(), &expected);

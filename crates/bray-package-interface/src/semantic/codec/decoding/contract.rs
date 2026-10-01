@@ -274,6 +274,7 @@ pub(super) fn decode_dependency_requirement(
     depth: u64,
 ) -> Result<InterfaceDependencyRequirement, InterfaceValidationError> {
     limits.check(InterfaceLimit::SemanticTypeDepth, depth)?;
+
     let raw = read_u32(reader)?;
 
     match raw {
@@ -522,6 +523,7 @@ mod tests {
         let mut reader = WireReader::new(&bytes);
         let mut context = SemanticDecodeContext::new(limits);
         let contract = decode_dependency_contract(&mut reader, limits, &mut context)?;
+
         reader.finish().map_err(map_wire_error)?;
 
         Ok(contract)

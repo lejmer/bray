@@ -193,7 +193,9 @@ fn parse_external_symbols(
             }
 
             let mut fields = line.split_whitespace();
+
             fields.next()?;
+
             let kind = fields.next()?;
             let name = fields.next_back()?;
 

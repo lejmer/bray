@@ -478,6 +478,7 @@ impl Lowerer<'_> {
             value,
             |lowerer, block, place, value| {
                 let owner = place.ty();
+
                 lowerer.push_cleanup_action(block, source, phase, place, release, completed)?;
 
                 let block = if let Some(outcome) = &lowerer.cleanup_outcome {

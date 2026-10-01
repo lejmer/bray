@@ -110,7 +110,7 @@ fn summarize_module(
     output: &Path,
     target_triple: &str,
 ) -> Result<(), BuildError> {
-    let canonical = canonicalize_module(root, root, input)?;
+    let canonical = canonicalize_module(root, input)?;
     let mut summarize = Command::new(bray_llvm_toolchain::tool_path(root, "opt"));
 
     summarize
@@ -132,26 +132,18 @@ fn summarize_module(
     require_success(verify, "LLVM rejected an optimization module")
 }
 
-fn canonicalize_module(
-    root: &Path,
-    checkout_root: &Path,
-    input: &Path,
-) -> Result<PathBuf, BuildError> {
-    let llvm_ir = input.with_extension("ll");
+fn canonicalize_module(checkout_root: &Path, input: &Path) -> Result<PathBuf, BuildError> {
     let canonical = input.with_extension("canonical.bc");
-    let mut disassemble = Command::new(bray_llvm_toolchain::tool_path(root, "llvm-dis"));
+    let context = Context::create();
 
-    disassemble.arg(input).arg("-o").arg(&llvm_ir);
+    let buffer = MemoryBuffer::create_from_file(input)
+        .map_err(|error| BuildError::NativeArchive(error.to_string()))?;
 
-    require_success(
-        disassemble,
-        "LLVM could not canonicalize an optimization module",
-    )?;
+    let module = Module::parse_bitcode_from_buffer(&buffer, &context)
+        .map_err(|error| BuildError::NativeArchive(error.to_string()))?;
 
-    let llvm_ir_text =
-        fs::read_to_string(&llvm_ir).map_err(|error| BuildError::read(&llvm_ir, error))?;
-
-    let llvm_ir_text = remap_checkout_path(&llvm_ir_text, checkout_root);
+    let mut llvm_ir_text =
+        remap_checkout_path(&module.print_to_string().to_string(), checkout_root);
 
     if contains_checkout_path(&llvm_ir_text, checkout_root) {
         return Err(BuildError::NativeArchive(
@@ -159,16 +151,17 @@ fn canonicalize_module(
         ));
     }
 
-    fs::write(&llvm_ir, llvm_ir_text).map_err(|error| BuildError::write(&llvm_ir, error))?;
+    llvm_ir_text.push('\0');
 
-    let mut assemble = Command::new(bray_llvm_toolchain::tool_path(root, "llvm-as"));
+    let buffer =
+        MemoryBuffer::create_from_memory_range(llvm_ir_text.as_bytes(), "canonical module");
 
-    assemble.arg(&llvm_ir).arg("-o").arg(&canonical);
+    let module = context
+        .create_module_from_ir(buffer)
+        .map_err(|error| BuildError::NativeArchive(error.to_string()))?;
 
-    require_success(
-        assemble,
-        "LLVM could not assemble a canonical optimization module",
-    )?;
+    fs::write(&canonical, bray_codegen_llvm::bitcode_bytes(&module))
+        .map_err(|error| BuildError::write(&canonical, error))?;
 
     Ok(canonical)
 }
@@ -207,15 +200,10 @@ fn inspect_module_contract(
     bytes: &[u8],
     check_checkout_path: bool,
 ) -> Result<(String, String), BuildError> {
-    let mut terminated = Vec::with_capacity(bytes.len() + 1);
-    terminated.extend_from_slice(bytes);
-    terminated.push(0);
-
     let context = Context::create();
-    let buffer = MemoryBuffer::create_from_memory_range(&terminated, "optimization module");
 
-    let module = Module::parse_bitcode_from_buffer(&buffer, &context).map_err(|error| {
-        BuildError::NativeArchive(format!("LLVM rejected an optimization module: {error}"))
+    let module = bray_codegen_llvm::parse_bitcode(bytes, &context).map_err(|error| {
+        BuildError::NativeArchive(format!("LLVM rejected an optimization module: {error:?}"))
     })?;
 
     let triple = module.get_triple().as_str().to_string_lossy().into_owned();
@@ -296,7 +284,7 @@ pub(super) fn verify_relocated_native_modules(
             "LLVM could not build the relocated optimization fixture",
         )?;
 
-        let canonical = canonicalize_module(root, &directory, &module)?;
+        let canonical = canonicalize_module(&directory, &module)?;
 
         modules.push(fs::read(&canonical).map_err(|error| BuildError::read(&canonical, error))?);
     }
@@ -347,6 +335,7 @@ mod tests {
     fn llvm_module_contract_is_read_in_process() {
         let context = Context::create();
         let module = context.create_module("inspection.test");
+
         module.set_triple(&TargetTriple::create("x86_64-pc-windows-msvc"));
         module.set_data_layout(&TargetData::create("e-p:64:64").get_data_layout());
         module.add_global(context.i32_type(), None, "llvm.global_ctors");

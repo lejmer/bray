@@ -115,6 +115,7 @@ pub(in crate::compilation::export::build) fn build_identity_surface(
     )?);
 
     let mut exports = direct_exports(graph, &selected, &keys)?;
+
     exports.extend(compilation.public_module_re_exports(&module_keys(graph, &keys)?)?);
 
     Ok(ExportIdentitySurface {

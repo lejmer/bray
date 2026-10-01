@@ -28,6 +28,7 @@ pub(super) enum Rule {
     InvalidFailureCategory,
     LegacyModRs,
     LetElseSeparation,
+    LetGroupSeparation,
     ModuleTooLarge,
     MultilineStatementSeparation,
     MultipleBlankLines,
@@ -65,6 +66,7 @@ impl Rule {
             Self::InvalidFailureCategory => "invalid-failure-category",
             Self::LegacyModRs => "legacy-mod-rs",
             Self::LetElseSeparation => "let-else-separation",
+            Self::LetGroupSeparation => "let-group-separation",
             Self::ModuleTooLarge => "module-too-large",
             Self::MultilineStatementSeparation => "multiline-statement-separation",
             Self::MultipleBlankLines => "multiple-blank-lines",
@@ -102,6 +104,9 @@ impl Rule {
             Self::LegacyModRs => "legacy mod.rs module layout is not allowed",
             Self::LetElseSeparation => {
                 "a let-else guard must be separated from adjacent statements"
+            }
+            Self::LetGroupSeparation => {
+                "a let statement group must be separated from adjacent non-let statements"
             }
             Self::ModuleTooLarge => "module exceeds the production source-line warning threshold",
             Self::MultilineStatementSeparation => {

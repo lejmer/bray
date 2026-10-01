@@ -108,10 +108,12 @@ impl DeclaredValueTypeTemplates {
         callable_result: Option<TypeExpressionTemplate>,
     ) -> Self {
         let mut evidence = evidence.into_iter().collect::<Vec<_>>();
+
         evidence.sort_unstable();
         evidence.dedup();
 
         let mut constraints = constraints.into_iter().collect::<Vec<_>>();
+
         constraints.sort_unstable();
         constraints.dedup();
 

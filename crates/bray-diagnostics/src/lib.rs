@@ -43,8 +43,8 @@ pub use argument::{
     DiagnosticNativeProductFailureKind, DiagnosticOutputSink, DiagnosticProductKind,
     DiagnosticRuntimeAbiVersion, DiagnosticRuntimeArtifactProblem,
     DiagnosticRuntimeArtifactPurpose, DiagnosticSelectionKind,
-    DiagnosticStandardLibraryManifestProblem,
-    DiagnosticTargetRepresentation, DiagnosticType, DiagnosticTypeArgument, DiagnosticVisibility,
+    DiagnosticStandardLibraryManifestProblem, DiagnosticTargetRepresentation, DiagnosticType,
+    DiagnosticTypeArgument, DiagnosticVisibility,
 };
 pub use bag::DiagnosticBag;
 pub use checking::{
@@ -82,7 +82,7 @@ pub use emission::{
     DiagnosticConstantEvaluationFailure, DiagnosticEmissionArtifact,
     DiagnosticEmissionCodegenFailure, DiagnosticEmissionEvaluationFailure,
     DiagnosticEmissionFailure, DiagnosticEmissionLinkPlanFailure,
-    DiagnosticEmissionPlanningFailure, DiagnosticEmissionStagingFailure, DiagnosticNativeInspectionFailure,
+    DiagnosticEmissionPlanningFailure, DiagnosticEmissionStagingFailure,
     DiagnosticEvaluationFailureDetail, DiagnosticFactRuntimeFailure, DiagnosticFailureField,
     DiagnosticFailureValue, DiagnosticForeignQueryFailure, DiagnosticGenericSubstitutionFailure,
     DiagnosticHostEnvironmentVariable, DiagnosticLiteralValueFailure, DiagnosticLivenessFailure,
@@ -113,9 +113,8 @@ pub use interface::{
     DiagnosticInterfaceSymbolReference, DiagnosticInterfaceSynthesizedIdentity,
     DiagnosticInterfaceUtf8Failure, DiagnosticInterfaceValidationContext,
     DiagnosticInterfaceValidationFailure, DiagnosticInterfaceValidationField,
-    DiagnosticNativeArtifactCause,
-    DiagnosticPackageInterfaceIdentity, DiagnosticSemanticContentProblem,
-    DiagnosticSemanticValueKind,
+    DiagnosticNativeArtifactCause, DiagnosticPackageInterfaceIdentity,
+    DiagnosticSemanticContentProblem, DiagnosticSemanticValueKind,
 };
 pub use kind::DiagnosticKind;
 pub use label::{DiagnosticLabel, DiagnosticLabelKind, DiagnosticLabelStyle};

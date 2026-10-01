@@ -590,6 +590,7 @@ mod tests {
             );
 
             let mut bytes = Vec::new();
+
             super::write_host_result(&mut bytes, &result).expect("panic result must encode");
 
             let decoded =

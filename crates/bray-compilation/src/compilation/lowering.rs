@@ -1518,6 +1518,7 @@ mod tests {
 
             let (block, edge) = mir.blocks().iter().find_map(|block| {
             let operation = block.operations().last().and_then(|id| mir.operation(*id))?;
+
             if !matches!(operation.kind(), MirOperationKind::Call(call) if matches!(call.target(), bray_ir::MirCallTarget::DefaultValue { .. })) { return None; }
 
             let MirTerminatorKind::CheckCallOutcome { panicked, .. } = block.terminator().kind() else { return None; };
@@ -1526,6 +1527,7 @@ mod tests {
         }).expect("default must retain a failure edge before construction");
 
             assert!(!block.operations().iter().any(|id| matches!(mir.operation(*id).unwrap().kind(), MirOperationKind::Construct(construction) if construction.inputs().len() == 2)));
+
             let mut pending = vec![edge.target()];
             let mut seen = BTreeSet::new();
             let mut cleans_input = false;

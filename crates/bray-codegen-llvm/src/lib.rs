@@ -15,8 +15,11 @@ mod native;
 mod optimization;
 mod serialization;
 mod session;
+mod summary;
 mod translation;
 
 pub use backend::LlvmCodeGenerator;
 pub use environment::LLVM_PREFIX_ENVIRONMENT_VARIABLE;
 pub use installation::COMPILED_LLVM_PREFIX;
+pub use serialization::{bitcode_bytes, parse_bitcode};
+pub use summary::inspect_bitcode_unit_summary;

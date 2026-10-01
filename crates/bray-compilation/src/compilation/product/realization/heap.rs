@@ -213,6 +213,7 @@ mod tests {
             let source = format!("module app; struct Item {{ value: i32; }} {body}");
             let compilation = crate::test_support::compilation(&source);
             let diagnostics = compilation.check_diagnostics();
+
             assert_ne!(diagnostics.has_errors(), valid, "{source}: {diagnostics:?}");
         }
     }
@@ -316,6 +317,7 @@ mod tests {
                     .unwrap_or_else(|| panic!("{body}: {diagnostics:?}"));
 
                 assert!(diagnostic.primary_span().is_some());
+
                 let rendered = bray_messages::DiagnosticRenderer::english().render(diagnostic);
 
                 assert_eq!(

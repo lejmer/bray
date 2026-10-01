@@ -15,123 +15,14 @@ use crate::{
     NativeUnitSummary,
 };
 
-/// Summarizes an LLVM-inspected bitcode unit. Unknown selection or retention semantics
-/// make the whole unit opaque instead of producing an incomplete exact graph.
-pub fn scan_bitcode_unit_summary(
-    symbols: &str,
-    structure: &str,
-    target: bray_target::NativeTarget,
-) -> NativeUnitSummary {
-    let mut definitions = BTreeSet::new();
-    let references = scan_symbol_references(symbols);
-    let mut weak_comdats = BTreeSet::new();
-
-    for line in symbols
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-    {
-        if line.ends_with(':') {
-            continue;
-        }
-
-        let mut fields = line.split_whitespace();
-
-        let (Some(name), Some(class)) = (fields.next(), fields.next()) else {
-            return NativeUnitSummary::opaque(references);
-        };
-
-        let Some(name) = NonEmptySharedStr::try_new(name) else {
-            return NativeUnitSummary::opaque(references);
-        };
-
-        let symbol = NativeSymbolContract::required_name(name.clone());
-
-        match class {
-            "U" => {}
-            "T" | "D" | "B" | "R" | "S" | "G" => {
-                definitions.insert(NativeDefinition::new(
-                    symbol,
-                    NativeDefinitionSelection::Ordinary,
-                ));
-            }
-            "W" => {
-                let Some(ir_name) = target.codegen_symbol_name(name.as_str()) else {
-                    return NativeUnitSummary::opaque(references);
-                };
-
-                let Some(selection) = weak_comdat_selection(ir_name, structure) else {
-                    return NativeUnitSummary::opaque(references);
-                };
-
-                weak_comdats.insert(ir_name.to_owned());
-
-                definitions.insert(NativeDefinition::new(
-                    NativeSymbolContract::new(
-                        NativeSymbolIdentity::Name(name),
-                        None,
-                        NativeSymbolBinding::Weak,
-                        NativeSymbolPresence::Required,
-                    ),
-                    selection,
-                ));
-            }
-            _ => return NativeUnitSummary::opaque(references),
-        }
-    }
-
-    let Some(roots) = bitcode_roots(structure, &weak_comdats) else {
-        return NativeUnitSummary::opaque(references);
-    };
-
-    if structure.contains("llvm.linker.options")
-        && target.object_format() != bray_target::ObjectFormat::Coff
-    {
-        return NativeUnitSummary::opaque(references);
-    }
-
-    let Some(aliases) = bitcode_alternate_names(structure) else {
-        return NativeUnitSummary::opaque(references);
-    };
-
-    if !add_fallback_definitions(aliases, &mut definitions) {
-        return NativeUnitSummary::opaque(references);
-    }
-
-    exact_summary(definitions, references, roots)
-}
-
-fn alternate_name(option: &str) -> Option<(NonEmptySharedStr, NonEmptySharedStr)> {
+/// Decodes one COFF deferred fallback-provider option.
+pub fn alternate_name(option: &str) -> Option<(NonEmptySharedStr, NonEmptySharedStr)> {
     let (name, implementation) = option.strip_prefix("/alternatename:")?.split_once('=')?;
 
     Some((
         NonEmptySharedStr::try_new(name)?,
         NonEmptySharedStr::try_new(implementation)?,
     ))
-}
-
-fn bitcode_alternate_names(ir: &str) -> Option<Vec<(NonEmptySharedStr, NonEmptySharedStr)>> {
-    let Some(options) = ir
-        .lines()
-        .find_map(|line| line.strip_prefix("!llvm.linker.options = !{"))
-    else {
-        return Some(Vec::new());
-    };
-
-    options
-        .strip_suffix('}')?
-        .split(", ")
-        .map(|node| {
-            let declaration = format!("{node} = !{{!\"");
-
-            let option = ir
-                .lines()
-                .find_map(|line| line.strip_prefix(&declaration))?
-                .strip_suffix("\"}")?;
-
-            alternate_name(option)
-        })
-        .collect()
 }
 
 fn add_fallback_definitions(
@@ -186,52 +77,6 @@ fn add_fallback_definitions(
     true
 }
 
-fn weak_comdat_selection(name: &str, ir: &str) -> Option<NativeDefinitionSelection> {
-    let function = format!("@{name}(");
-    let global = format!("@{name} =");
-
-    let definition = ir.lines().find(|line| {
-        (line.starts_with("define ") && line.contains(&function))
-            || (line.starts_with('@') && line.starts_with(&global))
-    })?;
-
-    if !definition.contains(" weak_odr ")
-        && !definition.contains(" linkonce_odr ")
-        && !definition.contains(" weak ")
-    {
-        return None;
-    }
-
-    let group = if let Some((_, group)) = definition.split_once(" comdat($") {
-        group.split_once(')')?.0
-    } else if definition.contains(" comdat") {
-        name
-    } else {
-        return None;
-    };
-
-    let declaration = format!("${group} = comdat ");
-
-    let rule = ir
-        .lines()
-        .find_map(|line| line.strip_prefix(&declaration))?;
-
-    let rule = match rule {
-        "any" => NativeComdatSelection::Any,
-        "exactmatch" => NativeComdatSelection::ExactMatch,
-        "samesize" => NativeComdatSelection::SameSize,
-        "largest" => NativeComdatSelection::Largest,
-        "noduplicates" => NativeComdatSelection::NoDuplicates,
-        _ => return None,
-    };
-
-    Some(NativeDefinitionSelection::Comdat {
-        group: NativeSymbolIdentity::Name(NonEmptySharedStr::try_new(group)?),
-        rule,
-        associative_with: None,
-    })
-}
-
 /// Reads a compiler-produced object in process, retaining exact selection only for
 /// ordinary external symbols and sections with understood lifecycle behavior.
 pub fn scan_object_unit_summary(bytes: &[u8]) -> Result<NativeUnitSummary, object::Error> {
@@ -242,11 +87,17 @@ pub fn scan_object_unit_summary(bytes: &[u8]) -> Result<NativeUnitSummary, objec
     references.retain(|reference| !provided.contains(reference.identity()));
 
     let Some(comdats) = object_comdats(&file) else {
-        return Ok(NativeUnitSummary::opaque(references));
+        return Ok(NativeUnitSummary::opaque_with_providers(
+            provided.iter().cloned(),
+            references,
+        ));
     };
 
     if file.kind() != object::ObjectKind::Relocatable {
-        return Ok(NativeUnitSummary::opaque(references));
+        return Ok(NativeUnitSummary::opaque_with_providers(
+            provided.iter().cloned(),
+            references,
+        ));
     }
 
     let mut roots = BTreeSet::new();
@@ -254,7 +105,10 @@ pub fn scan_object_unit_summary(bytes: &[u8]) -> Result<NativeUnitSummary, objec
 
     for section in file.sections() {
         let Ok(name) = section.name() else {
-            return Ok(NativeUnitSummary::opaque(references));
+            return Ok(NativeUnitSummary::opaque_with_providers(
+                provided.iter().cloned(),
+                references,
+            ));
         };
 
         if name == ".drectve" && file.format() == object::BinaryFormat::Coff {
@@ -263,12 +117,18 @@ pub fn scan_object_unit_summary(bytes: &[u8]) -> Result<NativeUnitSummary, objec
                 .ok()
                 .and_then(|bytes| std::str::from_utf8(bytes).ok())
             else {
-                return Ok(NativeUnitSummary::opaque(references));
+                return Ok(NativeUnitSummary::opaque_with_providers(
+                    provided.iter().cloned(),
+                    references,
+                ));
             };
 
             for option in options.split_whitespace() {
                 let Some(alias) = alternate_name(option) else {
-                    return Ok(NativeUnitSummary::opaque(references));
+                    return Ok(NativeUnitSummary::opaque_with_providers(
+                        provided.iter().cloned(),
+                        references,
+                    ));
                 };
 
                 aliases.push(alias);
@@ -296,7 +156,10 @@ pub fn scan_object_unit_summary(bytes: &[u8]) -> Result<NativeUnitSummary, objec
                 _ => true,
             }
         {
-            return Ok(NativeUnitSummary::opaque(references));
+            return Ok(NativeUnitSummary::opaque_with_providers(
+                provided.iter().cloned(),
+                references,
+            ));
         }
 
         let lower = name.to_ascii_lowercase();
@@ -338,15 +201,24 @@ pub fn scan_object_unit_summary(bytes: &[u8]) -> Result<NativeUnitSummary, objec
             )
             || matches!(symbol.flags(), object::SymbolFlags::CoffSection { selection, .. } if selection != 0)
         {
-            return Ok(NativeUnitSummary::opaque(references));
+            return Ok(NativeUnitSummary::opaque_with_providers(
+                provided.iter().cloned(),
+                references,
+            ));
         }
 
         let Ok(name) = symbol.name() else {
-            return Ok(NativeUnitSummary::opaque(references));
+            return Ok(NativeUnitSummary::opaque_with_providers(
+                provided.iter().cloned(),
+                references,
+            ));
         };
 
         let Some(name) = NonEmptySharedStr::try_new(name) else {
-            return Ok(NativeUnitSummary::opaque(references));
+            return Ok(NativeUnitSummary::opaque_with_providers(
+                provided.iter().cloned(),
+                references,
+            ));
         };
 
         if !undefined {
@@ -359,7 +231,10 @@ pub fn scan_object_unit_summary(bytes: &[u8]) -> Result<NativeUnitSummary, objec
 
             if matches!(&selection, NativeDefinitionSelection::Comdat { associative_with: Some(parent), .. } if !provided.contains(parent))
             {
-                return Ok(NativeUnitSummary::opaque(references));
+                return Ok(NativeUnitSummary::opaque_with_providers(
+                    provided.iter().cloned(),
+                    references,
+                ));
             }
 
             let contract = NativeSymbolContract::new(
@@ -377,11 +252,12 @@ pub fn scan_object_unit_summary(bytes: &[u8]) -> Result<NativeUnitSummary, objec
         }
     }
 
-    if !add_fallback_definitions(aliases, &mut definitions) {
-        return Ok(NativeUnitSummary::opaque(references));
-    }
-
-    Ok(exact_summary(definitions, references, roots))
+    Ok(summarize_native_unit(
+        definitions,
+        references,
+        roots,
+        aliases,
+    ))
 }
 
 fn object_comdats(
@@ -442,9 +318,7 @@ pub fn scan_object_archive_summary(bytes: &[u8]) -> Result<NativeUnitSummary, ob
         }
     }
 
-    references.retain(|reference| !provided.contains(reference.identity()));
-
-    Ok(NativeUnitSummary::opaque(references))
+    Ok(NativeUnitSummary::opaque_archive(provided, references))
 }
 
 fn object_symbols(
@@ -483,7 +357,8 @@ fn object_symbols(
 }
 
 /// Keeps known external references from one LLVM symbol inventory, including archives.
-pub fn scan_symbol_references(symbols: &str) -> BTreeSet<NativeSymbolContract> {
+#[cfg(test)]
+fn scan_symbol_references(symbols: &str) -> BTreeSet<NativeSymbolContract> {
     let mut provided = BTreeSet::new();
     let mut references = BTreeSet::new();
 
@@ -529,21 +404,32 @@ pub fn scan_symbol_references(symbols: &str) -> BTreeSet<NativeSymbolContract> {
     references
 }
 
-fn exact_summary(
-    definitions: BTreeSet<NativeDefinition>,
+/// Builds an exact summary only when fallback providers and symbol overlap are understood.
+/// Unknown or conflicting deferred providers retain all known references conservatively.
+pub fn summarize_native_unit(
+    mut definitions: BTreeSet<NativeDefinition>,
     references: BTreeSet<NativeSymbolContract>,
     roots: BTreeSet<NativeRoot>,
+    aliases: Vec<(NonEmptySharedStr, NonEmptySharedStr)>,
 ) -> NativeUnitSummary {
-    if definitions.iter().any(|definition| {
-        definition.selection() != &NativeDefinitionSelection::Fallback
-            && references.iter().any(|reference| {
-                reference.identity() == definition.symbol().identity()
-                    && reference.presence() == NativeSymbolPresence::Required
-            })
-    }) {
+    if !add_fallback_definitions(aliases, &mut definitions)
+        || definitions.iter().any(|definition| {
+            definition.selection() != &NativeDefinitionSelection::Fallback
+                && references.iter().any(|reference| {
+                    reference.identity() == definition.symbol().identity()
+                        && reference.presence() == NativeSymbolPresence::Required
+                })
+        })
+    {
         // Only deferred fallbacks may also demand their public provider within the unit.
         // Other definition/reference overlaps need selection rules this summary does not model.
-        return NativeUnitSummary::opaque(references);
+        return NativeUnitSummary::opaque_with_providers(
+            definitions
+                .iter()
+                .filter(|d| d.selection() != &NativeDefinitionSelection::Fallback)
+                .map(|d| d.symbol().identity().clone()),
+            references,
+        );
     }
 
     NativeUnitSummary::Exact {
@@ -553,65 +439,6 @@ fn exact_summary(
     }
 }
 
-fn bitcode_roots(ir: &str, weak_comdats: &BTreeSet<String>) -> Option<BTreeSet<NativeRoot>> {
-    let mut roots = BTreeSet::new();
-
-    for line in ir.lines().map(str::trim) {
-        if line.starts_with(';') || line.starts_with('^') {
-            continue;
-        }
-
-        if line.starts_with("@llvm.global_ctors =") {
-            roots.insert(NativeRoot::Initialization);
-            continue;
-        }
-
-        if line.starts_with("@llvm.global_dtors =") {
-            roots.insert(NativeRoot::Finalization);
-            continue;
-        }
-
-        if line.starts_with('$') {
-            if !line.contains(" = comdat ") {
-                return None;
-            }
-
-            continue;
-        }
-
-        if line.contains(" comdat")
-            || line.contains(" weak_odr ")
-            || line.contains(" linkonce_odr ")
-            || line.contains(" weak ")
-        {
-            let known = weak_comdats.iter().any(|name| {
-                (line.starts_with("define ") && line.contains(&format!("@{name}(")))
-                    || line.starts_with(&format!("@{name} ="))
-            });
-
-            if !known {
-                return None;
-            }
-        }
-
-        if line.starts_with("@llvm.")
-            || line
-                .split_whitespace()
-                .any(|token| matches!(token, "alias" | "ifunc"))
-            || line.contains(" extern_weak ")
-            || line.contains(" linkonce ")
-            || line.contains(" section ")
-            || line.contains(" asm ")
-            || line.contains(" appending global ")
-            || line.contains("llvm.dependent-libraries")
-        {
-            return None;
-        }
-    }
-
-    Some(roots)
-}
-
 #[cfg(test)]
 mod tests {
     use object::write::{Object, StandardSection, Symbol, SymbolSection};
@@ -619,119 +446,8 @@ mod tests {
         Architecture, BinaryFormat, Endianness, SectionKind, SymbolFlags, SymbolKind, SymbolScope,
     };
 
-    use super::{scan_bitcode_unit_summary, scan_object_unit_summary};
+    use super::scan_object_unit_summary;
     use crate::{NativeComdatSelection, NativeDefinitionSelection, NativeRoot, NativeUnitSummary};
-    use bray_symbols::NativeSymbolBinding;
-
-    #[test]
-    fn code_data_and_address_references_are_exact() {
-        let symbols = "entry T 0 0\ncallback_table D 0 0\ncallback U\n";
-
-        let summary = scan_bitcode_unit_summary(
-            symbols,
-            "define @entry {}",
-            bray_target::NativeTarget::X86_64LinuxGnu,
-        );
-
-        let NativeUnitSummary::Exact {
-            definitions,
-            references,
-            roots,
-        } = summary
-        else {
-            panic!("ordinary bitcode must have an exact summary");
-        };
-
-        assert_eq!(definitions.len(), 2);
-        assert_eq!(references.len(), 1);
-        assert!(roots.is_empty());
-    }
-
-    #[test]
-    fn weak_comdat_bitcode_is_selected_by_symbol() {
-        let ir = "$provider = comdat exactmatch\ndefine weak_odr void @provider() comdat {\n  ret void\n}\n";
-
-        let summary = scan_bitcode_unit_summary(
-            "provider W 0 0\n",
-            ir,
-            bray_target::NativeTarget::X86_64LinuxGnu,
-        );
-
-        let NativeUnitSummary::Exact {
-            definitions,
-            references,
-            roots,
-        } = summary
-        else {
-            panic!("supported weak COMDAT must have an exact summary");
-        };
-
-        assert_eq!(definitions.len(), 1);
-        assert_eq!(definitions[0].symbol().binding(), NativeSymbolBinding::Weak);
-
-        assert!(matches!(
-            definitions[0].selection(),
-            NativeDefinitionSelection::Comdat {
-                rule: NativeComdatSelection::ExactMatch,
-                associative_with: None,
-                ..
-            },
-        ));
-
-        assert!(references.is_empty());
-        assert!(roots.is_empty());
-
-        assert!(matches!(
-            scan_bitcode_unit_summary(
-                "provider W 0 0\n",
-                "$provider = comdat exactmatch\ndefine weak_odr void @provider() section \".custom\" comdat {\n  ret void\n}\n",
-                bray_target::NativeTarget::X86_64LinuxGnu
-            ),
-            NativeUnitSummary::Opaque { .. },
-        ));
-    }
-
-    #[test]
-    fn thread_local_bitcode_uses_symbol_demand_without_a_lifecycle_root() {
-        let ir = "$state = comdat any\n@state = weak_odr thread_local global i64 0, comdat\n@imported = external thread_local global i64\n";
-
-        let NativeUnitSummary::Exact {
-            definitions,
-            references,
-            roots,
-        } = scan_bitcode_unit_summary(
-            "state W 0 0\nimported U\n",
-            ir,
-            bray_target::NativeTarget::X86_64LinuxGnu,
-        )
-        else {
-            panic!("thread-local allocation alone must not require conservative retention");
-        };
-
-        assert_eq!(definitions.len(), 1);
-        assert_eq!(definitions[0].symbol().identity().name(), Some("state"));
-        assert_eq!(references.len(), 1);
-        assert_eq!(references[0].identity().name(), Some("imported"));
-        assert!(roots.is_empty());
-    }
-
-    #[test]
-    fn decorated_bitcode_symbols_use_llvm_names_for_comdat_lookup() {
-        let ir =
-            "$provider = comdat any\ndefine weak_odr void @provider() comdat {\n ret void\n}\n";
-
-        let summary = scan_bitcode_unit_summary(
-            "_provider W 0 0\n",
-            ir,
-            bray_target::NativeTarget::X86_64MacOs,
-        );
-
-        let NativeUnitSummary::Exact { definitions, .. } = summary else {
-            panic!("decorated symbol must retain exact COMDAT selection")
-        };
-
-        assert_eq!(definitions[0].symbol().identity().name(), Some("_provider"));
-    }
 
     #[test]
     fn object_symbols_and_lifecycle_sections_are_scanned_without_tools() {
@@ -782,123 +498,6 @@ mod tests {
     }
 
     #[test]
-    fn deferred_alternate_names_preserve_public_provider_references_without_roots() {
-        let ir = r#"
-$implementation = comdat any
-define weak i32 @implementation() comdat { ret i32 1 }
-@live = global i32 3
-!llvm.linker.options = !{!0}
-!0 = !{!"/alternatename:provider=implementation"}
-"#;
-
-        let summary = scan_bitcode_unit_summary(
-            "implementation W 0 0\nlive D 0 0\nprovider U\n",
-            ir,
-            bray_target::NativeTarget::X86_64WindowsMsvc,
-        );
-
-        let NativeUnitSummary::Exact {
-            definitions,
-            references,
-            roots,
-        } = summary
-        else {
-            panic!("understood alternate-name fallback must be exact");
-        };
-
-        assert_eq!(references.len(), 1);
-        assert_eq!(references[0].identity().name(), Some("provider"));
-        assert!(roots.is_empty());
-        assert_eq!(definitions.len(), 3);
-
-        assert_eq!(
-            definitions
-                .iter()
-                .find(|definition| definition.symbol().identity().name() == Some("provider")),
-            Some(&crate::NativeDefinition::new(
-                bray_symbols::NativeSymbolContract::new(
-                    bray_symbols::NativeSymbolIdentity::Name(
-                        bray_base::NonEmptySharedStr::try_new("provider").unwrap()
-                    ),
-                    None,
-                    NativeSymbolBinding::Weak,
-                    bray_symbols::NativeSymbolPresence::Required
-                ),
-                NativeDefinitionSelection::Fallback
-            ))
-        );
-    }
-
-    #[test]
-    fn unknown_or_conflicting_alternate_name_contracts_stay_opaque() {
-        for metadata in [
-            "!0 = !{!\"/include:provider\"}",
-            "!0 = !{!\"/alternatename:provider=missing\"}",
-            "!0 = !{!\"/alternatename:provider=implementation\", !\"/include:extra\"}",
-        ] {
-            let ir = format!(
-                "define i32 @implementation() {{ ret i32 1 }}\n!llvm.linker.options = !{{!0}}\n{metadata}"
-            );
-
-            assert!(matches!(
-                scan_bitcode_unit_summary(
-                    "implementation T 0 0",
-                    &ir,
-                    bray_target::NativeTarget::X86_64WindowsMsvc
-                ),
-                NativeUnitSummary::Opaque { .. }
-            ));
-        }
-
-        let ir = "define i32 @implementation() { ret i32 1 }\n!llvm.linker.options = !{!0, !1}\n!0 = !{!\"/alternatename:provider=implementation\"}\n!1 = !{!\"/alternatename:provider=other\"}";
-
-        assert!(matches!(
-            scan_bitcode_unit_summary(
-                "implementation T 0 0\nother T 0 0",
-                ir,
-                bray_target::NativeTarget::X86_64WindowsMsvc
-            ),
-            NativeUnitSummary::Opaque { .. }
-        ));
-    }
-
-    #[test]
-    fn qualified_aliases_and_ifuncs_are_opaque() {
-        for declaration in [
-            "@alternate = dso_local alias i32, ptr @value",
-            "@alternate = hidden unnamed_addr alias i32, ptr @value",
-            "@dispatch = dso_local ifunc void (), ptr @resolver",
-        ] {
-            assert!(matches!(
-                scan_bitcode_unit_summary(
-                    "entry T 0 0",
-                    declaration,
-                    bray_target::NativeTarget::X86_64LinuxGnu
-                ),
-                NativeUnitSummary::Opaque { .. },
-            ));
-        }
-    }
-
-    #[test]
-    fn initialization_is_a_root_and_unsupported_selection_is_opaque() {
-        let summary = scan_bitcode_unit_summary(
-            "entry T 0 0\n",
-            "@llvm.global_ctors = appending global []\n",
-            bray_target::NativeTarget::X86_64LinuxGnu,
-        );
-
-        assert!(
-            matches!(summary, NativeUnitSummary::Exact { roots, .. } if roots.as_ref() == [NativeRoot::Initialization])
-        );
-
-        assert!(matches!(
-            scan_bitcode_unit_summary("entry W 0 0", "", bray_target::NativeTarget::X86_64LinuxGnu),
-            NativeUnitSummary::Opaque { .. }
-        ));
-    }
-
-    #[test]
     fn object_comdat_rules_and_associated_definitions_use_the_shared_selection_contract() {
         for (kind, rule) in [
             (object::ComdatKind::Any, NativeComdatSelection::Any),
@@ -920,6 +519,7 @@ define weak i32 @implementation() comdat { ret i32 1 }
                 Object::new(BinaryFormat::Coff, Architecture::X86_64, Endianness::Little);
 
             let text = object.section_id(StandardSection::Text);
+
             object.append_section_data(text, &[0xc3], 1);
             object.section_symbol(text);
 
@@ -935,6 +535,7 @@ define weak i32 @implementation() comdat { ret i32 1 }
             });
 
             let data = object.section_id(StandardSection::Data);
+
             object.append_section_data(data, &[0; 8], 8);
             object.section_symbol(data);
 
@@ -993,6 +594,7 @@ define weak i32 @implementation() comdat { ret i32 1 }
         for format in [BinaryFormat::Coff, BinaryFormat::Elf] {
             let mut object = Object::new(format, Architecture::X86_64, Endianness::Little);
             let data = object.section_id(StandardSection::Tls);
+
             object.append_section_data(data, &[0; 8], 8);
 
             object.add_symbol(Symbol {
@@ -1023,6 +625,7 @@ define weak i32 @implementation() comdat { ret i32 1 }
     fn object_fixture(format: BinaryFormat, lifecycle_section: &str) -> Vec<u8> {
         let mut object = Object::new(format, Architecture::X86_64, Endianness::Little);
         let text = object.section_id(StandardSection::Text);
+
         object.append_section_data(text, &[0xc3], 1);
 
         object.add_symbol(Symbol {

@@ -83,6 +83,7 @@ fn repository_standard_library_workspace_uses_the_reserved_source_boundary() {
 #[test]
 fn tested_libraries_must_name_sibling_library_products() {
     let workspace = TestWorkspace::new();
+
     write_valid_workspace(workspace.path(), false);
 
     let manifest = workspace.path().join("app").join("bray-package.json");
@@ -103,6 +104,7 @@ fn tested_libraries_must_name_sibling_library_products() {
     );
 
     let non_test_workspace = TestWorkspace::new();
+
     write_valid_workspace(non_test_workspace.path(), false);
 
     replace(
@@ -125,6 +127,7 @@ fn tested_libraries_must_name_sibling_library_products() {
 #[test]
 fn manifests_load_an_exact_canonical_project_graph() {
     let workspace = TestWorkspace::new();
+
     write_valid_workspace(workspace.path(), false);
 
     let graph = load_project_graph(workspace.path())
@@ -234,6 +237,7 @@ fn manifests_load_an_exact_canonical_project_graph() {
 #[test]
 fn package_versions_must_be_semantic_versions() {
     let workspace = TestWorkspace::new();
+
     write_valid_workspace(workspace.path(), false);
 
     replace(
@@ -269,6 +273,7 @@ fn package_versions_must_be_semantic_versions() {
 #[test]
 fn workspace_package_versions_must_be_semantic_versions() {
     let workspace = TestWorkspace::new();
+
     write_valid_workspace(workspace.path(), false);
 
     replace(
@@ -286,6 +291,7 @@ fn workspace_package_versions_must_be_semantic_versions() {
 #[test]
 fn package_version_inheritance_must_be_enabled() {
     let workspace = TestWorkspace::new();
+
     write_valid_workspace(workspace.path(), false);
 
     replace(
@@ -303,6 +309,7 @@ fn package_version_inheritance_must_be_enabled() {
 #[test]
 fn inherited_package_versions_require_workspace_metadata() {
     let workspace = TestWorkspace::new();
+
     write_valid_workspace(workspace.path(), false);
 
     replace(
@@ -323,6 +330,7 @@ fn inherited_package_versions_require_workspace_metadata() {
 fn manifest_array_order_does_not_change_the_graph() {
     let first = TestWorkspace::new();
     let second = TestWorkspace::new();
+
     write_valid_workspace(first.path(), false);
     write_valid_workspace(second.path(), true);
 
@@ -338,6 +346,7 @@ fn manifest_array_order_does_not_change_the_graph() {
 #[test]
 fn ordinary_projects_cannot_claim_standard_library_package_identities() {
     let workspace = TestWorkspace::new();
+
     write_valid_workspace(workspace.path(), false);
 
     replace(
@@ -379,6 +388,7 @@ fn ordinary_projects_cannot_claim_standard_library_package_identities() {
 #[test]
 fn ordinary_projects_cannot_claim_private_standard_library_package_identities() {
     let workspace = TestWorkspace::new();
+
     write_valid_workspace(workspace.path(), false);
 
     replace(
@@ -396,6 +406,7 @@ fn ordinary_projects_cannot_claim_private_standard_library_package_identities() 
 #[test]
 fn standard_library_projects_require_and_accept_reserved_package_identities() {
     let ordinary = TestWorkspace::new();
+
     write_valid_workspace(ordinary.path(), false);
 
     let Err(error) = load_standard_library_project_graph(ordinary.path()) else {
@@ -428,6 +439,7 @@ fn standard_library_projects_require_and_accept_reserved_package_identities() {
     );
 
     let workspace = TestWorkspace::new();
+
     write_valid_workspace(workspace.path(), false);
 
     replace(
@@ -468,6 +480,7 @@ fn standard_library_projects_require_and_accept_reserved_package_identities() {
 #[test]
 fn unsupported_manifest_revisions_are_rejected_before_schema_interpretation() {
     let workspace = TestWorkspace::new();
+
     write_valid_workspace(workspace.path(), false);
 
     replace(
@@ -487,6 +500,7 @@ fn unsupported_manifest_revisions_are_rejected_before_schema_interpretation() {
 #[test]
 fn invalid_project_paths_and_names_preserve_their_manifest_fields() {
     let path_workspace = TestWorkspace::new();
+
     write_valid_workspace(path_workspace.path(), false);
 
     replace(
@@ -503,6 +517,7 @@ fn invalid_project_paths_and_names_preserve_their_manifest_fields() {
     );
 
     let name_workspace = TestWorkspace::new();
+
     write_valid_workspace(name_workspace.path(), false);
 
     replace(
@@ -522,6 +537,7 @@ fn invalid_project_paths_and_names_preserve_their_manifest_fields() {
 #[test]
 fn missing_output_selection_preserves_the_exact_manifest_field() {
     let workspace = TestWorkspace::new();
+
     write_valid_workspace(workspace.path(), false);
 
     replace(
@@ -541,6 +557,7 @@ fn missing_output_selection_preserves_the_exact_manifest_field() {
 #[test]
 fn unavailable_dependency_target_preserves_product_and_target_identity() {
     let workspace = TestWorkspace::new();
+
     write_valid_workspace(workspace.path(), false);
 
     replace(
@@ -564,6 +581,7 @@ fn unavailable_dependency_target_preserves_product_and_target_identity() {
 #[test]
 fn canonical_manifest_writers_are_idempotent_and_normalize_set_order() {
     let workspace = TestWorkspace::new();
+
     write_valid_workspace(workspace.path(), false);
 
     let workspace_path = workspace.path().join("bray-workspace.json");
@@ -617,6 +635,7 @@ fn canonical_manifest_writers_are_idempotent_and_normalize_set_order() {
 #[test]
 fn package_wide_dependency_syntax_is_rejected() {
     let workspace = TestWorkspace::new();
+
     write_valid_workspace(workspace.path(), false);
 
     let path = workspace.path().join("app").join("bray-package.json");
@@ -637,6 +656,7 @@ fn package_wide_dependency_syntax_is_rejected() {
 #[test]
 fn target_conditioned_dependencies_retain_predicates_and_per_target_orders() {
     let workspace = TestWorkspace::new();
+
     write_valid_workspace(workspace.path(), false);
 
     replace(
@@ -731,6 +751,7 @@ fn target_conditioned_dependencies_retain_predicates_and_per_target_orders() {
 #[test]
 fn target_predicates_reject_unknown_properties_and_mismatched_values() {
     let unknown_workspace = TestWorkspace::new();
+
     write_valid_workspace(unknown_workspace.path(), false);
 
     replace(
@@ -750,6 +771,7 @@ fn target_predicates_reject_unknown_properties_and_mismatched_values() {
     );
 
     let mismatch_workspace = TestWorkspace::new();
+
     write_valid_workspace(mismatch_workspace.path(), false);
 
     replace(
@@ -772,6 +794,7 @@ fn target_predicates_reject_unknown_properties_and_mismatched_values() {
 #[test]
 fn standard_library_projects_require_the_public_std_root() {
     let workspace = TestWorkspace::new();
+
     write_valid_workspace(workspace.path(), false);
 
     replace(
@@ -850,6 +873,7 @@ fn unknown_manifest_fields_are_rejected_by_the_narrow_schema() {
 #[test]
 fn workspace_features_must_be_declared_by_the_selected_package() {
     let workspace = TestWorkspace::new();
+
     write_valid_workspace(workspace.path(), false);
 
     replace(
@@ -869,6 +893,7 @@ fn workspace_features_must_be_declared_by_the_selected_package() {
 #[test]
 fn dependency_edges_must_select_declared_library_products() {
     let workspace = TestWorkspace::new();
+
     write_valid_workspace(workspace.path(), false);
 
     replace(
@@ -897,6 +922,7 @@ fn dependency_edges_must_select_declared_library_products() {
 #[test]
 fn dependency_edges_preserve_unknown_packages_and_non_library_products() {
     let package_workspace = TestWorkspace::new();
+
     write_valid_workspace(package_workspace.path(), false);
 
     replace(
@@ -916,6 +942,7 @@ fn dependency_edges_preserve_unknown_packages_and_non_library_products() {
     );
 
     let product_workspace = TestWorkspace::new();
+
     write_valid_workspace(product_workspace.path(), false);
 
     replace(
@@ -939,6 +966,7 @@ fn dependency_edges_preserve_unknown_packages_and_non_library_products() {
 #[test]
 fn dependencies_are_isolated_to_the_declaring_product() {
     let workspace = TestWorkspace::new();
+
     write_valid_workspace(workspace.path(), false);
 
     replace(
@@ -972,6 +1000,7 @@ fn dependencies_are_isolated_to_the_declaring_product() {
 #[test]
 fn dependency_cycles_are_reported_deterministically() {
     let workspace = TestWorkspace::new();
+
     write_valid_workspace(workspace.path(), false);
 
     replace(
@@ -1001,6 +1030,7 @@ fn dependency_cycles_are_reported_deterministically() {
 #[test]
 fn output_and_source_roots_cannot_overlap() {
     let workspace = TestWorkspace::new();
+
     write_valid_workspace(workspace.path(), false);
 
     replace(
@@ -1020,6 +1050,7 @@ fn output_and_source_roots_cannot_overlap() {
 #[test]
 fn package_source_roots_cannot_overlap_each_other() {
     let workspace = TestWorkspace::new();
+
     write_valid_workspace(workspace.path(), false);
 
     replace(
@@ -1040,6 +1071,7 @@ fn package_source_roots_cannot_overlap_each_other() {
 #[test]
 fn target_names_cannot_alias_one_target_identity() {
     let workspace = TestWorkspace::new();
+
     write_valid_workspace(workspace.path(), false);
 
     replace(
@@ -1059,6 +1091,7 @@ fn target_names_cannot_alias_one_target_identity() {
 #[test]
 fn project_selections_preserve_missing_root_unknown_source_and_unknown_target() {
     let root_workspace = TestWorkspace::new();
+
     write_valid_workspace(root_workspace.path(), false);
 
     replace(
@@ -1075,6 +1108,7 @@ fn project_selections_preserve_missing_root_unknown_source_and_unknown_target() 
     );
 
     let source_workspace = TestWorkspace::new();
+
     write_valid_workspace(source_workspace.path(), false);
 
     replace(
@@ -1094,6 +1128,7 @@ fn project_selections_preserve_missing_root_unknown_source_and_unknown_target() 
     );
 
     let target_workspace = TestWorkspace::new();
+
     write_valid_workspace(target_workspace.path(), false);
 
     replace(

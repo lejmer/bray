@@ -140,6 +140,7 @@ where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
     let mut cleanup_free = CleanupFreeExits::new();
+
     record_cleanup_free_exits(&mut cleanup_free, semantics.asynchronous());
 
     let mut diagnostics = DiagnosticBag::new();

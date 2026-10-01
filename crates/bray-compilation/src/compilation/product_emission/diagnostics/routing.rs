@@ -90,42 +90,14 @@ pub(super) fn product_emission_failure_diagnostics(
             product,
             target,
         ),
-        ProductEmissionErrorKind::MissingNativeInspector => emission_failure_diagnostics(
-            DiagnosticEmissionFailure::NativeInspection {
-                tool: None,
-                path: None,
-                reason: bray_diagnostics::DiagnosticNativeInspectionFailure::MissingToolchain,
+        ProductEmissionErrorKind::NativeRead { path, kind } => emission_failure_diagnostics(
+            DiagnosticEmissionFailure::NativeRead {
+                path: path.clone(),
+                kind: (*kind).into(),
             },
             product,
             target,
         ),
-        ProductEmissionErrorKind::NativeInspection(error) => {
-            use bray_diagnostics::{DiagnosticIoErrorKind, DiagnosticNativeInspectionFailure};
-            use super::super::native::NativeInspectionError;
-
-            let (tool, path, reason) = match error {
-                NativeInspectionError::Read { path, kind } => (
-                    None, path.clone(),
-                    DiagnosticNativeInspectionFailure::Read(DiagnosticIoErrorKind::from(*kind)),
-                ),
-                NativeInspectionError::Invoke { tool, path, kind } => (
-                    Some(*tool), path.clone(),
-                    DiagnosticNativeInspectionFailure::Invoke(DiagnosticIoErrorKind::from(*kind)),
-                ),
-                NativeInspectionError::Failed { tool, path, status } => (
-                    Some(*tool), path.clone(), DiagnosticNativeInspectionFailure::Failed(*status),
-                ),
-                NativeInspectionError::Encoding { tool, path } => (
-                    Some(*tool), path.clone(), DiagnosticNativeInspectionFailure::Encoding,
-                ),
-            };
-
-            emission_failure_diagnostics(
-                DiagnosticEmissionFailure::NativeInspection { tool, path: Some(path), reason },
-                product,
-                target,
-            )
-        }
         ProductEmissionErrorKind::Planning(error) => {
             planning_failure_diagnostics(error, product, target)
         }

@@ -374,7 +374,9 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     }
     fn expression(&self, state: &mut ExecutionState, expression: BoundExpressionId) {
         state.expressions.remove(&expression);
+
         let value = self.value(state, expression);
+
         state.expressions.insert(expression, value);
         self.invalidate(state, expression.into());
 

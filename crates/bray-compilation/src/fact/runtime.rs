@@ -960,6 +960,7 @@ mod tests {
         );
 
         let mut changed_inputs = CompilationInputs::default();
+
         changed_inputs.insert(input_key, &8_u8);
 
         let (_, changed) = runtime.updated(WorkerBudget::serial(), changed_inputs, None);
@@ -1009,6 +1010,7 @@ mod tests {
         let unrelated = CompilationFactKey::CheckDiagnostics;
 
         let mut previous_inputs = CompilationInputs::default();
+
         previous_inputs.insert(CompilationInputKey::SourceDiagnostics, &0_u8);
         previous_inputs.insert(CompilationInputKey::ProductKind, &0_u8);
         runtime.set_inputs(previous_inputs.clone());
@@ -1094,6 +1096,7 @@ mod tests {
         }
 
         let mut updated_inputs = CompilationInputs::default();
+
         updated_inputs.insert(CompilationInputKey::SourceDiagnostics, &1_u8);
         updated_inputs.insert(CompilationInputKey::ProductKind, &1_u8);
 

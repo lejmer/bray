@@ -179,7 +179,9 @@ impl RuntimeArtifactMetadata {
         });
 
         crate::component_validation::validate(&contract, &components)?;
+
         let mut indexes = native_indexes.into_iter().collect::<Vec<_>>();
+
         indexes.sort_by_key(RuntimeNativeIndexMetadata::purpose);
 
         if indexes
@@ -715,6 +717,7 @@ mod tests {
     #[test]
     fn runtime_artifacts_require_published_native_indexes() {
         let metadata = metadata();
+
         assert_eq!(metadata.native_indexes().len(), 2);
 
         assert_eq!(
@@ -1011,6 +1014,7 @@ mod tests {
         );
 
         let native = directory.join("native");
+
         std::fs::create_dir_all(&native).expect("test native directory must exist");
 
         std::fs::write(

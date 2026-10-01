@@ -83,6 +83,7 @@ impl Lowerer<'_> {
         }
 
         let source = self.source(block.origin());
+
         self.active_scopes.push(id);
 
         let result = (|| {

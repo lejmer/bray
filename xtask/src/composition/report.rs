@@ -262,6 +262,7 @@ mod tests {
         });
 
         let report = serde_json::from_value(valid.clone()).unwrap();
+
         assert!(super::validate_structure(&report, "synchronous", true, true).is_ok());
 
         for (pointer, replacement) in [

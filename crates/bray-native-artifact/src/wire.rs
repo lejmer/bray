@@ -246,6 +246,8 @@ enum SummaryWire {
         roots: Vec<RootWire>,
     },
     Opaque {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        provided: Vec<IdentityWire>,
         references: Vec<SymbolWire>,
     },
 }
@@ -265,7 +267,11 @@ impl SummaryWire {
                 references: references.iter().map(SymbolWire::from_symbol).collect(),
                 roots: roots.iter().copied().map(RootWire::from_root).collect(),
             },
-            NativeUnitSummary::Opaque { references } => Self::Opaque {
+            NativeUnitSummary::Opaque {
+                provided,
+                references,
+            } => Self::Opaque {
+                provided: provided.iter().map(IdentityWire::from_identity).collect(),
                 references: references.iter().map(SymbolWire::from_symbol).collect(),
             },
         }
@@ -294,7 +300,15 @@ impl SummaryWire {
                     .collect::<Vec<_>>()
                     .into(),
             }),
-            Self::Opaque { references } => Ok(NativeUnitSummary::Opaque {
+            Self::Opaque {
+                provided,
+                references,
+            } => Ok(NativeUnitSummary::Opaque {
+                provided: provided
+                    .into_iter()
+                    .map(IdentityWire::into_identity)
+                    .collect::<Result<Vec<_>, _>>()?
+                    .into(),
                 references: references
                     .into_iter()
                     .map(SymbolWire::into_symbol)

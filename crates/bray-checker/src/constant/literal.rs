@@ -422,6 +422,7 @@ fn decode_quoted_bytes(
 
 fn push_utf8(decoded: &mut Vec<u8>, character: char) {
     let mut bytes = [0_u8; 4];
+
     decoded.extend_from_slice(character.encode_utf8(&mut bytes).as_bytes());
 }
 

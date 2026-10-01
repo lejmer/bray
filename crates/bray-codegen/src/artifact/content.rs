@@ -13,7 +13,7 @@ static NEXT_SPOOL_ID: AtomicU64 = AtomicU64::new(0);
 const SPOOL_CREATE_ATTEMPTS: usize = 128;
 
 /// Compiler operation that failed while owning an immutable artifact spool.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum ArtifactSpoolOperation {
     /// Create compiler-private spool storage.
     Create,
@@ -23,8 +23,24 @@ pub enum ArtifactSpoolOperation {
     Metadata,
     /// Reopen the finalized spool through read-only access.
     OpenReader,
+    /// Read finalized spool bytes.
+    Read,
     /// Finalize task-local writer ownership.
     Finalize,
+}
+
+impl ArtifactSpoolOperation {
+    /// Returns the stable operation name used in diagnostic context.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Create => "create",
+            Self::Flush => "flush",
+            Self::Metadata => "metadata",
+            Self::OpenReader => "open_reader",
+            Self::Read => "read",
+            Self::Finalize => "finalize",
+        }
+    }
 }
 
 /// I/O failure while constructing or reading compiler-owned artifact storage.
@@ -326,6 +342,23 @@ impl ArtifactContent {
         }
     }
 
+    /// Reads complete immutable bytes, sharing memory-backed content without copying it.
+    pub fn read_shared(&self) -> Result<Arc<[u8]>, ArtifactSpoolError> {
+        match &self.storage {
+            ArtifactContentStorage::Memory(bytes) => Ok(Arc::clone(bytes)),
+            ArtifactContentStorage::CompilerSpool(spool) => {
+                let mut reader = spool.open_reader()?;
+                let mut bytes = Vec::new();
+
+                reader.read_to_end(&mut bytes).map_err(|error| {
+                    ArtifactSpoolError::from_io(ArtifactSpoolOperation::Read, error)
+                })?;
+
+                Ok(Arc::from(bytes))
+            }
+        }
+    }
+
     /// Opens an independent read-only stream over the complete immutable content.
     pub fn open_reader(&self) -> Result<ArtifactContentReader<'_>, ArtifactSpoolError> {
         match self.source() {
@@ -503,6 +536,16 @@ mod tests {
         let spooled = ArtifactContent::compiler_spool(spool);
 
         assert_eq!(hash(&memory), hash(&spooled));
+
+        assert_eq!(
+            memory.read_shared().unwrap(),
+            spooled.read_shared().unwrap()
+        );
+
+        assert!(std::sync::Arc::ptr_eq(
+            &memory.read_shared().unwrap(),
+            &memory.read_shared().unwrap()
+        ));
     }
 
     fn hash(content: &ArtifactContent) -> u64 {

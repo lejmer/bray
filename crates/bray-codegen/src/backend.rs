@@ -67,6 +67,8 @@ pub trait CodeGenerator: Send + Sync {
     }
 
     /// Generates every requested artifact for one validated codegen unit.
+    /// Native library contributions must carry a native unit observed from their final bytes,
+    /// after all backend and host processing, with an authenticating SHA-256 digest.
     fn generate(&self, request: CodegenRequest<'_>) -> CodegenOutcome;
 }
 

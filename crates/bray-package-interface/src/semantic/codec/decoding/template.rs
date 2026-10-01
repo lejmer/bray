@@ -547,6 +547,7 @@ mod tests {
         for template in imported.declaration_templates() {
             assert_eq!(template.kind(), template.template().kind());
             assert_eq!(template.ordinal(), SymbolOrdinal::new(0));
+
             let behavior = template.template().behavior();
 
             assert_ne!(
@@ -1091,6 +1092,7 @@ mod tests {
 
         let invalid_semantics = |node_index, node| {
             let mut nodes = template.nodes().to_vec();
+
             nodes[node_index] = node;
 
             let invalid_template = InterfaceCheckedTemplate::new(

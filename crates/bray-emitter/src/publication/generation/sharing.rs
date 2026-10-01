@@ -17,6 +17,7 @@ pub(super) fn share_generation(
 
     for artifact in &manifest.artifacts {
         check_cancelled(private, cancellation)?;
+
         let key = content_key(private, manifest, artifact)?;
         let destination = artifact_path(private, &artifact.path)?;
 

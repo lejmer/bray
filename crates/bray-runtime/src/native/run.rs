@@ -302,6 +302,7 @@ impl NativeRun {
         }
 
         let payload = outcome.payload();
+
         Self::transfer_incidents(&mut child);
         child.next_retired = parent.retired.take();
         parent.retired = Some(child);
@@ -755,6 +756,7 @@ impl ProtectedFrame for Arc<NativeRun> {
 
     fn resolve_lifecycle(self: Pin<&mut Self>, _: FrameExit) {
         let current = self.lock_current().take();
+
         NativeRun::release_chain(current, &self.terminal);
     }
 }

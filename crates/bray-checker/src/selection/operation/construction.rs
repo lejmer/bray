@@ -80,6 +80,7 @@ where
             }
             None => {
                 let index = positional_index;
+
                 positional_index += 1;
 
                 surfaces.get(index).and_then(|surface| {

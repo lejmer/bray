@@ -150,6 +150,7 @@ impl Compilation {
                     }
 
                     let mut tentative = *remaining - cost;
+
                     stack.push(callee.key().clone());
 
                     let expanded = self.expand_scalar_calls(
@@ -823,6 +824,7 @@ mod tests {
         "#;
 
         let full = reachability(source, crate::BuildConfiguration::Release.codegen_options());
+
         assert!(direct_calls(&full) > 0);
 
         assert!(
@@ -876,6 +878,7 @@ mod tests {
 
         for source in [borrowed, owned] {
             let full = reachability(source, crate::BuildConfiguration::Release.codegen_options());
+
             assert!(direct_calls(&full) > 0);
         }
     }
@@ -991,6 +994,7 @@ mod tests {
         "#;
 
         let full = reachability(source, crate::BuildConfiguration::Release.codegen_options());
+
         assert!(direct_calls(&full) > 0);
     }
 

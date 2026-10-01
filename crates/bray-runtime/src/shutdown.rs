@@ -174,6 +174,7 @@ impl CleanupReportSink {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
         let ordinal = state.next_ordinal;
+
         state.next_ordinal = state.next_ordinal.saturating_add(1);
 
         state.incidents.push_incident(

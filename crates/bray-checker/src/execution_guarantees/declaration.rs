@@ -43,7 +43,9 @@ pub fn declared_execution_properties(
                 }
                 SyntaxKind::WhenClause => {
                     result.clauses.push(anchor);
+
                     let mut guards = domain.guards.to_vec();
+
                     guards.push(anchor);
 
                     domains.push(ExecutionDomain {

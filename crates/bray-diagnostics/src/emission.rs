@@ -16,7 +16,7 @@ pub use failure::{
     DiagnosticBindingFailure, DiagnosticEmissionArtifact, DiagnosticEmissionCodegenFailure,
     DiagnosticEmissionEvaluationFailure, DiagnosticEmissionFailure,
     DiagnosticEmissionLinkPlanFailure, DiagnosticEmissionPlanningFailure,
-    DiagnosticEmissionStagingFailure, DiagnosticNativeInspectionFailure, DiagnosticEvaluationFailureDetail,
+    DiagnosticEmissionStagingFailure, DiagnosticEvaluationFailureDetail,
     DiagnosticPackageInterfaceFailure, DiagnosticSemanticQueryFailure,
     DiagnosticSemanticValueFailure, DiagnosticTestCatalogFailure,
 };

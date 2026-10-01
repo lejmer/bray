@@ -494,6 +494,7 @@ fn select_outputs(
     }
 
     let mut outputs: Vec<_> = selections.into_iter().map(output_kind).collect();
+
     outputs.sort_unstable();
 
     if let Some(output) = outputs.windows(2).find(|pair| pair[0] == pair[1]) {

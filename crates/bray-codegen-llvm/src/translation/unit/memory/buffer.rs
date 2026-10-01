@@ -113,6 +113,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         );
 
         let outcome = self.checked_call_panic_report_context()?;
+
         self.set_pending_call_context(outcome)?;
 
         let (buffer, llvm_type, value, fields) = self.load_raw_buffer(buffer, buffer_type)?;

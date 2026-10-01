@@ -64,6 +64,7 @@ pub(super) fn audit(
 
         let bytes = serde_json::to_vec(&value).map_err(|error| error.to_string())?;
         let mut digest = bray_base::StableDigestHasher::new();
+
         digest.write(&bytes);
 
         let mut reference_value: serde_json::Value =
@@ -84,6 +85,7 @@ pub(super) fn audit(
 
     for path in [&host, &catalog] {
         let mut bytes = read(path)?;
+
         bytes.push(0);
 
         with_changed_file(path, &bytes, || {

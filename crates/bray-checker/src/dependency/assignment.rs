@@ -113,6 +113,7 @@ pub(super) fn value_places(
                 let (source, projections) = inputs.project(source, &projections);
 
                 let mut source_path = projections.iter().copied().map(Some).collect::<Vec<_>>();
+
                 source_path.extend(path.iter().copied());
                 pending.push((source, source_path));
             }
@@ -151,6 +152,7 @@ pub(super) fn value_places(
 
         if let Some((source, projection)) = next {
             let mut projected = vec![projection];
+
             projected.extend(path);
             pending.push((source, projected));
         }

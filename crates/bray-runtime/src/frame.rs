@@ -246,6 +246,7 @@ impl RuntimePanic {
         let (mut primary, head, tail, count, reserved) = self.report.take_parts();
 
         let mut records = crate::outgoing::OutgoingRecords::from_parts(reserved, reserved, 1);
+
         records.exchange(&mut primary);
         drop(primary);
 
@@ -309,12 +310,15 @@ pub(crate) fn reserve_rust_panic_backings(
 ) -> Result<(), TryReserveError> {
     let mut backings = rust_panic_backings();
     let count = records.len();
+
     backings.reserve_free(count)?;
+
     let mut admitted = crate::outgoing::OutgoingRecords::default();
 
     for _ in 0..count {
         let mut record = records.take(1);
         let mut primary = rust_panic_primary(backings.take_free() + 1, 0);
+
         record.exchange(&mut primary);
         admitted.append(&mut record);
     }
@@ -737,6 +741,7 @@ mod tests {
 
         std::thread::spawn(move || {
             let mut report = report;
+
             assert!(report.consume(false).is_success());
             assert!(report.consume(false).is_success());
         })

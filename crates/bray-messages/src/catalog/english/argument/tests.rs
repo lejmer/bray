@@ -1,8 +1,10 @@
 use bray_diagnostics::{
-    DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticCallableOverloadArm,
-    DiagnosticCallableOverloadProblem, DiagnosticInterfaceDeclarationIdentity,
-    DiagnosticInterfaceLimit, DiagnosticInterfaceSymbolIdentity, DiagnosticInterfaceSymbolKind,
-    DiagnosticInterfaceSynthesizedIdentity, DiagnosticIoErrorKind, DiagnosticType,
+    DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticArtifactKind,
+    DiagnosticCallableOverloadArm, DiagnosticCallableOverloadProblem,
+    DiagnosticInterfaceDeclarationIdentity, DiagnosticInterfaceLimit,
+    DiagnosticInterfaceSymbolIdentity, DiagnosticInterfaceSymbolKind,
+    DiagnosticInterfaceSynthesizedIdentity, DiagnosticIoErrorKind, DiagnosticLinkInputKind,
+    DiagnosticLinkRequirement, DiagnosticType,
 };
 use bray_source::{
     LineIndex, SourceId, SourceIdentity, SourceInputKind, SourceLocation, SourceOrigin,
@@ -14,6 +16,26 @@ use crate::DiagnosticLocale;
 use crate::argument::ArgumentFormatter;
 
 use super::format_value;
+
+#[test]
+fn bitcode_labels_do_not_assume_a_backend() {
+    for (name, value) in [
+        (
+            DiagnosticArgName::ArtifactKind,
+            DiagnosticArgValue::ArtifactKind(DiagnosticArtifactKind::BackendBitcode),
+        ),
+        (
+            DiagnosticArgName::ActualLinkInputKind,
+            DiagnosticArgValue::LinkInputKind(DiagnosticLinkInputKind::Bitcode),
+        ),
+        (
+            DiagnosticArgName::LinkRequirement,
+            DiagnosticArgValue::LinkRequirement(DiagnosticLinkRequirement::InputBitcode),
+        ),
+    ] {
+        assert_eq!(format_value(name, &value), "bitcode");
+    }
+}
 
 #[test]
 fn argument_formatter_formats_representative_english_values() {

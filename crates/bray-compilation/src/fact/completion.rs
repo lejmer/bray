@@ -433,6 +433,7 @@ mod tests {
             }));
 
             let payload = result.expect_err("evaluator invariant panic must escape completion");
+
             assert_eq!(payload.downcast_ref::<u32>(), Some(&137));
         }
     }

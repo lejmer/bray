@@ -32,6 +32,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         }
 
         let mut arguments = Vec::with_capacity(call.arguments().len());
+
         arguments.extend(receiver);
 
         for (expected, (ordinal, value)) in (0_u32..).zip(parameters) {

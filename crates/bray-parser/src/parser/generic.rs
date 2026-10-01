@@ -153,6 +153,7 @@ impl Parser {
         let mut builder = GenericConstParameterSyntax::builder(self.syntax_source(), start);
 
         builder.push_const_keyword(self.expect(SyntaxKind::ConstKeyword));
+
         let mut at_type_boundary = Parser::at_generic_const_parameter_type_boundary;
 
         builder.push_typed_identifier(self.parse_typed_identifier_until(&mut at_type_boundary));
@@ -447,6 +448,7 @@ mod tests {
 
         for _ in 0..12 {
             argument = format!("box[ {argument} ](value) + 1");
+
             let sources = source_store([format!("Array< {argument}>")]);
             let parsed = crate::parse_type_expression_fragment(&source(&sources, 0));
 

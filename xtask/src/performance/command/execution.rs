@@ -69,6 +69,7 @@ fn execute(mut options: Options) -> Result<(), String> {
     }
 
     let prepared = super::toolchain::prepare(&root, options.target)?;
+
     crate::native_toolchain::build_compiler(&root)?;
 
     let optimization_catalog = super::super::optimization::OptimizationCatalog::load(

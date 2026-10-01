@@ -198,6 +198,7 @@ impl ExecutableHostContractBuilder {
         requirements: RuntimeRequirements,
     ) -> Self {
         let mut builder = Self::empty(product, native_entry, requirements);
+
         builder.entries.push(entry);
 
         builder

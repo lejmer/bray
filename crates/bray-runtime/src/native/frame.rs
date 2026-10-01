@@ -171,6 +171,7 @@ impl ProtectedFrame for NativeFrame {
             return FrameProgress::Panicked(
                 if progress.kind() == NativeFrameProgressKind::PANICKED {
                     let mut report = RuntimePanic::from_native(progress.take_report());
+
                     report.append(panic, &mut frame.outgoing);
 
                     report
@@ -222,6 +223,7 @@ impl ProtectedFrame for NativeFrame {
             }
 
             let handle = payload.handle();
+
             frame.record_terminal_payload(payload);
 
             return FrameProgress::Completed(handle);

@@ -141,6 +141,7 @@ impl ManagedStore {
             }
 
             check_cancelled(&self.metadata, cancellation)?;
+
             let path = self.metadata.join(key);
 
             if managed_directory_exists(&self.metadata, Path::new(key))?
@@ -309,6 +310,7 @@ pub(super) fn cache_budget_reclaimable(
         })?;
 
     candidates.sort_unstable();
+
     let mut reclaimable = Vec::new();
 
     for (_, key, size) in candidates {

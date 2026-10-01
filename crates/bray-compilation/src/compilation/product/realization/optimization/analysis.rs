@@ -305,6 +305,7 @@ impl<'a> ScalarAnalysis<'a> {
                     }
 
                     let value = self.operand(value, &local);
+
                     local.insert(destination.storage(), value);
                 } else {
                     local.clear();
@@ -338,6 +339,7 @@ impl<'a> ScalarAnalysis<'a> {
 
             if let Some(result) = operation.result() {
                 let value = self.operation(compilation, realization, result, kind, &local, cancellation)?;
+
                 self.update_value(result, value);
             }
         }

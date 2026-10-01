@@ -688,6 +688,7 @@ impl<'project> ProjectCompiler<'project> {
         target: &TargetIdentity,
     ) -> Result<Vec<ProjectProduct>, DiagnosticBag> {
         let mut identities = self.transitive_dependencies(product, target)?;
+
         identities.insert(product.identity().clone());
 
         identities

@@ -220,6 +220,7 @@ impl Compilation {
             .map_err(binding_query_error)?;
 
         *diagnostics = diagnostics.merged(declaration.diagnostics());
+
         let parameters = declaration.value().parameters();
 
         let resolved = match name.generic_argument_list() {

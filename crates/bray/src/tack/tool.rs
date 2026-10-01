@@ -158,6 +158,7 @@ pub(crate) trait ToolExecutor {
         _working_directory: &Path,
     ) -> Result<[u8; 32], ToolIdentityError> {
         let mut identity = StableDigestHasher::new();
+
         identity.write(tool.executable_name().as_bytes());
 
         Ok(identity.finalize())

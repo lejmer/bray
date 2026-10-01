@@ -29,6 +29,7 @@ pub(crate) fn diagnostic_binding_failure(
             symbol,
         } => {
             let mut context = diagnostic_bound_source("source", *source);
+
             context.push(identity_field("owner", owner));
 
             if let Some(symbol) = symbol {
@@ -44,12 +45,14 @@ pub(crate) fn diagnostic_binding_failure(
         }
         Error::MissingModule { source, owner } => {
             let mut context = diagnostic_bound_source("source", *source);
+
             push_symbol(&mut context, "owner_kind", "owner", *owner);
 
             ("binding_missing_module", context)
         }
         Error::InvalidSurfaceName { source, symbol } => {
             let mut context = diagnostic_bound_source("source", *source);
+
             push_symbol(&mut context, "symbol_kind", "symbol", *symbol);
 
             ("binding_invalid_surface_name", context)
@@ -138,6 +141,7 @@ fn diagnostic_nested_binding_failure(
         }
         Error::GenericSubstitution(cause) => {
             let mut context = Vec::new();
+
             push_generic_substitution_failure(&mut context, cause);
 
             return (generic_substitution_reason(cause), context);
@@ -189,6 +193,7 @@ fn diagnostic_nested_binding_failure(
     };
 
     let mut context = Vec::new();
+
     push_nested_binding_context(&mut context, error);
 
     (reason, context)
@@ -381,6 +386,7 @@ mod tests {
     #[test]
     fn receiver_context_presence_flags_remain_booleans() {
         let mut context = Vec::new();
+
         push_receiver_context_flags(&mut context, true, false, true);
 
         assert_eq!(context[0].value(), &DiagnosticFailureValue::Boolean(true));

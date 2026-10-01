@@ -477,6 +477,7 @@ mod tests {
         );
 
         let plan = builder.finish();
+
         assert_eq!(plan.owned_borrow(ty, BorrowKind::Shared), Some(shared));
         assert_eq!(plan.owned_borrow(ty, BorrowKind::Mutable), Some(mutable));
         assert_eq!(plan.owned_borrow(other, BorrowKind::Shared), None);

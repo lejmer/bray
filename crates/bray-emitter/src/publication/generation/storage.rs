@@ -179,6 +179,7 @@ pub(crate) fn clean_product_rows(
     cancellation: &dyn Cancellation,
 ) -> Result<(), StorageError> {
     super::recovery::recover_publication(managed.root(), store, cancellation)?;
+
     let reference_path = store.join(PUBLISHED_REFERENCE);
 
     let mut reference = GenerationReference::read(&reference_path)

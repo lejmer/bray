@@ -154,6 +154,7 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<MirUnit, CodegenPreparationError> {
         let mut hasher = StableDigestHasher::new();
+
         raw.hash(&mut hasher);
 
         let key = OptimizedMirQueryKey::new(

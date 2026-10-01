@@ -1426,6 +1426,20 @@ impl DiagnosticKind {
                 &[CodegenBackendIdentity, TargetTriple, ArtifactKind],
                 compiler_defect_components!(&[CodegenBackendIdentity, TargetTriple, ArtifactKind,]),
             ),
+            Self::CodegenArtifactReadFailed => Self::quality_artifact(
+                &[
+                    CodegenBackendIdentity,
+                    TargetTriple,
+                    ArtifactKind,
+                    IoErrorKind,
+                ],
+                primary_components!(&[
+                    CodegenBackendIdentity,
+                    TargetTriple,
+                    ArtifactKind,
+                    IoErrorKind
+                ]),
+            ),
             Self::NativeProductPreparationFailed => Self::quality_artifact(
                 &[
                     ActualProductIdentity,

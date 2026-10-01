@@ -167,7 +167,9 @@ impl Compilation {
             };
 
             source_symbols.insert(anchor, symbol);
+
             let declared = self.execution_declaration(anchor)?;
+
             diagnostics.add_range(declared.diagnostics().iter().cloned());
 
             if declared.value().clauses().is_empty() {
@@ -176,6 +178,7 @@ impl Compilation {
 
             if let Some(body) = self.callable_body_key(definition)? {
                 let certificate = self.certified_execution_with_cancellation(body, cancellation)?;
+
                 diagnostics.add_range(certificate.result().diagnostics().iter().cloned());
 
                 if certificate.result().diagnostics().has_errors() {
@@ -312,7 +315,9 @@ impl Compilation {
         let boolean = self.target_property_type(bray_target::TargetPropertyKind::ScalarBool)?;
         let values = self.semantic_value_store()?;
         let mut diagnostics = DiagnosticBag::new();
+
         diagnostics.add_range(declaration.diagnostics().iter().cloned());
+
         let mut domains = Vec::new();
         let mut mapping = BTreeMap::new();
         let mut post_index = 0usize;
@@ -338,6 +343,7 @@ impl Compilation {
 
             diagnostics.add_range(entry.diagnostics().iter().cloned());
             diagnostics.add_range(posts.diagnostics().iter().cloned());
+
             let mut entry_terms = Vec::new();
             let mut post_terms = Vec::new();
             let mut properties = BTreeSet::new();

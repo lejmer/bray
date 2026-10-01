@@ -305,7 +305,9 @@ mod tests {
     #[test]
     fn exhaustion_closes_and_resolves_waiters_without_reusing_a_generation() {
         let event = RuntimeEvent::new();
+
         event.data.lock().unwrap().generation = u64::MAX;
+
         let wakes = Arc::new(AtomicUsize::new(0));
 
         let registrations: [_; 2] = std::array::from_fn(|_| {
@@ -367,6 +369,7 @@ mod tests {
 
         let _ = std::panic::catch_unwind(|| {
             let _guard = event.data.lock().unwrap();
+
             panic!("poison intact event state");
         });
 

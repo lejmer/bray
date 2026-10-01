@@ -775,6 +775,7 @@ mod tests {
         };
 
         let mut missing_runtime = link_plan_builder();
+
         missing_runtime.push_input(link_input(0, "main.o"));
 
         missing_runtime.push_output(planned_output(
@@ -792,6 +793,7 @@ mod tests {
         );
 
         let mut complete = link_plan_builder();
+
         complete.push_input(link_input(0, "main.o"));
         complete.push_input(runtime_input(1, runtime.clone()));
 
@@ -822,6 +824,7 @@ mod tests {
         };
 
         let mut builder = link_plan_builder();
+
         builder.push_input(link_input(0, "main.o"));
         builder.push_input(runtime_input(1, other));
 
@@ -847,6 +850,7 @@ mod tests {
         };
 
         let mut builder = link_plan_builder();
+
         builder.push_input(link_input(0, "main.o"));
         builder.push_input(runtime_input(1, runtime.clone()));
         builder.push_input(runtime_input(2, runtime.clone()));

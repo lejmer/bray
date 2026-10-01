@@ -44,6 +44,7 @@ impl Compilation {
             .map_err(crate::compilation::binder::binding_query_error)?;
 
         diagnostics.add_range(contract.diagnostics().iter().cloned());
+
         let values = self.semantic_value_store()?;
 
         contract
@@ -205,6 +206,7 @@ impl Compilation {
                         let target = *values.callable_instance_data(*target);
 
                         let required = imported_obligation(*required);
+
                         dependencies.insert((ExecutionProofOwner::Imported(target), required));
                         pending.push((target, required));
                     }

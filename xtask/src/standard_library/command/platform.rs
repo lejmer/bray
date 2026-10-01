@@ -168,6 +168,7 @@ mod tests {
             assert!(inventory_matches(&complete));
 
             let mut duplicate = complete;
+
             duplicate.push(binding(roles[0]));
             assert!(!inventory_matches(&duplicate));
         }

@@ -440,6 +440,7 @@ impl InlineAssemblyContract {
             }
 
             let leading = part.len() - part.trim_start().len();
+
             ranges.push((offset + leading, trimmed.len()));
             offset += part.len() + 1;
         }
@@ -529,6 +530,7 @@ impl InlineAssemblyContract {
         let valid = self.operands().all(|operand| {
             let label_valid = if operand.kind() == InlineAssemblyOperandKind::Label {
                 let valid = labels.get(label_index).copied() == Some(operand.ty());
+
                 label_index += 1;
 
                 valid
@@ -713,7 +715,9 @@ fn template_valid(template: &str, operand_count: usize) -> bool {
         }
 
         let braced = index < bytes.len() && bytes[index] == b'{';
+
         index += usize::from(braced);
+
         let start = index;
 
         while index < bytes.len() && bytes[index].is_ascii_digit() {
@@ -1715,6 +1719,7 @@ mod tests {
         assert!(!contract.operand_types_valid(&[other], &[], &[]));
 
         let mut sparse = operands;
+
         sparse[0] = None;
         sparse[1] = operands[0];
         assert!(valid(sparse, 2, "", "reg,reg").is_none());

@@ -496,6 +496,7 @@ mod tests {
         };
 
         let mut inputs = Vec::new();
+
         terminator.for_each_input(|input| inputs.push(input.clone()));
         assert_eq!(inputs, [condition]);
     }
@@ -529,6 +530,7 @@ mod tests {
         };
 
         let mut storages = Vec::new();
+
         super::for_each_terminator_storage(&terminator, |storage| storages.push(storage));
 
         assert_eq!(storages, [root, selector]);
@@ -564,6 +566,7 @@ mod tests {
         };
 
         let mut visited = Vec::new();
+
         operation.for_each_operand(|operand| visited.push(operand.clone()));
 
         assert_eq!(visited, [selector, value]);
@@ -595,6 +598,7 @@ mod tests {
         });
 
         let mut visited = Vec::new();
+
         operation.for_each_operand(|operand| visited.push(operand.clone()));
 
         assert_eq!(visited, [value]);

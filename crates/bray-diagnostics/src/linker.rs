@@ -236,6 +236,7 @@ mod tests {
     #[test]
     fn external_tool_output_bounding_reports_omission_and_encoding_loss() {
         let mut bytes = vec![b'x'; DiagnosticExternalToolStreamCapture::MAX_CAPTURED_BYTES + 3];
+
         bytes[0] = 0xff;
 
         let capture = DiagnosticExternalToolStreamCapture::from_bytes(&bytes);
@@ -255,6 +256,7 @@ mod tests {
     #[test]
     fn valid_external_tool_output_bounding_preserves_utf8_boundaries() {
         let mut bytes = vec![b'x'; DiagnosticExternalToolStreamCapture::MAX_CAPTURED_BYTES - 1];
+
         bytes.extend_from_slice("€".as_bytes());
         bytes.push(b'y');
 
@@ -275,6 +277,7 @@ mod tests {
     #[test]
     fn invalid_external_tool_bytes_in_the_failure_tail_are_reported_as_lossy() {
         let mut bytes = vec![b'x'; DiagnosticExternalToolStreamCapture::MAX_CAPTURED_BYTES + 1];
+
         bytes[DiagnosticExternalToolStreamCapture::MAX_CAPTURED_BYTES] = 0xff;
 
         let capture = DiagnosticExternalToolStreamCapture::from_bytes(&bytes);
@@ -289,6 +292,7 @@ mod tests {
     #[test]
     fn later_invalid_output_does_not_split_a_valid_scalar_at_the_capture_boundary() {
         let mut bytes = vec![b'x'; DiagnosticExternalToolStreamCapture::MAX_CAPTURED_BYTES - 1];
+
         bytes.extend_from_slice("€".as_bytes());
         bytes.push(0xff);
 
@@ -309,6 +313,7 @@ mod tests {
     #[test]
     fn long_external_tool_output_preserves_the_failure_tail() {
         let mut bytes = vec![b'w'; DiagnosticExternalToolStreamCapture::MAX_CAPTURED_BYTES];
+
         bytes.extend_from_slice(b"linker failure");
 
         let capture = DiagnosticExternalToolStreamCapture::from_bytes(&bytes);

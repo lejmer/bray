@@ -152,6 +152,7 @@ impl Lowerer<'_> {
         });
 
         let body = self.lower_block(*body, header)?;
+
         self.finish_edge(body, header)?;
 
         self.loop_targets.pop();

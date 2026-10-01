@@ -176,9 +176,11 @@ pub fn decode_executable_template(
     let frame = decoder.frame_descriptor()?;
 
     let mut seen_parameters = decoder.derived_items(values.len())?;
+
     seen_parameters.resize(values.len(), false);
 
     let mut operation_owner_slots = decoder.derived_items(operation_count)?;
+
     operation_owner_slots.resize(operation_count, None);
 
     decoder
@@ -3271,6 +3273,7 @@ mod tests {
         );
 
         let mut operands = [None; MAX_INLINE_ASSEMBLY_OPERANDS];
+
         operands[0] = Some(input);
 
         let decode = |operands, count, template, constraints| {
@@ -3326,6 +3329,7 @@ mod tests {
         );
 
         let mut mixed = [None; MAX_INLINE_ASSEMBLY_OPERANDS];
+
         mixed[0] = Some(input);
 
         mixed[1] = Some(InlineAssemblyOperand::new(
@@ -3409,6 +3413,7 @@ mod tests {
         );
 
         let mut sparse = operands;
+
         sparse[0] = None;
         sparse[1] = Some(input);
 

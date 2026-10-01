@@ -112,6 +112,7 @@ impl Compilation {
 
         if let Some(owner) = self.execution_contract_owner(symbol)? {
             let declared = self.execution_declaration(owner.source().syntax())?;
+
             diagnostics.add_range(declared.diagnostics().iter().cloned());
 
             // Ordinary clauses without execution guarantees use the existing contract matcher.

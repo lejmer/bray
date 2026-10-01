@@ -397,6 +397,7 @@ impl Compilation {
 
         for unit in runtime.native_units() {
             let unit_bytes = unit.path().metadata().map_or(0, |metadata| metadata.len());
+
             bytes = bytes.saturating_add(unit_bytes);
 
             profile.add_runtime_artifact(bray_profile::CompilationProfileRuntimeArtifact {
@@ -839,6 +840,7 @@ mod tests {
                     .unwrap();
 
             let path = artifact.beneath(directory.path());
+
             fs::create_dir_all(path.parent().unwrap()).unwrap();
             fs::write(path, bytes).unwrap();
 
@@ -1083,6 +1085,7 @@ mod tests {
         .with_standard_library_source_authority();
 
         let compilation = crate::Compilation::load(request).unwrap();
+
         assert!(compilation.dependency_interfaces().is_empty());
 
         let select = |role: PlatformServiceRole| {
@@ -1983,6 +1986,7 @@ mod tests {
             .unwrap();
 
         let artifacts = generated_artifacts(&backend, &plan);
+
         assert!(!artifacts.is_empty());
         assert!(artifacts.iter().all(|artifact| !artifact.is_empty()));
     }
@@ -2166,6 +2170,7 @@ mod tests {
         let (backend, plan) = runtime_native_plan(source);
 
         let artifacts = generated_artifacts(&backend, &plan);
+
         assert!(!artifacts.is_empty());
 
         assert!(artifacts.iter().all(|artifact| !artifact.is_empty()));
@@ -4349,7 +4354,9 @@ public func hot(pos value: i32) -> i32 { return value + 1; }
 
         let directory = tempfile::tempdir().unwrap();
         let archive = directory.path().join("runtime.lib");
+
         fs::write(&archive, b"test runtime archive").unwrap();
+
         let original = runtime_artifact(&compilation, &archive);
         let original_index = original.native_indexes()[0].index();
 
@@ -6666,6 +6673,7 @@ public func invoke<T>(pos value: T)
             .collect::<BTreeSet<_>>();
 
         let capacities = capacities.into_iter().collect::<Vec<_>>();
+
         assert_eq!(capacities.len(), 2);
         assert_eq!(capacities[1], capacities[0] * 2);
     }
@@ -7149,6 +7157,7 @@ public func invoke<T>(pos value: T)
         let symbol = PlatformServiceRole::StandardOutputFlush.native_symbol();
 
         assert_direct_platform_service(&plan, symbol);
+
         let provided = super::super::link::product_native_definitions(plan.mappings());
 
         assert!(
@@ -7743,22 +7752,11 @@ define void @{symbol}(ptr %out) {{
             let summary = if kind == bray_native_artifact::NativeUnitKind::Object {
                 bray_native_artifact::scan_object_unit_summary(&bytes).unwrap()
             } else {
-                let symbols = run(
-                    "llvm-nm",
-                    vec![
-                        "--extern-only".into(),
-                        "--format=posix".into(),
-                        payload.into(),
-                    ],
-                );
-
-                let structure = run("llvm-dis", vec![payload.into(), "-o".into(), "-".into()]);
-
-                bray_native_artifact::scan_bitcode_unit_summary(
-                    &String::from_utf8_lossy(&symbols.stdout),
-                    &String::from_utf8_lossy(&structure.stdout),
+                bray_codegen_llvm::inspect_bitcode_unit_summary(
+                    &bytes,
                     NativeTarget::X86_64WindowsMsvc,
                 )
+                .unwrap()
             };
 
             let bray_native_artifact::NativeUnitSummary::Exact {

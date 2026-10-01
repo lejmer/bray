@@ -116,6 +116,7 @@ pub(crate) fn with_task_frame_execution<T>(
     callback: impl FnOnce() -> T,
 ) -> Option<T> {
     let mut context = CURRENT_CONTEXT.with_borrow(Clone::clone)?;
+
     context.state = execution.state();
     context.lane = lane;
 

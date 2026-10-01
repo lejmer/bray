@@ -871,6 +871,7 @@ mod tests {
     #[test]
     fn constraints_are_target_checked_and_structurally_classified() {
         let control = TargetControlSupport::for_architecture(TargetArchitecture::X86_64);
+
         use bray_bound_tree::InlineAssemblyOperandKind as Kind;
 
         assert_eq!(

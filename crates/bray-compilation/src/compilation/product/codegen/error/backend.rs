@@ -85,6 +85,21 @@ pub(super) fn codegen_backend_failure_kind(
                 ],
             ))
         }
+        Error::ArtifactRead {
+            artifact,
+            operation,
+            kind,
+        } => Kind::CodegenBackendArtifactRead(failure_detail(
+            "codegen_backend_artifact_read",
+            [
+                text_failure_field("artifact_kind", artifact.as_str()),
+                text_failure_field("operation", operation.as_str()),
+                DiagnosticFailureField::new(
+                    "io_error_kind",
+                    DiagnosticFailureValue::IoErrorKind((*kind).into()),
+                ),
+            ],
+        )),
         Error::InvalidArtifactContent { artifact, cause } => {
             Kind::CodegenBackendArtifactConstruction(failure_detail(
                 "codegen_backend_invalid_artifact_content",

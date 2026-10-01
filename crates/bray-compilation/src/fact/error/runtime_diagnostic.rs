@@ -32,6 +32,7 @@ pub(crate) fn diagnostic_fact_runtime_failure(
         }
         Failure::SchedulerResultStatePoisoned { item } => {
             let mut context = Vec::new();
+
             push_optional_natural(&mut context, "item", *item);
 
             ("scheduler_result_state_poisoned", context)
@@ -46,6 +47,7 @@ pub(crate) fn diagnostic_fact_runtime_failure(
             task,
         } => {
             let mut context = vec![text_field("resource", capacity_resource_key(*resource))];
+
             push_optional_fact(&mut context, "fact_kind", "fact_identity", fact.as_ref());
             push_optional_task(&mut context, "task", *task);
 
@@ -58,6 +60,7 @@ pub(crate) fn diagnostic_fact_runtime_failure(
         } => worker_pool_creation_context(*pool, *workers, host.as_ref()),
         Failure::WorkerTerminated { worker, item } => {
             let mut context = Vec::new();
+
             push_optional_natural(&mut context, "worker", *worker);
             push_optional_natural(&mut context, "item", *item);
 
@@ -113,6 +116,7 @@ pub(crate) fn diagnostic_fact_runtime_failure(
         ),
         Failure::AbandonedComputation { task, fact } => {
             let mut context = vec![task_field("task", *task)];
+
             push_fact(&mut context, "fact_kind", "fact_identity", fact);
 
             ("abandoned_computation", context)
@@ -153,12 +157,14 @@ pub(crate) fn diagnostic_fact_runtime_failure(
         Failure::RecursiveCancellationInterest => ("recursive_cancellation_interest", Vec::new()),
         Failure::InvalidFrozenFact { fact } => {
             let mut context = Vec::new();
+
             push_fact(&mut context, "fact_kind", "fact_identity", fact);
 
             ("invalid_frozen_fact", context)
         }
         Failure::InvalidUnitQueryKey { fact, unit } => {
             let mut context = vec![identity_field("unit", unit)];
+
             push_fact(&mut context, "fact_kind", "fact_identity", fact);
 
             ("invalid_unit_query_key", context)
@@ -249,6 +255,7 @@ fn missing_cycle_context(
     active: &[CompilationFactKey],
 ) -> (&'static str, Vec<DiagnosticFailureField>) {
     let mut context = vec![natural_field("runtime", runtime)];
+
     push_fact(&mut context, "fact_kind", "fact_identity", fact);
 
     context.push(text_list_field(

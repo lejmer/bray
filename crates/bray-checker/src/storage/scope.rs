@@ -71,10 +71,12 @@ where
         match expression {
             BoundExpression::For(value) => {
                 let bindings = result.entry(value.source()).or_default();
+
                 extend_pattern_bindings(request.view(), storage, value.pattern(), bindings);
             }
             BoundExpression::Generator(value) => {
                 let bindings = result.entry(value.source()).or_default();
+
                 extend_pattern_bindings(request.view(), storage, value.pattern(), bindings);
             }
             BoundExpression::Match(expression) => {

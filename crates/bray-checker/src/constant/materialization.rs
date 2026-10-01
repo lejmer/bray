@@ -55,6 +55,7 @@ pub(super) fn nonmaterializable_type<C: CheckerRequestContext + ?Sized>(
             }
 
             let lifecycle = context.declared_type_has_lifecycle(*definition)?;
+
             diagnostics.add_range(lifecycle.diagnostics().iter().cloned());
 
             Ok((!lifecycle.diagnostics().has_errors() && *lifecycle.value()).then_some(ty))
