@@ -110,6 +110,7 @@ const fn artifact_mode(kind: ArtifactKind) -> u32 {
         | ArtifactKind::PackageNativeImplementation
         | ArtifactKind::PackageImplementation
         | ArtifactKind::DependencyMetadata
+        | ArtifactKind::TestCatalog
         | ArtifactKind::StaticLibrary
         | ArtifactKind::SharedLibrary
         | ArtifactKind::LinkedCompanion => 0o644,
