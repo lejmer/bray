@@ -55,6 +55,11 @@ operation and metric changes, artifact and section sizes, linker-map size, added
 libraries, allocation/copy observations, and selected platform-operation observations by workload. Retaining the machine
 reports is the supported way to establish a baseline.
 
+The compiler timing rows record individual unprofiled invocations, with separate profiled evidence invocations. The
+`--warmup` and `--samples` options control workload execution samples, not repeated compiler builds. Diagnose a
+producer/consumer timing change with the [dependent-build comparison procedure](performance-reference.md#dependent-build-comparisons)
+before attributing it to compiler code.
+
 For the meaning and limits of measurements, see [compiler comparisons](performance-reference.md#compiler-comparisons),
 [sample ordering](performance-reference.md#runtime-peers-and-sample-ordering), [short-workload
 calibration](performance-reference.md#calibrate-short-workloads), and [report
