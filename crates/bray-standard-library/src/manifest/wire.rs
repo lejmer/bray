@@ -42,6 +42,7 @@ struct ArtifactWire<'manifest> {
     path: &'manifest str,
     byte_len: u64,
     digest: DigestWire,
+    metadata_digest: Option<DigestWire>,
     platform_services: Vec<&'manifest str>,
     native_links: Vec<NativeLinkWire<'manifest>>,
 }
@@ -78,6 +79,7 @@ pub(super) struct OwnedArtifactWire {
     pub path: String,
     pub byte_len: u64,
     pub digest: OwnedDigestWire,
+    pub metadata_digest: Option<OwnedDigestWire>,
     pub platform_services: Vec<String>,
     pub native_links: Vec<OwnedNativeLinkWire>,
 }
@@ -176,6 +178,9 @@ fn artifact_wire(artifact: &StandardLibraryArtifact) -> ArtifactWire<'_> {
         path: artifact.path(),
         byte_len: artifact.byte_len(),
         digest: digest_wire(artifact.digest().bytes()),
+        metadata_digest: artifact
+            .metadata_digest()
+            .map(|digest| digest_wire(digest.bytes())),
         platform_services: artifact
             .platform_services()
             .iter()

@@ -4,13 +4,12 @@ use bray_bound_tree::CheckedTemplateKind;
 use bray_ir::MirExecutableTemplateId;
 use bray_symbols::InterfaceSymbolId;
 
-use crate::implementation::artifact_encoding::encode_artifact;
 use crate::implementation::{
     CURRENT_MIR_SCHEMA_REVISION, CURRENT_TEMPLATE_SCHEMA_REVISION, InterfaceConstantCallableBody,
-    InterfaceExecutableTemplate, InterfaceNativeBinding, InterfaceNativeBoundary, InterfaceNativeBoundaryKind,
-    InterfacePreSpecializedMir, PackageImplementationArtifactBuildError,
-    PackageImplementationConfiguration, PackageImplementationIdentity,
-    invalid_executable_template_family,
+    InterfaceExecutableTemplate, InterfaceNativeBinding, InterfaceNativeBoundary,
+    InterfaceNativeBoundaryKind, InterfacePreSpecializedMir,
+    PackageImplementationArtifactBuildError, PackageImplementationConfiguration,
+    PackageImplementationIdentity, invalid_executable_template_family,
 };
 use crate::{
     InterfaceArtifact, InterfaceCheckedTemplate, InterfaceSemantics, InterfaceValidationLimits,
@@ -19,6 +18,7 @@ use crate::{
 };
 
 use super::PackageImplementationArtifact;
+use super::encoding::{encode_artifact, encode_with_native_variants};
 
 impl PackageImplementationArtifact {
     /// Adds native object or bitcode routes to an existing package implementation container.
@@ -27,10 +27,8 @@ impl PackageImplementationArtifact {
         indexes: &[(bray_native_artifact::NativeUnitKind, &[u8])],
         units: &[([u8; 32], std::sync::Arc<[u8]>)],
     ) -> Result<Self, PackageImplementationArtifactBuildError> {
-        let bytes = crate::implementation::artifact_encoding::encode_with_native_variants(
-            self.identity.language_revision(), &self.bytes, &self.directory, self.limits,
-            indexes, units,
-        )?;
+        let bytes =
+            encode_with_native_variants(self.identity.language_revision(), self, indexes, units)?;
 
         Self::try_from_bytes(bytes, self.limits)
             .map_err(PackageImplementationArtifactBuildError::InvalidArtifact)
@@ -42,9 +40,7 @@ impl PackageImplementationArtifact {
         indexes: &[(bray_native_artifact::NativeUnitKind, &[u8])],
         units: &[([u8; 32], std::sync::Arc<[u8]>)],
     ) -> Result<Self, PackageImplementationArtifactBuildError> {
-        let base = encode_artifact(
-            &self.identity, &[], &[], &[], &[], None, &[], &[],
-        )?;
+        let base = encode_artifact(&self.identity, &[], &[], &[], &[], None, &[], &[])?;
 
         let base = Self::try_from_bytes(base, self.limits)
             .map_err(PackageImplementationArtifactBuildError::InvalidArtifact)?;
@@ -121,12 +117,25 @@ impl PackageImplementationArtifact {
         limits: InterfaceValidationLimits,
     ) -> Result<Self, PackageImplementationArtifactBuildError> {
         Self::try_new_internal(
-            interface, surface, semantics, configuration, constant_callable_bodies,
-            executable_templates, native_boundaries, pre_specialized_mir, None, &[], &[], limits,
+            interface,
+            surface,
+            semantics,
+            configuration,
+            constant_callable_bodies,
+            executable_templates,
+            native_boundaries,
+            pre_specialized_mir,
+            None,
+            &[],
+            &[],
+            limits,
         )
     }
 
-    #[expect(clippy::too_many_arguments, reason = "artifact encoding retains each independently validated payload family")]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "artifact encoding retains each independently validated payload family"
+    )]
     fn try_new_internal(
         interface: &ValidatedPackageInterface,
         surface: &PackageInterfaceSurface,
@@ -222,18 +231,28 @@ impl PackageImplementationArtifact {
 
         for binding in native_bindings {
             if !binding_keys.insert((binding.owner(), binding.key().cache_identity())) {
-                return Err(PackageImplementationArtifactBuildError::DuplicateNativeBinding(binding.owner()));
+                return Err(
+                    PackageImplementationArtifactBuildError::DuplicateNativeBinding(
+                        binding.owner(),
+                    ),
+                );
             }
 
             if binding.owner().raw() == 0
-                || surface.symbols().symbol(binding.owner())
+                || surface
+                    .symbols()
+                    .symbol(binding.owner())
                     .is_none_or(|symbol| symbol.key() != binding.key().declaration().key())
                 || binding.key().configuration() != &configuration
                 || binding.key().template_schema_revision() != CURRENT_TEMPLATE_SCHEMA_REVISION
                 || binding.key().dependencies() != surface.dependencies()
-                || !native_units.iter().any(|(digest, _)| *digest == binding.unit())
+                || !native_units
+                    .iter()
+                    .any(|(digest, _)| *digest == binding.unit())
             {
-                return Err(PackageImplementationArtifactBuildError::InvalidNativeBinding(binding.owner()));
+                return Err(
+                    PackageImplementationArtifactBuildError::InvalidNativeBinding(binding.owner()),
+                );
             }
         }
 

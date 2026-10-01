@@ -14,6 +14,8 @@ pub enum InterfaceLimit {
     /// Byte length of one decoded blob.
     BlobLength,
     /// Total allocation charged while decoding one artifact.
+    /// Packed implementations charge retained metadata and demanded payload caches;
+    /// complete streaming authentication bounds each temporary payload independently.
     DecodedAllocation,
     /// Nesting depth of one semantic type.
     SemanticTypeDepth,

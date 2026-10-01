@@ -122,8 +122,18 @@ pub(super) fn add_package_dependencies(
             .expect("runtime build must have an absolute standard-library root"),
     );
 
-    let (_, dependency) = resolver
-        .implementation_artifact(selected.profile().identity(), selected.runtime_abi())
+    let inventory = resolver
+        .target_inventory(selected.profile().identity(), selected.runtime_abi())
+        .map_err(|error| {
+            CommandError::Bootstrap(format!(
+                "foreign host dependency inventory could not load: {error:?}"
+            ))
+        })?;
+
+    let dependency = inventory
+        .package_implementation()
+        .input(resolver.root().path())
+        .load_implementation()
         .map_err(|error| {
             CommandError::Bootstrap(format!("foreign host dependency could not load: {error:?}"))
         })?;
@@ -149,21 +159,10 @@ pub(super) fn add_package_dependencies(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    let inventory = resolver
-        .target_inventory(selected.profile().identity(), selected.runtime_abi())
-        .map_err(|error| {
-            CommandError::Bootstrap(format!(
-                "foreign host dependency inventory could not load: {error:?}"
-            ))
-        })?;
-
     let mut dependencies = vec![dependency];
 
     for record in inventory.native_dependencies() {
-        let input = bray_package_interface::PackageArtifactInput::file(
-            record.beneath(resolver.root().path()),
-            Some(record.digest().bytes()),
-        );
+        let input = record.input(resolver.root().path());
 
         dependencies.push(input.load_implementation().map_err(|error| {
             CommandError::Bootstrap(format!(

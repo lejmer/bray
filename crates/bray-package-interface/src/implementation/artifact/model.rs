@@ -1,6 +1,6 @@
 use std::ops::Range;
 use std::sync::Arc;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 use bray_symbols::InterfaceSymbolId;
 
@@ -82,21 +82,29 @@ pub(in crate::implementation) struct ImplementationDirectoryEntry {
 /// An immutable package implementation artifact associated with one semantic interface.
 #[derive(Clone, Debug)]
 pub struct PackageImplementationArtifact {
-    pub(super) bytes: Arc<[u8]>,
+    pub(super) storage: Arc<super::storage::ImplementationStorage>,
     pub(super) identity: PackageImplementationIdentity,
     pub(super) content_hash: [u8; 32],
     pub(super) artifact_hash: [u8; 32],
-    pub(super) directory: Arc<[ImplementationDirectoryEntry]>,
+    pub(in crate::implementation) directory: Arc<[ImplementationDirectoryEntry]>,
     pub(super) decoded: Arc<[OnceLock<Result<Arc<[u8]>, InterfaceValidationError>>]>,
     pub(super) native_indexes: Arc<
-        OnceLock<std::collections::BTreeMap<[u8; 32], bray_native_artifact::NativeArtifactIndex>>,
+        [OnceLock<
+            Result<
+                Option<bray_native_artifact::NativeArtifactIndex>,
+                super::native::PackageNativeArtifactError,
+            >,
+        >; 3],
     >,
+    pub(super) allocation: Arc<Mutex<crate::decode::DecodeBudget>>,
     pub(super) limits: InterfaceValidationLimits,
 }
 
 impl PartialEq for PackageImplementationArtifact {
     fn eq(&self, other: &Self) -> bool {
-        self.bytes == other.bytes && self.identity == other.identity && self.limits == other.limits
+        self.artifact_hash == other.artifact_hash
+            && self.identity == other.identity
+            && self.limits == other.limits
     }
 }
 
@@ -104,7 +112,7 @@ impl Eq for PackageImplementationArtifact {}
 
 impl std::hash::Hash for PackageImplementationArtifact {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.bytes.hash(state);
+        self.artifact_hash.hash(state);
         self.identity.hash(state);
         self.limits.hash(state);
     }

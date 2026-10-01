@@ -571,11 +571,17 @@ fn publish_package_interface(
 
     publish_artifact(destination, artifact.bytes(), diagnostic_id)?;
 
+    implementation.verify_all().expect(
+        "compiler-produced interface implementation must pass complete publication authentication",
+    );
+
     let implementation_destination = destination.with_extension("brayimpl");
 
     publish_artifact(
         &implementation_destination,
-        implementation.bytes(),
+        &implementation
+            .shared_bytes()
+            .map_err(|error| error.into_diagnostic(diagnostic_id))?,
         diagnostic_id,
     )
 }

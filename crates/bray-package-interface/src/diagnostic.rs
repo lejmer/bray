@@ -308,6 +308,13 @@ pub enum InterfaceCompressionFailure {
 /// Structural or resource failure found while validating an untrusted package interface.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum InterfaceValidationError {
+    /// A selected packed artifact range could not be read.
+    Read {
+        /// Artifact provenance.
+        path: std::path::PathBuf,
+        /// Exact operating-system failure category.
+        kind: std::io::ErrorKind,
+    },
     /// The artifact does not start with the required file magic.
     InvalidMagic {
         /// Exact bytes found at the file-magic position.
@@ -464,6 +471,13 @@ pub enum InterfaceValidationError {
         /// Content hash declared by the implementation directory.
         expected: [u8; 32],
         /// Content hash computed from decoded bytes.
+        actual: [u8; 32],
+    },
+    /// A decoded native unit does not match its indexed SHA-256 identity.
+    NativeUnitDigestMismatch {
+        /// Native content digest selected by the directory address.
+        expected: [u8; 32],
+        /// SHA-256 digest computed from decoded native bytes.
         actual: [u8; 32],
     },
     /// A decoded specialization key disagrees with the selected cache identity.

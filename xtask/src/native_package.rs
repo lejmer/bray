@@ -128,7 +128,15 @@ pub(crate) fn publish(
 
     implementation
         .try_native_only_artifact(&variants, &payloads)
-        .map(|artifact| artifact.bytes().to_vec())
+        .and_then(|artifact| {
+            artifact
+                .verify_all()
+                .expect("foreign producer package must pass complete publication authentication");
+
+            artifact.shared_bytes().map(|bytes| bytes.to_vec()).map_err(
+                bray_package_interface::PackageImplementationArtifactBuildError::InvalidArtifact,
+            )
+        })
         .map_err(|error| format!("foreign native package encoding failed: {error:?}"))
 }
 

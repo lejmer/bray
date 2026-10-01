@@ -3,7 +3,7 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use bray_package_interface::{InterfaceValidationError, PackageImplementationArtifact};
+use bray_package_interface::InterfaceValidationError;
 use bray_runtime_interface::RuntimeAbiVersion;
 use bray_target::TargetIdentity;
 
@@ -19,7 +19,6 @@ pub struct ResolvedStandardLibraryArtifact {
     metadata: StandardLibraryArtifact,
     path: Arc<Path>,
     bytes: Arc<[u8]>,
-    input: bray_package_interface::PackageArtifactInput,
 }
 
 impl PartialEq for ResolvedStandardLibraryArtifact {
@@ -118,56 +117,6 @@ impl StandardLibraryResolver {
         let interface = selected.package_interface();
 
         self.resolve(interface)
-    }
-
-    /// Returns the implementation payload selected for a target and runtime ABI.
-    pub fn implementation(
-        &self,
-        target: &TargetIdentity,
-        runtime_abi: RuntimeAbiVersion,
-    ) -> Result<ResolvedStandardLibraryArtifact, StandardLibraryLoadError> {
-        let manifest = self.manifest()?;
-        let selected = target_inventory(&manifest, target, runtime_abi)?;
-        let implementation = selected.package_implementation();
-
-        self.resolve(implementation)
-    }
-
-    /// Parses the implementation once for the selected immutable bundle artifact.
-    pub fn implementation_artifact(
-        &self,
-        target: &TargetIdentity,
-        runtime_abi: RuntimeAbiVersion,
-    ) -> Result<(PathBuf, PackageImplementationArtifact), StandardLibraryLoadError> {
-        let resolved = self.implementation(target, runtime_abi)?;
-
-        Self::parse_implementation(resolved)
-    }
-
-    fn parse_implementation(
-        resolved: ResolvedStandardLibraryArtifact,
-    ) -> Result<(PathBuf, PackageImplementationArtifact), StandardLibraryLoadError> {
-        let path = resolved.path().to_path_buf();
-
-        let artifact = resolved
-            .input
-            .load_implementation()
-            .map_err(|cause| match cause {
-                bray_package_interface::PackageArtifactLoadError::Read(kind) => {
-                    StandardLibraryLoadError::Read {
-                        path: path.clone(),
-                        kind,
-                    }
-                }
-                bray_package_interface::PackageArtifactLoadError::Validation(cause) => {
-                    StandardLibraryLoadError::Implementation {
-                        path: path.clone(),
-                        cause,
-                    }
-                }
-            })?;
-
-        Ok((path, artifact))
     }
 
     /// Returns the exact artifacts selected for a target and runtime ABI.
@@ -307,7 +256,6 @@ fn load_artifact(
 
     Ok(ResolvedStandardLibraryArtifact {
         metadata: artifact.clone(),
-        input,
         path: Arc::from(path),
         bytes,
     })

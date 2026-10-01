@@ -24,12 +24,20 @@ pub(crate) fn validation_diagnostic(
     let kind = diagnostic_kind(&error);
     let failure = diagnostic_failure(&error);
 
+    if let InterfaceValidationError::Read { path, kind } = error {
+        return crate::PackageArtifactLoadError::Read(kind)
+            .into_diagnostic(id)
+            .with_arg(DiagnosticArg::file_path(path))
+            .with_arg(DiagnosticArg::interface_validation_failure(failure));
+    }
+
     Diagnostic::new(id, kind, SeverityKind::Error)
         .with_arg(DiagnosticArg::interface_validation_failure(failure))
 }
 
 const fn diagnostic_kind(error: &InterfaceValidationError) -> DiagnosticKind {
     match error {
+        InterfaceValidationError::Read { .. } => DiagnosticKind::PackageArtifactReadFailed,
         InterfaceValidationError::InvalidMagic { .. } => DiagnosticKind::InterfaceInvalidMagic,
         InterfaceValidationError::UnsupportedFormatRevision { .. } => {
             DiagnosticKind::InterfaceUnsupportedFormatRevision
@@ -57,6 +65,7 @@ const fn diagnostic_kind(error: &InterfaceValidationError) -> DiagnosticKind {
         }
         InterfaceValidationError::ArtifactHashMismatch { .. }
         | InterfaceValidationError::ContentHashMismatch { .. }
+        | InterfaceValidationError::NativeUnitDigestMismatch { .. }
         | InterfaceValidationError::PayloadContentHashMismatch { .. }
         | InterfaceValidationError::UnknownSectionChecksumMismatch { .. } => {
             DiagnosticKind::InterfaceHashMismatch
@@ -76,6 +85,19 @@ pub(crate) fn diagnostic_failure(
     error: &InterfaceValidationError,
 ) -> DiagnosticInterfaceValidationFailure {
     match error {
+        InterfaceValidationError::Read { path, kind } => {
+            DiagnosticInterfaceValidationFailure::NativeArtifact {
+                cause: bray_diagnostics::DiagnosticNativeArtifactCause::ReadFailure,
+                unit: None,
+                expected: None,
+                actual: None,
+                owner: None,
+                expected_target: None,
+                actual_target: None,
+                path: Some(path.clone()),
+                io_error_kind: Some(bray_diagnostics::DiagnosticIoErrorKind::from(*kind)),
+            }
+        }
         InterfaceValidationError::InvalidMagic { actual } => {
             DiagnosticInterfaceValidationFailure::InvalidMagic { actual: *actual }
         }
@@ -217,6 +239,15 @@ pub(crate) fn diagnostic_failure(
             expected: diagnostic_digest(*expected),
             actual: diagnostic_digest(*actual),
         },
+        InterfaceValidationError::NativeUnitDigestMismatch { expected, actual } => {
+            crate::PackageNativeArtifactError::Index(
+                bray_native_artifact::NativeIndexError::PayloadDigestMismatch {
+                    expected: bray_native_artifact::NativeContentDigest::new(*expected),
+                    actual: bray_native_artifact::NativeContentDigest::new(*actual),
+                },
+            )
+            .into_diagnostic_failure()
+        }
         InterfaceValidationError::PayloadContentHashMismatch {
             context,
             expected,

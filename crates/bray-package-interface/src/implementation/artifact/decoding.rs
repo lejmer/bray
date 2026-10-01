@@ -1,347 +1,432 @@
-use std::collections::BTreeSet;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
-use crate::decode::{DecodeBudget, wire_error};
-use crate::implementation::artifact_decoding::{decode_directory_entry, decode_entry_payload};
-use crate::implementation::codec::decode_identity;
-use crate::implementation::hash::{compute_artifact_hash, compute_content_hash};
+use bray_symbols::InterfaceSymbolId;
+
+use crate::decode::wire_error;
 use crate::wire::WireReader;
 use crate::{
-    InterfaceContentHash, InterfaceLanguageRevision, InterfaceLimit, InterfaceValidationContext,
+    InterfaceIntegerTarget, InterfaceLimit, InterfaceMalformedCause, InterfaceValidationContext,
     InterfaceValidationError, InterfaceValidationField, InterfaceValidationLimits,
-    PackageImplementationIdentity,
 };
 
-use super::{
-    BYTE_ORDER_MARKER, DIRECTORY_ENTRY_LENGTH, HEADER_LENGTH, ImplementationDirectoryEntry,
-    ImplementationPayloadKind, MAGIC, PackageImplementationArtifact, REQUIRED_FLAGS,
-    executable_discriminator,
-};
+use crate::implementation::hash::{compute_payload_content_hash, compute_payload_hash};
 
-impl PackageImplementationArtifact {
-    /// Validates canonical framing and identity without decoding unrelated body payloads.
-    pub fn try_from_bytes(
-        bytes: impl Into<Arc<[u8]>>,
-        limits: InterfaceValidationLimits,
-    ) -> Result<Self, InterfaceValidationError> {
-        let bytes = bytes.into();
+use super::{ImplementationDirectoryEntry, ImplementationPayloadKind};
 
-        limits.check(
-            InterfaceLimit::FileSize,
-            u64::try_from(bytes.len()).unwrap_or(u64::MAX),
-        )?;
-
-        let header = bytes.get(..HEADER_LENGTH).unwrap_or(&bytes);
-
-        let mut reader = WireReader::new(header);
-
-        let actual_magic = reader.read_array::<8>().map_err(wire_error(
-            InterfaceValidationContext::Header,
-            InterfaceValidationField::Magic,
-        ))?;
-
-        if actual_magic != MAGIC {
-            return Err(InterfaceValidationError::InvalidMagic {
-                actual: actual_magic,
-            });
-        }
-
-        let format_revision =
-            crate::InterfaceFormatRevision::new(reader.read_u16().map_err(wire_error(
-                InterfaceValidationContext::Header,
-                InterfaceValidationField::FormatRevision,
-            ))?);
-
-        if format_revision != crate::CURRENT_FORMAT_REVISION {
-            return Err(InterfaceValidationError::UnsupportedFormatRevision {
-                actual: format_revision,
-            });
-        }
-
-        let language_revision =
-            InterfaceLanguageRevision::new(reader.read_u16().map_err(wire_error(
-                InterfaceValidationContext::Header,
-                InterfaceValidationField::LanguageRevision,
-            ))?);
-
-        let byte_order = reader.read_u32().map_err(wire_error(
-            InterfaceValidationContext::Header,
-            InterfaceValidationField::ByteOrderMarker,
-        ))?;
-
-        if byte_order != BYTE_ORDER_MARKER {
-            return Err(InterfaceValidationError::UnsupportedByteOrder {
-                expected: BYTE_ORDER_MARKER,
-                actual: byte_order,
-            });
-        }
-
-        let required_flags = reader.read_u64().map_err(wire_error(
-            InterfaceValidationContext::Header,
-            InterfaceValidationField::RequiredFlags,
-        ))?;
-
-        if required_flags != REQUIRED_FLAGS {
-            return Err(InterfaceValidationError::UnsupportedRequiredFlags {
-                actual: crate::InterfaceRequiredFlags::from_bits(required_flags),
-            });
-        }
-
-        let declared_file_length = reader.read_u64().map_err(wire_error(
-            InterfaceValidationContext::Header,
-            InterfaceValidationField::DeclaredFileLength,
-        ))?;
-
-        let directory_offset = reader.read_u64().map_err(wire_error(
-            InterfaceValidationContext::Header,
-            InterfaceValidationField::DirectoryOffset,
-        ))?;
-
-        let directory_length = reader.read_u64().map_err(wire_error(
-            InterfaceValidationContext::Header,
-            InterfaceValidationField::DirectoryLength,
-        ))?;
-
-        let content_hash = reader.read_array::<32>().map_err(wire_error(
-            InterfaceValidationContext::Header,
-            InterfaceValidationField::ContentHash,
-        ))?;
-
-        let artifact_hash = reader.read_array::<32>().map_err(wire_error(
-            InterfaceValidationContext::Header,
-            InterfaceValidationField::ArtifactHash,
-        ))?;
-
-        reader.finish().map_err(wire_error(
-            InterfaceValidationContext::Header,
-            InterfaceValidationField::RecordPayload,
-        ))?;
-
-        let actual_file_length = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
-
-        if declared_file_length != actual_file_length {
-            return Err(InterfaceValidationError::Malformed {
-                context: InterfaceValidationContext::Header,
-                cause: crate::InterfaceMalformedCause::LengthMismatch {
-                    field: InterfaceValidationField::DeclaredFileLength,
-                    expected: declared_file_length,
-                    actual: actual_file_length,
-                },
-            });
-        }
-
-        let actual_artifact_hash =
-            compute_artifact_hash(&bytes).ok_or(InterfaceValidationError::DigestUnavailable {
-                context: InterfaceValidationContext::Artifact,
-                field: InterfaceValidationField::ArtifactHash,
-            })?;
-
-        if actual_artifact_hash != artifact_hash {
-            return Err(InterfaceValidationError::ArtifactHashMismatch {
-                expected: crate::InterfaceArtifactHash::from_bytes(artifact_hash),
-                actual: crate::InterfaceArtifactHash::from_bytes(actual_artifact_hash),
-            });
-        }
-
-        let directory_offset = usize::try_from(directory_offset)
-            .map_err(|_| crate::implementation::invalid_value(InterfaceValidationField::Value))?;
-
-        let directory_length = usize::try_from(directory_length)
-            .map_err(|_| crate::implementation::invalid_value(InterfaceValidationField::Value))?;
-
-        if directory_offset < HEADER_LENGTH
-            || directory_offset.checked_add(directory_length) != Some(bytes.len())
-            || directory_length % DIRECTORY_ENTRY_LENGTH != 0
-        {
-            return Err(crate::implementation::invalid_value(
-                InterfaceValidationField::Value,
-            ));
-        }
-
-        let count = directory_length / DIRECTORY_ENTRY_LENGTH;
-
-        limits.check(
-            InterfaceLimit::ImplementationEntryCount,
-            u64::try_from(count).unwrap_or(u64::MAX),
-        )?;
-
-        let directory_bytes =
-            bytes
-                .get(directory_offset..)
-                .ok_or(InterfaceValidationError::Truncated {
-                    context: InterfaceValidationContext::Directory,
-                    field: InterfaceValidationField::DirectoryLength,
-                    offset: directory_offset as u64,
-                    expected_length: directory_length as u64,
-                    actual_length: bytes.len().saturating_sub(directory_offset) as u64,
-                })?;
-
-        let mut directory_reader = WireReader::new(directory_bytes);
-        let mut budget = DecodeBudget::new(limits);
-
-        let mut directory = budget.allocate_items(
-            &directory_reader,
-            InterfaceValidationContext::Directory,
-            InterfaceValidationField::EntryKind,
-            count,
-        )?;
-
-        let mut expected_offset = HEADER_LENGTH;
-        let mut decoded_total = 0_u64;
-
-        for index in 0..count {
-            let entry = decode_directory_entry(
-                &mut directory_reader,
-                &bytes,
-                directory_offset,
-                expected_offset,
-                index as u64,
-                limits,
-            )?;
-
-            decoded_total = decoded_total.checked_add(entry.decoded_length).ok_or(
-                crate::implementation::invalid_value(InterfaceValidationField::Value),
-            )?;
-
-            limits.check(InterfaceLimit::DecodedAllocation, decoded_total)?;
-
-            if directory
-                .last()
-                .is_some_and(|previous: &ImplementationDirectoryEntry| {
-                    (previous.owner, previous.raw_kind, previous.discriminator)
-                        >= (entry.owner, entry.raw_kind, entry.discriminator)
-                })
-            {
-                return Err(crate::implementation::invalid_value(
-                    InterfaceValidationField::Value,
-                ));
-            }
-
-            expected_offset = entry.payload.end;
-            directory.push(entry);
-        }
-
-        directory_reader.finish().map_err(wire_error(
-            InterfaceValidationContext::Directory,
-            InterfaceValidationField::DirectoryLength,
-        ))?;
-
-        if expected_offset != directory_offset {
-            return Err(InterfaceValidationError::Malformed {
-                context: InterfaceValidationContext::Directory,
-                cause: crate::InterfaceMalformedCause::LengthMismatch {
-                    field: InterfaceValidationField::DirectoryOffset,
-                    expected: directory_offset as u64,
-                    actual: expected_offset as u64,
-                },
-            });
-        }
-
-        let actual_content_hash = compute_content_hash(language_revision, &directory);
-
-        if actual_content_hash != content_hash {
-            return Err(InterfaceValidationError::ContentHashMismatch {
-                expected: InterfaceContentHash::from_bytes(content_hash),
-                actual: InterfaceContentHash::from_bytes(actual_content_hash),
-            });
-        }
-
-        validate_encoded_executable_template_families(&directory)?;
-
-        let identity =
-            decode_implementation_identity(&bytes, &directory, language_revision, limits)?;
-
-        let decoded = (0..directory.len()).map(|_| OnceLock::new()).collect();
-
-        Ok(Self {
-            bytes,
-            identity,
-            content_hash,
-            artifact_hash,
-            directory: directory.into(),
-            decoded,
-            native_indexes: Arc::new(OnceLock::new()),
-            limits,
-        })
-    }
-}
-
-fn decode_implementation_identity(
-    bytes: &[u8],
-    directory: &[ImplementationDirectoryEntry],
-    language_revision: InterfaceLanguageRevision,
+pub(super) fn decode_directory_entry(
+    reader: &mut WireReader<'_>,
+    directory_offset: usize,
+    expected_offset: usize,
+    index: u64,
     limits: InterfaceValidationLimits,
-) -> Result<PackageImplementationIdentity, InterfaceValidationError> {
-    let identity_entries = directory
-        .iter()
-        .filter(|entry| entry.kind == Some(ImplementationPayloadKind::Identity))
-        .collect::<Vec<_>>();
+) -> Result<ImplementationDirectoryEntry, InterfaceValidationError> {
+    let provisional_context =
+        InterfaceValidationContext::ImplementationEntry { index, raw_kind: 0 };
 
-    let [identity_entry] = identity_entries.as_slice() else {
-        return Err(crate::implementation::invalid_value(
+    let owner = InterfaceSymbolId::new(reader.read_u32().map_err(wire_error(
+        provisional_context,
+        InterfaceValidationField::Owner,
+    ))?);
+
+    let raw_kind = reader.read_u8().map_err(wire_error(
+        provisional_context,
+        InterfaceValidationField::EntryKind,
+    ))?;
+
+    let context = InterfaceValidationContext::ImplementationEntry { index, raw_kind };
+
+    let compatibility =
+        crate::InterfaceSectionCompatibility::from_wire_value(reader.read_u8().map_err(
+            wire_error(context, InterfaceValidationField::SectionCompatibility),
+        )?)
+        .ok_or_else(|| invalid_value(context, InterfaceValidationField::SectionCompatibility))?;
+
+    let raw_encoding = reader
+        .read_u8()
+        .map_err(wire_error(context, InterfaceValidationField::EntryEncoding))?;
+
+    let reserved = reader
+        .read_u8()
+        .map_err(wire_error(context, InterfaceValidationField::Value))?;
+
+    if reserved != 0 {
+        return Err(value_mismatch(
+            context,
             InterfaceValidationField::Value,
+            0,
+            u64::from(reserved),
         ));
+    }
+
+    let section_revision = crate::InterfaceSectionRevision::new(reader.read_u16().map_err(
+        wire_error(context, InterfaceValidationField::SectionRevision),
+    )?);
+
+    let reserved = reader
+        .read_u16()
+        .map_err(wire_error(context, InterfaceValidationField::Value))?;
+
+    if reserved != 0 {
+        return Err(value_mismatch(
+            context,
+            InterfaceValidationField::Value,
+            0,
+            u64::from(reserved),
+        ));
+    }
+
+    let discriminator = reader
+        .read_array::<32>()
+        .map_err(wire_error(context, InterfaceValidationField::Discriminant))?;
+
+    let family_size = reader
+        .read_u32()
+        .map_err(wire_error(context, InterfaceValidationField::RecordCount))?;
+
+    let platform_service = match reader
+        .read_u32()
+        .map_err(wire_error(context, InterfaceValidationField::Role))?
+    {
+        0 => None,
+        id => Some(
+            bray_runtime_interface::PlatformServiceRole::from_id(id)
+                .ok_or_else(|| invalid_value(context, InterfaceValidationField::Role))?,
+        ),
     };
 
-    let identity_payload = decode_entry_payload(bytes, identity_entry, limits)?;
-    let identity = decode_identity(&identity_payload, limits)?;
+    let offset = reader
+        .read_u64()
+        .map_err(wire_error(context, InterfaceValidationField::EntryOffset))?;
 
-    if identity.language_revision() != language_revision {
-        return Err(crate::implementation::invalid_value(
-            InterfaceValidationField::Value,
+    let encoded_length = reader
+        .read_u64()
+        .map_err(wire_error(context, InterfaceValidationField::EncodedLength))?;
+
+    let decoded_length = reader
+        .read_u64()
+        .map_err(wire_error(context, InterfaceValidationField::DecodedLength))?;
+
+    let record_count = reader
+        .read_u64()
+        .map_err(wire_error(context, InterfaceValidationField::RecordCount))?;
+
+    let checksum = reader
+        .read_array::<32>()
+        .map_err(wire_error(context, InterfaceValidationField::Hash))?;
+
+    let content_hash = reader
+        .read_array::<32>()
+        .map_err(wire_error(context, InterfaceValidationField::ContentHash))?;
+
+    if ImplementationPayloadKind::from_raw(raw_kind) == Some(ImplementationPayloadKind::NativeIndex)
+    {
+        let index_limits = limits.with_decoded_allocation(
+            limits
+                .maximum(InterfaceLimit::DecodedAllocation)
+                .min(bray_native_artifact::NativeArtifactIndex::MAXIMUM_BYTES as u64),
+        );
+
+        index_limits.check(InterfaceLimit::DecodedAllocation, encoded_length)?;
+        index_limits.check(InterfaceLimit::DecodedAllocation, decoded_length)?;
+    } else {
+        limits.check(InterfaceLimit::BlobLength, encoded_length)?;
+        limits.check(InterfaceLimit::BlobLength, decoded_length)?;
+    }
+
+    limits.check(InterfaceLimit::RecordCount, record_count)?;
+
+    let offset = usize::try_from(offset)
+        .map_err(|_| numeric_overflow(context, InterfaceValidationField::EntryOffset, offset))?;
+
+    let encoded_length = usize::try_from(encoded_length).map_err(|_| {
+        numeric_overflow(
+            context,
+            InterfaceValidationField::EncodedLength,
+            encoded_length,
+        )
+    })?;
+
+    let end = offset
+        .checked_add(encoded_length)
+        .ok_or(InterfaceValidationError::Malformed {
+            context,
+            cause: InterfaceMalformedCause::RangeOverflow {
+                offset: offset as u64,
+                length: encoded_length as u64,
+            },
+        })?;
+
+    if offset != expected_offset {
+        return Err(InterfaceValidationError::Malformed {
+            context,
+            cause: InterfaceMalformedCause::OrderingViolation {
+                field: InterfaceValidationField::EntryOffset,
+                previous: expected_offset as u64,
+                actual: offset as u64,
+            },
+        });
+    }
+
+    if end > directory_offset {
+        return Err(InterfaceValidationError::Truncated {
+            context,
+            field: InterfaceValidationField::RecordPayload,
+            offset: offset as u64,
+            expected_length: encoded_length as u64,
+            actual_length: directory_offset.saturating_sub(offset) as u64,
+        });
+    }
+
+    let kind = ImplementationPayloadKind::from_raw(raw_kind);
+
+    if kind.is_some() {
+        if compatibility != crate::InterfaceSectionCompatibility::Required
+            || section_revision != crate::InterfaceSectionRevision::CURRENT
+            || record_count != 1
+        {
+            return Err(invalid_value(context, InterfaceValidationField::Value));
+        }
+    } else if compatibility == crate::InterfaceSectionCompatibility::Required {
+        return Err(invalid_value(
+            context,
+            InterfaceValidationField::SectionCompatibility,
         ));
     }
 
-    Ok(identity)
+    validate_payload_address(
+        kind,
+        owner,
+        discriminator,
+        family_size,
+        platform_service,
+        limits,
+    )?;
+
+    let encoding =
+        crate::InterfaceSectionEncoding::from_wire_value(raw_encoding).ok_or_else(|| {
+            invalid_discriminant(
+                context,
+                InterfaceValidationField::EntryEncoding,
+                u64::from(raw_encoding),
+            )
+        })?;
+
+    if encoding == crate::InterfaceSectionEncoding::Raw {
+        if encoded_length != usize::try_from(decoded_length).unwrap_or(usize::MAX) {
+            return Err(InterfaceValidationError::Malformed {
+                context,
+                cause: InterfaceMalformedCause::LengthMismatch {
+                    field: InterfaceValidationField::DecodedLength,
+                    expected: decoded_length,
+                    actual: encoded_length as u64,
+                },
+            });
+        }
+    }
+
+    let entry = ImplementationDirectoryEntry {
+        index,
+        owner,
+        raw_kind,
+        kind,
+        compatibility,
+        encoding,
+        discriminator,
+        family_size,
+        platform_service,
+        decoded_length,
+        record_count,
+        checksum,
+        content_hash,
+        payload: offset..end,
+    };
+
+    Ok(entry)
 }
 
-fn validate_encoded_executable_template_families(
-    directory: &[ImplementationDirectoryEntry],
+pub(super) fn decode_entry_payload(
+    encoded: Arc<[u8]>,
+    entry: &ImplementationDirectoryEntry,
+    limits: InterfaceValidationLimits,
+) -> Result<Arc<[u8]>, InterfaceValidationError> {
+    let context = InterfaceValidationContext::ImplementationEntry {
+        index: entry.index,
+        raw_kind: entry.raw_kind,
+    };
+
+    limits.check(InterfaceLimit::DecodedAllocation, entry.decoded_length)?;
+
+    let actual_checksum = compute_payload_hash(entry, &encoded);
+
+    if actual_checksum != entry.checksum {
+        return Err(InterfaceValidationError::PayloadChecksumMismatch {
+            context,
+            expected: entry.checksum,
+            actual: actual_checksum,
+        });
+    }
+
+    let decoded = match entry.encoding {
+        crate::InterfaceSectionEncoding::Raw => encoded,
+        crate::InterfaceSectionEncoding::ZstdFrame => {
+            crate::encoding::decode_zstd_frame(context, &encoded, entry.decoded_length)?
+        }
+    };
+
+    let content_hash =
+        compute_payload_content_hash(entry.owner, entry.raw_kind, entry.discriminator, &decoded);
+
+    if content_hash != entry.content_hash {
+        return Err(InterfaceValidationError::PayloadContentHashMismatch {
+            context,
+            expected: entry.content_hash,
+            actual: content_hash,
+        });
+    }
+
+    if entry.kind == Some(ImplementationPayloadKind::NativeUnit) {
+        let actual = bray_base::sha256_reader(decoded.as_ref())
+            .expect("reading in-memory native unit bytes cannot fail");
+
+        if actual != entry.discriminator {
+            return Err(InterfaceValidationError::NativeUnitDigestMismatch {
+                expected: entry.discriminator,
+                actual,
+            });
+        }
+    }
+
+    Ok(decoded)
+}
+
+const fn invalid_value(
+    context: InterfaceValidationContext,
+    field: InterfaceValidationField,
+) -> InterfaceValidationError {
+    InterfaceValidationError::Malformed {
+        context,
+        cause: InterfaceMalformedCause::InvalidValue { field },
+    }
+}
+
+const fn invalid_discriminant(
+    context: InterfaceValidationContext,
+    field: InterfaceValidationField,
+    actual: u64,
+) -> InterfaceValidationError {
+    InterfaceValidationError::Malformed {
+        context,
+        cause: InterfaceMalformedCause::InvalidDiscriminant { field, actual },
+    }
+}
+
+const fn value_mismatch(
+    context: InterfaceValidationContext,
+    field: InterfaceValidationField,
+    expected: u64,
+    actual: u64,
+) -> InterfaceValidationError {
+    InterfaceValidationError::Malformed {
+        context,
+        cause: InterfaceMalformedCause::ValueMismatch {
+            field,
+            expected,
+            actual,
+        },
+    }
+}
+
+const fn numeric_overflow(
+    context: InterfaceValidationContext,
+    field: InterfaceValidationField,
+    value: u64,
+) -> InterfaceValidationError {
+    InterfaceValidationError::Malformed {
+        context,
+        cause: InterfaceMalformedCause::NumericOverflow {
+            field,
+            value,
+            target: InterfaceIntegerTarget::Usize,
+        },
+    }
+}
+
+fn validate_payload_address(
+    kind: Option<ImplementationPayloadKind>,
+    owner: InterfaceSymbolId,
+    discriminator: [u8; 32],
+    family_size: u32,
+    platform_service: Option<bray_runtime_interface::PlatformServiceRole>,
+    limits: InterfaceValidationLimits,
 ) -> Result<(), InterfaceValidationError> {
-    let mut entries = directory
-        .iter()
-        .filter(|entry| entry.kind == Some(ImplementationPayloadKind::ExecutableTemplate))
-        .peekable();
+    match kind {
+        Some(ImplementationPayloadKind::ExecutableTemplate) => {
+            limits.check(InterfaceLimit::RecordCount, u64::from(family_size))?;
 
-    let mut platform_services = BTreeSet::new();
+            let raw = u32::from_le_bytes([
+                discriminator[0],
+                discriminator[1],
+                discriminator[2],
+                discriminator[3],
+            ]);
 
-    while let Some(first) = entries.next() {
-        let owner = first.owner;
-        let family_size = first.family_size;
-
-        for expected in 0..family_size {
-            let entry = if expected == 0 {
-                first
-            } else {
-                entries.next().ok_or(crate::implementation::invalid_value(
-                    InterfaceValidationField::Value,
-                ))?
-            };
-
-            if entry.owner != owner
-                || entry.family_size != family_size
-                || entry.discriminator != executable_discriminator(expected)
-                || (expected != 0 && entry.platform_service.is_some())
-            {
-                return Err(crate::implementation::invalid_value(
-                    InterfaceValidationField::Value,
-                ));
-            }
-
-            if let Some(role) = entry.platform_service
-                && !platform_services.insert(role)
+            if family_size == 0
+                || raw >= family_size
+                || discriminator[4..].iter().any(|byte| *byte != 0)
             {
                 return Err(crate::implementation::invalid_value(
                     InterfaceValidationField::Value,
                 ));
             }
         }
-
-        if entries.peek().is_some_and(|entry| entry.owner == owner) {
-            return Err(crate::implementation::invalid_value(
-                InterfaceValidationField::Value,
-            ));
+        Some(ImplementationPayloadKind::Identity) => {
+            if owner.raw() != 0
+                || discriminator != [0; 32]
+                || family_size != 0
+                || platform_service.is_some()
+            {
+                return Err(crate::implementation::invalid_value(
+                    InterfaceValidationField::Value,
+                ));
+            }
         }
+        Some(ImplementationPayloadKind::NativeIndex) => {
+            if owner.raw() != 0
+                || !matches!(discriminator[0], 0..=2)
+                || discriminator[1..].iter().any(|byte| *byte != 0)
+                || family_size != 0
+                || platform_service.is_some()
+            {
+                return Err(crate::implementation::invalid_value(
+                    InterfaceValidationField::Value,
+                ));
+            }
+        }
+        Some(ImplementationPayloadKind::ConstantCallableBody)
+        | Some(ImplementationPayloadKind::NativeBoundary) => {
+            if discriminator != [0; 32] || family_size != 0 || platform_service.is_some() {
+                return Err(crate::implementation::invalid_value(
+                    InterfaceValidationField::Value,
+                ));
+            }
+        }
+        Some(
+            ImplementationPayloadKind::PreSpecializedMir | ImplementationPayloadKind::NativeUnit,
+        ) => {
+            if owner.raw() != 0 || family_size != 0 || platform_service.is_some() {
+                return Err(crate::implementation::invalid_value(
+                    InterfaceValidationField::Value,
+                ));
+            }
+        }
+        Some(ImplementationPayloadKind::NativeBinding) => {
+            if owner.raw() == 0 || family_size != 0 || platform_service.is_some() {
+                return Err(crate::implementation::invalid_value(
+                    InterfaceValidationField::Value,
+                ));
+            }
+        }
+        None => {}
     }
 
     Ok(())
