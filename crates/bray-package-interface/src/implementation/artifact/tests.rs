@@ -17,11 +17,6 @@ use bray_symbols::{
 };
 use bray_target::NativeTarget;
 
-use super::{
-    ARTIFACT_HASH_OFFSET, DIRECTORY_ENTRY_LENGTH, ImplementationPayloadKind,
-    PackageImplementationArtifact,
-};
-use crate::implementation::artifact_encoding::encode_artifact;
 use crate::implementation::hash::{compute_artifact_hash, compute_payload_hash};
 use crate::{
     CURRENT_MIR_SCHEMA_REVISION, CURRENT_TEMPLATE_SCHEMA_REVISION,
@@ -33,6 +28,12 @@ use crate::{
     PackageImplementationArtifactBuildError, PackageImplementationConfiguration,
     PackageImplementationSpecializationKey, PreSpecializedMirDecodeError,
     ValidatedPackageInterface, construct_imported_symbol_skeletons, encode_package_interface,
+};
+
+use super::encoding::encode_artifact;
+use super::{
+    ARTIFACT_HASH_OFFSET, DIRECTORY_ENTRY_LENGTH, ImplementationPayloadKind,
+    PackageImplementationArtifact,
 };
 
 #[test]

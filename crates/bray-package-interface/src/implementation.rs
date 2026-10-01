@@ -1,6 +1,4 @@
 mod artifact;
-mod artifact_decoding;
-mod artifact_encoding;
 mod codec;
 mod executable;
 mod family;

@@ -7,23 +7,24 @@ use crate::semantic::encode_template_payload;
 use crate::wire::WireEncoder;
 use crate::{InterfaceLanguageRevision, InterfaceValidationError};
 
-use super::artifact::{
-    ARTIFACT_HASH_OFFSET, BYTE_ORDER_MARKER, CONTENT_HASH_OFFSET, DIRECTORY_ENTRY_LENGTH,
-    HEADER_LENGTH, ImplementationDirectoryEntry, ImplementationPayloadKind, MAGIC, REQUIRED_FLAGS,
-    executable_discriminator, native_index_discriminator,
-};
-use super::codec::encode_identity;
-use super::hash::{
+use crate::implementation::codec::encode_identity;
+use crate::implementation::hash::{
     compute_artifact_hash, compute_content_hash, compute_payload_content_hash, compute_payload_hash,
 };
-use super::payload::{
+use crate::implementation::payload::{
     encode_native_binding, encode_native_boundary, encode_pre_specialized_mir,
     specialization_discriminator,
 };
-use super::{
+use crate::implementation::{
     InterfaceConstantCallableBody, InterfaceExecutableTemplate, InterfaceNativeBinding,
     InterfaceNativeBoundary, InterfacePreSpecializedMir, PackageImplementationArtifactBuildError,
     PackageImplementationIdentity,
+};
+
+use super::{
+    ARTIFACT_HASH_OFFSET, BYTE_ORDER_MARKER, CONTENT_HASH_OFFSET, DIRECTORY_ENTRY_LENGTH,
+    HEADER_LENGTH, ImplementationDirectoryEntry, ImplementationPayloadKind, MAGIC, REQUIRED_FLAGS,
+    executable_discriminator, native_index_discriminator,
 };
 
 pub(super) fn encode_artifact(
@@ -193,7 +194,7 @@ fn encode_payloads(
         .any(|pair| pair[0].directory_key() == pair[1].directory_key())
     {
         return Err(PackageImplementationArtifactBuildError::InvalidArtifact(
-            super::invalid_value(crate::InterfaceValidationField::Value),
+            crate::implementation::invalid_value(crate::InterfaceValidationField::Value),
         ));
     }
 

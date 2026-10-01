@@ -4,7 +4,6 @@ use bray_bound_tree::CheckedTemplateKind;
 use bray_ir::MirExecutableTemplateId;
 use bray_symbols::InterfaceSymbolId;
 
-use crate::implementation::artifact_encoding::encode_artifact;
 use crate::implementation::{
     CURRENT_MIR_SCHEMA_REVISION, CURRENT_TEMPLATE_SCHEMA_REVISION, InterfaceConstantCallableBody,
     InterfaceExecutableTemplate, InterfaceNativeBinding, InterfaceNativeBoundary,
@@ -19,6 +18,7 @@ use crate::{
 };
 
 use super::PackageImplementationArtifact;
+use super::encoding::{encode_artifact, encode_with_native_variants};
 
 impl PackageImplementationArtifact {
     /// Adds native object or bitcode routes to an existing package implementation container.
@@ -27,12 +27,8 @@ impl PackageImplementationArtifact {
         indexes: &[(bray_native_artifact::NativeUnitKind, &[u8])],
         units: &[([u8; 32], std::sync::Arc<[u8]>)],
     ) -> Result<Self, PackageImplementationArtifactBuildError> {
-        let bytes = crate::implementation::artifact_encoding::encode_with_native_variants(
-            self.identity.language_revision(),
-            self,
-            indexes,
-            units,
-        )?;
+        let bytes =
+            encode_with_native_variants(self.identity.language_revision(), self, indexes, units)?;
 
         Self::try_from_bytes(bytes, self.limits)
             .map_err(PackageImplementationArtifactBuildError::InvalidArtifact)

@@ -3,7 +3,6 @@ use std::sync::Arc;
 use bray_ir::{MirExecutableTemplateId, MirTargetContract, MirUnit, MirUnitId};
 use bray_symbols::{AnySymbolId, InterfaceSymbolId};
 
-use crate::implementation::artifact_decoding::decode_entry_payload;
 use crate::implementation::codec::configuration_identity;
 use crate::implementation::payload::{
     decode_native_binding, decode_native_boundary, decode_pre_specialized_mir,
@@ -21,6 +20,7 @@ use crate::{
 };
 
 use super::construction::validate_body_owner;
+use super::decoding::decode_entry_payload;
 use super::{
     ImplementationDirectoryEntry, ImplementationPayloadKind, PackageImplementationArtifact,
     executable_discriminator,
