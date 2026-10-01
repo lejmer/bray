@@ -1,5 +1,5 @@
-use std::num::NonZeroU32;
 use std::hash::{Hash, Hasher};
+use std::num::NonZeroU32;
 use std::sync::Arc;
 
 use bray_symbols::{ProductIdentity, TypeId, UnionVariantSymbolId};
@@ -308,7 +308,11 @@ impl ExecutableHostContract {
             match entry.result {
                 ExecutableEntryResult::Unit => 0u8.hash(state),
                 ExecutableEntryResult::I32 => 1u8.hash(state),
-                ExecutableEntryResult::Fallible { ty, error, success_variant } => {
+                ExecutableEntryResult::Fallible {
+                    ty,
+                    error,
+                    success_variant,
+                } => {
                     2u8.hash(state);
                     type_identity(ty)?.hash(state);
                     type_identity(error)?.hash(state);

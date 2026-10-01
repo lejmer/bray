@@ -2,8 +2,8 @@ use bray_diagnostics::DiagnosticBag;
 use bray_diagnostics::DiagnosticKind;
 use bray_parser::{lex_source_unit, parse_compilation_unit, parse_source_unit};
 use bray_source::SourceSnapshot;
-use bray_syntax::SyntaxText;
 use bray_syntax::SyntaxKind;
+use bray_syntax::SyntaxText;
 use bray_testing::{
     assert_single_final_eof, assert_tokens_cover_source_text, test_source_snapshot,
     test_source_store,
@@ -68,20 +68,35 @@ fn byte_string_literals_preserve_bytes_and_report_invalid_escapes() {
         let result = lex_source_unit(&snapshot);
 
         assert!(result.diagnostics().is_empty(), "{spelling}");
-        assert_eq!(result.tokens()[0].kind(), SyntaxKind::ByteStringLiteralToken);
+
+        assert_eq!(
+            result.tokens()[0].kind(),
+            SyntaxKind::ByteStringLiteralToken
+        );
+
         assert_tokens_cover_source_text(&snapshot, result.tokens());
     }
 
     for (spelling, kind) in [
         (r#"b"\xG0""#, DiagnosticKind::LexicalUnknownEscape),
         (r#"b"\x0""#, DiagnosticKind::LexicalUnknownEscape),
-        (r#"b"\u{D800}""#, DiagnosticKind::LexicalInvalidUnicodeEscape),
+        (
+            r#"b"\u{D800}""#,
+            DiagnosticKind::LexicalInvalidUnicodeEscape,
+        ),
     ] {
         let snapshot = test_source_snapshot(spelling);
         let result = lex_source_unit(&snapshot);
 
         assert_eq!(result.tokens()[0].kind(), SyntaxKind::InvalidToken);
-        assert!(result.diagnostics().iter().any(|diagnostic| diagnostic.kind() == kind));
+
+        assert!(
+            result
+                .diagnostics()
+                .iter()
+                .any(|diagnostic| diagnostic.kind() == kind)
+        );
+
         assert_tokens_cover_source_text(&snapshot, result.tokens());
     }
 }
@@ -93,9 +108,12 @@ fn character_literals_reject_surrogate_code_points() {
 
     assert_eq!(result.tokens()[0].kind(), SyntaxKind::InvalidToken);
 
-    assert!(result.diagnostics().iter().any(|diagnostic| {
-        diagnostic.kind() == DiagnosticKind::LexicalInvalidUnicodeEscape
-    }));
+    assert!(
+        result
+            .diagnostics()
+            .iter()
+            .any(|diagnostic| { diagnostic.kind() == DiagnosticKind::LexicalInvalidUnicodeEscape })
+    );
 }
 
 fn assert_lexical_diagnostics_are_preserved(

@@ -216,17 +216,24 @@ where
 
                 let expected = if literal.kind() == bray_bound_tree::BoundLiteralKind::ByteString {
                     crate::constant::literal::check_byte_string_literal(
-                        self.request.semantic_values(), pattern.input_type(), spelling,
+                        self.request.semantic_values(),
+                        pattern.input_type(),
+                        spelling,
                     )
-                    .map_err(|error| EvaluationFailure::Infrastructure(
-                        CheckerInfrastructureError::SemanticValueStore(error)
-                    ))?
+                    .map_err(|error| {
+                        EvaluationFailure::Infrastructure(
+                            CheckerInfrastructureError::SemanticValueStore(error),
+                        )
+                    })?
                 } else {
                     let representation = type_representation(self.request, pattern.input_type())
                         .ok_or_else(|| EvaluationFailure::invalid_expression(owner))?;
 
                     parse_literal(literal.kind(), spelling, representation, || {
-                        self.request.selected_target().machine().pointer_width_bits()
+                        self.request
+                            .selected_target()
+                            .machine()
+                            .pointer_width_bits()
                     })
                 }
                 .map_err(|error| EvaluationFailure::literal(owner, error))?;

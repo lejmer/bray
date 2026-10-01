@@ -11,8 +11,8 @@ use bray_syntax::{
     TypeExpressionSyntax,
 };
 
-use super::core::TypeExpressionBinder;
 use super::super::name::is_bytes_type_path;
+use super::core::TypeExpressionBinder;
 use crate::{BindingError, BindingQueryError, BindingQueryResult};
 
 impl<Upstream> TypeExpressionBinder<'_, Upstream> {

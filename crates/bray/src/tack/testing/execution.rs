@@ -97,7 +97,15 @@ pub(crate) fn execute(
     prepare_command_cancellation()?;
 
     let hosts = load_hosts(hosts)?;
-    let report = execute_loaded(workspace_root, &hosts, options, worker_count, interactive, false)?;
+
+    let report = execute_loaded(
+        workspace_root,
+        &hosts,
+        options,
+        worker_count,
+        interactive,
+        false,
+    )?;
 
     let rendered = render_report(
         &report,
@@ -132,7 +140,14 @@ pub(crate) fn execute_batch(
             false,
         );
 
-        let report = execute_loaded(workspace_root, &hosts, &options, worker_count, interactive, true)?;
+        let report = execute_loaded(
+            workspace_root,
+            &hosts,
+            &options,
+            worker_count,
+            interactive,
+            true,
+        )?;
 
         reports.push((plan.identity().to_owned(), report));
     }

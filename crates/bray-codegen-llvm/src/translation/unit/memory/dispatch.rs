@@ -102,11 +102,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             }
             CheckedMemoryOperationKind::RawBufferRelease { element } => {
                 let [buffer] = memory.operands() else {
-                    panic!("checked MIR memory translation violated an established compiler contract");
+                    panic!(
+                        "checked MIR memory translation violated an established compiler contract"
+                    );
                 };
 
                 let [buffer_type] = memory.operand_types() else {
-                    panic!("checked MIR memory translation violated an established compiler contract");
+                    panic!(
+                        "checked MIR memory translation violated an established compiler contract"
+                    );
                 };
 
                 self.translate_raw_buffer_release(id, buffer, *buffer_type, element)?;
@@ -556,10 +560,10 @@ mod tests {
         TargetAddressSpaceKind,
     };
     use bray_ir::{
-        MirAggregate, MirAggregateKind, MirBlockKind, MirCleanupPhase, MirHelperReference,
-        MirCallPanicEdge, MirEdge, MirMemoryOperation, MirOperand, MirOperationCommit,
-        MirOperationKind, MirPlace, MirSourceAnchor, MirStandardLibraryHelper,
-        MirStorageKind, MirTargetContract, MirTerminatorKind, MirUnitBuilder, MirUnitKind, MirValueId,
+        MirAggregate, MirAggregateKind, MirBlockKind, MirCallPanicEdge, MirCleanupPhase, MirEdge,
+        MirHelperReference, MirMemoryOperation, MirOperand, MirOperationCommit, MirOperationKind,
+        MirPlace, MirSourceAnchor, MirStandardLibraryHelper, MirStorageKind, MirTargetContract,
+        MirTerminatorKind, MirUnitBuilder, MirUnitKind, MirValueId,
     };
     use bray_runtime_interface::{BinarySymbolName, RuntimeAbiVersion};
     use bray_symbols::{
@@ -1355,8 +1359,15 @@ mod tests {
             None,
         );
 
-        let completed =
-            push_buffer_and_byte_operations(&mut builder, entry, &source, types, address, null, size);
+        let completed = push_buffer_and_byte_operations(
+            &mut builder,
+            entry,
+            &source,
+            types,
+            address,
+            null,
+            size,
+        );
 
         builder.set_terminator(completed, source.clone(), MirTerminatorKind::Return(None));
 

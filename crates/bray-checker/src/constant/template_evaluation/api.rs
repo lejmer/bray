@@ -279,11 +279,10 @@ mod tests {
     use bray_symbols::{
         CallableInstanceData, ConstantField, ConstantProjection, ConstantProjectionKind,
         ConstantTermData, ConstantValueData, ConstantValueKind, CurrentRunCancellation,
-        DependencyContractTemplateData,
-        FunctionSymbolId, GenericOwnerId, GenericSubstitutionData, ModulePathKey, PackageIdentity,
-        StaticInstanceKey, StaticInstanceTemplateId, StaticReferenceSelection, StaticSymbolId,
-        StructFieldSymbolId, SymbolId, SymbolKey, SymbolKind, SymbolOrdinal, SymbolRootKey,
-        TypeData,
+        DependencyContractTemplateData, FunctionSymbolId, GenericOwnerId, GenericSubstitutionData,
+        ModulePathKey, PackageIdentity, StaticInstanceKey, StaticInstanceTemplateId,
+        StaticReferenceSelection, StaticSymbolId, StructFieldSymbolId, SymbolId, SymbolKey,
+        SymbolKind, SymbolOrdinal, SymbolRootKey, TypeData,
     };
     use bray_testing::assert_goal_state_diagnostic_kind;
 
@@ -856,7 +855,10 @@ mod tests {
             })
             .unwrap();
 
-        let tuple = values.intern_type(TypeData::tuple([borrowed, unit])).unwrap();
+        let tuple = values
+            .intern_type(TypeData::tuple([borrowed, unit]))
+            .unwrap();
+
         let static_symbol = StaticSymbolId::from_symbol_id(SymbolId::new(998));
         let owner = GenericOwnerId::try_new(static_symbol.into()).unwrap();
 

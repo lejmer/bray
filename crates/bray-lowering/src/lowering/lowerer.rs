@@ -559,9 +559,7 @@ mod tests {
 
     #[test]
     fn abnormal_exits_share_only_identical_cleanup_suffixes() {
-        use bray_ir::{
-            MirBlockKind, MirPlace, MirSourceAnchor, MirStorageKind, MirTerminatorKind,
-        };
+        use bray_ir::{MirBlockKind, MirPlace, MirSourceAnchor, MirStorageKind, MirTerminatorKind};
 
         let fixture = lowering_fixture(102, BoundOperator::Add);
         let mut lowerer = super::Lowerer::new(fixture.input());
@@ -582,13 +580,12 @@ mod tests {
             .push_block(source.clone(), MirBlockKind::Ordinary)
             .unwrap();
 
-        let different_source = MirSourceAnchor::source(
-            bray_bound_tree::BoundNodeOrigin::synthesized(
+        let different_source =
+            MirSourceAnchor::source(bray_bound_tree::BoundNodeOrigin::synthesized(
                 fixture.unit.key().source(),
                 bray_bound_tree::BoundSynthesisRole::OwnershipOperation,
                 bray_bound_tree::BoundNodeOrdinal::new(1),
-            ),
-        );
+            ));
 
         let different_occurrence = lowerer
             .builder
@@ -710,11 +707,7 @@ mod tests {
 
         let MirTerminatorKind::CancelCurrentRun {
             cleanup: different_occurrence_edge,
-        } = mir
-            .block(different_occurrence)
-            .unwrap()
-            .terminator()
-            .kind()
+        } = mir.block(different_occurrence).unwrap().terminator().kind()
         else {
             panic!("different source occurrence must begin cancellation cleanup")
         };
@@ -748,7 +741,12 @@ mod tests {
 
         let destinations = routes
             .iter()
-            .map(|route| mir.block(route.edge().target()).unwrap().terminator().kind())
+            .map(|route| {
+                mir.block(route.edge().target())
+                    .unwrap()
+                    .terminator()
+                    .kind()
+            })
             .collect::<Vec<_>>();
 
         assert!(

@@ -721,7 +721,12 @@ mod tests {
                 module asm "{entry}:"
                 module asm "jmp {dependency}"
                 declare void @asm_entry()
-                define void @entry() {{ call void @asm_entry() ret void }}
+                declare void @asm_dependency()
+                define void @entry() {{
+                    call void @asm_entry()
+                    call void @asm_dependency()
+                    ret void
+                }}
                 "#,
                 target.as_str(),
             );

@@ -431,6 +431,34 @@ impl CodegenTypeKind {
         variants.iter().find(|layout| layout.variant() == variant)
     }
 
+    /// Returns the single error payload of an established fallible result mapping.
+    pub fn fallible_error_field(
+        &self,
+        success: UnionVariantSymbolId,
+        error: TypeId,
+    ) -> (&CodegenUnionVariantLayout, &CodegenFieldLayout) {
+        let Self::Union { variants, .. } = self else {
+            panic!("fallible result mapping must be a union");
+        };
+
+        let variant = variants
+            .iter()
+            .find(|variant| variant.variant() != success)
+            .expect("fallible result mapping must have an error variant");
+
+        let [field] = variant.fields() else {
+            panic!("fallible result error variant must have one payload field");
+        };
+
+        assert_eq!(
+            field.ty(),
+            error,
+            "fallible result error payload must match its checked type"
+        );
+
+        (variant, field)
+    }
+
     /// Creates an ordered aggregate representation.
     pub fn aggregate(fields: impl IntoIterator<Item = CodegenFieldLayout>) -> Self {
         Self::Aggregate(shared_slice(fields))

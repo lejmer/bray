@@ -111,8 +111,7 @@ where
 
         if self.input.destination() == crate::constant::input::ConstantDestination::Definition {
             let (term, known_type) = match evaluated {
-                EvaluationFlow::Value(term)
-                | EvaluationFlow::Propagate(term) => (term, None),
+                EvaluationFlow::Value(term) | EvaluationFlow::Propagate(term) => (term, None),
                 EvaluationFlow::Return(term) => (term, self.input.result_type()),
                 EvaluationFlow::Yield { term, source_type } => (term, Some(source_type)),
             };

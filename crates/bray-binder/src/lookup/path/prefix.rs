@@ -60,7 +60,10 @@ pub(super) fn imported_path_prefix(
         && let Some(path) = ModulePathKey::try_new(package.identity().as_str().split('.'))
         && let Some(module) = root.symbols().module_by_path(root.package(), &path)
     {
-        return (module_name_lookup(module, access), root.consumed_components());
+        return (
+            module_name_lookup(module, access),
+            root.consumed_components(),
+        );
     }
 
     (

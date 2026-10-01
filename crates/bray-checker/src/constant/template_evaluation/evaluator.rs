@@ -8,9 +8,9 @@ use bray_bound_tree::{
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
     AnySymbolId, CallableDefinitionId, CallableInstanceData, ConstantBinaryOperation,
-    ConstantField, ConstantInstanceKey, ConstantUnaryOperation, ConstantValueData,
-    ConstantValueId, ConstantValueKind, GenericArgument, GenericParameterSymbolId,
-    GenericSubstitutionId, ImplementationInstanceData, ImplementationSymbolId, TypeId,
+    ConstantField, ConstantInstanceKey, ConstantUnaryOperation, ConstantValueData, ConstantValueId,
+    ConstantValueKind, GenericArgument, GenericParameterSymbolId, GenericSubstitutionId,
+    ImplementationInstanceData, ImplementationSymbolId, TypeId,
 };
 
 use super::super::ConstantReferenceResolution;

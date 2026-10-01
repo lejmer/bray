@@ -41,7 +41,9 @@ impl TestProgress {
 
     pub(super) fn finish_result(&mut self, result: &TestInvocationResult) {
         if self.live_results && self.reported.insert(result.identity().clone()) {
-            let milliseconds = result.duration().map(|duration| duration.duration().as_millis());
+            let milliseconds = result
+                .duration()
+                .map(|duration| duration.duration().as_millis());
 
             let line = TestReportMessageRenderer::english().live_result(
                 &identity_text(result.identity()),

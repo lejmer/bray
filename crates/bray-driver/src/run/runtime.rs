@@ -3,15 +3,13 @@ use std::path::PathBuf;
 
 use bray_compilation::SelectedTarget;
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg,
-    DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind, DiagnosticNote,
-    DiagnosticNoteKind, DiagnosticRuntimeAbiVersion, DiagnosticRuntimeArtifactProblem,
-    DiagnosticRuntimeArtifactPurpose, SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind,
+    DiagnosticNote, DiagnosticNoteKind, DiagnosticRuntimeAbiVersion,
+    DiagnosticRuntimeArtifactProblem, DiagnosticRuntimeArtifactPurpose, SeverityKind,
 };
 use bray_runtime_interface::{
     RuntimeArtifact, RuntimeArtifactBuildError, RuntimeArtifactMetadataBuildError,
-    RuntimeArtifactMetadataDecodeError, RuntimeArtifactPurpose,
-    RuntimeContractBuildError,
+    RuntimeArtifactMetadataDecodeError, RuntimeArtifactPurpose, RuntimeContractBuildError,
 };
 use bray_tooling::{RuntimeArtifactLoadError, load_runtime_artifact};
 
@@ -64,14 +62,15 @@ fn runtime_load_diagnostics(error: RuntimeArtifactLoadError) -> DiagnosticBag {
                     source,
                 )))
         }
-        RuntimeArtifactLoadError::NativeIndex { path, source } =>
+        RuntimeArtifactLoadError::NativeIndex { path, source } => {
             runtime_diagnostic(DiagnosticKind::RuntimeArtifactMetadataInvalid)
                 .with_arg(DiagnosticArg::artifact_path(path))
                 .with_arg(DiagnosticArg::runtime_artifact_problem(
                     DiagnosticRuntimeArtifactProblem::InvalidNativeArtifact(
                         bray_compilation::diagnostic_native_artifact_cause(&source),
                     ),
-                )),
+                ))
+        }
         RuntimeArtifactLoadError::IncompatibleTarget {
             path,
             expected,
@@ -281,10 +280,9 @@ mod tests {
         DiagnosticRuntimeArtifactPurpose,
     };
     use bray_runtime_interface::{
-        RuntimeAbiRole, RuntimeAbiVersion, RuntimeArtifactBuildError,
-        RuntimeArtifactId, RuntimeArtifactMetadataBuildError, RuntimeArtifactMetadataDecodeError,
-        RuntimeArtifactPurpose, RuntimeCapability,
-        RuntimeContractBuildError,
+        RuntimeAbiRole, RuntimeAbiVersion, RuntimeArtifactBuildError, RuntimeArtifactId,
+        RuntimeArtifactMetadataBuildError, RuntimeArtifactMetadataDecodeError,
+        RuntimeArtifactPurpose, RuntimeCapability, RuntimeContractBuildError,
     };
     use bray_target::TargetIdentity;
     use bray_tooling::RuntimeArtifactLoadError;
@@ -372,7 +370,9 @@ mod tests {
                 RuntimeArtifactMetadataDecodeError::InvalidMetadata(
                     RuntimeArtifactMetadataBuildError::DuplicateComponent(component.clone()),
                 ),
-                DiagnosticRuntimeArtifactProblem::DuplicateComponent("runtime.scheduler".to_owned()),
+                DiagnosticRuntimeArtifactProblem::DuplicateComponent(
+                    "runtime.scheduler".to_owned(),
+                ),
             ),
             (
                 RuntimeArtifactMetadataDecodeError::InvalidMetadata(
@@ -473,5 +473,4 @@ mod tests {
             DiagnosticKind::RuntimeArtifactAbiMismatch,
         );
     }
-
 }

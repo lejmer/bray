@@ -83,30 +83,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     "checked MIR effect translation requires an established mapping or value",
                 );
 
-                let bray_codegen::CodegenTypeKind::Union { variants, .. } = mapping.kind() else {
-                    panic!(
-                        "checked MIR effect translation violated an established compiler contract"
-                    );
-                };
-
-                let error_variant = variants
-                    .iter()
-                    .find(|variant| variant.variant() != success_variant)
-                    .expect(
-                        "checked MIR effect translation requires an established mapping or value",
-                    );
-
-                let [error_field] = error_variant.fields() else {
-                    panic!(
-                        "checked MIR effect translation violated an established compiler contract"
-                    );
-                };
-
-                if error_field.ty() != error_type {
-                    panic!(
-                        "checked MIR effect translation violated an established compiler contract"
-                    );
-                }
+                let (error_variant, error_field) = mapping
+                    .kind()
+                    .fallible_error_field(success_variant, error_type);
 
                 let Some(bray_ir::MirFieldReference::UnionPayload(error_field)) =
                     error_field.reference()

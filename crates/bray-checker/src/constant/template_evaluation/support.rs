@@ -1,5 +1,5 @@
-use bray_compiler_known::{IntegerRepresentation, RepresentationRole};
 use bray_bound_tree::CheckedTemplateKind;
+use bray_compiler_known::{IntegerRepresentation, RepresentationRole};
 use bray_diagnostics::DiagnosticConstantOperation;
 use bray_symbols::{
     AnyConstantDefinitionId, AnySymbolId, ConstantValueId, ConstantValueKind, SemanticValueStore,

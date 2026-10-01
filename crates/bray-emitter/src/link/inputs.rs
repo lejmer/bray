@@ -54,7 +54,13 @@ impl ProductLinkInputs {
         mut self,
         inputs: impl IntoIterator<Item = LinkInputSpec>,
     ) -> Self {
-        self.native_inputs = self.native_inputs.iter().cloned().chain(inputs).collect::<Vec<_>>().into();
+        self.native_inputs = self
+            .native_inputs
+            .iter()
+            .cloned()
+            .chain(inputs)
+            .collect::<Vec<_>>()
+            .into();
 
         self
     }

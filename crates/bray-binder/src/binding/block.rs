@@ -153,14 +153,12 @@ where
         syntax: &LocalBindingDeclarationSyntax,
         operations: &mut impl BlockBindingOperations<C>,
     ) -> BindingResult<BoundLocalBinding, C::UpstreamError> {
-        let inferred_bytes = syntax
-            .type_annotation()
-            .is_some_and(|annotation| {
-                let ty = annotation.type_expression();
+        let inferred_bytes = syntax.type_annotation().is_some_and(|annotation| {
+            let ty = annotation.type_expression();
 
-                ty.path().is_some_and(|path| is_bytes_type_path(&path))
-                    && ty.generic_argument_lists().next().is_none()
-            });
+            ty.path().is_some_and(|path| is_bytes_type_path(&path))
+                && ty.generic_argument_lists().next().is_none()
+        });
 
         let declared_type = match syntax.type_annotation() {
             Some(annotation) if inferred_bytes => Some(BoundTypeReference::new(

@@ -305,11 +305,7 @@ mod tests {
 
         let result = result_from_outputs(vec![output], OutputFormat::Text);
 
-        assert_missing_output_failure(
-            &result,
-            "hello_world/application",
-            Some(-1_073_741_515),
-        );
+        assert_missing_output_failure(&result, "hello_world/application", Some(-1_073_741_515));
     }
 
     #[test]

@@ -4,8 +4,8 @@ use bray_bound_tree::{
 };
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind, DiagnosticType,
-    SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
+    DiagnosticType, SeverityKind,
 };
 use bray_symbols::{
     ConstantTermData, ConstantTermId, IntegerConstant, TargetSizedIntegerType, TypeData, TypeId,
@@ -89,9 +89,14 @@ where
 
             let source = request.source(literal.origin().source_anchor())?;
 
-            let spelling = source.text_for_range(literal.spelling_range()).unwrap_or_else(|| {
-                panic!("array count literal {:?} has an invalid source range", count)
-            });
+            let spelling = source
+                .text_for_range(literal.spelling_range())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "array count literal {:?} has an invalid source range",
+                        count
+                    )
+                });
 
             Ok(normalize_integer_literal(spelling)
                 .ok()
@@ -124,11 +129,17 @@ where
 
         let (expected, actual) = match data.as_ref() {
             TypeData::Array { element, .. }
-                if type_representation(request, *element) == Some(RepresentationRole::ScalarU8) => continue,
+                if type_representation(request, *element) == Some(RepresentationRole::ScalarU8) =>
+            {
+                continue;
+            }
             TypeData::Array { element, .. } => {
                 (DiagnosticType::U8, diagnostic_type(request, *element)?)
             }
-            _ => (DiagnosticType::Array, diagnostic_type(request, result.ty())?),
+            _ => (
+                DiagnosticType::Array,
+                diagnostic_type(request, result.ty())?,
+            ),
         };
 
         let span = expression_span(request, initializer)?;

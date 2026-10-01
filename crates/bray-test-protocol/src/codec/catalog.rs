@@ -138,7 +138,12 @@ fn decode_entry(
 
     let module = ModulePathKey::try_new(segments).ok_or(TestProtocolError::Malformed)?;
     let name = SymbolName::try_new(decoder.string()?).ok_or(TestProtocolError::Malformed)?;
-    let package: [u8; 32] = decoder.bytes()?.try_into().map_err(|_| TestProtocolError::Malformed)?;
+
+    let package: [u8; 32] = decoder
+        .bytes()?
+        .try_into()
+        .map_err(|_| TestProtocolError::Malformed)?;
+
     let source = SourceId::stored(decoder.u32()?).ok_or(TestProtocolError::Malformed)?;
     let start = TextSize::new(decoder.u32()?);
     let end = TextSize::new(decoder.u32()?);

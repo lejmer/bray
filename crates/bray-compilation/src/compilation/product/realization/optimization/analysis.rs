@@ -2,9 +2,8 @@ use std::collections::{BTreeMap, VecDeque};
 
 use bray_codegen::demanded_constant_terms;
 use bray_ir::{
-    MirBlockId, MirEdge, MirImmediateValue,
-    MirOperand, MirOperationKind, MirPatternPredicate, MirStorageId, MirStorageKind,
-    MirTerminatorKind, MirUnit, MirValueId, MirValueOrigin,
+    MirBlockId, MirEdge, MirImmediateValue, MirOperand, MirOperationKind, MirPatternPredicate,
+    MirStorageId, MirStorageKind, MirTerminatorKind, MirUnit, MirValueId, MirValueOrigin,
     reconstruct_with_edits,
 };
 use bray_symbols::{
@@ -53,7 +52,9 @@ impl Compilation {
         let mut terms = BTreeMap::new();
 
         for term in demanded_constant_terms(unit) {
-            let resolved = self.substitute_codegen_constant_term(term, realization.substitution())?;
+            let resolved =
+                self.substitute_codegen_constant_term(term, realization.substitution())?;
+
             let data = values.constant_term_data(resolved);
 
             let ConstantTermData::Value(value) = data.as_ref() else {
@@ -117,7 +118,11 @@ pub(super) struct ScalarAnalysis<'a> {
 }
 
 impl<'a> ScalarAnalysis<'a> {
-    fn new(unit: &'a MirUnit, values: &'a SemanticValueStore, terms: BTreeMap<ConstantTermId, ConstantValueId>) -> Self {
+    fn new(
+        unit: &'a MirUnit,
+        values: &'a SemanticValueStore,
+        terms: BTreeMap<ConstantTermId, ConstantValueId>,
+    ) -> Self {
         let mut users = vec![Vec::new(); unit.values().len()];
 
         for (block_id, block) in unit.blocks_with_ids() {
@@ -158,10 +163,13 @@ impl<'a> ScalarAnalysis<'a> {
             values,
             terms,
             states: vec![Scalar::Unknown; unit.values().len()],
-            blocks: vec![BlockState {
-                executable: false,
-                queued: false,
-            }; unit.blocks().len()],
+            blocks: vec![
+                BlockState {
+                    executable: false,
+                    queued: false,
+                };
+                unit.blocks().len()
+            ],
             users,
             pending: VecDeque::new(),
             allow_unknown_edges: false,
@@ -249,8 +257,13 @@ impl<'a> ScalarAnalysis<'a> {
 
             self.blocks[slot(block_id.slot())].queued = false;
 
-            let block = self.unit.block(block_id).expect("scheduled MIR block must exist");
-            let local = self.evaluate_operations(compilation, realization, block_id, cancellation)?;
+            let block = self
+                .unit
+                .block(block_id)
+                .expect("scheduled MIR block must exist");
+
+            let local =
+                self.evaluate_operations(compilation, realization, block_id, cancellation)?;
 
             let decision =
                 self.decision(compilation, realization, block.terminator().kind(), &local)?;
@@ -276,7 +289,11 @@ impl<'a> ScalarAnalysis<'a> {
         let block = self.unit.block(block_id).expect("valid MIR block");
 
         for operation_id in block.operations() {
-            let operation = self.unit.operation(*operation_id).expect("valid MIR operation");
+            let operation = self
+                .unit
+                .operation(*operation_id)
+                .expect("valid MIR operation");
+
             let kind = operation.kind();
 
             if let MirOperationKind::Store {
@@ -284,9 +301,15 @@ impl<'a> ScalarAnalysis<'a> {
             } = kind
             {
                 if destination.projections().is_empty()
-                    && self.unit.storage(destination.storage()).is_some_and(|storage| {
-                        matches!(storage.kind(), MirStorageKind::Local | MirStorageKind::Temporary)
-                    })
+                    && self
+                        .unit
+                        .storage(destination.storage())
+                        .is_some_and(|storage| {
+                            matches!(
+                                storage.kind(),
+                                MirStorageKind::Local | MirStorageKind::Temporary
+                            )
+                        })
                 {
                     let mut invalidates = false;
 
@@ -325,20 +348,21 @@ impl<'a> ScalarAnalysis<'a> {
 
                 if !matches!(kind, MirOperationKind::Borrow { kind: BorrowKind::Shared, place } if place.projections().is_empty())
                     && (!scalar_operands
-                    || !matches!(
-                        kind,
-                        MirOperationKind::Unary { .. }
-                            | MirOperationKind::Binary { .. }
-                            | MirOperationKind::NumericConversion { .. }
-                            | MirOperationKind::NullableQuery(_)
-                    ))
+                        || !matches!(
+                            kind,
+                            MirOperationKind::Unary { .. }
+                                | MirOperationKind::Binary { .. }
+                                | MirOperationKind::NumericConversion { .. }
+                                | MirOperationKind::NullableQuery(_)
+                        ))
                 {
                     local.clear();
                 }
             }
 
             if let Some(result) = operation.result() {
-                let value = self.operation(compilation, realization, result, kind, &local, cancellation)?;
+                let value =
+                    self.operation(compilation, realization, result, kind, &local, cancellation)?;
 
                 self.update_value(result, value);
             }
@@ -347,11 +371,20 @@ impl<'a> ScalarAnalysis<'a> {
         Ok(local)
     }
 
-    pub(super) fn operand(&self, operand: &MirOperand, local: &BTreeMap<MirStorageId, Scalar>) -> Scalar {
+    pub(super) fn operand(
+        &self,
+        operand: &MirOperand,
+        local: &BTreeMap<MirStorageId, Scalar>,
+    ) -> Scalar {
         match operand {
             MirOperand::Value(value) => self.states[slot(value.slot())],
             MirOperand::Constant { value, .. } => Scalar::Constant(*value),
-            MirOperand::ConstantTerm { term, .. } => Scalar::Constant(*self.terms.get(term).expect("concrete MIR term must resolve before scalar analysis")),
+            MirOperand::ConstantTerm { term, .. } => Scalar::Constant(
+                *self
+                    .terms
+                    .get(term)
+                    .expect("concrete MIR term must resolve before scalar analysis"),
+            ),
             MirOperand::Immediate {
                 value: MirImmediateValue::Boolean(value),
                 ..
@@ -362,7 +395,9 @@ impl<'a> ScalarAnalysis<'a> {
             } => Scalar::NullableAbsent,
             MirOperand::Copy(place) if place.projections().is_empty() => {
                 match local.get(&place.storage()).copied() {
-                    Some(value @ (Scalar::Boolean(_) | Scalar::Constant(_) | Scalar::NullableAbsent)) => value,
+                    Some(
+                        value @ (Scalar::Boolean(_) | Scalar::Constant(_) | Scalar::NullableAbsent),
+                    ) => value,
                     _ => Scalar::Overdefined,
                 }
             }
@@ -375,12 +410,10 @@ impl<'a> ScalarAnalysis<'a> {
     pub(super) fn boolean(&self, state: Scalar) -> Option<bool> {
         match state {
             Scalar::Boolean(value) => Some(value),
-            Scalar::Constant(value) => {
-                match self.values.constant_value_data(value).kind() {
-                    ConstantValueKind::Boolean(value) => Some(*value),
-                    _ => None,
-                }
-            }
+            Scalar::Constant(value) => match self.values.constant_value_data(value).kind() {
+                ConstantValueKind::Boolean(value) => Some(*value),
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -404,15 +437,16 @@ impl<'a> ScalarAnalysis<'a> {
         local: &BTreeMap<MirStorageId, Scalar>,
     ) -> Scalar {
         if let MirOperand::Value(value) = operand
-            && let MirValueOrigin::Operation(operation) = self
-                .unit
-                .value(*value)
-                .expect("valid MIR value")
-                .origin()
+            && let MirValueOrigin::Operation(operation) =
+                self.unit.value(*value).expect("valid MIR value").origin()
             && let MirOperationKind::Borrow {
                 kind: BorrowKind::Shared,
                 place,
-            } = self.unit.operation(operation).expect("valid MIR operation").kind()
+            } = self
+                .unit
+                .operation(operation)
+                .expect("valid MIR operation")
+                .kind()
             && place.projections().is_empty()
         {
             let state = local
@@ -498,10 +532,12 @@ impl<'a> ScalarAnalysis<'a> {
                     .find(|case| self.equals_constant(state, case.value()) == Some(true))
                 {
                     Decision::Known(case.edge().clone())
-                } else if matches!(state, Scalar::Constant(_) | Scalar::Boolean(_) | Scalar::NullableAbsent)
-                    && cases
-                        .iter()
-                        .all(|case| self.equals_constant(state, case.value()) == Some(false))
+                } else if matches!(
+                    state,
+                    Scalar::Constant(_) | Scalar::Boolean(_) | Scalar::NullableAbsent
+                ) && cases
+                    .iter()
+                    .all(|case| self.equals_constant(state, case.value()) == Some(false))
                 {
                     Decision::Known(otherwise.clone())
                 } else {
@@ -514,11 +550,7 @@ impl<'a> ScalarAnalysis<'a> {
         Ok(result)
     }
 
-    fn equals_constant(
-        &self,
-        state: Scalar,
-        value: bray_symbols::ConstantValueId,
-    ) -> Option<bool> {
+    fn equals_constant(&self, state: Scalar, value: bray_symbols::ConstantValueId) -> Option<bool> {
         match state {
             Scalar::Constant(actual) => Some(actual == value),
             Scalar::Boolean(actual) => match self.values.constant_value_data(value).kind() {
@@ -541,11 +573,7 @@ impl<'a> ScalarAnalysis<'a> {
         }
     }
 
-    fn enter_edge(
-        &mut self,
-        edge: &MirEdge,
-        local: &BTreeMap<MirStorageId, Scalar>,
-    ) {
+    fn enter_edge(&mut self, edge: &MirEdge, local: &BTreeMap<MirStorageId, Scalar>) {
         let arguments = edge
             .arguments()
             .iter()
@@ -595,7 +623,11 @@ impl<'a> ScalarAnalysis<'a> {
 
         self.blocks[slot].executable = true;
 
-        let parameters = self.unit.block(target).expect("valid MIR successor").parameters();
+        let parameters = self
+            .unit
+            .block(target)
+            .expect("valid MIR successor")
+            .parameters();
 
         for (index, parameter) in parameters.iter().enumerate() {
             let incoming = arguments

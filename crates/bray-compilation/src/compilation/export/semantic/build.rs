@@ -609,13 +609,14 @@ fn export_executable_template_family(
 
         let mut context = ExecutableTemplateExporter::new(export, &identities);
 
-        let payload = bray_package_interface::encode_executable_template(mir, source_namespace, &mut context)
-            .map_err(|error| match error {
-                bray_package_interface::ExecutableTemplateEncodeError::Semantic(error) => error,
-                bray_package_interface::ExecutableTemplateEncodeError::InvalidUnitKind => {
-                    invalid_executable_template("invalid_mir_unit_kind")
-                }
-            })?;
+        let payload =
+            bray_package_interface::encode_executable_template(mir, source_namespace, &mut context)
+                .map_err(|error| match error {
+                    bray_package_interface::ExecutableTemplateEncodeError::Semantic(error) => error,
+                    bray_package_interface::ExecutableTemplateEncodeError::InvalidUnitKind => {
+                        invalid_executable_template("invalid_mir_unit_kind")
+                    }
+                })?;
 
         let template = InterfaceExecutableTemplate::new(owner, identity, family_size, payload)
             .map(|template| template.with_platform_service(platform_service))

@@ -75,7 +75,8 @@ pub(super) fn substitution_is_concrete(
                     match binding.argument() {
                         GenericArgument::Type(ty) => pending.push(ConcreteWork::Type(ty)),
                         GenericArgument::Constant(term) => {
-                            let ConstantTermData::Value(value) = tables.constant_terms.get(store, term)
+                            let ConstantTermData::Value(value) =
+                                tables.constant_terms.get(store, term)
                             else {
                                 return false;
                             };

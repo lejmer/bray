@@ -65,9 +65,7 @@ impl Compilation {
                         .iter()
                         .copied()
                         .map(AnySymbolId::from)
-                        .map(|symbol| {
-                            (symbol, NativeDemandReason::ImplementationFulfillment)
-                        }),
+                        .map(|symbol| (symbol, NativeDemandReason::ImplementationFulfillment)),
                 );
             }
         }

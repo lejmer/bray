@@ -252,9 +252,7 @@ fn scalar_call_arguments(
                 .arguments()
                 .iter()
                 .find_map(|argument| match argument {
-                    MirCallArgument::Explicit { ordinal, value, .. }
-                        if ordinal == position =>
-                    {
+                    MirCallArgument::Explicit { ordinal, value, .. } if ordinal == position => {
                         Some(value)
                     }
                     _ => None,

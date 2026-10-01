@@ -576,9 +576,22 @@ mod tests {
             NativeSymbolContract::required_name(NonEmptySharedStr::try_new(value).unwrap())
         };
 
+        let optional = symbol(
+            name("public_provider"),
+            Some("VERSION_1"),
+            NativeSymbolBinding::Weak,
+            NativeSymbolPresence::Optional,
+        );
+
         let summary = NativeUnitSummary::opaque_archive(
-            [name("internal")],
-            [required("internal"), required("public_provider")],
+            [name("internal"), name("internal")],
+            [
+                required("internal"),
+                required("public_provider"),
+                optional.clone(),
+                required("public_provider"),
+                optional.clone(),
+            ],
         );
 
         let unit = NativeUnit::new(
@@ -608,7 +621,7 @@ mod tests {
 
         assert_eq!(
             decoded.units()[0].summary().references(),
-            [required("public_provider")]
+            [required("public_provider"), optional]
         );
 
         assert_eq!(
@@ -624,6 +637,37 @@ mod tests {
             decoded.units()[0].summary(),
             NativeUnitSummary::Opaque { .. }
         ));
+    }
+
+    #[test]
+    fn opaque_constructors_publish_unique_provider_and_reference_sets() {
+        let provider = NativeSymbolIdentity::Name(name("provided"));
+        let reference = NativeSymbolContract::required_name(name("external"));
+
+        for summary in [
+            NativeUnitSummary::opaque([reference.clone(), reference.clone()]),
+            NativeUnitSummary::opaque_with_providers(
+                [provider.clone(), provider.clone()],
+                [reference.clone(), reference.clone()],
+            ),
+        ] {
+            let unit = NativeUnit::new(
+                NativeContentDigest::new([1; 32]),
+                NativeUnitKind::Object,
+                summary,
+                [],
+            );
+
+            let index = NativeArtifactIndex::try_new(
+                NativeTarget::X86_64WindowsMsvc,
+                NativeContentDigest::new([2; 32]),
+                [unit],
+                [],
+            )
+            .unwrap();
+
+            assert_eq!(index.units()[0].summary().references(), [reference.clone()]);
+        }
     }
 
     #[test]

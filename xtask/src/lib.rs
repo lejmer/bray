@@ -29,4 +29,5 @@ mod windows_crt;
 mod workspace;
 
 pub use command::run;
+pub use native_archive::rust_native_link_argument;
 pub use runtime_artifact::build_bootstrap;

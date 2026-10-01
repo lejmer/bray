@@ -544,10 +544,7 @@ impl<'unit> LoweringInput<'unit> {
     }
 
     /// Returns the closed value reached by one constant reference occurrence.
-    pub fn constant_reference_operand(
-        &self,
-        expression: BoundExpressionId,
-    ) -> Option<&MirOperand> {
+    pub fn constant_reference_operand(&self, expression: BoundExpressionId) -> Option<&MirOperand> {
         self.constant_reference_operands
             .binary_search_by_key(&expression, |(expression, _)| *expression)
             .ok()

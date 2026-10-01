@@ -109,13 +109,95 @@ pub(super) fn cache_identity(
     Ok(Some(bray_base::lowercase_hex(&identity.finalize())))
 }
 
-/// Compiles the manifest-selected trusted runtime bootstrap for the requested target.
-pub fn build(root: &Path, target: NativeTarget, destination: &Path) -> Result<(), String> {
+/// Builds the trusted bootstrap and its selected native dependencies for a Rust host.
+/// Returns libraries that the host must supply in addition to the completed archive.
+pub fn build(
+    root: &Path,
+    target: NativeTarget,
+    destination: &Path,
+) -> Result<Vec<NativeLinkRequirement>, String> {
     build_components(
         root,
         target,
         &[(BrayRuntimeComponent::Bootstrap, destination)],
+    )?;
+
+    let output = destination
+        .parent()
+        .expect("bootstrap archive must have an output directory");
+
+    let owned = bray_package_interface::PackageArtifactInput::file(
+        BrayRuntimeComponent::Bootstrap.implementation_path(output, target),
+        None,
     )
+    .load_implementation()
+    .map_err(|error| format!("bootstrap implementation could not load: {error:?}"))?;
+
+    let standard_library = crate::workspace::cargo_target(root)
+        .join("runtime-bootstrap-standard-library")
+        .join(target.as_str());
+
+    let (inputs, mut links) = crate::native_package::standard_library_inputs(
+        &[owned],
+        target,
+        &standard_library,
+        output,
+    )?;
+
+    let archive = fs::read(destination)
+        .map_err(|error| format!("could not read bootstrap archive: {error}"))?;
+
+    let mut members = crate::native_archive::archive_members(&archive);
+
+    let archive_name =
+        TargetOutputName::for_native(target.object_format(), TargetOutputKind::StaticLibrary);
+
+    for (kind, input) in inputs {
+        match kind {
+            bray_native_artifact::NativeUnitKind::Object => {
+                members.push(fs::read(&input).map_err(|error| {
+                    format!(
+                        "could not read bootstrap input {}: {error}",
+                        input.display()
+                    )
+                })?);
+            }
+            bray_native_artifact::NativeUnitKind::OpaqueArchive => {
+                // Preserve the foreign archive boundary, including COFF import-library members.
+                let name = input
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .and_then(|name| name.strip_prefix(archive_name.prefix()))
+                    .and_then(|name| name.strip_suffix(archive_name.suffix()))
+                    .expect("staged native archive must use target naming");
+
+                links.push(NativeLinkRequirement::new(
+                    NonEmptySharedStr::try_new(name)
+                        .expect("native content digest must be non-empty"),
+                    NativeLinkKind::Static,
+                ));
+            }
+            bray_native_artifact::NativeUnitKind::Bitcode => {
+                unreachable!("foreign host dependency selection must supply linkable objects")
+            }
+        }
+    }
+
+    let tool = bray_tooling::llvm_tool_path(bray_diagnostics::DiagnosticLlvmToolRole::Archiver)
+        .map_err(|error| format!("bootstrap archiver is unavailable: {error}"))?;
+
+    let bytes = crate::native_archive::archive_bytes(&tool, &members, "o")
+        .map_err(|error| format!("could not pack bootstrap dependencies: {error}"))?;
+
+    fs::write(destination, bytes)
+        .map_err(|error| format!("could not publish bootstrap archive: {error}"))?;
+
+    // The Rust runtime supplies these roles itself, rather than linking separate host archives.
+    let supplied = bootstrap_runtime_dependencies();
+
+    links.retain(|link| !supplied.contains(link));
+
+    Ok(links)
 }
 
 pub(super) fn build_runtime_components(
@@ -198,10 +280,7 @@ fn build_component(
         .map_err(|error| format!("could not load runtime native link inputs: {error}"))?;
 
     if matches!(component, BrayRuntimeComponent::Bootstrap) {
-        native_links.extend([
-            runtime_dependency("bray_runtime_host"),
-            runtime_dependency("bray_runtime_callback"),
-        ]);
+        native_links.extend(bootstrap_runtime_dependencies());
     }
 
     let compilation = DriverCompilationConfiguration::new(
@@ -297,12 +376,18 @@ fn selected_product(
     })
 }
 
-fn runtime_dependency(name: &'static str) -> NativeLinkRequirement {
-    NativeLinkRequirement::new(
-        NonEmptySharedStr::try_new(name)
-            .unwrap_or_else(|| unreachable!("runtime dependency names are non-empty")),
-        NativeLinkKind::System,
-    )
+fn bootstrap_runtime_dependencies() -> [NativeLinkRequirement; 2] {
+    [
+        super::command::RuntimeArchiveKind::Host,
+        super::command::RuntimeArchiveKind::Callback,
+    ]
+    .map(|kind| {
+        NativeLinkRequirement::new(
+            NonEmptySharedStr::try_new(kind.archive_stem())
+                .expect("runtime archive names must be non-empty"),
+            NativeLinkKind::System,
+        )
+    })
 }
 
 fn runtime_bindings(component: BrayRuntimeComponent) -> Vec<RuntimeRoleSourceBinding> {

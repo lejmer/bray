@@ -565,7 +565,10 @@ fn audit_outcomes(
     let batch = parse_batch_report("native outcomes", &output, &request)?;
 
     let graph = load_standard_library_project_graph(workspace).map_err(|error| {
-        BuildError::conformance("native outcomes", format!("could not load source graph: {error:?}"))
+        BuildError::conformance(
+            "native outcomes",
+            format!("could not load source graph: {error:?}"),
+        )
     })?;
 
     let catalog = product_catalog(workspace, target, OUTCOME_PRODUCT)?;
@@ -574,7 +577,10 @@ fn audit_outcomes(
     require_catalog_separation(&catalog)?;
 
     let (catalog, _) = decode_test_catalog(&catalog).map_err(|error| {
-        BuildError::conformance("native outcomes", format!("could not decode test catalog: {error:?}"))
+        BuildError::conformance(
+            "native outcomes",
+            format!("could not decode test catalog: {error:?}"),
+        )
     })?;
 
     let direct_source_namespace = catalog
@@ -590,7 +596,12 @@ fn audit_outcomes(
 
     let outcome_product = graph
         .package(&package)
-        .and_then(|package| package.products().iter().find(|product| product.identity().name() == OUTCOME_PRODUCT))
+        .and_then(|package| {
+            package
+                .products()
+                .iter()
+                .find(|product| product.identity().name() == OUTCOME_PRODUCT)
+        })
         .expect("standard library outcomes product must exist");
 
     if direct_source_namespace != outcome_product.identity().source_namespace() {
@@ -601,12 +612,7 @@ fn audit_outcomes(
     }
 
     for case in OUTCOME_CASES {
-        audit_outcome(
-            batch.report(case.plan_identity)?,
-            case,
-            workspace,
-            &graph,
-        )?;
+        audit_outcome(batch.report(case.plan_identity)?, case, workspace, &graph)?;
     }
 
     Ok(())
@@ -665,15 +671,13 @@ fn audit_outcome(
 
     if let (
         OutcomeExpectation::Explicit { message },
-        NativeOutcome::ExplicitFailure { source: Some(source), .. },
-    ) = (case.expectation, &test.outcome) {
-        audit_explicit_source(
-            workspace,
-            graph,
-            case.test_identity,
-            message,
-            source,
-        )?;
+        NativeOutcome::ExplicitFailure {
+            source: Some(source),
+            ..
+        },
+    ) = (case.expectation, &test.outcome)
+    {
+        audit_explicit_source(workspace, graph, case.test_identity, message, source)?;
     }
 
     require_stream(
@@ -700,8 +704,14 @@ fn audit_explicit_source(
     message: &str,
     source: &crate::native_test_report::NativeSourceAnchor,
 ) -> Result<(), BuildError> {
-    let package = PackageIdentity::try_new(PACKAGE_IDENTITY).expect("standard library package identity is valid");
-    let product_name = if identity == "explicit_failure" { OUTCOME_PRODUCT } else { LIBRARY_PRODUCT };
+    let package = PackageIdentity::try_new(PACKAGE_IDENTITY)
+        .expect("standard library package identity is valid");
+
+    let product_name = if identity == "explicit_failure" {
+        OUTCOME_PRODUCT
+    } else {
+        LIBRARY_PRODUCT
+    };
 
     let source_path = if identity == "explicit_failure" {
         "std/tests/outcomes/outcomes.bray"
@@ -711,7 +721,12 @@ fn audit_explicit_source(
 
     let product = graph
         .package(&package)
-        .and_then(|package| package.products().iter().find(|product| product.identity().name() == product_name))
+        .and_then(|package| {
+            package
+                .products()
+                .iter()
+                .find(|product| product.identity().name() == product_name)
+        })
         .expect("standard library outcome sources must have known products");
 
     let expected_source = product
@@ -722,7 +737,9 @@ fn audit_explicit_source(
 
     let expected_source = u32::try_from(expected_source).expect("source index must fit u32");
     let source_file = workspace.join(source_path);
-    let contents = fs::read_to_string(&source_file).map_err(|error| BuildError::read(&source_file, error))?;
+
+    let contents =
+        fs::read_to_string(&source_file).map_err(|error| BuildError::read(&source_file, error))?;
 
     let expected_call = format!("fail(&\"{message}\")");
     let start = source.start as usize;
@@ -742,8 +759,7 @@ fn audit_explicit_source(
 
     let expected_package = lowercase_hex(&product.identity().source_namespace());
 
-    if source.package != expected_package || source.source != expected_source
-        || !source_is_in_call
+    if source.package != expected_package || source.source != expected_source || !source_is_in_call
     {
         return Err(BuildError::conformance(
             "native outcomes",
@@ -1272,11 +1288,11 @@ impl OutcomeExpectation {
     fn validate(self, identity: &str, outcome: &NativeOutcome) -> Result<(), BuildError> {
         let valid = match (self, outcome) {
             (
-                Self::Assertion { message: expected_message },
+                Self::Assertion {
+                    message: expected_message,
+                },
                 NativeOutcome::AssertionFailure { source, message },
-            ) => {
-                source.is_valid() && message.as_deref() == Some(expected_message)
-            }
+            ) => source.is_valid() && message.as_deref() == Some(expected_message),
             (
                 Self::Explicit {
                     message: expected_message,

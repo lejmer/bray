@@ -43,9 +43,10 @@ pub use constant::{
     ConstantCallResolution, ConstantCallResolver, ConstantEvaluationInput,
     ConstantEvaluationLimits, ConstantEvaluationUsage, ConstantLiteralError,
     ConstantReferenceResolution, ConstantTemplateResolver, EvaluatedConstant,
-    EvaluatedConstantCall, check_array_length, check_constant_literal, fold_machine_integer_binary, fold_machine_integer_truncate, fold_machine_integer_unary,
+    EvaluatedConstantCall, check_array_length, check_constant_literal,
     evaluate_constant_callable_template, evaluate_constant_definition_template,
     evaluate_generic_constraint_template, evaluate_static_initializer_template,
+    fold_machine_integer_binary, fold_machine_integer_truncate, fold_machine_integer_unary,
     normalize_integer_literal, resolve_callable_signature_template,
     resolve_trait_application_template, resolve_type_expression_template,
 };

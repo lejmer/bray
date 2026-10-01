@@ -8439,11 +8439,7 @@ func tupled(pos flag: bool, pos pair: (Guard, Guard)) -> i32
         }
 
         assert!(
-            normal
-                && body_panic
-                && body_cancellation
-                && cleanup_panic
-                && cleanup_cancellation,
+            normal && body_panic && body_cancellation && cleanup_panic && cleanup_cancellation,
             "normal exit, body panic/cancellation and cleanup panic/cancellation must each reach the policy release: {mir:?}"
         );
 

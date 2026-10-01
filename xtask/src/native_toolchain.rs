@@ -88,10 +88,16 @@ fn install_runtime(
     copy_file(runtime, &runtime_directory.join("bray-runtime.brayrt"))?;
 
     for index in metadata.native_indexes() {
-        copy_file(&source_directory.join(index.file_name()), &runtime_directory.join(index.file_name()))?;
+        copy_file(
+            &source_directory.join(index.file_name()),
+            &runtime_directory.join(index.file_name()),
+        )?;
     }
 
-    copy_directory(&source_directory.join("native"), &runtime_directory.join("native"))
+    copy_directory(
+        &source_directory.join("native"),
+        &runtime_directory.join("native"),
+    )
 }
 
 pub(crate) fn runtime_artifact_metadata(runtime: &Path) -> Result<RuntimeArtifactMetadata, String> {

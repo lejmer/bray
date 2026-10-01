@@ -19,8 +19,8 @@ use crate::{
 };
 
 use super::ExpressionTypeInput;
-use super::cardinality::unproven_array_generators;
 use super::array::append_inferred_bytes_diagnostics;
+use super::cardinality::unproven_array_generators;
 use super::session::{ExpressionTypeSession, SessionProgress};
 
 #[derive(Clone, Eq, Ord, PartialEq, PartialOrd)]

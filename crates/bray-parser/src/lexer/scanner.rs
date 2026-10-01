@@ -87,9 +87,7 @@ fn scan_normal_token(snapshot: &SourceSnapshot, start: TextSize) -> TokenScan {
     };
 
     if character.is_ascii_alphabetic() {
-        if character == 'b'
-            && snapshot.bytes().get(text_size_to_usize(start) + 1) == Some(&b'"')
-        {
+        if character == 'b' && snapshot.bytes().get(text_size_to_usize(start) + 1) == Some(&b'"') {
             return scan_string_literal(snapshot, start, true);
         }
 

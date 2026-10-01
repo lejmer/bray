@@ -53,7 +53,7 @@ fn is_excluded_directory(root: &Path, path: &Path) -> bool {
 
     (name == "scratch" && path.parent().is_some_and(|parent| parent == root))
         || EXCLUDED_DIRECTORIES.contains(&name)
-        && (name != "target" || path.parent().is_some_and(|parent| parent == root))
+            && (name != "target" || path.parent().is_some_and(|parent| parent == root))
 }
 
 pub(super) fn source_text(source: &str, range: TextRange) -> &str {

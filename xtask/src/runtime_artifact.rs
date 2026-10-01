@@ -4,10 +4,10 @@ mod archive;
 mod bootstrap;
 mod command;
 mod contract;
+mod native_index;
 mod native_link;
 mod observation_smoke;
 mod partition;
-mod native_index;
 mod reuse;
 mod smoke;
 

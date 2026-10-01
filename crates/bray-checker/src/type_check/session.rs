@@ -11,11 +11,11 @@ use crate::constant::parse_byte_string;
 use crate::representation::representation_type;
 use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
+use super::array::array_length;
 use super::constraints::{
     add_expectations, add_intrinsic_constraints, add_relationship_constraints,
     add_semantic_context_constraints, block_expectations,
 };
-use super::array::array_length;
 use super::dependencies::ExpressionTypeDependencies;
 use super::inference::{InferenceTypeId, TypeConflict, TypeInferenceContext};
 use super::literal::{adapt_contextual_literals, apply_literal_defaults};
@@ -555,19 +555,23 @@ where
         {
             let source = request.source(literal.origin().source_anchor())?;
 
-            let spelling = source.text_for_range(literal.spelling_range()).unwrap_or_else(|| {
-                panic!(
-                    "byte literal {:?} has an invalid source range {:?}",
-                    expression,
-                    literal.spelling_range()
-                )
-            });
+            let spelling = source
+                .text_for_range(literal.spelling_range())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "byte literal {:?} has an invalid source range {:?}",
+                        expression,
+                        literal.spelling_range()
+                    )
+                });
 
             let bytes = parse_byte_string(spelling).unwrap_or_else(|error| {
                 panic!("lexed byte literal {:?} must decode: {error:?}", expression)
             });
 
-            let element = representation_type(request, bray_compiler_known::RepresentationRole::ScalarU8)?;
+            let element =
+                representation_type(request, bray_compiler_known::RepresentationRole::ScalarU8)?;
+
             let length = array_length(request, bytes.len())?;
 
             let ty = request

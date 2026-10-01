@@ -1081,7 +1081,9 @@ fn keeps_boxed_match_pattern_closers_together() {
         let output = formatted(&input);
 
         assert!(
-            output.text().contains(&format!("        }}){ending}        {{")),
+            output
+                .text()
+                .contains(&format!("        }}){ending}        {{")),
             "{}",
             output.text()
         );
@@ -1095,7 +1097,11 @@ fn syntax_tokens(source: &str) -> Vec<(bray_syntax::SyntaxKind, String)> {
     let snapshot = test_source_snapshot(source);
     let parsed = parse_source_unit(&snapshot);
 
-    assert!(parsed.diagnostics().is_empty(), "{:#?}", parsed.diagnostics());
+    assert!(
+        parsed.diagnostics().is_empty(),
+        "{:#?}",
+        parsed.diagnostics()
+    );
 
     parsed
         .source_unit()

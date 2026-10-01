@@ -103,17 +103,17 @@ pub fn reconstruct_with_edits(
     let retained_blocks = retained_blocks(unit, terminators);
     let operation_owners = operation_owners(unit);
 
-    let retained_operations =
-        retained_operations(unit, &retained_blocks, &operation_owners, omitted_operations);
+    let retained_operations = retained_operations(
+        unit,
+        &retained_blocks,
+        &operation_owners,
+        omitted_operations,
+    );
 
     let retained_values = retained_values(unit, &retained_blocks, &retained_operations);
 
-    let retained_storages = retained_storages(
-        unit,
-        &retained_blocks,
-        &retained_operations,
-        terminators,
-    );
+    let retained_storages =
+        retained_storages(unit, &retained_blocks, &retained_operations, terminators);
 
     let mut mappings = build_mappings(
         unit,
@@ -147,7 +147,13 @@ fn retained_blocks(
     }
 
     while let Some(block) = pending.pop() {
-        let index = local_index(unit, block.unit(), block.to_index(), retained.len(), "block");
+        let index = local_index(
+            unit,
+            block.unit(),
+            block.to_index(),
+            retained.len(),
+            "block",
+        );
 
         if retained[index] {
             continue;
@@ -190,7 +196,8 @@ fn retained_values(unit: &MirUnit, blocks: &[bool], operations: &[bool]) -> Vec<
         .iter()
         .map(|value| match value.origin() {
             MirValueOrigin::BlockParameter(block) => {
-                let index = local_index(unit, block.unit(), block.to_index(), blocks.len(), "block");
+                let index =
+                    local_index(unit, block.unit(), block.to_index(), blocks.len(), "block");
 
                 blocks[index]
             }
@@ -223,7 +230,13 @@ fn retained_storages(
         }
 
         for operation in block.operations() {
-            if !operations[local_index(unit, operation.unit(), operation.to_index(), operations.len(), "operation")] {
+            if !operations[local_index(
+                unit,
+                operation.unit(),
+                operation.to_index(),
+                operations.len(),
+                "operation",
+            )] {
                 continue;
             }
 
@@ -237,7 +250,10 @@ fn retained_storages(
             });
         }
 
-        let block_id = MirBlockId::from_slot(unit.unit(), u32::try_from(block_index).expect("validated MIR block slot must fit its identity"));
+        let block_id = MirBlockId::from_slot(
+            unit.unit(),
+            u32::try_from(block_index).expect("validated MIR block slot must fit its identity"),
+        );
 
         let terminator = terminators
             .get(&block_id)
@@ -284,9 +300,7 @@ fn build_mappings(
         operations: compact_mapping(operations, |slot| {
             MirOperationId::from_slot(unit.unit(), slot)
         }),
-        storages: compact_mapping(storages, |slot| {
-            MirStorageId::from_slot(unit.unit(), slot)
-        }),
+        storages: compact_mapping(storages, |slot| MirStorageId::from_slot(unit.unit(), slot)),
         values: compact_mapping(values, |slot| MirValueId::from_slot(unit.unit(), slot)),
         aliases: BTreeMap::new(),
     }
@@ -565,8 +579,8 @@ mod tests {
         MirAsyncOperation, MirBlockKind, MirCleanupEdge, MirCleanupPhase, MirEdge,
         MirFrameDescriptor, MirFrameState, MirFrameStateId, MirImmediateValue,
         MirInlineAssemblyTerminator, MirOperand, MirOperationKind, MirPlace, MirRuntimeReference,
-        MirStorageKind, MirStoreKind, MirSuspensionKind, MirTerminatorKind, MirUnit,
-        MirUnaryOperator, MirUnitBuilder, MirUnitKind,
+        MirStorageKind, MirStoreKind, MirSuspensionKind, MirTerminatorKind, MirUnaryOperator,
+        MirUnit, MirUnitBuilder, MirUnitKind,
     };
 
     #[test]
@@ -649,8 +663,9 @@ mod tests {
             MirTerminatorKind::Goto(MirEdge::new(*exit, [MirOperand::Value(header_value)])),
         )]);
 
-        let (rewritten, mappings) = reconstruct_with_edits(&unit, &terminators, &BTreeSet::new(), &BTreeMap::new())
-            .expect("edited MIR must reconstruct");
+        let (rewritten, mappings) =
+            reconstruct_with_edits(&unit, &terminators, &BTreeSet::new(), &BTreeMap::new())
+                .expect("edited MIR must reconstruct");
 
         assert!(rewritten.is_valid());
         assert_eq!(rewritten.blocks().len(), 3);
@@ -663,7 +678,12 @@ mod tests {
     fn omitted_operation_removes_its_unused_storage() {
         let (unit, _) = ordinary_unit(false);
 
-        let operation = unit.operations_with_ids().next().expect("body has a store").0;
+        let operation = unit
+            .operations_with_ids()
+            .next()
+            .expect("body has a store")
+            .0;
+
         let storage = unit.storages_with_ids().next().expect("body has storage").0;
 
         let (rewritten, mappings) = reconstruct_with_edits(
@@ -688,24 +708,33 @@ mod tests {
         let ty = crate::test_support::test_type();
 
         let mut builder = MirUnitBuilder::for_bound(
-            bound.identity(), MirUnitKind::Synchronous, crate::test_support::test_target(),
+            bound.identity(),
+            MirUnitKind::Synchronous,
+            crate::test_support::test_target(),
         );
 
         let entry = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
 
         let operation = MirOperationKind::Unary {
             operator: MirUnaryOperator::Not,
-            operand: MirOperand::Immediate { value: MirImmediateValue::Boolean(false), ty },
+            operand: MirOperand::Immediate {
+                value: MirImmediateValue::Boolean(false),
+                ty,
+            },
         };
 
-        let first = builder.push_operation(entry, source.clone(), operation.clone(), Some(ty))
+        let first = builder
+            .push_operation(entry, source.clone(), operation.clone(), Some(ty))
             .expect("first result must fit");
 
-        let second = builder.push_operation(entry, source.clone(), operation, Some(ty))
+        let second = builder
+            .push_operation(entry, source.clone(), operation, Some(ty))
             .expect("second result must fit");
 
         builder.set_terminator(
-            entry, source, MirTerminatorKind::Return(Some(MirOperand::Value(
+            entry,
+            source,
+            MirTerminatorKind::Return(Some(MirOperand::Value(
                 second.result().expect("duplicate has a result"),
             ))),
         );
@@ -718,20 +747,30 @@ mod tests {
         )]);
 
         let (rewritten, mappings) = reconstruct_with_edits(
-            &unit, &BTreeMap::new(), &BTreeSet::from([second.operation()]), &aliases,
-        ).expect("value alias must reconstruct");
+            &unit,
+            &BTreeMap::new(),
+            &BTreeSet::from([second.operation()]),
+            &aliases,
+        )
+        .expect("value alias must reconstruct");
 
         assert!(rewritten.is_valid());
         assert_eq!(rewritten.operations().len(), 1);
         assert_eq!(mappings.operation(second.operation()), None);
 
-        let MirTerminatorKind::Return(Some(MirOperand::Value(returned))) =
-            rewritten.block(rewritten.entry()).expect("entry exists").terminator().kind()
+        let MirTerminatorKind::Return(Some(MirOperand::Value(returned))) = rewritten
+            .block(rewritten.entry())
+            .expect("entry exists")
+            .terminator()
+            .kind()
         else {
             panic!("rebuilt return must use a value");
         };
 
-        assert_eq!(Some(*returned), mappings.value(first.result().expect("first has a result")));
+        assert_eq!(
+            Some(*returned),
+            mappings.value(first.result().expect("first has a result"))
+        );
     }
 
     #[test]
@@ -748,11 +787,7 @@ mod tests {
 
         let entry = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
 
-        let cancellation = push_block(
-            &mut builder,
-            source.clone(),
-            MirBlockKind::CleanupBroadcast,
-        );
+        let cancellation = push_block(&mut builder, source.clone(), MirBlockKind::CleanupBroadcast);
 
         let lifecycle = push_block(
             &mut builder,
@@ -869,11 +904,7 @@ mod tests {
         let resume = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
         let external_resume = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
 
-        let cancellation = push_block(
-            &mut builder,
-            source.clone(),
-            MirBlockKind::CleanupBroadcast,
-        );
+        let cancellation = push_block(&mut builder, source.clone(), MirBlockKind::CleanupBroadcast);
 
         let lifecycle = push_block(
             &mut builder,
@@ -911,10 +942,7 @@ mod tests {
                     MirCleanupPhase::TaskCancellation,
                     MirEdge::new(cancellation, []),
                 ),
-                registration: MirRuntimeReference::new(
-                    RuntimeAbiRole::SuspensionRegistration,
-                    abi,
-                ),
+                registration: MirRuntimeReference::new(RuntimeAbiRole::SuspensionRegistration, abi),
                 wake: MirRuntimeReference::new(RuntimeAbiRole::Wake, abi),
             },
         );
@@ -946,12 +974,7 @@ mod tests {
             [
                 MirFrameState::new(MirFrameStateId::new(0), entry, [], []),
                 MirFrameState::new(MirFrameStateId::new(1), resume, [], []),
-                MirFrameState::new(
-                    MirFrameStateId::new(2),
-                    external_resume,
-                    [],
-                    [storage],
-                ),
+                MirFrameState::new(MirFrameStateId::new(2), external_resume, [], [storage]),
             ],
         )
         .unwrap_or_else(|error| panic!("frame descriptor must be valid: {error:?}"));

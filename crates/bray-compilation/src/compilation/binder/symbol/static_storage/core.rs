@@ -438,7 +438,6 @@ fn static_type_lifecycle_dependencies(
                 phase.dependency_contract(),
             )?);
         }
-
     }
 
     dependencies.sort_unstable();
@@ -745,7 +744,12 @@ mod tests {
             .static_instance_template(copy)
             .unwrap_or_else(|error| panic!("copy static template must publish: {error:?}"));
 
-        assert!(template.diagnostics().is_empty(), "{:#?}", template.diagnostics());
+        assert!(
+            template.diagnostics().is_empty(),
+            "{:#?}",
+            template.diagnostics()
+        );
+
         assert_eq!(template.value().lifecycle_dependencies(), [root]);
     }
 
@@ -1138,7 +1142,12 @@ mod tests {
             .static_instance_template(stored)
             .unwrap_or_else(|error| panic!("stored static template must publish: {error:?}"));
 
-        assert!(template.diagnostics().is_empty(), "{:#?}", template.diagnostics());
+        assert!(
+            template.diagnostics().is_empty(),
+            "{:#?}",
+            template.diagnostics()
+        );
+
         assert_eq!(template.value().lifecycle_dependencies(), [root]);
     }
 
@@ -1171,7 +1180,12 @@ mod tests {
             .static_instance_template(stored)
             .unwrap_or_else(|error| panic!("stored static template must publish: {error:?}"));
 
-        assert!(template.diagnostics().is_empty(), "{:#?}", template.diagnostics());
+        assert!(
+            template.diagnostics().is_empty(),
+            "{:#?}",
+            template.diagnostics()
+        );
+
         assert_eq!(template.value().lifecycle_dependencies(), [root]);
     }
 
@@ -1208,7 +1222,12 @@ mod tests {
             .static_instance_template(stored)
             .unwrap_or_else(|error| panic!("stored static template must publish: {error:?}"));
 
-        assert!(template.diagnostics().is_empty(), "{:#?}", template.diagnostics());
+        assert!(
+            template.diagnostics().is_empty(),
+            "{:#?}",
+            template.diagnostics()
+        );
+
         assert_eq!(template.value().lifecycle_dependencies(), [root]);
     }
 

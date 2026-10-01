@@ -2,7 +2,9 @@ use super::abi::runtime_function_type;
 use bray_codegen::{
     CodegenFailure, CodegenInstance, CodegenRequest, CodegenSymbolKey, CodegenTarget,
 };
-use bray_runtime_interface::{NATIVE_PANIC_REPORT_FIELDS, ProtectedFrameOperation, RuntimeAbiRole, RuntimeAbiType};
+use bray_runtime_interface::{
+    NATIVE_PANIC_REPORT_FIELDS, ProtectedFrameOperation, RuntimeAbiRole, RuntimeAbiType,
+};
 use bray_target::{ObjectFormat, TargetArchitecture};
 use inkwell::AddressSpace;
 use inkwell::attributes::{Attribute, AttributeLoc};
@@ -332,7 +334,10 @@ pub(crate) fn frame_progress_type(context: &Context) -> StructType<'_> {
 }
 
 pub(crate) fn panic_report_type(context: &Context) -> StructType<'_> {
-    context.struct_type(&NATIVE_PANIC_REPORT_FIELDS.map(|field| panic_field_type(context, field)), false)
+    context.struct_type(
+        &NATIVE_PANIC_REPORT_FIELDS.map(|field| panic_field_type(context, field)),
+        false,
+    )
 }
 
 fn panic_field_type(context: &Context, field: RuntimeAbiType) -> BasicTypeEnum<'_> {

@@ -69,7 +69,12 @@ impl MirSourceAnchor {
         span: SourceSpan,
         version: SourceVersion,
     ) -> Self {
-        Self::ImportedSource { owner, namespace, span, version }
+        Self::ImportedSource {
+            owner,
+            namespace,
+            span,
+            version,
+        }
     }
 
     pub(crate) fn belongs_to(&self, owner: &MirSourceOrigin) -> bool {
@@ -95,9 +100,10 @@ impl MirSourceAnchor {
             (Self::ImportedExecutable(anchor), MirSourceOrigin::ImportedExecutable(owner)) => {
                 anchor == owner
             }
-            (Self::ImportedSource { owner: anchor, .. }, MirSourceOrigin::ImportedExecutable(owner)) => {
-                anchor == owner
-            }
+            (
+                Self::ImportedSource { owner: anchor, .. },
+                MirSourceOrigin::ImportedExecutable(owner),
+            ) => anchor == owner,
             (Self::Source(_), MirSourceOrigin::ExecutableHost(_))
             | (Self::Source(_), MirSourceOrigin::GeneratedLifecycle(_))
             | (Self::Source(_), MirSourceOrigin::ImportedExecutable(_))

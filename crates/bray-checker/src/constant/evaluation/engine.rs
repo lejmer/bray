@@ -17,7 +17,9 @@ use crate::constant::diagnostic::ConstantDiagnostic;
 use crate::constant::input::{ConstantDestination, ConstantEvaluationRoot};
 use crate::constant::integer::integer_to_usize;
 use crate::constant::limits::EvaluationBudget;
-use crate::constant::literal::{check_byte_string_literal, normalize_integer_literal, parse_literal};
+use crate::constant::literal::{
+    check_byte_string_literal, normalize_integer_literal, parse_literal,
+};
 use crate::constant::operation::negate_real;
 use crate::diagnostic::{diagnostic_id, expression_category, expression_span};
 use crate::representation::type_representation;
@@ -529,7 +531,9 @@ where
             BoundExpression::Call(_)
                 if matches!(
                     self.input.semantic_selections().expression(expression),
-                    Some(SemanticSelection::Operation(SelectedOperation::Construction(_)))
+                    Some(SemanticSelection::Operation(
+                        SelectedOperation::Construction(_)
+                    ))
                 ) =>
             {
                 self.evaluate_construction(expression, ty)
@@ -586,7 +590,9 @@ where
         if literal.kind() == bray_bound_tree::BoundLiteralKind::ByteString {
             let kind = check_byte_string_literal(self.request.semantic_values(), ty, spelling)
                 .map_err(|error| {
-                    EvaluationFailure::Infrastructure(CheckerInfrastructureError::SemanticValueStore(error))
+                    EvaluationFailure::Infrastructure(
+                        CheckerInfrastructureError::SemanticValueStore(error),
+                    )
                 })?
                 .map_err(|error| EvaluationFailure::literal(expression, error))?;
 

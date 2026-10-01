@@ -410,7 +410,11 @@ fn encode_source(encoder: &mut Encoder, source: TestSourceAnchor) -> Result<(), 
 
 fn decode_source(decoder: &mut Decoder<'_>) -> Result<TestSourceAnchor, TestProtocolError> {
     let package = decoder.bytes()?;
-    let package: [u8; 32] = package.try_into().map_err(|_| TestProtocolError::Malformed)?;
+
+    let package: [u8; 32] = package
+        .try_into()
+        .map_err(|_| TestProtocolError::Malformed)?;
+
     let source = SourceId::stored(decoder.u32()?).ok_or(TestProtocolError::Malformed)?;
     let start = TextSize::new(decoder.u32()?);
     let end = TextSize::new(decoder.u32()?);

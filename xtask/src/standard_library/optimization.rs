@@ -17,19 +17,7 @@ pub(super) fn from_native_archive(
 ) -> Result<Option<Vec<u8>>, BuildError> {
     let bytes = fs::read(archive).map_err(|error| BuildError::read(archive, error))?;
 
-    let archive = object::read::archive::ArchiveFile::parse(bytes.as_slice())
-        .expect("foreign producer archive must parse");
-
-    let members = archive
-        .members()
-        .map(|member| {
-            member
-                .expect("foreign producer archive member must parse")
-                .data(bytes.as_slice())
-                .expect("foreign producer archive member must be in bounds")
-                .to_vec()
-        })
-        .collect::<Vec<_>>();
+    let members = crate::native_archive::archive_members(&bytes);
 
     if !members.iter().any(|member| is_llvm_bitcode(member)) {
         return Ok(None);

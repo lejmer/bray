@@ -1,6 +1,6 @@
 use bray_codegen::{CodegenFailure, CodegenSymbolKey, CodegenTarget};
-use bray_runtime_interface::{RuntimeAbiRole, RuntimeAbiVersion};
 use bray_runtime_abi::NativeRunState;
+use bray_runtime_interface::{RuntimeAbiRole, RuntimeAbiVersion};
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
@@ -95,8 +95,12 @@ pub(crate) fn merge_pending_outcomes<'context>(
         .map_err(CodegenFailure::backend_library)?
         .into_int_value();
 
-    let first_panicked =
-        native_run_state_is(builder, first_state, NativeRunState::PANICKED, "outcome.first.panicked")?;
+    let first_panicked = native_run_state_is(
+        builder,
+        first_state,
+        NativeRunState::PANICKED,
+        "outcome.first.panicked",
+    )?;
 
     let second_panicked = native_run_state_is(
         builder,
@@ -157,8 +161,12 @@ pub(crate) fn merge_pending_outcomes<'context>(
 
     builder.position_at_end(inspect);
 
-    let second_completed =
-        native_run_state_is(builder, second_state, NativeRunState::COMPLETED, "outcome.second.completed")?;
+    let second_completed = native_run_state_is(
+        builder,
+        second_state,
+        NativeRunState::COMPLETED,
+        "outcome.second.completed",
+    )?;
 
     let keep_first = builder
         .build_or(first_panicked, second_completed, "outcome.keep.first")

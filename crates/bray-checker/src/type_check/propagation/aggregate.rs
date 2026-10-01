@@ -4,8 +4,8 @@ use bray_bound_tree::{BoundBlockId, BoundExpression, BoundExpressionId};
 use bray_compiler_known::RepresentationRole;
 use bray_symbols::{GenericArgument, TypeData, TypeId};
 
-use super::super::dependencies::ExpressionTypeDependencies;
 use super::super::array::array_length;
+use super::super::dependencies::ExpressionTypeDependencies;
 use super::super::inference::{InferenceTypeId, TypeInferenceContext};
 use super::super::region::{ExpressionTypeRegions, ResultRegionKind};
 use crate::representation::{representation_type, representation_union_type, type_representation};

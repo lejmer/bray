@@ -66,12 +66,12 @@ pub use linking::LinkedProductEmissionError;
 pub use load::CompilationLoadError;
 #[cfg(test)]
 pub(crate) use product::ProductSynchronizationComponent;
-pub use product::{
-    NativeProductPlan, NativeProductPlanningError, ProductQueryError, ProductQueryErrorKind,
-};
 pub(crate) use product::{
     NativeDemand, NativeDemandReason, ProductDataKind, ProductQueryContext, ProductQueryFailure,
     ProductTestCatalogFailureKind, ProductValueKind,
+};
+pub use product::{
+    NativeProductPlan, NativeProductPlanningError, ProductQueryError, ProductQueryErrorKind,
 };
 pub(crate) use product_emission::diagnostics::diagnostic_evaluation_failure;
 pub use product_emission::{ProductEmissionError, ProductEmissionErrorKind, ProductEmissionInputs};

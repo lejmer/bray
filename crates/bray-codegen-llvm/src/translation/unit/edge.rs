@@ -133,10 +133,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             self.pointer_integer_type().const_int(layout.size(), false),
         ))?;
 
-        super::support::llvm(
-            self.builder
-                .build_store(context, outcome_type.const_zero()),
-        )?;
+        super::support::llvm(self.builder.build_store(context, outcome_type.const_zero()))?;
 
         self.finish_route(edge.target())?;
 

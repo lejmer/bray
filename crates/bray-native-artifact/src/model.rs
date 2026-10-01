@@ -1,6 +1,7 @@
 use std::fmt;
 use std::sync::Arc;
 
+use bray_base::sorted_unique_shared_slice;
 use bray_symbols::{NativeLinkRequirement, NativeSymbolContract, NativeSymbolIdentity};
 use bray_target::{NativeTarget, TargetOutputKind, TargetOutputName};
 
@@ -156,20 +157,17 @@ pub enum NativeUnitSummary {
 impl NativeUnitSummary {
     /// Creates a conservative summary without discarding known external dependencies.
     pub fn opaque(references: impl IntoIterator<Item = NativeSymbolContract>) -> Self {
-        Self::Opaque {
-            provided: Arc::from([]),
-            references: sorted(references.into_iter().collect()),
-        }
+        Self::opaque_with_providers([], references)
     }
 
-    /// Creates conservative retention while preserving known providers and external references.
+    /// Creates conservative retention with stable unique provider and external reference inventories.
     pub fn opaque_with_providers(
         provided: impl IntoIterator<Item = NativeSymbolIdentity>,
         references: impl IntoIterator<Item = NativeSymbolContract>,
     ) -> Self {
         Self::Opaque {
-            provided: sorted(provided.into_iter().collect()),
-            references: sorted(references.into_iter().collect()),
+            provided: sorted_unique_shared_slice(provided),
+            references: sorted_unique_shared_slice(references),
         }
     }
 
@@ -198,10 +196,10 @@ impl NativeUnitSummary {
 
         let references = references
             .into_iter()
-            .filter(|reference| !provided.contains(reference.identity()))
-            .collect::<Vec<_>>();
+            .filter(|reference| !provided.contains(reference.identity()));
 
-        Self::opaque_with_providers(provided, references)
+        // Reference filtering borrows the provider set until both inventories are collected.
+        Self::opaque_with_providers(provided.iter().cloned(), references)
     }
 
     /// Returns native references known to leave this physical payload.

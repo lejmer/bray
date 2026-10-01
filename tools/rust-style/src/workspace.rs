@@ -52,7 +52,9 @@ fn fix_sources(paths: &[PathBuf]) -> Result<usize, String> {
         })
         .collect::<Vec<Result<usize, String>>>();
 
-    results.into_iter().try_fold(0, |total, result| result.map(|count| total + count))
+    results
+        .into_iter()
+        .try_fold(0, |total, result| result.map(|count| total + count))
 }
 
 fn replace_source(path: &Path, contents: &[u8]) -> io::Result<()> {
@@ -212,7 +214,12 @@ mod tests {
         std::fs::write(blocked.join("retained"), "original").unwrap();
 
         assert!(super::replace_source(&blocked, b"replacement").is_err());
-        assert_eq!(std::fs::read(blocked.join("retained")).unwrap(), b"original");
+
+        assert_eq!(
+            std::fs::read(blocked.join("retained")).unwrap(),
+            b"original"
+        );
+
         assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 2);
     }
 

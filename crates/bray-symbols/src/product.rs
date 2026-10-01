@@ -235,7 +235,11 @@ mod tests {
 
         assert_eq!(product.package(), &package);
         assert_eq!(product.name(), "application");
-        assert_eq!(product.source_namespace(), product.clone().source_namespace());
+
+        assert_eq!(
+            product.source_namespace(),
+            product.clone().source_namespace()
+        );
 
         assert_ne!(
             product.source_namespace(),

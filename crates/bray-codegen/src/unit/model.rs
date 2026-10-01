@@ -426,8 +426,8 @@ mod tests {
         MirUnitKind,
     };
     use bray_testing::{
-        test_bound_unit_with_declaration, test_mir_content_identity, test_mir_target, test_mir_type, test_mir_unit,
-        test_mir_unit_with_declaration,
+        test_bound_unit_with_declaration, test_mir_content_identity, test_mir_target,
+        test_mir_type, test_mir_unit, test_mir_unit_with_declaration,
     };
 
     use super::{CodegenUnit, CodegenUnitBuildError};
