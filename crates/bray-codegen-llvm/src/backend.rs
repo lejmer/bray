@@ -149,6 +149,13 @@ impl LlvmCodeGenerator {
             debug.finalize();
         }
 
+        crate::mapping::project_fallbacks(
+            &module,
+            request.mappings(),
+            request.target(),
+            &mut types,
+        )?;
+
         Ok(Some((machine, module)))
     }
 
