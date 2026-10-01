@@ -27,7 +27,6 @@ pub(crate) struct LlvmTargetMachine {
 }
 
 impl LlvmTargetMachine {
-    #[cfg(test)]
     pub(crate) fn create(target: &CodegenTarget) -> Result<Self, CodegenFailure> {
         let session = LlvmBackendSession::try_new(target, BrayOptimizationLevel::None)?;
 

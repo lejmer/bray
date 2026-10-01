@@ -4,7 +4,7 @@ use bray_base::NonEmptySharedStr;
 use bray_codegen::CodegenFailure;
 use bray_native_artifact::{
     NativeComdatSelection, NativeDefinition, NativeDefinitionSelection, NativeRoot,
-    NativeUnitSummary, alternate_name, summarize_native_unit,
+    NativeUnitSummary, alternate_name, scan_object_unit_summary, summarize_native_unit,
 };
 use bray_symbols::{
     NativeSymbolBinding, NativeSymbolContract, NativeSymbolIdentity, NativeSymbolPresence,
@@ -45,6 +45,7 @@ fn module_summary(
 
     let mut groups = BTreeMap::new();
     let mut exact = true;
+    let mut module_assembly = false;
     let mut aliases_provided = BTreeSet::new();
 
     for line in structure.lines().map(str::trim) {
@@ -76,6 +77,8 @@ fn module_summary(
                 }
             }
         }
+
+        module_assembly |= line.starts_with("module asm ");
 
         if line.starts_with("module asm ")
             || line.contains(" asm ")
@@ -239,22 +242,53 @@ fn module_summary(
         exact = false;
     }
 
-    if exact {
-        Ok(summarize_native_unit(
-            definitions,
-            references,
-            roots,
-            aliases,
-        ))
+    let summary = if exact {
+        summarize_native_unit(definitions, references, roots, aliases)
     } else {
-        Ok(NativeUnitSummary::opaque_with_providers(
+        NativeUnitSummary::opaque_with_providers(
             definitions
                 .iter()
                 .map(|definition| definition.symbol().identity().clone())
                 .chain(aliases_provided),
             references,
-        ))
+        )
+    };
+
+    if module_assembly {
+        module_assembly_summary(module, target, &summary)
+    } else {
+        Ok(summary)
     }
+}
+
+fn module_assembly_summary(
+    module: &Module<'_>,
+    target: NativeTarget,
+    summary: &NativeUnitSummary,
+) -> Result<NativeUnitSummary, CodegenFailure> {
+    // LLVM's assembler, rather than an assembly-text parser, owns physical symbol spelling.
+    let machine = crate::machine::LlvmTargetMachine::create(
+        &bray_codegen::CodegenTarget::for_native(target),
+    )?;
+
+    machine.configure_module(module);
+    let bytes = machine.serialize(module, inkwell::targets::FileType::Object)?;
+
+    let native = scan_object_unit_summary(&bytes).unwrap_or_else(|error| {
+        panic!("LLVM must emit a valid object while observing module assembly: {error}")
+    });
+
+    Ok(NativeUnitSummary::opaque_archive(
+        summary
+            .defined_symbols()
+            .chain(native.defined_symbols())
+            .cloned(),
+        summary
+            .references()
+            .iter()
+            .chain(native.references())
+            .cloned(),
+    ))
 }
 
 fn object_symbol(target: NativeTarget, name: &str) -> Option<NonEmptySharedStr> {
@@ -661,6 +695,91 @@ mod tests {
         );
 
         assert_eq!(archive.references()[0].identity().name(), Some("_outside"));
+    }
+
+    #[test]
+    fn module_assembly_closes_over_an_exact_provider_in_another_package() {
+        use bray_native_artifact::{
+            NativeArtifactIndex, NativeContentDigest, NativeUnit, NativeUnitKind,
+            NativeUnitResolver,
+        };
+
+        for target in [
+            NativeTarget::X86_64WindowsMsvc,
+            NativeTarget::X86_64LinuxGnu,
+            NativeTarget::X86_64MacOs,
+        ] {
+            let entry = target.object_symbol_name("asm_entry");
+            let dependency = target.object_symbol_name("asm_dependency");
+
+            let ir = format!(
+                r#"
+                target triple = "{}"
+                module asm ".globl {entry}"
+                module asm "{entry}:"
+                module asm "jmp {dependency}"
+                declare void @asm_entry()
+                define void @entry() {{ call void @asm_entry() ret void }}
+                "#,
+                target.as_str(),
+            );
+
+            let observed = summary(&ir, target);
+            assert!(matches!(observed, NativeUnitSummary::Opaque { .. }));
+
+            assert!(
+                observed
+                    .defined_symbols()
+                    .any(|symbol| symbol.name() == Some(&entry))
+            );
+
+            assert_eq!(
+                observed
+                    .references()
+                    .iter()
+                    .map(|symbol| symbol.identity().name().unwrap())
+                    .collect::<BTreeSet<_>>(),
+                BTreeSet::from([dependency.as_ref()]),
+            );
+
+            let package = |id, observed| {
+                let digest = NativeContentDigest::new([id; 32]);
+
+                NativeArtifactIndex::try_new(
+                    target,
+                    digest,
+                    [NativeUnit::new(
+                        digest,
+                        NativeUnitKind::Bitcode,
+                        observed,
+                        [],
+                    )],
+                    [],
+                )
+                .unwrap()
+                .with_bitcode_toolchain("test-llvm")
+            };
+
+            let resolver = NativeUnitResolver::new([
+                package(1, observed),
+                package(
+                    2,
+                    summary("define void @asm_dependency() { ret void }", target),
+                ),
+                package(3, summary("define void @unused() { ret void }", target)),
+            ]);
+
+            let selected = resolver.select([]).unwrap();
+
+            assert_eq!(
+                selected
+                    .units()
+                    .iter()
+                    .map(|unit| unit.artifact)
+                    .collect::<BTreeSet<_>>(),
+                BTreeSet::from([0, 1]),
+            );
+        }
     }
 
     #[test]
