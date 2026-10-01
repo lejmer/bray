@@ -354,7 +354,6 @@ mod tests {
             discovery.value().catalog().entries()[0].source().package(),
             product.source_namespace(),
         );
-
     }
 
     #[test]
@@ -366,7 +365,10 @@ mod tests {
         );
 
         let other_sources = compilation_with_sources_product_and_worker_budget(
-            &["module tests;\n\n@test\nfunc works()\n{\n}\n", "module other;\n"],
+            &[
+                "module tests;\n\n@test\nfunc works()\n{\n}\n",
+                "module other;\n",
+            ],
             ProductKind::Test,
             parallel_worker_budget(),
         );
@@ -384,12 +386,18 @@ mod tests {
         let other_catalog = discovery(&other_sources, product.clone());
         let edited_catalog = discovery(&edited, product);
 
-        let source_namespace = |catalog: &super::TestDiscovery| {
-            catalog.catalog().entries()[0].source().package()
-        };
+        let source_namespace =
+            |catalog: &super::TestDiscovery| catalog.catalog().entries()[0].source().package();
 
-        assert_eq!(source_namespace(first_catalog.value()), source_namespace(other_catalog.value()));
-        assert_eq!(source_namespace(first_catalog.value()), source_namespace(edited_catalog.value()));
+        assert_eq!(
+            source_namespace(first_catalog.value()),
+            source_namespace(other_catalog.value())
+        );
+
+        assert_eq!(
+            source_namespace(first_catalog.value()),
+            source_namespace(edited_catalog.value())
+        );
     }
 
     fn discovery(

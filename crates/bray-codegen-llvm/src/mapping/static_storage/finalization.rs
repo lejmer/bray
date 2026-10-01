@@ -310,7 +310,7 @@ fn declare_static_finalizer_resolver<'context>(
         .instance_ty(mapping.owner(), ty)
         .expect("static-storage realization requires an established mapping or value");
 
-    let CodegenTypeKind::Union { tag, variants } = result_mapping.kind() else {
+    let CodegenTypeKind::Union { tag, .. } = result_mapping.kind() else {
         panic!("static-storage realization violated an established compiler contract");
     };
 
@@ -354,18 +354,9 @@ fn declare_static_finalizer_resolver<'context>(
 
     builder.position_at_end(failure_block);
 
-    let error_variant = variants
-        .iter()
-        .find(|variant| variant.variant() != success_variant)
-        .expect("static-storage realization requires an established mapping or value");
-
-    let [error_field] = error_variant.fields() else {
-        panic!("static-storage realization violated an established compiler contract");
-    };
-
-    if error_field.ty() != error {
-        panic!("static-storage realization violated an established compiler contract");
-    }
+    let (_, error_field) = result_mapping
+        .kind()
+        .fallible_error_field(success_variant, error);
 
     let error_address = builder
         .build_ptr_to_int(result, usize, "static.finalize.error.base")
@@ -457,7 +448,15 @@ fn declare_static_finalizer_resolver<'context>(
         types,
     )?;
 
-    let incident = static_incident_value(&builder, mapping, finalization, payload, report, destroy, types)?;
+    let incident = static_incident_value(
+        &builder,
+        mapping,
+        finalization,
+        payload,
+        report,
+        destroy,
+        types,
+    )?;
 
     let incident_destination = builder
         .build_int_to_ptr(
@@ -754,15 +753,18 @@ fn native_source_anchor_value<'context>(
                 anchor.source_version().raw(),
             )
         }
-        Some(bray_ir::MirSourceAnchor::ImportedSource { namespace, span, version, .. }) => {
-            bray_runtime_abi::NativeSourceAnchor::new(
-                *namespace,
-                span.source_id().raw(),
-                span.start().bytes(),
-                span.end().bytes(),
-                version.raw(),
-            )
-        }
+        Some(bray_ir::MirSourceAnchor::ImportedSource {
+            namespace,
+            span,
+            version,
+            ..
+        }) => bray_runtime_abi::NativeSourceAnchor::new(
+            *namespace,
+            span.source_id().raw(),
+            span.start().bytes(),
+            span.end().bytes(),
+            version.raw(),
+        ),
         Some(
             bray_ir::MirSourceAnchor::ExecutableHost(_)
             | bray_ir::MirSourceAnchor::GeneratedLifecycle(_)

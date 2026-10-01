@@ -1,12 +1,12 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
+use bray_native_artifact::{NativeArtifactIndex, NativeContentDigest, NativeIndexError};
 use bray_runtime_interface::{
     RuntimeAbiVersion, RuntimeArtifact, RuntimeArtifactBuildError, RuntimeArtifactMetadata,
     RuntimeArtifactMetadataDecodeError,
 };
 use bray_target::{NativeTarget, TargetIdentity};
-use bray_native_artifact::{NativeArtifactIndex, NativeContentDigest, NativeIndexError};
 
 /// A failure to load the exact runtime artifact selected for one compilation.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -103,31 +103,50 @@ pub fn load_runtime_artifact(
 
     let directory = absolute_path.parent().unwrap_or_else(|| Path::new(""));
 
-    let indexes = metadata.native_indexes().iter().map(|reference| {
-        let path = directory.join(reference.file_name());
+    let indexes = metadata
+        .native_indexes()
+        .iter()
+        .map(|reference| {
+            let path = directory.join(reference.file_name());
 
-        let bytes = std::fs::read(&path).map_err(|error| RuntimeArtifactLoadError::NativeIndex {
-            path: path.clone(),
-            source: NativeIndexError::Read { path: path.clone(), kind: error.kind() },
-        })?;
+            let bytes =
+                std::fs::read(&path).map_err(|error| RuntimeArtifactLoadError::NativeIndex {
+                    path: path.clone(),
+                    source: NativeIndexError::Read {
+                        path: path.clone(),
+                        kind: error.kind(),
+                    },
+                })?;
 
-        let target = NativeTarget::for_identity(expected_target).ok_or_else(|| {
-            RuntimeArtifactLoadError::InvalidArtifact {
-                path: metadata_path.to_path_buf(),
-                source: RuntimeArtifactBuildError::InvalidNativeTarget,
-            }
-        })?;
+            let target = NativeTarget::for_identity(expected_target).ok_or_else(|| {
+                RuntimeArtifactLoadError::InvalidArtifact {
+                    path: metadata_path.to_path_buf(),
+                    source: RuntimeArtifactBuildError::InvalidNativeTarget,
+                }
+            })?;
 
-        let digest = NativeContentDigest::new(reference.digest().bytes());
+            let digest = NativeContentDigest::new(reference.digest().bytes());
 
-        let index = NativeArtifactIndex::decode(&bytes, digest, target)
-            .map_err(|source| RuntimeArtifactLoadError::NativeIndex { path: path.clone(), source })?;
+            let index = NativeArtifactIndex::decode(&bytes, digest, target).map_err(|source| {
+                RuntimeArtifactLoadError::NativeIndex {
+                    path: path.clone(),
+                    source,
+                }
+            })?;
 
-        NativeArtifactIndex::import(&bytes, digest, target, index.producer(), &directory.join("native"))
+            NativeArtifactIndex::import(
+                &bytes,
+                digest,
+                target,
+                index.producer(),
+                &directory.join("native"),
+            )
             .map_err(|source| RuntimeArtifactLoadError::NativeIndex { path, source })
-    }).collect::<Result<Vec<_>, _>>()?;
+        })
+        .collect::<Result<Vec<_>, _>>()?;
 
-    let indexes: [_; 2] = indexes.try_into()
+    let indexes: [_; 2] = indexes
+        .try_into()
         .expect("validated runtime metadata contains exactly two native indexes");
 
     RuntimeArtifact::try_new(metadata, directory.to_path_buf(), indexes).map_err(|source| {
@@ -142,9 +161,9 @@ pub fn load_runtime_artifact(
 mod tests {
     use bray_runtime_interface::{
         PanicAbiIdentity, ProtectedFrameAbiVersions, RuntimeAbiVersion,
-        RuntimeArtifactComponentMetadata, RuntimeArtifactId, RuntimeNativeIndexMetadata, RuntimeArtifactDigest,
+        RuntimeArtifactComponentMetadata, RuntimeArtifactDigest, RuntimeArtifactId,
         RuntimeArtifactMetadata, RuntimeArtifactPurpose, RuntimeCapability, RuntimeContract,
-        RuntimeIdentity,
+        RuntimeIdentity, RuntimeNativeIndexMetadata,
     };
     use bray_target::TargetIdentity;
 
@@ -196,7 +215,12 @@ mod tests {
             .unwrap_or_else(|error| panic!("test runtime directory must be created: {error}"));
 
         let metadata_path = directory.join("bray-runtime.brayrt");
-        let metadata = metadata("x86_64-pc-windows-msvc", RuntimeAbiVersion::new(1, 0), test_index_refs());
+
+        let metadata = metadata(
+            "x86_64-pc-windows-msvc",
+            RuntimeAbiVersion::new(1, 0),
+            test_index_refs(),
+        );
 
         let bytes = metadata
             .encode_json()
@@ -245,10 +269,20 @@ mod tests {
         std::fs::write(&archive, b"!<arch>\n").unwrap();
 
         let indexes = RuntimeArtifactPurpose::ALL.map(|purpose| {
-            bray_testing::test_runtime_native_index(directory.path(), bray_target::NativeTarget::X86_64WindowsMsvc, purpose, std::iter::empty::<&str>(), &archive)
+            bray_testing::test_runtime_native_index(
+                directory.path(),
+                bray_target::NativeTarget::X86_64WindowsMsvc,
+                purpose,
+                std::iter::empty::<&str>(),
+                &archive,
+            )
         });
 
-        let metadata = metadata("x86_64-pc-windows-msvc", RuntimeAbiVersion::new(1, 0), indexes.iter().map(|(reference, _)| reference.clone()));
+        let metadata = metadata(
+            "x86_64-pc-windows-msvc",
+            RuntimeAbiVersion::new(1, 0),
+            indexes.iter().map(|(reference, _)| reference.clone()),
+        );
 
         std::fs::write(&metadata_path, metadata.encode_json().unwrap()).unwrap();
 
@@ -271,7 +305,11 @@ mod tests {
         }
     }
 
-    fn metadata(target_identity: &str, abi: RuntimeAbiVersion, indexes: impl IntoIterator<Item = RuntimeNativeIndexMetadata>) -> RuntimeArtifactMetadata {
+    fn metadata(
+        target_identity: &str,
+        abi: RuntimeAbiVersion,
+        indexes: impl IntoIterator<Item = RuntimeNativeIndexMetadata>,
+    ) -> RuntimeArtifactMetadata {
         let contract = RuntimeContract::try_new(
             RuntimeIdentity::try_new("bray.runtime.test")
                 .unwrap_or_else(|| panic!("test runtime identity must be valid")),
@@ -314,8 +352,12 @@ mod tests {
 
     fn test_index_refs() -> [RuntimeNativeIndexMetadata; 2] {
         RuntimeArtifactPurpose::ALL.map(|purpose| {
-            RuntimeNativeIndexMetadata::try_new(purpose, format!("{}.json", purpose.as_str()), RuntimeArtifactDigest::new([7; 32]))
-                .expect("test index reference must be valid")
+            RuntimeNativeIndexMetadata::try_new(
+                purpose,
+                format!("{}.json", purpose.as_str()),
+                RuntimeArtifactDigest::new([7; 32]),
+            )
+            .expect("test index reference must be valid")
         })
     }
 

@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use bray_symbols::{
     DependencyContractTemplateId, DependencyRequirement, DependencyRequirementKind,
-    DependencySubjectRoot, GenericArgument, GenericSubstitutionId, SemanticValueStore, TraitApplicationId,
-    TraitTypeMemberSymbolId, TypeData, TypeExpressionTemplate, TypeId,
+    DependencySubjectRoot, GenericArgument, GenericSubstitutionId, SemanticValueStore,
+    TraitApplicationId, TraitTypeMemberSymbolId, TypeData, TypeExpressionTemplate, TypeId,
 };
 
 use crate::fact::FactQueryError;
@@ -286,7 +286,10 @@ pub(super) fn dependency_contracts_are_compatible(
     fulfillment: DependencyContractTemplateId,
 ) -> Result<bool, FactQueryError> {
     let requirement = substituted_dependency_requirement(
-        values, trait_application, generic_substitution, requirement,
+        values,
+        trait_application,
+        generic_substitution,
+        requirement,
     )?;
 
     Ok(requirement == fulfillment)
@@ -301,15 +304,23 @@ pub(super) fn phase_dependencies_are_compatible(
     fulfillment: DependencyContractTemplateId,
 ) -> Result<bool, FactQueryError> {
     let requirement = substituted_dependency_requirement(
-        values, trait_application, generic_substitution, requirement,
+        values,
+        trait_application,
+        generic_substitution,
+        requirement,
     )?;
 
     let required = values.dependency_contract_template_data(requirement);
     let provided = values.dependency_contract_template_data(fulfillment);
 
-    Ok(required.requirements().iter().filter(|item| !is_static_access(item)).eq(
-        provided.requirements().iter().filter(|item| !is_static_access(item)),
-    ))
+    Ok(required
+        .requirements()
+        .iter()
+        .filter(|item| !is_static_access(item))
+        .eq(provided
+            .requirements()
+            .iter()
+            .filter(|item| !is_static_access(item))))
 }
 
 fn is_static_access(requirement: &DependencyRequirement) -> bool {

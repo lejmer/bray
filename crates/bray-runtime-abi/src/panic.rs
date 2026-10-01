@@ -48,13 +48,7 @@ pub struct NativeSourceAnchor {
 
 impl NativeSourceAnchor {
     /// Creates one source anchor from its stable scalar ABI fields.
-    pub const fn new(
-        namespace: [u8; 32],
-        source: u32,
-        start: u32,
-        end: u32,
-        version: u64,
-    ) -> Self {
+    pub const fn new(namespace: [u8; 32], source: u32, start: u32, end: u32, version: u64) -> Self {
         Self {
             present: 1,
             source,

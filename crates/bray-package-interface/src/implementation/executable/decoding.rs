@@ -164,7 +164,11 @@ pub fn decode_executable_template(
             None
         };
 
-        operations.push(OperationRecord { result, kind, source });
+        operations.push(OperationRecord {
+            result,
+            kind,
+            source,
+        });
     }
 
     let mut terminators = decoder.items(block_count)?;
@@ -341,8 +345,13 @@ fn read_panic_source(
             return Err(ExecutableTemplateDecodeError::Malformed);
         }
 
-        Ok((namespace, SourceSpan::new(source, TextRange::new(start, end)), SourceVersion::new(version)))
-    }).transpose()
+        Ok((
+            namespace,
+            SourceSpan::new(source, TextRange::new(start, end)),
+            SourceVersion::new(version),
+        ))
+    })
+    .transpose()
 }
 
 #[derive(Clone, Copy)]

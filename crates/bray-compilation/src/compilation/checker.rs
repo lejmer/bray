@@ -1081,7 +1081,9 @@ mod tests {
             Err(error),
         );
     }
-    use crate::test_support::{compilation, source_callable_body_key, source_function_body_key, source_input};
+    use crate::test_support::{
+        compilation, source_callable_body_key, source_function_body_key, source_input,
+    };
 
     #[test]
     fn contexts_resolve_only_the_source_range_named_by_a_bound_anchor() {
@@ -1298,7 +1300,10 @@ mod tests {
         let request = CompilationRequest::new(
             package,
             vec![
-                source_input(include_str!("../../../../standard-library/std/src/std.bray"), 0),
+                source_input(
+                    include_str!("../../../../standard-library/std/src/std.bray"),
+                    0,
+                ),
                 source_input(
                     r#"module std;
 struct Number
@@ -1334,7 +1339,12 @@ func exercise(pos value: Number) -> Result<u8, ConversionError>
             .lowered_unit(source_function_body_key(&compilation, "exercise"))
             .unwrap_or_else(|error| panic!("source checked conversion must lower: {error:?}"));
 
-        assert!(lowered.diagnostics().is_empty(), "{:#?}", lowered.diagnostics());
+        assert!(
+            lowered.diagnostics().is_empty(),
+            "{:#?}",
+            lowered.diagnostics()
+        );
+
         assert!(lowered.value().is_some());
     }
 
@@ -1346,7 +1356,10 @@ func exercise(pos value: Number) -> Result<u8, ConversionError>
         let request = CompilationRequest::new(
             package,
             vec![
-                source_input(include_str!("../../../../standard-library/std/src/std.bray"), 0),
+                source_input(
+                    include_str!("../../../../standard-library/std/src/std.bray"),
+                    0,
+                ),
                 source_input(
                     r#"module std;
 struct Missing {}

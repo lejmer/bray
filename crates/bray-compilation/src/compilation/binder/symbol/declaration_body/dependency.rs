@@ -295,9 +295,8 @@ pub(in crate::compilation::binder::symbol) fn static_dependency_root(
     id: bray_symbols::StaticSymbolId,
 ) -> BindingQueryResult<DependencySubjectRoot> {
     if context.imported_semantic_address(id.into())?.is_some() {
-        let template = context.resolve_symbol_query(SymbolQueryRequest::<
-            StaticInstanceTemplateQuery,
-        >::new(id))?;
+        let template = context
+            .resolve_symbol_query(SymbolQueryRequest::<StaticInstanceTemplateQuery>::new(id))?;
 
         return Ok(match template.value().duration() {
             StaticStorageDuration::Product => DependencySubjectRoot::ProductStatic(id),
@@ -309,16 +308,18 @@ pub(in crate::compilation::binder::symbol) fn static_dependency_root(
         DeclarationDirectivesQuery,
     >::new(id.into()))?;
 
-    Ok(if directives
-        .value()
-        .directives()
-        .iter()
-        .any(|directive| directive.kind() == DirectiveKind::ThreadLocal)
-    {
-        DependencySubjectRoot::ExactThreadStatic(id)
-    } else {
-        DependencySubjectRoot::ProductStatic(id)
-    })
+    Ok(
+        if directives
+            .value()
+            .directives()
+            .iter()
+            .any(|directive| directive.kind() == DirectiveKind::ThreadLocal)
+        {
+            DependencySubjectRoot::ExactThreadStatic(id)
+        } else {
+            DependencySubjectRoot::ProductStatic(id)
+        },
+    )
 }
 
 struct PortableSubject {

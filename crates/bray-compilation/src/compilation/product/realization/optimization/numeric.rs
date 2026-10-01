@@ -1,16 +1,18 @@
 use std::collections::BTreeMap;
 
 use bray_bound_tree::BoundOperator;
-use bray_checker::{fold_machine_integer_binary, fold_machine_integer_truncate, fold_machine_integer_unary};
+use bray_checker::{
+    fold_machine_integer_binary, fold_machine_integer_truncate, fold_machine_integer_unary,
+};
 use bray_ir::{
-    MirAggregateKind, MirBinaryOperator, MirNullableQueryKind, MirStorageId,
-    MirOperationKind, MirUnaryOperator, MirValueId,
+    MirAggregateKind, MirBinaryOperator, MirNullableQueryKind, MirOperationKind, MirStorageId,
+    MirUnaryOperator, MirValueId,
 };
 use bray_symbols::{ConstantValueData, ConstantValueKind, TypeData, TypeId};
 
-use super::analysis::{Scalar, ScalarAnalysis, unresolved};
 use super::super::super::super::{CodegenPreparationError, Compilation};
 use super::super::super::specialization::ConcreteCodegenInstance;
+use super::analysis::{Scalar, ScalarAnalysis, unresolved};
 use crate::fact::CancellationToken;
 
 impl ScalarAnalysis<'_> {
@@ -24,10 +26,15 @@ impl ScalarAnalysis<'_> {
         cancellation: &CancellationToken,
     ) -> Result<Scalar, CodegenPreparationError> {
         match kind {
-            MirOperationKind::Unary { operator: MirUnaryOperator::Not, operand } => {
+            MirOperationKind::Unary {
+                operator: MirUnaryOperator::Not,
+                operand,
+            } => {
                 let state = self.operand(operand, local);
 
-                Ok(self.boolean(state).map_or_else(|| unresolved(state), |value| Scalar::Boolean(!value)))
+                Ok(self
+                    .boolean(state)
+                    .map_or_else(|| unresolved(state), |value| Scalar::Boolean(!value)))
             }
             MirOperationKind::Unary { operator, operand } => {
                 let state = self.operand(operand, local);
@@ -56,19 +63,32 @@ impl ScalarAnalysis<'_> {
                     operator,
                     integer,
                     role,
-                    compilation.selected_target().target().profile().machine().pointer_width_bits(),
+                    compilation
+                        .selected_target()
+                        .target()
+                        .profile()
+                        .machine()
+                        .pointer_width_bits(),
                 );
 
                 self.intern_folded(compilation, realization, result, Some(folded), cancellation)
             }
-            MirOperationKind::Binary { operator, left, right } => {
+            MirOperationKind::Binary {
+                operator,
+                left,
+                right,
+            } => {
                 let left = self.operand(left, local);
                 let right = self.operand(right, local);
 
-                if matches!(operator, MirBinaryOperator::Equal | MirBinaryOperator::NotEqual)
-                    && let (Some(left), Some(right)) = (self.boolean(left), self.boolean(right))
+                if matches!(
+                    operator,
+                    MirBinaryOperator::Equal | MirBinaryOperator::NotEqual
+                ) && let (Some(left), Some(right)) = (self.boolean(left), self.boolean(right))
                 {
-                    return Ok(Scalar::Boolean((left == right) == (*operator == MirBinaryOperator::Equal)));
+                    return Ok(Scalar::Boolean(
+                        (left == right) == (*operator == MirBinaryOperator::Equal),
+                    ));
                 }
 
                 let (Scalar::Constant(left_id), Scalar::Constant(right_id)) = (left, right) else {
@@ -79,7 +99,8 @@ impl ScalarAnalysis<'_> {
                 let right_data = self.values.constant_value_data(right_id);
 
                 let (ConstantValueKind::Integer(left), ConstantValueKind::Integer(right)) =
-                    (left_data.kind(), right_data.kind()) else {
+                    (left_data.kind(), right_data.kind())
+                else {
                     return Ok(Scalar::Overdefined);
                 };
 
@@ -95,8 +116,14 @@ impl ScalarAnalysis<'_> {
                     bound_binary_operator(*operator),
                     left,
                     right,
-                    role.integer_representation().expect("integer role has a representation"),
-                    compilation.selected_target().target().profile().machine().pointer_width_bits(),
+                    role.integer_representation()
+                        .expect("integer role has a representation"),
+                    compilation
+                        .selected_target()
+                        .target()
+                        .profile()
+                        .machine()
+                        .pointer_width_bits(),
                 );
 
                 self.intern_folded(compilation, realization, result, folded, cancellation)
@@ -129,9 +156,18 @@ impl ScalarAnalysis<'_> {
 
                 let folded = fold_machine_integer_truncate(
                     integer,
-                    source.integer_representation().expect("integer role has a representation"),
-                    target.integer_representation().expect("integer role has a representation"),
-                    compilation.selected_target().target().profile().machine().pointer_width_bits(),
+                    source
+                        .integer_representation()
+                        .expect("integer role has a representation"),
+                    target
+                        .integer_representation()
+                        .expect("integer role has a representation"),
+                    compilation
+                        .selected_target()
+                        .target()
+                        .profile()
+                        .machine()
+                        .pointer_width_bits(),
                 );
 
                 self.intern_folded(compilation, realization, result, Some(folded), cancellation)
@@ -155,7 +191,11 @@ impl ScalarAnalysis<'_> {
         }
     }
 
-    fn integer_role(&self, compilation: &Compilation, ty: TypeId) -> Option<bray_compiler_known::RepresentationRole> {
+    fn integer_role(
+        &self,
+        compilation: &Compilation,
+        ty: TypeId,
+    ) -> Option<bray_compiler_known::RepresentationRole> {
         let data = self.values.type_data(ty);
 
         let TypeData::Named { definition, .. } = data.as_ref() else {
@@ -188,12 +228,13 @@ impl ScalarAnalysis<'_> {
             cancellation,
         )?;
 
-        let value = self.values.intern_constant_value(ConstantValueData::new(ty, folded))
+        let value = self
+            .values
+            .intern_constant_value(ConstantValueData::new(ty, folded))
             .map_err(|error| crate::fact::FactQueryError::SemanticValueStore(error))?;
 
         Ok(Scalar::Constant(value))
     }
-
 }
 
 fn unresolved_pair(left: Scalar, right: Scalar) -> Scalar {

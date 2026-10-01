@@ -1701,7 +1701,11 @@ fn imported_constant_templates_preserve_materialization_checks() {
     "#,
     );
 
-    assert!(provider.check_diagnostics().is_empty(), "{:?}", provider.check_diagnostics());
+    assert!(
+        provider.check_diagnostics().is_empty(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
 
     let consumer = execution_consumer(
         &provider,
@@ -1758,7 +1762,11 @@ fn imported_callable_static_access_orders_local_cleanup() {
     "#,
     );
 
-    assert!(consumer.check_diagnostics().is_empty(), "{:#?}", consumer.check_diagnostics());
+    assert!(
+        consumer.check_diagnostics().is_empty(),
+        "{:#?}",
+        consumer.check_diagnostics()
+    );
 
     let imported = consumer
         .imported_symbol_skeleton_result()
@@ -1781,7 +1789,12 @@ fn imported_callable_static_access_orders_local_cleanup() {
         .static_instance_template(stored)
         .unwrap_or_else(|error| panic!("stored static template must publish: {error:?}"));
 
-    assert!(template.diagnostics().is_empty(), "{:#?}", template.diagnostics());
+    assert!(
+        template.diagnostics().is_empty(),
+        "{:#?}",
+        template.diagnostics()
+    );
+
     assert_eq!(template.value().lifecycle_dependencies(), [root]);
 }
 
@@ -1808,7 +1821,11 @@ fn imported_static_initializer_preserves_helper_static_access() {
     "#,
     );
 
-    assert!(consumer.check_diagnostics().is_empty(), "{:#?}", consumer.check_diagnostics());
+    assert!(
+        consumer.check_diagnostics().is_empty(),
+        "{:#?}",
+        consumer.check_diagnostics()
+    );
 
     let imported = consumer
         .imported_symbol_skeleton_result()
@@ -1828,7 +1845,12 @@ fn imported_static_initializer_preserves_helper_static_access() {
         .static_instance_template(copy.id())
         .unwrap_or_else(|error| panic!("imported static template must publish: {error:?}"));
 
-    assert!(template.diagnostics().is_empty(), "{:#?}", template.diagnostics());
+    assert!(
+        template.diagnostics().is_empty(),
+        "{:#?}",
+        template.diagnostics()
+    );
+
     assert_eq!(template.value().lifecycle_dependencies(), [root.id()]);
 }
 
@@ -1863,7 +1885,11 @@ fn imported_runtime_default_preserves_helper_static_access() {
     "#,
     );
 
-    assert!(consumer.check_diagnostics().is_empty(), "{:#?}", consumer.check_diagnostics());
+    assert!(
+        consumer.check_diagnostics().is_empty(),
+        "{:#?}",
+        consumer.check_diagnostics()
+    );
 
     let imported = consumer
         .imported_symbol_skeleton_result()
@@ -1886,7 +1912,12 @@ fn imported_runtime_default_preserves_helper_static_access() {
         .static_instance_template(stored)
         .unwrap_or_else(|error| panic!("stored static template must publish: {error:?}"));
 
-    assert!(template.diagnostics().is_empty(), "{:#?}", template.diagnostics());
+    assert!(
+        template.diagnostics().is_empty(),
+        "{:#?}",
+        template.diagnostics()
+    );
+
     assert_eq!(template.value().lifecycle_dependencies(), [root]);
 }
 

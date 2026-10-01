@@ -54,15 +54,18 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     anchor.source_version().raw(),
                 )
             }
-            MirSourceAnchor::ImportedSource { namespace, span, version, .. } => {
-                bray_runtime_abi::NativeSourceAnchor::new(
-                    *namespace,
-                    span.source_id().raw(),
-                    span.start().bytes(),
-                    span.end().bytes(),
-                    version.raw(),
-                )
-            }
+            MirSourceAnchor::ImportedSource {
+                namespace,
+                span,
+                version,
+                ..
+            } => bray_runtime_abi::NativeSourceAnchor::new(
+                *namespace,
+                span.source_id().raw(),
+                span.start().bytes(),
+                span.end().bytes(),
+                version.raw(),
+            ),
             MirSourceAnchor::ExecutableHost(_)
             | MirSourceAnchor::GeneratedLifecycle(_)
             | MirSourceAnchor::CompilerProvidedCallable(_)
@@ -242,12 +245,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let completed_route = self.route_edge(completed, "call.completed", &pending_moves)?;
 
-        let panicked_route = self.route_call_panic(
-            panicked,
-            context,
-            "call.panicked",
-            &pending_moves,
-        )?;
+        let panicked_route =
+            self.route_call_panic(panicked, context, "call.panicked", &pending_moves)?;
 
         self.builder.position_at_end(source);
 

@@ -480,12 +480,8 @@ fn render_dynamic_symbol(source: &mut String, symbol: &DynamicSymbolDescription)
 
     writeln!(source, "{{").expect("writing to a string must succeed");
 
-    writeln!(
-        source,
-        "    let name: bytes = b{:?};",
-        symbol.symbol
-    )
-    .expect("writing to a string must succeed");
+    writeln!(source, "    let name: bytes = b{:?};", symbol.symbol)
+        .expect("writing to a string must succeed");
 
     source.push('\n');
 

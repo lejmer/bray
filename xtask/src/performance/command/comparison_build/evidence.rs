@@ -37,7 +37,13 @@ pub(super) fn bray_reuse_evidence(
     .map_err(|error| format!("could not resolve matched runtime artifacts: {error:?}"))?
     .native_indexes()
     .iter()
-    .flat_map(|index| index.index().units().iter().filter_map(|unit| index.payload(unit.digest())))
+    .flat_map(|index| {
+        index
+            .index()
+            .units()
+            .iter()
+            .filter_map(|unit| index.payload(unit.digest()))
+    })
     .filter_map(|path| path.file_name())
     .map(|name| name.to_string_lossy().to_ascii_lowercase())
     .collect::<BTreeSet<_>>();

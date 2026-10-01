@@ -12,10 +12,10 @@ use bray_symbols::{
     CallableExecution, CallableExecutionRequirement, CallableParameterDefaultQuery,
     CallableParameterDefaultTemplateQuery, CallableParameterDefaultValue, CallablePhaseBehavior,
     CallableSymbolId, CurrentRunCancellation, LifecycleObligationKind, RuntimeDefaultBehavior,
-    StaticSymbolId, StructFieldDefaultQuery, StructFieldDefaultTemplateQuery, StructFieldDefaultValue,
-    SymbolOrigin, SymbolQueryRequest, TrustedCapabilitySymbolId, TypeData, TypeExpressionTemplate,
-    UnevaluatedDefaultTemplate, UnionPayloadDefaultValue, UnionPayloadFieldDefaultQuery,
-    UnionPayloadFieldDefaultTemplateQuery,
+    StaticSymbolId, StructFieldDefaultQuery, StructFieldDefaultTemplateQuery,
+    StructFieldDefaultValue, SymbolOrigin, SymbolQueryRequest, TrustedCapabilitySymbolId, TypeData,
+    TypeExpressionTemplate, UnevaluatedDefaultTemplate, UnionPayloadDefaultValue,
+    UnionPayloadFieldDefaultQuery, UnionPayloadFieldDefaultTemplateQuery,
 };
 
 use super::binder::{
@@ -105,7 +105,9 @@ impl BodyBehaviorBuilder {
     }
 
     fn merge_contributions(&mut self, contributions: &BodyBehaviorContributions) {
-        self.static_dependencies.extend(contributions.static_dependencies());
+        self.static_dependencies
+            .extend(contributions.static_dependencies());
+
         self.merge_cancellation(contributions.current_run_cancellation());
         self.is_recovered |= contributions.is_recovered();
     }

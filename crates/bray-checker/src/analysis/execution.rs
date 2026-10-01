@@ -208,7 +208,9 @@ mod tests {
             ImplementationHook::RawBufferRelease,
             ImplementationHook::RawBufferReplace,
         ] {
-            assert!(implementation_hook_may_propagate_synchronous_panic(Some(hook)));
+            assert!(implementation_hook_may_propagate_synchronous_panic(Some(
+                hook
+            )));
         }
 
         assert!(!implementation_hook_may_propagate_synchronous_panic(Some(

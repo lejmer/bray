@@ -94,7 +94,9 @@ impl MirOperand {
     /// Returns the operand's known type when it is carried directly by the operand.
     pub const fn explicit_type(&self) -> Option<TypeId> {
         match self {
-            Self::Constant { ty, .. } | Self::ConstantTerm { ty, .. } | Self::Immediate { ty, .. } => Some(*ty),
+            Self::Constant { ty, .. }
+            | Self::ConstantTerm { ty, .. }
+            | Self::Immediate { ty, .. } => Some(*ty),
             Self::Copy(place) | Self::Move(place) => Some(place.ty()),
             Self::Value(_) => None,
         }

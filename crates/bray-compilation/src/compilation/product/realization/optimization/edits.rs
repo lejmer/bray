@@ -1,13 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 
 use bray_ir::{
-    MirBinaryOperator, MirBlockId, MirOperand, MirOperationId, MirOperationKind,
-    MirTerminatorKind, MirValueId, MirValueOrigin,
+    MirBinaryOperator, MirBlockId, MirOperand, MirOperationId, MirOperationKind, MirTerminatorKind,
+    MirValueId, MirValueOrigin,
 };
 
-use super::analysis::{ScalarAnalysis, slot};
 use super::super::super::super::{CodegenPreparationError, Compilation};
 use super::super::super::specialization::ConcreteCodegenInstance;
+use super::analysis::{ScalarAnalysis, slot};
 use crate::fact::CancellationToken;
 
 impl ScalarAnalysis<'_> {
@@ -28,7 +28,10 @@ impl ScalarAnalysis<'_> {
             let mut seen = HashMap::new();
 
             for operation_id in block.operations() {
-                let operation = self.unit.operation(*operation_id).expect("valid MIR operation");
+                let operation = self
+                    .unit
+                    .operation(*operation_id)
+                    .expect("valid MIR operation");
 
                 let Some(result) = operation.result() else {
                     continue;
@@ -44,7 +47,9 @@ impl ScalarAnalysis<'_> {
                     *concrete
                 } else {
                     let concrete = compilation.substitute_codegen_type(
-                        raw_type, realization.substitution(), cancellation,
+                        raw_type,
+                        realization.substitution(),
+                        cancellation,
                     )?;
 
                     concrete_types.insert(raw_type, concrete);
@@ -73,13 +78,18 @@ impl ScalarAnalysis<'_> {
         let mut uses = vec![0_usize; self.unit.values().len()];
         let mut pending = VecDeque::new();
 
-        let mut omitted = aliases.keys().map(|value| {
-            let MirValueOrigin::Operation(operation) = self.unit.value(*value).expect("valid MIR alias").origin() else {
-                panic!("numbered MIR value must be an operation result");
-            };
+        let mut omitted = aliases
+            .keys()
+            .map(|value| {
+                let MirValueOrigin::Operation(operation) =
+                    self.unit.value(*value).expect("valid MIR alias").origin()
+                else {
+                    panic!("numbered MIR value must be an operation result");
+                };
 
-            operation
-        }).collect::<BTreeSet<_>>();
+                operation
+            })
+            .collect::<BTreeSet<_>>();
 
         for (block_id, block) in self.unit.blocks_with_ids() {
             if !self.blocks[slot(block_id.slot())].executable {
@@ -137,7 +147,10 @@ impl ScalarAnalysis<'_> {
         }
 
         while let Some(operation_id) = pending.pop_front() {
-            let operation = self.unit.operation(operation_id).expect("valid MIR operation");
+            let operation = self
+                .unit
+                .operation(operation_id)
+                .expect("valid MIR operation");
 
             let Some(result) = operation.result() else {
                 continue;
@@ -158,11 +171,8 @@ impl ScalarAnalysis<'_> {
                     *count -= 1;
 
                     if *count == 0
-                        && let MirValueOrigin::Operation(producer) = self
-                            .unit
-                            .value(value)
-                            .expect("valid MIR value")
-                            .origin()
+                        && let MirValueOrigin::Operation(producer) =
+                            self.unit.value(value).expect("valid MIR value").origin()
                     {
                         pending.push_back(producer);
                     }
@@ -172,7 +182,6 @@ impl ScalarAnalysis<'_> {
 
         omitted
     }
-
 }
 
 fn count_use(operand: &MirOperand, uses: &mut [usize], aliases: &BTreeMap<MirValueId, MirValueId>) {
@@ -185,13 +194,21 @@ fn count_use(operand: &MirOperand, uses: &mut [usize], aliases: &BTreeMap<MirVal
 
 fn numberable_scalar_expression(kind: &MirOperationKind) -> bool {
     let scalar_operand = |operand: &MirOperand| {
-        matches!(operand, MirOperand::Value(_) | MirOperand::Constant { .. } | MirOperand::ConstantTerm { .. } | MirOperand::Immediate { .. })
+        matches!(
+            operand,
+            MirOperand::Value(_)
+                | MirOperand::Constant { .. }
+                | MirOperand::ConstantTerm { .. }
+                | MirOperand::Immediate { .. }
+        )
     };
 
     match kind {
         MirOperationKind::Unary { operand, .. }
         | MirOperationKind::NumericConversion { operand, .. } => scalar_operand(operand),
-        MirOperationKind::Binary { left, right, .. } => scalar_operand(left) && scalar_operand(right),
+        MirOperationKind::Binary { left, right, .. } => {
+            scalar_operand(left) && scalar_operand(right)
+        }
         MirOperationKind::NullableQuery(query) => scalar_operand(query.operand()),
         _ => false,
     }
@@ -199,9 +216,14 @@ fn numberable_scalar_expression(kind: &MirOperationKind) -> bool {
 
 fn dead_scalar_is_pure(kind: &MirOperationKind) -> bool {
     numberable_scalar_expression(kind)
-        && !matches!(kind, MirOperationKind::Binary {
-            operator: MirBinaryOperator::Divide | MirBinaryOperator::Remainder
-                | MirBinaryOperator::ShiftLeft | MirBinaryOperator::ShiftRight,
-            ..
-        })
+        && !matches!(
+            kind,
+            MirOperationKind::Binary {
+                operator: MirBinaryOperator::Divide
+                    | MirBinaryOperator::Remainder
+                    | MirBinaryOperator::ShiftLeft
+                    | MirBinaryOperator::ShiftRight,
+                ..
+            }
+        )
 }

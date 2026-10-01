@@ -145,7 +145,11 @@ fn failed_atomic_replacement_preserves_original_source() {
 
     assert_eq!(error.kind(), FormatFileErrorKind::Write);
     assert_eq!(read(file.path()), original);
-    assert_eq!(std::fs::metadata(file.path()).unwrap().permissions(), permissions);
+
+    assert_eq!(
+        std::fs::metadata(file.path()).unwrap().permissions(),
+        permissions
+    );
 
     drop(lock);
 }

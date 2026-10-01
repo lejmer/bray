@@ -397,7 +397,8 @@ mod tests {
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
     use bray_runtime_abi::{
-        NativeRunOutcome, NativeRunResultLayout, NativeRunState, NativeRuntimeStatus,
+        NativePanicReport, NativeRunOutcome, NativeRunResultLayout, NativeRunState,
+        NativeRuntimeStatus,
     };
 
     use super::{RunResultStorage, TaskObservation, transfer_outcome};
@@ -492,7 +493,7 @@ mod tests {
             Some(failing_lifecycle),
         );
 
-        let mut storage = ResultStorage([0xff; 112]);
+        let mut storage = ResultStorage([0xff; RESULT_SIZE]);
 
         assert!(
             catch_unwind(AssertUnwindSafe(
@@ -514,8 +515,16 @@ mod tests {
     const PANICKED_TAG: u8 = 5;
     const CANCELLED_TAG: u8 = 7;
 
+    const RESULT_SIZE: usize = size_of::<PanicDestination>();
+
+    #[repr(C)]
+    struct PanicDestination {
+        tag: u64,
+        report: NativePanicReport,
+    }
+
     #[repr(C, align(8))]
-    struct ResultStorage([u8; 112]);
+    struct ResultStorage([u8; RESULT_SIZE]);
 
     #[test]
     fn terminal_outcomes_form_their_selected_run_result_variants() {
@@ -540,7 +549,7 @@ mod tests {
         ];
 
         for (outcome, expected_tag, expected_payload) in cases {
-            let mut storage = ResultStorage([0xff; 112]);
+            let mut storage = ResultStorage([0xff; RESULT_SIZE]);
 
             assert_eq!(
                 transfer_outcome(outcome, storage.0.as_mut_ptr().addr(), result_layout()),
@@ -567,12 +576,6 @@ mod tests {
             NativeSourceAnchor,
         };
 
-        #[repr(C)]
-        struct Destination {
-            tag: u64,
-            report: NativePanicReport,
-        }
-
         extern "C" fn release(_: usize, _: usize, _: &mut NativeRunOutcome) {
             CLEANUP_EVENTS.with_borrow_mut(|events| events.push(("report release", 1)));
         }
@@ -585,7 +588,7 @@ mod tests {
             NativePanicMessage::new(1, 0, None, Some(release)),
         ));
 
-        let mut destination = Destination {
+        let mut destination = PanicDestination {
             tag: 0,
             report: NativePanicReport::empty(),
         };
@@ -610,7 +613,7 @@ mod tests {
 
     #[test]
     fn unresolved_and_failed_outcomes_keep_their_runtime_status() {
-        let mut storage = ResultStorage([0xff; 112]);
+        let mut storage = ResultStorage([0xff; RESULT_SIZE]);
 
         assert_eq!(
             transfer_outcome(
@@ -631,18 +634,18 @@ mod tests {
         );
     }
 
-    const fn result_layout() -> NativeRunResultLayout {
+    fn result_layout() -> NativeRunResultLayout {
         NativeRunResultLayout::new(
-            112,
-            8,
-            1,
-            COMPLETED_TAG as u64,
-            8,
-            8,
-            8,
-            PANICKED_TAG as u64,
-            8,
-            CANCELLED_TAG as u64,
+            RESULT_SIZE,
+            align_of::<PanicDestination>(),
+            size_of::<u8>(),
+            u64::from(COMPLETED_TAG),
+            std::mem::offset_of!(PanicDestination, report),
+            size_of::<u64>(),
+            align_of::<u64>(),
+            u64::from(PANICKED_TAG),
+            std::mem::offset_of!(PanicDestination, report),
+            u64::from(CANCELLED_TAG),
         )
     }
 }

@@ -166,15 +166,14 @@ impl Compilation {
                 let usize = self.codegen_representation_type(RepresentationRole::ScalarUsize)?;
                 let pointer = self.codegen_opaque_pointer_type()?;
 
-                let fields = bray_runtime_interface::NATIVE_PANIC_REPORT_FIELDS.map(|field| {
-                    match field {
+                let fields =
+                    bray_runtime_interface::NATIVE_PANIC_REPORT_FIELDS.map(|field| match field {
                         bray_runtime_interface::RuntimeAbiType::U32 => u32,
                         bray_runtime_interface::RuntimeAbiType::U64 => u64,
                         bray_runtime_interface::RuntimeAbiType::Usize => usize,
                         bray_runtime_interface::RuntimeAbiType::Pointer => pointer,
                         _ => panic!("panic report field has an unsupported native ABI type"),
-                    }
-                });
+                    });
 
                 self.codegen_aggregate_type(
                     ty,

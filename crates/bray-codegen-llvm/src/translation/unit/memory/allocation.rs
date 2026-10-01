@@ -322,7 +322,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 .context()
                 .append_basic_block(function, "memory.allocation.continue");
 
-            llvm(self.builder.build_conditional_branch(completed, observe, continued))?;
+            llvm(
+                self.builder
+                    .build_conditional_branch(completed, observe, continued),
+            )?;
+
             self.builder.position_at_end(observe);
 
             Some(continued)

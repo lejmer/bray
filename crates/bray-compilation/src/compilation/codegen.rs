@@ -100,7 +100,9 @@ impl Compilation {
         }
 
         CodegenUnit::try_from_key(key, instances, |mir| {
-            *identities.get(&mir.unit()).expect("planned MIR identity must be prepared")
+            *identities
+                .get(&mir.unit())
+                .expect("planned MIR identity must be prepared")
         })
         .map_err(CodegenPreparationError::InvalidUnit)
     }
@@ -534,7 +536,10 @@ mod tests {
             CodegenPartitionPolicy::NATIVE_BALANCED,
             codegen_partition_compatibility(),
             [mir],
-            |mir| crate::compilation::product::mir_content_identity(&compilation, mir).unwrap_or_else(|error| panic!("test MIR identity must resolve: {error:?}")),
+            |mir| {
+                crate::compilation::product::mir_content_identity(&compilation, mir)
+                    .unwrap_or_else(|error| panic!("test MIR identity must resolve: {error:?}"))
+            },
         )
         .unwrap_or_else(|error| panic!("test codegen unit must validate: {error:?}"));
 

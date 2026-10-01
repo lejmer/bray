@@ -292,9 +292,7 @@ impl PublicationLock {
         match file.try_lock() {
             Ok(()) => Ok(Self { _file: file }),
             Err(TryLockError::WouldBlock) => Err(DirectoryPublicationError::InProgress(path)),
-            Err(TryLockError::Error(error)) => {
-                Err(DirectoryPublicationError::write(&path, error))
-            }
+            Err(TryLockError::Error(error)) => Err(DirectoryPublicationError::write(&path, error)),
         }
     }
 }
@@ -315,7 +313,10 @@ mod tests {
 
     use bray_target::NativeTarget;
 
-    use super::{DirectoryPublication, DirectoryPublicationError, NativeBuildOptionsBuilder, NativeBuildOptionsError};
+    use super::{
+        DirectoryPublication, DirectoryPublicationError, NativeBuildOptionsBuilder,
+        NativeBuildOptionsError,
+    };
 
     #[test]
     fn native_build_options_require_an_output() {

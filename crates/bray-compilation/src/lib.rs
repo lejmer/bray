@@ -14,7 +14,6 @@ mod worker;
 mod test_support;
 
 pub use compilation::{
-    diagnostic_native_artifact_cause,
     AsyncAnalysisView, BuildConfiguration, CodegenPreparationError, Compilation,
     CompilationLoadError, CompletionCandidate, DependencyContractsView, EmissionCodegenError,
     EmissionCodegenErrorKind, ExpressionTypesView, ForeignQueryError, ForeignQueryErrorKind,
@@ -23,7 +22,7 @@ pub use compilation::{
     PackageInterfaceInvalidCompilationCause, ProductEmissionError, ProductEmissionErrorKind,
     ProductEmissionInputs, ProductQueryError, ProductQueryErrorKind, ProductSourceGraph,
     RefinementsView, SemanticAvailability, SemanticQueryError, SemanticQueryErrorKind,
-    SemanticSelectionsView, StorageFlowView, TestDiscovery,
+    SemanticSelectionsView, StorageFlowView, TestDiscovery, diagnostic_native_artifact_cause,
 };
 pub use compiler_known::{
     CompilerKnownCatalogCheckError, CompilerKnownCatalogCheckReport, check_compiler_known_catalog,

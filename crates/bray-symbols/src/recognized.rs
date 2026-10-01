@@ -383,7 +383,9 @@ mod tests {
 
     #[test]
     fn exported_lookup_names_do_not_participate_in_recognition() {
-        let fixture = interface_fixture_with_lookup(1, "bray.std", ["std"], "truncate_to", "renamed");
+        let fixture =
+            interface_fixture_with_lookup(1, "bray.std", ["std"], "truncate_to", "renamed");
+
         let imported = Arc::new(build_skeleton([fixture.input]));
         let standard_library_package = package_identity("bray.std");
 

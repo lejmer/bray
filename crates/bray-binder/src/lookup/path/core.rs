@@ -1056,8 +1056,11 @@ mod tests {
             "DisplayVec",
         );
 
-        let (result, output) =
-            bind_imported_surface_path(&imported, "module app; const ready: bool = true;", "dependency.api.DisplayVec");
+        let (result, output) = bind_imported_surface_path(
+            &imported,
+            "module app; const ready: bool = true;",
+            "dependency.api.DisplayVec",
+        );
 
         assert_eq!(result, MemberLookupResult::NotFound);
 

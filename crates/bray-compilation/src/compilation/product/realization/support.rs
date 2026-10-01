@@ -1760,10 +1760,20 @@ mod tests {
             .expect("panic report representation must realize");
 
         let mappings = realized_types(&compilation, &target, [report]);
-        let layout = mappings[&report].layout().expect("panic report must be sized");
 
-        assert_eq!(layout.size(), std::mem::size_of::<bray_runtime_abi::NativePanicReport>() as u64);
-        assert_eq!(layout.alignment().get(), std::mem::align_of::<bray_runtime_abi::NativePanicReport>() as u64);
+        let layout = mappings[&report]
+            .layout()
+            .expect("panic report must be sized");
+
+        assert_eq!(
+            layout.size(),
+            std::mem::size_of::<bray_runtime_abi::NativePanicReport>() as u64
+        );
+
+        assert_eq!(
+            layout.alignment().get(),
+            std::mem::align_of::<bray_runtime_abi::NativePanicReport>() as u64
+        );
     }
 
     #[test]

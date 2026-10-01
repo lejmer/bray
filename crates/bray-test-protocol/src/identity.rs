@@ -63,7 +63,11 @@ pub struct TestSourceAnchor {
 impl TestSourceAnchor {
     /// Creates a source anchor from an exact span and source revision.
     pub const fn new(package: [u8; 32], span: SourceSpan, version: SourceVersion) -> Self {
-        Self { package, span, version }
+        Self {
+            package,
+            span,
+            version,
+        }
     }
 
     /// Returns the product namespace that qualifies the source ID.

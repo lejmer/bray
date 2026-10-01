@@ -140,12 +140,52 @@ pub(crate) fn publish(
         .map_err(|error| format!("foreign native package encoding failed: {error:?}"))
 }
 
+/// Loads the standard-library closure used by foreign hosts of Bray package archives.
+pub(crate) fn standard_library_inputs(
+    owned: &[PackageImplementationArtifact],
+    target: NativeTarget,
+    standard_library: &Path,
+    output: &Path,
+) -> Result<(Vec<(NativeUnitKind, PathBuf)>, Vec<NativeLinkRequirement>), String> {
+    let selected = bray_compilation::SelectedTarget::for_native(target);
+
+    let resolver = bray_standard_library::StandardLibraryResolver::new(
+        bray_standard_library::StandardLibraryRoot::try_new(standard_library)
+            .expect("foreign host must have an absolute standard-library root"),
+    );
+
+    let inventory = resolver
+        .target_inventory(selected.profile().identity(), selected.runtime_abi())
+        .map_err(|error| format!("foreign host dependency inventory could not load: {error:?}"))?;
+
+    let mut dependencies = vec![
+        inventory
+            .package_implementation()
+            .input(resolver.root().path())
+            .load_implementation()
+            .map_err(|error| format!("foreign host dependency could not load: {error:?}"))?,
+    ];
+
+    for record in inventory.native_dependencies() {
+        dependencies.push(
+            record
+                .input(resolver.root().path())
+                .load_implementation()
+                .map_err(|error| {
+                    format!("foreign host native dependency could not load: {error:?}")
+                })?,
+        );
+    }
+
+    dependency_inputs(owned, &dependencies, output)
+}
+
 /// Stages selected packed native dependencies for a foreign host linking owned package archives.
 pub(crate) fn dependency_inputs(
     owned: &[PackageImplementationArtifact],
     dependencies: &[PackageImplementationArtifact],
     output: &Path,
-) -> Result<(Vec<PathBuf>, Vec<NativeLinkRequirement>), String> {
+) -> Result<(Vec<(NativeUnitKind, PathBuf)>, Vec<NativeLinkRequirement>), String> {
     let (artifacts, indexes): (Vec<_>, Vec<_>) = owned
         .iter()
         .chain(dependencies)
@@ -228,7 +268,7 @@ pub(crate) fn dependency_inputs(
                 )
             })?;
 
-            Ok(Some(path))
+            Ok(Some((unit.kind(), path)))
         })
         .collect::<Result<Vec<_>, String>>()?;
 

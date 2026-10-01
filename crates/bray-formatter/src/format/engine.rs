@@ -522,11 +522,11 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
                             | SyntaxKind::CommaToken
                             | SyntaxKind::CloseBraceToken
                     ))
-                    && !(kind == SyntaxKind::CloseParenToken
-                        && matches!(
-                            self.nodes.last(),
-                            Some(SyntaxKind::IrrefutablePattern | SyntaxKind::CasePattern)
-                        ))
+            && !(kind == SyntaxKind::CloseParenToken
+                && matches!(
+                    self.nodes.last(),
+                    Some(SyntaxKind::IrrefutablePattern | SyntaxKind::CasePattern)
+                ))
         {
             self.writer.request_newlines(1);
         }

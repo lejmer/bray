@@ -15,13 +15,26 @@ pub fn fold_machine_integer_unary(
     role: RepresentationRole,
     target_width: NonZeroU16,
 ) -> ConstantValueKind {
-    let representation = role.integer_representation().expect("machine integer fold requires an integer role");
+    let representation = role
+        .integer_representation()
+        .expect("machine integer fold requires an integer role");
 
-    assert!(fits_integer_representation(operand, representation, || target_width));
-    assert!(matches!(operator, BoundOperator::Subtract | BoundOperator::BitwiseNot));
+    assert!(fits_integer_representation(operand, representation, || {
+        target_width
+    }));
 
-    let value = fold_unary(operator, &ConstantValueKind::Integer(operand.clone()), Some(role), target_width)
-        .expect("validated machine integer unary operation must evaluate");
+    assert!(matches!(
+        operator,
+        BoundOperator::Subtract | BoundOperator::BitwiseNot
+    ));
+
+    let value = fold_unary(
+        operator,
+        &ConstantValueKind::Integer(operand.clone()),
+        Some(role),
+        target_width,
+    )
+    .expect("validated machine integer unary operation must evaluate");
 
     normalize_integer(value, representation, target_width)
 }
@@ -35,20 +48,31 @@ pub fn fold_machine_integer_binary(
     representation: IntegerRepresentation,
     target_width: NonZeroU16,
 ) -> Option<ConstantValueKind> {
-    assert!(fits_integer_representation(left, representation, || target_width));
-    assert!(fits_integer_representation(right, representation, || target_width));
+    assert!(fits_integer_representation(left, representation, || {
+        target_width
+    }));
+
+    assert!(fits_integer_representation(right, representation, || {
+        target_width
+    }));
 
     let width = width(representation, target_width);
 
     if matches!(operator, BoundOperator::Divide | BoundOperator::Remainder)
-        && matches!(representation, IntegerRepresentation::Signed(_) | IntegerRepresentation::TargetSigned)
+        && matches!(
+            representation,
+            IntegerRepresentation::Signed(_) | IntegerRepresentation::TargetSigned
+        )
         && to_big_integer(left) == -(BigInt::from(1_u8) << usize::from(width - 1))
         && to_big_integer(right) == BigInt::from(-1)
     {
         return None;
     }
 
-    if matches!(operator, BoundOperator::ShiftLeft | BoundOperator::ShiftRight) {
+    if matches!(
+        operator,
+        BoundOperator::ShiftLeft | BoundOperator::ShiftRight
+    ) {
         let count = to_big_integer(right);
 
         if count < BigInt::from(0_u8) || count >= BigInt::from(width) {
@@ -80,9 +104,15 @@ pub fn fold_machine_integer_truncate(
     target: IntegerRepresentation,
     target_width: NonZeroU16,
 ) -> ConstantValueKind {
-    assert!(fits_integer_representation(operand, source, || target_width));
+    assert!(fits_integer_representation(operand, source, || {
+        target_width
+    }));
 
-    normalize_integer(ConstantValueKind::Integer(operand.clone()), target, target_width)
+    normalize_integer(
+        ConstantValueKind::Integer(operand.clone()),
+        target,
+        target_width,
+    )
 }
 
 fn normalize_integer(
@@ -102,8 +132,10 @@ fn normalize_integer(
         reduced += &modulus;
     }
 
-    if matches!(representation, IntegerRepresentation::Signed(_) | IntegerRepresentation::TargetSigned)
-        && reduced >= (&modulus >> 1)
+    if matches!(
+        representation,
+        IntegerRepresentation::Signed(_) | IntegerRepresentation::TargetSigned
+    ) && reduced >= (&modulus >> 1)
     {
         reduced -= modulus;
     }
@@ -114,7 +146,9 @@ fn normalize_integer(
 fn width(representation: IntegerRepresentation, target_width: NonZeroU16) -> u16 {
     match representation {
         IntegerRepresentation::Signed(width) | IntegerRepresentation::Unsigned(width) => width,
-        IntegerRepresentation::TargetSigned | IntegerRepresentation::TargetUnsigned => target_width.get(),
+        IntegerRepresentation::TargetSigned | IntegerRepresentation::TargetUnsigned => {
+            target_width.get()
+        }
     }
 }
 
@@ -126,7 +160,9 @@ mod tests {
     use bray_compiler_known::{IntegerRepresentation, RepresentationRole};
     use bray_symbols::{ConstantValueKind, IntegerConstant, IntegerSign};
 
-    use super::{fold_machine_integer_binary, fold_machine_integer_truncate, fold_machine_integer_unary};
+    use super::{
+        fold_machine_integer_binary, fold_machine_integer_truncate, fold_machine_integer_unary,
+    };
 
     fn integer(sign: IntegerSign, bytes: impl IntoIterator<Item = u8>) -> IntegerConstant {
         IntegerConstant::new(sign, bytes)
@@ -149,27 +185,72 @@ mod tests {
         let unsigned = IntegerRepresentation::Unsigned(8);
 
         let cases = [
-            (BoundOperator::Add, &maximum_signed, &one, signed,
-                Some(ConstantValueKind::Integer(minimum_signed.clone()))),
-            (BoundOperator::Add, &maximum_unsigned, &one, unsigned,
-                Some(ConstantValueKind::Integer(zero.clone()))),
-            (BoundOperator::Multiply, &maximum_unsigned, &maximum_unsigned, unsigned,
-                Some(ConstantValueKind::Integer(one.clone()))),
+            (
+                BoundOperator::Add,
+                &maximum_signed,
+                &one,
+                signed,
+                Some(ConstantValueKind::Integer(minimum_signed.clone())),
+            ),
+            (
+                BoundOperator::Add,
+                &maximum_unsigned,
+                &one,
+                unsigned,
+                Some(ConstantValueKind::Integer(zero.clone())),
+            ),
+            (
+                BoundOperator::Multiply,
+                &maximum_unsigned,
+                &maximum_unsigned,
+                unsigned,
+                Some(ConstantValueKind::Integer(one.clone())),
+            ),
             (BoundOperator::Divide, &one, &zero, signed, None),
-            (BoundOperator::Divide, &minimum_signed, &negative_one, signed, None),
-            (BoundOperator::Remainder, &minimum_signed, &negative_one, signed, None),
+            (
+                BoundOperator::Divide,
+                &minimum_signed,
+                &negative_one,
+                signed,
+                None,
+            ),
+            (
+                BoundOperator::Remainder,
+                &minimum_signed,
+                &negative_one,
+                signed,
+                None,
+            ),
             (BoundOperator::Remainder, &one, &zero, unsigned, None),
             (BoundOperator::ShiftLeft, &one, &eight, unsigned, None),
-            (BoundOperator::ShiftRight, &minimum_signed, &seven, signed,
-                Some(ConstantValueKind::Integer(negative_one.clone()))),
-            (BoundOperator::Less, &minimum_signed, &one, signed,
-                Some(ConstantValueKind::Boolean(true))),
-            (BoundOperator::Greater, &maximum_unsigned, &one, unsigned,
-                Some(ConstantValueKind::Boolean(true))),
+            (
+                BoundOperator::ShiftRight,
+                &minimum_signed,
+                &seven,
+                signed,
+                Some(ConstantValueKind::Integer(negative_one.clone())),
+            ),
+            (
+                BoundOperator::Less,
+                &minimum_signed,
+                &one,
+                signed,
+                Some(ConstantValueKind::Boolean(true)),
+            ),
+            (
+                BoundOperator::Greater,
+                &maximum_unsigned,
+                &one,
+                unsigned,
+                Some(ConstantValueKind::Boolean(true)),
+            ),
         ];
 
         for (operator, left, right, representation, expected) in cases {
-            assert_eq!(fold_machine_integer_binary(operator, left, right, representation, width), expected);
+            assert_eq!(
+                fold_machine_integer_binary(operator, left, right, representation, width),
+                expected
+            );
         }
     }
 
@@ -184,24 +265,42 @@ mod tests {
         let wider = integer(positive, [0x12, 0x34]);
 
         assert_eq!(
-            fold_machine_integer_unary(BoundOperator::Subtract, &signed_minimum, RepresentationRole::ScalarI8, width),
+            fold_machine_integer_unary(
+                BoundOperator::Subtract,
+                &signed_minimum,
+                RepresentationRole::ScalarI8,
+                width
+            ),
             ConstantValueKind::Integer(signed_minimum),
         );
 
         assert_eq!(
-            fold_machine_integer_unary(BoundOperator::BitwiseNot, &zero, RepresentationRole::ScalarU8, width),
+            fold_machine_integer_unary(
+                BoundOperator::BitwiseNot,
+                &zero,
+                RepresentationRole::ScalarU8,
+                width
+            ),
             ConstantValueKind::Integer(unsigned_maximum.clone()),
         );
 
         assert_eq!(
-            fold_machine_integer_truncate(&wider, IntegerRepresentation::Unsigned(16),
-                IntegerRepresentation::Unsigned(8), width),
+            fold_machine_integer_truncate(
+                &wider,
+                IntegerRepresentation::Unsigned(16),
+                IntegerRepresentation::Unsigned(8),
+                width
+            ),
             ConstantValueKind::Integer(integer(positive, [0x34])),
         );
 
         assert_eq!(
-            fold_machine_integer_truncate(&unsigned_maximum, IntegerRepresentation::Unsigned(8),
-                IntegerRepresentation::Signed(8), width),
+            fold_machine_integer_truncate(
+                &unsigned_maximum,
+                IntegerRepresentation::Unsigned(8),
+                IntegerRepresentation::Signed(8),
+                width
+            ),
             ConstantValueKind::Integer(integer(negative, [1])),
         );
     }

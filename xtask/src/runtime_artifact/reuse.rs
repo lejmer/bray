@@ -27,7 +27,13 @@ pub(super) fn current(
         return Ok(false);
     };
 
-    if bray_tooling::load_runtime_artifact(metadata_path, metadata.contract().target(), metadata.contract().abi_version()).is_err() {
+    if bray_tooling::load_runtime_artifact(
+        metadata_path,
+        metadata.contract().target(),
+        metadata.contract().abi_version(),
+    )
+    .is_err()
+    {
         return Ok(false);
     }
 

@@ -31,9 +31,16 @@ fn main() {
         root.join("standard-library").display()
     );
 
-    xtask::build_bootstrap(&root, target, &output.join(archive))
+    let native_links = xtask::build_bootstrap(&root, target, &output.join(archive))
         .unwrap_or_else(|error| panic!("could not build the runtime report provider: {error}"));
 
     println!("cargo:rustc-link-search=native={}", output.display());
     println!("cargo:rustc-link-lib=static:-bundle=bray_runtime_bootstrap");
+
+    for link in native_links {
+        println!(
+            "cargo:rustc-link-lib={}",
+            xtask::rust_native_link_argument(&link)
+        );
+    }
 }

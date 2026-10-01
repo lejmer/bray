@@ -924,7 +924,9 @@ pub(super) fn validate_operand(
 ) -> Option<()> {
     match operand {
         MirOperand::Value(value) => validate_value_at(unit, *value, block, before),
-        MirOperand::Constant { .. } | MirOperand::ConstantTerm { .. } | MirOperand::Immediate { .. } => Some(()),
+        MirOperand::Constant { .. }
+        | MirOperand::ConstantTerm { .. }
+        | MirOperand::Immediate { .. } => Some(()),
         MirOperand::Copy(place) | MirOperand::Move(place) => {
             validate_place(unit, place, block, before)
         }

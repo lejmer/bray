@@ -53,11 +53,8 @@ impl CompilationSymbolQueryEvaluator<GenericConstraintsQuery> for CompilationSym
         &self,
         context: &CompilationBindingContext<'_>,
         request: SymbolQueryRequest<GenericConstraintsQuery>,
-    ) -> BindingQueryResult<
-        DiagnosticResult<
-            <GenericConstraintsQuery as SymbolQueryContract>::Value,
-        >,
-    > {
+    ) -> BindingQueryResult<DiagnosticResult<<GenericConstraintsQuery as SymbolQueryContract>::Value>>
+    {
         bind_generic_constraints(context, request.symbol())
     }
 }
@@ -71,11 +68,8 @@ impl CompilationSymbolQueryEvaluator<CallableContractsQuery> for CompilationSymb
         &self,
         context: &CompilationBindingContext<'_>,
         request: SymbolQueryRequest<CallableContractsQuery>,
-    ) -> BindingQueryResult<
-        DiagnosticResult<
-            <CallableContractsQuery as SymbolQueryContract>::Value,
-        >,
-    > {
+    ) -> BindingQueryResult<DiagnosticResult<<CallableContractsQuery as SymbolQueryContract>::Value>>
+    {
         bind_callable_contracts(context, request.owner())
     }
 }
@@ -84,9 +78,7 @@ fn bind_generic_constraints(
     context: &CompilationBindingContext<'_>,
     owner: AnySymbolId,
 ) -> BindingQueryResult<
-    DiagnosticResult<
-        <GenericConstraintsQuery as bray_symbols::SymbolQueryContract>::Value,
-    >,
+    DiagnosticResult<<GenericConstraintsQuery as bray_symbols::SymbolQueryContract>::Value>,
 > {
     let generic_owner = GenericOwnerId::try_new(owner).ok_or_else(|| {
         query_contract(
@@ -207,9 +199,7 @@ fn bind_callable_contracts(
     context: &CompilationBindingContext<'_>,
     owner: CallableSymbolId,
 ) -> BindingQueryResult<
-    DiagnosticResult<
-        <CallableContractsQuery as bray_symbols::SymbolQueryContract>::Value,
-    >,
+    DiagnosticResult<<CallableContractsQuery as bray_symbols::SymbolQueryContract>::Value>,
 > {
     if let Some(address) = context.imported_semantic_address(owner.into_any())? {
         return super::imported::imported_callable_contracts(context, address);
@@ -900,9 +890,7 @@ fn resolve_type_template(
 
     bray_checker::resolve_type_expression_template(context.semantic_values, template, &constants)
         .map_err(BindingQueryError::CheckerInfrastructure)?
-        .ok_or_else(|| {
-            missing_semantic_data(query_context, SemanticDataKind::Type)
-        })
+        .ok_or_else(|| missing_semantic_data(query_context, SemanticDataKind::Type))
 }
 
 fn resolve_trait_satisfaction_templates(
@@ -937,12 +925,7 @@ fn resolve_trait_satisfaction_templates(
         &constants,
     )
     .map_err(BindingQueryError::CheckerInfrastructure)?
-    .ok_or_else(|| {
-        missing_semantic_data(
-            query_context.clone(),
-            SemanticDataKind::Type,
-        )
-    })?;
+    .ok_or_else(|| missing_semantic_data(query_context.clone(), SemanticDataKind::Type))?;
 
     let application = bray_checker::resolve_trait_application_template(
         context.semantic_values,
@@ -950,12 +933,7 @@ fn resolve_trait_satisfaction_templates(
         &constants,
     )
     .map_err(BindingQueryError::CheckerInfrastructure)?
-    .ok_or_else(|| {
-        missing_semantic_data(
-            query_context,
-            SemanticDataKind::TraitApplication,
-        )
-    })?;
+    .ok_or_else(|| missing_semantic_data(query_context, SemanticDataKind::TraitApplication))?;
 
     Ok((subject, application))
 }
@@ -1364,7 +1342,10 @@ mod tests {
             .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}"));
 
         let invocation = values.dependency_contract_template_data(
-            contracts.value().invocation_behavior().dependency_contract(),
+            contracts
+                .value()
+                .invocation_behavior()
+                .dependency_contract(),
         );
 
         let deferred = contracts
@@ -1374,7 +1355,12 @@ mod tests {
 
         let deferred = values.dependency_contract_template_data(deferred.dependency_contract());
 
-        assert!(contracts.diagnostics().is_empty(), "{:#?}", contracts.diagnostics());
+        assert!(
+            contracts.diagnostics().is_empty(),
+            "{:#?}",
+            contracts.diagnostics()
+        );
+
         assert!(invocation.requirements().is_empty());
         assert_eq!(deferred.requirements().len(), 1);
     }

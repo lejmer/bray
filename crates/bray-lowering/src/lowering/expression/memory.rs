@@ -258,7 +258,11 @@ impl Lowerer<'_> {
                 None,
             )?;
 
-            return Ok(LoweredExpression::continuing(completed, Some(value), source));
+            return Ok(LoweredExpression::continuing(
+                completed,
+                Some(value),
+                source,
+            ));
         }
 
         Ok(LoweredExpression::continuing(current, Some(value), source))

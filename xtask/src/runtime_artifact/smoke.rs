@@ -115,29 +115,6 @@ pub(super) fn add_package_dependencies(
         .join("runtime-bootstrap-standard-library")
         .join(target.as_str());
 
-    let selected = bray_compilation::SelectedTarget::for_native(target);
-
-    let resolver = bray_standard_library::StandardLibraryResolver::new(
-        bray_standard_library::StandardLibraryRoot::try_new(standard_library)
-            .expect("runtime build must have an absolute standard-library root"),
-    );
-
-    let inventory = resolver
-        .target_inventory(selected.profile().identity(), selected.runtime_abi())
-        .map_err(|error| {
-            CommandError::Bootstrap(format!(
-                "foreign host dependency inventory could not load: {error:?}"
-            ))
-        })?;
-
-    let dependency = inventory
-        .package_implementation()
-        .input(resolver.root().path())
-        .load_implementation()
-        .map_err(|error| {
-            CommandError::Bootstrap(format!("foreign host dependency could not load: {error:?}"))
-        })?;
-
     let output = package
         .metadata
         .parent()
@@ -159,27 +136,19 @@ pub(super) fn add_package_dependencies(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    let mut dependencies = vec![dependency];
-
-    for record in inventory.native_dependencies() {
-        let input = record.input(resolver.root().path());
-
-        dependencies.push(input.load_implementation().map_err(|error| {
-            CommandError::Bootstrap(format!(
-                "foreign host native dependency could not load: {error:?}"
-            ))
-        })?);
-    }
-
-    let (inputs, links) =
-        crate::native_package::dependency_inputs(&owned, &dependencies, directory)
-            .map_err(CommandError::Bootstrap)?;
+    let (inputs, links) = crate::native_package::standard_library_inputs(
+        &owned,
+        target,
+        &standard_library,
+        directory,
+    )
+    .map_err(CommandError::Bootstrap)?;
 
     package.native_links = links;
 
     package
         .components
-        .extend(inputs.into_iter().map(|archive| PackageComponent {
+        .extend(inputs.into_iter().map(|(_, archive)| PackageComponent {
             kind: None,
             archive,
         }));
@@ -346,13 +315,9 @@ fn compile_smoke(
     }
 
     for link in native_links {
-        let kind = match link.kind() {
-            NativeLinkKind::Framework => "framework",
-            NativeLinkKind::Static => "static",
-            NativeLinkKind::Dynamic | NativeLinkKind::System => "dylib",
-        };
-
-        command.arg("-l").arg(format!("{kind}={}", link.name()));
+        command
+            .arg("-l")
+            .arg(crate::rust_native_link_argument(link));
     }
 
     if let Some(map) = map {

@@ -62,9 +62,7 @@ pub(crate) fn intrinsic_representation_role(
             BoundLiteralKind::Integer
             | BoundLiteralKind::Real
             | BoundLiteralKind::Imaginary
-            | BoundLiteralKind::ByteString => {
-                None
-            }
+            | BoundLiteralKind::ByteString => None,
         },
         BoundExpression::Structured(structured) => match structured.kind() {
             BoundStructuredExpressionKind::Unit | BoundStructuredExpressionKind::Assertion => {

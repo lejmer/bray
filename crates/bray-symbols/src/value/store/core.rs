@@ -789,9 +789,7 @@ mod tests {
             })
             .unwrap();
 
-        let error_value = store
-            .intern_error_constant_value(concrete)
-            .unwrap();
+        let error_value = store.intern_error_constant_value(concrete).unwrap();
 
         let error = store
             .intern_constant_term(ConstantTermData::Value(error_value))

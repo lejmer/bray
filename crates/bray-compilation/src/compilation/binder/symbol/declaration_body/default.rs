@@ -448,11 +448,8 @@ fn runtime_default_behavior(
 ) -> BindingQueryResult<RuntimeDefaultBehavior> {
     let ownership = runtime_default_ownership(context, result);
 
-    let dependency = extend_dependency_contract_with_statics(
-        context,
-        dependency,
-        body.static_dependencies(),
-    )?;
+    let dependency =
+        extend_dependency_contract_with_statics(context, dependency, body.static_dependencies())?;
 
     Ok(RuntimeDefaultBehavior::new(
         ownership,

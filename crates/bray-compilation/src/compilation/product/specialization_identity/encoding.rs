@@ -426,7 +426,10 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
         Ok(())
     }
 
-    pub(super) fn trait_application(&mut self, id: TraitApplicationId) -> Result<(), FactQueryError> {
+    pub(super) fn trait_application(
+        &mut self,
+        id: TraitApplicationId,
+    ) -> Result<(), FactQueryError> {
         let data = self.values.trait_application_data(id);
 
         self.symbol(data.definition().into())?;

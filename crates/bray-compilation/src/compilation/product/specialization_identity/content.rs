@@ -3,8 +3,8 @@ use std::hash::Hash;
 use bray_base::StableDigestHasher;
 use bray_symbols::{
     AnySymbolId, ConstantTermId, ConstantValueId, DependencyContractTemplateId,
-    GenericSubstitutionId, ImplementationInstanceId, SemanticValueStore,
-    StaticReferenceSelection, TraitApplicationId, TypeId,
+    GenericSubstitutionId, ImplementationInstanceId, SemanticValueStore, StaticReferenceSelection,
+    TraitApplicationId, TypeId,
 };
 
 use super::encoding::StructuralValueEncoder;
@@ -75,15 +75,17 @@ pub(in crate::compilation::product) fn structural_semantic_identity(
     Ok(encoder.digest.finalize())
 }
 
-pub(super) fn static_reference(encoder: &mut StructuralValueEncoder<'_, '_>, reference: &StaticReferenceSelection) -> Result<(), FactQueryError> {
+pub(super) fn static_reference(
+    encoder: &mut StructuralValueEncoder<'_, '_>,
+    reference: &StaticReferenceSelection,
+) -> Result<(), FactQueryError> {
     encoder.symbol(reference.template().declaration().into())?;
     encoder.substitution(reference.substitution())?;
     reference.target().hash(&mut encoder.digest);
 
     let witnesses = match reference {
         StaticReferenceSelection::Open {
-            selected_witnesses,
-            ..
+            selected_witnesses, ..
         } => selected_witnesses.as_ref(),
         StaticReferenceSelection::Closed(instance) => instance.selected_witnesses(),
     };

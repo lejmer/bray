@@ -402,7 +402,8 @@ mod tests {
     use bray_runtime_interface::RuntimeAbiVersion;
     use bray_symbols::PackageIdentity;
     use bray_testing::{
-        test_mir_content_identity, test_mir_target, test_mir_unit, test_mir_unit_for_target, test_mir_unit_with_declaration,
+        test_mir_content_identity, test_mir_target, test_mir_unit, test_mir_unit_for_target,
+        test_mir_unit_with_declaration,
     };
 
     use super::partition_codegen_units;
@@ -576,15 +577,20 @@ mod tests {
         let second = CodegenInstance::non_generic(second_mir);
         let graph = graph([first, second]);
 
-        let units = partition_codegen_units(tiny_policy(), &graph, |instance| {
-            let package = if instance.mir().unit().raw() == 4 {
-                1
-            } else {
-                2
-            };
+        let units = partition_codegen_units(
+            tiny_policy(),
+            &graph,
+            |instance| {
+                let package = if instance.mir().unit().raw() == 4 {
+                    1
+                } else {
+                    2
+                };
 
-            Some(compatibility(package, CodegenLinkage::Internal))
-        }, test_mir_content_identity)
+                Some(compatibility(package, CodegenLinkage::Internal))
+            },
+            test_mir_content_identity,
+        )
         .unwrap_or_else(|error| panic!("required group must partition: {error:?}"));
 
         assert_eq!(units.len(), 1);
@@ -658,11 +664,13 @@ mod tests {
             .finish()
             .unwrap_or_else(|error| panic!("test graph must close: {error:?}"));
 
-        let units =
-            partition_codegen_units(CodegenPartitionPolicy::NATIVE_BALANCED, &graph, |_| {
-                Some(compatibility(1, CodegenLinkage::Internal))
-            }, test_mir_content_identity)
-            .unwrap_or_else(|error| panic!("external dependency must partition: {error:?}"));
+        let units = partition_codegen_units(
+            CodegenPartitionPolicy::NATIVE_BALANCED,
+            &graph,
+            |_| Some(compatibility(1, CodegenLinkage::Internal)),
+            test_mir_content_identity,
+        )
+        .unwrap_or_else(|error| panic!("external dependency must partition: {error:?}"));
 
         assert_eq!(units.len(), 1);
 
@@ -745,9 +753,12 @@ mod tests {
             CodegenOversizedUnitReason::IndivisibleDefinition
         );
 
-        let reconstructed =
-            crate::CodegenUnit::try_from_key(units[0].key(), units[0].instances().iter().cloned(), test_mir_content_identity)
-                .unwrap_or_else(|error| panic!("oversized unit must reconstruct: {error:?}"));
+        let reconstructed = crate::CodegenUnit::try_from_key(
+            units[0].key(),
+            units[0].instances().iter().cloned(),
+            test_mir_content_identity,
+        )
+        .unwrap_or_else(|error| panic!("oversized unit must reconstruct: {error:?}"));
 
         assert_eq!(reconstructed, units[0]);
     }
@@ -759,8 +770,13 @@ mod tests {
     ) -> Arc<[crate::CodegenUnit]> {
         let graph = graph(instances);
 
-        partition_codegen_units(policy, &graph, |instance| Some(compatibility(instance)), test_mir_content_identity)
-            .unwrap_or_else(|error| panic!("test partitions must validate: {error:?}"))
+        partition_codegen_units(
+            policy,
+            &graph,
+            |instance| Some(compatibility(instance)),
+            test_mir_content_identity,
+        )
+        .unwrap_or_else(|error| panic!("test partitions must validate: {error:?}"))
     }
 
     fn graph(instances: impl IntoIterator<Item = CodegenInstance>) -> crate::CodegenReachability {
@@ -788,7 +804,12 @@ mod tests {
         let package = PackageIdentity::try_new(format!("test.package.{package}"))
             .unwrap_or_else(|| panic!("test package identity must be valid"));
 
-        CodegenPartitionCompatibility::new(package, [0; 32], linkage, CodegenDefinitionVisibility::Product)
+        CodegenPartitionCompatibility::new(
+            package,
+            [0; 32],
+            linkage,
+            CodegenDefinitionVisibility::Product,
+        )
     }
 
     fn tiny_policy() -> CodegenPartitionPolicy {

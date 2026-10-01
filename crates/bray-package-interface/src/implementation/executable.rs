@@ -4,6 +4,6 @@ mod support;
 
 pub use decoding::{ExecutableTemplateDecodeError, decode_executable_template};
 pub use encoding::{
-    ExecutableTemplateEncodeContext, ExecutableTemplateEncodeError, encode_executable_template,
-    encode_codegen_mir, encode_pre_specialized_mir,
+    ExecutableTemplateEncodeContext, ExecutableTemplateEncodeError, encode_codegen_mir,
+    encode_executable_template, encode_pre_specialized_mir,
 };

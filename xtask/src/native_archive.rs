@@ -23,6 +23,32 @@ impl RustStaticLibrary {
     }
 }
 
+/// Renders one typed native library requirement for rustc and Cargo linking.
+pub fn rust_native_link_argument(link: &NativeLinkRequirement) -> String {
+    let kind = match link.kind() {
+        NativeLinkKind::Framework => "framework",
+        NativeLinkKind::Static => "static:-bundle",
+        NativeLinkKind::Dynamic | NativeLinkKind::System => "dylib",
+    };
+
+    format!("{kind}={}", link.name())
+}
+
+/// Reads every member of a trusted producer archive, preserving repeated member names.
+pub(crate) fn archive_members(bytes: &[u8]) -> Vec<Vec<u8>> {
+    object::read::archive::ArchiveFile::parse(bytes)
+        .expect("producer archive must parse")
+        .members()
+        .map(|member| {
+            member
+                .expect("producer archive member must parse")
+                .data(bytes)
+                .expect("producer archive member must be in bounds")
+                .to_vec()
+        })
+        .collect()
+}
+
 /// Packs independently generated native members into one deterministic linker archive.
 pub(crate) fn archive_bytes(
     tool: &Path,
@@ -30,10 +56,16 @@ pub(crate) fn archive_bytes(
     extension: &str,
 ) -> io::Result<Vec<u8>> {
     if members.is_empty() {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, "archive requires members"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "archive requires members",
+        ));
     }
 
-    let directory = tempfile::Builder::new().prefix("bray-native-archive-").tempdir()?;
+    let directory = tempfile::Builder::new()
+        .prefix("bray-native-archive-")
+        .tempdir()?;
+
     let archive = directory.path().join("members.lib");
     let mut names = Vec::with_capacity(members.len());
 
@@ -94,9 +126,7 @@ pub(crate) fn target_compiler_support(target: NativeTarget) -> Result<PathBuf, B
     let output = Command::new("rustc")
         .args(["--print", "target-libdir", "--target", target.as_str()])
         .output()
-        .map_err(|error| {
-            BuildError::CompilerSupport(format!("could not query rustc: {error}"))
-        })?;
+        .map_err(|error| BuildError::CompilerSupport(format!("could not query rustc: {error}")))?;
 
     if !output.status.success() {
         return Err(BuildError::CompilerSupport(format!(
@@ -137,11 +167,9 @@ pub(crate) fn target_compiler_support(target: NativeTarget) -> Result<PathBuf, B
             })
     });
 
-    let archive = archives
-        .next()
-        .ok_or_else(|| {
-            BuildError::CompilerSupport(format!("missing from {}", directory.display()))
-        })?;
+    let archive = archives.next().ok_or_else(|| {
+        BuildError::CompilerSupport(format!("missing from {}", directory.display()))
+    })?;
 
     if archives.next().is_some() {
         return Err(BuildError::CompilerSupport(format!(
