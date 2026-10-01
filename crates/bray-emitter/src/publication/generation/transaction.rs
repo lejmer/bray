@@ -3,10 +3,7 @@ use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use bray_base::{
-    Cancellation, StagedFile, atomic_rename_exclusive, atomic_rename_exclusive_is_supported,
-    sync_directory,
-};
+use bray_base::{Cancellation, StagedFile, atomic_rename_exclusive, sync_directory};
 use bray_codegen::ArtifactDigest;
 use tempfile::{Builder, TempDir};
 
@@ -291,16 +288,6 @@ fn create_layout(
 
     let staging = create_managed_path(&metadata, Path::new(STAGING_DIRECTORY))
         .map_err(|error| storage_failure(planned, error))?;
-
-    let supported = atomic_rename_exclusive_is_supported(&metadata)
-        .map_err(|error| artifact_failure(planned, PublicationErrorKind::Open(error.kind())))?;
-
-    if !supported {
-        return Err(artifact_failure(
-            planned,
-            PublicationErrorKind::ManagedPublicationUnsupported,
-        ));
-    }
 
     sync_directory(&metadata)
         .map_err(|error| artifact_failure(planned, PublicationErrorKind::Flush(error.kind())))?;
@@ -601,7 +588,12 @@ fn commit_generation(
             }
             Err(error) => Err(artifact_failure(
                 planned,
-                PublicationErrorKind::Commit(error.kind()),
+                match error.kind() {
+                    std::io::ErrorKind::Unsupported => {
+                        PublicationErrorKind::ManagedPublicationUnsupported
+                    }
+                    kind => PublicationErrorKind::Commit(kind),
+                },
             )),
         };
     }
