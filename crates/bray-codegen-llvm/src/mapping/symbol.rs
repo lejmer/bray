@@ -108,6 +108,67 @@ fn is_static_trait_fulfillment(template: &MirUnitKey) -> bool {
     }
 }
 
+pub(crate) fn project_fallbacks<'context>(
+    module: &Module<'context>,
+    mappings: &CodegenMappings,
+    target: &CodegenTarget,
+    types: &mut LlvmTypeMappings<'context, '_>,
+) -> Result<(), CodegenFailure> {
+    if target.machine().object_format() != bray_target::ObjectFormat::Coff {
+        return Ok(());
+    }
+
+    for mapping in mappings.symbols() {
+        if mapping.linkage() != CodegenLinkage::Fallback || !mapping.defines_in(mappings.unit()) {
+            continue;
+        }
+
+        let function = module
+            .get_function(mapping.name().as_str())
+            .unwrap_or_else(|| {
+                panic!(
+                    "translated fallback {} must have its declared function",
+                    mapping.name().as_str()
+                )
+            });
+
+        let implementation = format!("__bray_fallback.{}", mapping.name().as_str());
+
+        function.as_global_value().set_name(&implementation);
+
+        crate::comdat::attach_any(
+            module,
+            function.as_global_value(),
+            &implementation,
+            target.machine().object_format(),
+        );
+
+        // Calls and addresses must resolve through the public provider even within this unit.
+        // COFF weak externals suppress lazy archive searches, so use a deferred alternate name.
+        let declaration = declare_symbol(module, mapping, target, false, types)?;
+
+        function.replace_all_uses_with(declaration);
+
+        let native_target = bray_target::NativeTarget::for_identity(target.identity())
+            .expect("COFF fallback requires a supported native target");
+
+        let option = format!(
+            "/alternatename:{}={}",
+            native_target.object_symbol_name(mapping.name().as_str()),
+            native_target.object_symbol_name(&implementation)
+        );
+
+        let context = module.get_context();
+        let metadata = context.metadata_node(&[context.metadata_string(&option).into()]);
+
+        module
+            .add_global_metadata("llvm.linker.options", &metadata)
+            .expect("fallback alternate name must be valid LLVM metadata");
+    }
+
+    Ok(())
+}
+
 fn apply_native_attributes(
     function: FunctionValue<'_>,
     mapping: &CodegenSymbolMapping,
@@ -163,11 +224,6 @@ fn apply_linkage(
         (CodegenLinkage::External | CodegenLinkage::Import | CodegenLinkage::Export, _) => {
             Linkage::External
         }
-        (CodegenLinkage::Fallback, true)
-            if target.machine().object_format() == bray_target::ObjectFormat::Coff =>
-        {
-            Linkage::WeakODR
-        }
         (CodegenLinkage::Weak | CodegenLinkage::Fallback, true) => Linkage::WeakAny,
         (CodegenLinkage::LinkOnce, true) => Linkage::WeakODR,
         (CodegenLinkage::Common, _) => return Err(CodegenFailure::UnsupportedTarget),
@@ -175,27 +231,16 @@ fn apply_linkage(
 
     function.set_linkage(linkage);
 
-    if matches!(
-        mapping.linkage(),
-        CodegenLinkage::Fallback | CodegenLinkage::LinkOnce
-    ) && defines_symbol
+    if mapping.linkage() == CodegenLinkage::LinkOnce
+        && defines_symbol
         && target.machine().object_format() == bray_target::ObjectFormat::Coff
     {
-        if mapping.linkage() == CodegenLinkage::LinkOnce {
-            crate::comdat::attach_any(
-                module,
-                function.as_global_value(),
-                mapping.name().as_str(),
-                target.machine().object_format(),
-            );
-        } else {
-            crate::comdat::attach(
-                module,
-                function.as_global_value(),
-                mapping.name().as_str(),
-                target.machine().object_format(),
-            );
-        }
+        crate::comdat::attach_any(
+            module,
+            function.as_global_value(),
+            mapping.name().as_str(),
+            target.machine().object_format(),
+        );
     }
 
     if matches!(
@@ -678,7 +723,7 @@ mod tests {
     }
 
     #[test]
-    fn coff_fallback_definitions_use_comdat_linkage() {
+    fn coff_fallback_definitions_do_not_claim_odr_equivalence() {
         let fixture = codegen_request();
         let mapping = &fixture.request().mappings().symbols()[0];
 
@@ -704,14 +749,110 @@ mod tests {
             Ok(())
         );
 
-        assert_eq!(function.get_linkage(), Linkage::WeakODR);
+        assert_eq!(function.get_linkage(), Linkage::WeakAny);
+        assert!(!module.print_to_string().to_string().contains("comdat"));
+    }
 
-        assert!(
-            module
-                .print_to_string()
-                .to_string()
-                .contains("comdat exactmatch")
-        );
+    #[test]
+    fn fallback_calls_and_addresses_remain_replaceable_on_every_native_target() {
+        for target in NativeTarget::ALL {
+            let fixture = bray_codegen::test_support::codegen_request_for_target_and_backend(
+                target,
+                codegen_request().request().backend().clone(),
+            );
+
+            let request = fixture.request();
+            let original = &request.mappings().symbols()[0];
+
+            let fallback = CodegenSymbolMapping::new(
+                original.key().clone(),
+                original.name().clone(),
+                CodegenLinkage::Fallback,
+                original.signature().clone(),
+            );
+
+            let mappings = bray_codegen::CodegenMappings::new(
+                request.unit(),
+                request.target(),
+                request.mappings().types().iter().cloned(),
+                request.mappings().instance_types().iter().cloned(),
+                [fallback],
+                request.mappings().constants().iter().cloned(),
+                request.mappings().constant_terms().iter().cloned(),
+                request.mappings().callables().iter().cloned(),
+                request.mappings().operations().iter().cloned(),
+                request.mappings().static_storages().iter().cloned(),
+                request.mappings().native_storages().iter().cloned(),
+                request.mappings().terminators().iter().cloned(),
+                request.mappings().debug_locations().iter().cloned(),
+            );
+
+            let context = Context::create();
+            let module = context.create_module("fallback-references");
+            let machine = LlvmTargetMachine::create(request.target()).unwrap();
+            let target_data = machine.target_data();
+
+            let mut types =
+                LlvmTypeMappings::new(&context, &mappings, request.target(), &target_data);
+
+            let function_type = context.void_type().fn_type(&[], false);
+            let function = module.add_function(original.name().as_str(), function_type, None);
+            let body = context.append_basic_block(function, "body");
+            let caller = module.add_function("caller", function_type, None);
+            let caller_body = context.append_basic_block(caller, "caller.body");
+            let builder = context.create_builder();
+
+            super::apply_linkage(
+                &module,
+                function,
+                &mappings.symbols()[0],
+                request.target(),
+                true,
+            )
+            .unwrap();
+
+            builder.position_at_end(body);
+            builder.build_return(None).unwrap();
+            builder.position_at_end(caller_body);
+            builder.build_call(function, &[], "").unwrap();
+            builder.build_return(None).unwrap();
+
+            let address = module.add_global(
+                function.as_global_value().as_pointer_value().get_type(),
+                None,
+                "address",
+            );
+
+            address.set_initializer(&function.as_global_value().as_pointer_value());
+            super::project_fallbacks(&module, &mappings, request.target(), &mut types).unwrap();
+
+            let public = module.get_function(original.name().as_str()).unwrap();
+            let coff = target.object_format() == bray_target::ObjectFormat::Coff;
+            let text = module.print_to_string().to_string();
+
+            assert_eq!(public.count_basic_blocks(), u32::from(!coff));
+
+            assert_eq!(
+                address.get_initializer(),
+                Some(public.as_global_value().as_pointer_value().into())
+            );
+
+            assert_eq!(text.contains("/alternatename:"), coff);
+            assert!(text.contains(&format!("call void @{}()", original.name().as_str())));
+
+            if coff {
+                let implementation = module
+                    .get_function(&format!("__bray_fallback.{}", original.name().as_str()))
+                    .unwrap();
+
+                assert_eq!(implementation.count_basic_blocks(), 1);
+                assert_eq!(implementation.get_linkage(), Linkage::WeakAny);
+                assert!(text.contains("comdat any"));
+                assert!(!text.contains("comdat exactmatch"));
+            } else {
+                assert_eq!(public.get_linkage(), Linkage::WeakAny);
+            }
+        }
     }
 
     #[test]

@@ -7517,6 +7517,323 @@ public func invoke<T>(pos value: T)
         );
     }
 
+    const FALLBACK_LIBRARY_SOURCE: &str = r#"
+            trusted module app;
+            @layout(c)
+            internal struct PlatformStatus {
+                category: u32;
+                reserved: u32;
+                native_code: i64;
+            }
+            @abi(c)
+            trusted internal func flush() -> PlatformStatus {
+                return { category = 1, reserved = 0, native_code = 0 };
+            }
+            @symbol(name = "live")
+            static LIVE: i32 = 3;
+        "#;
+
+    #[test]
+    fn ordinary_library_fallback_publication_is_exact() {
+        let source = FALLBACK_LIBRARY_SOURCE;
+
+        let role = PlatformServiceRole::StandardOutputFlush;
+        let binding = PlatformServiceBinding::try_new(role, "app.flush").unwrap();
+
+        let (backend, plan) = runtime_native_plan_for_sources_target_with_platform_services(
+            &[source],
+            ProductKind::Library,
+            SelectedTarget::for_native(NativeTarget::X86_64WindowsMsvc),
+            &[],
+            [binding],
+        );
+
+        let ir = generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr);
+        let objects = generated_artifacts(&backend, &plan);
+
+        for (ir, object) in ir.iter().zip(objects) {
+            let text = String::from_utf8_lossy(ir);
+
+            if !text.contains("/alternatename:") {
+                continue;
+            }
+
+            let summary = bray_native_artifact::scan_object_unit_summary(&object).unwrap();
+
+            let bray_native_artifact::NativeUnitSummary::Exact {
+                definitions, roots, ..
+            } = summary
+            else {
+                panic!("ordinary fallback object must publish exact selection");
+            };
+
+            assert!(roots.is_empty());
+
+            assert!(
+                definitions
+                    .iter()
+                    .any(|definition| definition.symbol().identity().name()
+                        == Some(role.native_symbol())
+                        && definition.selection()
+                            == &bray_native_artifact::NativeDefinitionSelection::Fallback)
+            );
+        }
+
+        assert!(
+            ir.iter()
+                .any(|ir| String::from_utf8_lossy(ir).contains("/alternatename:"))
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn mixed_ordinary_library_fallbacks_yield_to_strong_objects_and_lazy_archives() {
+        let source = FALLBACK_LIBRARY_SOURCE;
+
+        let role = PlatformServiceRole::StandardOutputFlush;
+
+        let (backend, plan) = runtime_native_plan_for_sources_target_with_platform_services(
+            &[source],
+            ProductKind::Library,
+            SelectedTarget::for_native(NativeTarget::X86_64WindowsMsvc),
+            &[],
+            [PlatformServiceBinding::try_new(role, "app.flush").unwrap()],
+        );
+
+        let directory = tempfile::tempdir().unwrap();
+
+        let prefix =
+            std::path::Path::new(bray_codegen_llvm::COMPILED_LLVM_PREFIX.unwrap()).join("bin");
+
+        let run = |tool: &str, arguments: Vec<std::ffi::OsString>| {
+            let output = std::process::Command::new(prefix.join(format!("{tool}.exe")))
+                .args(arguments)
+                .current_dir(directory.path())
+                .output()
+                .unwrap();
+
+            assert!(
+                output.status.success(),
+                "{tool}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+
+            output
+        };
+
+        let ir = generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr);
+        let mut sources = Vec::new();
+
+        for (ordinal, bytes) in ir.iter().enumerate() {
+            let text = String::from_utf8_lossy(bytes);
+
+            if text.contains("/alternatename:") || text.contains("@live =") {
+                let name = format!("source-{ordinal}.ll");
+
+                fs::write(directory.path().join(&name), bytes).unwrap();
+                sources.push(name.into());
+            }
+        }
+
+        assert_eq!(
+            sources.len(),
+            2,
+            "both real library definitions must be emitted"
+        );
+
+        sources.extend(["-o".into(), "mixed.bc".into()]);
+        run("llvm-link", sources);
+
+        run(
+            "opt",
+            vec![
+                "-passes=default<O2>".into(),
+                "mixed.bc".into(),
+                "-o".into(),
+                "optimized.bc".into(),
+            ],
+        );
+
+        run(
+            "llc",
+            vec![
+                "-filetype=obj".into(),
+                "optimized.bc".into(),
+                "-o".into(),
+                "mixed.obj".into(),
+            ],
+        );
+
+        let first_ir = String::from_utf8_lossy(&ir[0]);
+
+        let preamble = first_ir
+            .lines()
+            .filter(|line| line.starts_with("target "))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let symbol = role.native_symbol();
+
+        let main = format!(
+            r#"
+{preamble}
+declare void @{symbol}(ptr)
+@live = external global i32
+define i32 @main() {{
+    %out = alloca [16 x i8], align 8
+    call void @{symbol}(ptr %out)
+    %category = load i32, ptr %out
+    %live = load i32, ptr @live
+    %result = add i32 %category, %live
+    ret i32 %result
+}}
+"#
+        );
+
+        let strong = format!(
+            r#"
+{preamble}
+define void @{symbol}(ptr %out) {{
+    store i32 2, ptr %out
+    ret void
+}}
+"#
+        );
+
+        fs::write(directory.path().join("main.ll"), main).unwrap();
+        fs::write(directory.path().join("strong.ll"), strong).unwrap();
+
+        fs::write(
+            directory.path().join("unused.ll"),
+            format!("{preamble}@unused = global [4096 x i8] zeroinitializer"),
+        )
+        .unwrap();
+
+        for name in ["main", "strong", "unused"] {
+            run(
+                "llc",
+                vec![
+                    "-filetype=obj".into(),
+                    format!("{name}.ll").into(),
+                    "-o".into(),
+                    format!("{name}.obj").into(),
+                ],
+            );
+        }
+
+        run(
+            "llvm-ar",
+            vec![
+                "rc".into(),
+                "strong.lib".into(),
+                "strong.obj".into(),
+                "unused.obj".into(),
+            ],
+        );
+
+        for (kind, payload) in [
+            (bray_native_artifact::NativeUnitKind::Object, "mixed.obj"),
+            (
+                bray_native_artifact::NativeUnitKind::Bitcode,
+                "optimized.bc",
+            ),
+        ] {
+            let bytes = fs::read(directory.path().join(payload)).unwrap();
+
+            let summary = if kind == bray_native_artifact::NativeUnitKind::Object {
+                bray_native_artifact::scan_object_unit_summary(&bytes).unwrap()
+            } else {
+                let symbols = run(
+                    "llvm-nm",
+                    vec![
+                        "--extern-only".into(),
+                        "--format=posix".into(),
+                        payload.into(),
+                    ],
+                );
+
+                let structure = run("llvm-dis", vec![payload.into(), "-o".into(), "-".into()]);
+
+                bray_native_artifact::scan_bitcode_unit_summary(
+                    &String::from_utf8_lossy(&symbols.stdout),
+                    &String::from_utf8_lossy(&structure.stdout),
+                    NativeTarget::X86_64WindowsMsvc,
+                )
+            };
+
+            let bray_native_artifact::NativeUnitSummary::Exact {
+                definitions, roots, ..
+            } = &summary
+            else {
+                panic!("mixed {kind:?} must retain exact provider selection: {summary:?}");
+            };
+
+            assert!(roots.is_empty());
+
+            assert!(
+                definitions
+                    .iter()
+                    .any(|definition| definition.symbol().identity().name() == Some("live"))
+            );
+
+            assert!(
+                definitions
+                    .iter()
+                    .any(|definition| definition.symbol().identity().name()
+                        == Some(role.native_symbol())
+                        && definition.selection()
+                            == &bray_native_artifact::NativeDefinitionSelection::Fallback)
+            );
+
+            for provider in [None, Some("strong.obj"), Some("strong.lib")] {
+                for reverse in [false, true] {
+                    let mut inputs = vec![std::ffi::OsString::from(payload)];
+
+                    if let Some(provider) = provider {
+                        if reverse {
+                            inputs.insert(0, provider.into());
+                        } else {
+                            inputs.push(provider.into());
+                        }
+                    }
+
+                    let mut arguments = vec![
+                        "/entry:main".into(),
+                        "/subsystem:console".into(),
+                        "/nodefaultlib".into(),
+                        "/out:result.exe".into(),
+                        "/map:result.map".into(),
+                        "main.obj".into(),
+                    ];
+
+                    arguments.extend(inputs);
+                    run("lld-link", arguments);
+
+                    let result = std::process::Command::new(directory.path().join("result.exe"))
+                        .status()
+                        .unwrap();
+
+                    let map = fs::read_to_string(directory.path().join("result.map")).unwrap();
+
+                    assert_eq!(result.code(), Some(if provider.is_some() { 5 } else { 4 }));
+
+                    assert!(
+                        !map.contains("unused"),
+                        "unreferenced foreign members must remain lazy"
+                    );
+
+                    eprintln!(
+                        "{kind:?} provider={provider:?} reverse={reverse} payload={} linked={} bytes",
+                        bytes.len(),
+                        fs::metadata(directory.path().join("result.exe"))
+                            .unwrap()
+                            .len()
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn runtime_source_bindings_retain_referenced_static_atomic_storage() {
         let source = concat!(

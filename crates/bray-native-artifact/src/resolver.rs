@@ -814,6 +814,7 @@ impl SelectionState {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
     use std::sync::Arc;
 
     use bray_base::NonEmptySharedStr;
@@ -1745,6 +1746,83 @@ mod tests {
                 .units(),
             [location(1)]
         );
+    }
+
+    #[test]
+    fn mixed_fallback_unit_keeps_live_code_without_retaining_displaced_fallback_units() {
+        let mixed = unit(
+            1,
+            &[
+                (
+                    "live",
+                    NativeSymbolBinding::Strong,
+                    NativeDefinitionSelection::Ordinary,
+                ),
+                (
+                    "provider",
+                    NativeSymbolBinding::Weak,
+                    NativeDefinitionSelection::Fallback,
+                ),
+            ],
+            &[required("provider")],
+            &[],
+        );
+
+        let strong = unit(
+            2,
+            &[(
+                "provider",
+                NativeSymbolBinding::Strong,
+                NativeDefinitionSelection::Ordinary,
+            )],
+            &[],
+            &[],
+        );
+
+        let fallback_only = unit(
+            3,
+            &[(
+                "provider",
+                NativeSymbolBinding::Weak,
+                NativeDefinitionSelection::Fallback,
+            )],
+            &[],
+            &[],
+        );
+
+        for units in [
+            vec![mixed.clone(), strong.clone(), fallback_only.clone()],
+            vec![strong.clone(), fallback_only.clone(), mixed.clone()],
+        ] {
+            let original = index(units, []);
+            let bytes = original.encode().unwrap();
+
+            let index_digest =
+                NativeContentDigest::new(bray_base::sha256_reader(bytes.as_slice()).unwrap());
+
+            let decoded =
+                NativeArtifactIndex::decode(&bytes, index_digest, original.target()).unwrap();
+
+            let resolver = NativeUnitResolver::new([decoded]);
+            let selected = resolver.select([required("live")]).unwrap();
+
+            assert_eq!(
+                selected
+                    .units()
+                    .iter()
+                    .map(|unit| unit.digest)
+                    .collect::<BTreeSet<_>>(),
+                [digest(1), digest(2)].into()
+            );
+
+            assert!(selected.statics().is_empty());
+        }
+
+        let selected = NativeUnitResolver::new([index([mixed, fallback_only], [])])
+            .select([required("provider"), required("live")])
+            .unwrap();
+
+        assert_eq!(selected.units().len(), 2);
     }
 
     #[test]

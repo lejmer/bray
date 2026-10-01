@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
 use bray_base::NonEmptySharedStr;
@@ -84,7 +84,106 @@ pub fn scan_bitcode_unit_summary(
         return NativeUnitSummary::opaque(references);
     };
 
+    if structure.contains("llvm.linker.options")
+        && target.object_format() != bray_target::ObjectFormat::Coff
+    {
+        return NativeUnitSummary::opaque(references);
+    }
+
+    let Some(aliases) = bitcode_alternate_names(structure) else {
+        return NativeUnitSummary::opaque(references);
+    };
+
+    if !add_fallback_definitions(aliases, &mut definitions) {
+        return NativeUnitSummary::opaque(references);
+    }
+
     exact_summary(definitions, references, roots)
+}
+
+fn alternate_name(option: &str) -> Option<(NonEmptySharedStr, NonEmptySharedStr)> {
+    let (name, implementation) = option.strip_prefix("/alternatename:")?.split_once('=')?;
+
+    Some((
+        NonEmptySharedStr::try_new(name)?,
+        NonEmptySharedStr::try_new(implementation)?,
+    ))
+}
+
+fn bitcode_alternate_names(ir: &str) -> Option<Vec<(NonEmptySharedStr, NonEmptySharedStr)>> {
+    let Some(options) = ir
+        .lines()
+        .find_map(|line| line.strip_prefix("!llvm.linker.options = !{"))
+    else {
+        return Some(Vec::new());
+    };
+
+    options
+        .strip_suffix('}')?
+        .split(", ")
+        .map(|node| {
+            let declaration = format!("{node} = !{{!\"");
+
+            let option = ir
+                .lines()
+                .find_map(|line| line.strip_prefix(&declaration))?
+                .strip_suffix("\"}")?;
+
+            alternate_name(option)
+        })
+        .collect()
+}
+
+fn add_fallback_definitions(
+    aliases: Vec<(NonEmptySharedStr, NonEmptySharedStr)>,
+    definitions: &mut BTreeSet<NativeDefinition>,
+) -> bool {
+    let mut unique = BTreeMap::new();
+
+    for (name, implementation) in aliases {
+        match unique.entry(name) {
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(implementation);
+            }
+            std::collections::btree_map::Entry::Occupied(entry)
+                if entry.get() != &implementation =>
+            {
+                return false;
+            }
+            std::collections::btree_map::Entry::Occupied(_) => {}
+        }
+    }
+
+    if unique.values().any(|implementation| {
+        !definitions.iter().any(|definition| {
+            definition.symbol().identity().name() == Some(implementation.as_str())
+        })
+    }) {
+        // An alternate name may lead outside the unit or through another alias.
+        // Preserve every reference when that foreign resolution contract is unknown.
+        return false;
+    }
+
+    for (name, _) in unique {
+        if definitions
+            .iter()
+            .any(|definition| definition.symbol().identity().name() == Some(name.as_str()))
+        {
+            continue;
+        }
+
+        definitions.insert(NativeDefinition::new(
+            NativeSymbolContract::new(
+                NativeSymbolIdentity::Name(name),
+                None,
+                NativeSymbolBinding::Weak,
+                NativeSymbolPresence::Required,
+            ),
+            NativeDefinitionSelection::Fallback,
+        ));
+    }
+
+    true
 }
 
 fn weak_comdat_selection(name: &str, ir: &str) -> Option<NativeDefinitionSelection> {
@@ -96,7 +195,10 @@ fn weak_comdat_selection(name: &str, ir: &str) -> Option<NativeDefinitionSelecti
             || (line.starts_with('@') && line.starts_with(&global))
     })?;
 
-    if !definition.contains(" weak_odr ") && !definition.contains(" linkonce_odr ") {
+    if !definition.contains(" weak_odr ")
+        && !definition.contains(" linkonce_odr ")
+        && !definition.contains(" weak ")
+    {
         return None;
     }
 
@@ -148,11 +250,32 @@ pub fn scan_object_unit_summary(bytes: &[u8]) -> Result<NativeUnitSummary, objec
     }
 
     let mut roots = BTreeSet::new();
+    let mut aliases = Vec::new();
 
     for section in file.sections() {
         let Ok(name) = section.name() else {
             return Ok(NativeUnitSummary::opaque(references));
         };
+
+        if name == ".drectve" && file.format() == object::BinaryFormat::Coff {
+            let Some(options) = section
+                .data()
+                .ok()
+                .and_then(|bytes| std::str::from_utf8(bytes).ok())
+            else {
+                return Ok(NativeUnitSummary::opaque(references));
+            };
+
+            for option in options.split_whitespace() {
+                let Some(alias) = alternate_name(option) else {
+                    return Ok(NativeUnitSummary::opaque(references));
+                };
+
+                aliases.push(alias);
+            }
+
+            continue;
+        }
 
         if matches!(section.kind(), SectionKind::Linker)
             || match section.flags() {
@@ -177,10 +300,6 @@ pub fn scan_object_unit_summary(bytes: &[u8]) -> Result<NativeUnitSummary, objec
         }
 
         let lower = name.to_ascii_lowercase();
-
-        if lower == ".drectve" {
-            return Ok(NativeUnitSummary::opaque(references));
-        }
 
         if lower == ".init"
             || lower.contains(".init_array")
@@ -256,6 +375,10 @@ pub fn scan_object_unit_summary(bytes: &[u8]) -> Result<NativeUnitSummary, objec
 
             definitions.insert(NativeDefinition::new(contract, selection));
         }
+    }
+
+    if !add_fallback_definitions(aliases, &mut definitions) {
+        return Ok(NativeUnitSummary::opaque(references));
     }
 
     Ok(exact_summary(definitions, references, roots))
@@ -412,13 +535,14 @@ fn exact_summary(
     roots: BTreeSet<NativeRoot>,
 ) -> NativeUnitSummary {
     if definitions.iter().any(|definition| {
-        references.iter().any(|reference| {
-            reference.identity() == definition.symbol().identity()
-                && reference.presence() == NativeSymbolPresence::Required
-        })
+        definition.selection() != &NativeDefinitionSelection::Fallback
+            && references.iter().any(|reference| {
+                reference.identity() == definition.symbol().identity()
+                    && reference.presence() == NativeSymbolPresence::Required
+            })
     }) {
-        // A definition and undefined reference with one spelling need target-specific
-        // resolution rules that this exact summary does not model.
+        // Only deferred fallbacks may also demand their public provider within the unit.
+        // Other definition/reference overlaps need selection rules this summary does not model.
         return NativeUnitSummary::opaque(references);
     }
 
@@ -458,6 +582,7 @@ fn bitcode_roots(ir: &str, weak_comdats: &BTreeSet<String>) -> Option<BTreeSet<N
         if line.contains(" comdat")
             || line.contains(" weak_odr ")
             || line.contains(" linkonce_odr ")
+            || line.contains(" weak ")
         {
             let known = weak_comdats.iter().any(|name| {
                 (line.starts_with("define ") && line.contains(&format!("@{name}(")))
@@ -474,12 +599,10 @@ fn bitcode_roots(ir: &str, weak_comdats: &BTreeSet<String>) -> Option<BTreeSet<N
                 .split_whitespace()
                 .any(|token| matches!(token, "alias" | "ifunc"))
             || line.contains(" extern_weak ")
-            || line.contains(" weak ")
             || line.contains(" linkonce ")
             || line.contains(" section ")
             || line.contains(" asm ")
             || line.contains(" appending global ")
-            || line.contains("llvm.linker.options")
             || line.contains("llvm.dependent-libraries")
         {
             return None;
@@ -656,6 +779,87 @@ mod tests {
                 .any(|reference| reference.identity().name() == Some("optional")
                     && reference.presence() == bray_symbols::NativeSymbolPresence::Optional)
         );
+    }
+
+    #[test]
+    fn deferred_alternate_names_preserve_public_provider_references_without_roots() {
+        let ir = r#"
+$implementation = comdat any
+define weak i32 @implementation() comdat { ret i32 1 }
+@live = global i32 3
+!llvm.linker.options = !{!0}
+!0 = !{!"/alternatename:provider=implementation"}
+"#;
+
+        let summary = scan_bitcode_unit_summary(
+            "implementation W 0 0\nlive D 0 0\nprovider U\n",
+            ir,
+            bray_target::NativeTarget::X86_64WindowsMsvc,
+        );
+
+        let NativeUnitSummary::Exact {
+            definitions,
+            references,
+            roots,
+        } = summary
+        else {
+            panic!("understood alternate-name fallback must be exact");
+        };
+
+        assert_eq!(references.len(), 1);
+        assert_eq!(references[0].identity().name(), Some("provider"));
+        assert!(roots.is_empty());
+        assert_eq!(definitions.len(), 3);
+
+        assert_eq!(
+            definitions
+                .iter()
+                .find(|definition| definition.symbol().identity().name() == Some("provider")),
+            Some(&crate::NativeDefinition::new(
+                bray_symbols::NativeSymbolContract::new(
+                    bray_symbols::NativeSymbolIdentity::Name(
+                        bray_base::NonEmptySharedStr::try_new("provider").unwrap()
+                    ),
+                    None,
+                    NativeSymbolBinding::Weak,
+                    bray_symbols::NativeSymbolPresence::Required
+                ),
+                NativeDefinitionSelection::Fallback
+            ))
+        );
+    }
+
+    #[test]
+    fn unknown_or_conflicting_alternate_name_contracts_stay_opaque() {
+        for metadata in [
+            "!0 = !{!\"/include:provider\"}",
+            "!0 = !{!\"/alternatename:provider=missing\"}",
+            "!0 = !{!\"/alternatename:provider=implementation\", !\"/include:extra\"}",
+        ] {
+            let ir = format!(
+                "define i32 @implementation() {{ ret i32 1 }}\n!llvm.linker.options = !{{!0}}\n{metadata}"
+            );
+
+            assert!(matches!(
+                scan_bitcode_unit_summary(
+                    "implementation T 0 0",
+                    &ir,
+                    bray_target::NativeTarget::X86_64WindowsMsvc
+                ),
+                NativeUnitSummary::Opaque { .. }
+            ));
+        }
+
+        let ir = "define i32 @implementation() { ret i32 1 }\n!llvm.linker.options = !{!0, !1}\n!0 = !{!\"/alternatename:provider=implementation\"}\n!1 = !{!\"/alternatename:provider=other\"}";
+
+        assert!(matches!(
+            scan_bitcode_unit_summary(
+                "implementation T 0 0\nother T 0 0",
+                ir,
+                bray_target::NativeTarget::X86_64WindowsMsvc
+            ),
+            NativeUnitSummary::Opaque { .. }
+        ));
     }
 
     #[test]
