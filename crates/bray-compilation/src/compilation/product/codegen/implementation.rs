@@ -2286,15 +2286,29 @@ mod tests {
 
             static GENERIC_VALUE<const N: i32>: i32 = N;
 
-            func first() -> i32 { return GENERIC_VALUE<1>; }
-            func second() -> i32 { return GENERIC_VALUE<2>; }
+            func first() -> i32
+            {
+                return GENERIC_VALUE<1>;
+            }
+
+            func second() -> i32
+            {
+                return GENERIC_VALUE<2>;
+            }
 
             @link(name = "native")
             @symbol(name = "native_value")
             extern trusted static NATIVE: i32;
 
-            trusted func repeated_native_pointer() -> RawPointer<i32> { return NATIVE; }
-            trusted func native_pointer() -> RawPointer<i32> { return NATIVE; }
+            trusted func repeated_native_pointer() -> RawPointer<i32>
+            {
+                return NATIVE;
+            }
+
+            trusted func native_pointer() -> RawPointer<i32>
+            {
+                return NATIVE;
+            }
         "#;
 
         for source in [CONCRETE_GENERIC_SOURCE, storage_source] {
@@ -7728,14 +7742,31 @@ public func invoke<T>(pos value: T)
         let target = NativeTarget::X86_64MacOs;
 
         for user in [
-            "internal static VALUE: i32 = 42;\nfunc user() -> i32 { return VALUE; }\n",
-            "func user() -> &string { return &\"shared literal\"; }\n",
+            r#"
+                internal static VALUE: i32 = 42;
+
+                func user() -> i32
+                {
+                    return VALUE;
+                }
+            "#,
+            r#"
+                func user() -> &string
+                {
+                    return &"shared literal";
+                }
+            "#,
         ] {
             let mut source = format!("module app;\n{user}");
 
             for index in 0..8 {
                 source.push_str(&format!(
-                    "func ordinary_{index}(pos value: i32) -> i32 {{ return value + {index}; }}\n"
+                    r#"
+                        func ordinary_{index}(pos value: i32) -> i32
+                        {{
+                            return value + {index};
+                        }}
+                    "#
                 ));
             }
 
@@ -7847,9 +7878,19 @@ public func invoke<T>(pos value: T)
         for (storage, suffix) in [("NATIVE_A", "a"), ("NATIVE_B", "b")] {
             for index in 0..4 {
                 source.push_str(&if callable {
-                    format!("trusted func get_{suffix}_{index}() -> i32 uses(foreign_call) {{ return trusted {storage}(); }}\n")
+                    format!(r#"
+                        trusted func get_{suffix}_{index}() -> i32 uses(foreign_call)
+                        {{
+                            return trusted {storage}();
+                        }}
+                    "#)
                 } else {
-                    format!("trusted func get_{suffix}_{index}() -> RawPointer<i32> {{ return {storage}; }}\n")
+                    format!(r#"
+                        trusted func get_{suffix}_{index}() -> RawPointer<i32>
+                        {{
+                            return {storage};
+                        }}
+                    "#)
                 });
             }
         }
