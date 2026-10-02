@@ -131,20 +131,88 @@ impl ImplementationStorage {
         self.read(0..self.len())
     }
 
-    pub(super) fn digest(&self) -> Result<[u8; 32], InterfaceValidationError> {
+    pub(super) fn digest(
+        &self,
+        directory_offset: usize,
+        metadata_digest: [u8; 32],
+        identity: &super::ImplementationDirectoryEntry,
+    ) -> Result<[u8; 32], InterfaceValidationError> {
         self.verify_length()?;
 
         let mut hasher = blake3::Hasher::new();
+        let mut metadata = None;
+
+        let mut identity_hasher = crate::implementation::hash::payload_hasher(
+            identity,
+            identity.payload.len() as u64,
+        );
 
         for start in (0..self.len()).step_by(64 * 1024) {
             let end = start.saturating_add(64 * 1024).min(self.len());
             let bytes = self.read(start..end)?;
+
+            if start == 0 {
+                let declared = bytes[super::ARTIFACT_HASH_OFFSET..super::ARTIFACT_HASH_OFFSET + 32]
+                    .try_into()
+                    .expect("validated artifact storage contains a complete header");
+
+                if declared != metadata_digest {
+                    return Err(InterfaceValidationError::ArtifactHashMismatch {
+                        expected: crate::InterfaceArtifactHash::from_bytes(metadata_digest),
+                        actual: crate::InterfaceArtifactHash::from_bytes(declared),
+                    });
+                }
+
+                metadata = crate::implementation::hash::metadata_hasher(
+                    &bytes[..super::HEADER_LENGTH],
+                );
+            }
+
+            if end > directory_offset {
+                metadata
+                    .as_mut()
+                    .expect("validated artifact storage contains a complete header")
+                    .update(&bytes[directory_offset.saturating_sub(start)..]);
+            }
+
+            let identity_start = start.max(identity.payload.start);
+            let identity_end = end.min(identity.payload.end);
+
+            if identity_start < identity_end {
+                identity_hasher.update(&bytes[identity_start - start..identity_end - start]);
+                self.hashed(identity_end - identity_start);
+            }
 
             hasher.update(&bytes);
             self.hashed(bytes.len());
         }
 
         self.verify_length()?;
+
+        let actual_metadata = *metadata
+            .expect("validated artifact storage contains a complete header")
+            .finalize()
+            .as_bytes();
+
+        if actual_metadata != metadata_digest {
+            return Err(InterfaceValidationError::ArtifactHashMismatch {
+                expected: crate::InterfaceArtifactHash::from_bytes(metadata_digest),
+                actual: crate::InterfaceArtifactHash::from_bytes(actual_metadata),
+            });
+        }
+
+        let actual_identity = *identity_hasher.finalize().as_bytes();
+
+        if actual_identity != identity.checksum {
+            return Err(InterfaceValidationError::PayloadChecksumMismatch {
+                context: crate::InterfaceValidationContext::ImplementationEntry {
+                    index: identity.index,
+                    raw_kind: identity.raw_kind,
+                },
+                expected: identity.checksum,
+                actual: actual_identity,
+            });
+        }
 
         Ok(*hasher.finalize().as_bytes())
     }

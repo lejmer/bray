@@ -73,7 +73,9 @@ impl PackageImplementationArtifact {
     }
 
     pub(crate) fn verify_digest(&self, expected: [u8; 32]) -> Result<(), InterfaceValidationError> {
-        let actual = self.storage.digest()?;
+        let identity = self.directory.first().expect("validated artifacts contain an identity");
+        let directory_offset = self.storage.len() - self.directory.len() * super::DIRECTORY_ENTRY_LENGTH;
+        let actual = self.storage.digest(directory_offset, self.artifact_hash, identity)?;
 
         if actual != expected {
             return Err(InterfaceValidationError::ArtifactHashMismatch {

@@ -1465,6 +1465,83 @@ fn artifact_fixture() -> ArtifactFixture {
 }
 
 #[test]
+fn streamed_digest_binds_metadata_and_identity_to_the_authenticated_bytes() {
+    let fixture = artifact_fixture();
+
+    let identity = super::construction::implementation_identity(
+        &fixture.interface,
+        fixture.bundle.surface(),
+        fixture.bundle.semantics(),
+        fixture.bundle.implementation_configuration().clone(),
+    );
+
+    let replacement_identity = crate::PackageImplementationIdentity::new(
+        identity.interface().clone(),
+        crate::InterfaceContentHash::from_bytes([0xa5; 32]),
+        identity.language_revision(),
+        identity.dependencies().iter().cloned(),
+        identity.configuration().clone(),
+        identity.runtime_requirements().iter().cloned(),
+    );
+
+    let original = encode_artifact(&identity, &[], &[], &[], &[], None, &[], &[]).unwrap();
+
+    let replacement = encode_artifact(&replacement_identity, &[], &[], &[], &[], None, &[], &[])
+        .unwrap();
+
+    let limits = InterfaceValidationLimits::default();
+    let parsed = PackageImplementationArtifact::try_from_bytes(original.clone(), limits).unwrap();
+
+    let replacement_parsed = PackageImplementationArtifact::try_from_bytes(replacement.clone(), limits)
+        .unwrap();
+
+    assert_eq!(original.len(), replacement.len());
+    assert_ne!(parsed.identity(), replacement_parsed.identity());
+
+    let temporary = tempfile::tempdir().unwrap();
+    let path = temporary.path().join("changed.brayimpl");
+
+    std::fs::write(&path, &original).unwrap();
+
+    let opened = PackageImplementationArtifact::try_open(&path, limits).unwrap();
+
+    std::fs::write(&path, &replacement).unwrap();
+
+    assert!(matches!(
+        opened.verify_digest(*blake3::hash(&replacement).as_bytes()),
+        Err(InterfaceValidationError::ArtifactHashMismatch { .. })
+    ));
+
+    for offset in [
+        super::CONTENT_HASH_OFFSET,
+        original.len() - 1,
+        parsed.directory[0].payload.end - 1,
+    ] {
+        std::fs::write(&path, &original).unwrap();
+
+        let opened = PackageImplementationArtifact::try_open(&path, limits).unwrap();
+        let mut changed = original.to_vec();
+
+        changed[offset] ^= 1;
+        std::fs::write(&path, &changed).unwrap();
+
+        let result = opened.verify_digest(*blake3::hash(&changed).as_bytes());
+
+        if offset == parsed.directory[0].payload.end - 1 {
+            assert!(matches!(
+                result,
+                Err(InterfaceValidationError::PayloadChecksumMismatch { .. })
+            ));
+        } else {
+            assert!(matches!(
+                result,
+                Err(InterfaceValidationError::ArtifactHashMismatch { .. })
+            ));
+        }
+    }
+}
+
+#[test]
 fn packed_storage_above_interface_ceiling_keeps_metadata_and_payload_bounds() {
     use std::io::{Seek, SeekFrom, Write};
 
@@ -1631,7 +1708,7 @@ fn packed_storage_above_interface_ceiling_keeps_metadata_and_payload_bounds() {
     assert_eq!(loaded.identity(), artifact.identity());
     assert_eq!(loaded.access_statistics().opens, 1);
     assert!(loaded.decoded.iter().all(|cell| cell.get().is_none()));
-    assert_eq!(loaded.access_statistics().payload_bytes_hashed, file_length as u64 + artifact.access_statistics().payload_bytes_hashed);
+    assert_eq!(loaded.access_statistics().payload_bytes_hashed, file_length as u64 + artifact.access_statistics().payload_bytes_hashed + artifact.directory[0].payload.len() as u64);
 
     file.seek(SeekFrom::Start(offset as u64 - 1)).unwrap();
     file.write_all(&[1]).unwrap();
