@@ -41,7 +41,7 @@ impl Workload {
         let path_bytes = path.len() as u64 * unit_bytes;
 
         // One native path, three terminated paths (remove/open/remove), and the 256-byte writer.
-        // UTF-8 path construction copies bytes; UTF-16 construction encodes scalars directly.
+        // UTF-8 path construction copies bytes. UTF-16 construction encodes scalars directly.
         Some(StorageExpectation {
             allocation_count: 5,
             allocated_bytes: 256 + path_bytes + 3 * (path_bytes + unit_bytes),
