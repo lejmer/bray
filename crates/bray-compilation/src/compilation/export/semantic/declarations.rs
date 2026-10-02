@@ -83,9 +83,15 @@ pub(super) fn export_callable_semantics(
         *result_dependencies.value(),
     )?);
 
-    let contracts = binder
-        .resolve_symbol_query(SymbolQueryRequest::<CallableContractsQuery>::new(callable))
-        .map_err(super::super::binding_query_export_error)?;
+    let contracts = match compilation
+        .published_callable_contract(callable, &compilation.state.cancellation)
+        .map_err(super::super::fact_query_export_error)?
+    {
+        Some(contracts) => contracts,
+        None => binder
+            .resolve_symbol_query(SymbolQueryRequest::<CallableContractsQuery>::new(callable))
+            .map_err(super::super::binding_query_export_error)?,
+    };
 
     if contracts.diagnostics().has_errors() {
         return Err(incomplete(symbol));

@@ -16,7 +16,7 @@ use super::validation::foreign_type_is_supported;
 use super::{ForeignDataKind, ForeignQueryContext, ForeignQueryFailure};
 use crate::compilation::binder::binding_query_error;
 use crate::compilation::directive::first_directive;
-use crate::fact::{CancellationToken, FactQueryError};
+use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
 
 impl Compilation {
     /// Returns the validated foreign-boundary contract of one source static.
@@ -32,6 +32,17 @@ impl Compilation {
         declaration: StaticSymbolId,
         cancellation: &CancellationToken,
     ) -> Result<Arc<DiagnosticResult<Option<ForeignStaticContract>>>, FactQueryError> {
+        let key = CompilationFactKey::ForeignStaticContract(declaration);
+
+        if let Some(validation) = self
+            .state
+            .foreign_callable_validation
+            .get_if_published(&CompilationFactKey::ForeignCallableValidation)
+            && let Some(result) = validation.statics.get(&declaration)
+        {
+            return self.reuse_validated_foreign_contract(key, result, cancellation);
+        }
+
         let binder = self.binding_context(cancellation)?;
 
         if binder
@@ -44,12 +55,9 @@ impl Compilation {
 
         let cell = self.state.foreign_static_contracts.cell(declaration)?;
 
-        let result = self.query_with_cancellation(
-            crate::fact::CompilationFactKey::ForeignStaticContract(declaration),
-            &cell,
-            cancellation,
-            |cancellation| self.compute_foreign_static_contract(declaration, cancellation),
-        )?;
+        let result = self.query_with_cancellation(key, &cell, cancellation, |cancellation| {
+            self.compute_foreign_static_contract(declaration, cancellation)
+        })?;
 
         Ok(Arc::clone(result))
     }

@@ -1,5 +1,6 @@
 // rust-style: allow(module-too-large, reason = "semantic diagnostic aggregation shares one cached publication boundary")
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bray_binder::SymbolQueryProvider;
@@ -17,14 +18,14 @@ use bray_diagnostics::{
     DiagnosticEmissionFailure, DiagnosticId, DiagnosticInterfaceDeclarationIdentity,
     DiagnosticInterfaceSymbolIdentity, DiagnosticInterfaceSymbolReference, DiagnosticKind,
     DiagnosticLabel, DiagnosticLabelKind, DiagnosticNote, DiagnosticNoteKind,
-    DiagnosticProductKind, SeverityKind,
+    DiagnosticProductKind, DiagnosticResult, SeverityKind,
 };
 use bray_package_interface::InterfaceSymbolReference;
 use bray_source::SourceSpan;
 use bray_symbols::{
-    AnySymbolId, CallableContractsQuery, CallableSymbolId, ImplementationSymbolId,
-    ImportedSymbolSkeleton, ModuleSurfaceQuery, NamedTypeSymbolId, ProductKind, SymbolGraph,
-    SymbolOrigin, SymbolQueryRequest,
+    AnySymbolId, CallableContractSet, CallableContractsQuery, CallableDefinitionId,
+    CallableSymbolId, ImplementationSymbolId, ImportedSymbolSkeleton, ModuleSurfaceQuery,
+    NamedTypeSymbolId, ProductKind, SymbolGraph, SymbolOrigin, SymbolQueryKind, SymbolQueryRequest,
     diagnostic_external_symbol_identity, diagnostic_symbol_identity, diagnostic_symbol_kind,
 };
 
@@ -37,8 +38,14 @@ use super::{
 };
 use crate::fact::{
     BatchWork, CancellationToken, CompilationFactKey, DiagnosticPublicationOrder, FactQueryError,
-    OrderedDiagnosticCollection, PublishedUnitResult, publish_diagnostics,
+    OrderedDiagnosticCollection, PublishedUnitResult, SymbolQueryKey, publish_diagnostics,
 };
+
+#[derive(Hash)]
+pub(in crate::compilation) struct SemanticDiagnosticPublication {
+    diagnostics: DiagnosticBag,
+    callable_contracts: BTreeMap<CallableSymbolId, Arc<DiagnosticResult<CallableContractSet>>>,
+}
 
 pub(super) fn source_diagnostic(anchor: SyntaxAnchor, kind: DiagnosticKind) -> Diagnostic {
     Diagnostic::new(
@@ -307,6 +314,36 @@ impl Compilation {
             cancellation,
             |cancellation| self.compute_semantic_diagnostics(cancellation),
         )
+        .map(|publication| &publication.diagnostics)
+    }
+
+    pub(in crate::compilation) fn published_callable_contract(
+        &self,
+        callable: CallableSymbolId,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<Arc<DiagnosticResult<CallableContractSet>>>, FactQueryError> {
+        let Some(publication) = self
+            .state
+            .semantic_diagnostics
+            .get_if_published(&CompilationFactKey::SemanticDiagnostics)
+        else {
+            return Ok(None);
+        };
+
+        let Some(contracts) = publication.callable_contracts.get(&callable) else {
+            return Ok(None);
+        };
+
+        let key = CompilationFactKey::from(SymbolQueryKey::new(
+            callable.into_any(),
+            SymbolQueryKind::CallableContracts,
+        ));
+
+        self.state.fact_runtime.check_request_cycle(&key)?;
+        cancellation.check()?;
+        self.state.fact_runtime.record_completed_request(&key)?;
+
+        Ok(Some(Arc::clone(contracts)))
     }
 
     /// Returns diagnostics for the current whole-package check request.
@@ -383,11 +420,14 @@ impl Compilation {
     fn compute_semantic_diagnostics(
         &self,
         cancellation: &CancellationToken,
-    ) -> Result<DiagnosticBag, FactQueryError> {
+    ) -> Result<SemanticDiagnosticPublication, FactQueryError> {
         // Recovered nameless parameters cannot form complete callable signatures.
         // Other syntax recovery can still publish useful semantic diagnostics.
         if self.source_diagnostics().has_errors() || self.has_incomplete_callable_parameters() {
-            return Ok(DiagnosticBag::new());
+            return Ok(SemanticDiagnosticPublication {
+                diagnostics: DiagnosticBag::new(),
+                callable_contracts: BTreeMap::new(),
+            });
         }
 
         let source_graph = self.product_source_graph()?;
@@ -410,34 +450,55 @@ impl Compilation {
             sources.push(surface.diagnostics().clone());
         }
 
-        let callables = source_graph
+        let mut callables_without_bodies = Vec::new();
+        let mut callable_order = BTreeMap::new();
+        let contract_start = sources.len();
+        let mut checked_contracts = BTreeMap::new();
+
+        for (ordinal, callable) in source_graph
             .declarations()
             .declarations()
             .iter()
             .filter_map(|declaration| symbols.symbol_for_declaration(declaration.id()))
             .filter_map(CallableSymbolId::try_from_any)
-            .collect::<Vec<_>>();
+            .enumerate()
+        {
+            callable_order.insert(callable, ordinal);
+            sources.push(DiagnosticBag::new());
 
-        let contract_results = self
-            .state
-            .fact_runtime
-            .map_indexed(callables.len(), |index| {
-                cancellation.check()?;
+            let body = match CallableDefinitionId::try_new(callable.into_any()) {
+                Some(definition) => self.callable_body_key(definition)?,
+                None => None,
+            };
 
-                let callable = callables[index];
+            if body.is_none() {
+                callables_without_bodies.push((ordinal, callable));
+            }
+        }
 
-                let contracts = binder
-                    .resolve_symbol_query(SymbolQueryRequest::<CallableContractsQuery>::new(
-                        callable,
-                    ))
-                    .map_err(super::binder::binding_query_error)?;
+        let contract_results =
+            self.state
+                .fact_runtime
+                .map_indexed(callables_without_bodies.len(), |index| {
+                    cancellation.check()?;
 
-                // Each worker returns its bag without retaining the callable analysis.
-                Ok::<_, FactQueryError>(contracts.diagnostics().clone())
-            })?;
+                    let (ordinal, callable) = callables_without_bodies[index];
+
+                    let contracts = binder
+                        .resolve_symbol_query(SymbolQueryRequest::<CallableContractsQuery>::new(
+                            callable,
+                        ))
+                        .map_err(super::binder::binding_query_error)?;
+
+                    // Each worker returns its bag without retaining the callable analysis.
+                    Ok::<_, FactQueryError>((ordinal, callable, contracts))
+                })?;
 
         for contracts in contract_results {
-            sources.push(contracts?);
+            let (ordinal, callable, contracts) = contracts?;
+
+            sources[contract_start + ordinal] = contracts.diagnostics().clone();
+            checked_contracts.insert(callable, contracts);
         }
 
         for subject in symbols
@@ -453,7 +514,11 @@ impl Compilation {
                     .map(|symbol| NamedTypeSymbolId::from(symbol.id())),
             )
         {
-            sources.push(self.declared_type_representation(subject)?.diagnostics().clone());
+            sources.push(
+                self.declared_type_representation(subject)?
+                    .diagnostics()
+                    .clone(),
+            );
         }
 
         for implementation in symbols
@@ -482,7 +547,11 @@ impl Compilation {
                 continue;
             }
 
-            sources.push(self.trait_implementation_conformance(implementation)?.diagnostics().clone());
+            sources.push(
+                self.trait_implementation_conformance(implementation)?
+                    .diagnostics()
+                    .clone(),
+            );
         }
 
         // Scheduled diagnostics retain shared identities independently of the inventory.
@@ -496,75 +565,42 @@ impl Compilation {
             .state
             .fact_runtime
             .complete_batch(roots, cancellation, |(_, _, _, key)| {
-                // Each scheduled request owns the Arc-backed unit identity past the plan borrow.
-                let (bound, sources) =
-                    match self.semantic_unit_diagnostic_sources(key.clone(), cancellation) {
-                        Ok(result) => result,
-                        Err(FactQueryError::CheckerInfrastructure(error)) => {
-                            let bound = self
-                                .bound_unit_with_cancellation(key.clone(), cancellation)
-                                .ok();
+                // Contract and unit diagnostics reuse this worker's checked body before eviction.
+                let contracts = if key.kind() == BoundUnitKind::CallableBody {
+                    let callable = symbols
+                        .symbol_for_key(key.declared_owner())
+                        .and_then(CallableSymbolId::try_from_any)
+                        .expect("declared callable body must have a callable owner");
 
-                            let nested = bound.as_ref().into_iter().flat_map(|bound| {
-                                bound
-                                    .result()
-                                    .value()
-                                    .nested_units()
-                                    .iter()
-                                    .cloned()
-                                    .map(unit_order_key)
-                                    .collect::<Vec<_>>()
-                            });
+                    let contracts = binder
+                        .resolve_symbol_query(SymbolQueryRequest::<CallableContractsQuery>::new(
+                            callable,
+                        ))
+                        .map_err(super::binder::binding_query_error)?;
 
-                            return Ok::<_, FactQueryError>(BatchWork::new(
-                                vec![checker_failure_diagnostics(
-                                    &key,
-                                    bound.as_ref().map(|bound| bound.result().value()),
-                                    error,
-                                )],
-                                nested,
-                            ));
-                        }
-                        Err(FactQueryError::SemanticQuery(error)) => {
-                            let bound = self
-                                .bound_unit_with_cancellation(key.clone(), cancellation)
-                                .ok();
+                    let ordinal = *callable_order
+                        .get(&callable)
+                        .expect("declared callable body must have a diagnostic publication order");
 
-                            let nested = bound.as_ref().into_iter().flat_map(|bound| {
-                                bound
-                                    .result()
-                                    .value()
-                                    .nested_units()
-                                    .iter()
-                                    .cloned()
-                                    .map(unit_order_key)
-                                    .collect::<Vec<_>>()
-                            });
+                    Some((ordinal, callable, contracts))
+                } else {
+                    None
+                };
 
-                            return Ok::<_, FactQueryError>(BatchWork::new(
-                                vec![semantic_query_failure_diagnostics(&key, &error)],
-                                nested,
-                            ));
-                        }
-                        Err(error) => return Err(error),
-                    };
+                let (sources, nested) = self.semantic_unit_diagnostic_work(key, cancellation)?;
 
-                // Nested unit keys are Arc-backed immutable identities shared with their owner.
-                let nested = bound
-                    .result()
-                    .value()
-                    .nested_units()
-                    .iter()
-                    .cloned()
-                    .map(unit_order_key);
-
-                Ok::<_, FactQueryError>(BatchWork::new(sources, nested))
+                Ok::<_, FactQueryError>(BatchWork::new((contracts, sources), nested))
             })
             .map_err(|error| error.into_fact_query_error())?;
 
         units.sort_unstable_by(|left, right| left.0.cmp(&right.0));
 
-        for (_, unit_sources) in units {
+        for (_, (contracts, unit_sources)) in units {
+            if let Some((ordinal, callable, contracts)) = contracts {
+                sources[contract_start + ordinal] = contracts.diagnostics().clone();
+                checked_contracts.insert(callable, contracts);
+            }
+
             sources.extend(unit_sources);
         }
 
@@ -586,10 +622,55 @@ impl Compilation {
                 ]),
         );
 
-        Ok(publish_diagnostics(
-            self.state.fact_runtime.profile(),
-            collections,
-        ))
+        Ok(SemanticDiagnosticPublication {
+            diagnostics: publish_diagnostics(self.state.fact_runtime.profile(), collections),
+            callable_contracts: checked_contracts,
+        })
+    }
+
+    fn semantic_unit_diagnostic_work(
+        &self,
+        key: &BoundUnitKey,
+        cancellation: &CancellationToken,
+    ) -> Result<(Vec<DiagnosticBag>, Vec<UnitDiagnosticOrder>), FactQueryError> {
+        let (bound, sources) = match self
+            .semantic_unit_diagnostic_sources(key.clone(), cancellation)
+        {
+            Ok((bound, sources)) => (Some(bound), sources),
+            Err(
+                error @ (FactQueryError::CheckerInfrastructure(_)
+                | FactQueryError::SemanticQuery(_)),
+            ) => {
+                let bound = self
+                    .bound_unit_with_cancellation(key.clone(), cancellation)
+                    .ok();
+
+                let diagnostic = match error {
+                    FactQueryError::CheckerInfrastructure(error) => checker_failure_diagnostics(
+                        key,
+                        bound.as_ref().map(|bound| bound.result().value()),
+                        error,
+                    ),
+                    FactQueryError::SemanticQuery(error) => {
+                        semantic_query_failure_diagnostics(key, &error)
+                    }
+                    _ => {
+                        unreachable!("recoverable unit failure must be a checker or semantic error")
+                    }
+                };
+
+                (bound, vec![diagnostic])
+            }
+            Err(error) => return Err(error),
+        };
+
+        let nested = bound
+            .iter()
+            .flat_map(|bound| bound.result().value().nested_units().iter().cloned())
+            .map(unit_order_key)
+            .collect();
+
+        Ok((sources, nested))
     }
 
     pub(super) fn semantic_unit_diagnostics_with_cancellation(
@@ -601,9 +682,7 @@ impl Compilation {
 
         Ok(publish_diagnostics(
             self.state.fact_runtime.profile(),
-            ordered_diagnostic_collections(
-                sources.iter(),
-            ),
+            ordered_diagnostic_collections(sources.iter()),
         ))
     }
 
@@ -611,13 +690,7 @@ impl Compilation {
         &self,
         key: BoundUnitKey,
         cancellation: &CancellationToken,
-    ) -> Result<
-        (
-            Arc<PublishedUnitResult<BoundUnit>>,
-            Vec<DiagnosticBag>,
-        ),
-        FactQueryError,
-    > {
+    ) -> Result<(Arc<PublishedUnitResult<BoundUnit>>, Vec<DiagnosticBag>), FactQueryError> {
         // Each source request owns the same Arc-backed unit identity independently.
         let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
 
@@ -680,7 +753,11 @@ impl Compilation {
                 })?;
 
             if let AnySymbolId::Static(declaration) = owner {
-                sources.push(self.static_instance_template(declaration)?.diagnostics().clone());
+                sources.push(
+                    self.static_instance_template(declaration)?
+                        .diagnostics()
+                        .clone(),
+                );
 
                 return Ok((bound, sources));
             }
@@ -892,14 +969,14 @@ fn ordered_diagnostic_collections<'diagnostic>(
         .collect()
 }
 
-fn unit_order_key(
-    key: BoundUnitKey,
-) -> (
+type UnitDiagnosticOrder = (
     bray_source::SourceId,
     bray_source::TextRange,
     BoundUnitKind,
     BoundUnitKey,
-) {
+);
+
+fn unit_order_key(key: BoundUnitKey) -> UnitDiagnosticOrder {
     let source = key.source().syntax();
 
     (source.source_id(), source.full_range(), key.kind(), key)
@@ -931,6 +1008,63 @@ mod tests {
     };
 
     #[test]
+    fn diagnostics_share_body_work_beyond_the_query_cache_working_set() {
+        use std::fmt::Write;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        use bray_symbols::SymbolQueryKind;
+
+        use crate::fact::{CompilationFactKey, FactEvaluationTestObserver};
+        use crate::test_support::source_function_body_key;
+
+        let count = 4_100;
+        let mut source = String::from("module app;\n");
+
+        for index in 0..count {
+            writeln!(source, "func item{index}() {{}}").unwrap();
+        }
+
+        let compilation = compilation(&source);
+        let bodies = Arc::new(AtomicUsize::new(0));
+        let contracts = Arc::new(AtomicUsize::new(0));
+        let observed_bodies = Arc::clone(&bodies);
+        let observed_contracts = Arc::clone(&contracts);
+
+        compilation
+            .state
+            .fact_runtime
+            .set_test_observer(FactEvaluationTestObserver::new(move |key| {
+                if matches!(key, CompilationFactKey::BodySemantics(_)) {
+                    observed_bodies.fetch_add(1, Ordering::SeqCst);
+                }
+
+                if matches!(key, CompilationFactKey::Symbol(query)
+                    if query.kind() == SymbolQueryKind::CallableContracts)
+                {
+                    observed_contracts.fetch_add(1, Ordering::SeqCst);
+                }
+            }))
+            .unwrap();
+
+        assert!(compilation.check_diagnostics().is_empty());
+        assert_eq!(bodies.load(Ordering::SeqCst), count);
+        assert_eq!(contracts.load(Ordering::SeqCst), count);
+
+        let first = source_function_body_key(&compilation, "item0");
+        let last = source_function_body_key(&compilation, "item4099");
+
+        assert_eq!(
+            compilation.state.body_semantics.is_published(&first),
+            Ok(false)
+        );
+
+        assert_eq!(
+            compilation.state.body_semantics.is_published(&last),
+            Ok(true)
+        );
+    }
+
+    #[test]
     fn unit_diagnostic_bags_do_not_retain_checked_body_results() {
         let compilation = compilation(
             r#"
@@ -945,17 +1079,20 @@ mod tests {
         let key = source_callable_body_key(&compilation);
         let cancellation = CancellationToken::new();
 
-        let initial = compilation.semantic_unit_diagnostic_sources(key.clone(), &cancellation)
+        let initial = compilation
+            .semantic_unit_diagnostic_sources(key.clone(), &cancellation)
             .expect("unit diagnostics must initialize the analysis caches");
 
         drop(initial);
 
-        let body = compilation.body_semantics_with_cancellation(key.clone(), &cancellation)
+        let body = compilation
+            .body_semantics_with_cancellation(key.clone(), &cancellation)
             .expect("checked body must remain cached");
 
         let owners = Arc::strong_count(&body);
 
-        let (_, diagnostics) = compilation.semantic_unit_diagnostic_sources(key, &cancellation)
+        let (_, diagnostics) = compilation
+            .semantic_unit_diagnostic_sources(key, &cancellation)
             .expect("unit diagnostics must remain available");
 
         assert!(diagnostics.iter().all(DiagnosticBag::is_empty));

@@ -129,7 +129,8 @@ pub(in crate::compilation) struct CompilationState {
         FactCellMap<FunctionSymbolId, Arc<DiagnosticResult<Option<ForeignCallableContract>>>>,
     pub(in crate::compilation) foreign_static_contracts:
         FactCellMap<StaticSymbolId, Arc<DiagnosticResult<Option<ForeignStaticContract>>>>,
-    pub(in crate::compilation) foreign_callable_validation: FactCell<DiagnosticBag>,
+    pub(in crate::compilation) foreign_callable_validation:
+        FactCell<crate::compilation::foreign::ForeignBoundaryValidation>,
     pub(in crate::compilation) type_associated_surfaces:
         FactCellMap<NamedTypeSymbolId, Arc<DiagnosticResult<TypeAssociatedSurface>>>,
     pub(in crate::compilation) declared_type_representations:
@@ -161,7 +162,8 @@ pub(in crate::compilation) struct CompilationState {
         crate::fact::IterationSourceQueryKey,
         Arc<DiagnosticResult<Option<SelectedIterationSource>>>,
     >,
-    pub(in crate::compilation) semantic_diagnostics: FactCell<DiagnosticBag>,
+    pub(in crate::compilation) semantic_diagnostics:
+        FactCell<crate::compilation::diagnostics::SemanticDiagnosticPublication>,
     pub(in crate::compilation) symbol_semantics: CompilationSymbolSemantics,
     pub(in crate::compilation) discovery_symbol_semantics: CompilationSymbolSemantics,
     pub(in crate::compilation) bound_units: UnitQueryCache<BoundUnit>,

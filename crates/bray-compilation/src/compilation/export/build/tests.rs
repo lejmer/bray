@@ -56,11 +56,12 @@ fn export_reuses_resolved_contracts_after_the_query_cache_working_set() {
         .unwrap();
     }
 
-    let compilation = compilation(&source);
+    let unchecked = compilation(&source);
+    let checked = compilation(&source);
     let evaluations = Arc::new(AtomicUsize::new(0));
     let observed = Arc::clone(&evaluations);
 
-    compilation
+    unchecked
         .state
         .fact_runtime
         .set_test_observer(FactEvaluationTestObserver::new(move |key| {
@@ -72,12 +73,58 @@ fn export_reuses_resolved_contracts_after_the_query_cache_working_set() {
         }))
         .unwrap();
 
-    let bundle = export(&compilation);
+    let bundle = export(&unchecked);
 
     assert_eq!(bundle.semantics().callable_contracts().len(), count);
     assert_eq!(evaluations.load(Ordering::SeqCst), count);
 
-    let dependencies = compilation
+    let dependencies = unchecked
+        .state
+        .fact_runtime
+        .dependencies(&CompilationFactKey::PackageInterfaceExportBundle)
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        dependencies
+            .iter()
+            .filter(|key| matches!(
+                key, CompilationFactKey::Symbol(query)
+                    if query.kind() == SymbolQueryKind::CallableContracts
+            ))
+            .count(),
+        count
+    );
+
+    let checked_evaluations = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&checked_evaluations);
+
+    checked
+        .state
+        .fact_runtime
+        .set_test_observer(FactEvaluationTestObserver::new(move |key| {
+            if matches!(key, CompilationFactKey::Symbol(query)
+            if query.kind() == SymbolQueryKind::CallableContracts)
+            {
+                observed.fetch_add(1, Ordering::SeqCst);
+            }
+        }))
+        .unwrap();
+
+    assert!(checked.check_diagnostics().is_empty());
+    assert_eq!(checked_evaluations.load(Ordering::SeqCst), count);
+
+    let checked_bundle = export(&checked);
+
+    assert_eq!(checked_evaluations.load(Ordering::SeqCst), count);
+    assert_eq!(bundle, checked_bundle);
+
+    assert_eq!(
+        encode_package_interface(bundle).unwrap().bytes(),
+        encode_package_interface(checked_bundle).unwrap().bytes()
+    );
+
+    let dependencies = checked
         .state
         .fact_runtime
         .dependencies(&CompilationFactKey::PackageInterfaceExportBundle)
