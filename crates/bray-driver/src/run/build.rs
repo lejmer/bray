@@ -101,6 +101,20 @@ pub fn run_build_request(
         }
     };
 
+    let diagnostics = compilation.check_diagnostics();
+
+    if diagnostics.has_errors() {
+        // The driver result owns diagnostics after consuming the profiled compilation.
+        let diagnostics = diagnostics.clone();
+
+        return driver_result_from_compilation(
+            compilation,
+            diagnostics,
+            output_format,
+            ExitCode::FAILURE,
+        );
+    }
+
     let linker = if linked || artifacts.contains(&TargetOutputKind::PackageNativeImplementation) {
         // The driver retains its selections while the linker owns its independent output path.
         match native_linker(
