@@ -393,6 +393,7 @@ fn scheduler_local_operation_key(value: crate::fact::SchedulerLocalOperation) ->
 
 fn scheduler_counter_key(value: crate::fact::SchedulerCounter) -> &'static str {
     match value {
+        crate::fact::SchedulerCounter::ActiveSlots => "active_slots",
         crate::fact::SchedulerCounter::InteractiveWaiters => "interactive_waiters",
         crate::fact::SchedulerCounter::OrdinaryWaiters => "ordinary_waiters",
     }

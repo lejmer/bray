@@ -322,6 +322,7 @@ pub(crate) enum SchedulerLocalOperation {
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum SchedulerCounter {
+    ActiveSlots,
     InteractiveWaiters,
     OrdinaryWaiters,
 }
