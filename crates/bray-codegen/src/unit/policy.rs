@@ -36,17 +36,19 @@ pub enum CodegenDefinitionVisibility {
     Public,
 }
 
-/// Exact identities that must agree before definitions may share a generated unit.
+/// Per-definition symbol and source identities retained inside a generated unit.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CodegenPartitionCompatibility {
     package: PackageIdentity,
     source_namespace: [u8; 32],
     linkage: CodegenLinkage,
     visibility: CodegenDefinitionVisibility,
+    native_selection_boundary: bool,
+    native_storage_dependencies_identity: [u8; 32],
 }
 
 impl CodegenPartitionCompatibility {
-    /// Creates one exact package, source, linkage, and visibility compatibility class.
+    /// Creates one exact package, source, linkage, and visibility identity.
     pub const fn new(
         package: PackageIdentity,
         source_namespace: [u8; 32],
@@ -58,7 +60,33 @@ impl CodegenPartitionCompatibility {
             source_namespace,
             linkage,
             visibility,
+            native_selection_boundary: false,
+            native_storage_dependencies_identity: [0; 32],
         }
+    }
+
+    /// Keeps a native selection-sensitive definition independently publishable.
+    pub const fn with_native_selection_boundary(mut self) -> Self {
+        self.native_selection_boundary = true;
+
+        self
+    }
+
+    /// Whether a native reference requires an independent selection boundary.
+    pub const fn native_selection_boundary(&self) -> bool {
+        self.native_selection_boundary
+    }
+
+    /// Records the canonical identity of directly referenced native and owned storage.
+    pub const fn with_native_storage_dependencies_identity(mut self, identity: [u8; 32]) -> Self {
+        self.native_storage_dependencies_identity = identity;
+
+        self
+    }
+
+    /// Returns the canonical storage dependency set identity. Zero denotes no storage.
+    pub const fn native_storage_dependencies_identity(&self) -> [u8; 32] {
+        self.native_storage_dependencies_identity
     }
 
     /// Returns the package whose generated definitions are being partitioned.
@@ -71,12 +99,12 @@ impl CodegenPartitionCompatibility {
         self.source_namespace
     }
 
-    /// Returns the selected linkage shared by the definitions.
+    /// Returns the selected linkage of this definition.
     pub const fn linkage(&self) -> CodegenLinkage {
         self.linkage
     }
 
-    /// Returns the visibility boundary shared by the definitions.
+    /// Returns the visibility boundary of this definition.
     pub const fn visibility(&self) -> CodegenDefinitionVisibility {
         self.visibility
     }
@@ -97,21 +125,21 @@ impl CodegenPartitionPolicy {
     /// Policy used for balanced native compilation.
     pub const NATIVE_BALANCED: Self = Self {
         identity: 1,
-        revision: 1,
+        revision: 2,
         cost_model_revision: MIR_STRUCTURE_COST_MODEL_REVISION,
         lower_bound: CodegenWork::new(1_024),
         target_work: CodegenWork::new(2_048),
         upper_bound: CodegenWork::new(4_096),
     };
 
-    /// Keeps mandatory native groups indivisible while publishing library members separately.
+    /// Publishes bounded, independently selectable groups while preserving mandatory co-location.
     pub const NATIVE_LIBRARY_PUBLICATION: Self = Self {
         identity: 2,
-        revision: 1,
+        revision: 4,
         cost_model_revision: MIR_STRUCTURE_COST_MODEL_REVISION,
-        lower_bound: CodegenWork::new(1),
-        target_work: CodegenWork::new(1),
-        upper_bound: CodegenWork::new(u64::MAX),
+        lower_bound: CodegenWork::new(64),
+        target_work: CodegenWork::new(128),
+        upper_bound: CodegenWork::new(256),
     };
 
     /// Creates a policy when its identities and work bounds are valid.

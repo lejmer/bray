@@ -202,22 +202,7 @@ impl CodegenUnit {
         Ok(unit)
     }
 
-    pub(super) fn try_from_indivisible_group(
-        partition_policy: CodegenPartitionPolicy,
-        instances: impl IntoIterator<Item = CodegenInstance>,
-        compatibility: impl Fn(&CodegenInstance) -> Option<CodegenPartitionCompatibility>,
-        mir_content_identity: &impl Fn(&MirUnit) -> [u8; 32],
-    ) -> Result<Self, CodegenUnitBuildError> {
-        Self::try_from_partition(
-            partition_policy,
-            instances,
-            compatibility,
-            true,
-            mir_content_identity,
-        )
-    }
-
-    fn try_from_partition(
+    pub(super) fn try_from_partition(
         partition_policy: CodegenPartitionPolicy,
         instances: impl IntoIterator<Item = CodegenInstance>,
         compatibility: impl Fn(&CodegenInstance) -> Option<CodegenPartitionCompatibility>,

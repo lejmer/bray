@@ -1,14 +1,14 @@
 use std::collections::BTreeMap;
 
 use bray_codegen::{
-    CodegenCallableMapping, CodegenConstantMapping, CodegenConstantTermMapping, CodegenTarget,
+    CodegenCallableMapping, CodegenConstantMapping, CodegenInstance, CodegenConstantTermMapping, CodegenTarget,
     CodegenTerminatorMapping, CodegenUnit, child_constants, demanded_callable_instances,
     demanded_constant_terms, demanded_constants,
 };
-use bray_symbols::ConstantTermData;
+use bray_symbols::{ConstantTermData, ConstantValueKind};
 
 use super::super::super::{CodegenPreparationError, Compilation};
-use super::super::specialization::{ConcreteCodegenCallee, ConcreteCodegenReachability};
+use super::super::specialization::{ConcreteCodegenCallee, ConcreteCodegenInstance, ConcreteCodegenReachability};
 use crate::compilation::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
 use crate::fact::CancellationToken;
 
@@ -56,13 +56,54 @@ impl Compilation {
         Ok(mappings)
     }
 
+    pub(super) fn codegen_has_string_constants(
+        &self,
+        instance: &CodegenInstance,
+        realization: &ConcreteCodegenInstance,
+    ) -> Result<bool, CodegenPreparationError> {
+        let values = self.semantic_value_store()?;
+        let demands = demanded_constants([instance.mir()]);
+        let mut pending = demands.values().iter().copied().collect::<Vec<_>>();
+
+        for template_term in demanded_constant_terms(instance.mir()) {
+            let term = self
+                .substitute_codegen_constant_term(template_term, realization.substitution())?;
+
+            let data = values.constant_term_data(term);
+
+            let ConstantTermData::Value(value) = data.as_ref() else {
+                return Err(CodegenPreparationError::OpenConstantTerm(term));
+            };
+
+            pending.push(*value);
+        }
+
+        let mut visited = std::collections::BTreeSet::new();
+
+        while let Some(value) = pending.pop() {
+            if !visited.insert(value) {
+                continue;
+            }
+
+            let data = values.constant_value_data(value);
+
+            if matches!(data.kind(), ConstantValueKind::String(_)) {
+                return Ok(true);
+            }
+
+            pending.extend(child_constants(data.kind()));
+        }
+
+        Ok(false)
+    }
+
     pub(super) fn codegen_constants(
         &self,
         unit: &CodegenUnit,
         additional: impl IntoIterator<Item = bray_symbols::ConstantValueId>,
     ) -> Result<Vec<CodegenConstantMapping>, CodegenPreparationError> {
         let values = self.semantic_value_store()?;
-        let demands = demanded_constants(unit);
+        let demands = demanded_constants(unit.mir_units());
         let mut pending = Vec::new();
         let mut mapped = BTreeMap::new();
 
