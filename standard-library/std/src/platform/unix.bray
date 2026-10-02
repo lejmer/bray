@@ -293,24 +293,57 @@ trusted internal func terminated_byte_length(pos pointer: RawPointer<u8>, limit:
     panic("the platform process context contains invalid native text");
 }
 
-trusted internal func descriptor_transfer(
+trusted internal func descriptor_read(
     pos descriptor: i32,
-    bytes: RawPointer<u8>,
+    destination: RawPointer<u8>,
     length: u64,
     transferred: RawPointer<u64>,
-    read_operation: bool,
 ) -> PlatformStatus
 {
     trusted std.memory.write<u64>(transferred, value = 0);
 
     if length == 0
     {
-        return success_status();
+        return internal success_status();
     }
 
+    let count: isize = trusted std.os.unix.read(
+        descriptor,
+        destination = destination,
+        length = internal descriptor_request_length(length),
+    );
+
+    return trusted internal descriptor_transfer_result(count, transferred = transferred);
+}
+
+trusted internal func descriptor_write(
+    pos descriptor: i32,
+    source: RawPointer<u8>,
+    length: u64,
+    transferred: RawPointer<u64>,
+) -> PlatformStatus
+{
+    trusted std.memory.write<u64>(transferred, value = 0);
+
+    if length == 0
+    {
+        return internal success_status();
+    }
+
+    let count: isize = trusted std.os.unix.write(
+        descriptor,
+        source = source,
+        length = internal descriptor_request_length(length),
+    );
+
+    return trusted internal descriptor_transfer_result(count, transferred = transferred);
+}
+
+internal func descriptor_request_length(pos length: u64) -> usize
+{
     let maximum: u64 = 9_223_372_036_854_775_807;
 
-    let requested: usize = std.truncate_to<usize>(
+    return std.truncate_to<usize>(
         if length > maximum
         {
             yield maximum;
@@ -320,16 +353,10 @@ trusted internal func descriptor_transfer(
             yield length;
         }
     );
+}
 
-    let count: isize = if read_operation
-    {
-        yield trusted std.os.unix.read(descriptor, destination = bytes, length = requested);
-    }
-    else
-    {
-        yield trusted std.os.unix.write(descriptor, source = bytes, length = requested);
-    };
-
+trusted internal func descriptor_transfer_result(pos count: isize, transferred: RawPointer<u64>) -> PlatformStatus
+{
     if count < 0
     {
         return trusted unix_error_status();
@@ -337,7 +364,7 @@ trusted internal func descriptor_transfer(
 
     trusted std.memory.write<u64>(transferred, value = std.truncate_to<u64>(count));
 
-    return success_status();
+    return internal success_status();
 }
 
 internal func checked_descriptor(pos handle: u64) -> Result<i32, PlatformStatus>

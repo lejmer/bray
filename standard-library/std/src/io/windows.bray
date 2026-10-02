@@ -11,12 +11,11 @@ trusted internal func platform_standard_input_read(
 ) -> std.platform.PlatformStatus
     uses(foreign_call)
 {
-    return trusted internal std.platform.handle_transfer(
+    return trusted internal std.platform.handle_read(
         trusted std.os.windows.get_standard_handle(std.os.windows.STD_INPUT_HANDLE),
-        bytes = destination,
+        destination = destination,
         length = length,
         transferred = transferred,
-        read_operation = true,
     );
 }
 
@@ -28,12 +27,11 @@ trusted internal func platform_standard_output_write(
 ) -> std.platform.PlatformStatus
     uses(foreign_call)
 {
-    return trusted internal std.platform.handle_transfer(
+    return trusted internal std.platform.handle_write(
         trusted std.os.windows.get_standard_handle(std.os.windows.STD_OUTPUT_HANDLE),
-        bytes = source,
+        source = source,
         length = length,
         transferred = transferred,
-        read_operation = false,
     );
 }
 
@@ -45,11 +43,10 @@ trusted internal func platform_standard_error_write(
 ) -> std.platform.PlatformStatus
     uses(foreign_call)
 {
-    return trusted internal std.platform.handle_transfer(
+    return trusted internal std.platform.handle_write(
         trusted std.os.windows.get_standard_handle(std.os.windows.STD_ERROR_HANDLE),
-        bytes = source,
+        source = source,
         length = length,
         transferred = transferred,
-        read_operation = false,
     );
 }

@@ -1,7 +1,18 @@
 @target(target.identity.SYSTEM == "darwin")
-module bray.standard_library_tests.os_darwin;
+trusted module bray.standard_library_tests.os_darwin;
 
 using std.os.darwin;
+using std.memory;
+using bray.standard_library_tests.platform_transfer_unix;
+
+@test
+trusted func darwin_descriptor_interruption_preserves_the_native_error()
+    uses(foreign_call, raw_memory, unchecked_init)
+{
+    trusted std.memory.write<i32>(trusted internal std.os.darwin.error_location(), value = 4);
+
+    trusted bray.standard_library_tests.platform_transfer_unix.assert_interrupted_transfer();
+}
 
 @test
 func darwin_native_values_are_typed_and_target_gated()

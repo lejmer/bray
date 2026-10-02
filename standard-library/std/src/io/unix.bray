@@ -11,12 +11,11 @@ trusted internal func platform_standard_input_read(
     pos transferred: RawPointer<u64>,
 ) -> std.platform.PlatformStatus
 {
-    return trusted internal std.platform.descriptor_transfer(
+    return trusted internal std.platform.descriptor_read(
         descriptor = 0,
-        bytes = destination,
+        destination = destination,
         length = length,
         transferred = transferred,
-        read_operation = true,
     );
 }
 
@@ -27,12 +26,11 @@ trusted internal func platform_standard_output_write(
     pos transferred: RawPointer<u64>,
 ) -> std.platform.PlatformStatus
 {
-    return trusted internal std.platform.descriptor_transfer(
+    return trusted internal std.platform.descriptor_write(
         descriptor = 1,
-        bytes = source,
+        source = source,
         length = length,
         transferred = transferred,
-        read_operation = false,
     );
 }
 
@@ -43,11 +41,10 @@ trusted internal func platform_standard_error_write(
     pos transferred: RawPointer<u64>,
 ) -> std.platform.PlatformStatus
 {
-    return trusted internal std.platform.descriptor_transfer(
+    return trusted internal std.platform.descriptor_write(
         descriptor = 2,
-        bytes = source,
+        source = source,
         length = length,
         transferred = transferred,
-        read_operation = false,
     );
 }

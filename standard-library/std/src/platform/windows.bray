@@ -499,12 +499,11 @@ trusted internal func entropy_fill(
     return success_status();
 }
 
-trusted internal func handle_transfer(
+trusted internal func handle_read(
     pos handle: RawPointer<u8>,
-    bytes: RawPointer<u8>,
+    destination: RawPointer<u8>,
     length: u64,
     transferred: RawPointer<u64>,
-    read_operation: bool,
 ) -> PlatformStatus
     uses(foreign_call)
 {
@@ -515,7 +514,50 @@ trusted internal func handle_transfer(
         return internal success_status();
     }
 
-    let requested: u32 = if length > 4_294_967_295
+    let mut count: u32 = 0;
+
+    let succeeded: i32 = trusted std.os.windows.read_file(
+        handle,
+        destination = destination,
+        length = internal handle_request_length(length),
+        transferred = std.memory.address_of_mut<u32>(&mut count),
+        overlapped = std.memory.null<u8>(),
+    );
+
+    return trusted internal handle_transfer_result(succeeded, count = count, transferred = transferred);
+}
+
+trusted internal func handle_write(
+    pos handle: RawPointer<u8>,
+    source: RawPointer<u8>,
+    length: u64,
+    transferred: RawPointer<u64>,
+) -> PlatformStatus
+    uses(foreign_call)
+{
+    trusted std.memory.write<u64>(transferred, value = 0);
+
+    if length == 0
+    {
+        return internal success_status();
+    }
+
+    let mut count: u32 = 0;
+
+    let succeeded: i32 = trusted std.os.windows.write_file(
+        handle,
+        source = source,
+        length = internal handle_request_length(length),
+        transferred = std.memory.address_of_mut<u32>(&mut count),
+        overlapped = std.memory.null<u8>(),
+    );
+
+    return trusted internal handle_transfer_result(succeeded, count = count, transferred = transferred);
+}
+
+internal func handle_request_length(pos length: u64) -> u32
+{
+    return if length > 4_294_967_295
     {
         yield 4_294_967_295;
     }
@@ -523,36 +565,21 @@ trusted internal func handle_transfer(
     {
         yield std.truncate_to<u32>(length);
     };
+}
 
-    let mut count: u32 = 0;
-
-    let succeeded: i32 = if read_operation
-    {
-        yield trusted std.os.windows.read_file(
-            handle,
-            destination = bytes,
-            length = requested,
-            transferred = std.memory.address_of_mut<u32>(&mut count),
-            overlapped = std.memory.null<u8>(),
-        );
-    }
-    else
-    {
-        yield trusted std.os.windows.write_file(
-            handle,
-            source = bytes,
-            length = requested,
-            transferred = std.memory.address_of_mut<u32>(&mut count),
-            overlapped = std.memory.null<u8>(),
-        );
-    };
+trusted internal func handle_transfer_result(
+    pos succeeded: i32,
+    count: u32,
+    transferred: RawPointer<u64>,
+) -> PlatformStatus
+{
+    // ReadFile can report a transferred prefix on failure, including message-pipe ERROR_MORE_DATA.
+    trusted std.memory.write<u64>(transferred, value = count as u64);
 
     if succeeded == 0
     {
         return trusted internal windows_error_status();
     }
-
-    trusted std.memory.write<u64>(transferred, value = count as u64);
 
     return internal success_status();
 }

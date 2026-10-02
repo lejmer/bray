@@ -234,14 +234,17 @@ pub(in crate::performance) fn rust_executable_arguments(
         ]);
     }
 
+    if matches!(target.object_format(), ObjectFormat::Elf | ObjectFormat::MachO) {
+        arguments.extend(["-C".to_owned(), "link-arg=-fuse-ld=lld".to_owned()]);
+    }
+
     arguments
 }
 
 pub(in crate::performance) fn rust_linker(root: &Path, target: NativeTarget) -> PathBuf {
     let name = match target.object_format() {
         ObjectFormat::Coff => "lld-link",
-        ObjectFormat::Elf => "ld.lld",
-        ObjectFormat::MachO => "ld64.lld",
+        ObjectFormat::Elf | ObjectFormat::MachO => "clang",
         ObjectFormat::WebAssembly | ObjectFormat::Xcoff => "ld.lld",
     };
 
@@ -827,6 +830,28 @@ mod tests {
                 &configuration,
                 inner_iterations,
             ));
+        }
+    }
+
+    #[test]
+    fn unix_rust_peers_use_the_compiler_driver_with_lld() {
+        for target in [NativeTarget::X86_64LinuxGnu, NativeTarget::X86_64MacOs] {
+            let linker = rust_linker(std::path::Path::new("workspace"), target);
+
+            let configuration = rust_configuration(
+                std::path::Path::new("peer.rs"),
+                std::path::Path::new("peer"),
+                std::path::Path::new("peer.map"),
+                target,
+                "small_output",
+                &linker,
+                None,
+            )
+            .expect("Unix peer configuration must build");
+
+            assert_eq!(linker.file_stem().and_then(std::ffi::OsStr::to_str), Some("clang"));
+            assert!(configuration.arguments.iter().any(|argument| argument == "link-arg=-fuse-ld=lld"));
+            assert!(configuration.arguments.iter().any(|argument| argument.starts_with("link-arg=-Wl,")));
         }
     }
 

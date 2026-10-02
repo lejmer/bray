@@ -19,6 +19,37 @@ pub(super) struct Workload {
     pub storage: Option<StorageExpectation>,
 }
 
+impl Workload {
+    pub(super) fn storage_expectation(
+        &self,
+        target: bray_target::NativeTarget,
+    ) -> Option<StorageExpectation> {
+        if self.id != "file_output" {
+            return self.storage;
+        }
+
+        let ExpectedSideEffects::AbsentPath(path) = self.expected_side_effects else {
+            panic!("file output must identify its frozen path");
+        };
+
+        let unit_bytes = if target.object_format() == bray_target::ObjectFormat::Coff {
+            2
+        } else {
+            1
+        };
+
+        let path_bytes = path.len() as u64 * unit_bytes;
+
+        // One native path, three terminated paths (remove/open/remove), and the 256-byte writer.
+        // UTF-8 path construction copies bytes; UTF-16 construction encodes scalars directly.
+        Some(StorageExpectation {
+            allocation_count: 5,
+            allocated_bytes: 256 + path_bytes + 3 * (path_bytes + unit_bytes),
+            copied_bytes: 3 * path_bytes + if unit_bytes == 1 { path_bytes } else { 0 },
+        })
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum BatchingPolicy {
     SingleExecution,
@@ -702,11 +733,7 @@ func main() -> Result<unit, std.io.IoError>
                 "run_output_context",
             ],
         },
-        storage: Some(StorageExpectation {
-            allocation_count: 5,
-            allocated_bytes: 486,
-            copied_bytes: 168,
-        }),
+        storage: None,
     },
     Workload {
         id: "process_context",
@@ -925,10 +952,39 @@ mod tests {
         assert!(workload.source.contains("capacity = 256"));
         assert!(workload.source.contains("writer.write_all("));
 
-        let storage = workload.storage.expect("file output storage contract");
+        let storage = workload
+            .storage_expectation(bray_target::NativeTarget::X86_64LinuxGnu)
+            .expect("file output storage contract");
 
         assert!(storage.allocated_bytes < workload.scale);
         assert!(storage.copied_bytes < workload.scale);
+    }
+
+    #[test]
+    fn file_output_storage_counts_native_path_encoding_and_terminators() {
+        use bray_target::NativeTarget;
+
+        let workload = workload("file_output");
+
+        let super::ExpectedSideEffects::AbsentPath(path) = workload.expected_side_effects else {
+            panic!("file output path");
+        };
+
+        assert!(path.is_ascii());
+        assert_eq!(path.len(), 28);
+        assert!(workload.source.contains(&format!("&\"{path}\"")));
+
+        for target in [NativeTarget::X86_64LinuxGnu, NativeTarget::Aarch64LinuxGnu, NativeTarget::X86_64MacOs, NativeTarget::Aarch64MacOs] {
+            assert_eq!(workload.storage_expectation(target), Some(super::StorageExpectation {
+                allocation_count: 5, allocated_bytes: 371, copied_bytes: 112,
+            }));
+        }
+
+        for target in [NativeTarget::X86_64WindowsMsvc, NativeTarget::Aarch64WindowsMsvc] {
+            assert_eq!(workload.storage_expectation(target), Some(super::StorageExpectation {
+                allocation_count: 5, allocated_bytes: 486, copied_bytes: 168,
+            }));
+        }
     }
 
     #[test]

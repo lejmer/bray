@@ -148,7 +148,7 @@ fn execute(mut options: Options) -> Result<(), String> {
         workloads,
     };
 
-    super::super::validation::validate(&candidate)?;
+    validate_candidate(&options.output, &candidate)?;
 
     let candidate_path = options.output.join("candidate.json");
     let candidate_html = options.output.join("candidate.html");
@@ -187,6 +187,20 @@ fn execute(mut options: Options) -> Result<(), String> {
             conformance_failures.join("\n- ")
         ))
     }
+}
+
+fn validate_candidate(output: &Path, candidate: &PerformanceReport) -> Result<(), String> {
+    if let Err(error) = super::super::validation::validate(candidate) {
+        if let Err(write_error) =
+            crate::json::write_pretty(&output.join("candidate-unvalidated.json"), candidate)
+        {
+            return Err(format!("{error}\n{write_error}"));
+        }
+
+        return Err(error);
+    }
+
+    Ok(())
 }
 
 fn read_baseline(path: &Path) -> Result<Vec<u8>, String> {
@@ -391,7 +405,7 @@ fn run_workload(
         .remove(&ImplementationKey::Bray)
         .ok_or_else(|| "interleaved execution omitted Bray".to_owned())?;
 
-    let mut observations = if let Some(expected) = workload.storage {
+    let mut observations = if let Some(expected) = workload.storage_expectation(options.target) {
         progress::workload_phase("Measuring storage work");
 
         let storage_output = output.join("storage-observation");
@@ -757,7 +771,46 @@ mod tests {
     use super::super::super::corpus::WORKLOADS;
     use super::super::super::retention;
     use super::super::options::Options;
-    use super::{audit_retention_contract, execute};
+    use super::{audit_retention_contract, execute, validate_candidate};
+
+    #[test]
+    fn invalid_candidates_preserve_measurements_without_publishing_an_accepted_report() {
+        let directory = tempfile::tempdir().expect("diagnostic output directory");
+        let mut candidate = super::super::super::tests::report("corpus", 100, 1);
+
+        candidate.schema_revision = 0;
+
+        let error = validate_candidate(directory.path(), &candidate)
+            .expect_err("invalid candidate remains rejected");
+
+        assert!(error.contains("unsupported report schema revision"));
+
+        let bytes = std::fs::read(directory.path().join("candidate-unvalidated.json"))
+            .expect("unvalidated measurements");
+
+        let retained: super::super::super::model::PerformanceReport =
+            serde_json::from_slice(&bytes).expect("existing report format");
+
+        assert_eq!(retained.schema_revision, 0);
+        assert_eq!(retained.workloads.len(), candidate.workloads.len());
+        assert_eq!(retained.workloads[0].bray_execution, candidate.workloads[0].bray_execution);
+        assert!(!directory.path().join("candidate.json").exists());
+        assert!(!directory.path().join("candidate.html").exists());
+    }
+
+    #[test]
+    fn diagnostic_write_failure_preserves_the_validation_rejection() {
+        let directory = tempfile::tempdir().expect("diagnostic output directory");
+        let mut candidate = super::super::super::tests::report("corpus", 100, 1);
+
+        candidate.schema_revision = 0;
+
+        let error = validate_candidate(&directory.path().join("missing"), &candidate)
+            .expect_err("both failures remain visible");
+
+        assert!(error.contains("unsupported report schema revision"));
+        assert!(error.contains("could not write"));
+    }
 
     #[test]
     fn retention_audit_collects_every_contract_violation() {
