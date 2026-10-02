@@ -265,7 +265,7 @@ impl Compilation {
 
         let outcome = cell.get_or_compute_requested(
             &self.state.fact_runtime,
-            CompilationFactKey::CodegenArtifact(key),
+            CompilationFactKey::CodegenArtifact(Arc::new(key)),
             cancellation,
             |shared_cancellation| {
                 self.record_codegen_configuration();

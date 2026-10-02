@@ -554,7 +554,7 @@ impl FactRuntime {
         Ok(state
             .records
             .get(key)
-            .map(|record| record.facts().keys().cloned().collect::<Box<[_]>>()))
+            .map(|record| record.facts().iter().map(|(key, _)| key.clone()).collect::<Box<[_]>>()))
     }
 
     #[cfg(test)]
@@ -567,7 +567,7 @@ impl FactRuntime {
         Ok(state
             .records
             .get(key)
-            .map(|record| record.inputs().keys().cloned().collect::<Box<[_]>>()))
+            .map(|record| record.inputs().iter().map(|(key, _)| key.clone()).collect::<Box<[_]>>()))
     }
 }
 
@@ -637,7 +637,7 @@ fn reverse_dependencies(
     let mut dependents = BTreeMap::<CompilationFactKey, Vec<CompilationFactKey>>::new();
 
     for (fact, record) in &state.records {
-        for dependency in record.facts().keys() {
+        for (dependency, _) in record.facts() {
             dependents
                 .entry(dependency.clone())
                 .or_default()

@@ -260,7 +260,7 @@ fn reuse_mapped_cells(
 
     // Cache maps and runtime keys own stable identities across snapshot lifetimes.
     reuse!(target_validity, |key| {
-        CompilationFactKey::TargetValidity(key.clone())
+        CompilationFactKey::TargetValidity(Arc::new(key.clone()))
     });
 
     reuse!(module_contribution_gates, |key| {
@@ -328,23 +328,23 @@ fn reuse_mapped_cells(
     });
 
     reuse!(native_products, |key| {
-        CompilationFactKey::NativeProduct(key.clone())
+        CompilationFactKey::NativeProduct(Arc::new(key.clone()))
     });
 
     reuse!(constant_instances, |key| {
-        CompilationFactKey::ConstantInstance(key.clone())
+        CompilationFactKey::ConstantInstance(Arc::new(key.clone()))
     });
 
     reuse!(constant_calls, |key| {
-        CompilationFactKey::ConstantCall(key.clone())
+        CompilationFactKey::ConstantCall(Arc::new(key.clone()))
     });
 
     reuse!(codegen_artifacts, |key| {
-        CompilationFactKey::CodegenArtifact(key.clone())
+        CompilationFactKey::CodegenArtifact(Arc::new(key.clone()))
     });
 
     reuse!(optimized_mir, |key| {
-        CompilationFactKey::OptimizedMir(key.clone())
+        CompilationFactKey::OptimizedMir(Arc::new(key.clone()))
     });
 
     updated.symbol_semantics = previous.symbol_semantics.updated(reusable);

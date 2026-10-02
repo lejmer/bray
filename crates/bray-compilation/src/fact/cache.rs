@@ -706,7 +706,7 @@ mod tests {
     use crate::fact::task::FactTaskContext;
     use crate::fact::{
         CancellationToken, CompilationFactKey, FactQueryError, FactRuntime, FactRuntimeFailure,
-        SynchronizationComponent,
+        FactTaskIdentity, SynchronizationComponent,
     };
     use crate::test_support::FactTestGate;
     use crate::{
@@ -2005,11 +2005,12 @@ mod tests {
     }
 
     #[test]
-    fn fact_cells_keep_large_compilation_keys_indirect() {
-        let key_size = std::mem::size_of::<CompilationFactKey>();
+    fn fact_cells_keep_coordination_and_publication_compact() {
+        let pointer_size = std::mem::size_of::<usize>();
+        let task_size = std::mem::size_of::<FactTaskIdentity>();
 
-        assert!(std::mem::size_of::<FactCellState>() < key_size);
-        assert!(std::mem::size_of::<FactCellPublication<Arc<()>>>() < key_size);
+        assert!(std::mem::size_of::<FactCellState>() <= task_size + 4 * pointer_size);
+        assert!(std::mem::size_of::<FactCellPublication<Arc<()>>>() <= 2 * pointer_size);
     }
 
     fn task_context(runtime: &FactRuntime, key: CompilationFactKey) -> FactTaskContext {

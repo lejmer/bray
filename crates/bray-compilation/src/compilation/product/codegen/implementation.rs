@@ -102,7 +102,7 @@ impl Compilation {
         let result = cell
             .get_or_compute(
                 &self.state.fact_runtime,
-                CompilationFactKey::NativeProduct(key),
+                CompilationFactKey::NativeProduct(Arc::new(key)),
                 cancellation,
                 || {
                     Ok(self
