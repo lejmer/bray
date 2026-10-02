@@ -36,7 +36,7 @@ pub struct ImplementationAccessStatistics {
     pub reads: u64,
     /// Encoded bytes requested by range reads, including metadata.
     pub bytes_read: u64,
-    /// Encoded checksum, decoded content and native identity bytes hashed for selected payloads.
+    /// Encoded checksum, decoded content, native identity and explicit full-file digest bytes hashed.
     pub payload_bytes_hashed: u64,
     /// Decoded bytes produced from compressed selected payloads.
     pub bytes_decompressed: u64,
@@ -95,7 +95,7 @@ impl ImplementationStorage {
             .map_err(|error| read_error(path, error))?
             .len();
 
-        limits.check(InterfaceLimit::FileSize, length)?;
+        limits.check(InterfaceLimit::ImplementationFileSize, length)?;
 
         let length = usize::try_from(length).map_err(|_| {
             crate::implementation::invalid_value(
@@ -118,6 +118,35 @@ impl ImplementationStorage {
             StorageSource::Memory(bytes) => bytes.len(),
             StorageSource::File { length, .. } => *length,
         }
+    }
+
+    pub(super) fn read_all(
+        &self,
+        limits: InterfaceValidationLimits,
+    ) -> Result<Arc<[u8]>, InterfaceValidationError> {
+        if matches!(self.source, StorageSource::File { .. }) {
+            limits.check(InterfaceLimit::DecodedAllocation, self.len() as u64)?;
+        }
+
+        self.read(0..self.len())
+    }
+
+    pub(super) fn digest(&self) -> Result<[u8; 32], InterfaceValidationError> {
+        self.verify_length()?;
+
+        let mut hasher = blake3::Hasher::new();
+
+        for start in (0..self.len()).step_by(64 * 1024) {
+            let end = start.saturating_add(64 * 1024).min(self.len());
+            let bytes = self.read(start..end)?;
+
+            hasher.update(&bytes);
+            self.hashed(bytes.len());
+        }
+
+        self.verify_length()?;
+
+        Ok(*hasher.finalize().as_bytes())
     }
 
     pub(super) fn verify_length(&self) -> Result<(), InterfaceValidationError> {

@@ -204,15 +204,20 @@ impl PackageArtifactInput {
             .get_or_init(|| {
                 let limits = InterfaceValidationLimits::default();
 
-                let artifact = if self.supplied_bytes.is_some()
-                    || self.expected_digest.is_some()
-                    || self.bytes.get().is_some()
-                {
+                let has_bytes = self.supplied_bytes.is_some() || self.bytes.get().is_some();
+
+                let artifact = if has_bytes {
                     PackageImplementationArtifact::try_from_bytes(self.read_bytes()?, limits)
                 } else {
                     PackageImplementationArtifact::try_open(&self.path, limits)
                 }
                 .map_err(PackageArtifactLoadError::Validation)?;
+
+                if !has_bytes && let Some(expected) = self.expected_digest {
+                    artifact
+                        .verify_digest(expected)
+                        .map_err(PackageArtifactLoadError::Validation)?;
+                }
 
                 self.validate_metadata_digest(*artifact.artifact_hash())?;
 

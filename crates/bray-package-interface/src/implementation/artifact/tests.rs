@@ -1465,6 +1465,189 @@ fn artifact_fixture() -> ArtifactFixture {
 }
 
 #[test]
+fn packed_storage_above_interface_ceiling_keeps_metadata_and_payload_bounds() {
+    use std::io::{Seek, SeekFrom, Write};
+
+    use crate::implementation::hash::{compute_metadata_hash, compute_payload_content_hash};
+    use crate::{InterfaceLimit, InterfaceSectionCompatibility, InterfaceSectionEncoding};
+
+    let fixture = artifact_fixture();
+
+    let identity = super::construction::implementation_identity(
+        &fixture.interface,
+        fixture.bundle.surface(),
+        fixture.bundle.semantics(),
+        fixture.bundle.implementation_configuration().clone(),
+    );
+
+    let bytes = encode_artifact(&identity, &[], &[], &[], &[], None, &[], &[]).unwrap();
+
+    let artifact = PackageImplementationArtifact::try_from_bytes(
+        bytes.clone(),
+        InterfaceValidationLimits::default(),
+    )
+    .unwrap();
+
+    let original_offset = usize::try_from(u64::from_le_bytes(bytes[32..40].try_into().unwrap()))
+        .unwrap();
+
+    let mut header = bytes[..super::HEADER_LENGTH].to_vec();
+    let mut directory_bytes = bytes[original_offset..].to_vec();
+    let payload = vec![0; 16 * 1024 * 1024];
+    let mut offset = original_offset;
+
+    for ordinal in 1..=17_u8 {
+        let mut entry = artifact.directory[0].clone();
+
+        entry.owner = InterfaceSymbolId::new(u32::MAX);
+        entry.raw_kind = u8::MAX;
+        entry.kind = None;
+        entry.compatibility = InterfaceSectionCompatibility::PreserveOpaque;
+        entry.encoding = InterfaceSectionEncoding::Raw;
+        entry.discriminator = [ordinal; 32];
+        entry.family_size = 0;
+        entry.platform_service = None;
+        entry.decoded_length = payload.len() as u64;
+        entry.record_count = 1;
+        entry.payload = offset..offset + payload.len();
+
+        entry.content_hash = compute_payload_content_hash(
+            entry.owner,
+            entry.raw_kind,
+            entry.discriminator,
+            &payload,
+        );
+
+        entry.checksum = compute_payload_hash(&entry, &payload);
+
+        let mut encoded = crate::wire::WireEncoder::new();
+
+        encoded.write_u32(entry.owner.raw());
+        encoded.write_u8(entry.raw_kind);
+        encoded.write_u8(entry.compatibility.wire_value());
+        encoded.write_u8(entry.encoding.wire_value());
+        encoded.write_u8(0);
+        encoded.write_u16(crate::InterfaceSectionRevision::CURRENT.raw());
+        encoded.write_u16(0);
+        encoded.write_bytes(&entry.discriminator);
+        encoded.write_u32(0);
+        encoded.write_u32(0);
+        encoded.write_u64(offset as u64);
+        encoded.write_u64(payload.len() as u64);
+        encoded.write_u64(entry.decoded_length);
+        encoded.write_u64(entry.record_count);
+        encoded.write_bytes(&entry.checksum);
+        encoded.write_bytes(&entry.content_hash);
+
+        directory_bytes.extend_from_slice(encoded.bytes());
+        offset = entry.payload.end;
+    }
+
+    let file_length = offset + directory_bytes.len();
+
+    header[24..32].copy_from_slice(&(file_length as u64).to_le_bytes());
+    header[32..40].copy_from_slice(&(offset as u64).to_le_bytes());
+    header[40..48].copy_from_slice(&(directory_bytes.len() as u64).to_le_bytes());
+
+    let metadata_hash = compute_metadata_hash(&header, &directory_bytes).unwrap();
+
+    header[ARTIFACT_HASH_OFFSET..ARTIFACT_HASH_OFFSET + 32].copy_from_slice(&metadata_hash);
+
+    let temporary = tempfile::tempdir().unwrap();
+    let path = temporary.path().join("large.brayimpl");
+    let mut file = std::fs::File::create(&path).unwrap();
+
+    file.write_all(&header).unwrap();
+    file.write_all(&bytes[super::HEADER_LENGTH..original_offset]).unwrap();
+    file.seek(SeekFrom::Start(offset as u64)).unwrap();
+    file.write_all(&directory_bytes).unwrap();
+    file.sync_all().unwrap();
+
+    let limits = InterfaceValidationLimits::default();
+
+    assert!(file_length as u64 > limits.maximum(InterfaceLimit::FileSize));
+
+    let loaded = PackageImplementationArtifact::try_open(
+        &path,
+        limits.with_decoded_allocation(128 * 1024),
+    )
+    .unwrap();
+
+    assert_eq!(loaded.identity(), artifact.identity());
+    assert!(loaded.access_statistics().bytes_read < 16 * 1024);
+    assert_eq!(loaded.access_statistics().bytes_decompressed, 0);
+
+    assert!(matches!(
+        loaded.shared_bytes(),
+        Err(InterfaceValidationError::ResourceLimitExceeded {
+            limit: InterfaceLimit::DecodedAllocation,
+            ..
+        })
+    ));
+
+    assert!(matches!(
+        PackageImplementationArtifact::try_open(
+            &path,
+            limits.with_implementation_file_size(limits.maximum(InterfaceLimit::FileSize)),
+        ),
+        Err(InterfaceValidationError::ResourceLimitExceeded {
+            limit: InterfaceLimit::ImplementationFileSize,
+            ..
+        })
+    ));
+
+    for (restricted, expected) in [
+        (limits.with_decoded_allocation(1), InterfaceLimit::DecodedAllocation),
+        (limits.with_blob_length(payload.len() as u64 - 1), InterfaceLimit::BlobLength),
+        (limits.with_implementation_entry_count(17), InterfaceLimit::ImplementationEntryCount),
+    ] {
+        assert!(matches!(
+            PackageImplementationArtifact::try_open(&path, restricted),
+            Err(InterfaceValidationError::ResourceLimitExceeded { limit, .. }) if limit == expected
+        ));
+    }
+
+    let loaded = PackageImplementationArtifact::try_open(&path, limits).unwrap();
+
+    loaded.verify_all().unwrap();
+
+    assert!(loaded.decoded.iter().all(|cell| cell.get().is_none()));
+
+    let mut digest = blake3::Hasher::new();
+
+    digest.update(&header);
+    digest.update(&bytes[super::HEADER_LENGTH..original_offset]);
+
+    for _ in 0..17 {
+        digest.update(&payload);
+    }
+
+    digest.update(&directory_bytes);
+
+    let expected = *digest.finalize().as_bytes();
+    let input = crate::PackageArtifactInput::file(&path, Some(expected));
+    let loaded = input.load_implementation().unwrap();
+
+    assert_eq!(loaded.identity(), artifact.identity());
+    assert_eq!(loaded.access_statistics().opens, 1);
+    assert!(loaded.decoded.iter().all(|cell| cell.get().is_none()));
+    assert_eq!(loaded.access_statistics().payload_bytes_hashed, file_length as u64 + artifact.access_statistics().payload_bytes_hashed);
+
+    file.seek(SeekFrom::Start(offset as u64 - 1)).unwrap();
+    file.write_all(&[1]).unwrap();
+    file.sync_all().unwrap();
+
+    let input = crate::PackageArtifactInput::file(&path, Some(expected));
+
+    assert!(matches!(
+        input.load_implementation(),
+        Err(crate::PackageArtifactLoadError::Validation(
+            InterfaceValidationError::ArtifactHashMismatch { .. }
+        ))
+    ));
+}
+
+#[test]
 fn packed_file_reads_only_metadata_and_demanded_bodies_and_shares_parallel_cache() {
     let fixture = artifact_fixture();
 

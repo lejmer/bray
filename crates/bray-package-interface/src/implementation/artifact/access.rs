@@ -69,7 +69,20 @@ impl PackageImplementationArtifact {
 
     /// Reads the complete encoded artifact for publication or explicit acquisition verification.
     pub fn shared_bytes(&self) -> Result<Arc<[u8]>, InterfaceValidationError> {
-        self.storage.read(0..self.storage.len())
+        self.storage.read_all(self.limits)
+    }
+
+    pub(crate) fn verify_digest(&self, expected: [u8; 32]) -> Result<(), InterfaceValidationError> {
+        let actual = self.storage.digest()?;
+
+        if actual != expected {
+            return Err(InterfaceValidationError::ArtifactHashMismatch {
+                expected: crate::InterfaceArtifactHash::from_bytes(expected),
+                actual: crate::InterfaceArtifactHash::from_bytes(actual),
+            });
+        }
+
+        Ok(())
     }
 
     /// Authenticates every payload, including otherwise unread implementation.
