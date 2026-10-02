@@ -1,20 +1,20 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
-use bray_binder::SymbolQueryProvider;
+use bray_diagnostics::DiagnosticResult;
 use bray_package_interface::InterfaceCallableContract;
 use bray_symbols::{
-    AnySymbolId, CallableContractsQuery, CallableExecutionTarget, CallableSymbolId,
-    SymbolQueryRequest,
+    AnySymbolId, CallableContractSet, CallableExecutionTarget, CallableSymbolId, SymbolQueryKind,
 };
 
 use super::super::PackageInterfaceExportError;
 use super::context::SemanticExporter;
 use crate::compilation::Compilation;
-use crate::compilation::binder::CompilationBindingContext;
+use crate::fact::{CompilationFactKey, SymbolQueryKey};
 
 pub(super) fn callable_contracts(
     compilation: &Compilation,
-    binder: &CompilationBindingContext<'_>,
+    resolved: &BTreeMap<AnySymbolId, Arc<DiagnosticResult<CallableContractSet>>>,
     selected: &BTreeSet<AnySymbolId>,
     export: &mut SemanticExporter<'_>,
 ) -> Result<Vec<InterfaceCallableContract>, PackageInterfaceExportError> {
@@ -40,9 +40,32 @@ pub(super) fn callable_contracts(
             continue;
         };
 
-        let contract = binder
-            .resolve_symbol_query(SymbolQueryRequest::<CallableContractsQuery>::new(callable))
-            .map_err(super::super::binding_query_export_error)?;
+        let key = CompilationFactKey::from(SymbolQueryKey::new(
+            callable.into_any(),
+            SymbolQueryKind::CallableContracts,
+        ));
+
+        compilation
+            .state
+            .fact_runtime
+            .check_request_cycle(&key)
+            .map_err(super::super::fact_query_export_error)?;
+
+        compilation
+            .state
+            .cancellation
+            .check()
+            .map_err(super::super::fact_query_export_error)?;
+
+        let contract = resolved
+            .get(&symbol)
+            .ok_or_else(|| super::templates::incomplete(symbol))?;
+
+        compilation
+            .state
+            .fact_runtime
+            .record_completed_request(&key)
+            .map_err(super::super::fact_query_export_error)?;
 
         if contract.diagnostics().has_errors() {
             return Err(super::templates::incomplete(symbol));

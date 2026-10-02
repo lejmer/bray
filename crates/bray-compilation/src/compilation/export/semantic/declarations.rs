@@ -1,5 +1,8 @@
+use std::sync::Arc;
+
 use bray_binder::SymbolQueryProvider;
 use bray_bound_tree::{BoundUnitKey, CheckedTemplateKind};
+use bray_diagnostics::DiagnosticResult;
 use bray_package_interface::{
     InterfaceCallableParameterDefault, InterfaceCallableSignature, InterfaceCheckedTemplate,
     InterfaceCheckedTemplateId, InterfaceConstraint, InterfaceDeclarationTemplate,
@@ -7,11 +10,11 @@ use bray_package_interface::{
     InterfaceSupportEntity, InterfaceTypeRepresentation,
 };
 use bray_symbols::{
-    AnySymbolId, CallableContractTemplate, CallableContractTemplateQuery, CallableContractsQuery,
-    CallableParameterDefaultTemplateQuery, CallableParameterDefaultValue, CallableSignatureQuery,
-    CallableSymbolId, CheckedConstraintKind, DeclarationPredicateClauseKind,
-    GenericConstraintsQuery, GenericDeclarationTemplateQuery, GenericOwnerId,
-    InterfaceSupportEntityId, NamedTypeSymbolId, RuntimeDefaultGenericContext,
+    AnySymbolId, CallableContractSet, CallableContractTemplate, CallableContractTemplateQuery,
+    CallableContractsQuery, CallableParameterDefaultTemplateQuery, CallableParameterDefaultValue,
+    CallableSignatureQuery, CallableSymbolId, CheckedConstraintKind,
+    DeclarationPredicateClauseKind, GenericConstraintsQuery, GenericDeclarationTemplateQuery,
+    GenericOwnerId, InterfaceSupportEntityId, NamedTypeSymbolId, RuntimeDefaultGenericContext,
     RuntimeDefaultPresence, RuntimeDefaultProviderInput, RuntimeDefaultTemplateReference,
     StructFieldDefaultValue, SymbolQueryRequest, UnionPayloadDefaultValue,
 };
@@ -31,6 +34,7 @@ use super::templates::{checked_constraint_expression, incomplete, index};
 
 #[derive(Default)]
 pub(super) struct ExportedDeclarations {
+    pub(super) callable_contract: Option<Arc<DiagnosticResult<CallableContractSet>>>,
     pub(super) signatures: Vec<InterfaceCallableSignature>,
     pub(super) generic_declarations: Vec<InterfaceGenericDeclaration>,
     pub(super) parameter_defaults: Vec<InterfaceCallableParameterDefault>,
@@ -86,6 +90,8 @@ pub(super) fn export_callable_semantics(
     if contracts.diagnostics().has_errors() {
         return Err(incomplete(symbol));
     }
+
+    semantics.callable_contract = Some(Arc::clone(&contracts));
 
     let template = binder
         .resolve_symbol_query(SymbolQueryRequest::<CallableContractTemplateQuery>::new(

@@ -46,8 +46,13 @@ pub(in crate::compilation::export) fn build_semantics(
         .binding_context(&compilation.state.cancellation)
         .map_err(super::super::invalid_compilation_fact_error)?;
 
-    let fragments =
+    let mut fragments =
         resolve_fragments(compilation, graph, &binder, surface, selected, keys, values)?;
+
+    let resolved_contracts = fragments
+        .iter_mut()
+        .filter_map(SemanticFragment::take_callable_contract)
+        .collect::<BTreeMap<_, _>>();
 
     let mut export = SemanticExporter::new(compilation, graph, surface, keys, values);
 
@@ -75,8 +80,12 @@ pub(in crate::compilation::export) fn build_semantics(
 
     let native_boundaries = native_boundaries(compilation, selected, &export)?;
 
-    let callable_contracts =
-        super::execution::callable_contracts(compilation, &binder, selected, &mut export)?;
+    let callable_contracts = super::execution::callable_contracts(
+        compilation,
+        &resolved_contracts,
+        selected,
+        &mut export,
+    )?;
 
     let semantics = InterfaceSemantics::new()
         .with_contracts([], callable_contracts)
