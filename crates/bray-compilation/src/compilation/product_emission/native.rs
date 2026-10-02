@@ -120,6 +120,12 @@ pub(super) fn package_native_implementation(
         .map(|contribution| (contribution.id(), contribution))
         .collect();
 
+    let mut mappings_by_unit = BTreeMap::new();
+
+    for mapping in native.mappings() {
+        mappings_by_unit.entry(mapping.unit()).or_insert(mapping);
+    }
+
     for staged in staging.inputs() {
         let result = native_contribution_unit(
             plan,
@@ -132,10 +138,8 @@ pub(super) fn package_native_implementation(
             continue;
         };
 
-        let mapping = native
-            .mappings()
-            .iter()
-            .find(|mapping| mapping.unit() == &key)
+        let mapping = mappings_by_unit
+            .get(&key)
             .expect("staged native unit must have mappings");
 
         let unit = unit.with_statics(
@@ -394,11 +398,12 @@ fn native_bindings(
             continue;
         };
 
-        let unit = index
+        let unit_position = index
             .units()
-            .iter()
-            .find(|unit| unit.digest() == digest)
+            .binary_search_by_key(&digest, NativeUnit::digest)
             .expect("indexed unit must be present for every native mapping");
+
+        let unit = &index.units()[unit_position];
 
         for mapping in mappings.symbols() {
             if !mapping.defines_in(mappings.unit()) {
