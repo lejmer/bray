@@ -219,12 +219,12 @@ impl Lowerer<'_> {
         let length = self.push_cleanup_value(
             block,
             source,
-            MirOperationKind::Memory(MirMemoryOperation::new(
+            MirOperationKind::Memory(Box::new(MirMemoryOperation::new(
                 CheckedMemoryOperationKind::SequenceLength,
                 [borrowed],
                 [borrow_type],
                 Some(usize_type),
-            )),
+            ))),
             usize_type,
         )?;
 

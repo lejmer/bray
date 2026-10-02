@@ -968,12 +968,12 @@ mod tests {
         let _operation = match builder.push_operation(
             entry,
             source.clone(),
-            MirOperationKind::Memory(MirMemoryOperation::new(
+            MirOperationKind::Memory(Box::new(MirMemoryOperation::new(
                 CheckedMemoryOperationKind::Write { pointee: ty },
                 [operand],
                 [ty],
                 None,
-            )),
+            ))),
             None,
         ) {
             Ok(operation) => operation.operation(),
@@ -1003,12 +1003,12 @@ mod tests {
         let _operation = match builder.push_operation(
             entry,
             source.clone(),
-            MirOperationKind::Memory(MirMemoryOperation::new(
+            MirOperationKind::Memory(Box::new(MirMemoryOperation::new(
                 CheckedMemoryOperationKind::IsNull { pointee: ty },
                 [operand],
                 [other],
                 Some(ty),
-            )),
+            ))),
             Some(ty),
         ) {
             Ok(operation) => operation.operation(),
@@ -1037,7 +1037,7 @@ mod tests {
         let _operation = match builder.push_operation(
             entry,
             source.clone(),
-            MirOperationKind::Memory(MirMemoryOperation::new(
+            MirOperationKind::Memory(Box::new(MirMemoryOperation::new(
                 CheckedMemoryOperationKind::AtomicLoad {
                     value: ty,
                     order: bray_bound_tree::MemoryOrder::Release,
@@ -1045,7 +1045,7 @@ mod tests {
                 [operand],
                 [ty],
                 Some(ty),
-            )),
+            ))),
             Some(ty),
         ) {
             Ok(operation) => operation.operation(),

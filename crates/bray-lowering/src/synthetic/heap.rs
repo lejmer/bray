@@ -517,7 +517,7 @@ fn push_heap_memory(
         .push_operation(
             block,
             source.clone(),
-            MirOperationKind::Memory(operation),
+            MirOperationKind::Memory(Box::new(operation)),
             result,
         )?
         .result()

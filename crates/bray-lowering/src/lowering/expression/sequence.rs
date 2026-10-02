@@ -61,12 +61,12 @@ impl Lowerer<'_> {
             id,
             current,
             Self::retained_source(&source),
-            MirOperationKind::Memory(MirMemoryOperation::new(
+            MirOperationKind::Memory(Box::new(MirMemoryOperation::new(
                 bray_bound_tree::CheckedMemoryOperationKind::SequenceLength,
                 [receiver],
                 [operand_type],
                 Some(usize_type),
-            )),
+            ))),
             usize_type,
         )?;
 
