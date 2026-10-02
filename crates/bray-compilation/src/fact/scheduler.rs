@@ -1,9 +1,10 @@
 use std::cell::RefCell;
 use std::error::Error as _;
 use std::io;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 
-use rayon::{ThreadPool, ThreadPoolBuilder};
+use rayon::{Scope, ThreadPool, ThreadPoolBuilder};
 
 use super::{
     CapacityResource, FactQueryError, FactRuntimeError, FactRuntimeFailure, HostIoFailure,
@@ -17,6 +18,13 @@ const MAX_INTERACTIVE_STREAK: usize = 8;
 
 thread_local! {
     static ACTIVE_SCHEDULERS: RefCell<Vec<ActiveScheduler>> = const { RefCell::new(Vec::new()) };
+}
+
+struct IndexedWork<'operation> {
+    next: AtomicUsize,
+    len: usize,
+    evaluate: &'operation (dyn Fn(usize) -> Result<(), FactQueryError> + Send + Sync),
+    error: Mutex<Option<(usize, FactQueryError)>>,
 }
 
 #[derive(Debug)]
@@ -157,72 +165,100 @@ impl FactScheduler {
         evaluate: &(impl Fn(usize) -> Result<(), FactQueryError> + Send + Sync),
     ) -> Result<(), FactQueryError> {
         let priority_demand = QueryPriorityDemand::new(priority);
-        let mut reserved = Vec::new();
 
-        while reserved.len() < len.saturating_sub(1) {
-            let Some(slot) = self.slots.try_acquire(&priority_demand)? else {
-                break;
+        for index in 0..len {
+            if self.worker_count > 1
+                && index + 1 < len
+                && let Some(slot) = self.slots.try_acquire(&priority_demand)?
+            {
+                let pool = self.pool(priority)?;
+
+                let work = IndexedWork {
+                    next: AtomicUsize::new(index),
+                    len,
+                    evaluate,
+                    error: Mutex::new(None),
+                };
+
+                pool.scope(|scope| {
+                    self.spawn_indexed_lane(scope, slot, &priority_demand, &work);
+                    self.run_indexed_lane(scope, &priority_demand, &work);
+                });
+
+                return match take_scheduler_error(&work.error)? {
+                    Some(error) => Err(error),
+                    None => Ok(()),
+                };
+            }
+
+            evaluate(index)?;
+        }
+
+        Ok(())
+    }
+
+    fn spawn_indexed_lane<'scope>(
+        &'scope self,
+        scope: &Scope<'scope>,
+        slot: ExecutionSlot<'scope>,
+        priority: &'scope QueryPriorityDemand,
+        work: &'scope IndexedWork<'scope>,
+    ) {
+        scope.spawn(move |scope| {
+            let _slot = slot;
+
+            let _worker_activity = self
+                .profile
+                .as_deref()
+                .map(ProfileSession::start_worker_activity);
+
+            let _active = match ActiveSchedulerGuard::enter(self.identity(), priority.current()) {
+                Ok(active) => active,
+                Err(error) => {
+                    record_scheduler_error(&work.error, work.next.load(Ordering::Relaxed), error);
+
+                    return;
+                }
             };
 
-            reserved.push(slot);
-        }
+            self.run_indexed_lane(scope, priority, work);
+        });
+    }
 
-        let lane_count = reserved.len() + 1;
+    fn run_indexed_lane<'scope>(
+        &'scope self,
+        scope: &Scope<'scope>,
+        priority: &'scope QueryPriorityDemand,
+        work: &'scope IndexedWork<'scope>,
+    ) {
+        loop {
+            while work.next.load(Ordering::Relaxed).saturating_add(1) < work.len {
+                match self.slots.try_acquire(priority) {
+                    Ok(Some(slot)) => self.spawn_indexed_lane(scope, slot, priority, work),
+                    Ok(None) => break,
+                    Err(error) => {
+                        record_scheduler_error(
+                            &work.error,
+                            work.next.load(Ordering::Relaxed),
+                            error,
+                        );
 
-        if lane_count == 1 {
-            for index in 0..len {
-                evaluate(index)?;
-            }
-
-            return Ok(());
-        }
-
-        let pool = self.pool(priority)?;
-        let scheduler_error = Mutex::new(None);
-
-        pool.scope(|scope| {
-            for (lane, slot) in reserved.into_iter().enumerate() {
-                let scheduler_error = &scheduler_error;
-
-                scope.spawn(move |_| {
-                    let _slot = slot;
-
-                    let _worker_activity = self
-                        .profile
-                        .as_deref()
-                        .map(ProfileSession::start_worker_activity);
-
-                    let _active = match ActiveSchedulerGuard::enter(self.identity(), priority) {
-                        Ok(active) => active,
-                        Err(error) => {
-                            record_scheduler_error(scheduler_error, lane + 1, error);
-
-                            return;
-                        }
-                    };
-
-                    for index in ((lane + 1)..len).step_by(lane_count) {
-                        if let Err(error) = evaluate(index) {
-                            record_scheduler_error(scheduler_error, index, error);
-
-                            break;
-                        }
+                        return;
                     }
-                });
-            }
-
-            for index in (0..len).step_by(lane_count) {
-                if let Err(error) = evaluate(index) {
-                    record_scheduler_error(&scheduler_error, index, error);
-
-                    break;
                 }
             }
-        });
 
-        match take_scheduler_error(&scheduler_error)? {
-            Some(error) => Err(error),
-            None => Ok(()),
+            let index = work.next.fetch_add(1, Ordering::Relaxed);
+
+            if index >= work.len {
+                return;
+            }
+
+            if let Err(error) = (work.evaluate)(index) {
+                record_scheduler_error(&work.error, index, error);
+
+                return;
+            }
         }
     }
 
@@ -905,6 +941,66 @@ mod tests {
 
         assert_eq!(results, (0..6).collect::<Vec<_>>());
         assert_eq!(maximum.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn nested_work_adds_a_worker_after_an_outer_lane_finishes() {
+        let scheduler = FactScheduler::new(worker_budget(2));
+        let outer_ready = Barrier::new(2);
+
+        let (started_sender, started_receiver) = mpsc::channel();
+
+        let started_receiver = Mutex::new(started_receiver);
+
+        let (second_sender, second_receiver) = mpsc::channel();
+
+        let second_receiver = Mutex::new(second_receiver);
+
+        let results = scheduler
+            .map_indexed(QueryPriority::Normal, 2, |outer| {
+                outer_ready.wait();
+
+                if outer == 1 {
+                    started_receiver
+                        .lock()
+                        .unwrap()
+                        .recv_timeout(Duration::from_secs(5))
+                        .unwrap();
+
+                    return Vec::new();
+                }
+
+                scheduler
+                    .map_indexed(QueryPriority::Normal, 3, |index| {
+                        match index {
+                            0 => {
+                                started_sender.send(()).unwrap();
+
+                                let deadline = std::time::Instant::now() + Duration::from_secs(5);
+
+                                while scheduler.slots.state().unwrap().active != 1 {
+                                    assert!(std::time::Instant::now() < deadline);
+                                    std::thread::yield_now();
+                                }
+                            }
+                            1 => {
+                                second_receiver
+                                    .lock()
+                                    .unwrap()
+                                    .recv_timeout(Duration::from_secs(5))
+                                    .expect("nested work must use the newly available worker");
+                            }
+                            2 => second_sender.send(()).unwrap(),
+                            _ => unreachable!(),
+                        }
+
+                        index
+                    })
+                    .unwrap()
+            })
+            .unwrap();
+
+        assert_eq!(results, [vec![0, 1, 2], Vec::new()]);
     }
 
     #[test]
