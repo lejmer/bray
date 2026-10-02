@@ -1201,7 +1201,7 @@ mod tests {
                 return 0;
             }
 
-            public trusted func read(pos length: i32, progress: &mut i32) -> i32
+            trusted func read(pos length: i32, progress: &mut i32) -> i32
                 uses(foreign_call)
             {
                 progress = 0;
@@ -1210,7 +1210,7 @@ mod tests {
                 return transfer_result(count, progress = progress);
             }
 
-            public trusted func write(pos length: i32, progress: &mut i32) -> i32
+            trusted func write(pos length: i32, progress: &mut i32) -> i32
                 uses(foreign_call)
             {
                 progress = 0;
