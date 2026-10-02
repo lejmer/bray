@@ -213,13 +213,11 @@ impl InterfaceSemantics {
             }
         }
 
-        let relationship_parameters = surface
-            .relationships()
+        let relationship_parameters = surface.relationships_for(
+            owner,
+            bray_symbols::SymbolRelationshipKind::GenericParameter,
+        )
             .iter()
-            .filter(|relationship| {
-                relationship.kind() == bray_symbols::SymbolRelationshipKind::GenericParameter
-                    && relationship.owner() == owner
-            })
             .map(|relationship| InterfaceSymbolReference::Local(relationship.member()))
             .collect::<Vec<_>>();
 
@@ -374,10 +372,9 @@ fn validate_callable_parameter_default(
 
     let parameter = local_symbol(&default.parameter)?;
 
-    let has_provider = surface.relationships().iter().any(|relationship| {
-        relationship.kind() == bray_symbols::SymbolRelationshipKind::DefaultProvider
-            && relationship.owner() == parameter
-    });
+    let has_provider = !surface
+        .relationships_for(parameter, bray_symbols::SymbolRelationshipKind::DefaultProvider)
+        .is_empty();
 
     if default.is_present != has_provider {
         return Err(crate::semantic::codec::invalid_value(

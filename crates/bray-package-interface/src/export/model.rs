@@ -358,10 +358,10 @@ fn validate_semantic_coverage(
             )?;
         }
 
-        if surface.relationships().iter().any(|relationship| {
-            relationship.kind() == SymbolRelationshipKind::GenericParameter
-                && relationship.owner() == symbol.id()
-        }) {
+        if !surface
+            .relationships_for(symbol.id(), SymbolRelationshipKind::GenericParameter)
+            .is_empty()
+        {
             require_owned_semantic_record(
                 &semantic_directory,
                 symbol.id(),
@@ -406,9 +406,12 @@ fn validate_semantic_coverage(
             continue;
         }
 
-        if !semantic_directory.iter().any(|record| {
-            matches!(record.owner(), InterfaceSymbolReference::Local(owner) if *owner == symbol.id())
-        }) {
+        let owner = InterfaceSymbolReference::Local(symbol.id());
+
+        if semantic_directory
+            .binary_search_by(|record| record.owner().cmp(&owner))
+            .is_err()
+        {
             // External keys are Arc-backed and make the failure independent of local table IDs.
             return Err(PackageInterfaceExportBuildError::MissingSemantics(
                 symbol.key().clone(),
@@ -425,10 +428,11 @@ fn require_owned_semantic_record(
     key: &ExternalSymbolKey,
     kind: InterfaceSemanticRecordKind,
 ) -> Result<(), PackageInterfaceExportBuildError> {
-    let present = semantic_directory.iter().any(|record| {
-        record.kind() == kind
-            && matches!(record.owner(), InterfaceSymbolReference::Local(id) if *id == owner)
-    });
+    let owner = InterfaceSymbolReference::Local(owner);
+
+    let present = semantic_directory
+        .binary_search_by(|record| (record.owner(), record.kind()).cmp(&(&owner, kind)))
+        .is_ok();
 
     if present {
         Ok(())
@@ -484,6 +488,8 @@ const fn requires_owned_semantic_record(kind: bray_symbols::SymbolKind) -> bool 
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use bray_bound_tree::CheckedTemplateKind;
     use bray_symbols::{CallableAbi, ExternalSymbolKey, SymbolKind};
 
@@ -495,6 +501,39 @@ mod tests {
         InterfaceValidationField, PackageInterfaceExportBuildError, PackageInterfaceExportBundle,
         encode_package_interface,
     };
+
+    #[test]
+    fn semantic_coverage_lookup_matches_exact_owner_and_kind_with_duplicate_records() {
+        let bundle = package_interface_export_bundle();
+        let mut records = bundle.semantics().semantic_directory().to_vec();
+
+        records.extend(records.clone());
+        records.sort();
+
+        let mut kinds = records.iter().map(|record| record.kind()).collect::<BTreeSet<_>>();
+
+        kinds.insert(InterfaceSemanticRecordKind::PredicateDefinition);
+
+        for symbol in bundle.surface().symbols().symbols() {
+            for kind in kinds.iter().copied() {
+                let present = records.iter().any(|record| {
+                    record.owner() == &InterfaceSymbolReference::Local(symbol.id())
+                        && record.kind() == kind
+                });
+
+                let expected = if present {
+                    Ok(())
+                } else {
+                    Err(PackageInterfaceExportBuildError::MissingSemantics(symbol.key().clone()))
+                };
+
+                assert_eq!(
+                    super::require_owned_semantic_record(&records, symbol.id(), symbol.key(), kind),
+                    expected,
+                );
+            }
+        }
+    }
 
     fn malformed_template_validation_error() -> PackageInterfaceExportBuildError {
         PackageInterfaceExportBuildError::Validation(InterfaceValidationError::Malformed {

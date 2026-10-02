@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::hash::{Hash, Hasher};
 
 use crate::SymbolName;
 
@@ -244,10 +245,18 @@ where
 /// The ID type should be a closed family containing every semantic category that competes in the
 /// owner's ordinary namespace. Entry enumeration preserves candidate order. Map ordering never
 /// creates lookup precedence.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MemberLookupIndex<I> {
     members: Box<[MemberEntry<I>]>,
     name_index: BTreeMap<SymbolName, Box<[usize]>>,
+    id_index: Box<[usize]>,
+}
+
+impl<I: Hash> Hash for MemberLookupIndex<I> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.members.hash(state);
+        self.name_index.hash(state);
+    }
 }
 
 impl<I> MemberLookupIndex<I>
@@ -262,6 +271,10 @@ where
         let mut name_index = BTreeMap::<SymbolName, Vec<usize>>::new();
 
         validate_distinct_members(members.iter().map(MemberEntry::id))?;
+
+        let mut id_index = (0..members.len()).collect::<Vec<_>>();
+
+        id_index.sort_unstable_by_key(|index| members[*index].id());
 
         for (index, member) in members.iter().enumerate() {
             // The lookup key and member entry share one immutable allocation.
@@ -279,6 +292,7 @@ where
         Ok(Self {
             members,
             name_index,
+            id_index: id_index.into_boxed_slice(),
         })
     }
 
@@ -320,7 +334,10 @@ where
 
     /// Returns one exact member's immutable lookup entry.
     pub fn entry(&self, id: I) -> Option<&MemberEntry<I>> {
-        self.members.iter().find(|member| member.id() == id)
+        self.id_index
+            .binary_search_by_key(&id, |index| self.members[*index].id())
+            .ok()
+            .map(|index| &self.members[self.id_index[index]])
     }
 
     /// Resolves an ordinary name with every candidate considered accessible.
@@ -410,16 +427,59 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+
     use super::{
         MemberCollectionBuildError, MemberEntry, MemberLookupIndex, MemberLookupResult,
         MemberValidity, MemberVisibility, TypedMemberCollection,
     };
     use crate::SymbolName;
 
-    #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+    #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     enum TestMemberId {
         Function(u8),
         Structure(u8),
+    }
+
+    #[test]
+    fn exact_member_lookup_preserves_candidate_order_and_logical_hash() {
+        let collection = lookup_index([
+            member(TestMemberId::Structure(9), "shared"),
+            member(TestMemberId::Function(7), "last"),
+            member(TestMemberId::Function(1), "shared"),
+            member(TestMemberId::Structure(2), "other"),
+        ]);
+
+        for id in [
+            TestMemberId::Function(1),
+            TestMemberId::Function(7),
+            TestMemberId::Structure(2),
+            TestMemberId::Structure(9),
+            TestMemberId::Function(0),
+            TestMemberId::Structure(0),
+        ] {
+            assert_eq!(
+                collection.entry(id),
+                collection.members().iter().find(|member| member.id() == id),
+            );
+        }
+
+        assert_eq!(
+            collection.lookup("shared"),
+            MemberLookupResult::Ambiguous(
+                [TestMemberId::Structure(9), TestMemberId::Function(1)].into(),
+            ),
+        );
+
+        let mut expected_hash = DefaultHasher::new();
+        let mut actual_hash = DefaultHasher::new();
+
+        collection.members.hash(&mut expected_hash);
+        collection.name_index.hash(&mut expected_hash);
+        collection.hash(&mut actual_hash);
+
+        assert_eq!(actual_hash.finish(), expected_hash.finish());
+        assert_eq!(collection.clone(), collection);
     }
 
     #[test]

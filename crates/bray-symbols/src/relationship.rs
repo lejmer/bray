@@ -173,6 +173,7 @@ pub(crate) struct OverloadRelationships {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct RelationshipIndex {
     children: BTreeMap<AnySymbolId, Vec<AnySymbolId>>,
+    owners: BTreeMap<AnySymbolId, (AnySymbolId, u32)>,
     runtime_defaults: BTreeMap<AnySymbolId, SyntaxAnchor>,
     overload_arms: BTreeMap<AnySymbolId, Box<[SyntaxAnchor]>>,
     imported_overload_arms: BTreeMap<AnySymbolId, Vec<AnySymbolId>>,
@@ -187,7 +188,20 @@ pub(crate) trait BuildRelationships<I>: Sized {
 
 impl RelationshipIndex {
     pub(crate) fn add_symbol(&mut self, id: AnySymbolId, owner: AnySymbolId) {
-        self.children.entry(owner).or_default().push(id);
+        let children = self.children.entry(owner).or_default();
+
+        if let Ok(ordinal) = u32::try_from(children.len()) {
+            self.owners
+                .entry(id)
+                .and_modify(|current| {
+                    if owner < current.0 {
+                        *current = (owner, ordinal);
+                    }
+                })
+                .or_insert((owner, ordinal));
+        }
+
+        children.push(id);
     }
 
     pub(crate) fn add_runtime_default(&mut self, owner: AnySymbolId, syntax: SyntaxAnchor) {
@@ -489,13 +503,7 @@ impl OverloadRelationships {
 }
 
 fn owner_and_ordinal(child: AnySymbolId, index: &RelationshipIndex) -> Option<(AnySymbolId, u32)> {
-    index.children.iter().find_map(|(owner, children)| {
-        children
-            .iter()
-            .position(|candidate| *candidate == child)
-            .and_then(|ordinal| u32::try_from(ordinal).ok())
-            .map(|ordinal| (*owner, ordinal))
-    })
+    index.owners.get(&child).copied()
 }
 
 fn ordinal_within_kind(child: AnySymbolId, index: &RelationshipIndex) -> u32 {
@@ -712,5 +720,70 @@ impl BuildRelationships<StructFieldSymbolId> for StructFieldRelationships {
 impl BuildRelationships<UnionPayloadFieldSymbolId> for UnionPayloadFieldRelationships {
     fn build(id: UnionPayloadFieldSymbolId, index: &RelationshipIndex) -> Option<Self> {
         Self::new(id, index)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        CallableParameterRelationships, GenericParameterRelationships, RelationshipIndex,
+        ordinal_within_generic_parameters, ordinal_within_kind, owner_and_ordinal,
+    };
+    use crate::{
+        AnySymbolId, CallableParameterSymbolId, FunctionSymbolId, GenericConstParameterSymbolId,
+        GenericTypeParameterSymbolId, SymbolId,
+    };
+
+    #[test]
+    fn reverse_owner_lookup_preserves_sorted_owner_and_first_duplicate_position() {
+        let earlier = FunctionSymbolId::from_symbol_id(SymbolId::new(1));
+        let later = FunctionSymbolId::from_symbol_id(SymbolId::new(9));
+        let first = CallableParameterSymbolId::from_symbol_id(SymbolId::new(10));
+        let second = CallableParameterSymbolId::from_symbol_id(SymbolId::new(11));
+        let missing = CallableParameterSymbolId::from_symbol_id(SymbolId::new(12));
+        let ty = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(13));
+        let constant = GenericConstParameterSymbolId::from_symbol_id(SymbolId::new(14));
+        let mut index = RelationshipIndex::default();
+
+        for (child, owner) in [
+            (AnySymbolId::from(first), AnySymbolId::from(later)),
+            (ty.into(), earlier.into()),
+            (constant.into(), earlier.into()),
+            (second.into(), earlier.into()),
+            (first.into(), later.into()),
+            (first.into(), earlier.into()),
+            (first.into(), earlier.into()),
+        ] {
+            index.add_symbol(child, owner);
+
+            for candidate in [first.into(), second.into(), missing.into(), ty.into(), constant.into()]
+            {
+                let expected = index.children.iter().find_map(|(owner, children)| {
+                    children
+                        .iter()
+                        .position(|child| *child == candidate)
+                        .and_then(|ordinal| u32::try_from(ordinal).ok())
+                        .map(|ordinal| (*owner, ordinal))
+                });
+
+                assert_eq!(owner_and_ordinal(candidate, &index), expected);
+            }
+        }
+
+        assert_eq!(ordinal_within_kind(second.into(), &index), 0);
+        assert_eq!(ordinal_within_kind(first.into(), &index), 1);
+        assert_eq!(ordinal_within_generic_parameters(ty.into(), &index), 0);
+        assert_eq!(ordinal_within_generic_parameters(constant.into(), &index), 1);
+        assert_eq!(owner_and_ordinal(missing.into(), &index), None);
+
+        let parameter = CallableParameterRelationships::new(first, &index)
+            .unwrap_or_else(|| panic!("parameter must retain its callable owner"));
+
+        let generic = GenericParameterRelationships::new(constant.into(), &index)
+            .unwrap_or_else(|| panic!("constant must retain its generic owner"));
+
+        assert_eq!(parameter.owner, earlier.into());
+        assert_eq!(parameter.ordinal, 1);
+        assert_eq!(generic.ordinal, 1);
     }
 }
