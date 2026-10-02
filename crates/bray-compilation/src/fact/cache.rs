@@ -723,8 +723,25 @@ mod tests {
         let cell = FactCell::new();
         let computations = AtomicUsize::new(0);
         let gate = FactTestGate::holding(FactCellTestEvent::Computing);
+        let observer = gate.observer();
+        let waiting_threads = Mutex::new(std::collections::HashSet::new());
 
-        assert_eq!(cell.set_test_observer(gate.observer()), Ok(()));
+        assert_eq!(
+            cell.set_test_observer(FactCellTestObserver::new(move |event| {
+                // Polling can report one waiter repeatedly before other requests arrive.
+                if event == FactCellTestEvent::Waiting
+                    && !waiting_threads
+                        .lock()
+                        .unwrap_or_else(|_| panic!("waiting-thread observations must remain available"))
+                        .insert(std::thread::current().id())
+                {
+                    return;
+                }
+
+                observer.observe(event);
+            })),
+            Ok(())
+        );
 
         std::thread::scope(|scope| {
             let handles = (0..8)
