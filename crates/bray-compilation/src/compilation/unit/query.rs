@@ -13001,7 +13001,26 @@ func main(pos choice: Choice, pos point: Point, pos optional: i32?, pos pair: (i
             ("stable();", Some(PatternPredicate::NullablePresent)),
         ] {
             let source = format!(
-                "module app; func touch() {{}} func stable() executes(pure, total) {{}} func main(pos value: i32?) {{ if value matches ?_ {{ {call} 11; }} }}"
+                r#"
+                module app;
+
+                func touch()
+                {{
+                }}
+
+                func stable() executes(pure, total)
+                {{
+                }}
+
+                func main(pos value: i32?)
+                {{
+                    if value matches ?_
+                    {{
+                        {call}
+                        11;
+                    }}
+                }}
+                "#
             );
 
             let compilation = compilation(&source);
