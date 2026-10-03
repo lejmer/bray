@@ -4,7 +4,7 @@ use bray_base::sorted_unique_shared_slice;
 
 use crate::{
     AnyBoundNodeId, BoundBlockId, BoundDependencySubject, BoundExpressionId, BoundUnitId,
-    BoundUnitKind,
+    BoundUnitKind, StorageIdentityId,
 };
 
 /// A subject's final required operation on every continuation from that operation.
@@ -128,7 +128,7 @@ impl LiveAcrossSuspension {
 pub enum LivenessBuildError {
     /// A decision references a subject or operation owned by another unit.
     ForeignUnit,
-    /// Implementation witnesses are not flow-sensitive liveness subjects.
+    /// A subject is outside the categories supported by its lifetime decision.
     UnsupportedSubject,
 }
 
@@ -138,6 +138,7 @@ pub struct Liveness {
     unit: BoundUnitId,
     kind: BoundUnitKind,
     last_uses: Arc<[LastUse]>,
+    storage_live_at_entry: Arc<[StorageIdentityId]>,
     live_across_scopes: Arc<[LiveAcrossScope]>,
     live_across_suspensions: Arc<[LiveAcrossSuspension]>,
     owner_retentions: Arc<[OwnerRetention]>,
@@ -147,16 +148,22 @@ pub struct Liveness {
 
 impl Liveness {
     /// Validates and creates durable liveness decisions.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "durable liveness correlates exact entry, operation and ownership decisions"
+    )]
     pub fn try_new(
         unit: BoundUnitId,
         kind: BoundUnitKind,
         last_uses: impl IntoIterator<Item = LastUse>,
+        storage_live_at_entry: impl IntoIterator<Item = StorageIdentityId>,
         live_across_scopes: impl IntoIterator<Item = LiveAcrossScope>,
         live_across_suspensions: impl IntoIterator<Item = LiveAcrossSuspension>,
         owner_retentions: impl IntoIterator<Item = OwnerRetention>,
         is_recovered: bool,
     ) -> Result<Self, LivenessBuildError> {
         let last_uses = sorted_unique_shared_slice(last_uses);
+        let storage_live_at_entry = sorted_unique_shared_slice(storage_live_at_entry);
         let live_across_scopes = sorted_unique_shared_slice(live_across_scopes);
         let live_across_suspensions = sorted_unique_shared_slice(live_across_suspensions);
         let owner_retentions = sorted_unique_shared_slice(owner_retentions);
@@ -168,6 +175,9 @@ impl Liveness {
         if last_uses
             .iter()
             .any(|entry| entry.operation().unit() != unit || !entry.subject().is_valid_for(unit))
+            || storage_live_at_entry
+                .iter()
+                .any(|identity| identity.unit() != unit)
             || live_across_scopes.iter().any(|entry| {
                 entry.scope().unit() != unit
                     || entry.exit().unit() != unit
@@ -198,6 +208,7 @@ impl Liveness {
             unit,
             kind,
             last_uses,
+            storage_live_at_entry,
             live_across_scopes,
             live_across_suspensions,
             owner_retentions,
@@ -219,6 +230,11 @@ impl Liveness {
     /// Returns normalized last-use decisions.
     pub fn last_uses(&self) -> &[LastUse] {
         &self.last_uses
+    }
+
+    /// Returns exact storage roots demanded at entry to the canonical storage graph.
+    pub fn storage_live_at_entry(&self) -> &[StorageIdentityId] {
+        &self.storage_live_at_entry
     }
 
     /// Returns normalized subjects required beyond lexical scope exits.
@@ -317,6 +333,7 @@ mod tests {
             unit,
             BoundUnitKind::CallableBody,
             [last_use, last_use],
+            [],
             [live_across_scope, live_across_scope],
             [live_across_suspension, live_across_suspension],
             [
@@ -368,6 +385,7 @@ mod tests {
                 [],
                 [],
                 [],
+                [],
                 false,
             ),
             Err(LivenessBuildError::ForeignUnit)
@@ -379,6 +397,7 @@ mod tests {
             Liveness::try_new(
                 unit,
                 BoundUnitKind::CallableBody,
+                [],
                 [],
                 [LiveAcrossScope::new(
                     BoundBlockId::from_slot(unit, 0),
@@ -401,6 +420,7 @@ mod tests {
                 unit,
                 BoundUnitKind::CallableBody,
                 [LastUse::new(witness, expression.into())],
+                [],
                 [],
                 [],
                 [],
@@ -434,6 +454,7 @@ mod tests {
             [],
             [],
             [],
+            [],
             false,
         ) else {
             panic!("every flow-sensitive subject must support liveness decisions");
@@ -447,5 +468,39 @@ mod tests {
         fn assert_send_sync<T: Send + Sync>() {}
 
         assert_send_sync::<Liveness>();
+    }
+
+    #[test]
+    fn entry_storage_is_normalized_and_unit_scoped() {
+        let unit = BoundUnitId::new(9);
+        let identity = StorageIdentityId::from_slot(unit, 1);
+
+        let liveness = Liveness::try_new(
+            unit,
+            BoundUnitKind::CallableBody,
+            [],
+            [identity, identity],
+            [],
+            [],
+            [],
+            false,
+        )
+        .expect("unit-local entry storage must validate");
+
+        assert_eq!(liveness.storage_live_at_entry(), &[identity]);
+
+        assert_eq!(
+            Liveness::try_new(
+                unit,
+                BoundUnitKind::CallableBody,
+                [],
+                [StorageIdentityId::from_slot(BoundUnitId::new(10), 1)],
+                [],
+                [],
+                [],
+                false,
+            ),
+            Err(LivenessBuildError::ForeignUnit)
+        );
     }
 }

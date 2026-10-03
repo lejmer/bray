@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
     BoundDependencySubject, CheckedMemoryOperations, CheckedSemanticSelections, LastUse,
@@ -10,9 +10,10 @@ use crate::analysis::build::{ControlFlowGraphBuildOutcome, build_storage_control
 use crate::analysis::fixed_point::{
     FixedPointDomain, FixedPointOutcome, FixedPointResult, FlowDirection, solve_fixed_point,
 };
+use crate::analysis::id::AnalysisEdgeId;
 use crate::analysis::model::{
-    AnalysisBlock, AnalysisEdge, AnalysisEdgeKind, AnalysisOperation, AnalysisOperationKind,
-    AnalysisScopeExitPhase, ControlFlowGraph,
+    AnalysisBlock, AnalysisCallPhase, AnalysisEdge, AnalysisEdgeKind, AnalysisOperation,
+    AnalysisOperationKind, AnalysisScopeExitPhase, ControlFlowGraph,
 };
 use crate::analysis::reachability::{ReachabilityResult, analyze_reachability};
 use crate::unit::assert_unit_inputs;
@@ -61,9 +62,18 @@ where
         }
     };
 
-    analyze_storage_liveness_with_graph(
+    match analyze_storage_liveness_with_graph(
         request, selections, types, patterns, storage, memory, &graph,
-    )
+    ) {
+        CheckerOutcome::Complete(result) => {
+            CheckerOutcome::Complete(result.map(|(liveness, _)| liveness))
+        }
+        CheckerOutcome::Cancelled => CheckerOutcome::Cancelled,
+        CheckerOutcome::InfrastructureFailure(error) => {
+            CheckerOutcome::InfrastructureFailure(error)
+        }
+        CheckerOutcome::UpstreamFailure(error) => CheckerOutcome::UpstreamFailure(error),
+    }
 }
 
 pub(crate) fn analyze_storage_liveness_with_graph<C>(
@@ -74,7 +84,13 @@ pub(crate) fn analyze_storage_liveness_with_graph<C>(
     storage: &StoragePlan,
     memory: &CheckedMemoryOperations,
     graph: &ControlFlowGraph,
-) -> CheckerOutcome<Liveness, C::UpstreamError>
+) -> CheckerOutcome<
+    (
+        Liveness,
+        BTreeMap<AnalysisEdgeId, Vec<BoundDependencySubject>>,
+    ),
+    C::UpstreamError,
+>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
@@ -117,11 +133,15 @@ where
         &effects,
         domain.universe(),
         &result,
+        &domain,
         storage.kind(),
     );
 
     match liveness {
-        Ok(liveness) => CheckerOutcome::without_diagnostics(liveness),
+        Ok(liveness) => CheckerOutcome::without_diagnostics((
+            liveness,
+            collect_edge_lifetime_ends(graph, &reachability, &effects, &domain, &result),
+        )),
         Err(error) => {
             CheckerOutcome::InfrastructureFailure(CheckerInfrastructureError::Liveness(error))
         }
@@ -332,6 +352,7 @@ fn collect_liveness(
     effects: &OperationEffects,
     universe: &BTreeSet<BoundDependencySubject>,
     result: &FixedPointResult<BTreeSet<BoundDependencySubject>>,
+    domain: &LivenessDomain<'_>,
     kind: bray_bound_tree::BoundUnitKind,
 ) -> Result<Liveness, bray_bound_tree::LivenessBuildError> {
     let mut last_uses = Vec::new();
@@ -428,6 +449,20 @@ fn collect_liveness(
         graph.unit(),
         kind,
         last_uses,
+        FixedPointDomain::transfer(
+            domain,
+            graph
+                .block(graph.entry())
+                .expect("canonical graph must contain its entry"),
+            result
+                .state(graph.entry())
+                .expect("entry block must have a solved state"),
+        )
+        .into_iter()
+        .filter_map(|subject| match subject {
+            BoundDependencySubject::Storage(identity) => Some(identity),
+            _ => None,
+        }),
         live_across_scopes,
         live_across_suspensions,
         effects
@@ -441,6 +476,89 @@ fn collect_liveness(
             }),
         is_recovered,
     )
+}
+
+fn collect_edge_lifetime_ends(
+    graph: &ControlFlowGraph,
+    reachability: &ReachabilityResult,
+    effects: &OperationEffects,
+    domain: &LivenessDomain<'_>,
+    result: &FixedPointResult<BTreeSet<BoundDependencySubject>>,
+) -> BTreeMap<AnalysisEdgeId, Vec<BoundDependencySubject>> {
+    let mut ends = BTreeMap::new();
+
+    for target in graph.blocks() {
+        if !reachability.is_block_reachable(target.id()) {
+            continue;
+        }
+
+        let live_out = result
+            .state(target.id())
+            .expect("solved block must have a liveness state");
+
+        let live_in = FixedPointDomain::transfer(domain, target, live_out);
+
+        for edge in target
+            .predecessors()
+            .iter()
+            .filter_map(|id| graph.edge(*id))
+        {
+            if !reachability.is_edge_reachable(edge.id()) {
+                continue;
+            }
+
+            let source_live_out = result
+                .state(edge.source())
+                .expect("solved predecessor must have a liveness state");
+
+            let source_operation = graph
+                .block(edge.source())
+                .and_then(|block| block.operations().last())
+                .and_then(|id| graph.operation(*id));
+
+            let target_operation = target
+                .operations()
+                .first()
+                .and_then(|id| graph.operation(*id));
+
+            let bypassed_attempt = source_operation.filter(|operation| {
+                let AnalysisOperationKind::Call { expression, phase: AnalysisCallPhase::Attempt } = operation.kind() else {
+                    return false;
+                };
+
+                !target_operation.is_some_and(|target| matches!(target.kind(),
+                    AnalysisOperationKind::Call { expression: completed, phase: AnalysisCallPhase::Completion } if completed == expression))
+            });
+
+            // Failed calls bypass the completion where storage flow applies input last uses.
+            let failed_call_uses = bypassed_attempt
+                .and_then(|operation| effects.operation_effect(operation))
+                .into_iter()
+                .flat_map(|effect| effect.uses());
+
+            let mut subjects = source_live_out
+                .iter()
+                .chain(failed_call_uses)
+                .filter(|subject| {
+                    matches!(
+                        subject,
+                        BoundDependencySubject::Storage(_)
+                            | BoundDependencySubject::BorrowCapability(_)
+                    ) && !live_in.contains(subject)
+                })
+                .copied()
+                .collect::<Vec<_>>();
+
+            subjects.sort_unstable();
+            subjects.dedup();
+
+            if !subjects.is_empty() {
+                ends.insert(edge.id(), subjects);
+            }
+        }
+    }
+
+    ends
 }
 
 #[cfg(test)]
@@ -702,6 +820,7 @@ mod tests {
                 &effects,
                 &effects.universe,
                 &result,
+                &domain,
                 unit.key().kind(),
             )
             .expect("temporary last uses must validate");

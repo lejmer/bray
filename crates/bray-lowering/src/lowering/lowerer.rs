@@ -1842,7 +1842,7 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("empty storage flow must validate: {error:?}"));
 
-        let liveness = Liveness::try_new(unit.unit(), unit.key().kind(), [], [], [], [], false)
+        let liveness = Liveness::try_new(unit.unit(), unit.key().kind(), [], [], [], [], [], false)
             .unwrap_or_else(|error| panic!("empty liveness must validate: {error:?}"));
 
         let refinements = CheckedRefinements::try_new(unit.unit(), unit.key().kind(), [], false)

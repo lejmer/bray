@@ -2,8 +2,8 @@ use super::super::storage_invalidation::invalidating_operation_accesses;
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundExpression, BoundExpressionId, CheckedPatterns, PatternPredicate,
-    Refinement, RefinementKind, StorageAccessId, StoragePlan, StorageRelationship,
+    AnyBoundNodeId, BoundExpressionId, CheckedPatterns, PatternPredicate, Refinement,
+    RefinementKind, StorageAccessId, StoragePlan, StorageRelationship,
 };
 use bray_diagnostics::{DiagnosticRefinementCapacity, DiagnosticRefinementCapacitySurface};
 
@@ -25,7 +25,6 @@ pub(super) struct RefinementUniverse {
     pattern_indexes: BTreeMap<(StorageAccessId, PatternPredicate, bool), usize>,
     equivalent_accesses: BTreeMap<StorageAccessId, StorageAccessId>,
     edge_refinements: BTreeMap<AnalysisRefinement, Box<[usize]>>,
-    normal_completion: BTreeMap<BoundExpressionId, usize>,
     trust_boundaries: BTreeMap<BoundExpressionId, usize>,
     invalidating_accesses: BTreeMap<AnyBoundNodeId, Box<[StorageAccessId]>>,
 }
@@ -41,21 +40,6 @@ impl RefinementUniverse {
     where
         C: CheckerRequestContext + ?Sized,
     {
-        let potential_refinements = graph
-            .edges()
-            .len()
-            .checked_add(graph.operations().len())
-            .and_then(|count| count.checked_add(patterns.patterns().len()))
-            .ok_or(RefinementUniverseError::CountUnrepresentable)?;
-
-        if potential_refinements > MAX_REFINEMENT_REFINEMENTS {
-            return Err(capacity_error(
-                DiagnosticRefinementCapacitySurface::RefinementEntries,
-                potential_refinements,
-                MAX_REFINEMENT_REFINEMENTS,
-            ));
-        }
-
         let direct_dependencies = direct_expression_dependencies(storage);
         let invalidating_accesses = invalidating_operation_accesses(request, selections, storage);
 
@@ -65,15 +49,9 @@ impl RefinementUniverse {
             pattern_indexes: BTreeMap::new(),
             equivalent_accesses: equivalent_pattern_accesses(storage),
             edge_refinements: BTreeMap::new(),
-            normal_completion: BTreeMap::new(),
             trust_boundaries: BTreeMap::new(),
             invalidating_accesses,
         };
-
-        universe
-            .refinements
-            .try_reserve_exact(potential_refinements)
-            .map_err(|_| RefinementUniverseError::AllocationFailed)?;
 
         for edge in graph.edges() {
             if request.is_cancelled() {
@@ -90,46 +68,17 @@ impl RefinementUniverse {
                 patterns,
                 storage,
                 &direct_dependencies,
-            );
+            )?;
 
             let indexes = refinements
                 .into_iter()
                 .map(|refinement| universe.intern(refinement))
-                .collect::<Vec<_>>();
+                .collect::<Result<Vec<_>, _>>()?;
 
             universe.edge_refinements.insert(refinement, indexes.into());
         }
 
-        for operation in graph.operations() {
-            if request.is_cancelled() {
-                return Err(RefinementUniverseError::Cancelled);
-            }
-
-            let AnyBoundNodeId::Expression(expression) = operation.kind().node() else {
-                continue;
-            };
-
-            if expression_completes_normally(request.view(), expression) {
-                let refinement = Refinement::new(
-                    RefinementKind::NormalCompletion(expression),
-                    expression_dependencies(request.view(), &direct_dependencies, expression),
-                );
-
-                let index = universe.intern(refinement);
-
-                universe.normal_completion.insert(expression, index);
-            }
-        }
-
         let words = universe.len().div_ceil(u64::BITS as usize);
-
-        if universe.len() > MAX_REFINEMENT_REFINEMENTS {
-            return Err(capacity_error(
-                DiagnosticRefinementCapacitySurface::RefinementEntries,
-                universe.len(),
-                MAX_REFINEMENT_REFINEMENTS,
-            ));
-        }
 
         let retained_states = graph
             .blocks()
@@ -141,23 +90,10 @@ impl RefinementUniverse {
             .checked_mul(retained_states)
             .ok_or(RefinementUniverseError::CountUnrepresentable)?;
 
-        let published_refinements = universe
-            .len()
-            .checked_mul(graph.operations().len())
-            .ok_or(RefinementUniverseError::CountUnrepresentable)?;
-
         if bitset_cells > MAX_REFINEMENT_CELLS {
             return Err(capacity_error(
                 DiagnosticRefinementCapacitySurface::RetainedStateCells,
                 bitset_cells,
-                MAX_REFINEMENT_CELLS,
-            ));
-        }
-
-        if published_refinements > MAX_REFINEMENT_CELLS {
-            return Err(capacity_error(
-                DiagnosticRefinementCapacitySurface::PublishedRefinements,
-                published_refinements,
                 MAX_REFINEMENT_CELLS,
             ));
         }
@@ -172,8 +108,8 @@ impl RefinementUniverse {
         patterns: &CheckedPatterns,
         storage: &StoragePlan,
         dependencies: &BTreeMap<BoundExpressionId, BTreeSet<StorageAccessId>>,
-    ) -> Vec<Refinement> {
-        match refinement {
+    ) -> Result<Vec<Refinement>, RefinementUniverseError> {
+        Ok(match refinement {
             AnalysisRefinement::Condition { expression, value } => {
                 condition_refinements(view, patterns, storage, dependencies, expression, value)
             }
@@ -197,16 +133,16 @@ impl RefinementUniverse {
             AnalysisRefinement::TrustBoundary(expression) => {
                 let refinement = Refinement::new(RefinementKind::TrustBoundary(expression), []);
 
-                let index = self.intern(refinement.clone());
+                let index = self.intern(refinement.clone())?;
 
                 self.trust_boundaries.insert(expression, index);
 
                 vec![refinement]
             }
-        }
+        })
     }
 
-    fn intern(&mut self, mut refinement: Refinement) -> usize {
+    fn intern(&mut self, mut refinement: Refinement) -> Result<usize, RefinementUniverseError> {
         let pattern_key = if let RefinementKind::Pattern {
             subject,
             pattern,
@@ -224,7 +160,7 @@ impl RefinementUniverse {
             let key = (access, predicate, value);
 
             if let Some(index) = self.pattern_indexes.get(&key) {
-                return *index;
+                return Ok(*index);
             }
 
             refinement = Refinement::new(
@@ -244,10 +180,22 @@ impl RefinementUniverse {
         };
 
         if let Some(index) = self.indexes.get(&refinement).copied() {
-            return index;
+            return Ok(index);
         }
 
         let index = self.refinements.len();
+
+        if index == MAX_REFINEMENT_REFINEMENTS {
+            return Err(capacity_error(
+                DiagnosticRefinementCapacitySurface::RefinementEntries,
+                index + 1,
+                MAX_REFINEMENT_REFINEMENTS,
+            ));
+        }
+
+        self.refinements
+            .try_reserve(1)
+            .map_err(|_| RefinementUniverseError::AllocationFailed)?;
 
         if let Some(key) = pattern_key {
             self.pattern_indexes.insert(key, index);
@@ -256,7 +204,7 @@ impl RefinementUniverse {
         self.refinements.push(refinement.clone());
         self.indexes.insert(refinement, index);
 
-        index
+        Ok(index)
     }
 
     pub(super) fn len(&self) -> usize {
@@ -328,11 +276,6 @@ impl RefinementUniverse {
         if let Some(index) = self.trust_boundaries.get(&expression) {
             set.remove(*index);
         }
-
-        if let Some(index) = self.normal_completion.get(&expression) {
-            self.remove_conflicts(set, *index);
-            set.insert(*index);
-        }
     }
 }
 
@@ -344,7 +287,7 @@ pub(super) enum RefinementUniverseError {
     Cancelled,
 }
 
-fn capacity_error(
+pub(super) fn capacity_error(
     surface: DiagnosticRefinementCapacitySurface,
     actual: usize,
     maximum: usize,
@@ -377,16 +320,6 @@ fn direct_expression_dependencies(
     }
 
     dependencies
-}
-
-fn expression_completes_normally(
-    view: bray_bound_tree::BoundUnitView<'_>,
-    expression: BoundExpressionId,
-) -> bool {
-    matches!(
-        view.expression(expression),
-        Some(BoundExpression::Call(_) | BoundExpression::Await(_))
-    )
 }
 
 fn refinements_conflict(left: RefinementKind, right: RefinementKind) -> bool {

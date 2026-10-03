@@ -39,8 +39,6 @@ pub enum RefinementKind {
     },
     /// The operand is currently inside this explicit trust boundary.
     TrustBoundary(BoundExpressionId),
-    /// One expression reached its ordinary completion point.
-    NormalCompletion(BoundExpressionId),
 }
 
 impl RefinementKind {
@@ -48,8 +46,7 @@ impl RefinementKind {
         match self {
             Self::Condition { expression, .. }
             | Self::NullablePresence { expression, .. }
-            | Self::TrustBoundary(expression)
-            | Self::NormalCompletion(expression) => expression.unit().raw() == unit.raw(),
+            | Self::TrustBoundary(expression) => expression.unit().raw() == unit.raw(),
             Self::Pattern {
                 subject,
                 pattern,
@@ -286,7 +283,13 @@ mod tests {
         let foreign = BoundExpressionId::from_slot(BoundUnitId::new(5), 0);
         let foreign_pattern = BoundPatternId::from_slot(BoundUnitId::new(5), 0);
 
-        let foreign_refinement = Refinement::new(RefinementKind::NormalCompletion(foreign), []);
+        let foreign_refinement = Refinement::new(
+            RefinementKind::Condition {
+                expression: foreign,
+                value: true,
+            },
+            [],
+        );
 
         let foreign_pattern_refinement = Refinement::new(
             RefinementKind::Pattern {

@@ -43,7 +43,7 @@ where
     Ok(scopes)
 }
 
-pub(crate) fn cleanup_free_temporaries<C>(
+pub(crate) fn cleanup_free_storage<C>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
 ) -> Result<
@@ -57,7 +57,19 @@ where
     let mut identities = BTreeSet::new();
 
     for (identity, provenance) in storage.identity_entries() {
-        if !matches!(provenance, bray_bound_tree::StorageIdentity::Temporary(_)) {
+        if request.is_cancelled() {
+            return Err(CheckerQueryError::Cancelled);
+        }
+
+        if !matches!(
+            provenance,
+            bray_bound_tree::StorageIdentity::Temporary(_)
+                | bray_bound_tree::StorageIdentity::LocalOwned(_)
+                | bray_bound_tree::StorageIdentity::Parameter(_)
+                | bray_bound_tree::StorageIdentity::Receiver(_)
+                | bray_bound_tree::StorageIdentity::AnonymousParameter(_)
+                | bray_bound_tree::StorageIdentity::PredicateParameter(_)
+        ) {
             continue;
         }
 

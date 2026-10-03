@@ -5648,8 +5648,12 @@ func main(pos value: &Guard?) -> usize
         let key = source_function_body_key(&compilation, "main");
         let bound = compilation.bound_unit(key.clone()).unwrap();
         let storage = compilation.storage_plan(key.clone()).unwrap();
-        let selections = compilation.semantic_selections(key.clone()).unwrap();
-        let liveness = compilation.liveness(key.clone()).unwrap();
+
+        let expressions = compilation
+            .expression_semantics_with_cancellation(key.clone(), &compilation.state.cancellation)
+            .unwrap();
+
+        let patterns = compilation.patterns(key.clone()).unwrap();
         let memory = compilation.memory_operations(key.clone()).unwrap();
         let refinements = compilation.refinements(key.clone()).unwrap();
 
@@ -5668,9 +5672,9 @@ func main(pos value: &Guard?) -> usize
         assert!(matches!(
             DefaultStorageFlowChecker.check_storage_flow(
                 request,
-                selections.value(),
+                expressions.result().value(),
+                patterns.value(),
                 storage.value(),
-                liveness.value(),
                 refinements.value(),
                 memory.value()
             ),
@@ -5682,9 +5686,9 @@ func main(pos value: &Guard?) -> usize
 
         let outcome = DefaultStorageFlowChecker.check_storage_flow(
             request,
-            selections.value(),
+            expressions.result().value(),
+            patterns.value(),
             storage.value(),
-            liveness.value(),
             &missing,
             memory.value(),
         );

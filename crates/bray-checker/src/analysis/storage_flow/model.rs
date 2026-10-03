@@ -1,9 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    AnyBoundNodeId, BorrowCapabilityId, BoundExpressionId, CheckedMemoryOperations,
-    CheckedRefinements, Liveness, StorageAccessId, StorageAccessPlan, StorageAccessPurpose,
-    StorageIdentity, StorageIdentityId, StoragePlan,
+    AnyBoundNodeId, BorrowCapabilityId, BoundDependencySubject, BoundExpressionId,
+    CheckedMemoryOperations, CheckedRefinements, Liveness, StorageAccessId, StorageAccessPlan,
+    StorageAccessPurpose, StorageIdentity, StorageIdentityId, StoragePlan,
 };
 use bray_symbols::{BorrowKind, TypeId};
 
@@ -11,6 +11,7 @@ use crate::storage::{StorageScopeOwners, local_initialization_destinations};
 use crate::{CheckerRequestContext, CheckerUnitView};
 
 use super::super::fixed_point::{FixedPointDomain, FlowDirection};
+use super::super::id::AnalysisEdgeId;
 use super::super::model::{AnalysisBlock, AnalysisEdge, AnalysisEdgeKind, ControlFlowGraph};
 use super::super::reachability::ReachabilityResult;
 use super::check::StorageFlowCollector;
@@ -25,7 +26,9 @@ pub(super) struct StorageFlowInput {
     copyable_types: BTreeSet<TypeId>,
     mutable_storage: BTreeSet<StorageIdentityId>,
     immutable_field_accesses: BTreeSet<StorageAccessId>,
-    temporary_last_uses: BTreeMap<AnyBoundNodeId, Vec<StorageIdentityId>>,
+    storage_last_uses: BTreeMap<AnyBoundNodeId, Vec<StorageIdentityId>>,
+    unused_entry_storage: BTreeSet<StorageIdentityId>,
+    cleanup_free_storage: BTreeSet<StorageIdentityId>,
 }
 
 impl StorageFlowInput {
@@ -104,24 +107,52 @@ impl StorageFlowInput {
             super::authority::immutable_field_accesses(request, storage, &input)?;
 
         let (cleanup_free, diagnostics) =
-            crate::asynchronous::cleanup_free_temporaries(request, storage)?;
+            crate::asynchronous::cleanup_free_storage(request, storage)?;
 
-        if !liveness.is_recovered() {
-            for last_use in liveness.last_uses() {
-                if let bray_bound_tree::BoundDependencySubject::Storage(identity) =
-                    last_use.subject()
-                    && cleanup_free.contains(&identity)
-                {
-                    input
-                        .temporary_last_uses
-                        .entry(last_use.operation())
-                        .or_default()
-                        .push(identity);
-                }
+        input.prepare_storage_retirement(storage, liveness, &cleanup_free);
+        input.cleanup_free_storage = cleanup_free;
+
+        Ok((input, diagnostics))
+    }
+
+    fn prepare_storage_retirement(
+        &mut self,
+        storage: &StoragePlan,
+        liveness: &Liveness,
+        cleanup_free: &BTreeSet<StorageIdentityId>,
+    ) {
+        if liveness.is_recovered() {
+            return;
+        }
+
+        for last_use in liveness.last_uses() {
+            if let bray_bound_tree::BoundDependencySubject::Storage(identity) = last_use.subject()
+                && cleanup_free.contains(&identity)
+            {
+                self.storage_last_uses
+                    .entry(last_use.operation())
+                    .or_default()
+                    .push(identity);
             }
         }
 
-        Ok((input, diagnostics))
+        let entry_borrowed_storage = storage
+            .borrow_capability_entries()
+            .filter(|(_, capability)| capability.entry_binding().is_some())
+            .filter_map(|(_, capability)| storage.root_identity(capability.access()))
+            .collect::<BTreeSet<_>>();
+
+        self.unused_entry_storage
+            .extend(cleanup_free.iter().copied().filter(|identity| {
+                storage
+                    .identity(*identity)
+                    .is_some_and(|identity| identity.is_initialized_at_entry())
+                    && liveness
+                        .storage_live_at_entry()
+                        .binary_search(identity)
+                        .is_err()
+                    && !entry_borrowed_storage.contains(identity)
+            }));
     }
 
     pub(super) fn expression_roots(&self, expression: BoundExpressionId) -> &[StorageIdentityId] {
@@ -131,8 +162,8 @@ impl StorageFlowInput {
             .unwrap_or_default()
     }
 
-    pub(super) fn temporary_last_uses(&self, node: AnyBoundNodeId) -> &[StorageIdentityId] {
-        self.temporary_last_uses
+    pub(super) fn storage_last_uses(&self, node: AnyBoundNodeId) -> &[StorageIdentityId] {
+        self.storage_last_uses
             .get(&node)
             .map(Vec::as_slice)
             .unwrap_or_default()
@@ -218,6 +249,46 @@ pub(super) struct StorageFlowState {
 }
 
 impl StorageFlowState {
+    pub(super) fn end_storage_lifetime(
+        &mut self,
+        identity: StorageIdentityId,
+        storage: &StoragePlan,
+    ) {
+        if self.recovered
+            || self.active_borrows.iter().any(|borrow| {
+                storage
+                    .borrow_capability(*borrow)
+                    .is_some_and(|borrow| storage.root_identity(borrow.access()) == Some(identity))
+            })
+        {
+            return;
+        }
+
+        self.forget_storage(identity, storage);
+    }
+
+    pub(super) fn end_borrows(
+        &mut self,
+        ended: &BTreeSet<BorrowCapabilityId>,
+        storage: &StoragePlan,
+    ) {
+        self.active_borrows.retain(|borrow| !ended.contains(borrow));
+
+        self.definitely_active_borrows
+            .retain(|borrow| !ended.contains(borrow));
+
+        self.moved.retain(|access, _| {
+            storage.access(*access).is_none_or(|access| {
+                access
+                    .root()
+                    .borrow_capability()
+                    .is_none_or(|borrow| !ended.contains(&borrow))
+            })
+        });
+
+        self.retain_definite_moves(storage);
+    }
+
     pub(super) fn retain_definite_moves(&mut self, storage: &StoragePlan) {
         self.definitely_moved.retain(|definite| {
             self.moved.keys().any(|possible| {
@@ -227,10 +298,13 @@ impl StorageFlowState {
         });
     }
 
-    fn entry(storage: &StoragePlan) -> Self {
+    fn entry(storage: &StoragePlan, input: &StorageFlowInput) -> Self {
         let initialized = storage
             .identity_entries()
-            .filter_map(|(id, identity)| identity.is_initialized_at_entry().then_some(id))
+            .filter_map(|(id, identity)| {
+                (identity.is_initialized_at_entry() && !input.unused_entry_storage.contains(&id))
+                    .then_some(id)
+            })
             .collect::<BTreeSet<_>>();
 
         let active_borrows = storage
@@ -460,6 +534,7 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     graph: &'analysis ControlFlowGraph,
+    edge_lifetime_ends: &'analysis BTreeMap<AnalysisEdgeId, Vec<BoundDependencySubject>>,
     reachability: &'analysis ReachabilityResult,
     storage: &'analysis StoragePlan,
     liveness: &'analysis Liveness,
@@ -480,6 +555,7 @@ where
     )]
     pub(super) fn new(
         graph: &'analysis ControlFlowGraph,
+        edge_lifetime_ends: &'analysis BTreeMap<AnalysisEdgeId, Vec<BoundDependencySubject>>,
         reachability: &'analysis ReachabilityResult,
         storage: &'analysis StoragePlan,
         liveness: &'analysis Liveness,
@@ -491,6 +567,7 @@ where
     ) -> Self {
         Self {
             graph,
+            edge_lifetime_ends,
             reachability,
             storage,
             liveness,
@@ -543,7 +620,7 @@ where
     }
 
     fn boundary(&self) -> Self::State {
-        StorageFlowState::entry(self.storage)
+        StorageFlowState::entry(self.storage, self.input)
     }
 
     fn merge_boundary(&self, target: &mut Self::State, boundary: &Self::State) -> bool {
@@ -564,10 +641,50 @@ where
             return false;
         }
 
+        let ends = self
+            .edge_lifetime_ends
+            .get(&edge.id())
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+
         if edge.kind() == AnalysisEdgeKind::Recovery {
             let mut incoming = source.clone();
 
             incoming.recovered = true;
+
+            return target.merge(&incoming);
+        }
+
+        if !ends.is_empty() && !source.recovered && !self.liveness.is_recovered() {
+            // Each outgoing continuation owns independently retired availability facts.
+            let mut incoming = source.clone();
+
+            let ended_borrows = ends
+                .iter()
+                .filter_map(|end| {
+                    let bray_bound_tree::BoundDependencySubject::BorrowCapability(id) = *end else {
+                        return None;
+                    };
+
+                    (self
+                        .storage
+                        .borrow_capability(id)
+                        .is_some_and(|borrow| borrow.entry_binding().is_none()))
+                    .then_some(id)
+                })
+                .collect::<BTreeSet<_>>();
+
+            if !ended_borrows.is_empty() {
+                incoming.end_borrows(&ended_borrows, self.storage);
+            }
+
+            for end in ends {
+                if let bray_bound_tree::BoundDependencySubject::Storage(id) = *end
+                    && self.input.cleanup_free_storage.contains(&id)
+                {
+                    incoming.end_storage_lifetime(id, self.storage);
+                }
+            }
 
             return target.merge(&incoming);
         }
@@ -664,7 +781,7 @@ mod tests {
 
         let storage = builder.finish();
 
-        let liveness = Liveness::try_new(unit.unit(), unit.key().kind(), [], [], [], [], false)
+        let liveness = Liveness::try_new(unit.unit(), unit.key().kind(), [], [], [], [], [], false)
             .expect("test liveness must build");
 
         let context = TestCheckerContext::new(false);
