@@ -18,12 +18,14 @@ use super::check::StorageFlowCollector;
 #[derive(Debug, Default)]
 pub(super) struct StorageFlowInput {
     plans: BTreeMap<AnyBoundNodeId, Vec<StorageAccessPlan>>,
+    expression_roots: BTreeMap<BoundExpressionId, Vec<StorageIdentityId>>,
     borrows: BTreeMap<StorageAccessPlan, BorrowCapabilityId>,
     definitions: BTreeMap<AnyBoundNodeId, Vec<StorageIdentityId>>,
     initialization_destinations: BTreeMap<BoundExpressionId, StorageIdentityId>,
     copyable_types: BTreeSet<TypeId>,
     mutable_storage: BTreeSet<StorageIdentityId>,
     immutable_field_accesses: BTreeSet<StorageAccessId>,
+    temporary_last_uses: BTreeMap<AnyBoundNodeId, Vec<StorageIdentityId>>,
 }
 
 impl StorageFlowInput {
@@ -32,7 +34,8 @@ impl StorageFlowInput {
         storage: &StoragePlan,
         copyable_types: BTreeSet<TypeId>,
         mutable_storage: BTreeSet<StorageIdentityId>,
-    ) -> crate::CheckerQueryResult<Self, C::UpstreamError>
+        liveness: &Liveness,
+    ) -> crate::CheckerQueryResult<(Self, bray_diagnostics::DiagnosticBag), C::UpstreamError>
     where
         C: CheckerRequestContext + ?Sized,
     {
@@ -56,6 +59,14 @@ impl StorageFlowInput {
 
         for plan in storage.access_plans().iter().copied() {
             input.plans.entry(plan.node()).or_default().push(plan);
+
+            if let Some(root) = storage.root_identity(plan.access()) {
+                input
+                    .expression_roots
+                    .entry(plan.expression())
+                    .or_default()
+                    .push(root);
+            }
 
             let StorageAccessPurpose::Borrow(kind) = plan.purpose() else {
                 continue;
@@ -92,7 +103,39 @@ impl StorageFlowInput {
         input.immutable_field_accesses =
             super::authority::immutable_field_accesses(request, storage, &input)?;
 
-        Ok(input)
+        let (cleanup_free, diagnostics) =
+            crate::asynchronous::cleanup_free_temporaries(request, storage)?;
+
+        if !liveness.is_recovered() {
+            for last_use in liveness.last_uses() {
+                if let bray_bound_tree::BoundDependencySubject::Storage(identity) =
+                    last_use.subject()
+                    && cleanup_free.contains(&identity)
+                {
+                    input
+                        .temporary_last_uses
+                        .entry(last_use.operation())
+                        .or_default()
+                        .push(identity);
+                }
+            }
+        }
+
+        Ok((input, diagnostics))
+    }
+
+    pub(super) fn expression_roots(&self, expression: BoundExpressionId) -> &[StorageIdentityId] {
+        self.expression_roots
+            .get(&expression)
+            .map(Vec::as_slice)
+            .unwrap_or_default()
+    }
+
+    pub(super) fn temporary_last_uses(&self, node: AnyBoundNodeId) -> &[StorageIdentityId] {
+        self.temporary_last_uses
+            .get(&node)
+            .map(Vec::as_slice)
+            .unwrap_or_default()
     }
 
     pub(super) fn plans(&self, node: AnyBoundNodeId) -> &[StorageAccessPlan] {
@@ -359,6 +402,53 @@ impl StorageFlowState {
             || self.recovered != was_recovered
     }
 
+    pub(super) fn forget_storage(&mut self, identity: StorageIdentityId, storage: &StoragePlan) {
+        self.live.remove(&identity);
+        self.initialized.remove(&identity);
+        self.fully_moved.remove(&identity);
+        self.observed_pattern_bindings.remove(&identity);
+        self.raw_initialized.remove(&identity);
+        self.active_allocations.remove(&identity);
+        self.allocation_origins.remove(&identity);
+        self.invalidated_allocations.remove(&identity);
+
+        self.moved
+            .retain(|access, _| storage.root_identity(*access) != Some(identity));
+
+        self.retain_definite_moves(storage);
+    }
+
+    pub(super) fn retain_live_storage(&mut self, storage: &StoragePlan) {
+        self.initialized
+            .retain(|identity| self.live.contains(identity));
+
+        self.observed_pattern_bindings
+            .retain(|identity| self.live.contains(identity));
+
+        self.fully_moved
+            .retain(|identity| self.live.contains(identity));
+
+        self.raw_initialized
+            .retain(|identity, _| self.live.contains(identity));
+
+        self.active_allocations
+            .retain(|identity, _| self.live.contains(identity));
+
+        self.allocation_origins
+            .retain(|identity, _| self.live.contains(identity));
+
+        self.invalidated_allocations
+            .retain(|identity, _| self.live.contains(identity));
+
+        self.moved.retain(|access, _| {
+            storage
+                .root_identity(*access)
+                .is_some_and(|identity| self.live.contains(&identity))
+        });
+
+        self.retain_definite_moves(storage);
+    }
+
     pub(super) fn move_complete_storage(&mut self, storage: StorageIdentityId) {
         self.fully_moved.insert(storage);
         self.initialized.remove(&storage);
@@ -515,6 +605,99 @@ mod tests {
 
     use super::StorageFlowState;
     use crate::test_support::{error_type, expression_unit, push_expression};
+
+    #[test]
+    fn raw_expression_indexes_preserve_first_result_and_later_alias_order() {
+        use crate::CheckerUnitView;
+        use crate::test_support::{TestCheckerContext, callable_entry};
+        use bray_bound_tree::{Liveness, StorageAccess, StorageAccessPurpose, StorageAccessRoot};
+        use std::collections::BTreeSet;
+
+        let (unit, expressions) = expression_unit(BoundUnitId::new(92), |tree, origin| {
+            (0..2)
+                .map(|_| {
+                    push_expression(
+                        tree,
+                        BoundExpression::Error(BoundErrorExpression::new(origin, error_type())),
+                    )
+                })
+                .collect()
+        });
+
+        let mut builder = StoragePlanBuilder::new(unit.unit(), unit.key().kind());
+
+        let first = builder
+            .push_identity(StorageIdentity::Temporary(expressions[0]))
+            .expect("first result must build");
+
+        let second = builder
+            .push_identity(StorageIdentity::Allocation(expressions[0]))
+            .expect("second result must build");
+
+        let source = unit
+            .tree()
+            .expression(expressions[1])
+            .expect("test expression must exist")
+            .origin()
+            .source_anchor();
+
+        for (identity, recovered) in [(first, true), (first, false), (second, false)] {
+            let access = builder
+                .push_access(StorageAccess::new(
+                    StorageAccessRoot::Storage(identity),
+                    [],
+                    error_type(),
+                    source,
+                    recovered,
+                ))
+                .expect("test access must build");
+
+            builder
+                .plan_access(
+                    expressions[1].into(),
+                    expressions[1],
+                    StorageAccessPurpose::Read,
+                    access,
+                )
+                .expect("test access plan must build");
+        }
+
+        let storage = builder.finish();
+
+        let liveness = Liveness::try_new(unit.unit(), unit.key().kind(), [], [], [], [], false)
+            .expect("test liveness must build");
+
+        let context = TestCheckerContext::new(false);
+        let semantic_context = callable_entry(unit.key());
+        let request = CheckerUnitView::new(&unit, &semantic_context, &context);
+
+        let (input, _) = super::StorageFlowInput::new(
+            request,
+            &storage,
+            BTreeSet::new(),
+            BTreeSet::new(),
+            &liveness,
+        )
+        .expect("test storage indexes must build");
+
+        assert_eq!(input.definitions(expressions[0].into()), &[first, second]);
+        assert_eq!(input.expression_roots(expressions[1]), &[first, second]);
+
+        let mut state = reachable_state();
+
+        state
+            .allocation_origins
+            .insert(second, BTreeSet::from([expressions[0]]));
+
+        assert_eq!(
+            input
+                .expression_roots(expressions[1])
+                .iter()
+                .copied()
+                .find(|identity| state.allocation_origins.contains_key(identity)),
+            Some(second)
+        );
+    }
 
     #[test]
     fn guard_observations_do_not_create_ownership_and_join_by_intersection() {

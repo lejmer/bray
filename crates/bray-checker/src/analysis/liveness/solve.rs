@@ -402,8 +402,11 @@ fn collect_liveness(
                     effect
                         .definitions()
                         .filter(|subject| {
-                            matches!(subject, BoundDependencySubject::BorrowCapability(_))
-                                && !effect.uses().any(|used| used == *subject)
+                            matches!(
+                                subject,
+                                BoundDependencySubject::Storage(_)
+                                    | BoundDependencySubject::BorrowCapability(_)
+                            ) && !effect.uses().any(|used| used == *subject)
                                 && !state.contains(subject)
                         })
                         .copied()
@@ -518,6 +521,203 @@ mod tests {
                 BoundDependencySubject::StorageAccess(access),
             ])
         );
+    }
+
+    #[test]
+    fn fresh_accesses_and_temporaries_are_not_live_before_creation() {
+        for temporary in [false, true] {
+            let unit = BoundUnitId::new(18);
+
+            let (bound_unit, expression, origin) = test_expression(unit);
+
+            let mut builder = StoragePlanBuilder::new(unit, bound_unit.key().kind());
+
+            let provenance = if temporary {
+                StorageIdentity::Temporary(expression)
+            } else {
+                StorageIdentity::CompilerCreated(origin)
+            };
+
+            let identity = builder
+                .push_identity(provenance)
+                .expect("test identity must build");
+
+            let access = builder
+                .push_access(StorageAccess::new(
+                    StorageAccessRoot::Storage(identity),
+                    [],
+                    error_type(),
+                    origin.source_anchor(),
+                    false,
+                ))
+                .expect("test access must build");
+
+            builder
+                .plan_access(
+                    expression.into(),
+                    expression,
+                    StorageAccessPurpose::Read,
+                    access,
+                )
+                .expect("test access plan must build");
+
+            let effects = OperationEffects::from_storage_plan(
+                &bound_unit,
+                &builder.finish(),
+                &empty_memory_operations(unit),
+            );
+
+            let operation = AnalysisOperation::new(
+                AnalysisOperationId::from_slot(unit, 0),
+                AnalysisOperationKind::Bound(expression.into()),
+                ProgramPointId::from_slot(unit, 0),
+                ProgramPointId::from_slot(unit, 1),
+            );
+
+            let mut state = BTreeSet::from([
+                BoundDependencySubject::Storage(identity),
+                BoundDependencySubject::StorageAccess(access),
+            ]);
+
+            transfer_operation(&mut state, &operation, &effects, &effects.universe);
+
+            assert_eq!(
+                state,
+                if temporary {
+                    BTreeSet::new()
+                } else {
+                    BTreeSet::from([BoundDependencySubject::Storage(identity)])
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn unused_temporary_ranges_do_not_accumulate_in_fixed_point_states() {
+        use crate::CheckerUnitView;
+        use crate::analysis::assembly::ControlFlowGraphAssembler;
+        use crate::analysis::fixed_point::{FixedPointOutcome, solve_fixed_point};
+        use crate::analysis::model::{AnalysisEdgeKind, AnalysisExitKind};
+        use crate::analysis::reachability::analyze_reachability;
+        use crate::test_support::{TestCheckerContext, callable_entry};
+
+        for count in [64, 128, 256, 1024] {
+            let (unit, expressions) = expression_unit(BoundUnitId::new(19), |tree, origin| {
+                (0..count)
+                    .map(|_| {
+                        push_expression(
+                            tree,
+                            BoundExpression::Error(BoundErrorExpression::new(origin, error_type())),
+                        )
+                    })
+                    .collect()
+            });
+
+            let mut storage = StoragePlanBuilder::new(unit.unit(), unit.key().kind());
+            let mut graph = ControlFlowGraphAssembler::new(unit.unit());
+            let entry = graph.push_block();
+            let mut previous = entry;
+
+            for expression in &expressions {
+                let origin = unit
+                    .tree()
+                    .expression(*expression)
+                    .expect("test expression must exist")
+                    .origin();
+
+                let identity = storage
+                    .push_identity(StorageIdentity::Temporary(*expression))
+                    .expect("test identity must build");
+
+                let access = storage
+                    .push_access(StorageAccess::new(
+                        StorageAccessRoot::Storage(identity),
+                        [],
+                        error_type(),
+                        origin.source_anchor(),
+                        false,
+                    ))
+                    .expect("test access must build");
+
+                storage
+                    .plan_access(
+                        (*expression).into(),
+                        *expression,
+                        StorageAccessPurpose::Read,
+                        access,
+                    )
+                    .expect("test access plan must build");
+
+                let block = graph.push_block();
+
+                graph.push_edge(previous, block, AnalysisEdgeKind::Sequential, None);
+                graph.push_bound(block, (*expression).into());
+                previous = block;
+            }
+
+            graph.push_exit(previous, AnalysisExitKind::NormalFallthrough);
+
+            let graph = graph.finish(entry);
+            let storage = storage.finish();
+
+            let effects = OperationEffects::from_storage_plan(
+                &unit,
+                &storage,
+                &empty_memory_operations(unit.unit()),
+            );
+
+            let context = TestCheckerContext::new(false);
+            let semantic_context = callable_entry(unit.key());
+            let request = CheckerUnitView::new(&unit, &semantic_context, &context);
+
+            let reachability =
+                analyze_reachability(&graph, request).expect("test graph must be reachable");
+
+            let domain = super::LivenessDomain::new(&graph, &reachability, &effects);
+
+            let FixedPointOutcome::Complete(result) = solve_fixed_point(&graph, &domain, &request)
+            else {
+                panic!("finite temporary ranges must converge");
+            };
+
+            let memberships = graph
+                .blocks()
+                .iter()
+                .map(|block| {
+                    result
+                        .state(block.id())
+                        .expect("test block must retain a state")
+                        .len()
+                })
+                .sum::<usize>();
+
+            assert_eq!(
+                memberships, 0,
+                "identities cannot be live before their defining occurrence"
+            );
+
+            let liveness = super::collect_liveness(
+                &graph,
+                &reachability,
+                &effects,
+                &effects.universe,
+                &result,
+                unit.key().kind(),
+            )
+            .expect("temporary last uses must validate");
+
+            assert_eq!(
+                liveness
+                    .last_uses()
+                    .iter()
+                    .filter(|last_use| matches!(
+                        last_use.subject(),
+                        BoundDependencySubject::Storage(_)
+                    ))
+                    .count(),
+                count
+            );
+        }
     }
 
     #[test]

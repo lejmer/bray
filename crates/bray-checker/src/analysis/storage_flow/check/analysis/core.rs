@@ -39,6 +39,7 @@ use crate::analysis::storage_flow::decision::{diagnostic_kind, more_conservative
 use crate::analysis::storage_flow::model::{StorageFlowDomain, StorageFlowInput, StorageFlowState};
 
 use super::access::BorrowConflict;
+use super::snapshot::{ExitState, ReplacementState};
 
 pub(crate) fn check_storage_flow<C>(
     request: CheckerUnitView<'_, C>,
@@ -124,9 +125,9 @@ where
 
     let (copyable_types, copyability_diagnostics) = copyability.into_parts();
 
-    let (input, authority_diagnostics) =
+    let ((input, cleanup_diagnostics), authority_diagnostics) =
         match mutable_storage(request, storage).and_then(|(mutable, diagnostics)| {
-            StorageFlowInput::new(request, storage, copyable_types, mutable)
+            StorageFlowInput::new(request, storage, copyable_types, mutable, liveness)
                 .map(|input| (input, diagnostics))
         }) {
             Ok(result) => result,
@@ -182,6 +183,7 @@ where
 
     collector.diagnostics.add_range(copyability_diagnostics);
     collector.diagnostics.add_range(authority_diagnostics);
+    collector.diagnostics.add_range(cleanup_diagnostics);
 
     let mut reachable_exits = BTreeSet::new();
 
@@ -305,13 +307,9 @@ where
     pub(super) owners: &'analysis StorageScopeOwners,
     pub(super) statuses: BTreeMap<StorageAccessPlan, StorageOperationStatus>,
     pub(super) suspensions: Vec<StorageSuspensionState>,
-    exits: Vec<(
-        bray_bound_tree::BoundBlockId,
-        AnyBoundNodeId,
-        StorageFlowState,
-    )>,
+    exits: Vec<(bray_bound_tree::BoundBlockId, AnyBoundNodeId, ExitState)>,
     exit_indices: BTreeMap<(bray_bound_tree::BoundBlockId, AnyBoundNodeId), usize>,
-    replacements: BTreeMap<StorageAccessPlan, StorageFlowState>,
+    replacements: BTreeMap<StorageAccessPlan, ReplacementState>,
     pub(super) memory_decisions: BTreeMap<BoundExpressionId, MemoryOperationStatus>,
     pub(super) diagnostics: DiagnosticBag,
     pub(super) reported_diagnostics: BTreeSet<(DiagnosticKind, StorageAccessId)>,
@@ -448,6 +446,7 @@ where
         }
 
         self.end_last_use_borrows(state, operation.kind().node());
+        self.end_last_use_temporaries(state, operation.kind().node());
 
         if let AnalysisOperationKind::ScopeExit {
             block,
@@ -498,13 +497,16 @@ where
 
         if matches!(status, StorageOperationStatus::Valid) {
             if self.publish && purpose == StorageAccessPurpose::Assignment {
-                self.replacements
-                    .entry(plan)
-                    .and_modify(|previous| {
-                        previous.merge(state);
-                    })
-                    // Publication owns the pre-installation state independently of later writes.
-                    .or_insert_with(|| state.clone());
+                let incoming = ReplacementState::new(state, plan, self.storage);
+
+                match self.replacements.entry(plan) {
+                    std::collections::btree_map::Entry::Occupied(mut entry) => {
+                        entry.get_mut().merge(incoming);
+                    }
+                    std::collections::btree_map::Entry::Vacant(entry) => {
+                        entry.insert(incoming);
+                    }
+                }
             }
 
             if let Err(error) = self.apply_valid_operation(state, plan, purpose, borrow) {
@@ -790,6 +792,32 @@ where
         }
     }
 
+    fn end_last_use_temporaries(&self, state: &mut StorageFlowState, operation: AnyBoundNodeId) {
+        if state.recovered {
+            return;
+        }
+
+        for identity in self.input.temporary_last_uses(operation) {
+            let borrowed = state.active_borrows.iter().any(|borrow| {
+                self.storage
+                    .borrow_capability(*borrow)
+                    .is_some_and(|borrow| {
+                        self.storage.root_identity(borrow.access()) == Some(*identity)
+                    })
+            });
+
+            if borrowed
+                || self
+                    .liveness
+                    .is_owner_retained(BoundDependencySubject::Storage(*identity))
+            {
+                continue;
+            }
+
+            state.forget_storage(*identity, self.storage);
+        }
+    }
+
     fn end_last_use_borrows(&self, state: &mut StorageFlowState, operation: AnyBoundNodeId) {
         let moved_borrows = state
             .moved
@@ -869,21 +897,7 @@ where
             .live
             .retain(|storage| self.owners.identity_scope(self.storage, *storage) != Some(block));
 
-        state
-            .initialized
-            .retain(|storage| state.live.contains(storage));
-
-        state.moved.retain(|access, _| {
-            self.storage
-                .root_identity(*access)
-                .is_some_and(|storage| state.live.contains(&storage))
-        });
-
-        state.retain_definite_moves(self.storage);
-
-        state
-            .fully_moved
-            .retain(|storage| state.live.contains(storage));
+        state.retain_live_storage(self.storage);
 
         state.active_borrows.retain(|borrow| {
             self.borrow_is_entry(*borrow)
@@ -929,8 +943,7 @@ where
 
         self.exit_indices.insert(key, self.exits.len());
 
-        // Publication owns this snapshot so later operations can mutate their task-local state.
-        self.exits.push((block, exit, state.clone()));
+        self.exits.push((block, exit, ExitState::new(state)));
     }
 
     pub(super) fn exit_decisions(&self) -> impl Iterator<Item = StorageExitDecision> + '_ {
@@ -940,7 +953,7 @@ where
                 *exit,
                 state.live.iter().copied(),
                 state.initialized.iter().copied(),
-                state.moved.keys().copied(),
+                state.moved.iter().copied(),
                 state.definitely_moved.iter().copied(),
                 state.fully_moved.iter().copied(),
                 state.active_borrows.iter().copied(),
@@ -953,36 +966,22 @@ where
         &self,
     ) -> impl Iterator<Item = bray_bound_tree::StorageReplacementDecision> + '_ {
         self.replacements.iter().map(|(plan, state)| {
-            let root = self.storage.root_identity(plan.access());
-
-            let moved = state
-                .moved
-                .keys()
-                .copied()
-                .filter(|access| self.storage.root_identity(*access) == root);
-
-            let initialization = match root {
-                Some(root) if !state.live.contains(&root) || state.fully_moved.contains(&root) => {
-                    bray_bound_tree::StorageReplacementState::Absent
-                }
-                Some(root)
-                    if state.initialized.contains(&root)
-                        && !state.moved.keys().any(|access| {
-                            self.storage.access_contains(plan.access(), *access)
-                                || self.storage.access_contains(*access, plan.access())
-                        }) =>
-                {
-                    bray_bound_tree::StorageReplacementState::Present
-                }
-                _ => bray_bound_tree::StorageReplacementState::Conditional,
+            let initialization = if self.storage.root_identity(plan.access()).is_none() {
+                bray_bound_tree::StorageReplacementState::Conditional
+            } else if !state.live || state.fully_moved {
+                bray_bound_tree::StorageReplacementState::Absent
+            } else if state.initialized && !state.overlapping_move {
+                bray_bound_tree::StorageReplacementState::Present
+            } else {
+                bray_bound_tree::StorageReplacementState::Conditional
             };
 
             bray_bound_tree::StorageReplacementDecision::new(
                 plan.expression(),
                 plan.access(),
                 initialization,
-                moved,
-                state.recovered || root.is_none(),
+                state.moved.iter().copied(),
+                state.recovered,
             )
         })
     }
