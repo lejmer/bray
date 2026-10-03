@@ -1,9 +1,9 @@
-use super::super::storage_invalidation::invalidating_operation_accesses;
+use super::super::storage_invalidation::{StorageInvalidation, invalidating_operation_accesses};
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
     AnyBoundNodeId, BoundExpressionId, CheckedPatterns, PatternPredicate, Refinement,
-    RefinementKind, StorageAccessId, StoragePlan, StorageRelationship,
+    RefinementKind, StorageAccessId, StoragePlan,
 };
 use bray_diagnostics::{DiagnosticRefinementCapacity, DiagnosticRefinementCapacitySurface};
 
@@ -26,7 +26,7 @@ pub(super) struct RefinementUniverse {
     equivalent_accesses: BTreeMap<StorageAccessId, StorageAccessId>,
     edge_refinements: BTreeMap<AnalysisRefinement, Box<[usize]>>,
     trust_boundaries: BTreeMap<BoundExpressionId, usize>,
-    invalidating_accesses: BTreeMap<AnyBoundNodeId, Box<[StorageAccessId]>>,
+    invalidating_accesses: BTreeMap<AnyBoundNodeId, StorageInvalidation>,
 }
 
 impl RefinementUniverse {
@@ -258,12 +258,10 @@ impl RefinementUniverse {
 
         set.retain(|index| {
             self.refinements.get(index).is_none_or(|refinement| {
-                refinement.dependencies().iter().all(|dependency| {
-                    mutations.iter().all(|mutation| {
-                        storage.relationship(*dependency, *mutation)
-                            == StorageRelationship::Disjoint
-                    })
-                })
+                refinement
+                    .dependencies()
+                    .iter()
+                    .all(|dependency| !mutations.invalidates(*dependency, storage))
             })
         });
     }

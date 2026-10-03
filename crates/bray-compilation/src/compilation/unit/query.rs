@@ -12512,7 +12512,10 @@ func other()
 
                 if lifecycle.is_empty() {
                     assert!(
-                        flow.value().exits().iter().all(|exit| !exit.live().contains(&root)),
+                        flow.value()
+                            .exits()
+                            .iter()
+                            .all(|exit| !exit.live().contains(&root)),
                         "{source}"
                     );
                 } else {
@@ -12525,7 +12528,11 @@ func other()
                     );
 
                     assert!(
-                        !flow.value().exits().iter().any(|exit| exit.fully_moved().contains(&root)),
+                        !flow
+                            .value()
+                            .exits()
+                            .iter()
+                            .any(|exit| exit.fully_moved().contains(&root)),
                         "{source}"
                     );
 
@@ -12984,6 +12991,48 @@ func main(pos choice: Choice, pos point: Point, pos optional: i32?, pos pair: (i
                 .collect::<Vec<_>>();
 
             assert_eq!(actual, expected.into_iter().collect::<Vec<_>>(), "{body}");
+        }
+    }
+
+    #[test]
+    fn opaque_calls_invalidate_storage_refinements_while_pure_calls_preserve_them() {
+        for (call, expected) in [
+            ("touch();", None),
+            ("stable();", Some(PatternPredicate::NullablePresent)),
+        ] {
+            let source = format!(
+                "module app; func touch() {{}} func stable() executes(pure, total) {{}} func main(pos value: i32?) {{ if value matches ?_ {{ {call} 11; }} }}"
+            );
+
+            let compilation = compilation(&source);
+            let diagnostics = compilation.check_diagnostics();
+
+            assert!(diagnostics.is_empty(), "{source}: {diagnostics:?}");
+
+            let key = source_function_body_key(&compilation, "main");
+            let unit = compilation.bound_unit(key.clone()).unwrap();
+            let analysis = compilation.refinements(key).unwrap();
+            let offset = u32::try_from(source.find("11;").unwrap()).unwrap();
+
+            let marker = unit.value().tree().expressions().find_map(|(id, expression)| {
+                matches!(expression, BoundExpression::Literal(literal) if literal.spelling_range().start().bytes() == offset).then_some(id)
+            }).unwrap();
+
+            let actual = analysis
+                .value()
+                .refinements_before(marker.into())
+                .iter()
+                .filter_map(|refinement| match refinement.kind() {
+                    RefinementKind::Pattern {
+                        predicate: PatternPredicate::NullablePresent,
+                        value: true,
+                        ..
+                    } => Some(PatternPredicate::NullablePresent),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(actual, expected.into_iter().collect::<Vec<_>>(), "{call}");
         }
     }
 
