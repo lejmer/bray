@@ -54,12 +54,13 @@ impl CountingWriterIo = CountingWriter(std.io.Writer)
     }
 }
 
-struct FailingWriter
+struct FailingTransfer
 {
     mut calls: usize;
+    interrupted: bool;
 }
 
-impl FailingWriterIo = FailingWriter(std.io.Writer)
+impl FailingTransferIo = FailingTransfer(std.io.Writer)
 {
     mut func write(pos source: &[u8]) -> Result<usize, std.io.IoError>
         requires(blocking_execution())
@@ -74,7 +75,14 @@ impl FailingWriterIo = FailingWriter(std.io.Writer)
         return Error(
             std.io.IoError
             {
-                kind = std.io.IoErrorKind.Exhausted,
+                kind = if self.interrupted
+                {
+                    yield std.io.IoErrorKind.Interrupted;
+                }
+                else
+                {
+                    yield std.io.IoErrorKind.Exhausted;
+                },
                 platform_code = none,
                 transferred = 1,
             }
@@ -85,6 +93,41 @@ impl FailingWriterIo = FailingWriter(std.io.Writer)
         requires(blocking_execution())
     {
         return Ok(unit);
+    }
+}
+
+impl FailingReaderIo = FailingTransfer(std.io.Reader)
+{
+    mut func read(pos destination: &mut [u8]) -> Result<usize, std.io.IoError>
+        requires(blocking_execution())
+    {
+        self.calls += 1;
+
+        if self.calls == 1
+        {
+            destination[0] = 65;
+            destination[1] = 66;
+
+            return Ok(2);
+        }
+
+        destination[0] = 67;
+
+        return Error(
+            std.io.IoError
+            {
+                kind = if self.interrupted
+                {
+                    yield std.io.IoErrorKind.Interrupted;
+                }
+                else
+                {
+                    yield std.io.IoErrorKind.Exhausted;
+                },
+                platform_code = none,
+                transferred = 1,
+            }
+        );
     }
 }
 
@@ -227,9 +270,10 @@ func complete_transfers_preserve_partial_progress() -> Result<unit, std.io.IoErr
     assert(writer.calls == 3);
     assert(writer.total == 5);
 
-    let mut failing: FailingWriter =
+    let mut failing: FailingTransfer =
     {
         calls = 0,
+        interrupted = false,
     };
 
     let write_error: std.io.IoError = std.testing.assert_error<unit, std.io.IoError>(failing.write_all(&source[..]));
@@ -253,6 +297,41 @@ func complete_transfers_preserve_partial_progress() -> Result<unit, std.io.IoErr
     assert(read_error.transferred == 2);
 
     return Ok(unit);
+}
+
+@test
+func bulk_transfers_report_interrupted_progress_without_repeating_the_prefix()
+{
+    let source: bytes = b"ABCDE";
+    let mut destination: bytes<5> = [0; 5];
+
+    let mut writer: FailingTransfer =
+    {
+        calls = 0,
+        interrupted = true,
+    };
+
+    let mut reader: FailingTransfer =
+    {
+        calls = 0,
+        interrupted = true,
+    };
+
+    let write_error: std.io.IoError = std.testing.assert_error<unit, std.io.IoError>(writer.write_all(&source[..]));
+
+    let read_error: std.io.IoError = std.testing.assert_error<unit, std.io.IoError>(
+        reader.read_exact(&mut destination[..])
+    );
+
+    assert(write_error.kind == std.io.IoErrorKind.Interrupted);
+    assert(write_error.transferred == 3);
+    assert(writer.calls == 2);
+    assert(read_error.kind == std.io.IoErrorKind.Interrupted);
+    assert(read_error.transferred == 3);
+    assert(reader.calls == 2);
+    assert(destination[0] == 65);
+    assert(destination[1] == 66);
+    assert(destination[2] == 67);
 }
 
 @test

@@ -1,0 +1,109 @@
+@target(target.identity.SYSTEM == "linux" || target.identity.SYSTEM == "darwin")
+trusted module bray.standard_library_tests.platform_transfer_unix;
+
+using std.memory;
+using internal std.platform;
+using std.io;
+using std.io.IoErrorKindEquatable;
+using internal std.io.checked_transfer;
+using std.testing;
+
+@test
+func descriptor_requests_are_bounded_without_signed_wraparound()
+{
+    assert(internal std.platform.descriptor_request_length(0) == 0);
+    assert(internal std.platform.descriptor_request_length(3) == 3);
+    assert(internal std.platform.descriptor_request_length(9_223_372_036_854_775_807) == 9_223_372_036_854_775_807);
+    assert(internal std.platform.descriptor_request_length(9_223_372_036_854_775_808) == 9_223_372_036_854_775_807);
+    assert(internal std.platform.descriptor_request_length(18_446_744_073_709_551_615) == 9_223_372_036_854_775_807);
+}
+
+@test
+trusted func descriptor_zero_length_and_failure_preserve_progress()
+{
+    let mut transferred: u64 = 99;
+    let progress: RawPointer<u64> = std.memory.address_of_mut<u64>(&mut transferred);
+    let bytes: RawPointer<u8> = std.memory.null<u8>();
+
+    let empty_read: std.platform.PlatformStatus = trusted internal std.platform.descriptor_read(
+        -1,
+        destination = bytes,
+        length = 0,
+        transferred = progress,
+    );
+
+    assert(empty_read.category == 0);
+    assert(transferred == 0);
+
+    transferred = 99;
+
+    let empty_write: std.platform.PlatformStatus = trusted internal std.platform.descriptor_write(
+        -1,
+        source = bytes,
+        length = 0,
+        transferred = progress,
+    );
+
+    assert(empty_write.category == 0);
+    assert(transferred == 0);
+
+    transferred = 99;
+
+    let failed_read: std.platform.PlatformStatus = trusted internal std.platform.descriptor_read(
+        -1,
+        destination = bytes,
+        length = 1,
+        transferred = progress,
+    );
+
+    assert(failed_read.category != 0);
+    assert(failed_read.native_code == 9);
+    assert(transferred == 0);
+
+    transferred = 99;
+
+    let failed_write: std.platform.PlatformStatus = trusted internal std.platform.descriptor_write(
+        -1,
+        source = bytes,
+        length = 1,
+        transferred = progress,
+    );
+
+    assert(failed_write.category != 0);
+    assert(failed_write.native_code == 9);
+    assert(transferred == 0);
+
+    let partial: std.platform.PlatformStatus = trusted internal std.platform.descriptor_transfer_result(
+        3,
+        transferred = progress,
+    );
+
+    assert(partial.category == 0);
+    assert(transferred == 3);
+
+    let eof: std.platform.PlatformStatus = trusted internal std.platform.descriptor_transfer_result(
+        0,
+        transferred = progress,
+    );
+
+    assert(eof.category == 0);
+    assert(transferred == 0);
+}
+
+trusted func assert_interrupted_transfer()
+{
+    let mut transferred: u64 = 0;
+
+    let status: std.platform.PlatformStatus = trusted internal std.platform.descriptor_transfer_result(
+        -1,
+        transferred = std.memory.address_of_mut<u64>(&mut transferred),
+    );
+
+    let error: std.io.IoError = std.testing.assert_error<usize, std.io.IoError>(
+        internal std.io.checked_transfer(status, transferred = transferred, maximum = 4, require_progress = false)
+    );
+
+    assert(error.kind == std.io.IoErrorKind.Interrupted);
+    assert(std.testing.assert_present<i64>(error.platform_code) == 4);
+    assert(error.transferred == 0);
+}

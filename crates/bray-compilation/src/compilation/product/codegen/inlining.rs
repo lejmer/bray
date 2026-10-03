@@ -536,7 +536,7 @@ impl Compilation {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
     use std::sync::Arc;
 
     use bray_codegen::{CodegenOptions, DebugInformationMode, OptimizationLevel, SizePreference};
@@ -544,7 +544,7 @@ mod tests {
     use bray_package_interface::{
         InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceProductKind,
         InterfaceValidationLimits, InterfaceValidationPolicy, PackageImplementationArtifact,
-        PackageInterfaceIdentity, ValidatedPackageInterface, encode_package_interface,
+        PackageInterfaceIdentity, encode_package_interface,
     };
     use bray_symbols::PackageIdentity;
 
@@ -1074,6 +1074,14 @@ mod tests {
     }
 
     fn imported_consumer(library_source: &str, consumer_source: &str) -> crate::Compilation {
+        imported_consumer_with_native_inputs(library_source, consumer_source, &[])
+    }
+
+    fn imported_consumer_with_native_inputs(
+        library_source: &str,
+        consumer_source: &str,
+        native_links: &[bray_symbols::NativeLinkRequirement],
+    ) -> crate::Compilation {
         let package = PackageIdentity::try_new("example.dependency").expect("package identity");
         let product = InterfaceProductIdentity::try_new("library").expect("product identity");
 
@@ -1097,7 +1105,8 @@ mod tests {
                     crate::WorkerBudget::serial(),
                     bray_symbols::ProductKind::Library,
                     crate::SelectedTarget::baseline(),
-                ),
+                )
+                .with_native_link_inputs(native_links.iter().cloned()),
             )
             .with_package_interface_export(export),
         )
@@ -1118,18 +1127,9 @@ mod tests {
         let interface = encode_package_interface(bundle).expect("encoded interface");
         let policy = InterfaceValidationPolicy::new(revision);
 
-        let validated = ValidatedPackageInterface::try_new(interface.bytes(), policy)
-            .expect("validated interface");
-
-        let implementation = PackageImplementationArtifact::try_new(
-            &validated,
-            bundle.surface(),
-            bundle.semantics(),
-            bundle.implementation_configuration().clone(),
-            [],
-            bundle.executable_templates().to_vec(),
-            [],
-            [],
+        let implementation = PackageImplementationArtifact::try_from_export_bundle(
+            &interface,
+            bundle,
             InterfaceValidationLimits::default(),
         )
         .expect("implementation artifact");
@@ -1151,7 +1151,8 @@ mod tests {
                     crate::WorkerBudget::serial(),
                     bray_symbols::ProductKind::Executable,
                     crate::SelectedTarget::baseline(),
-                ),
+                )
+                .with_native_link_inputs(native_links.iter().cloned()),
             )
             .with_dependency_interfaces([dependency]),
         )
@@ -1164,6 +1165,103 @@ mod tests {
         );
 
         consumer
+    }
+
+    #[test]
+    fn imported_transfer_leaves_keep_native_demand_separate_at_every_optimization_level() {
+        use super::super::super::realization::NativeBoundaryMapping;
+
+        let native_links = [bray_symbols::NativeLinkRequirement::new(
+            bray_base::NonEmptySharedStr::try_new("fixture").expect("fixture library name"),
+            bray_symbols::NativeLinkKind::System,
+        )];
+
+        let library = r#"
+            trusted module transfers;
+
+            @link(name = "fixture", kind = system)
+            @symbol(name = "fixture_read")
+            @abi(c)
+            extern trusted internal func native_read(pos length: i32) -> i32 uses(foreign_call);
+
+            @link(name = "fixture", kind = system)
+            @symbol(name = "fixture_write")
+            @abi(c)
+            extern trusted internal func native_write(pos length: i32) -> i32 uses(foreign_call);
+
+            internal func request_length(pos length: i32) -> i32
+            {
+                return if length > 127 { yield 127; } else { yield length; };
+            }
+
+            internal func transfer_result(pos count: i32, progress: &mut i32) -> i32
+            {
+                if count < 0 { return -1; }
+                progress = count;
+                return 0;
+            }
+
+            trusted func read(pos length: i32, progress: &mut i32) -> i32
+                uses(foreign_call)
+            {
+                progress = 0;
+                if length == 0 { return 0; }
+                let count: i32 = trusted native_read(request_length(length));
+                return transfer_result(count, progress = progress);
+            }
+
+            trusted func write(pos length: i32, progress: &mut i32) -> i32
+                uses(foreign_call)
+            {
+                progress = 0;
+                if length == 0 { return 0; }
+                let count: i32 = trusted native_write(request_length(length));
+                return transfer_result(count, progress = progress);
+            }
+        "#;
+
+        for operation in ["read", "write"] {
+            let source = format!(
+                "trusted module app; using example.dependency.transfers; \
+                 func main() -> i32 {{ let mut progress: i32 = 0; \
+                 return trusted example.dependency.transfers.{operation}(4, progress = &mut progress); }}"
+            );
+
+            let consumer = imported_consumer_with_native_inputs(library, &source, &native_links);
+
+            for options in [
+                CodegenOptions::default(),
+                crate::BuildConfiguration::Development.codegen_options(),
+                crate::BuildConfiguration::Release.codegen_options(),
+            ] {
+                let graph = reachability_for_compilation(&consumer, options);
+
+                // Mutable progress keeps these imported bodies outside the scalar inliner's domain.
+                assert!(graph.graph().instances().iter().any(|instance| {
+                    matches!(instance.key().template(), MirUnitKey::ImportedExecutable(_))
+                }));
+
+                assert!(graph.graph().instances().iter().all(|instance| instance.mir().is_valid()));
+
+                let symbols = graph
+                    .graph()
+                    .external_instances()
+                    .iter()
+                    .filter_map(|instance| {
+                        match consumer
+                            .codegen_native_boundary(instance, &BTreeSet::new(), &CancellationToken::new())
+                            .expect("native boundary")
+                        {
+                            Some(NativeBoundaryMapping::Direct { name, .. }) => Some(name),
+                            _ => None,
+                        }
+                    })
+                    .collect::<Vec<_>>();
+
+                assert_eq!(symbols.len(), 1, "{symbols:?}");
+                assert_eq!(symbols[0].as_str(), format!("fixture_{operation}"));
+            }
+        }
     }
 
     #[test]

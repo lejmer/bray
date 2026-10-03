@@ -270,7 +270,12 @@ fn llvm_linker_trace_nanoseconds(path: &Path) -> Result<u64, String> {
     let durations = trace
         .events
         .iter()
-        .filter(|event| event.name.starts_with("Total ") && event.name.ends_with(" link"))
+        .filter(|event| {
+            matches!(
+                event.name.as_str(),
+                "Total ExecuteLinker" | "Total COFF link" | "Total ELF link" | "Total Mach-O link"
+            )
+        })
         .filter_map(|event| event.dur)
         .collect::<Vec<_>>();
 
@@ -326,5 +331,28 @@ mod tests {
 
             assert_eq!(llvm_linker_trace_nanoseconds(&path), Ok(123_000));
         }
+    }
+
+    #[test]
+    fn linker_trace_uses_the_outer_execution_total() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let path = directory.path().join("lld.json");
+
+        // The installed ELF linker reports a nested Link phase and an outer ExecuteLinker phase.
+        std::fs::write(
+            &path,
+            r#"{"traceEvents":[{"name":"ExecuteLinker","dur":27186},{"name":"Total ExecuteLinker","dur":27186},{"name":"Total Link","dur":23962}]}"#,
+        )
+        .expect("timing trace");
+
+        assert_eq!(llvm_linker_trace_nanoseconds(&path), Ok(27_186_000));
+
+        std::fs::write(
+            &path,
+            r#"{"traceEvents":[{"name":"Total ExecuteLinker","dur":123},{"name":"Total ELF link","dur":123}]}"#,
+        )
+        .expect("ambiguous timing trace");
+
+        assert!(llvm_linker_trace_nanoseconds(&path).is_err());
     }
 }
