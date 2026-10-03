@@ -1,0 +1,144 @@
+@target(target.identity.SYSTEM == "windows")
+trusted module bray.standard_library_tests.platform_transfer_windows;
+
+using std.io;
+using std.io.IoErrorKindEquatable;
+using internal std.io.checked_transfer;
+using std.memory;
+using std.os.windows;
+using internal std.platform;
+using std.testing;
+
+@test
+func handle_requests_are_bounded_without_unsigned_wraparound()
+{
+    assert(internal std.platform.handle_request_length(0) == 0);
+    assert(internal std.platform.handle_request_length(3) == 3);
+    assert(internal std.platform.handle_request_length(4_294_967_295) == 4_294_967_295);
+    assert(internal std.platform.handle_request_length(4_294_967_296) == 4_294_967_295);
+    assert(internal std.platform.handle_request_length(18_446_744_073_709_551_615) == 4_294_967_295);
+}
+
+@test
+trusted func handle_zero_length_and_failure_preserve_progress()
+{
+    let mut transferred: u64 = 99;
+    let progress: RawPointer<u64> = std.memory.address_of_mut<u64>(&mut transferred);
+    let handle: RawPointer<u8> = std.memory.null<u8>();
+    let bytes: RawPointer<u8> = std.memory.null<u8>();
+
+    let read: std.platform.PlatformStatus = trusted internal std.platform.handle_read(
+        handle,
+        destination = bytes,
+        length = 0,
+        transferred = progress,
+    );
+
+    assert(read.category == 0);
+    assert(transferred == 0);
+
+    transferred = 99;
+
+    let write: std.platform.PlatformStatus = trusted internal std.platform.handle_write(
+        handle,
+        source = bytes,
+        length = 0,
+        transferred = progress,
+    );
+
+    assert(write.category == 0);
+    assert(transferred == 0);
+
+    let mut byte: u8 = 0;
+    let destination: RawPointer<u8> = std.memory.address_of_mut<u8>(&mut byte);
+
+    transferred = 99;
+
+    let failed_read: std.platform.PlatformStatus = trusted internal std.platform.handle_read(
+        handle,
+        destination = destination,
+        length = 1,
+        transferred = progress,
+    );
+
+    assert(failed_read.category != 0);
+    assert(failed_read.native_code == 6);
+    assert(transferred == 0);
+
+    transferred = 99;
+
+    let failed_write: std.platform.PlatformStatus = trusted internal std.platform.handle_write(
+        handle,
+        source = destination,
+        length = 1,
+        transferred = progress,
+    );
+
+    assert(failed_write.category != 0);
+    assert(failed_write.native_code == 6);
+    assert(transferred == 0);
+}
+
+@test
+trusted func handle_failure_keeps_the_reported_prefix_in_the_caller_error()
+    uses(foreign_call)
+{
+    let mut transferred: u64 = 0;
+    let progress: RawPointer<u64> = std.memory.address_of_mut<u64>(&mut transferred);
+
+    // A message-mode pipe read can report ERROR_MORE_DATA with a successfully read prefix.
+    trusted std.os.windows.set_last_error(234);
+
+    let status: std.platform.PlatformStatus = trusted internal std.platform.handle_transfer_result(
+        0,
+        count = 2,
+        transferred = progress,
+    );
+
+    let error: std.io.IoError = std.testing.assert_error<usize, std.io.IoError>(
+        internal std.io.checked_transfer(status, transferred = transferred, maximum = 4, require_progress = false)
+    );
+
+    assert(error.kind == std.io.IoErrorKind.Other);
+    assert(std.testing.assert_present<i64>(error.platform_code) == 234);
+    assert(error.transferred == 2);
+
+    trusted std.os.windows.set_last_error(std.os.windows.ERROR_OPERATION_ABORTED);
+
+    let interrupted: std.platform.PlatformStatus = trusted internal std.platform.handle_transfer_result(
+        0,
+        count = 1,
+        transferred = progress,
+    );
+
+    let interrupted_error: std.io.IoError = std.testing.assert_error<usize, std.io.IoError>(
+        internal std.io.checked_transfer(interrupted, transferred = transferred, maximum = 4, require_progress = false)
+    );
+
+    assert(interrupted_error.kind == std.io.IoErrorKind.Interrupted);
+
+    assert(
+        std.testing.assert_present<i64>(interrupted_error.platform_code) ==
+            std.os.windows.ERROR_OPERATION_ABORTED as i64
+    );
+
+    assert(interrupted_error.transferred == 1);
+
+    let partial: std.platform.PlatformStatus = trusted internal std.platform.handle_transfer_result(
+        1,
+        count = 3,
+        transferred = progress,
+    );
+
+    assert(partial.category == 0);
+    assert(transferred == 3);
+
+    let eof: std.platform.PlatformStatus = trusted internal std.platform.handle_transfer_result(
+        1,
+        count = 0,
+        transferred = progress,
+    );
+
+    assert(eof.category == 0);
+    assert(transferred == 0);
+}

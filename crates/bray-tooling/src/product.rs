@@ -598,7 +598,7 @@ fn system_linker_configuration(
             SystemLinkerFamily::GnuCompiler,
             llvm_tool_path(DiagnosticLlvmToolRole::CompilerDriver)
                 .map_err(NativeLinkerBuildError::Tool)?,
-            Vec::new(),
+            selected_environment(&["PATH"]),
         ))),
         ObjectFormat::Coff if cfg!(windows) => Ok(Some((
             SystemLinkerFamily::MicrosoftCompiler,
@@ -661,6 +661,20 @@ mod tests {
     use bray_testing::assert_goal_state_diagnostic_kind;
 
     use super::{LlvmToolPathError, NativeLinkerBuildError, prepare_thin_lto_cache};
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_compiler_driver_preserves_its_program_search_path() {
+        let target = bray_target::NativeTarget::current().expect("Linux native host target");
+
+        let (family, _, environment) = super::system_linker_configuration(target)
+            .expect("Linux linker configuration")
+            .expect("native host compiler driver");
+
+        assert_eq!(family, bray_linker::SystemLinkerFamily::GnuCompiler);
+        assert_eq!(environment, super::selected_environment(&["PATH"]));
+        assert_eq!(environment.first().map(|(_, value)| value), std::env::var_os("PATH").as_ref());
+    }
 
     #[test]
     fn thin_lto_cache_roots_are_created_before_linker_invocation() {

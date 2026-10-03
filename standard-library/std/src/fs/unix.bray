@@ -15,12 +15,11 @@ trusted internal func platform_file_read(
         case Error(status) { return status; }
     };
 
-    return trusted internal std.platform.descriptor_transfer(
+    return trusted internal std.platform.descriptor_read(
         native_descriptor,
-        bytes = destination,
+        destination = destination,
         length = length,
         transferred = transferred,
-        read_operation = true,
     );
 }
 
@@ -38,12 +37,11 @@ trusted internal func platform_file_write(
         case Error(status) { return status; }
     };
 
-    return trusted internal std.platform.descriptor_transfer(
+    return trusted internal std.platform.descriptor_write(
         native_descriptor,
-        bytes = source,
+        source = source,
         length = length,
         transferred = transferred,
-        read_operation = false,
     );
 }
 

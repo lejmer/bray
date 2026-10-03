@@ -1,7 +1,18 @@
 @target(target.identity.SYSTEM == "linux")
-module bray.standard_library_tests.os_linux;
+trusted module bray.standard_library_tests.os_linux;
 
 using std.os.linux;
+using std.memory;
+using bray.standard_library_tests.platform_transfer_unix;
+
+@test
+trusted func linux_descriptor_interruption_preserves_the_native_error()
+    uses(foreign_call, raw_memory, unchecked_init)
+{
+    trusted std.memory.write<i32>(trusted std.os.linux.errno_location(), value = 4);
+
+    trusted bray.standard_library_tests.platform_transfer_unix.assert_interrupted_transfer();
+}
 
 @test
 func linux_native_values_are_typed_and_target_gated()
