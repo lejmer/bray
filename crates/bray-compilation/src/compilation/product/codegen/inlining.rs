@@ -48,7 +48,7 @@ impl Compilation {
         let mut stack = vec![owner.key().clone()];
         let mut remaining = MAX_INSERTED_OPERATIONS;
 
-        // MIR bodies own Arc-backed tables; the cached base remains immutable while expansion replaces this handle.
+        // MIR bodies own Arc-backed tables. The cached base remains immutable while expansion replaces this handle.
         let (body, changed) = self.expand_scalar_calls(
             owner,
             base.clone(),
@@ -80,11 +80,15 @@ impl Compilation {
     ) -> Result<(MirUnit, bool), CodegenPreparationError> {
         let mut changed = false;
 
-        if depth >= MAX_INLINE_DEPTH {
+        if depth >= MAX_INLINE_DEPTH || *remaining == 0 {
             return Ok((body, false));
         }
 
         loop {
+            if *remaining == 0 {
+                break;
+            }
+
             let mut replacement = None;
 
             'sites: for (_, block) in body.blocks_with_ids() {
@@ -96,6 +100,10 @@ impl Compilation {
                     let MirOperationKind::Call(call) = operation.kind() else {
                         continue;
                     };
+
+                    if call.arguments().len().max(1) > *remaining {
+                        continue;
+                    }
 
                     if options.size_preference() == SizePreference::Size
                         && (call.arguments().is_empty()

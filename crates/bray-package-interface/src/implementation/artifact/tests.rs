@@ -901,6 +901,22 @@ fn artifacts_load_executable_templates_independently() {
     )
     .unwrap_or_else(|error| panic!("executable template artifact must validate: {error:?}"));
 
+    let consumer_owner = bray_symbols::FunctionSymbolId::from_symbol_id(SymbolId::new(7)).into();
+    let before = artifact.access_statistics();
+
+    assert_eq!(
+        artifact.executable_template_key(owner, consumer_owner, bray_ir::MirExecutableTemplateId::ROOT),
+        Some(bray_ir::MirImportedExecutableKey::new(consumer_owner, bray_ir::MirExecutableTemplateId::ROOT)
+            .with_platform_service(Some(bray_runtime_interface::PlatformServiceRole::StandardOutputFlush)))
+    );
+
+    assert_eq!(
+        artifact.executable_template_key(owner, consumer_owner, bray_ir::MirExecutableTemplateId::new(1)),
+        None
+    );
+
+    assert_eq!(artifact.access_statistics(), before);
+
     assert_eq!(
         artifact.executable_template(owner, bray_ir::MirExecutableTemplateId::ROOT),
         Ok(Some(template))

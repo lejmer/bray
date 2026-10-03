@@ -40,41 +40,14 @@ impl Compilation {
             return self.codegen_external_callable_template(definition, cancellation);
         }
 
-        let template = self.imported_executable_template_with_cancellation(
+        let template = self.imported_executable_template_key_with_cancellation(
             crate::fact::ImportedExecutableTemplateAddress::root(address),
+            definition.callable_symbol().into_any(),
             cancellation,
         )?;
 
         if let Some(template) = template.value() {
-            let platform_service = match template.key() {
-                MirUnitKey::ImportedExecutable(key) => key.platform_service(),
-                MirUnitKey::Bound(_)
-                | MirUnitKey::ExternalCallable(_)
-                | MirUnitKey::ExternalRuntimeDefault(_)
-                | MirUnitKey::ExecutableHost(_)
-                | MirUnitKey::GeneratedLifecycle(_) => None,
-                MirUnitKey::CompilerProvidedCallable(_) => None,
-            };
-
-            let expected_key = MirUnitKey::ImportedExecutable(
-                bray_ir::MirImportedExecutableKey::new(
-                    definition.callable_symbol().into_any(),
-                    bray_ir::MirExecutableTemplateId::ROOT,
-                )
-                .with_platform_service(platform_service),
-            );
-
-            assert_eq!(
-                template.key(),
-                &expected_key,
-                "imported callable template at {address:?}"
-            );
-
-            let MirUnitKey::ImportedExecutable(key) = template.key() else {
-                unreachable!("validated imported executable key must retain its variant");
-            };
-
-            return Ok(MirUnitKey::ImportedExecutable(*key));
+            return Ok(MirUnitKey::ImportedExecutable(*template));
         }
 
         let diagnostics = signature.diagnostics().merged(template.diagnostics());

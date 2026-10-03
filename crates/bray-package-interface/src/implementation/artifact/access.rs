@@ -210,6 +210,24 @@ impl PackageImplementationArtifact {
         Ok(Some(InterfaceConstantCallableBody::new(owner, template)))
     }
 
+    /// Returns a validated executable identity remapped to its consumer without loading the body.
+    pub fn executable_template_key(
+        &self,
+        interface_owner: InterfaceSymbolId,
+        owner: AnySymbolId,
+        identity: MirExecutableTemplateId,
+    ) -> Option<bray_ir::MirImportedExecutableKey> {
+        self.entry(
+            interface_owner,
+            ImplementationPayloadKind::ExecutableTemplate,
+            executable_discriminator(identity.raw()),
+        )
+        .map(|(_, entry)| {
+            bray_ir::MirImportedExecutableKey::new(owner, identity)
+                .with_platform_service(entry.platform_service)
+        })
+    }
+
     /// Returns the independently encoded executable template for one declaration.
     pub fn executable_template(
         &self,

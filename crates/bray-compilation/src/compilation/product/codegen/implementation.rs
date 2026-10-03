@@ -4055,6 +4055,59 @@ public func hot(pos value: i32) -> i32 { return value + 1; }
     }
 
     #[test]
+    fn native_reuse_defers_optional_executable_body_decoding() {
+        let fixture = GenericDependencyFixture {
+            source: r#"
+                module templates;
+
+                func hot(pos value: i32) -> i32
+                {
+                    return value + 1;
+                }
+            "#,
+            runtime_frames: None,
+            executable_templates: 1,
+            platform_service: None,
+        };
+
+        let selected = native_fixture_reachability(dependency_from_fixture_with_native(
+            true,
+            true,
+            fixture,
+            Some((CodegenOptions::default(), false, false, None)),
+        ))
+        .expect("matching native units must not decode unused executable bodies");
+
+        assert_eq!(selected.selected_native_units().count(), 1);
+
+        let fallback = native_fixture_reachability(dependency_from_fixture_with_native(
+            true,
+            true,
+            fixture,
+            Some((
+                CodegenOptions::default().with_optimization(OptimizationLevel::Full),
+                false,
+                false,
+                None,
+            )),
+        ));
+
+        let error = match fallback {
+            Ok(_) => panic!("incompatible native code must demand the malformed executable body"),
+            Err(error) => error,
+        };
+
+        let NativeProductPlanningError::Codegen(crate::CodegenPreparationError::Diagnostics(
+            diagnostics,
+        )) = error
+        else {
+            panic!("malformed executable body must retain its diagnostic: {error:?}");
+        };
+
+        assert!(diagnostics.has_errors());
+    }
+
+    #[test]
     fn imported_native_binding_retains_references_but_excludes_disconnected_package_units() {
         let fixture = GenericDependencyFixture {
             source: "module templates;
@@ -9474,7 +9527,10 @@ define void @{symbol}(ptr %out) {{
 
             PackageImplementationArtifact::try_from_export_bundle_with_native(
                 &interface,
-                bundle,
+                &(**bundle)
+                    .clone()
+                    .with_executable_templates(templates)
+                    .expect("fixture executable templates must form a complete family"),
                 &index_bytes,
                 &payloads,
                 &[binding],
