@@ -165,6 +165,85 @@ mod tests {
     }
 
     #[test]
+    fn moved_cleanup_free_values_retain_only_current_storage() {
+        for count in [64, 128, 256, 1024] {
+            for partial in [false, true] {
+                let mut source = String::from(
+                    r#"
+                    module example;
+
+                    struct Item
+                    {
+                    }
+
+                    struct Wrapper
+                    {
+                        value: Item;
+                    }
+
+                    func take(pos input: Item)
+                    {
+                    }
+
+                    func caller()
+                    {
+                    "#,
+                );
+
+                for index in 0..count {
+                    if partial {
+                        writeln!(source, "let wrapper{index} = Wrapper {{ value = Item {{}}, }};").unwrap();
+                        writeln!(source, "let moved{index} = wrapper{index}.value;").unwrap();
+                    } else {
+                        writeln!(source, "let item{index} = Item {{}};").unwrap();
+                        writeln!(source, "let moved{index} = item{index};").unwrap();
+                    }
+
+                    writeln!(source, "take(moved{index});").unwrap();
+                }
+
+                source.push_str("\n}\n");
+
+                let compilation = compilation(&source);
+
+                assert!(
+                    compilation.check_diagnostics().is_empty(),
+                    "{:?}",
+                    compilation.check_diagnostics()
+                );
+
+                let key = source_function_body_key(&compilation, "caller");
+                let liveness = compilation.liveness(key.clone()).unwrap();
+
+                assert!(!liveness.value().is_recovered());
+
+                let flow = compilation
+                    .storage_flow(key)
+                    .expect("cleanup-free move-only body must check");
+
+                assert!(!flow.diagnostics().has_errors(), "{:?}", flow.diagnostics());
+
+                assert!(
+                    flow.value().operations().iter().filter(|operation| {
+                        operation.purpose() == bray_bound_tree::StorageAccessPurpose::Move
+                            && operation.status() == bray_bound_tree::StorageOperationStatus::Valid
+                    }).count() >= count
+                );
+
+                assert!(
+                    flow.value().exits().iter().all(|exit| exit.live().len() <= 8),
+                    "expired move-only storage must not accumulate at exits"
+                );
+
+                assert!(
+                    flow.value().exits().iter().all(|exit| exit.moved().len() <= 8),
+                    "expired move history must not accumulate at exits"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn scalar_temporary_borrows_survive_until_their_parent_consumes_them() {
         let compilation = compilation(
             r#"

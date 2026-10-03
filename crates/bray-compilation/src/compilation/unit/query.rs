@@ -4713,11 +4713,10 @@ mod tests {
         );
 
         assert!(
-            analysis
-                .value()
-                .exits()
+            diagnostic
+                .related_locations()
                 .iter()
-                .any(|exit| !exit.moved().is_empty())
+                .any(|location| location.kind() == DiagnosticRelatedLocationKind::MoveOrigin)
         );
     }
 
@@ -12502,23 +12501,34 @@ func other()
                     .unwrap();
 
                 assert!(
-                    flow.value().exits().iter().any(|exit| exit
-                        .moved()
-                        .iter()
-                        .any(|access| storage.value().root_identity(*access) == Some(root))),
+                    flow.value().operations().iter().any(|operation| {
+                        operation.status() == bray_bound_tree::StorageOperationStatus::Valid
+                            && operation.purpose() == bray_bound_tree::StorageAccessPurpose::Move
+                            && storage.value().root_identity(operation.access()) == Some(root)
+                            && !storage.value().is_root_access(operation.access())
+                    }),
                     "{source}"
                 );
 
-                assert!(
-                    !flow
-                        .value()
-                        .exits()
-                        .iter()
-                        .any(|exit| exit.fully_moved().contains(&root)),
-                    "{source}"
-                );
+                if lifecycle.is_empty() {
+                    assert!(
+                        flow.value().exits().iter().all(|exit| !exit.live().contains(&root)),
+                        "{source}"
+                    );
+                } else {
+                    assert!(
+                        flow.value().exits().iter().any(|exit| exit
+                            .moved()
+                            .iter()
+                            .any(|access| storage.value().root_identity(*access) == Some(root))),
+                        "{source}"
+                    );
 
-                if !lifecycle.is_empty() {
+                    assert!(
+                        !flow.value().exits().iter().any(|exit| exit.fully_moved().contains(&root)),
+                        "{source}"
+                    );
+
                     let analysis = compilation.async_analysis(key).unwrap();
 
                     bray_testing::assert_goal_state_diagnostic_kind(
