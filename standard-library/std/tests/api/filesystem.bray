@@ -13,6 +13,42 @@ using std.string;
 using std.testing;
 
 @test(serial)
+func file_transfers_preserve_empty_requests_partial_reads_and_eof() -> Result<unit, std.io.IoError>
+{
+    let path: std.path.Path = test_path("bray-file-transfer-conformance");
+
+    discard_existing_file(&path);
+
+    let options: std.fs.OpenOptions = std.fs.OpenOptions(
+        access = std.fs.FileAccess.ReadWrite,
+        creation = std.fs.FileCreation.CreateNew,
+    );
+
+    let mut file: std.fs.File = try std.fs.File.open(&path, options = options);
+    let source: bytes = b"ABC";
+    let mut destination: bytes<5> = [0; 5];
+    let empty_read: usize = try file.read(&mut destination[0..0]);
+    let empty_write: usize = try file.write(&source[0..0]);
+    let written: usize = try file.write(&source[..]);
+    let position: u64 = try file.seek(offset = 0, origin = std.io.SeekOrigin.Start);
+    let read: usize = try file.read(&mut destination[..]);
+    let eof: usize = try file.read(&mut destination[..]);
+
+    assert(empty_read == 0);
+    assert(empty_write == 0);
+    assert(written == 3);
+    assert(position == 0);
+    assert(read == 3);
+    assert(eof == 0);
+    assert(std.bytes.equals(&destination[0..3], &source[..]));
+
+    try file.close();
+    try std.fs.remove_file(&path);
+
+    return Ok(unit);
+}
+
+@test(serial)
 func files_and_directories_follow_the_portable_contract() -> Result<unit, std.io.IoError>
 {
     let directory: std.path.Path = test_path("bray-filesystem-conformance");
