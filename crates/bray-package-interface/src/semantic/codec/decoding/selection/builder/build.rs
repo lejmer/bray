@@ -18,7 +18,7 @@ use crate::semantic::model::{
 };
 use crate::{
     InterfaceSectionTag, InterfaceSymbolReference, InterfaceValidationError,
-    InterfaceValidationLimits, PackageInterfaceSurface, ValidatedInterfaceSection,
+    PackageInterfaceSurface, ValidatedInterfaceSection,
 };
 
 pub(in crate::semantic::codec::decoding) fn decode_selected_record_graph(
@@ -26,9 +26,9 @@ pub(in crate::semantic::codec::decoding) fn decode_selected_record_graph(
     surface: &PackageInterfaceSurface,
     owner: InterfaceSymbolId,
     kind: InterfaceSemanticRecordKind,
-    limits: InterfaceValidationLimits,
+    mut context: SemanticDecodeContext,
 ) -> Result<InterfaceSemantics, InterfaceValidationError> {
-    let mut context = SemanticDecodeContext::new(limits);
+    let limits = context.limits();
 
     let directory =
         bundle::required_section(sections, InterfaceSectionTag::SemanticRecordDirectory)?;
@@ -43,7 +43,7 @@ pub(in crate::semantic::codec::decoding) fn decode_selected_record_graph(
 
     if kind == InterfaceSemanticRecordKind::PredicateDefinition {
         return crate::semantic::codec::decoding::selection::declaration::decode_predicate_definition(
-            sections, surface, owner, limits, context, &directory,
+            sections, surface, owner, context, &directory,
         );
     }
 
@@ -62,7 +62,7 @@ pub(in crate::semantic::codec::decoding) fn decode_selected_record_graph(
                     || deferred_execution_behavior.as_ref().is_some_and(|behavior| !behavior.execution_properties.is_empty())
         )
     }) {
-        return bundle::decode_semantics(sections, surface, limits);
+        return bundle::decode_semantics_with_context(sections, surface, builder.context.restart());
     }
 
     semantics.validate(surface, limits)?;
@@ -255,9 +255,7 @@ impl<'bytes> SelectionBuilder<'bytes> {
         kind: InterfaceSemanticRecordKind,
         section: InterfaceSectionTag,
     ) -> Result<Vec<u32>, InterfaceValidationError> {
-        let entries = directory
-            .iter()
-            .filter(|entry| entry.owner() == &self.owner && entry.kind() == kind);
+        let entries = directory::records_for_owner(directory, &self.owner, kind);
 
         let mut indexes = Vec::new();
 

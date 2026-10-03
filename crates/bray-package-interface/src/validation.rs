@@ -31,6 +31,7 @@ pub struct ValidatedPackageInterface {
     header: InterfaceHeader,
     directory: Arc<[DirectoryEntry]>,
     decoded_sections: Arc<[OnceLock<Result<Option<Arc<[u8]>>, InterfaceValidationError>>]>,
+    semantic_records: Arc<crate::semantic::SemanticRecordIndex>,
     limits: InterfaceValidationLimits,
 }
 
@@ -110,6 +111,7 @@ impl ValidatedPackageInterface {
             header: decoded.header,
             directory: directory.into(),
             decoded_sections: decoded_sections.into(),
+            semantic_records: Arc::new(crate::semantic::SemanticRecordIndex::default()),
             limits: policy.limits(),
         })
     }
@@ -254,7 +256,14 @@ impl ValidatedPackageInterface {
     ) -> Result<crate::InterfaceSemantics, InterfaceValidationError> {
         let sections = self.sections_by_tag(crate::semantic::COMPLETE_SEMANTIC_SECTIONS)?;
 
-        crate::decode_semantics(&sections, surface, self.limits)
+        crate::semantic::decode_semantics_with_context(
+            &sections,
+            surface,
+            crate::semantic::SemanticDecodeContext::with_index(
+                self.limits,
+                Arc::clone(&self.semantic_records),
+            ),
+        )
     }
 
     /// Decodes the semantic dependency graph required by one symbol-owned record category.
@@ -268,9 +277,7 @@ impl ValidatedPackageInterface {
             return Ok(semantics);
         }
 
-        let sections = self.sections_by_tag(crate::semantic::COMPLETE_SEMANTIC_SECTIONS)?;
-
-        crate::semantic::decode_semantic_graph(&sections, surface, owner, kind, self.limits)
+        self.decode_semantics(surface)
     }
 
     /// Decodes the independently addressable semantic dependency graph for one symbol-owned record.
@@ -293,7 +300,10 @@ impl ValidatedPackageInterface {
             surface,
             owner,
             kind,
-            self.limits,
+            crate::semantic::SemanticDecodeContext::with_index(
+                self.limits,
+                Arc::clone(&self.semantic_records),
+            ),
         )
     }
 
@@ -755,6 +765,122 @@ mod tests {
     };
 
     const LANGUAGE_REVISION: InterfaceLanguageRevision = InterfaceLanguageRevision::new(7);
+
+    #[test]
+    fn concurrent_clones_decode_distinct_records_with_shared_addressing() {
+        let bundle = package_interface_export_bundle();
+
+        let encoded = crate::encode_package_interface(&bundle)
+            .unwrap_or_else(|error| panic!("test interface must encode: {error:?}"));
+
+        let interface = ValidatedPackageInterface::try_new(
+            encoded.bytes().to_vec(),
+            InterfaceValidationPolicy::new(bundle.language_revision()),
+        )
+        .unwrap_or_else(|error| panic!("test interface must validate: {error:?}"));
+
+        let surface = interface
+            .decode_identity_surface()
+            .unwrap_or_else(|error| panic!("surface must decode: {error:?}"));
+
+        let sections = interface
+            .sections()
+            .unwrap_or_else(|error| panic!("sections must decode: {error:?}"));
+
+        let requests = bundle
+            .semantics()
+            .semantic_directory()
+            .iter()
+            .filter_map(|entry| {
+                let crate::InterfaceSymbolReference::Local(owner) = entry.owner() else {
+                    return None;
+                };
+
+                let kind = entry.kind();
+
+                let expected = crate::semantic::decode_selected_semantic_graph(
+                    &sections,
+                    &surface,
+                    *owner,
+                    kind,
+                    crate::semantic::SemanticDecodeContext::new(interface.limits()),
+                );
+
+                Some((*owner, kind, expected))
+            })
+            .collect::<Vec<_>>();
+
+        assert!(!requests.is_empty());
+
+        std::thread::scope(|scope| {
+            for _ in 0..8 {
+                let clone = interface.clone();
+                let surface = &surface;
+                let requests = &requests;
+
+                assert!(std::sync::Arc::ptr_eq(
+                    &clone.semantic_records,
+                    &interface.semantic_records
+                ));
+
+                scope.spawn(move || {
+                    for (owner, kind, expected) in requests.iter().rev() {
+                        assert_eq!(
+                            clone.decode_selected_semantic_graph(surface, *owner, *kind),
+                            *expected
+                        );
+                    }
+                });
+            }
+        });
+
+        assert_eq!(
+            interface.decode_semantics(&surface),
+            crate::decode_semantics(&sections, &surface, interface.limits(),)
+        );
+
+        assert_eq!(
+            interface.decode_semantics(&surface),
+            Ok(bundle.semantics().clone())
+        );
+    }
+
+    #[test]
+    fn changed_artifacts_do_not_reuse_semantic_addressing() {
+        let first = crate::test_support::interface_artifact_for(
+            PackageIdentity::try_new("example.first").expect("test package must be valid"),
+            "first",
+        );
+
+        let second = crate::test_support::interface_artifact_for(
+            PackageIdentity::try_new("example.second").expect("test package must be valid"),
+            "second",
+        );
+
+        let interfaces = [first, second].map(|artifact| {
+            ValidatedPackageInterface::try_new(
+                artifact.bytes().to_vec(),
+                InterfaceValidationPolicy::new(crate::InterfaceLanguageRevision::new(0)),
+            )
+            .unwrap_or_else(|error| panic!("test interface must validate: {error:?}"))
+        });
+
+        assert!(!std::sync::Arc::ptr_eq(
+            &interfaces[0].semantic_records,
+            &interfaces[1].semantic_records
+        ));
+
+        for interface in &interfaces {
+            interface
+                .validate_complete()
+                .unwrap_or_else(|error| panic!("complete interface must decode: {error:?}"));
+        }
+
+        assert_ne!(
+            interfaces[0].header().content_hash(),
+            interfaces[1].header().content_hash()
+        );
+    }
 
     struct SectionFixture<'bytes> {
         tag: InterfaceSectionTag,

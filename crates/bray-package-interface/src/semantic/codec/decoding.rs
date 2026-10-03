@@ -15,7 +15,7 @@ mod value;
 
 pub use bundle::decode_semantics;
 pub(crate) use bundle::{
-    COMPLETE_SEMANTIC_SECTIONS, decode_selected_semantic_graph, decode_semantic_graph,
+    COMPLETE_SEMANTIC_SECTIONS, decode_selected_semantic_graph, decode_semantics_with_context,
     selected_semantic_sections, validate_decode_allocation,
 };
 pub(crate) use inspection::decode_inspection_records;
