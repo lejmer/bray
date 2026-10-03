@@ -311,8 +311,8 @@ impl Compilation {
 
         let published = cell.get_or_compute_with_cycle_key(
             &self.state.fact_runtime,
-            CompilationFactKey::ConstantCall(key.clone()),
-            CompilationFactKey::ConstantCallCycle(key.dependency_key()),
+            CompilationFactKey::ConstantCall(Arc::new(key.clone())),
+            CompilationFactKey::ConstantCallCycle(Arc::new(key.dependency_key())),
             cancellation,
             || self.compute_constant_call(&key, cancellation).map(Arc::new),
         )?;
@@ -361,7 +361,7 @@ impl Compilation {
 
         if signature.result() != key.result_type() {
             return Err(SemanticQueryFailure::contract(
-                SemanticQueryContext::Fact(CompilationFactKey::ConstantCall(key.clone())),
+                SemanticQueryContext::Fact(CompilationFactKey::ConstantCall(Arc::new(key.clone()))),
                 SemanticQueryViolation::TypeMismatch {
                     expected: key.result_type(),
                     actual: signature.result(),
@@ -516,7 +516,7 @@ impl Compilation {
             values,
             &signature,
             key.arguments(),
-            SemanticQueryContext::Fact(CompilationFactKey::ConstantCall(key.clone())),
+            SemanticQueryContext::Fact(CompilationFactKey::ConstantCall(Arc::new(key.clone()))),
         )?;
 
         let (references, dependency_diagnostics) = self.concrete_call_references(

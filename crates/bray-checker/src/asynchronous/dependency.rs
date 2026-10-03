@@ -287,9 +287,7 @@ fn dependency_guard_may_apply(
                     | PatternPredicate::ArrayShape(_)
                     | PatternPredicate::OwnedTarget => None,
                 },
-                RefinementKind::Condition { .. }
-                | RefinementKind::TrustBoundary(_)
-                | RefinementKind::NormalCompletion(_) => None,
+                RefinementKind::Condition { .. } | RefinementKind::TrustBoundary(_) => None,
             })
             .unwrap_or(true)
         }
@@ -311,8 +309,7 @@ fn dependency_guard_may_apply(
                 RefinementKind::Condition { .. }
                 | RefinementKind::NullablePresence { .. }
                 | RefinementKind::Pattern { .. }
-                | RefinementKind::TrustBoundary(_)
-                | RefinementKind::NormalCompletion(_) => None,
+                | RefinementKind::TrustBoundary(_) => None,
             })
             .unwrap_or(true)
         }

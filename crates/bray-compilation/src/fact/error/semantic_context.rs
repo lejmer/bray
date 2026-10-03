@@ -660,6 +660,8 @@ fn push_local_symbol(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use bray_diagnostics::DiagnosticFailureValue;
 
     #[test]
@@ -719,7 +721,7 @@ mod tests {
 
         let fields =
             super::semantic_query_context(&crate::compilation::SemanticQueryContext::Fact(
-                crate::fact::CompilationFactKey::NativeProduct(key),
+                crate::fact::CompilationFactKey::NativeProduct(Arc::new(key)),
             ));
 
         let names: Vec<_> = fields.iter().map(|field| field.name()).collect();

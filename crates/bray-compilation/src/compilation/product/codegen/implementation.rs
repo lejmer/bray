@@ -102,7 +102,7 @@ impl Compilation {
         let result = cell
             .get_or_compute(
                 &self.state.fact_runtime,
-                CompilationFactKey::NativeProduct(key),
+                CompilationFactKey::NativeProduct(Arc::new(key)),
                 cancellation,
                 || {
                     Ok(self
@@ -2281,137 +2281,204 @@ mod tests {
 
     #[test]
     fn fresh_native_plans_ignore_unrelated_semantic_interning() {
-        let (first_backend, first_compilation) =
-            codegen_compilation_for_product(CONCRETE_GENERIC_SOURCE, ProductKind::Library);
+        let storage_source = r#"
+            trusted module app;
 
-        let (second_backend, second_compilation) =
-            codegen_compilation_for_product(CONCRETE_GENERIC_SOURCE, ProductKind::Library);
+            static GENERIC_VALUE<const N: i32>: i32 = N;
 
-        second_compilation
-            .semantic_value_store()
-            .expect("second semantic store must exist")
-            .intern_type(TypeData::tuple([]))
-            .expect("unrelated type must intern");
+            func first() -> i32
+            {
+                return GENERIC_VALUE<1>;
+            }
 
-        let plan = |compilation: &crate::Compilation| {
-            compilation
-                .native_product_plan(
-                    test_product_identity(),
-                    crate::BuildConfiguration::Development,
-                    None,
-                    [],
-                    None,
-                )
-                .unwrap_or_else(|error| panic!("native plan must prepare: {error:?}"))
-        };
+            func second() -> i32
+            {
+                return GENERIC_VALUE<2>;
+            }
 
-        let first = plan(&first_compilation);
-        let second = plan(&second_compilation);
+            @link(name = "native")
+            @symbol(name = "native_value")
+            extern trusted static NATIVE: i32;
 
-        let identities = |plan: &super::NativeProductPlan| {
-            plan.units()
-                .iter()
-                .map(|unit| unit.key().content_identity())
-                .collect::<Vec<_>>()
-        };
+            trusted func repeated_native_pointer() -> RawPointer<i32>
+            {
+                return NATIVE;
+            }
 
-        assert_eq!(
-            native_partition_recipe(&first),
-            native_partition_recipe(&second)
-        );
+            trusted func native_pointer() -> RawPointer<i32>
+            {
+                return NATIVE;
+            }
+        "#;
 
-        assert_eq!(identities(&first), identities(&second));
+        for source in [CONCRETE_GENERIC_SOURCE, storage_source] {
+            let native_links = if source == CONCRETE_GENERIC_SOURCE {
+                Vec::new()
+            } else {
+                vec![NativeLinkRequirement::new(
+                    NonEmptySharedStr::try_new("native").unwrap(),
+                    NativeLinkKind::Dynamic,
+                )]
+            };
 
-        assert_eq!(
-            generated_artifacts(&first_backend, &first),
-            generated_artifacts(&second_backend, &second),
-        );
-
-        let profile = first_compilation
-            .selected_target()
-            .target()
-            .profile()
-            .clone();
-
-        let name = bray_target::TargetOutputName::for_native(
-            profile.machine().object_format(),
-            bray_target::TargetOutputKind::RelocatableObject,
-        );
-
-        let outputs = bray_target::TargetOutputDescription::try_new(profile, [name])
-            .expect("native output names must validate");
-
-        let publish = |compilation: &crate::Compilation, native: &super::NativeProductPlan| {
-            let output = tempfile::tempdir().expect("managed output directory must exist");
-
-            let request = bray_emitter::EmissionRequest::try_new(
-                test_product_identity(),
+            let (first_backend, first_compilation) = codegen_compilation_for_sources_target(
+                &[source],
                 ProductKind::Library,
-                None,
+                SelectedTarget::baseline(),
+                &native_links,
+            );
+
+            let (second_backend, second_compilation) = codegen_compilation_for_sources_target(
+                &[source],
+                ProductKind::Library,
+                SelectedTarget::baseline(),
+                &native_links,
+            );
+
+            second_compilation
+                .semantic_value_store()
+                .expect("second semantic store must exist")
+                .intern_type(TypeData::tuple([]))
+                .expect("unrelated type must intern");
+
+            let plan = |compilation: &crate::Compilation| {
                 compilation
-                    .selected_target()
-                    .target()
-                    .profile()
-                    .identity()
-                    .clone(),
-                bray_emitter::RequestedArtifactDestination::FilesystemDirectory(
-                    output.path().to_path_buf().into(),
-                ),
-                [bray_emitter::RequestedArtifact::new(
-                    bray_emitter::ArtifactKind::RelocatableObject,
-                    bray_emitter::ArtifactRequirement::Required,
-                )],
-                bray_emitter::ReplacementPolicy::ReplaceExisting,
-            )
-            .expect("native emission request must validate");
+                    .native_product_plan(
+                        test_product_identity(),
+                        crate::BuildConfiguration::Development,
+                        None,
+                        [],
+                        None,
+                    )
+                    .unwrap_or_else(|error| panic!("native plan must prepare: {error:?}"))
+            };
 
-            let inputs = crate::ProductEmissionInputs::new(&outputs).with_native_codegen(native);
+            let first = plan(&first_compilation);
+            let second = plan(&second_compilation);
 
-            let result = compilation
-                .emit_product(request, inputs)
-                .unwrap_or_else(|error| panic!("native emission must complete: {error:?}"));
+            let identities = |plan: &super::NativeProductPlan| {
+                plan.units()
+                    .iter()
+                    .map(|unit| unit.key().content_identity())
+                    .collect::<Vec<_>>()
+            };
 
-            let generation = result
-                .generation()
-                .expect("managed generation must publish");
+            assert_eq!(
+                native_partition_recipe(&first),
+                native_partition_recipe(&second)
+            );
 
-            let artifact = &result.artifacts().artifacts()[0];
+            assert_eq!(identities(&first), identities(&second));
 
-            let path = generation
-                .artifact_path(artifact.id())
-                .expect("artifact path must resolve");
+            if source != CONCRETE_GENERIC_SOURCE {
+                let storage_identities = first.units().iter()
+                    .flat_map(|unit| unit.instances().iter().map(|instance| {
+                        unit.compatibility(instance.key()).unwrap()
+                            .native_storage_dependencies_identity()
+                    }))
+                    .filter(|identity| *identity != [0; 32])
+                    .collect::<BTreeSet<_>>();
 
-            std::fs::read(
-                path.parent()
-                    .expect("artifact must have a generation directory")
-                    .join("manifest.json"),
-            )
-            .expect("generation manifest must be readable")
-        };
+                assert_eq!(
+                    storage_identities.len(),
+                    3,
+                    "owned specializations and imported storage must have distinct stable identities",
+                );
+            }
 
-        assert_eq!(
-            publish(&first_compilation, &first),
-            publish(&second_compilation, &second)
-        );
+            assert_eq!(
+                generated_artifacts(&first_backend, &first),
+                generated_artifacts(&second_backend, &second),
+            );
 
-        let changed_source = CONCRETE_GENERIC_SOURCE.replace("return count;", "return 12345;");
+            let profile = first_compilation
+                .selected_target()
+                .target()
+                .profile()
+                .clone();
 
-        let (changed_backend, changed_compilation) =
-            codegen_compilation_for_product(&changed_source, ProductKind::Library);
+            let name = bray_target::TargetOutputName::for_native(
+                profile.machine().object_format(),
+                bray_target::TargetOutputKind::RelocatableObject,
+            );
 
-        let changed = plan(&changed_compilation);
+            let outputs = bray_target::TargetOutputDescription::try_new(profile, [name])
+                .expect("native output names must validate");
 
-        assert_eq!(
-            native_partition_recipe(&first),
-            native_partition_recipe(&changed)
-        );
+            let publish = |compilation: &crate::Compilation, native: &super::NativeProductPlan| {
+                let output = tempfile::tempdir().expect("managed output directory must exist");
 
-        assert_ne!(identities(&first), identities(&changed));
+                let request = bray_emitter::EmissionRequest::try_new(
+                    test_product_identity(),
+                    ProductKind::Library,
+                    None,
+                    compilation
+                        .selected_target()
+                        .target()
+                        .profile()
+                        .identity()
+                        .clone(),
+                    bray_emitter::RequestedArtifactDestination::FilesystemDirectory(
+                        output.path().to_path_buf().into(),
+                    ),
+                    [bray_emitter::RequestedArtifact::new(
+                        bray_emitter::ArtifactKind::RelocatableObject,
+                        bray_emitter::ArtifactRequirement::Required,
+                    )],
+                    bray_emitter::ReplacementPolicy::ReplaceExisting,
+                )
+                .expect("native emission request must validate");
 
-        assert_ne!(
-            generated_artifacts(&first_backend, &first),
-            generated_artifacts(&changed_backend, &changed),
-        );
+                let inputs = crate::ProductEmissionInputs::new(&outputs).with_native_codegen(native);
+
+                let result = compilation
+                    .emit_product(request, inputs)
+                    .unwrap_or_else(|error| panic!("native emission must complete: {error:?}"));
+
+                let generation = result
+                    .generation()
+                    .expect("managed generation must publish");
+
+                let artifact = &result.artifacts().artifacts()[0];
+
+                let path = generation
+                    .artifact_path(artifact.id())
+                    .expect("artifact path must resolve");
+
+                std::fs::read(
+                    path.parent()
+                        .expect("artifact must have a generation directory")
+                        .join("manifest.json"),
+                )
+                .expect("generation manifest must be readable")
+            };
+
+            assert_eq!(
+                publish(&first_compilation, &first),
+                publish(&second_compilation, &second)
+            );
+
+            if source == CONCRETE_GENERIC_SOURCE {
+                let changed_source = CONCRETE_GENERIC_SOURCE.replace("return count;", "return 12345;");
+
+                let (changed_backend, changed_compilation) =
+                    codegen_compilation_for_product(&changed_source, ProductKind::Library);
+
+                let changed = plan(&changed_compilation);
+
+                assert_eq!(
+                    native_partition_recipe(&first),
+                    native_partition_recipe(&changed)
+                );
+
+                assert_ne!(identities(&first), identities(&changed));
+
+                assert_ne!(
+                    generated_artifacts(&first_backend, &first),
+                    generated_artifacts(&changed_backend, &changed),
+                );
+            }
+        }
     }
 
     #[test]
@@ -2604,6 +2671,84 @@ mod tests {
     }
 
     #[test]
+    fn direct_checked_calls_forward_outcomes_without_copying_reports() {
+        let source = r#"
+            module app;
+
+            func checked(pos value: i32) -> i32
+            {
+                assert(value != 0);
+
+                return value;
+            }
+
+            func void_result(pos value: i32)
+            {
+                checked(value);
+                checked(value);
+            }
+
+            func scalar_result(pos value: i32) -> i32
+            {
+                checked(value);
+
+                return checked(value);
+            }
+
+            func indirect_result(pos value: i32) -> [i32; 8]
+            {
+                checked(value);
+                checked(value);
+
+                return [value; 8];
+            }
+        "#;
+
+        let (backend, compilation) = codegen_compilation_for_product(source, ProductKind::Library);
+
+        let plan = compilation
+            .native_product_plan(
+                test_product_identity(),
+                crate::BuildConfiguration::Development,
+                None,
+                [],
+                None,
+            )
+            .unwrap_or_else(|error| panic!("direct checked calls must realize: {error:?}"));
+
+        let artifacts = generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr);
+        let ir = artifacts.iter().map(|artifact| std::str::from_utf8(artifact).unwrap()).collect::<String>();
+
+        assert!(ir.contains("call.outcome.state"), "checked calls must remain in the emitted IR: {ir}");
+        assert!(!ir.contains("call.outcome.report"), "direct propagation must not copy the report: {ir}");
+
+        let options = plan.options().with_optimization(OptimizationLevel::None);
+
+        let artifacts = generated_artifacts_of_kind_with_options(&backend, &plan, BackendArtifactKind::BackendIr, &options);
+        let ir = artifacts.iter().map(|artifact| std::str::from_utf8(artifact).unwrap()).collect::<String>();
+
+        assert!(!ir.contains("call.outcome.report"), "unoptimized propagation must not copy the report: {ir}");
+        assert!(!ir.lines().any(|line| line.trim() == "unreachable"), "bypassed propagation blocks must not be emitted: {ir}");
+
+        let mut shared_returns = 0;
+
+        for function in ir.split("\ndefine ").skip(1) {
+            let count = function.lines().take_while(|line| *line != "}")
+                .filter(|line| line.starts_with("outcome.propagated:"))
+                .count();
+
+            assert!(count <= 1, "propagation exits must share one epilogue: {function}");
+            shared_returns += count;
+        }
+
+        assert!(shared_returns >= 3, "void, scalar and indirect callers must emit their shared epilogues: {ir}");
+
+        assert!(plan.mappings().iter().flat_map(|mappings| mappings.symbols()).any(|symbol| {
+            matches!(symbol.signature().result(), CodegenResultMapping::Indirect { .. })
+        }), "the fixture must exercise an indirect result");
+    }
+
+    #[test]
     fn demanded_runtime_roles_cannot_disappear_from_product_validation() {
         let (_, compilation) = codegen_compilation(include_str!(
             "../../../../../../xtask/fixtures/native-execution/sync-panic.bray"
@@ -2721,6 +2866,41 @@ mod tests {
         assert_eq!(basic.graph().instances().len(), 1);
         assert_eq!(full.graph().instances().len(), 1);
         assert!(basic.graph().instances()[0].mir().is_valid());
+
+        let partition_work = |reachability: &ConcreteCodegenReachability| {
+            let roots = reachability.graph().roots().iter().cloned().collect();
+
+            let units = partition_codegen_units(
+                CodegenPartitionPolicy::NATIVE_BALANCED,
+                reachability.graph(),
+                |instance| {
+                    Some(
+                        compilation
+                            .codegen_partition_compatibility(
+                                instance,
+                                reachability.instance(instance.key()).expect("retained instance must be concrete"),
+                                &test_product_identity(),
+                                &roots,
+                                &cancellation,
+                            )
+                            .expect("optimized partition metadata must resolve"),
+                    )
+                },
+                |mir| {
+                    crate::compilation::product::mir_content_identity(&compilation, mir)
+                        .expect("optimized partition content must resolve")
+                },
+            )
+            .expect("optimized semantic demand must partition");
+
+            units
+                .iter()
+                .map(|unit| unit.estimated_work().units())
+                .sum::<u64>()
+        };
+
+        assert!(partition_work(&none) > partition_work(&basic));
+        assert_eq!(partition_work(&basic), partition_work(&full));
 
         assert_eq!(
             basic.graph().instances()[0].mir(),
@@ -3384,6 +3564,7 @@ mod tests {
                 compilation
                     .codegen_partition_compatibility(
                         instance,
+                        reachability.instance(instance.key()).expect("retained instance must be concrete"),
                         &test_product_identity(),
                         &roots,
                         &cancellation,
@@ -3949,6 +4130,59 @@ public func hot(pos value: i32) -> i32 { return value + 1; }
 
             assert_eq!(fallback.selected_native_units().count(), 0);
         }
+    }
+
+    #[test]
+    fn native_reuse_defers_optional_executable_body_decoding() {
+        let fixture = GenericDependencyFixture {
+            source: r#"
+                module templates;
+
+                func hot(pos value: i32) -> i32
+                {
+                    return value + 1;
+                }
+            "#,
+            runtime_frames: None,
+            executable_templates: 1,
+            platform_service: None,
+        };
+
+        let selected = native_fixture_reachability(dependency_from_fixture_with_native(
+            true,
+            true,
+            fixture,
+            Some((CodegenOptions::default(), false, false, None)),
+        ))
+        .expect("matching native units must not decode unused executable bodies");
+
+        assert_eq!(selected.selected_native_units().count(), 1);
+
+        let fallback = native_fixture_reachability(dependency_from_fixture_with_native(
+            true,
+            true,
+            fixture,
+            Some((
+                CodegenOptions::default().with_optimization(OptimizationLevel::Full),
+                false,
+                false,
+                None,
+            )),
+        ));
+
+        let error = match fallback {
+            Ok(_) => panic!("incompatible native code must demand the malformed executable body"),
+            Err(error) => error,
+        };
+
+        let NativeProductPlanningError::Codegen(crate::CodegenPreparationError::Diagnostics(
+            diagnostics,
+        )) = error
+        else {
+            panic!("malformed executable body must retain its diagnostic: {error:?}");
+        };
+
+        assert!(diagnostics.has_errors());
     }
 
     #[test]
@@ -4888,11 +5122,11 @@ func main() { let value: i32 = example.dependency.templates.hot(1); }
 
         for instance in imported {
             let first = compilation
-                .codegen_partition_compatibility(instance, &first_product, &roots, &cancellation)
+                .codegen_partition_compatibility(instance, reachability.instance(instance.key()).expect("retained instance must be concrete"), &first_product, &roots, &cancellation)
                 .expect("imported compatibility must resolve");
 
             let other = compilation
-                .codegen_partition_compatibility(instance, &other_product, &roots, &cancellation)
+                .codegen_partition_compatibility(instance, reachability.instance(instance.key()).expect("retained instance must be concrete"), &other_product, &roots, &cancellation)
                 .expect("imported compatibility must resolve");
 
             assert_eq!(first, other);
@@ -7592,9 +7826,330 @@ public func invoke<T>(pos value: T)
             ir.iter()
                 .any(|ir| String::from_utf8_lossy(ir).contains("/alternatename:"))
         );
+
+        let (backend, plan) = runtime_native_plan_for_sources_target_with_platform_services(
+            &[source],
+            ProductKind::Library,
+            SelectedTarget::for_native(NativeTarget::X86_64LinuxGnu),
+            &[],
+            [PlatformServiceBinding::try_new(role, "app.flush").unwrap()],
+        );
+
+        let bitcode =
+            generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendBitcode);
+
+        let mut ordinary = false;
+
+        for bytes in bitcode {
+            let summary = bray_codegen_llvm::inspect_bitcode_unit_summary(
+                &bytes,
+                NativeTarget::X86_64LinuxGnu,
+            )
+            .unwrap();
+
+            match summary {
+                bray_native_artifact::NativeUnitSummary::Exact { definitions, .. } => {
+                    ordinary |= definitions
+                        .iter()
+                        .any(|definition| definition.symbol().identity().name() == Some("live"));
+                }
+                bray_native_artifact::NativeUnitSummary::Opaque { provided, .. } => {
+                    assert!(
+                        !provided.iter().any(|symbol| symbol.name() == Some("live")),
+                        "an opaque fallback must not hide the ordinary export"
+                    );
+                }
+            }
+        }
+
+        assert!(
+            ordinary,
+            "the ordinary export must remain independently exact"
+        );
     }
 
-    #[cfg(windows)]
+    #[test]
+    fn macho_string_and_static_helpers_keep_unrelated_exports_exact() {
+        let target = NativeTarget::X86_64MacOs;
+
+        for user in [
+            r#"
+                internal static VALUE: i32 = 42;
+
+                func user() -> i32
+                {
+                    return VALUE;
+                }
+            "#,
+            r#"
+                func user() -> &string
+                {
+                    return &"shared literal";
+                }
+            "#,
+        ] {
+            let mut source = format!("module app;\n{user}");
+
+            for index in 0..8 {
+                source.push_str(&format!(
+                    r#"
+                        func ordinary_{index}(pos value: i32) -> i32
+                        {{
+                            return value + {index};
+                        }}
+                    "#
+                ));
+            }
+
+            let (backend, plan) = runtime_native_plan_for_sources_target(
+                &[&source],
+                ProductKind::Library,
+                SelectedTarget::for_native(target),
+                &[],
+            );
+
+            let mut ordinary = BTreeSet::new();
+            let mut user_symbol = None;
+
+            for (unit, mappings) in plan.units().iter().zip(plan.mappings()) {
+                for instance in unit.instances() {
+                    if !matches!(instance.mir().kind(), MirUnitKind::Synchronous)
+                        || !unit
+                            .compatibility(instance.key())
+                            .is_some_and(|class| class.linkage() == CodegenLinkage::Export)
+                    {
+                        continue;
+                    }
+
+                    let symbol = mappings
+                        .symbols()
+                        .iter()
+                        .find(|symbol| {
+                            matches!(symbol.key(), bray_codegen::CodegenSymbolKey::Instance(key)
+                            if key == instance.key())
+                        })
+                        .expect("a generated export must have a symbol mapping");
+
+                    let name = target
+                        .object_symbol_name(symbol.name().as_str())
+                        .into_owned();
+
+                    if instance.mir().storages().iter().any(|storage| {
+                        matches!(storage.kind(), bray_ir::MirStorageKind::Parameter(_))
+                    }) {
+                        ordinary.insert(name);
+                    } else {
+                        assert!(unit.compatibility(instance.key()).expect("helper user metadata must resolve").native_selection_boundary());
+                        user_symbol = Some(name);
+                    }
+                }
+            }
+
+            assert_eq!(ordinary.len(), 8);
+
+            assert!(user_symbol.is_some(), "the helper user must be exported");
+
+            let mut exact = BTreeSet::new();
+            let mut opaque_helpers = false;
+
+            for bytes in
+                generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendBitcode)
+            {
+                match bray_codegen_llvm::inspect_bitcode_unit_summary(&bytes, target).unwrap() {
+                    NativeUnitSummary::Exact { definitions, .. } => {
+                        exact.extend(definitions.iter().filter_map(|definition| {
+                            definition.symbol().identity().name().map(str::to_owned)
+                        }));
+                    }
+                    NativeUnitSummary::Opaque { provided, .. } => {
+                        opaque_helpers |= !provided.is_empty();
+
+                        assert!(
+                            provided.iter().all(|symbol| {
+                                symbol.name().is_none_or(|name| !ordinary.contains(name))
+                            }),
+                            "MachO weak helpers must not hide unrelated strong exports"
+                        );
+                    }
+                }
+            }
+
+            assert!(
+                opaque_helpers,
+                "MachO weak helpers must retain their opaque summaries"
+            );
+
+            assert!(ordinary.is_subset(&exact));
+        }
+    }
+
+    #[test]
+    fn library_publication_preserves_named_native_dependencies() {
+        for callable in [false, true] {
+        let mut source = String::from("trusted module app;\n");
+
+        source.push_str(if callable { r#"
+            @link(name = "native")
+            @symbol(name = "native_a")
+            @abi(c)
+            extern trusted func NATIVE_A() -> i32 uses(foreign_call);
+            @link(name = "native")
+            @symbol(name = "native_b")
+            @abi(c)
+            extern trusted func NATIVE_B() -> i32 uses(foreign_call);
+        "# } else { r#"
+            @link(name = "native")
+            @symbol(name = "native_a")
+            extern trusted static NATIVE_A: i32;
+            @link(name = "native")
+            @symbol(name = "native_b")
+            extern trusted static NATIVE_B: i32;
+        "# });
+
+        for (storage, suffix) in [("NATIVE_A", "a"), ("NATIVE_B", "b")] {
+            for index in 0..4 {
+                source.push_str(&if callable {
+                    format!(r#"
+                        trusted func get_{suffix}_{index}() -> i32 uses(foreign_call)
+                        {{
+                            return trusted {storage}();
+                        }}
+                    "#)
+                } else {
+                    format!(r#"
+                        trusted func get_{suffix}_{index}() -> RawPointer<i32>
+                        {{
+                            return {storage};
+                        }}
+                    "#)
+                });
+            }
+        }
+
+        let target = NativeTarget::X86_64LinuxGnu;
+
+        let (backend, plan) = runtime_native_plan_for_sources_target(
+            &[&source],
+            ProductKind::Library,
+            SelectedTarget::for_native(target),
+            &[NativeLinkRequirement::new(
+                NonEmptySharedStr::try_new("native").unwrap(),
+                NativeLinkKind::Dynamic,
+            )],
+        );
+
+        assert!(plan.units().iter().any(|unit| unit.instances().len() > 1));
+
+        let mut selected = BTreeSet::new();
+
+        for bytes in generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendBitcode) {
+            let summary = bray_codegen_llvm::inspect_bitcode_unit_summary(&bytes, target).unwrap();
+
+            let references = summary.references().iter().filter_map(|symbol| symbol.identity().name())
+                .filter(|name| matches!(*name, "native_a" | "native_b")).collect::<BTreeSet<_>>();
+
+            assert!(references.len() <= 1, "unrelated named native providers must not share a publication unit");
+            selected.extend(references.into_iter().map(str::to_owned));
+        }
+
+        assert_eq!(selected, BTreeSet::from(["native_a".to_owned(), "native_b".to_owned()]));
+        }
+    }
+
+    #[test]
+    fn optional_native_storage_keeps_unrelated_library_exports_exact() {
+        let source = r#"
+            trusted module app;
+            @link(name = "native")
+            @symbol(name = "optional_native_value", presence = optional)
+            extern trusted static NATIVE_VALUE: i32;
+
+            trusted func optional_value() -> RawPointer<i32> {
+                return NATIVE_VALUE;
+            }
+
+            func ordinary_value(pos value: i32) -> i32 {
+                return value * 3 + 7;
+            }
+        "#;
+
+        let (backend, plan) = runtime_native_plan_for_sources_target(
+            &[source],
+            ProductKind::Library,
+            SelectedTarget::for_native(NativeTarget::X86_64LinuxGnu),
+            &[NativeLinkRequirement::new(
+                NonEmptySharedStr::try_new("native").unwrap(),
+                NativeLinkKind::Dynamic,
+            )],
+        );
+
+        let symbol_for_storage = |native_storage| {
+            plan.units()
+                .iter()
+                .zip(plan.mappings())
+                .find_map(|(unit, mappings)| {
+                    let instance = unit.instances().iter().find(|instance| {
+                        matches!(instance.mir().kind(), MirUnitKind::Synchronous)
+                            && unit
+                                .compatibility(instance.key())
+                                .is_some_and(|class| class.linkage() == CodegenLinkage::Export)
+                            && instance.mir().storages().iter().any(|storage| {
+                                matches!(storage.kind(), bray_ir::MirStorageKind::NativeStatic(_))
+                            }) == native_storage
+                    })?;
+
+                    mappings.symbols().iter().find_map(|symbol| {
+                        matches!(symbol.key(), bray_codegen::CodegenSymbolKey::Instance(key)
+                            if key == instance.key())
+                        .then(|| symbol.name())
+                    })
+                })
+                .expect("the library must publish both strong Bray function exports")
+        };
+
+        let ordinary_symbol = symbol_for_storage(false);
+        let optional_symbol = symbol_for_storage(true);
+
+        let bitcode =
+            generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendBitcode);
+
+        let mut ordinary = false;
+        let mut optional = false;
+
+        for bytes in bitcode {
+            let summary = bray_codegen_llvm::inspect_bitcode_unit_summary(
+                &bytes,
+                NativeTarget::X86_64LinuxGnu,
+            )
+            .unwrap();
+
+            match summary {
+                bray_native_artifact::NativeUnitSummary::Exact { definitions, .. } => {
+                    ordinary |= definitions.iter().any(|definition| {
+                        definition.symbol().identity().name() == Some(ordinary_symbol.as_str())
+                    });
+                }
+                bray_native_artifact::NativeUnitSummary::Opaque { provided, .. } => {
+                    optional |= provided
+                        .iter()
+                        .any(|symbol| symbol.name() == Some(optional_symbol.as_str()));
+
+                    assert!(
+                        !provided
+                            .iter()
+                            .any(|symbol| symbol.name() == Some(ordinary_symbol.as_str())),
+                        "an optional native reference must not hide the ordinary export"
+                    );
+                }
+            }
+        }
+
+        assert!(
+            ordinary && optional,
+            "both definitions must survive with their native selection semantics"
+        );
+    }
+
     #[test]
     fn mixed_ordinary_library_fallbacks_yield_to_strong_objects_and_lazy_archives() {
         let source = FALLBACK_LIBRARY_SOURCE;
@@ -7615,11 +8170,13 @@ public func invoke<T>(pos value: T)
             std::path::Path::new(bray_codegen_llvm::COMPILED_LLVM_PREFIX.unwrap()).join("bin");
 
         let run = |tool: &str, arguments: Vec<std::ffi::OsString>| {
-            let output = std::process::Command::new(prefix.join(format!("{tool}.exe")))
-                .args(arguments)
-                .current_dir(directory.path())
-                .output()
-                .unwrap();
+            let output = std::process::Command::new(
+                prefix.join(format!("{tool}{}", std::env::consts::EXE_SUFFIX)),
+            )
+            .args(arguments)
+            .current_dir(directory.path())
+            .output()
+            .unwrap();
 
             assert!(
                 output.status.success(),
@@ -7644,10 +8201,16 @@ public func invoke<T>(pos value: T)
             }
         }
 
-        assert_eq!(
-            sources.len(),
-            2,
-            "both real library definitions must be emitted"
+        assert!(
+            ir.iter()
+                .any(|bytes| String::from_utf8_lossy(bytes).contains("/alternatename:")),
+            "the fallback definition must be emitted",
+        );
+
+        assert!(
+            ir.iter()
+                .any(|bytes| String::from_utf8_lossy(bytes).contains("@live =")),
+            "the ordinary storage definition must be emitted",
         );
 
         sources.extend(["-o".into(), "mixed.bc".into()]);
@@ -7771,7 +8334,11 @@ define void @{symbol}(ptr %out) {{
             assert!(
                 definitions
                     .iter()
-                    .any(|definition| definition.symbol().identity().name() == Some("live"))
+                    .any(
+                        |definition| definition.symbol().identity().name() == Some("live")
+                            && definition.selection()
+                                == &bray_native_artifact::NativeDefinitionSelection::Ordinary
+                    )
             );
 
             assert!(
@@ -7807,13 +8374,31 @@ define void @{symbol}(ptr %out) {{
                     arguments.extend(inputs);
                     run("lld-link", arguments);
 
-                    let result = std::process::Command::new(directory.path().join("result.exe"))
-                        .status()
-                        .unwrap();
+                    #[cfg(windows)]
+                    {
+                        let result =
+                            std::process::Command::new(directory.path().join("result.exe"))
+                                .status()
+                                .unwrap();
+
+                        assert_eq!(result.code(), Some(if provider.is_some() { 5 } else { 4 }));
+                    }
 
                     let map = fs::read_to_string(directory.path().join("result.map")).unwrap();
 
-                    assert_eq!(result.code(), Some(if provider.is_some() { 5 } else { 4 }));
+                    if provider.is_some() {
+                        assert!(
+                            map.lines().any(|line| line.contains(symbol)
+                                && !line.contains("__bray_fallback.")
+                                && line.contains("strong.obj")),
+                            "the public platform symbol must resolve to the strong provider: {map}",
+                        );
+                    } else {
+                        assert!(
+                            map.contains(&format!("__bray_fallback.{symbol}")),
+                            "the default provider must remain available: {map}"
+                        );
+                    }
 
                     assert!(
                         !map.contains("unused"),
@@ -8103,6 +8688,15 @@ define void @{symbol}(ptr %out) {{
         plan: &super::NativeProductPlan,
         kind: BackendArtifactKind,
     ) -> Vec<Vec<u8>> {
+        generated_artifacts_of_kind_with_options(backend, plan, kind, plan.options())
+    }
+
+    fn generated_artifacts_of_kind_with_options(
+        backend: &bray_codegen_llvm::LlvmCodeGenerator,
+        plan: &super::NativeProductPlan,
+        kind: BackendArtifactKind,
+        options: &CodegenOptions,
+    ) -> Vec<Vec<u8>> {
         plan.units()
             .iter()
             .zip(plan.mappings())
@@ -8136,7 +8730,7 @@ define void @{symbol}(ptr %out) {{
                     ProductKind::Executable,
                     plan.target(),
                     mappings,
-                    plan.options(),
+                    options,
                     &artifacts,
                     &cancellation,
                 );
@@ -8566,6 +9160,7 @@ define void @{symbol}(ptr %out) {{
                 compilation
                     .codegen_partition_compatibility(
                         instance,
+                        reachability.instance(instance.key()).expect("retained instance must be concrete"),
                         &test_product_identity(),
                         &roots,
                         cancellation,
@@ -9019,7 +9614,10 @@ define void @{symbol}(ptr %out) {{
 
             PackageImplementationArtifact::try_from_export_bundle_with_native(
                 &interface,
-                bundle,
+                &(**bundle)
+                    .clone()
+                    .with_executable_templates(templates)
+                    .expect("fixture executable templates must form a complete family"),
                 &index_bytes,
                 &payloads,
                 &[binding],

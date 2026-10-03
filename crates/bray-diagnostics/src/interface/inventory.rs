@@ -5,8 +5,10 @@ pub enum DiagnosticInterfaceLimit {
     LoadedInterfaceCount,
     /// Number of source and imported symbols in one compilation-wide identity space.
     CompilationSymbolCount,
-    /// Complete artifact byte length.
+    /// Complete eagerly loaded package-interface byte length.
     FileSize,
+    /// Complete packed implementation storage byte length.
+    ImplementationFileSize,
     /// Number of section-directory entries.
     SectionCount,
     /// Number of package implementation artifact directory entries.
@@ -34,6 +36,7 @@ impl DiagnosticInterfaceLimit {
             Self::LoadedInterfaceCount => "loaded_interface_count",
             Self::CompilationSymbolCount => "compilation_symbol_count",
             Self::FileSize => "file_size",
+            Self::ImplementationFileSize => "implementation_file_size",
             Self::SectionCount => "section_count",
             Self::ImplementationEntryCount => "implementation_entry_count",
             Self::RecordCount => "record_count",

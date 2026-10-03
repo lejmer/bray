@@ -345,7 +345,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
         }
 
         for (value, path) in self.inputs.projected_operands(id) {
-            requirements.extend(self.projected_values(value, path));
+            requirements.extend(self.projected_values(value, &path));
         }
 
         Ok(requirements)

@@ -142,6 +142,43 @@ impl super::super::Compilation {
             .map_err(FactQueryError::from)
     }
 
+    pub(in crate::compilation) fn imported_executable_template_key_with_cancellation(
+        &self,
+        address: ImportedExecutableTemplateAddress,
+        owner: AnySymbolId,
+        cancellation: &CancellationToken,
+    ) -> Result<DiagnosticResult<Option<bray_ir::MirImportedExecutableKey>>, FactQueryError> {
+        let symbol = address.symbol();
+
+        let loaded = self
+            .loaded_dependency_interface_with_cancellation(symbol.interface(), cancellation)?
+            .expect("imported executable identity must have a loaded dependency interface");
+
+        if loaded.validated().is_none() {
+            return Ok(DiagnosticResult::without_diagnostics(None));
+        }
+
+        let artifact = self.imported_body_artifact(
+            symbol.interface(),
+            executable_template_diagnostics,
+            cancellation,
+        )?;
+
+        let Some(artifact) = artifact.value() else {
+            return Ok(DiagnosticResult::new(None, artifact.diagnostics().clone()));
+        };
+
+        if let Some(key) = artifact.executable_template_key(symbol.symbol(), owner, address.template()) {
+            return Ok(DiagnosticResult::without_diagnostics(Some(key)));
+        }
+
+        let input = self
+            .dependency_interface_input(symbol.interface())
+            .expect("imported executable identity must have a dependency input");
+
+        Ok(DiagnosticResult::new(None, executable_template_diagnostics(input)))
+    }
+
     pub(in crate::compilation) fn imported_executable_template_with_cancellation(
         &self,
         address: ImportedExecutableTemplateAddress,
@@ -324,7 +361,7 @@ impl super::super::Compilation {
         unit: bray_ir::MirUnitId,
         target: bray_ir::MirTargetContract,
         cancellation: &CancellationToken,
-    ) -> Result<Option<bray_ir::MirUnit>, FactQueryError> {
+    ) -> Result<Option<bray_ir::MirUnit>, crate::CodegenPreparationError> {
         let skeleton = self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
 
         let Some(skeleton) = skeleton.value() else {
@@ -341,6 +378,12 @@ impl super::super::Compilation {
             self.imported_executable_template_with_cancellation(address, cancellation)?;
 
         let Some(template) = template.value() else {
+            if template.diagnostics().has_errors() {
+                return Err(crate::CodegenPreparationError::Diagnostics(
+                    template.diagnostics().clone(),
+                ));
+            }
+
             return Ok(None);
         };
 

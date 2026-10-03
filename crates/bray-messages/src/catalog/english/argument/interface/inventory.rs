@@ -7,6 +7,7 @@ pub(crate) const fn format_english_interface_limit(
         DiagnosticInterfaceLimit::LoadedInterfaceCount => "selected package-interface count",
         DiagnosticInterfaceLimit::CompilationSymbolCount => "compilation symbol count",
         DiagnosticInterfaceLimit::FileSize => "file size",
+        DiagnosticInterfaceLimit::ImplementationFileSize => "implementation file size",
         DiagnosticInterfaceLimit::SectionCount => "section count",
         DiagnosticInterfaceLimit::ImplementationEntryCount => "implementation artifact entry count",
         DiagnosticInterfaceLimit::RecordCount => "record count",

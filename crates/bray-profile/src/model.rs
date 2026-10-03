@@ -485,7 +485,7 @@ pub struct CompilationProfileCodegenDependency {
     pub kind: String,
 }
 
-/// One independently generated unit and the boundary class that formed it.
+/// One independently generated unit and its per-definition metadata.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct CompilationProfileCodegenUnit {
     /// Emission-order unit identity.
@@ -496,11 +496,11 @@ pub struct CompilationProfileCodegenUnit {
     pub instances: Vec<u32>,
     /// Canonical demand indices explaining why this unit is retained.
     pub inclusion_path: Vec<u32>,
-    /// Package boundary shared by ordinary unit members.
+    /// Distinct packages represented by unit members.
     pub packages: Vec<String>,
-    /// Linkage boundary shared by ordinary unit members.
+    /// Distinct symbol linkages represented by unit members.
     pub linkages: Vec<String>,
-    /// Visibility boundary shared by ordinary unit members.
+    /// Distinct definition visibilities represented by unit members.
     pub visibilities: Vec<String>,
 }
 

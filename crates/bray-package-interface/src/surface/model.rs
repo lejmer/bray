@@ -455,6 +455,24 @@ impl PackageInterfaceSurface {
         &self.relationships
     }
 
+    pub(crate) fn relationships_for(
+        &self,
+        owner: InterfaceSymbolId,
+        kind: SymbolRelationshipKind,
+    ) -> &[SymbolRelationship] {
+        let key = (kind, owner);
+
+        let start = self.relationships.partition_point(|relationship| {
+            (relationship.kind(), relationship.owner()) < key
+        });
+
+        let end = self.relationships[start..].partition_point(|relationship| {
+            (relationship.kind(), relationship.owner()) == key
+        });
+
+        &self.relationships[start..start + end]
+    }
+
     /// Returns exported lookup edges in canonical owner and name order.
     pub fn exports(&self) -> &[ExportedLookupEdge] {
         &self.exports
@@ -481,10 +499,38 @@ impl PackageInterfaceSurface {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
     use bray_compiler_known::CompilerKnownDeclarationKey;
-    use bray_symbols::{SymbolKey, SymbolKind, SynthesizedSymbolKey};
+    use bray_symbols::{InterfaceSymbolId, SymbolKey, SymbolKind, SymbolRelationshipKind, SynthesizedSymbolKey};
 
     use super::{CompilerKnownSymbolReference, MAXIMUM_COMPILER_KNOWN_KEY_COMPONENTS};
+
+    #[test]
+    fn relationship_ranges_preserve_canonical_order_and_empty_boundaries() {
+        let bundle = crate::test_support::package_interface_export_bundle();
+        let surface = bundle.surface();
+
+        let mut kinds = surface
+            .relationships()
+            .iter()
+            .map(|relationship| relationship.kind())
+            .collect::<BTreeSet<_>>();
+
+        kinds.insert(SymbolRelationshipKind::DefaultProvider);
+
+        for owner in surface.symbols().symbols().iter().map(|symbol| symbol.id())
+            .chain([InterfaceSymbolId::new(u32::MAX)])
+        {
+            for kind in kinds.iter().copied() {
+                let expected = surface.relationships().iter().copied()
+                    .filter(|relationship| relationship.kind() == kind && relationship.owner() == owner)
+                    .collect::<Vec<_>>();
+
+                assert_eq!(surface.relationships_for(owner, kind), expected);
+            }
+        }
+    }
 
     #[test]
     fn compiler_known_references_bound_synthesized_key_depth() {

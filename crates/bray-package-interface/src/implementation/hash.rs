@@ -36,6 +36,14 @@ pub(super) fn compute_payload_hash(
     entry: &ImplementationDirectoryEntry,
     payload: &[u8],
 ) -> [u8; 32] {
+    let mut hasher = payload_hasher(entry, payload.len() as u64);
+
+    hasher.update(payload);
+
+    *hasher.finalize().as_bytes()
+}
+
+pub(super) fn payload_hasher(entry: &ImplementationDirectoryEntry, length: u64) -> Hasher {
     let mut prefix = WireEncoder::new();
 
     prefix.write_u32(entry.owner.raw());
@@ -48,16 +56,15 @@ pub(super) fn compute_payload_hash(
     prefix.write_u32(entry.platform_service.map_or(0, |role| role.id()));
     prefix.write_u64(entry.decoded_length);
     prefix.write_u64(entry.record_count);
-    prefix.write_u64(u64::try_from(payload.len()).unwrap_or(u64::MAX));
+    prefix.write_u64(length);
     prefix.write_bytes(&entry.content_hash);
 
     let mut hasher = Hasher::new();
 
     hasher.update(PAYLOAD_HASH_DOMAIN);
     hasher.update(prefix.bytes());
-    hasher.update(payload);
 
-    *hasher.finalize().as_bytes()
+    hasher
 }
 
 pub(super) fn compute_content_hash(
@@ -103,6 +110,14 @@ pub(super) fn compute_artifact_hash(bytes: &[u8]) -> Option<[u8; 32]> {
 }
 
 pub(super) fn compute_metadata_hash(header: &[u8], directory: &[u8]) -> Option<[u8; 32]> {
+    let mut hasher = metadata_hasher(header)?;
+
+    hasher.update(directory);
+
+    Some(*hasher.finalize().as_bytes())
+}
+
+pub(super) fn metadata_hasher(header: &[u8]) -> Option<Hasher> {
     let (before, after_hash) = header.split_at_checked(ARTIFACT_HASH_OFFSET)?;
 
     let (_, after) = after_hash.split_at_checked(32)?;
@@ -113,7 +128,6 @@ pub(super) fn compute_metadata_hash(header: &[u8], directory: &[u8]) -> Option<[
     hasher.update(before);
     hasher.update(&[0; 32]);
     hasher.update(after);
-    hasher.update(directory);
 
-    Some(*hasher.finalize().as_bytes())
+    Some(hasher)
 }

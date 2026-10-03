@@ -97,6 +97,12 @@ payload's encoded checksum and decoded content identity. Consumers validate boun
 authenticating only demanded templates, native indexes and physical units. Object and bitcode representations share
 this contract and remain independently demandable.
 
+Resource limits follow the loading strategy. Eager package interfaces retain a complete-file byte ceiling. Packed
+implementations bound directory storage, retained metadata, individual payloads and demanded decoding allocations,
+without a default ceiling on the sum of payload bytes stored on disk. Callers may impose a separate implementation
+file-size ceiling when distribution policy requires one. Large packed files retain the same framing and authentication
+checks as small files.
+
 Unread payload bytes are not verified by metadata validation. Publication and explicit acquisition verification
 stream the complete payload inventory. Distribution may also require a full-file digest. A full-file digest request
 always verifies all stored bytes, while an independently supplied metadata commitment permits selective access after

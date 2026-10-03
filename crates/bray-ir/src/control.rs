@@ -402,7 +402,9 @@ pub enum MirTerminatorKind {
         otherwise: MirEdge,
     },
     /// Execute target-gated assembly that may transfer to one typed external label.
-    InlineAssembly(MirInlineAssemblyTerminator),
+    ///
+    /// The separate payload keeps assembly descriptors out of ordinary terminator slots.
+    InlineAssembly(Box<MirInlineAssemblyTerminator>),
     /// Return from this unit.
     Return(Option<MirOperand>),
     /// End a path that cannot continue.
@@ -702,6 +704,12 @@ mod tests {
     use crate::{MirBlockId, MirImmediateValue, MirOperand, MirUnitId};
 
     #[test]
+    fn ordinary_mir_slots_do_not_inline_assembly_operand_arrays() {
+        assert!(std::mem::size_of::<crate::MirOperation>() <= 512);
+        assert!(std::mem::size_of::<super::MirTerminator>() <= 256);
+    }
+
+    #[test]
     fn inline_assembly_successors_include_normal_and_every_alternate() {
         let unit = MirUnitId::new(7);
         let normal = MirBlockId::from_slot(unit, 1);
@@ -728,7 +736,7 @@ mod tests {
         )
         .unwrap_or_else(|| panic!("test assembly contract must validate"));
 
-        let terminator = MirTerminatorKind::InlineAssembly(MirInlineAssemblyTerminator::new(
+        let terminator = MirTerminatorKind::InlineAssembly(Box::new(MirInlineAssemblyTerminator::new(
             contract,
             MirOperand::Immediate {
                 value: MirImmediateValue::Unit,
@@ -739,7 +747,7 @@ mod tests {
             normal,
             [first, second],
             [],
-        ));
+        )));
 
         let mut successors = Vec::new();
 

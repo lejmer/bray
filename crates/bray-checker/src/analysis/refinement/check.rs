@@ -6,7 +6,8 @@ use bray_bound_tree::{
 };
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticLabel,
-    DiagnosticLabelKind, DiagnosticRefinementCapacity, SeverityKind,
+    DiagnosticLabelKind, DiagnosticRefinementCapacity, DiagnosticRefinementCapacitySurface,
+    SeverityKind,
 };
 
 use crate::unit::assert_unit_inputs;
@@ -22,7 +23,9 @@ use super::super::model::{
 };
 use super::super::reachability::{ReachabilityResult, analyze_reachability};
 use super::set::RefinementSet;
-use super::universe::{RefinementUniverse, RefinementUniverseError};
+use super::universe::{
+    MAX_REFINEMENT_CELLS, RefinementUniverse, RefinementUniverseError, capacity_error,
+};
 
 pub(crate) fn check_refinements<C>(
     request: CheckerUnitView<'_, C>,
@@ -100,7 +103,23 @@ where
         None => return CheckerOutcome::Cancelled,
     };
 
-    let occurrences = result.occurrences(graph, storage);
+    let occurrences = match result.occurrences(graph, storage) {
+        Ok(occurrences) => occurrences,
+        Err(RefinementUniverseError::CapacityExceeded(capacity)) => {
+            return capacity_recovery(request, capacity);
+        }
+        Err(RefinementUniverseError::CountUnrepresentable) => {
+            return CheckerOutcome::InfrastructureFailure(
+                crate::CheckerInfrastructureError::RefinementCapacityUnrepresentable,
+            );
+        }
+        Err(RefinementUniverseError::AllocationFailed) => {
+            return CheckerOutcome::InfrastructureFailure(
+                crate::CheckerInfrastructureError::RefinementStorageUnavailable,
+            );
+        }
+        Err(RefinementUniverseError::Cancelled) => return CheckerOutcome::Cancelled,
+    };
 
     let is_recovered = graph
         .operations()
@@ -166,7 +185,7 @@ impl RefinementResult<'_> {
         &self,
         graph: &ControlFlowGraph,
         storage: &StoragePlan,
-    ) -> Vec<RefinementOccurrence> {
+    ) -> Result<Vec<RefinementOccurrence>, RefinementUniverseError> {
         let mut occurrence_refinements = BTreeMap::new();
 
         for block in graph.blocks() {
@@ -192,13 +211,30 @@ impl RefinementResult<'_> {
             }
         }
 
-        occurrence_refinements
+        let actual_refinements =
+            occurrence_refinements
+                .values()
+                .try_fold(0usize, |count, refinements| {
+                    count
+                        .checked_add(refinements.len())
+                        .ok_or(RefinementUniverseError::CountUnrepresentable)
+                })?;
+
+        if actual_refinements > MAX_REFINEMENT_CELLS {
+            return Err(capacity_error(
+                DiagnosticRefinementCapacitySurface::PublishedRefinements,
+                actual_refinements,
+                MAX_REFINEMENT_CELLS,
+            ));
+        }
+
+        Ok(occurrence_refinements
             .into_iter()
             .filter(|(_, refinements)| !refinements.is_empty())
             .map(|(node, refinements)| {
                 RefinementOccurrence::new(node, self.universe.active_refinements(&refinements))
             })
-            .collect()
+            .collect())
     }
 }
 

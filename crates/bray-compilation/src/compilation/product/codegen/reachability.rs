@@ -168,7 +168,7 @@ impl Compilation {
 
         let result = cell.get_or_compute(
             &self.state.fact_runtime,
-            CompilationFactKey::OptimizedMir(key),
+            CompilationFactKey::OptimizedMir(Arc::new(key)),
             cancellation,
             || {
                 let optimized = match options.optimization() {

@@ -462,11 +462,7 @@ where
     }
 
     fn argument_storage(&self, expression: BoundExpressionId) -> Option<StorageIdentityId> {
-        self.storage
-            .access_plans()
-            .iter()
-            .filter(|plan| plan.expression() == expression)
-            .find_map(|plan| self.storage.root_identity(plan.access()))
+        self.input.expression_roots(expression).first().copied()
     }
 
     fn operation_result_storage(&self, expression: BoundExpressionId) -> Option<StorageIdentityId> {
@@ -477,13 +473,8 @@ where
         &self,
         expression: BoundExpressionId,
     ) -> Option<StorageIdentityId> {
-        self.storage.identity_entries().find_map(|(id, identity)| {
-            matches!(
-                identity,
-                StorageIdentity::Temporary(candidate) | StorageIdentity::Allocation(candidate)
-                    if candidate == expression
-            )
-            .then_some(id)
+        self.input.definitions(expression.into()).iter().copied().find(|identity| {
+            matches!(self.storage.identity(*identity), Some(StorageIdentity::Temporary(candidate) | StorageIdentity::Allocation(candidate)) if candidate == expression)
         })
     }
 
@@ -495,11 +486,10 @@ where
         self.expression_result_storage(expression)
             .filter(|storage| has_raw_state(state, *storage))
             .or_else(|| {
-                self.storage
-                    .access_plans()
+                self.input
+                    .expression_roots(expression)
                     .iter()
-                    .filter(|plan| plan.expression() == expression)
-                    .filter_map(|plan| self.storage.root_identity(plan.access()))
+                    .copied()
                     .find(|storage| has_raw_state(state, *storage))
             })
     }
@@ -908,6 +898,78 @@ mod tests {
             apply_raw_write(&mut state, destination, ty, expressions[1]),
             MemoryOperationStatus::InvalidatedAllocation
         );
+    }
+
+    #[test]
+    fn retired_temporary_facts_do_not_invalidate_surviving_raw_aliases() {
+        let (unit, expressions) = expression_unit(BoundUnitId::new(43), |tree, origin| {
+            (0..2)
+                .map(|_| {
+                    push_expression(
+                        tree,
+                        BoundExpression::Error(BoundErrorExpression::new(origin, error_type())),
+                    )
+                })
+                .collect()
+        });
+
+        let mut builder = StoragePlanBuilder::new(unit.unit(), unit.key().kind());
+
+        let source = builder
+            .push_identity(StorageIdentity::Temporary(expressions[0]))
+            .expect("source temporary must build");
+
+        let destination = builder
+            .push_identity(StorageIdentity::Temporary(expressions[1]))
+            .expect("destination temporary must build");
+
+        let storage = builder.finish();
+        let mut state = StorageFlowState::default();
+
+        state.live.extend([source, destination]);
+        state.initialized.extend([source, destination]);
+
+        state
+            .raw_initialized
+            .entry(source)
+            .or_default()
+            .entry(error_type())
+            .or_default()
+            .insert(expressions[0]);
+
+        state
+            .active_allocations
+            .entry(source)
+            .or_default()
+            .insert(expressions[0]);
+
+        state
+            .allocation_origins
+            .entry(source)
+            .or_default()
+            .insert(expressions[0]);
+
+        state
+            .invalidated_allocations
+            .entry(source)
+            .or_default()
+            .insert(expressions[1]);
+
+        replace_raw_state(&mut state, source, destination);
+        state.forget_storage(source, &storage);
+
+        assert!(!state.live.contains(&source));
+        assert!(state.initialized.contains(&destination));
+        assert!(!super::has_raw_state(&state, source));
+        assert!(state.raw_initialized[&destination][&error_type()].contains(&expressions[0]));
+        assert!(state.active_allocations[&destination].contains(&expressions[0]));
+        assert!(state.allocation_origins[&destination].contains(&expressions[0]));
+        assert!(state.invalidated_allocations[&destination].contains(&expressions[1]));
+
+        state.live.clear();
+        state.retain_live_storage(&storage);
+
+        assert!(!super::has_raw_state(&state, destination));
     }
 
     #[test]

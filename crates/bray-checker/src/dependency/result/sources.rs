@@ -303,9 +303,7 @@ impl<C: CheckerRequestContext + ?Sized> ResultInference<'_, C> {
                 pending.extend(
                     self.inputs
                         .writes
-                        .get(&value)
-                        .into_iter()
-                        .flatten()
+                        .values(value)
                         .filter_map(|write| write.project(path)),
                 );
             }

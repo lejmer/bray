@@ -864,7 +864,7 @@ mod tests {
         builder.set_terminator(
             entry,
             source.clone(),
-            MirTerminatorKind::InlineAssembly(MirInlineAssemblyTerminator::new(
+            MirTerminatorKind::InlineAssembly(Box::new(MirInlineAssemblyTerminator::new(
                 contract,
                 immediate(ty),
                 ty,
@@ -872,7 +872,7 @@ mod tests {
                 normal,
                 [alternate],
                 [],
-            )),
+            ))),
         );
 
         builder.set_terminator(

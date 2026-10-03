@@ -988,7 +988,7 @@ impl Compilation {
         let cell = self.state.target_validity.cell(request.clone())?;
 
         let published = self.query_with_cancellation(
-            crate::fact::CompilationFactKey::TargetValidity(request.clone()),
+            crate::fact::CompilationFactKey::TargetValidity(Arc::new(request.clone())),
             &cell,
             cancellation,
             |cancellation| {
@@ -1182,6 +1182,52 @@ mod tests {
     }
 
     #[test]
+    fn shared_fact_payloads_preserve_value_identity() {
+        let compilation = callable_compilation();
+        let source = source_callable_body_key(&compilation).source();
+
+        let request = TargetValidityRequest::new(
+            source,
+            TargetValidityRequirement::Representation(RepresentationRole::ScalarI32),
+        );
+
+        let first = CompilationFactKey::TargetValidity(Arc::new(request.clone()));
+        let second = CompilationFactKey::TargetValidity(Arc::new(request));
+
+        let different = CompilationFactKey::TargetValidity(Arc::new(TargetValidityRequest::new(
+            source,
+            TargetValidityRequirement::Representation(RepresentationRole::ScalarR16),
+        )));
+
+        assert_eq!(first, second);
+        assert_eq!(first.cmp(&second), std::cmp::Ordering::Equal);
+
+        assert_eq!(
+            crate::fact::fact_fingerprint(&first, &()),
+            crate::fact::fact_fingerprint(&second, &())
+        );
+
+        assert_ne!(first, different);
+
+        assert_ne!(
+            crate::fact::fact_fingerprint(&first, &()),
+            crate::fact::fact_fingerprint(&different, &())
+        );
+
+        let cloned = first.clone();
+
+        let (
+            CompilationFactKey::TargetValidity(original),
+            CompilationFactKey::TargetValidity(shared),
+        ) = (&first, &cloned)
+        else {
+            panic!("cloned fact key must preserve its variant");
+        };
+
+        assert!(Arc::ptr_eq(original, shared));
+    }
+
+    #[test]
     fn target_validity_reuses_one_exact_published_result() {
         let compilation = callable_compilation();
         let source = source_callable_body_key(&compilation).source();
@@ -1219,7 +1265,7 @@ mod tests {
             TargetValidityRequirement::Representation(RepresentationRole::ScalarI32),
         );
 
-        let key = CompilationFactKey::TargetValidity(request.clone());
+        let key = CompilationFactKey::TargetValidity(Arc::new(request.clone()));
 
         let validity = match compilation.target_validity(request) {
             Ok(result) => result,
@@ -1247,7 +1293,7 @@ mod tests {
             TargetValidityRequirement::Representation(RepresentationRole::ScalarR16),
         );
 
-        let key = CompilationFactKey::TargetValidity(request.clone());
+        let key = CompilationFactKey::TargetValidity(Arc::new(request.clone()));
 
         let validity = match compilation.target_validity(request) {
             Ok(result) => result,

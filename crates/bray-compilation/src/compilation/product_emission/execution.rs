@@ -19,7 +19,6 @@ use super::publishing::{
 use super::{ProductEmissionError, ProductEmissionErrorKind};
 use crate::compilation::{
     Compilation, EmissionCodegenError, EmissionCodegenErrorKind, NativeProductPlan,
-    ProductDataKind, ProductQueryContext, ProductQueryFailure,
 };
 use crate::fact::{CancellationToken, FactQueryError};
 
@@ -397,73 +396,21 @@ impl Compilation {
             .or_else(|| request.artifact(ArtifactKind::PackageNativeImplementation))
             .is_some();
 
-        let inputs = self
-            .state
-            .fact_runtime
-            .map_indexed(2, |index| match index {
-                0 => ProductEmissionInput::PackageInterface(self.product_interface_artifacts(
-                    requires_interface,
-                    requires_implementation,
-                    cancellation,
-                )),
-                1 => ProductEmissionInput::Diagnostics(
-                    cancellation
-                        .check()
-                        .and_then(|()| self.check_diagnostics_with_cancellation(cancellation))
-                        .cloned()
-                        .map_err(product_query_error),
-                ),
-                _ => unreachable!("product planning input index must be in range"),
-            })
-            .map_err(product_query_error)
-            .map_err(|kind| {
+        let diagnostics = cancellation
+            .check()
+            .and_then(|()| self.check_diagnostics_with_cancellation(cancellation))
+            .cloned()
+            .map_err(|error| {
                 ProductEmissionError::new(
-                    kind,
+                    product_query_error(error),
                     DiagnosticBag::new(),
                     request.product(),
                     request.target(),
                 )
             })?;
 
-        let mut package_interface = None;
-        let mut diagnostics = None;
-
-        for input in inputs {
-            match input {
-                ProductEmissionInput::PackageInterface(artifact) => {
-                    package_interface = Some(artifact);
-                }
-                ProductEmissionInput::Diagnostics(query_diagnostics) => {
-                    diagnostics = Some(query_diagnostics);
-                }
-            }
-        }
-
-        let diagnostics = diagnostics
-            .unwrap_or(Err(ProductEmissionErrorKind::Query(
-                ProductQueryFailure::missing(
-                    ProductQueryContext::Product(request.product_kind()),
-                    ProductDataKind::CompilationDiagnostics,
-                )
-                .into(),
-            )))
-            .map_err(|kind| {
-                ProductEmissionError::new(
-                    kind,
-                    DiagnosticBag::new(),
-                    request.product(),
-                    request.target(),
-                )
-            })?;
-
-        let package_interface = package_interface
-            .unwrap_or(Err(ProductEmissionErrorKind::Query(
-                ProductQueryFailure::missing(
-                    ProductQueryContext::Product(request.product_kind()),
-                    ProductDataKind::PackageInterfaceContribution,
-                )
-                .into(),
-            )))
+        let package_interface = self
+            .product_interface_artifacts(requires_interface, requires_implementation, cancellation)
             .map_err(|kind| {
                 ProductEmissionError::new(
                     kind,
@@ -753,11 +700,6 @@ struct ProductInterfaceArtifacts {
     )>,
 }
 
-enum ProductEmissionInput {
-    PackageInterface(Result<ProductInterfaceArtifacts, ProductEmissionErrorKind>),
-    Diagnostics(Result<DiagnosticBag, ProductEmissionErrorKind>),
-}
-
 struct ProductEmissionContributions {
     backend: Option<BackendContributionSet>,
     diagnostics: DiagnosticBag,
@@ -804,8 +746,68 @@ mod tests {
     };
 
     #[test]
+    fn emission_reuses_completed_checking_beyond_the_query_cache_working_set() {
+        use std::fmt::Write;
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        use bray_symbols::SymbolQueryKind;
+
+        use crate::fact::{CompilationFactKey, FactEvaluationTestObserver};
+
+        let count = 4_100;
+        let mut source = String::from("module app;\n");
+
+        for index in 0..count {
+            writeln!(source, "func item{index}() {{}}").unwrap();
+        }
+
+        let compilation = Arc::new(compilation(&source, WorkerBudget::new(4).unwrap()));
+        let checked_compilation = Arc::downgrade(&compilation);
+        let contracts = Arc::new(AtomicUsize::new(0));
+        let observed = Arc::clone(&contracts);
+
+        compilation
+            .state
+            .fact_runtime
+            .set_test_observer(FactEvaluationTestObserver::new(move |key| {
+                if *key == CompilationFactKey::PackageInterfaceExportBundle {
+                    let compilation = checked_compilation.upgrade().unwrap();
+
+                    assert!(
+                        compilation
+                            .state
+                            .semantic_diagnostics
+                            .get_if_published(&CompilationFactKey::SemanticDiagnostics)
+                            .is_some()
+                    );
+                }
+
+                if matches!(key, CompilationFactKey::Symbol(query)
+                    if query.kind() == SymbolQueryKind::CallableContracts)
+                {
+                    observed.fetch_add(1, Ordering::SeqCst);
+                }
+            }))
+            .unwrap();
+
+        let destination = tempfile::tempdir().unwrap();
+        let target_outputs = target_outputs();
+
+        let outcome = compilation
+            .emit_product(
+                emission_request(destination.path()),
+                ProductEmissionInputs::new(&target_outputs),
+            )
+            .unwrap();
+
+        assert!(matches!(outcome.status(), EmissionStatus::Complete));
+        assert_eq!(contracts.load(Ordering::SeqCst), count);
+    }
+
+    #[test]
     fn package_interface_emission_reuses_pure_inputs_across_publications() {
-        let compilation = compilation();
+        let compilation = compilation("module app;", WorkerBudget::serial());
         let target_outputs = target_outputs();
 
         let destination = tempfile::tempdir()
@@ -861,7 +863,7 @@ mod tests {
 
     #[test]
     fn cancellation_before_planning_preserves_existing_output() {
-        let compilation = compilation();
+        let compilation = compilation("module app;", WorkerBudget::serial());
         let target_outputs = target_outputs();
         let destination = TemporaryFile::write("library.brayi", b"unchanged");
         let cancellation = CancellationToken::new();
@@ -1019,7 +1021,7 @@ mod tests {
         );
     }
 
-    fn compilation() -> Compilation {
+    fn compilation(source: &str, workers: WorkerBudget) -> Compilation {
         let package = package_identity();
 
         let product = InterfaceProductIdentity::try_new("library")
@@ -1041,14 +1043,11 @@ mod tests {
             SourceIdentity::new(0),
             "library.bray",
             SourceVersion::new(0),
-            "module app;",
+            source,
         );
 
-        let options = CompilationOptions::new(
-            WorkerBudget::default(),
-            ProductKind::Library,
-            SelectedTarget::default(),
-        );
+        let options =
+            CompilationOptions::new(workers, ProductKind::Library, SelectedTarget::default());
 
         let request = CompilationRequest::with_options(package, vec![source], options)
             .with_package_interface_export(export);

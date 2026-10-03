@@ -99,12 +99,12 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     builder,
                     block,
                     source,
-                    MirOperationKind::Memory(MirMemoryOperation::new(
+                    MirOperationKind::Memory(Box::new(MirMemoryOperation::new(
                         bray_bound_tree::CheckedMemoryOperationKind::RawBufferRelease { element },
                         [MirOperand::Value(buffer)],
                         [borrowed],
                         None,
-                    )),
+                    ))),
                 )?;
 
                 let block = outcome

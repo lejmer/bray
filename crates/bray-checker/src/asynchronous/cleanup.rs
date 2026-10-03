@@ -43,6 +43,50 @@ where
     Ok(scopes)
 }
 
+pub(crate) fn cleanup_free_storage<C>(
+    request: CheckerUnitView<'_, C>,
+    storage: &StoragePlan,
+) -> Result<
+    (BTreeSet<bray_bound_tree::StorageIdentityId>, DiagnosticBag),
+    CheckerQueryError<C::UpstreamError>,
+>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let mut resolver = CleanupShapeResolver::new(request);
+    let mut identities = BTreeSet::new();
+
+    for (identity, provenance) in storage.identity_entries() {
+        if request.is_cancelled() {
+            return Err(CheckerQueryError::Cancelled);
+        }
+
+        if !matches!(
+            provenance,
+            bray_bound_tree::StorageIdentity::Temporary(_)
+                | bray_bound_tree::StorageIdentity::LocalOwned(_)
+                | bray_bound_tree::StorageIdentity::Parameter(_)
+                | bray_bound_tree::StorageIdentity::Receiver(_)
+                | bray_bound_tree::StorageIdentity::AnonymousParameter(_)
+                | bray_bound_tree::StorageIdentity::PredicateParameter(_)
+        ) {
+            continue;
+        }
+
+        let Some(ty) = storage.storage_type(identity) else {
+            continue;
+        };
+
+        let shape = resolver.resolve(ty)?;
+
+        if !shape.cancellation && !shape.lifecycle && !shape.recovered {
+            identities.insert(identity);
+        }
+    }
+
+    Ok((identities, resolver.diagnostics))
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(super) struct CleanupShape {
     pub(super) cancellation: bool,

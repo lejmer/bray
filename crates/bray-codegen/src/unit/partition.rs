@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
@@ -25,84 +25,75 @@ pub fn partition_codegen_units(
         .map(|(index, instance)| (instance.key(), index))
         .collect();
 
-    let mut groups = required_groups(instances, &indices)?;
-    let mut partition_groups = Vec::with_capacity(groups.len());
+    let classes = instances
+        .iter()
+        .map(|instance| {
+            compatibility(instance).ok_or_else(|| {
+                // The error retains the omitted identity beyond the reachability borrow.
+                CodegenPartitionError::MissingCompatibility(instance.key().clone())
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
 
-    for members in groups.values_mut() {
-        members.sort_unstable();
+    let mut groups = required_groups(instances, &indices, &classes)
+        .into_values()
+        .map(|members| PartitionGroup::new(policy, instances, &members, &classes))
+        .collect::<Vec<_>>();
 
-        partition_groups.push(PartitionGroup::try_new(
-            policy,
-            instances,
-            members,
-            &compatibility,
-        )?);
-    }
-
-    partition_groups.sort_unstable_by(|left, right| {
-        left.compatibility
-            .cmp(&right.compatibility)
-            .then_with(|| left.target.cmp(right.target))
+    groups.sort_unstable_by(|left, right| {
+        left.target
+            .cmp(right.target)
+            .then_with(|| left.dependencies.cmp(&right.dependencies))
             .then_with(|| left.anchor.cmp(&right.anchor))
             .then_with(|| left.instances[0].key().cmp(right.instances[0].key()))
     });
 
+    // Each recipe owns its per-definition metadata beyond the retained graph borrow.
+    let compatibility = |instance: &CodegenInstance| Some(classes[indices[instance.key()]].clone());
+
     let mut units = Vec::new();
     let mut current = Vec::new();
     let mut current_work = CodegenWork::new(0);
-    let mut current_compatibility = None;
-    let mut current_target: Option<&bray_ir::MirTargetContract> = None;
+    let mut current_dependencies = PublicationDependencies::default();
 
-    for group in partition_groups {
-        // The pending unit owns its Arc-backed class beyond this group iteration.
-        let Some(group_compatibility) = group.compatibility.clone() else {
-            finish_unit(
-                policy,
-                &mut current,
-                &mut current_work,
-                &mut current_compatibility,
-                &mut current_target,
-                &mut units,
-                &mir_content_identity,
-            )?;
-
-            units.push(group.into_indivisible_unit(policy, &mir_content_identity)?);
-            continue;
-        };
-
-        if current_compatibility.as_ref() != Some(&group_compatibility)
-            || current_target != Some(group.target)
-            || current_work
-                .saturating_add(group.work)
-                .gt(&policy.upper_bound())
+    for group in groups {
+        if current
+            .first()
+            .is_some_and(|instance: &CodegenInstance| instance.key().target() != group.target)
+            || !current.is_empty() && current_dependencies != group.dependencies
+            || group.independent_publication
+            || current_work.saturating_add(group.work) > policy.upper_bound()
         {
             finish_unit(
                 policy,
                 &mut current,
                 &mut current_work,
-                &mut current_compatibility,
-                &mut current_target,
                 &mut units,
+                &compatibility,
                 &mir_content_identity,
             )?;
         }
 
-        if group.work > policy.upper_bound() {
-            let unit = CodegenUnit::try_from_indivisible_group(
-                policy,
-                group.instances.into_iter().cloned(),
-                |_| Some(group_compatibility.clone()),
-                &mir_content_identity,
-            )
-            .map_err(CodegenPartitionError::InvalidUnit)?;
+        if group.independent_publication || group.work > policy.upper_bound() {
+            units.push(
+                CodegenUnit::try_from_partition(
+                    policy,
+                    // The unit owns Arc-backed payloads after the reachability graph is released.
+                    group.instances.into_iter().cloned(),
+                    &compatibility,
+                    true,
+                    &mir_content_identity,
+                )
+                .map_err(CodegenPartitionError::InvalidUnit)?,
+            );
 
-            units.push(unit);
             continue;
         }
 
-        current_compatibility = Some(group_compatibility);
-        current_target = Some(group.target);
+        current_dependencies = group.dependencies;
         current_work = current_work.saturating_add(group.work);
+
+        // Pending units retain Arc-backed instance payloads across group iterations.
         current.extend(group.instances.into_iter().cloned());
 
         if current_work >= policy.lower_bound()
@@ -112,9 +103,8 @@ pub fn partition_codegen_units(
                 policy,
                 &mut current,
                 &mut current_work,
-                &mut current_compatibility,
-                &mut current_target,
                 &mut units,
+                &compatibility,
                 &mir_content_identity,
             )?;
         }
@@ -124,9 +114,8 @@ pub fn partition_codegen_units(
         policy,
         &mut current,
         &mut current_work,
-        &mut current_compatibility,
-        &mut current_target,
         &mut units,
+        &compatibility,
         &mir_content_identity,
     )?;
 
@@ -136,9 +125,10 @@ pub fn partition_codegen_units(
 fn required_groups<'a>(
     instances: &'a [CodegenInstance],
     indices: &BTreeMap<&'a CodegenInstanceKey, usize>,
-) -> Result<BTreeMap<usize, Vec<usize>>, CodegenPartitionError> {
-    let mut definition_edges = vec![Vec::new(); instances.len()];
-    let mut co_location_edges = Vec::new();
+    classes: &[CodegenPartitionCompatibility],
+) -> BTreeMap<usize, Vec<usize>> {
+    let mut edges = vec![Vec::new(); instances.len()];
+    let mut disjoint = DisjointSet::new(instances.len());
 
     for (source, instance) in instances.iter().enumerate() {
         for dependency in instance.dependencies() {
@@ -146,23 +136,22 @@ fn required_groups<'a>(
                 continue;
             };
 
-            match dependency.kind() {
-                CodegenInstanceDependencyKind::Definition => {
-                    definition_edges[source].push(target);
-                }
-                CodegenInstanceDependencyKind::DirectAwaitedFrame => {
-                    co_location_edges.push((source, target));
-                }
-                CodegenInstanceDependencyKind::StartedTask => {}
+            edges[source].push(target);
+
+            // A private definition cannot be resolved by an external declaration.
+            // Independent started tasks can import frame helpers across units.
+            // direct-awaited frames and cycles remain indivisible.
+            if dependency.kind() == CodegenInstanceDependencyKind::DirectAwaitedFrame
+                || classes[target].visibility() == super::CodegenDefinitionVisibility::Unit
+            {
+                disjoint.union(source, target);
             }
         }
     }
 
-    let mut disjoint = DisjointSet::new(instances.len());
-
-    for component in bray_base::strongly_connected_components(0..definition_edges.len(), |node| {
-        definition_edges[node].iter().copied()
-    }) {
+    for component in
+        bray_base::strongly_connected_components(0..edges.len(), |node| edges[node].iter().copied())
+    {
         let Some((&first, rest)) = component.split_first() else {
             continue;
         };
@@ -170,10 +159,6 @@ fn required_groups<'a>(
         for &member in rest {
             disjoint.union(first, member);
         }
-    }
-
-    for (source, target) in co_location_edges {
-        disjoint.union(source, target);
     }
 
     let mut groups = BTreeMap::new();
@@ -185,37 +170,34 @@ fn required_groups<'a>(
             .push(index);
     }
 
-    Ok(groups)
+    groups
 }
 
 fn finish_unit(
     policy: CodegenPartitionPolicy,
     current: &mut Vec<CodegenInstance>,
     current_work: &mut CodegenWork,
-    current_compatibility: &mut Option<CodegenPartitionCompatibility>,
-    current_target: &mut Option<&bray_ir::MirTargetContract>,
     units: &mut Vec<CodegenUnit>,
+    compatibility: &impl Fn(&CodegenInstance) -> Option<CodegenPartitionCompatibility>,
     mir_content_identity: &impl Fn(&bray_ir::MirUnit) -> [u8; 32],
 ) -> Result<(), CodegenPartitionError> {
     if current.is_empty() {
         return Ok(());
     }
 
-    let Some(compatibility) = current_compatibility.take() else {
-        // The error owns the unit identity after the pending partition is discarded.
-        return Err(CodegenPartitionError::MissingCompatibility(
-            current[0].key().clone(),
-        ));
-    };
-
     let instances = std::mem::take(current);
 
     *current_work = CodegenWork::new(0);
-    *current_target = None;
 
     units.push(
-        CodegenUnit::try_from_instances(policy, compatibility, instances, mir_content_identity)
-            .map_err(CodegenPartitionError::InvalidUnit)?,
+        CodegenUnit::try_from_partition(
+            policy,
+            instances,
+            compatibility,
+            false,
+            mir_content_identity,
+        )
+        .map_err(CodegenPartitionError::InvalidUnit)?,
     );
 
     Ok(())
@@ -237,102 +219,100 @@ fn is_content_boundary(
 }
 
 struct PartitionGroup<'a> {
-    compatibility: Option<CodegenPartitionCompatibility>,
-    compatibilities: Vec<CodegenPartitionCompatibility>,
     target: &'a bray_ir::MirTargetContract,
     instances: Vec<&'a CodegenInstance>,
     work: CodegenWork,
     anchor: [u8; 32],
+    independent_publication: bool,
+    dependencies: PublicationDependencies<'a>,
 }
 
 impl<'a> PartitionGroup<'a> {
-    fn try_new(
+    fn new(
         policy: CodegenPartitionPolicy,
         instances: &'a [CodegenInstance],
         members: &[usize],
-        compatibility: &impl Fn(&CodegenInstance) -> Option<CodegenPartitionCompatibility>,
-    ) -> Result<Self, CodegenPartitionError> {
-        let Some(&first) = members.first() else {
-            return Err(CodegenPartitionError::InvalidUnit(
-                CodegenUnitBuildError::Empty,
-            ));
-        };
-
-        let first_instance = &instances[first];
-
-        let Some(class) = compatibility(first_instance) else {
-            // The error owns the first identity after this group borrow ends.
-            return Err(CodegenPartitionError::MissingCompatibility(
-                first_instance.key().clone(),
-            ));
-        };
-
+        classes: &[CodegenPartitionCompatibility],
+    ) -> Self {
+        let first = *members.first().expect("required groups must be nonempty");
         let mut group_instances = Vec::with_capacity(members.len());
-        let mut compatibilities = Vec::with_capacity(members.len());
         let mut work = CodegenWork::new(0);
         let mut hasher = StableDigestHasher::new();
 
         hasher.write(b"bray.codegen-partition-group");
         policy.hash(&mut hasher);
-        class.hash(&mut hasher);
 
         for &member in members {
             let instance = &instances[member];
 
-            let Some(member_class) = compatibility(instance) else {
-                // The error owns the member identity after this group borrow ends.
-                return Err(CodegenPartitionError::MissingCompatibility(
-                    instance.key().clone(),
-                ));
-            };
-
+            // Stable semantic identities order groups independently of body edits
+            // and per-definition package, source, linkage or visibility metadata.
             instance.key().hash(&mut hasher);
-            member_class.hash(&mut hasher);
             work = work.saturating_add(policy.estimate(instance));
             group_instances.push(instance);
-            compatibilities.push(member_class);
         }
 
-        let homogeneous = compatibilities
-            .iter()
-            .all(|compatibility| compatibility == &class);
+        // A library unit must not introduce another member's unrelated semantic
+        // dependency closure. Independent leaves and callers with the same providers
+        // can still share bounded publication work. Product batching has closed demand.
+        let dependencies = if policy.identity()
+            == CodegenPartitionPolicy::NATIVE_LIBRARY_PUBLICATION.identity()
+        {
+            let owned = group_instances.iter().map(|instance| instance.key()).collect::<BTreeSet<_>>();
 
-        Ok(Self {
-            compatibility: homogeneous.then_some(class),
-            compatibilities,
-            target: first_instance.key().target(),
+            PublicationDependencies {
+                instances: group_instances
+                    .iter()
+                    .flat_map(|instance| instance.dependencies())
+                    .map(|dependency| dependency.instance())
+                    .filter(|key| !owned.contains(key))
+                    .collect(),
+                statics: members.iter()
+                    .map(|&member| classes[member].native_storage_dependencies_identity())
+                    .filter(|identity| *identity != [0; 32])
+                    .collect(),
+                runtime: group_instances
+                    .iter()
+                    .flat_map(|instance| crate::demanded_runtime_references_for_mir(instance.mir()))
+                    .collect(),
+            }
+        } else {
+            PublicationDependencies::default()
+        };
+
+        Self {
+            target: instances[first].key().target(),
             instances: group_instances,
             work,
             anchor: hasher.finalize(),
-        })
-    }
+            dependencies,
+            // Overridable definitions and optional native references can make bitcode
+            // summaries opaque. Do not hide unrelated exports in their publication unit.
+            independent_publication: policy.identity()
+                == CodegenPartitionPolicy::NATIVE_LIBRARY_PUBLICATION.identity()
+                && members.iter().any(|&member| {
+                    let class = &classes[member];
 
-    fn into_indivisible_unit(
-        self,
-        policy: CodegenPartitionPolicy,
-        mir_content_identity: &impl Fn(&bray_ir::MirUnit) -> [u8; 32],
-    ) -> Result<CodegenUnit, CodegenPartitionError> {
-        let compatibility: BTreeMap<_, _> = self
-            .instances
-            .iter()
-            .zip(&self.compatibilities)
-            .map(|(instance, compatibility)| (instance.key(), compatibility))
-            .collect();
-
-        CodegenUnit::try_from_indivisible_group(
-            policy,
-            // The completed unit owns instance payloads beyond the borrowed reachability graph.
-            self.instances.iter().map(|instance| (*instance).clone()),
-            // Every recipe entry owns its Arc-backed compatibility identity.
-            |instance| {
-                compatibility
-                    .get(instance.key())
-                    .map(|value| (*value).clone())
-            },
-            mir_content_identity,
-        )
-        .map_err(CodegenPartitionError::InvalidUnit)
+                    class.native_selection_boundary()
+                        || matches!(
+                            class.linkage(),
+                            crate::CodegenLinkage::Weak | crate::CodegenLinkage::Fallback
+                        )
+                        || class.linkage() == crate::CodegenLinkage::LinkOnce
+                            && instances[member].key().target().machine().object_format()
+                                != bray_target::ObjectFormat::Coff
+                }),
+        }
     }
+}
+
+// All directly named providers must match before library publication combines
+// definitions. Foreign callable keys remain present even when resolved externally.
+#[derive(Default, Eq, Ord, PartialEq, PartialOrd)]
+struct PublicationDependencies<'a> {
+    instances: BTreeSet<&'a CodegenInstanceKey>,
+    statics: BTreeSet<[u8; 32]>,
+    runtime: BTreeSet<bray_ir::MirRuntimeReference>,
 }
 
 struct DisjointSet {
@@ -396,6 +376,7 @@ pub enum CodegenPartitionError {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
     use std::sync::Arc;
 
     use bray_ir::MirTargetContract;
@@ -403,7 +384,7 @@ mod tests {
     use bray_symbols::PackageIdentity;
     use bray_testing::{
         test_mir_content_identity, test_mir_target, test_mir_unit, test_mir_unit_for_target,
-        test_mir_unit_with_declaration,
+        test_mir_unit_with_declaration, test_mir_unit_with_declaration_for_target,
     };
 
     use super::partition_codegen_units;
@@ -497,7 +478,7 @@ mod tests {
     }
 
     #[test]
-    fn library_publication_separates_independent_groups_and_keeps_required_frames() {
+    fn library_publication_packs_independent_groups_and_keeps_required_frames() {
         let first_mir = test_mir_unit(4);
         let second_mir = test_mir_unit_with_declaration(8, 1);
         let second_key = CodegenInstanceKey::non_generic(&second_mir);
@@ -521,9 +502,9 @@ mod tests {
             |_| compatibility(1, CodegenLinkage::Internal),
         );
 
-        assert_eq!(units.len(), 2);
-        assert!(units.iter().any(|unit| unit.instances().len() == 2));
-        assert!(units.iter().any(|unit| unit.instances().len() == 1));
+        assert_eq!(units.len(), 1);
+        assert_eq!(units[0].instances().len(), 3);
+        assert!(units[0].estimated_work() <= units[0].key().partition_policy().upper_bound());
     }
 
     #[test]
@@ -605,27 +586,405 @@ mod tests {
     }
 
     #[test]
-    fn independent_incompatible_definitions_stay_in_separate_units() {
+    fn independent_definitions_share_units_without_losing_symbol_metadata() {
         let first = CodegenInstance::non_generic(test_mir_unit(4));
         let second = CodegenInstance::non_generic(test_mir_unit_with_declaration(8, 1));
+        let first_class = compatibility(1, CodegenLinkage::Internal);
+
+        let second_class = CodegenPartitionCompatibility::new(
+            compatibility(2, CodegenLinkage::Export).package().clone(),
+            [2; 32],
+            CodegenLinkage::Export,
+            CodegenDefinitionVisibility::Public,
+        );
 
         let units = partitions(
             CodegenPartitionPolicy::NATIVE_BALANCED,
-            [first, second],
+            [first.clone(), second.clone()],
             |instance| {
-                if instance.mir().unit().raw() == 4 {
-                    compatibility(1, CodegenLinkage::Internal)
+                // Each recipe owns immutable metadata independently of the test's classes.
+                if instance.key() == first.key() {
+                    first_class.clone()
                 } else {
-                    compatibility(2, CodegenLinkage::Export)
+                    second_class.clone()
                 }
             },
         );
 
+        assert_eq!(units.len(), 1);
+        assert_eq!(units[0].compatibility(first.key()), Some(&first_class));
+        assert_eq!(units[0].compatibility(second.key()), Some(&second_class));
+
+        let reconstructed = crate::CodegenUnit::try_from_key(
+            units[0].key(),
+            units[0].instances().iter().cloned(),
+            test_mir_content_identity,
+        )
+        .unwrap_or_else(|error| panic!("mixed metadata must reconstruct: {error:?}"));
+
+        assert_eq!(reconstructed, units[0]);
+    }
+
+    #[test]
+    fn library_publication_is_bounded_without_singletons_or_one_mega_unit() {
+        let units = partitions(
+            CodegenPartitionPolicy::NATIVE_LIBRARY_PUBLICATION,
+            (0..256).map(partition_test_instance),
+            |instance| {
+                compatibility(
+                    u64::from(instance.mir().unit().raw() % 4),
+                    CodegenLinkage::Export,
+                )
+            },
+        );
+
+        assert!(
+            units.len() > 1 && units.len() < 64,
+            "bounded publication: {units:?}"
+        );
+
+        assert_eq!(
+            units
+                .iter()
+                .map(|unit| unit.instances().len())
+                .sum::<usize>(),
+            256
+        );
+
+        assert!(units.iter().all(|unit| {
+            unit.estimated_work()
+                <= CodegenPartitionPolicy::NATIVE_LIBRARY_PUBLICATION.upper_bound()
+                && unit.oversized().is_none()
+        }));
+    }
+
+    #[test]
+    fn library_publication_does_not_mix_unrelated_dependency_closures() {
+        let instances = (0..4).map(partition_test_instance).collect::<Vec<_>>();
+        let provider = instances[0].key().clone();
+        let other_provider = instances[1].key().clone();
+
+        let callers = (4..20).map(|index| {
+            let instance = partition_test_instance(index);
+
+            CodegenInstance::try_new(
+                instance.key().clone(),
+                instance.mir().clone(),
+                [CodegenInstanceDependency::definition(if index < 12 {
+                    provider.clone()
+                } else {
+                    other_provider.clone()
+                })],
+            )
+            .unwrap_or_else(|error| panic!("test caller must validate: {error:?}"))
+        });
+
+        let units = partitions(
+            CodegenPartitionPolicy::NATIVE_LIBRARY_PUBLICATION,
+            instances.into_iter().chain(callers),
+            |_| compatibility(1, CodegenLinkage::Export),
+        );
+
+        assert!(units.iter().any(|unit| unit.instances().len() > 1));
+
+        for unit in units.iter() {
+            let dependencies = unit.instances().iter().map(|instance| {
+                instance.dependencies().iter().map(|dependency| dependency.instance()).collect::<Vec<_>>()
+            }).collect::<BTreeSet<_>>();
+
+            assert_eq!(dependencies.len(), 1);
+        }
+    }
+
+    #[test]
+    fn runtime_provider_dependencies_bound_publication_but_not_required_groups() {
+        let instances = (0..16).map(|index| {
+            let bound = bray_testing::test_bound_unit_with_declaration(index, index);
+            let source = bray_ir::MirSourceAnchor::from(bound.key().source());
+            let mut builder = bray_ir::MirUnitBuilder::for_bound(bound.identity(), bray_ir::MirUnitKind::Synchronous, test_mir_target());
+            let block = builder.push_block(source.clone(), bray_ir::MirBlockKind::Ordinary).unwrap();
+            let ty = bray_testing::test_mir_type();
+
+            let runtime = bray_ir::MirRuntimeReference::new(
+                if index % 2 == 0 { bray_runtime_interface::RuntimeAbiRole::OutgoingAdmission }
+                else { bray_runtime_interface::RuntimeAbiRole::OutgoingDischarge },
+                RuntimeAbiVersion::new(1, 0),
+            );
+
+            let operation = if index % 2 == 0 { bray_ir::MirOperationKind::AdmitOutgoing { ty, runtime } }
+                else { bray_ir::MirOperationKind::DischargeOutgoing { ty, runtime } };
+
+            builder.push_operation(block, source.clone(), operation, None).unwrap();
+            builder.set_terminator(block, source, bray_ir::MirTerminatorKind::Return(None));
+
+            CodegenInstance::non_generic(builder.finish(block))
+        }).collect::<Vec<_>>();
+
+        let units = partitions(CodegenPartitionPolicy::NATIVE_LIBRARY_PUBLICATION, instances.iter().cloned(), |_| compatibility(1, CodegenLinkage::Export));
+
+        assert!(units.iter().any(|unit| unit.instances().len() > 1));
+        assert!(units.iter().all(|unit| crate::demanded_runtime_references(unit).len() == 1));
+
+        let cycle = (0..2).map(|index| CodegenInstance::try_new(
+            instances[index].key().clone(),
+            instances[index].mir().clone(),
+            [CodegenInstanceDependency::definition(instances[1-index].key().clone())],
+        ).unwrap());
+
+        let units = partitions(CodegenPartitionPolicy::NATIVE_LIBRARY_PUBLICATION, cycle, |_| compatibility(1, CodegenLinkage::Export));
+
+        assert_eq!(units.len(), 1);
+        assert_eq!(crate::demanded_runtime_references(&units[0]).len(), 2);
+    }
+
+    #[test]
+    fn native_selection_boundaries_do_not_hide_unrelated_library_exports() {
+        for linkage in [
+            CodegenLinkage::Weak,
+            CodegenLinkage::Fallback,
+            CodegenLinkage::LinkOnce,
+        ] {
+            let instances = (0..32).map(partition_test_instance).collect::<Vec<_>>();
+            let selected = instances[0].key().clone();
+
+            let units = partitions(
+                CodegenPartitionPolicy::NATIVE_LIBRARY_PUBLICATION,
+                instances,
+                |instance| {
+                    compatibility(
+                        1,
+                        if instance.key() == &selected {
+                            linkage
+                        } else {
+                            CodegenLinkage::Export
+                        },
+                    )
+                },
+            );
+
+            let boundary = units
+                .iter()
+                .find(|unit| {
+                    unit.instances()
+                        .iter()
+                        .any(|instance| instance.key() == &selected)
+                })
+                .unwrap_or_else(|| panic!("native selection boundary must publish"));
+
+            assert_eq!(boundary.instances().len(), 1);
+            assert!(units.iter().any(|unit| unit.instances().len() > 1));
+        }
+
+        let instances = (0..32).map(partition_test_instance).collect::<Vec<_>>();
+        let selected = instances[0].key().clone();
+
+        let units = partitions(
+            CodegenPartitionPolicy::NATIVE_LIBRARY_PUBLICATION,
+            instances,
+            |instance| {
+                let class = compatibility(1, CodegenLinkage::Export);
+
+                if instance.key() == &selected {
+                    class.with_native_selection_boundary()
+                } else {
+                    class
+                }
+            },
+        );
+
+        let boundary = units
+            .iter()
+            .find(|unit| {
+                unit.instances()
+                    .iter()
+                    .any(|instance| instance.key() == &selected)
+            })
+            .unwrap_or_else(|| panic!("native selection boundary must publish"));
+
+        assert_eq!(boundary.instances().len(), 1);
+        assert!(units.iter().any(|unit| unit.instances().len() > 1));
+
+        let target = MirTargetContract::new(
+            bray_target::NativeTarget::X86_64WindowsMsvc.profile(),
+            RuntimeAbiVersion::new(1, 0),
+        );
+
+        let units = partitions(
+            CodegenPartitionPolicy::NATIVE_LIBRARY_PUBLICATION,
+            [
+                CodegenInstance::non_generic(test_mir_unit_for_target(4, target.clone())),
+                CodegenInstance::non_generic(test_mir_unit_with_declaration_for_target(
+                    8, 1, target,
+                )),
+            ],
+            |_| compatibility(1, CodegenLinkage::LinkOnce),
+        );
+
+        assert_eq!(
+            units.len(),
+            1,
+            "COFF link-once definitions have exact COMDAT selection"
+        );
+
+        let units = partitions(
+            CodegenPartitionPolicy::NATIVE_BALANCED,
+            [
+                CodegenInstance::non_generic(test_mir_unit(4)),
+                CodegenInstance::non_generic(test_mir_unit_with_declaration(8, 1)),
+            ],
+            |_| compatibility(1, CodegenLinkage::Fallback),
+        );
+
+        assert_eq!(
+            units.len(),
+            1,
+            "product batching does not impose library extraction boundaries"
+        );
+    }
+
+    #[test]
+    fn metadata_changes_preserve_unrelated_partition_membership() {
+        let instances = (0..256).map(partition_test_instance).collect::<Vec<_>>();
+
+        let baseline = partitions(locality_policy(), instances.iter().cloned(), |_| {
+            compatibility(1, CodegenLinkage::Internal)
+        });
+
+        let updated = partitions(locality_policy(), instances, |instance| {
+            if instance.mir().unit().raw() == 128 {
+                compatibility(2, CodegenLinkage::Export)
+            } else {
+                compatibility(1, CodegenLinkage::Internal)
+            }
+        });
+
+        assert_eq!(
+            baseline
+                .iter()
+                .map(|unit| unit.key().instances())
+                .collect::<Vec<_>>(),
+            updated
+                .iter()
+                .map(|unit| unit.key().instances())
+                .collect::<Vec<_>>(),
+        );
+
+        assert_eq!(
+            baseline
+                .iter()
+                .filter(|unit| updated.contains(unit))
+                .count(),
+            baseline.len() - 1
+        );
+    }
+
+    #[test]
+    fn independent_started_tasks_can_use_external_frame_helpers() {
+        let first_mir = test_mir_unit(4);
+        let second_mir = test_mir_unit_with_declaration(8, 1);
+        let second_key = CodegenInstanceKey::non_generic(&second_mir);
+
+        let first = CodegenInstance::try_new(
+            CodegenInstanceKey::non_generic(&first_mir),
+            first_mir,
+            [CodegenInstanceDependency::new(
+                crate::CodegenInstanceDependencyKind::StartedTask,
+                second_key.clone(),
+            )],
+        )
+        .unwrap_or_else(|error| panic!("started task must validate: {error:?}"));
+
+        let units = partitions(
+            tiny_policy(),
+            [first, CodegenInstance::non_generic(second_mir)],
+            |_| compatibility(1, CodegenLinkage::Internal),
+        );
+
         assert_eq!(units.len(), 2);
 
-        assert_ne!(
-            units[0].compatibility(units[0].instances()[0].key()),
-            units[1].compatibility(units[1].instances()[0].key())
+        assert!(
+            units
+                .iter()
+                .any(|unit| unit.external_instances().contains(&second_key))
+        );
+    }
+
+    #[test]
+    fn started_task_dependency_cycles_remain_indivisible() {
+        let first_mir = test_mir_unit(4);
+        let second_mir = test_mir_unit_with_declaration(8, 1);
+        let first_key = CodegenInstanceKey::non_generic(&first_mir);
+        let second_key = CodegenInstanceKey::non_generic(&second_mir);
+
+        let first = CodegenInstance::try_new(
+            first_key.clone(),
+            first_mir,
+            [CodegenInstanceDependency::new(
+                crate::CodegenInstanceDependencyKind::StartedTask,
+                second_key.clone(),
+            )],
+        )
+        .unwrap_or_else(|error| panic!("started task must validate: {error:?}"));
+
+        let second = CodegenInstance::try_new(
+            second_key,
+            second_mir,
+            [CodegenInstanceDependency::definition(first_key)],
+        )
+        .unwrap_or_else(|error| panic!("cycle must validate: {error:?}"));
+
+        let units = partitions(tiny_policy(), [first, second], |_| {
+            compatibility(1, CodegenLinkage::Internal)
+        });
+
+        assert_eq!(units.len(), 1);
+
+        assert_eq!(
+            units[0].oversized().map(|oversized| oversized.reason()),
+            Some(CodegenOversizedUnitReason::IndivisibleDependencyGroup)
+        );
+    }
+
+    #[test]
+    fn unit_visible_definitions_are_co_located_with_every_caller() {
+        let private_mir = test_mir_unit_with_declaration(12, 2);
+        let private_key = CodegenInstanceKey::non_generic(&private_mir);
+
+        let callers = [test_mir_unit(4), test_mir_unit_with_declaration(8, 1)].map(|mir| {
+            CodegenInstance::try_new(
+                CodegenInstanceKey::non_generic(&mir),
+                mir,
+                [CodegenInstanceDependency::definition(private_key.clone())],
+            )
+            .unwrap_or_else(|error| panic!("private call must validate: {error:?}"))
+        });
+
+        let units = partitions(
+            tiny_policy(),
+            callers
+                .into_iter()
+                .chain([CodegenInstance::non_generic(private_mir)]),
+            |instance| {
+                if instance.key() == &private_key {
+                    CodegenPartitionCompatibility::new(
+                        compatibility(2, CodegenLinkage::Private).package().clone(),
+                        [2; 32],
+                        CodegenLinkage::Private,
+                        CodegenDefinitionVisibility::Unit,
+                    )
+                } else {
+                    compatibility(1, CodegenLinkage::Export)
+                }
+            },
+        );
+
+        assert_eq!(units.len(), 1);
+        assert_eq!(units[0].instances().len(), 3);
+        assert!(units[0].external_instances().is_empty());
+
+        assert_eq!(
+            units[0].oversized().map(|oversized| oversized.reason()),
+            Some(CodegenOversizedUnitReason::IndivisibleDependencyGroup)
         );
     }
 

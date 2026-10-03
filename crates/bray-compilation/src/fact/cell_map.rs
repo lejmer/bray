@@ -16,7 +16,8 @@ pub(crate) struct FactCellMap<K, V> {
 
 #[derive(Debug)]
 struct FactCellMapState<K, V> {
-    cells: BTreeMap<K, FactCellMapEntry<V>>,
+    cells: BTreeMap<Arc<K>, FactCellMapEntry<V>>,
+    accesses: BTreeMap<u64, Arc<K>>,
     next_access: u64,
 }
 
@@ -41,6 +42,7 @@ where
             retention_limit,
             state: Mutex::new(FactCellMapState {
                 cells: BTreeMap::new(),
+                accesses: BTreeMap::new(),
                 next_access: 0,
             }),
         }
@@ -69,22 +71,33 @@ where
                 })?;
 
         if let Some(entry) = state.cells.get_mut(&key) {
+            let previous_access = entry.last_access;
+
             entry.last_access = access;
 
             let cell = Arc::clone(&entry.cell);
 
-            reclaim_entries(&mut state.cells, self.retention_limit, Some(access));
+            let indexed_key = state.accesses.remove(&previous_access)
+                .expect("cached fact must have exactly one access identity");
+
+            state.accesses.insert(access, indexed_key);
+            reclaim_entries(&mut state, self.retention_limit, Some(access));
 
             return Ok(cell);
         }
 
         reclaim_entries(
-            &mut state.cells,
+            &mut state,
             self.retention_limit.saturating_sub(1),
             None,
         );
 
         let cell = Arc::new(FactCell::new());
+
+        // Both indexes share one immutable key without copying large query payloads.
+        let key = Arc::new(key);
+
+        state.accesses.insert(access, Arc::clone(&key));
 
         state.cells.insert(
             key,
@@ -101,10 +114,7 @@ where
         &self,
         reusable: &std::collections::BTreeSet<CompilationFactKey>,
         semantic_key: impl Fn(&K) -> CompilationFactKey,
-    ) -> Self
-    where
-        K: Clone,
-    {
+    ) -> Self {
         // Snapshot reuse has no fallible boundary. Poison here is a violated compiler invariant,
         // while ordinary query access reports the exact synchronization component.
         let state = self
@@ -121,15 +131,20 @@ where
 
                 reusable.contains(&semantic_key) && entry.cell.is_ready_for(&semantic_key)
             })
-            .map(|(key, entry)| (key.clone(), entry.last_access, Arc::clone(&entry.cell)))
+            .map(|(key, entry)| (Arc::clone(key), entry.last_access, Arc::clone(&entry.cell)))
             .collect::<Vec<_>>();
 
         cells.sort_by_key(|(_, access, _)| std::cmp::Reverse(*access));
         cells.truncate(self.retention_limit);
 
+        let accesses = cells.iter()
+            .map(|(key, access, _)| (*access, Arc::clone(key)))
+            .collect();
+
         Self {
             retention_limit: self.retention_limit,
             state: Mutex::new(FactCellMapState {
+                accesses,
                 next_access: cells
                     .iter()
                     .map(|(_, access, _)| *access)
@@ -154,7 +169,7 @@ where
             .lock()
             .unwrap_or_else(|_| panic!("fact cache map must remain available"));
 
-        state.cells.keys().cloned().collect()
+        state.cells.keys().map(|key| (**key).clone()).collect()
     }
 
     #[cfg(test)]
@@ -200,34 +215,46 @@ where
 }
 
 fn reclaim_entries<K, V>(
-    cells: &mut BTreeMap<K, FactCellMapEntry<V>>,
+    state: &mut FactCellMapState<K, V>,
     retained: usize,
     protected_access: Option<u64>,
 ) where
     K: Ord,
 {
-    while cells.len() > retained {
-        let oldest_access = cells
-            .values()
-            .filter(|entry| {
-                let reclaimable = entry.cell.get().is_some()
-                    || (Arc::strong_count(&entry.cell) == 1 && entry.cell.is_vacant());
+    while state.cells.len() > retained {
+        let oldest_access = state.accesses.iter()
+            .find(|(access, key)| {
+                if Some(**access) == protected_access {
+                    return false;
+                }
 
-                reclaimable && Some(entry.last_access) != protected_access
+                let entry = state.cells.get(key.as_ref())
+                    .expect("indexed access must identify a cached fact");
+
+                entry.cell.get().is_some()
+                    || (Arc::strong_count(&entry.cell) == 1 && entry.cell.is_vacant())
             })
-            .min_by_key(|entry| entry.last_access)
-            .map(|entry| entry.last_access);
+            .map(|(access, _)| *access);
 
         let Some(oldest_access) = oldest_access else {
             return;
         };
 
-        cells.retain(|_, entry| entry.last_access != oldest_access);
+        let key = state.accesses.remove(&oldest_access)
+            .expect("selected access must remain indexed until removal");
+
+        let entry = state.cells.remove(key.as_ref())
+            .expect("selected access must retain its cached fact until removal");
+
+        assert_eq!(entry.last_access, oldest_access, "fact access indexes must agree");
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+    use std::sync::Arc;
+
     use super::FactCellMap;
     use crate::fact::{
         CancellationToken, CapacityResource, CompilationFactKey, FactQueryError, FactRuntime,
@@ -250,6 +277,74 @@ mod tests {
         publish(&cache, &runtime, &cancellation, 3);
 
         assert_eq!(cache.keys(), [1, 3]);
+    }
+
+    #[test]
+    fn indexed_eviction_matches_recent_use_order_across_hits_and_misses() {
+        let cache = FactCellMap::with_retention_limit(3);
+        let runtime = FactRuntime::default();
+        let cancellation = CancellationToken::new();
+        let mut expected = Vec::new();
+
+        for step in 0..256 {
+            let key = (step * 7 + step / 5) % 11;
+
+            if let Some(position) = expected.iter().position(|candidate| *candidate == key) {
+                expected.remove(position);
+            } else if expected.len() == 3 {
+                expected.remove(0);
+            }
+
+            expected.push(key);
+            publish(&cache, &runtime, &cancellation, key);
+
+            let mut sorted = expected.clone();
+
+            sorted.sort_unstable();
+
+            assert_eq!(cache.keys(), sorted);
+            assert_access_index(&cache);
+        }
+    }
+
+    #[test]
+    fn snapshot_rebuilds_access_order_and_shares_key_storage() {
+        let cache = FactCellMap::with_retention_limit(2);
+        let runtime = FactRuntime::default();
+        let cancellation = CancellationToken::new();
+
+        publish(&cache, &runtime, &cancellation, 1);
+        publish(&cache, &runtime, &cancellation, 2);
+
+        let _ = cache.cell(1).expect("published fact must remain available");
+
+        let updated = cache.updated(
+            &BTreeSet::from([CompilationFactKey::SyntaxTree]),
+            |_| CompilationFactKey::SyntaxTree,
+        );
+
+        assert!(cache.shares_cell_with(&updated, &1));
+        assert!(cache.shares_cell_with(&updated, &2));
+        assert_access_index(&updated);
+
+        publish(&updated, &runtime, &cancellation, 3);
+
+        assert_eq!(cache.keys(), [1, 2]);
+        assert_eq!(updated.keys(), [1, 3]);
+        assert_access_index(&updated);
+    }
+
+    fn assert_access_index(cache: &FactCellMap<u32, u32>) {
+        let state = cache.state.lock().expect("test cache state must be available");
+
+        assert_eq!(state.cells.len(), state.accesses.len());
+
+        for (key, entry) in &state.cells {
+            let indexed = state.accesses.get(&entry.last_access)
+                .expect("every cached key must have an access entry");
+
+            assert!(Arc::ptr_eq(key, indexed));
+        }
     }
 
     #[test]

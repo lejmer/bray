@@ -8,8 +8,6 @@ use bray_ir::{
 };
 use bray_symbols::{ConstantTermId, ConstantValueId, ConstantValueKind, TypeId};
 
-use crate::CodegenUnit;
-
 /// Constant values and exact use-site types demanded by one code generation unit.
 pub struct ConstantDemands {
     values: BTreeSet<ConstantValueId>,
@@ -28,14 +26,14 @@ impl ConstantDemands {
     }
 }
 
-/// Returns constant values directly demanded by one code generation unit.
-pub fn demanded_constants(unit: &CodegenUnit) -> ConstantDemands {
+/// Returns constant values directly demanded by the retained MIR units.
+pub fn demanded_constants<'a>(units: impl IntoIterator<Item = &'a MirUnit>) -> ConstantDemands {
     let mut demands = ConstantDemands {
         values: BTreeSet::new(),
         types: BTreeMap::new(),
     };
 
-    for unit in unit.mir_units() {
+    for unit in units {
         for operation in unit.operations() {
             collect_operation_values(operation.kind(), &mut demands);
         }

@@ -1437,7 +1437,7 @@ mod tests {
             .push_operation(
                 block,
                 source.clone(),
-                MirOperationKind::Memory(operation),
+                MirOperationKind::Memory(Box::new(operation)),
                 result_type,
             )
             .unwrap_or_else(|error| panic!("memory test operation must be valid: {error:?}"));

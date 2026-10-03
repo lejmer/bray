@@ -11,7 +11,7 @@ use crate::process::output_detail;
 
 const BUILD_DIRECTORY: &str = "bray-lld-build";
 const SOURCE_DIRECTORY: &str = "source";
-const NATIVE_SOURCES: [(&str, &[u8]); 4] = [
+const NATIVE_SOURCES: [(&str, &[u8]); 6] = [
     ("main.cpp", include_bytes!("../native/lld/main.cpp")),
     ("manifest.cpp", include_bytes!("../native/lld/manifest.cpp")),
     (
@@ -19,6 +19,14 @@ const NATIVE_SOURCES: [(&str, &[u8]); 4] = [
         include_bytes!("../native/lld/telemetry.cpp"),
     ),
     ("telemetry.h", include_bytes!("../native/lld/telemetry.h")),
+    (
+        "definition_sizes.cpp",
+        include_bytes!("../native/lld/definition_sizes.cpp"),
+    ),
+    (
+        "definition_sizes_test.cpp",
+        include_bytes!("../native/lld/definition_sizes_test.cpp"),
+    ),
 ];
 
 pub(crate) fn digest() -> String {
@@ -96,7 +104,10 @@ fn prepare_sources(
             .arg(&source)
             .arg("--strip-components")
             .arg("1")
-            .arg(format!("llvm-project-{version}.src/lld")),
+            .arg(format!("llvm-project-{version}.src/lld"))
+            .arg(format!(
+                "llvm-project-{version}.src/llvm/lib/IR/AsmWriter.cpp"
+            )),
         "tar",
     )?;
 
@@ -110,6 +121,16 @@ fn build_linker(
     identity: &str,
 ) -> Result<(), InstrumentationError> {
     write_native_sources(build)?;
+
+    let assembly_writer = source.join("llvm/lib/IR/AsmWriter.cpp");
+
+    let mut writer_source = fs::read_to_string(&assembly_writer)
+        .map_err(|error| InstrumentationError::io("read", &assembly_writer, error))?;
+
+    writer_source.push_str("\n#include \"definition_sizes.cpp\"\n");
+
+    fs::write(&assembly_writer, writer_source)
+        .map_err(|error| InstrumentationError::io("write", &assembly_writer, error))?;
 
     let flavor = host_flavor();
     let flavor_source = source.join("lld").join(flavor.source_directory());
@@ -140,6 +161,15 @@ fn build_linker(
 
     let lto_source = flavor_source.join("LTO.cpp");
 
+    let writer_object = compile(
+        toolchain,
+        source,
+        build,
+        "assembly_writer",
+        &assembly_writer,
+        identity,
+    )?;
+
     let mut objects = Vec::new();
 
     for (name, source_path) in [
@@ -156,6 +186,27 @@ fn build_linker(
             identity,
         )?);
     }
+
+    let test_object = compile(
+        toolchain,
+        source,
+        build,
+        "definition_sizes_test",
+        &build.join("definition_sizes_test.cpp"),
+        identity,
+    )?;
+
+    let test_binary = build.join(executable("definition-sizes-test"));
+
+    link_objects(
+        toolchain,
+        &test_binary,
+        None,
+        &[writer_object.clone(), test_object],
+    )?;
+
+    run(&mut Command::new(&test_binary), "definition-sizes-test")?;
+    objects.push(writer_object);
 
     if cfg!(windows) {
         objects.push(compile(
@@ -237,7 +288,16 @@ fn compile(
     let mut command = Command::new(tool(toolchain, compiler));
 
     if cfg!(windows) {
-        command.args(["/nologo", "/std:c++17", "/O2", "/DNDEBUG", "/EHsc", "/c"]);
+        command.args([
+            "/nologo",
+            "/std:c++17",
+            "/O2",
+            "/DNDEBUG",
+            "/DLLVM_BUILD_STATIC",
+            "/EHsc",
+            "/c",
+        ]);
+
         command.arg(format!("/DBRAY_LLD_TOOLCHAIN_IDENTITY=\"{identity}\""));
         command.arg(source);
 
@@ -251,6 +311,7 @@ fn compile(
             "-std=c++17",
             "-O2",
             "-DNDEBUG",
+            "-DLLVM_BUILD_STATIC",
             "-fno-exceptions",
             "-fno-rtti",
             "-c",
@@ -287,8 +348,23 @@ fn link(
     flavor: HostFlavor,
     objects: &[PathBuf],
 ) -> Result<(), InstrumentationError> {
-    let compiler = if cfg!(windows) { "clang-cl" } else { "clang++" };
     let output = build.join(executable(flavor.executable()));
+
+    link_objects(toolchain, &output, Some(flavor), objects)?;
+
+    publish_linker(
+        &output,
+        &toolchain.join("bin").join(executable(flavor.executable())),
+    )
+}
+
+fn link_objects(
+    toolchain: &Path,
+    output: &Path,
+    flavor: Option<HostFlavor>,
+    objects: &[PathBuf],
+) -> Result<(), InstrumentationError> {
+    let compiler = if cfg!(windows) { "clang-cl" } else { "clang++" };
     let library_directory = toolchain.join("lib");
     let mut command = Command::new(tool(toolchain, compiler));
 
@@ -297,13 +373,16 @@ fn link(
     }
 
     command.args(objects);
-    command.arg(library_directory.join(flavor.library()));
 
-    command.arg(library_directory.join(if cfg!(windows) {
-        "lldCommon.lib"
-    } else {
-        "liblldCommon.a"
-    }));
+    if let Some(flavor) = flavor {
+        command.arg(library_directory.join(flavor.library()));
+
+        command.arg(library_directory.join(if cfg!(windows) {
+            "lldCommon.lib"
+        } else {
+            "liblldCommon.a"
+        }));
+    }
 
     for library in llvm_libraries(toolchain)? {
         if !(cfg!(windows) && library == "LLVMWindowsManifest.lib") {
@@ -327,13 +406,10 @@ fn link(
     run(&mut command, compiler)?;
 
     if !output.is_file() {
-        return Err(InstrumentationError::MissingOutput(output));
+        return Err(InstrumentationError::MissingOutput(output.to_path_buf()));
     }
 
-    publish_linker(
-        &output,
-        &toolchain.join("bin").join(executable(flavor.executable())),
-    )
+    Ok(())
 }
 
 fn publish_linker(source: &Path, destination: &Path) -> Result<(), InstrumentationError> {
@@ -574,7 +650,7 @@ mod tests {
         staged_digest.write_usize(implementation.len());
         staged_digest.write(implementation);
 
-        for name in ["main.cpp", "manifest.cpp", "telemetry.cpp", "telemetry.h"] {
+        for (name, _) in super::NATIVE_SOURCES {
             let contents = std::fs::read(directory.path().join(name))
                 .unwrap_or_else(|error| panic!("staged {name} must be readable: {error}"));
 

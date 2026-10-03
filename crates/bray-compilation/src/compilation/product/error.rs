@@ -246,10 +246,6 @@ pub(crate) enum ProductDataKind {
     ImportedSemanticAddress,
     /// A type-expression template resolved to one semantic type.
     ResolvedType,
-    /// The completed compilation diagnostic set requested by product emission.
-    CompilationDiagnostics,
-    /// The package-interface contribution requested by product emission.
-    PackageInterfaceContribution,
     /// The planned package-implementation artifact requested by product emission.
     PackageImplementationArtifact,
 }

@@ -122,7 +122,7 @@ where
 {
     let mut diagnostics = DiagnosticBag::new();
 
-    let liveness = complete!(
+    let (liveness, edge_lifetime_ends) = complete!(
         diagnostics,
         analyze_storage_liveness_with_graph(
             request,
@@ -143,7 +143,15 @@ where
 
     let flow = complete!(
         diagnostics,
-        check_storage_flow_with_graph(request, storage, &liveness, &refinements, memory, graph,)
+        check_storage_flow_with_graph(
+            request,
+            storage,
+            &liveness,
+            &refinements,
+            memory,
+            graph,
+            &edge_lifetime_ends,
+        )
     );
 
     let dependencies = complete!(

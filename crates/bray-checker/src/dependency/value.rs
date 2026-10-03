@@ -18,7 +18,7 @@ pub(crate) struct ValueInputs {
         BoundExpressionId,
         Vec<(BoundExpressionId, Vec<bray_symbols::DependencyProjection>)>,
     >,
-    pub(super) writes: BTreeMap<BoundExpressionId, Vec<super::assignment::AssignedValue>>,
+    pub(super) writes: super::assignment::AssignmentInputs,
     pub(super) projected: BTreeMap<
         BoundExpressionId,
         Vec<(BoundExpressionId, Vec<bray_symbols::DependencyProjection>)>,
@@ -106,12 +106,12 @@ impl ValueInputs {
             projections: BTreeMap::new(),
             initializers: BTreeMap::new(),
             borrowed: BTreeMap::new(),
-            writes: BTreeMap::new(),
+            writes: Default::default(),
         };
 
         result.collect_projections(unit, selections, patterns);
 
-        result.writes = super::assignment::assignment_inputs(unit, selections, &result);
+        result.writes = super::assignment::AssignmentInputs::new(unit, selections, &result);
 
         result
     }
@@ -132,7 +132,10 @@ impl ValueInputs {
 
         inputs.collect_returned_borrows(request, types, selections, declaration)?;
         inputs.collect_projections(request.unit(), selections, patterns);
-        inputs.writes = super::assignment::assignment_inputs(request.unit(), selections, &inputs);
+
+        inputs.writes =
+            super::assignment::AssignmentInputs::new(request.unit(), selections, &inputs);
+
         inputs.filter_independent(request, types)?;
         inputs.collect_propagation(request, selections)?;
 
@@ -142,19 +145,28 @@ impl ValueInputs {
     pub(crate) fn projected_operands(
         &self,
         expression: BoundExpressionId,
-    ) -> impl Iterator<Item = (BoundExpressionId, &[bray_symbols::DependencyProjection])> {
-        self.projected
-            .get(&expression)
+    ) -> impl Iterator<
+        Item = (
+            BoundExpressionId,
+            std::borrow::Cow<'_, [bray_symbols::DependencyProjection]>,
+        ),
+    > {
+        (!self.is_independent(expression))
+            .then_some(expression)
             .into_iter()
-            .flatten()
-            .map(|(value, path)| (*value, path.as_slice()))
-            .chain(
-                self.writes
+            .flat_map(move |expression| {
+                self.projected
                     .get(&expression)
                     .into_iter()
                     .flatten()
-                    .map(|write| (write.value, write.source.as_slice())),
-            )
+                    .map(|(value, path)| (*value, std::borrow::Cow::Borrowed(path.as_slice())))
+                    .chain(self.writes.values(expression).map(|write| {
+                        (
+                            write.value,
+                            std::borrow::Cow::Owned(write.source().collect()),
+                        )
+                    }))
+            })
     }
 
     pub(crate) fn propagated_errors(

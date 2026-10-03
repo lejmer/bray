@@ -454,6 +454,7 @@ impl FactRuntime {
     where
         T: Hash + ?Sized,
     {
+        let fingerprint = fact_fingerprint(key, value);
         let state = self.state_for(Some(key), Some(context.identity()))?;
 
         assert_eq!(
@@ -501,8 +502,7 @@ impl FactRuntime {
             })
             .collect::<BTreeMap<_, _>>();
 
-        let record =
-            FactDependencyRecord::new(fact_fingerprint(key, value), facts, input_dependencies);
+        let record = FactDependencyRecord::new(fingerprint, facts, input_dependencies);
 
         // The commit owns the key while coordinating runtime and cache publication locks.
         Ok(EvaluationCommit {
@@ -551,10 +551,13 @@ impl FactRuntime {
     ) -> Result<Option<Box<[CompilationFactKey]>>, FactQueryError> {
         let state = self.state_for(Some(key), None)?;
 
-        Ok(state
-            .records
-            .get(key)
-            .map(|record| record.facts().keys().cloned().collect::<Box<[_]>>()))
+        Ok(state.records.get(key).map(|record| {
+            record
+                .facts()
+                .iter()
+                .map(|(key, _)| key.clone())
+                .collect::<Box<[_]>>()
+        }))
     }
 
     #[cfg(test)]
@@ -564,10 +567,13 @@ impl FactRuntime {
     ) -> Result<Option<Box<[CompilationInputKey]>>, FactQueryError> {
         let state = self.state_for(Some(key), None)?;
 
-        Ok(state
-            .records
-            .get(key)
-            .map(|record| record.inputs().keys().cloned().collect::<Box<[_]>>()))
+        Ok(state.records.get(key).map(|record| {
+            record
+                .inputs()
+                .iter()
+                .map(|(key, _)| key.clone())
+                .collect::<Box<[_]>>()
+        }))
     }
 }
 
@@ -637,7 +643,7 @@ fn reverse_dependencies(
     let mut dependents = BTreeMap::<CompilationFactKey, Vec<CompilationFactKey>>::new();
 
     for (fact, record) in &state.records {
-        for dependency in record.facts().keys() {
+        for (dependency, _) in record.facts() {
             dependents
                 .entry(dependency.clone())
                 .or_default()
@@ -882,6 +888,125 @@ mod tests {
         FactDependencyRecord, FactQueryError, FactRuntimeFailure, SynchronizationComponent,
         fact_fingerprint,
     };
+
+    #[test]
+    fn hashing_one_result_does_not_block_independent_fact_publication() {
+        use std::hash::{Hash, Hasher};
+        use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
+        use std::time::Duration;
+
+        struct PausedValue {
+            entered: SyncSender<()>,
+            resume: Mutex<Receiver<()>>,
+        }
+
+        impl Hash for PausedValue {
+            fn hash<H: Hasher>(&self, state: &mut H) {
+                self.entered.send(()).unwrap();
+                self.resume.lock().unwrap().recv().unwrap();
+                1_u8.hash(state);
+            }
+        }
+
+        let runtime = FactRuntime::default();
+        let cancellation = CancellationToken::new();
+        let first = FactCell::new();
+        let second = FactCell::new();
+
+        let (entered, hashing) = sync_channel(1);
+
+        let (resume, paused) = sync_channel(1);
+
+        let (published, publication) = sync_channel(1);
+
+        std::thread::scope(|scope| {
+            let first_request = scope.spawn(|| {
+                first
+                    .get_or_compute(
+                        &runtime,
+                        CompilationFactKey::SyntaxTree,
+                        &cancellation,
+                        || {
+                            Ok(PausedValue {
+                                entered,
+                                resume: Mutex::new(paused),
+                            })
+                        },
+                    )
+                    .unwrap();
+            });
+
+            hashing.recv_timeout(Duration::from_secs(5)).unwrap();
+
+            let second_request = scope.spawn(|| {
+                let result = second
+                    .get_or_compute(
+                        &runtime,
+                        CompilationFactKey::DeclarationTable,
+                        &cancellation,
+                        || Ok(7_u8),
+                    )
+                    .unwrap();
+
+                published.send(*result).unwrap();
+            });
+
+            let independent = publication.recv_timeout(Duration::from_secs(5));
+
+            resume.send(()).unwrap();
+            first_request.join().unwrap();
+            second_request.join().unwrap();
+
+            assert_eq!(independent.unwrap(), 7);
+        });
+    }
+
+    #[test]
+    fn panicking_result_hash_discards_publication_and_allows_retry() {
+        use std::hash::{Hash, Hasher};
+
+        struct Value {
+            panic_on_hash: bool,
+        }
+
+        impl Hash for Value {
+            fn hash<H: Hasher>(&self, state: &mut H) {
+                assert!(
+                    !self.panic_on_hash,
+                    "test result hash must unwind before publication"
+                );
+
+                1_u8.hash(state);
+            }
+        }
+
+        let runtime = FactRuntime::default();
+        let cancellation = CancellationToken::new();
+        let cell = FactCell::new();
+        let key = CompilationFactKey::SyntaxTree;
+
+        let failed = catch_unwind(AssertUnwindSafe(|| {
+            cell.get_or_compute(&runtime, key.clone(), &cancellation, || {
+                Ok(Value {
+                    panic_on_hash: true,
+                })
+            })
+        }));
+
+        assert!(failed.is_err());
+        assert!(cell.get().is_none());
+        runtime.assert_no_dependency_record_after_unwind(&key);
+
+        let retried = cell
+            .get_or_compute(&runtime, key, &cancellation, || {
+                Ok(Value {
+                    panic_on_hash: false,
+                })
+            })
+            .unwrap();
+
+        assert!(!retried.panic_on_hash);
+    }
 
     #[test]
     fn evaluation_observation_records_only_started_computations() {
