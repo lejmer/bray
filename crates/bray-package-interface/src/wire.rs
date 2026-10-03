@@ -21,6 +21,7 @@ impl WireDecodeError {
     }
 }
 
+#[derive(Clone, Copy)]
 pub(crate) struct WireReader<'bytes> {
     bytes: &'bytes [u8],
     position: usize,

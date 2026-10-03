@@ -24,9 +24,17 @@ pub fn decode_semantics(
     surface: &PackageInterfaceSurface,
     limits: InterfaceValidationLimits,
 ) -> Result<InterfaceSemantics, InterfaceValidationError> {
-    validate_decode_allocation(sections, limits)?;
+    decode_semantics_with_context(sections, surface, SemanticDecodeContext::new(limits))
+}
 
-    let mut context = SemanticDecodeContext::new(limits);
+pub(crate) fn decode_semantics_with_context(
+    sections: &[ValidatedInterfaceSection<'_>],
+    surface: &PackageInterfaceSurface,
+    mut context: SemanticDecodeContext,
+) -> Result<InterfaceSemantics, InterfaceValidationError> {
+    let limits = context.limits();
+
+    validate_decode_allocation(sections, limits)?;
 
     let directory = required_section(sections, InterfaceSectionTag::SemanticRecordDirectory)?;
     let types = required_section(sections, InterfaceSectionTag::SemanticTypes)?;
@@ -66,14 +74,37 @@ pub fn decode_semantics(
     Ok(semantics)
 }
 
-pub(crate) fn decode_semantic_graph(
+#[cfg(test)]
+fn decode_semantic_graph(
     sections: &[ValidatedInterfaceSection<'_>],
     surface: &PackageInterfaceSurface,
     owner: bray_symbols::InterfaceSymbolId,
     kind: crate::InterfaceSemanticRecordKind,
     limits: InterfaceValidationLimits,
 ) -> Result<InterfaceSemantics, InterfaceValidationError> {
-    match decode_selected_semantic_graph(sections, surface, owner, kind, limits)? {
+    let expected = decode_selected_semantic_graph(
+        sections,
+        surface,
+        owner,
+        kind,
+        SemanticDecodeContext::new(limits),
+    );
+
+    let index = std::sync::Arc::new(crate::semantic::SemanticRecordIndex::default());
+
+    for _ in 0..2 {
+        let actual = decode_selected_semantic_graph(
+            sections,
+            surface,
+            owner,
+            kind,
+            SemanticDecodeContext::with_index(limits, std::sync::Arc::clone(&index)),
+        );
+
+        assert_eq!(actual, expected);
+    }
+
+    match expected? {
         Some(semantics) => Ok(semantics),
         None => decode_semantics(sections, surface, limits),
     }
@@ -84,8 +115,10 @@ pub(crate) fn decode_selected_semantic_graph(
     surface: &PackageInterfaceSurface,
     owner: bray_symbols::InterfaceSymbolId,
     kind: crate::InterfaceSemanticRecordKind,
-    limits: InterfaceValidationLimits,
+    context: SemanticDecodeContext,
 ) -> Result<Option<InterfaceSemantics>, InterfaceValidationError> {
+    let limits = context.limits();
+
     let Some(required_tags) = selected_semantic_sections(kind) else {
         return Ok(None);
     };
@@ -98,7 +131,7 @@ pub(crate) fn decode_selected_semantic_graph(
 
     validate_decode_allocation(&selected_sections, limits)?;
 
-    selection::decode_selected_record_graph(sections, surface, owner, kind, limits).map(Some)
+    selection::decode_selected_record_graph(sections, surface, owner, kind, context).map(Some)
 }
 
 pub(crate) fn selected_semantic_sections(
