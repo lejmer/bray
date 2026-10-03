@@ -903,7 +903,7 @@ mod tests {
         let storage = StoragePlanBuilder::new(unit.unit(), unit.key().kind()).finish();
 
         let storage_flow =
-            StorageFlow::try_new(unit.unit(), unit.key().kind(), [], [], [], [], [], false)
+            StorageFlow::try_new(unit.unit(), unit.key().kind(), [], [], [], [], false)
                 .unwrap_or_else(|error| panic!("empty storage flow must validate: {error:?}"));
 
         let liveness = Liveness::try_new(unit.unit(), unit.key().kind(), [], [], [], [], [], false)
