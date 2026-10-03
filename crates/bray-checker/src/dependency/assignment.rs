@@ -71,7 +71,15 @@ impl AssignmentInputs {
         selections: &CheckedSemanticSelections,
         inputs: &super::ValueInputs,
     ) -> Self {
-        let places = unit
+        if !unit
+            .tree()
+            .expressions()
+            .any(|(_, expression)| matches!(expression, BoundExpression::Assignment(_)))
+        {
+            return Self::default();
+        }
+
+        let mut places = unit
             .tree()
             .expressions()
             .filter_map(|(id, _)| {
@@ -102,6 +110,12 @@ impl AssignmentInputs {
                 });
             }
         }
+
+        places.retain(|_, places| {
+            places.retain(|(root, _)| by_root.contains_key(root));
+
+            !places.is_empty()
+        });
 
         Self { places, by_root }
     }
@@ -276,10 +290,38 @@ mod tests {
         unselected_name_expression,
     };
     use bray_bound_tree::{
-        BoundAssignmentExpression, BoundAssignmentOperator, BoundExpression, BoundUnitId,
-        CheckedPatterns, CheckedSemanticSelections, ExpressionTypeResult, ExpressionTypeStatus,
+        BoundAssignmentExpression, BoundAssignmentOperator, BoundExpression, BoundNameExpression,
+        BoundReferenceTarget, BoundUnitId, CheckedPatterns, CheckedSemanticSelections,
+        ExpressionTypeResult, ExpressionTypeStatus,
     };
-    use bray_symbols::{DependencyProjection, SymbolOrdinal};
+    use bray_symbols::{
+        AnySymbolId, DependencyProjection, FunctionSymbolId, SymbolId, SymbolOrdinal,
+    };
+
+    #[test]
+    fn read_only_bodies_do_not_retain_assignment_places() {
+        for count in [64, 128, 256, 1024] {
+            let (unit, expressions) = expression_unit(BoundUnitId::new(82), |tree, origin| {
+                (0..count)
+                    .map(|_| push_expression(tree, unselected_name_expression(origin)))
+                    .collect()
+            });
+
+            let types = checked_expression_types(
+                &unit,
+                expressions.iter().copied(),
+                ExpressionTypeResult::new(error_type(), ExpressionTypeStatus::Valid),
+            );
+
+            let selections = CheckedSemanticSelections::try_new(&unit, &types, [])
+                .expect("read-only selections must build");
+
+            let patterns = CheckedPatterns::new(unit.unit(), unit.key().kind(), [], [], []);
+            let inputs = ValueInputs::new(&unit, &selections, &patterns);
+
+            assert_eq!(inputs.writes, AssignmentInputs::default());
+        }
+    }
 
     #[test]
     fn repeated_assignments_share_root_alternatives_across_reads() {
@@ -305,6 +347,18 @@ mod tests {
                     expressions.extend([destination, value, assignment]);
                 }
 
+                expressions.push(push_expression(
+                    tree,
+                    BoundExpression::Name(BoundNameExpression::new(
+                        origin,
+                        BoundReferenceTarget::Surface(AnySymbolId::from(
+                            FunctionSymbolId::from_symbol_id(SymbolId::new(1)),
+                        )),
+                        None,
+                        false,
+                    )),
+                ));
+
                 expressions
             });
 
@@ -326,6 +380,7 @@ mod tests {
             assert_eq!(writes.places.len(), count * 2);
             assert_eq!(writes.values(expressions[0]).count(), count);
             assert_eq!(writes.values(expressions[count * 3 - 2]).count(), count);
+            assert_eq!(writes.values(expressions[count * 3]).count(), 0);
         }
     }
 
