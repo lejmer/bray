@@ -177,6 +177,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .take()
             .expect("checked MIR translation requires an established mapping or value");
 
+        if let Some(incoming) = self.panic_report_context {
+            assert_eq!(context, incoming, "checked calls must reuse the incoming outcome context");
+        }
+
         let ty = crate::native::run_outcome_type(self.types.context(), self.request.target());
 
         let state_pointer =
@@ -222,12 +226,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         ))?;
 
         self.builder.position_at_end(propagate_cancellation);
-        llvm(self.builder.build_store(context, ty.const_zero()))?;
 
         let (_, pending_moves) = self.take_control_source()?;
 
         let cancellation_route =
-            self.route_edge(cancelled_edge, "call.cancelled", &pending_moves)?;
+            self.route_call_cancellation(cancelled_edge, context, &pending_moves)?;
 
         self.builder.position_at_end(propagate_cancellation);
         llvm(self.builder.build_unconditional_branch(cancellation_route))?;
@@ -258,7 +261,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         Ok(())
     }
 
-    fn return_propagated_outcome(&mut self) -> Result<(), CodegenFailure> {
+    pub(super) fn return_propagated_outcome(&mut self) -> Result<(), CodegenFailure> {
         match self.signature.result() {
             CodegenResultMapping::Void => {
                 llvm(self.builder.build_return(None))?;

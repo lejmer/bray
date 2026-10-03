@@ -310,7 +310,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let blocks = create_blocks(context, function, unit);
 
-        let reachable_blocks = reachable_blocks(unit);
+        let reachable_blocks = reachable_blocks(unit, signature.has_panic_report_context());
         let checked_call_operations = checked_call_operations(unit);
 
         let panic_report_context = super::panic::incoming_panic_report_context(function, signature);
@@ -373,7 +373,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let blocks = create_blocks(context, function, unit);
 
-        let reachable_blocks = reachable_blocks(unit);
+        let reachable_blocks = reachable_blocks(unit, false);
         let checked_call_operations = checked_call_operations(unit);
 
         Ok(Self {
@@ -595,6 +595,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
     pub(super) fn create_block_parameters(&mut self) -> Result<(), CodegenFailure> {
         for (id, block) in self.unit.blocks_with_ids() {
+            if !self.reachable_blocks.contains(&id) {
+                continue;
+            }
+
             let llvm_block = self.block(id);
 
             self.builder.position_at_end(llvm_block);

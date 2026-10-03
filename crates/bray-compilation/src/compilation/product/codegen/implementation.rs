@@ -2671,6 +2671,59 @@ mod tests {
     }
 
     #[test]
+    fn direct_checked_calls_forward_outcomes_without_copying_reports() {
+        let source = r#"
+            module app;
+
+            func checked(pos value: i32) -> i32
+            {
+                assert(value != 0);
+
+                return value;
+            }
+
+            func void_result(pos value: i32)
+            {
+                checked(value);
+            }
+
+            func scalar_result(pos value: i32) -> i32
+            {
+                return checked(value);
+            }
+
+            func indirect_result(pos value: i32) -> [i32; 8]
+            {
+                checked(value);
+
+                return [value; 8];
+            }
+        "#;
+
+        let (backend, compilation) = codegen_compilation_for_product(source, ProductKind::Library);
+
+        let plan = compilation
+            .native_product_plan(
+                test_product_identity(),
+                crate::BuildConfiguration::Development,
+                None,
+                [],
+                None,
+            )
+            .unwrap_or_else(|error| panic!("direct checked calls must realize: {error:?}"));
+
+        let artifacts = generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr);
+        let ir = artifacts.iter().map(|artifact| std::str::from_utf8(artifact).unwrap()).collect::<String>();
+
+        assert!(ir.contains("call.outcome.state"), "checked calls must remain in the emitted IR: {ir}");
+        assert!(!ir.contains("call.outcome.report"), "direct propagation must not copy the report: {ir}");
+
+        assert!(plan.mappings().iter().flat_map(|mappings| mappings.symbols()).any(|symbol| {
+            matches!(symbol.signature().result(), CodegenResultMapping::Indirect { .. })
+        }), "the fixture must exercise an indirect result");
+    }
+
+    #[test]
     fn demanded_runtime_roles_cannot_disappear_from_product_validation() {
         let (_, compilation) = codegen_compilation(include_str!(
             "../../../../../../xtask/fixtures/native-execution/sync-panic.bray"
