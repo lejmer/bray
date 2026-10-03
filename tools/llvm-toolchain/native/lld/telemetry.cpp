@@ -349,7 +349,7 @@ public:
         }
 
         state.imported = std::move(found);
-        state.internalized = {};
+        state.internalized = decltype(state.internalized){};
     }
 
     void record_optimized(unsigned task, const llvm::Module& module)
@@ -372,7 +372,7 @@ public:
         }
 
         add_to_totals(state);
-        state.imported = {};
+        state.imported = decltype(state.imported){};
         release_worker();
     }
 
