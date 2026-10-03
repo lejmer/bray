@@ -676,10 +676,12 @@ mod tests {
         let expression = expression.unwrap();
         let mut analysis = empty_expression_inputs(&unit);
         let first_type = analysis.values.intern_type(TypeData::tuple([])).unwrap();
+
         let second_type = analysis
             .values
             .intern_type(TypeData::Nullable(first_type))
             .unwrap();
+
         let mut storage = StoragePlanBuilder::new(unit.unit(), unit.key().kind());
         let mut identities = Vec::new();
 
@@ -703,10 +705,12 @@ mod tests {
             input.temporary_storage(expression, first_type),
             Some(identities[0])
         );
+
         assert_eq!(
             input.temporary_storage(expression, second_type),
             Some(identities[1])
         );
+
         assert!(std::sync::Arc::ptr_eq(
             &input.temporary_storage,
             &input.clone().temporary_storage
@@ -732,9 +736,11 @@ mod tests {
         let mut analysis = empty_expression_inputs(&unit);
         let ty = analysis.values.intern_type(TypeData::tuple([])).unwrap();
         let mut storage = StoragePlanBuilder::new(unit.unit(), kind);
+
         let identity = storage
             .push_identity(StorageIdentity::Temporary(first))
             .unwrap();
+
         let mut accesses = Vec::new();
 
         for _ in 0..2 {
@@ -807,6 +813,7 @@ mod tests {
         ];
 
         analysis.storage = storage.finish();
+
         analysis.storage_flow =
             StorageFlow::try_new(unit.unit(), kind, operations, [], [], [], false).unwrap();
 
@@ -818,15 +825,19 @@ mod tests {
             input.expression_storage_plans(first).collect::<Vec<_>>(),
             plans[1..]
         );
+
         assert_eq!(
             input.expression_storage_plans(second).collect::<Vec<_>>(),
             plans[..1]
         );
+
         assert_eq!(input.storage_operation(plans[2]), Some(operations[3]));
+
         assert!(std::sync::Arc::ptr_eq(
             &input.storage_operations,
             &input.clone().storage_operations
         ));
+
         assert!(std::sync::Arc::ptr_eq(
             &input.storage_plans,
             &input.clone().storage_plans
