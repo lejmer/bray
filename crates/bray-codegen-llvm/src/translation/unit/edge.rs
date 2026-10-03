@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bray_codegen::CodegenFailure;
 use bray_ir::{
@@ -6,7 +6,8 @@ use bray_ir::{
     MirTerminatorKind, MirUnit,
 };
 use inkwell::basic_block::BasicBlock;
-use inkwell::values::{BasicValueEnum, PhiValue, PointerValue};
+use inkwell::context::Context;
+use inkwell::values::{BasicValueEnum, FunctionValue, PhiValue, PointerValue};
 
 use super::core::UnitTranslator;
 
@@ -47,6 +48,23 @@ pub(super) fn reachable_blocks(
     }
 
     reachable
+}
+
+pub(super) fn create_blocks<'context>(
+    context: &'context Context,
+    function: FunctionValue<'context>,
+    unit: &MirUnit,
+    reachable: Option<&BTreeSet<MirBlockId>>,
+) -> BTreeMap<MirBlockId, BasicBlock<'context>> {
+    unit.blocks_with_ids()
+        .enumerate()
+        .filter(|(_, (id, _))| reachable.is_none_or(|reachable| reachable.contains(id)))
+        .map(|(index, (id, _))| {
+            let block = context.append_basic_block(function, &format!("block.{index}"));
+
+            (id, block)
+        })
+        .collect()
 }
 
 pub(super) fn direct_panic_propagation(unit: &MirUnit, edge: &MirCallPanicEdge) -> bool {

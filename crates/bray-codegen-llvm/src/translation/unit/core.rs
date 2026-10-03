@@ -1,4 +1,4 @@
-use super::edge::{checked_call_operations, reachable_blocks};
+use super::edge::{checked_call_operations, create_blocks, reachable_blocks};
 use super::support::{llvm, nonzero_integer, physical_aggregate_element, pointer_value};
 use crate::mapping::{LlvmDebugInfo, LlvmTypeMappings, apply_instance_optimization_attributes};
 use crate::translation::frame::frame_storage_field_index;
@@ -219,6 +219,7 @@ pub(crate) struct UnitTranslator<'context, 'module, 'request, 'types> {
     pub(super) pending_moves: Vec<MirPlace>,
     pub(super) panic_report_context: Option<PointerValue<'context>>,
     pub(super) pending_call_panic_report_context: Option<PointerValue<'context>>,
+    pub(super) propagated_outcome_return: Option<BasicBlock<'context>>,
     pub(super) host_root: Option<BasicValueEnum<'context>>,
     pub(super) host_result: Option<BasicValueEnum<'context>>,
     pub(super) host_status: Option<inkwell::values::IntValue<'context>>,
@@ -308,9 +309,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let unit = instance.mir();
         let builder = context.create_builder();
 
-        let blocks = create_blocks(context, function, unit);
-
         let reachable_blocks = reachable_blocks(unit, signature.has_panic_report_context());
+        let blocks = create_blocks(context, function, unit, Some(&reachable_blocks));
         let checked_call_operations = checked_call_operations(unit);
 
         let panic_report_context = super::panic::incoming_panic_report_context(function, signature);
@@ -335,6 +335,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             pending_moves: Vec::new(),
             panic_report_context,
             pending_call_panic_report_context: None,
+            propagated_outcome_return: None,
             host_root: None,
             host_result: None,
             host_status: None,
@@ -371,7 +372,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let unit = instance.mir();
         let dispatch = context.append_basic_block(function, "frame.dispatch");
 
-        let blocks = create_blocks(context, function, unit);
+        let blocks = create_blocks(context, function, unit, None);
 
         let reachable_blocks = reachable_blocks(unit, false);
         let checked_call_operations = checked_call_operations(unit);
@@ -396,6 +397,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             pending_moves: Vec::new(),
             panic_report_context: None,
             pending_call_panic_report_context: None,
+            propagated_outcome_return: None,
             host_root: None,
             host_result: None,
             host_status: None,
@@ -415,7 +417,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         self.translate_frame_dispatch()?;
 
         for (id, block) in self.unit.blocks_with_ids() {
-            let llvm_block = self.block(id);
+            let Some(llvm_block) = self.blocks.get(&id).copied() else {
+                continue;
+            };
 
             self.builder.position_at_end(llvm_block);
 
@@ -780,18 +784,4 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         Ok(())
     }
-}
-fn create_blocks<'context>(
-    context: &'context Context,
-    function: FunctionValue<'context>,
-    unit: &MirUnit,
-) -> BTreeMap<MirBlockId, BasicBlock<'context>> {
-    unit.blocks_with_ids()
-        .enumerate()
-        .map(|(index, (id, _))| {
-            let block = context.append_basic_block(function, &format!("block.{index}"));
-
-            (id, block)
-        })
-        .collect()
 }

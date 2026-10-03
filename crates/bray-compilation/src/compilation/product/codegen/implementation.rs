@@ -2685,15 +2685,19 @@ mod tests {
             func void_result(pos value: i32)
             {
                 checked(value);
+                checked(value);
             }
 
             func scalar_result(pos value: i32) -> i32
             {
+                checked(value);
+
                 return checked(value);
             }
 
             func indirect_result(pos value: i32) -> [i32; 8]
             {
+                checked(value);
                 checked(value);
 
                 return [value; 8];
@@ -2717,6 +2721,27 @@ mod tests {
 
         assert!(ir.contains("call.outcome.state"), "checked calls must remain in the emitted IR: {ir}");
         assert!(!ir.contains("call.outcome.report"), "direct propagation must not copy the report: {ir}");
+
+        let options = plan.options().with_optimization(OptimizationLevel::None);
+
+        let artifacts = generated_artifacts_of_kind_with_options(&backend, &plan, BackendArtifactKind::BackendIr, &options);
+        let ir = artifacts.iter().map(|artifact| std::str::from_utf8(artifact).unwrap()).collect::<String>();
+
+        assert!(!ir.contains("call.outcome.report"), "unoptimized propagation must not copy the report: {ir}");
+        assert!(!ir.lines().any(|line| line.trim() == "unreachable"), "bypassed propagation blocks must not be emitted: {ir}");
+
+        let mut shared_returns = 0;
+
+        for function in ir.split("\ndefine ").skip(1) {
+            let count = function.lines().take_while(|line| *line != "}")
+                .filter(|line| line.starts_with("outcome.propagated:"))
+                .count();
+
+            assert!(count <= 1, "propagation exits must share one epilogue: {function}");
+            shared_returns += count;
+        }
+
+        assert!(shared_returns >= 3, "void, scalar and indirect callers must emit their shared epilogues: {ir}");
 
         assert!(plan.mappings().iter().flat_map(|mappings| mappings.symbols()).any(|symbol| {
             matches!(symbol.signature().result(), CodegenResultMapping::Indirect { .. })
@@ -8663,6 +8688,15 @@ define void @{symbol}(ptr %out) {{
         plan: &super::NativeProductPlan,
         kind: BackendArtifactKind,
     ) -> Vec<Vec<u8>> {
+        generated_artifacts_of_kind_with_options(backend, plan, kind, plan.options())
+    }
+
+    fn generated_artifacts_of_kind_with_options(
+        backend: &bray_codegen_llvm::LlvmCodeGenerator,
+        plan: &super::NativeProductPlan,
+        kind: BackendArtifactKind,
+        options: &CodegenOptions,
+    ) -> Vec<Vec<u8>> {
         plan.units()
             .iter()
             .zip(plan.mappings())
@@ -8696,7 +8730,7 @@ define void @{symbol}(ptr %out) {{
                     ProductKind::Executable,
                     plan.target(),
                     mappings,
-                    plan.options(),
+                    options,
                     &artifacts,
                     &cancellation,
                 );
