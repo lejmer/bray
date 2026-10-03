@@ -67,27 +67,15 @@ impl Lowerer<'_> {
     ) -> Option<bray_bound_tree::StorageOperationDecision> {
         let plan = self
             .input
-            .storage_plan()
-            .expression_plans(expression)
+            .expression_storage_plans(expression)
             .find(|plan| accepts(*plan))?;
 
-        let decision = self
-            .input
-            .storage_flow()
-            .operations()
-            .iter()
-            .copied()
-            .find(|decision| {
-                decision.expression() == expression
-                    && decision.access() == plan.access()
-                    && plan.purpose().matches_checked(decision.purpose())
-            })
-            .unwrap_or_else(|| {
-                panic!(
-                    "lowering contract violation: MissingStorageAccess {value:?}",
-                    value = expression
-                )
-            });
+        let decision = self.input.storage_operation(plan).unwrap_or_else(|| {
+            panic!(
+                "lowering contract violation: MissingStorageAccess {value:?}",
+                value = expression
+            )
+        });
 
         if decision.status() != StorageOperationStatus::Valid {
             panic!(

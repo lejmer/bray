@@ -148,26 +148,19 @@ impl Lowerer<'_> {
 
         let storage = self.input.storage_plan();
 
-        let temporary = storage
-            .identity_entries()
-            .find_map(|(identity, model)| {
-                matches!(model, StorageIdentity::Temporary(owner) if owner == expression)
-                    .then_some(identity)
-                    .filter(|identity| storage.storage_type(*identity) == Some(ty))
-            })
-            .or_else(|| {
-                // Transparent expressions retain their operand's checked storage identity.
-                storage
-                    .expression_plans(expression)
-                    .filter(|plan| storage.is_root_access(plan.access()))
-                    .filter_map(|plan| storage.root_identity(plan.access()))
-                    .find(|identity| {
-                        matches!(
-                            storage.identity(*identity),
-                            Some(StorageIdentity::Temporary(_))
-                        ) && storage.storage_type(*identity) == Some(ty)
-                    })
-            });
+        let temporary = self.input.temporary_storage(expression, ty).or_else(|| {
+            // Transparent expressions retain their operand's checked storage identity.
+            self.input
+                .expression_storage_plans(expression)
+                .filter(|plan| storage.is_root_access(plan.access()))
+                .filter_map(|plan| storage.root_identity(plan.access()))
+                .find(|identity| {
+                    matches!(
+                        storage.identity(*identity),
+                        Some(StorageIdentity::Temporary(_))
+                    ) && storage.storage_type(*identity) == Some(ty)
+                })
+        });
 
         let Some(temporary) = temporary else {
             if required {
