@@ -396,8 +396,11 @@ impl Compilation {
             .or_else(|| request.artifact(ArtifactKind::PackageNativeImplementation))
             .is_some();
 
-        let package_interface = self
-            .product_interface_artifacts(requires_interface, requires_implementation, cancellation);
+        let package_interface = self.product_interface_artifacts(
+            requires_interface,
+            requires_implementation,
+            cancellation,
+        );
 
         let diagnostics = cancellation
             .check()
@@ -747,7 +750,7 @@ mod tests {
     };
 
     #[test]
-    fn emission_reuses_completed_checking_beyond_the_query_cache_working_set() {
+    fn emission_reuses_demanded_source_outputs_beyond_the_query_cache_working_set() {
         use std::fmt::Write;
         use std::sync::Arc;
         use std::sync::atomic::{AtomicUsize, Ordering};
@@ -760,26 +763,36 @@ mod tests {
         let mut source = String::from("module app;\n");
 
         for index in 0..count {
-            writeln!(source, "func item{index}() {{}}").unwrap();
+            writeln!(
+                source,
+                r#"
+                func item{index}()
+                {{
+                }}
+            "#
+            )
+            .unwrap();
         }
 
         let compilation = Arc::new(compilation(&source, WorkerBudget::new(4).unwrap()));
         let checked_compilation = Arc::downgrade(&compilation);
         let contracts = Arc::new(AtomicUsize::new(0));
         let observed = Arc::clone(&contracts);
+        let bodies = Arc::new(AtomicUsize::new(0));
+        let observed_bodies = Arc::clone(&bodies);
 
         compilation
             .state
             .fact_runtime
             .set_test_observer(FactEvaluationTestObserver::new(move |key| {
-                if *key == CompilationFactKey::PackageInterfaceExportBundle {
+                if *key == CompilationFactKey::SemanticDiagnostics {
                     let compilation = checked_compilation.upgrade().unwrap();
 
                     assert!(
                         compilation
                             .state
-                            .semantic_diagnostics
-                            .get_if_published(&CompilationFactKey::SemanticDiagnostics)
+                            .package_interface_export_bundle
+                            .get_if_published(&CompilationFactKey::PackageInterfaceExportBundle)
                             .is_some()
                     );
                 }
@@ -788,6 +801,10 @@ mod tests {
                     if query.kind() == SymbolQueryKind::CallableContracts)
                 {
                     observed.fetch_add(1, Ordering::SeqCst);
+                }
+
+                if matches!(key, CompilationFactKey::BodySemantics(_)) {
+                    observed_bodies.fetch_add(1, Ordering::SeqCst);
                 }
             }))
             .unwrap();
@@ -804,6 +821,7 @@ mod tests {
 
         assert!(matches!(outcome.status(), EmissionStatus::Complete));
         assert_eq!(contracts.load(Ordering::SeqCst), count);
+        assert_eq!(bodies.load(Ordering::SeqCst), count);
     }
 
     #[test]
