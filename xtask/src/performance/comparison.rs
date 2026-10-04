@@ -11,8 +11,8 @@ pub(super) fn compare(
     baseline: &PerformanceReport,
     candidate: &PerformanceReport,
 ) -> Result<ComparisonReport, String> {
-    super::validation::validate(baseline)?;
-    super::validation::validate(candidate)?;
+    super::validation::validate_measurements(baseline)?;
+    super::validation::validate_measurements(candidate)?;
 
     validate_identity(baseline, candidate)?;
 
@@ -114,6 +114,8 @@ pub(super) fn compare(
         schema_revision: SCHEMA_REVISION,
         baseline_identity: baseline.identity.clone(),
         candidate_identity: candidate.identity.clone(),
+        baseline_conformance_failures: super::validation::conformance_failures(baseline)?,
+        candidate_conformance_failures: super::validation::conformance_failures(candidate)?,
         application_compilation,
         library_compilation,
         workloads,

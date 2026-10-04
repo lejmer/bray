@@ -2,15 +2,15 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 use super::model::{
-    ArtifactKind, ChangeAssessment, ComparisonReport, CompilationLanguage, MetricComparison,
-    Observation, ObservationComparison, PerformanceReport,
+    ArtifactKind, ComparisonReport, CompilationLanguage, MetricComparison, Observation,
+    ObservationComparison, PerformanceReport,
 };
 
 use super::format::{
     grouped, kibibytes, milliseconds, picoseconds_milliseconds, picoseconds_title,
-    signed_kibibytes, signed_milliseconds, signed_picoseconds_milliseconds,
 };
 use super::html::{BoundedHtml, document_start, escape, finish, write};
+use super::presentation::{MetricUnit, assessment, comparison_metric};
 use super::ranking::{CandidateWinners, executable_bytes, observation_value};
 
 pub(super) fn write_candidate(path: &Path, report: &PerformanceReport) -> Result<(), String> {
@@ -20,7 +20,11 @@ pub(super) fn write_candidate(path: &Path, report: &PerformanceReport) -> Result
 fn render_candidate(report: &PerformanceReport) -> Result<String, String> {
     let mut html = document_start("Compiler performance report");
 
+    let failures = super::validation::conformance_failures(report)?;
+
+    super::presentation::conformance(&mut html, "Candidate", &failures);
     super::presentation::identity(&mut html, "Candidate", &report.identity);
+    super::presentation::runtime_dependencies(&mut html, report);
 
     html.push_str(
         "<section><h2>How to read this report</h2>\
@@ -29,7 +33,7 @@ fn render_candidate(report: &PerformanceReport) -> Result<String, String> {
         <p>The primary execution duration is the language-controlled workload execution. Process duration also includes \
         executable startup and teardown. Throughput uses the controlled duration. Very small workloads repeat \
         inside one controlled interval, and the reported duration is adjusted to one workload execution.</p>\
-        <p>Bray, Rust, and C++ embed their application and language runtimes in each executable. \
+        <p>The declared runtime policy applies to Bray, Rust, and C++. Actual dynamic dependencies are recorded above. \
         Target operating-system libraries may remain dynamic.</p></section>",
     );
 
@@ -37,12 +41,14 @@ fn render_candidate(report: &PerformanceReport) -> Result<String, String> {
         &mut html,
         "Matched packaged-application compilation",
         &report.application_compilation,
+        failures.is_empty(),
     );
 
     super::presentation::compilation_comparison(
         &mut html,
         "Matched source-library compilation",
         &report.library_compilation,
+        failures.is_empty(),
     );
 
     html.push_str(
@@ -71,7 +77,7 @@ fn render_candidate(report: &PerformanceReport) -> Result<String, String> {
 
     html.push_str("</tbody></table></div></section>");
 
-    super::presentation::workload_compilation_summary(&mut html, report)?;
+    super::presentation::workload_compilation_summary(&mut html, report, failures.is_empty())?;
 
     html.push_str(
         "<section><h2>Workloads</h2><div class=\"table-scroll\"><table><thead><tr>\
@@ -82,7 +88,11 @@ fn render_candidate(report: &PerformanceReport) -> Result<String, String> {
     );
 
     for workload in &report.workloads {
-        let winners = CandidateWinners::for_workload(workload);
+        let winners = if failures.is_empty() {
+            CandidateWinners::for_workload(workload)
+        } else {
+            CandidateWinners::default()
+        };
 
         candidate_row(
             &mut html,
@@ -231,6 +241,18 @@ fn compilation_changes(
 
 fn render_comparison(comparison: &ComparisonReport) -> Result<String, String> {
     let mut html = document_start("Compiler performance comparison");
+
+    super::presentation::conformance(
+        &mut html,
+        "Baseline",
+        &comparison.baseline_conformance_failures,
+    );
+
+    super::presentation::conformance(
+        &mut html,
+        "Candidate",
+        &comparison.candidate_conformance_failures,
+    );
 
     super::presentation::identity(&mut html, "Baseline", &comparison.baseline_identity);
     super::presentation::identity(&mut html, "Candidate", &comparison.candidate_identity);
@@ -728,56 +750,10 @@ fn observation_bytes(observation: &Observation) -> String {
     }
 }
 
-#[derive(Clone, Copy)]
-enum MetricUnit {
-    Duration,
-    PicosecondsDuration,
-    Bytes,
-    Count,
-}
-
-fn comparison_metric(metric: MetricComparison, unit: MetricUnit) -> String {
-    let delta = match unit {
-        MetricUnit::Duration => signed_milliseconds(metric.delta),
-        MetricUnit::PicosecondsDuration => signed_picoseconds_milliseconds(metric.delta),
-        MetricUnit::Bytes => signed_kibibytes(metric.delta),
-        MetricUnit::Count => format!("{:+}", metric.delta),
-    };
-
-    let ratio = metric.delta_basis_points.map_or_else(
-        || "no ratio".to_owned(),
-        |basis_points| format!("{:+.2}%", basis_points as f64 / 100.0),
-    );
-
-    format!(
-        "<span class=\"{}\">{} ({}, {})</span>",
-        assessment_class(metric.assessment),
-        assessment(metric.assessment),
-        delta,
-        ratio,
-    )
-}
-
 const fn peer_language(language: super::model::PeerLanguage) -> &'static str {
     match language {
         super::model::PeerLanguage::Rust => "Rust",
         super::model::PeerLanguage::Cpp => "C++",
-    }
-}
-
-const fn assessment(value: ChangeAssessment) -> &'static str {
-    match value {
-        ChangeAssessment::Improved => "Improved",
-        ChangeAssessment::Regressed => "Regressed",
-        ChangeAssessment::Indeterminate => "Indeterminate",
-    }
-}
-
-const fn assessment_class(value: ChangeAssessment) -> &'static str {
-    match value {
-        ChangeAssessment::Improved => "improved",
-        ChangeAssessment::Regressed => "regressed",
-        ChangeAssessment::Indeterminate => "indeterminate",
     }
 }
 

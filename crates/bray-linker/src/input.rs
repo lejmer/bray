@@ -58,7 +58,10 @@ impl LinkInputKind {
             | Self::Archive
             | Self::StartupObject
             | Self::TerminationObject => matches!(source, LinkInputSource::File(_)),
-            Self::NativeLibrary => matches!(source, LinkInputSource::NativeLibrary(_)),
+            Self::NativeLibrary => matches!(
+                source,
+                LinkInputSource::NativeLibrary(_) | LinkInputSource::StaticNativeLibrary(_)
+            ),
             Self::Framework => matches!(source, LinkInputSource::Framework(_)),
         }
     }
@@ -71,6 +74,8 @@ pub enum LinkInputSource {
     File(PathBuf),
     /// Canonical native-library name resolved by the driver.
     NativeLibrary(NonEmptySharedStr),
+    /// Canonical native-library name that must resolve to a static archive.
+    StaticNativeLibrary(NonEmptySharedStr),
     /// Canonical platform-framework name resolved by the driver.
     Framework(NonEmptySharedStr),
 }
@@ -162,6 +167,19 @@ impl LinkInputSpec {
         Some(Self {
             kind: LinkInputKind::NativeLibrary,
             source: LinkInputSource::try_native_library(name)?,
+            provenance,
+            mode: LinkInputMode::Ordinary,
+        })
+    }
+
+    /// Creates a named static-archive input unless its canonical name is empty.
+    pub fn try_static_native_library(
+        name: impl Into<Arc<str>>,
+        provenance: LinkInputProvenance,
+    ) -> Option<Self> {
+        Some(Self {
+            kind: LinkInputKind::NativeLibrary,
+            source: LinkInputSource::StaticNativeLibrary(NonEmptySharedStr::try_new(name)?),
             provenance,
             mode: LinkInputMode::Ordinary,
         })

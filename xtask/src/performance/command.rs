@@ -6,6 +6,7 @@ mod measurement;
 mod options;
 mod output;
 mod progress;
+mod publication;
 mod toolchain;
 mod workload_compilation;
 

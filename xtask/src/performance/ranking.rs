@@ -1,5 +1,6 @@
 use super::model::{ArtifactKind, ArtifactReport, Observation, WorkloadReport};
 
+#[derive(Default)]
 pub(super) struct CandidateWinners {
     pub(super) compilation_process: Option<u64>,
     pub(super) compiler_work: Option<u64>,

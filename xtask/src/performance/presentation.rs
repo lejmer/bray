@@ -1,17 +1,22 @@
 use std::fmt::Write as _;
 
-use super::format::{grouped, milliseconds, nanoseconds_title};
+use super::format::{
+    grouped, milliseconds, nanoseconds_title, signed_kibibytes, signed_milliseconds,
+    signed_picoseconds_milliseconds,
+};
 use super::html::{BoundedHtml, escape};
 use super::model::{
-    CompilationBuildReport, CompilationComparability, CompilationComparisonReport,
-    CompilationIncomparability, CompilationLanguage, LinkerInvocationReport,
-    PeerCompilerConfiguration, PeerLanguage, PerformanceReport, ReportIdentity, RuntimeLinkage,
-    ToolInvocationReport, WorkloadBatching, WorkloadCompilationReport,
+    ChangeAssessment, CompilationBuildReport, CompilationComparability,
+    CompilationComparisonReport, CompilationIncomparability, CompilationLanguage,
+    LinkerInvocationReport, MetricComparison, PeerCompilerConfiguration, PeerLanguage,
+    PerformanceReport, ReportIdentity, RuntimeLinkage, ToolInvocationReport, WorkloadBatching,
+    WorkloadCompilationReport,
 };
 
 pub(super) fn workload_compilation_summary(
     html: &mut BoundedHtml,
     report: &PerformanceReport,
+    conforming: bool,
 ) -> Result<(), String> {
     let rows = [
         ("Bray", workload_compilation_totals(report, None)?),
@@ -25,9 +30,13 @@ pub(super) fn workload_compilation_summary(
         ),
     ];
 
-    let process_winner = rows.iter().map(|(_, (process, _))| *process).min();
+    let process_winner = conforming
+        .then(|| rows.iter().map(|(_, (process, _))| *process).min())
+        .flatten();
 
-    let compiler_winner = rows.iter().map(|(_, (_, compiler))| *compiler).min();
+    let compiler_winner = conforming
+        .then(|| rows.iter().map(|(_, (_, compiler))| *compiler).min())
+        .flatten();
 
     html.push_str(
         "<section><h2>Matched workload compilation</h2><p>Totals cover every selected workload.</p>\
@@ -264,6 +273,7 @@ pub(super) fn compilation_comparison(
     html: &mut BoundedHtml,
     title: &str,
     report: &CompilationComparisonReport,
+    conforming: bool,
 ) {
     let _ = write!(
         html,
@@ -274,15 +284,16 @@ pub(super) fn compilation_comparison(
 
     comparability(html, &report.comparability);
 
-    let winner = matches!(report.comparability, CompilationComparability::Comparable)
-        .then(|| {
-            report
-                .builds
-                .values()
-                .map(|build| build.elapsed_nanoseconds)
-                .min()
-        })
-        .flatten();
+    let winner = (conforming
+        && matches!(report.comparability, CompilationComparability::Comparable))
+    .then(|| {
+        report
+            .builds
+            .values()
+            .map(|build| build.elapsed_nanoseconds)
+            .min()
+    })
+    .flatten();
 
     html.push_str(
         "<div class=\"table-scroll\"><table><thead><tr><th>Language</th>\
@@ -575,5 +586,116 @@ pub(super) fn batching_detail(html: &mut BoundedHtml, batching: &WorkloadBatchin
                 samples(cpp_samples_nanoseconds),
             );
         }
+    }
+}
+
+pub(super) fn conformance(html: &mut BoundedHtml, owner: &str, failures: &[String]) {
+    let _ = write!(
+        html,
+        "<section><h2>{} conformance: {}</h2>",
+        escape(owner),
+        if failures.is_empty() {
+            "Passed"
+        } else {
+            "FAILED"
+        }
+    );
+
+    if !failures.is_empty() {
+        html.push_str("<p>Measurements and comparisons are observations only. Size and peer comparisons are not accepted conformance. Winner highlighting is disabled for this candidate.</p><ul>");
+
+        for failure in failures {
+            let _ = write!(html, "<li>{}</li>", escape(failure));
+        }
+
+        html.push_str("</ul>");
+    }
+
+    html.push_str("</section>");
+}
+
+pub(super) fn runtime_dependencies(html: &mut BoundedHtml, report: &PerformanceReport) {
+    html.push_str("<section><h2>Observed executable dependencies</h2><table><thead><tr><th>Workload</th><th>Language</th><th>Dynamic libraries</th></tr></thead><tbody>");
+
+    for workload in &report.workloads {
+        for (language, artifacts) in std::iter::once(("Bray", workload.artifacts.as_slice())).chain(
+            workload.peers.iter().map(|(language, peer)| {
+                (
+                    match language {
+                        PeerLanguage::Rust => "Rust",
+                        PeerLanguage::Cpp => "C++",
+                    },
+                    peer.artifacts.as_slice(),
+                )
+            }),
+        ) {
+            let executable = artifacts
+                .iter()
+                .find(|artifact| artifact.kind == super::model::ArtifactKind::Executable)
+                .expect("validated measurements contain their executable");
+
+            let dynamic = &executable.dependencies.dynamic_libraries.entries;
+
+            let dependencies = if dynamic.is_empty() {
+                "None".to_owned()
+            } else {
+                dynamic.join(", ")
+            };
+
+            let _ = write!(
+                html,
+                "<tr><th>{}</th><td>{language}</td><td>{}</td></tr>",
+                escape(&workload.id),
+                escape(&dependencies)
+            );
+        }
+    }
+
+    html.push_str("</tbody></table></section>");
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum MetricUnit {
+    Duration,
+    PicosecondsDuration,
+    Bytes,
+    Count,
+}
+
+pub(super) fn comparison_metric(metric: MetricComparison, unit: MetricUnit) -> String {
+    let delta = match unit {
+        MetricUnit::Duration => signed_milliseconds(metric.delta),
+        MetricUnit::PicosecondsDuration => signed_picoseconds_milliseconds(metric.delta),
+        MetricUnit::Bytes => signed_kibibytes(metric.delta),
+        MetricUnit::Count => format!("{:+}", metric.delta),
+    };
+
+    let ratio = metric.delta_basis_points.map_or_else(
+        || "no ratio".to_owned(),
+        |basis_points| format!("{:+.2}%", basis_points as f64 / 100.0),
+    );
+
+    format!(
+        "<span class=\"{}\">{} ({}, {})</span>",
+        assessment_class(metric.assessment),
+        assessment(metric.assessment),
+        delta,
+        ratio,
+    )
+}
+
+pub(super) const fn assessment(value: ChangeAssessment) -> &'static str {
+    match value {
+        ChangeAssessment::Improved => "Improved",
+        ChangeAssessment::Regressed => "Regressed",
+        ChangeAssessment::Indeterminate => "Indeterminate",
+    }
+}
+
+const fn assessment_class(value: ChangeAssessment) -> &'static str {
+    match value {
+        ChangeAssessment::Improved => "improved",
+        ChangeAssessment::Regressed => "regressed",
+        ChangeAssessment::Indeterminate => "indeterminate",
     }
 }
