@@ -6,7 +6,7 @@ use bray_ir::MirFieldReference;
 use bray_symbols::{CallableAbi, IntegerConstant, TypeId, UnionVariantSymbolId};
 use bray_target::TargetValueLayout;
 
-use crate::{CodegenInstanceKey, TargetAddressSpaceKind};
+use crate::{CodegenAggregateCoercion, CodegenInstanceKey, TargetAddressSpaceKind};
 
 /// One concrete type selected for an open MIR type in a code generation instance.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -78,10 +78,12 @@ pub enum CodegenIndirectParameterKind {
 pub enum CodegenParameterMapping {
     /// Omit this semantic parameter from the machine signature.
     Ignore,
-    /// Pass one direct machine value.
+    /// Pass a direct value, with target-selected register pieces when needed.
     Direct {
-        /// Machine representation passed to the callee.
+        /// Semantic value representation.
         ty: TypeId,
+        /// Register coercion for a directly passed aggregate.
+        coercion: Option<CodegenAggregateCoercion>,
         /// Integer extension required at the call boundary.
         extension: Option<CodegenIntegerExtension>,
         /// Independently proven value attributes.
@@ -111,8 +113,31 @@ impl CodegenParameterMapping {
     ) -> Self {
         Self::Direct {
             ty,
+            coercion: None,
             extension,
             attributes: sorted_unique_shared_slice(attributes),
+        }
+    }
+
+    /// Creates a direct aggregate parameter with its selected register representation.
+    pub fn coerced(ty: TypeId, coercion: CodegenAggregateCoercion) -> Self {
+        Self::Direct {
+            ty,
+            coercion: Some(coercion),
+            extension: None,
+            attributes: Arc::default(),
+        }
+    }
+
+    /// Returns the number of physical parameters occupied by this semantic position.
+    pub fn machine_value_count(&self) -> usize {
+        match self {
+            Self::Ignore => 0,
+            Self::Direct {
+                coercion: Some(coercion),
+                ..
+            } => coercion.pieces().len(),
+            Self::Direct { coercion: None, .. } | Self::Indirect { .. } => 1,
         }
     }
 
@@ -141,8 +166,10 @@ pub enum CodegenResultMapping {
     Void,
     /// Return one direct machine value.
     Direct {
-        /// Machine representation returned to the caller.
+        /// Semantic value representation.
         ty: TypeId,
+        /// Register coercion for a directly returned aggregate.
+        coercion: Option<CodegenAggregateCoercion>,
         /// Integer extension required at the call boundary.
         extension: Option<CodegenIntegerExtension>,
         /// Independently proven result attributes.
@@ -170,8 +197,19 @@ impl CodegenResultMapping {
     ) -> Self {
         Self::Direct {
             ty,
+            coercion: None,
             extension,
             attributes: sorted_unique_shared_slice(attributes),
+        }
+    }
+
+    /// Creates a direct aggregate result with its selected register representation.
+    pub fn coerced(ty: TypeId, coercion: CodegenAggregateCoercion) -> Self {
+        Self::Direct {
+            ty,
+            coercion: Some(coercion),
+            extension: None,
+            attributes: Arc::default(),
         }
     }
 

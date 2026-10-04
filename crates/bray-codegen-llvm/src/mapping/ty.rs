@@ -2,9 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU32;
 
 use bray_codegen::{
-    CodegenCallableSignature, CodegenFailure, CodegenInstanceKey, CodegenMappings,
-    CodegenParameterMapping, CodegenResultMapping, CodegenTarget, CodegenTypeKind,
-    CodegenTypeMapping, TargetScalarKind,
+    CodegenAbiScalar, CodegenAggregateCoercion, CodegenCallableSignature, CodegenFailure,
+    CodegenInstanceKey, CodegenMappings, CodegenParameterMapping, CodegenResultMapping,
+    CodegenTarget, CodegenTypeKind, CodegenTypeMapping, TargetScalarKind,
 };
 use bray_symbols::TypeId;
 use inkwell::context::Context;
@@ -134,6 +134,18 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
         }
 
         for parameter in signature.parameters() {
+            if let CodegenParameterMapping::Direct {
+                coercion: Some(coercion),
+                ..
+            } = parameter
+            {
+                for piece in coercion.pieces() {
+                    parameters.push(self.abi_scalar_type(piece.scalar)?.into());
+                }
+
+                continue;
+            }
+
             let ty = match parameter {
                 CodegenParameterMapping::Ignore => continue,
                 CodegenParameterMapping::Direct { ty, .. } => *ty,
@@ -152,10 +164,50 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
                 .context
                 .void_type()
                 .fn_type(&parameters, signature.is_variadic())),
-            CodegenResultMapping::Direct { ty, .. } => {
-                Ok(self.map(*ty)?.fn_type(&parameters, signature.is_variadic()))
+            CodegenResultMapping::Direct { ty, coercion, .. } => {
+                let result = match coercion {
+                    Some(coercion) => self.coercion_result_type(coercion)?,
+                    None => self.map(*ty)?,
+                };
+
+                Ok(result.fn_type(&parameters, signature.is_variadic()))
             }
         }
+    }
+
+    pub(crate) fn abi_scalar_type(
+        &self,
+        scalar: CodegenAbiScalar,
+    ) -> Result<BasicTypeEnum<'context>, CodegenFailure> {
+        Ok(match scalar {
+            CodegenAbiScalar::Integer(width) => self
+                .context
+                .custom_width_int_type(
+                    NonZeroU32::new(u32::from(width.get())).expect("ABI integer width is nonzero"),
+                )
+                .map_err(CodegenFailure::unsupported_target_report)?
+                .into(),
+            CodegenAbiScalar::Float32 => self.context.f32_type().into(),
+            CodegenAbiScalar::Float64 => self.context.f64_type().into(),
+            CodegenAbiScalar::Float32Pair => self.context.f32_type().vec_type(2).into(),
+        })
+    }
+
+    pub(crate) fn coercion_result_type(
+        &self,
+        coercion: &CodegenAggregateCoercion,
+    ) -> Result<BasicTypeEnum<'context>, CodegenFailure> {
+        let pieces = coercion
+            .pieces()
+            .iter()
+            .map(|piece| self.abi_scalar_type(piece.scalar))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(if pieces.len() == 1 {
+            pieces[0]
+        } else {
+            self.context.struct_type(&pieces, false).into()
+        })
     }
 
     fn map_kind(

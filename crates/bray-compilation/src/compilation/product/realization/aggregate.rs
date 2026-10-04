@@ -2,13 +2,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU64;
 
 use bray_codegen::{
-    CodegenCallableSignature, CodegenFieldLayout, CodegenParameterMapping, CodegenResultMapping,
+    CodegenCallableSignature, CodegenFieldLayout,
     CodegenTarget, CodegenTypeKind, CodegenTypeMapping, CodegenUnionVariantLayout,
-    CodegenValueAttribute, TargetAddressSpaceKind,
+    TargetAddressSpaceKind,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_symbols::{
-    BorrowKind, CallableAbi, GenericSubstitutionId, NamedTypeSymbolId, StructSymbolId, TypeData,
+    BorrowKind, GenericSubstitutionId, NamedTypeSymbolId, StructSymbolId, TypeData,
     TypeId,
 };
 use bray_target::{TargetAtomicRepresentation, TargetLayoutContract, TargetValueLayout};
@@ -18,7 +18,7 @@ use super::super::super::Compilation;
 use super::super::super::substitution::named_type;
 use super::support::{
     align_to, atomic_representation_for_type, atomic_storage_is_padding_free,
-    ensure_target_alignment, indirect_abi_value, indirect_parameter_kind, packed_alignment,
+    ensure_target_alignment, packed_alignment,
     pointer_mapping, signature_types, sized_layout, target_layout_contract,
 };
 use crate::compilation::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
@@ -603,138 +603,4 @@ impl Compilation {
         Ok(())
     }
 
-    pub(super) fn classify_codegen_signature(
-        &self,
-        signature: CodegenCallableSignature,
-        target: &CodegenTarget,
-        cancellation: &CancellationToken,
-        mappings: &mut BTreeMap<TypeId, CodegenTypeMapping>,
-        pending: &mut BTreeSet<TypeId>,
-    ) -> Result<CodegenCallableSignature, CodegenPreparationError> {
-        let mut parameters = Vec::with_capacity(signature.parameters().len());
-
-        for parameter in signature.parameters() {
-            let ty = match parameter {
-                CodegenParameterMapping::Direct { ty, .. } => *ty,
-                CodegenParameterMapping::Ignore | CodegenParameterMapping::Indirect { .. } => {
-                    return Err(CodegenPreparationError::InvalidAbiMapping);
-                }
-            };
-
-            parameters.push(self.classify_codegen_parameter(
-                ty,
-                signature.abi(),
-                target,
-                cancellation,
-                mappings,
-                pending,
-            )?);
-        }
-
-        let result = match signature.result() {
-            CodegenResultMapping::Void => CodegenResultMapping::Void,
-            CodegenResultMapping::Direct { ty, .. } => self.classify_codegen_result(
-                *ty,
-                signature.abi(),
-                target,
-                cancellation,
-                mappings,
-                pending,
-            )?,
-            CodegenResultMapping::Indirect { .. } => {
-                return Err(CodegenPreparationError::InvalidAbiMapping);
-            }
-        };
-
-        let classified = CodegenCallableSignature::new(
-            parameters,
-            result,
-            signature.abi(),
-            signature.is_variadic(),
-        );
-
-        if signature.has_panic_report_context() {
-            Ok(classified.with_panic_report_context())
-        } else {
-            Ok(classified)
-        }
-    }
-
-    pub(super) fn classify_codegen_parameter(
-        &self,
-        ty: TypeId,
-        abi: CallableAbi,
-        target: &CodegenTarget,
-        cancellation: &CancellationToken,
-        mappings: &mut BTreeMap<TypeId, CodegenTypeMapping>,
-        pending: &mut BTreeSet<TypeId>,
-    ) -> Result<CodegenParameterMapping, CodegenPreparationError> {
-        let mapping = mappings
-            .get(&ty)
-            .ok_or(CodegenPreparationError::UnresolvedType(ty))?;
-
-        let layout = mapping
-            .layout()
-            .ok_or(CodegenPreparationError::UnsizedTypeByValue(ty))?;
-
-        if layout.size() == 0 {
-            return Ok(CodegenParameterMapping::Ignore);
-        }
-
-        if !indirect_abi_value(abi, mapping.kind(), layout, target, mappings) {
-            return Ok(CodegenParameterMapping::direct(ty, None, []));
-        }
-
-        let pointer = self.indirection_metadata_pointer(ty, BorrowKind::Shared)?;
-
-        self.codegen_type(pointer, target, cancellation, mappings, pending)?;
-
-        Ok(CodegenParameterMapping::indirect(
-            pointer,
-            ty,
-            indirect_parameter_kind(abi, target),
-            layout.alignment(),
-            [CodegenValueAttribute::NonNull],
-        ))
-    }
-
-    pub(super) fn classify_codegen_result(
-        &self,
-        ty: TypeId,
-        abi: CallableAbi,
-        target: &CodegenTarget,
-        cancellation: &CancellationToken,
-        mappings: &mut BTreeMap<TypeId, CodegenTypeMapping>,
-        pending: &mut BTreeSet<TypeId>,
-    ) -> Result<CodegenResultMapping, CodegenPreparationError> {
-        let mapping = mappings
-            .get(&ty)
-            .ok_or(CodegenPreparationError::UnresolvedType(ty))?;
-
-        let layout = mapping
-            .layout()
-            .ok_or(CodegenPreparationError::UnsizedTypeByValue(ty))?;
-
-        if layout.size() == 0 {
-            return Ok(CodegenResultMapping::Void);
-        }
-
-        if !indirect_abi_value(abi, mapping.kind(), layout, target, mappings) {
-            return Ok(CodegenResultMapping::direct(ty, None, []));
-        }
-
-        let pointer = self.indirection_metadata_pointer(ty, BorrowKind::Mutable)?;
-
-        self.codegen_type(pointer, target, cancellation, mappings, pending)?;
-
-        Ok(CodegenResultMapping::indirect(
-            pointer,
-            ty,
-            layout.alignment(),
-            [
-                CodegenValueAttribute::NoAlias,
-                CodegenValueAttribute::NonNull,
-            ],
-        ))
-    }
 }

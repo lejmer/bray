@@ -32,7 +32,8 @@ pub use capability::{
     BackendTargetConfiguration, ReproducibilityLevel,
 };
 pub use mapping::{
-    CodegenCallSite, CodegenCallableMapping, CodegenCallableSignature, CodegenCallableTarget,
+    CodegenAbiPiece, CodegenAbiScalar, CodegenAggregateCoercion, CodegenCallSite,
+    CodegenCallableMapping, CodegenCallableSignature, CodegenCallableTarget,
     CodegenConstantMapping, CodegenConstantTermMapping, CodegenDebugLocation, CodegenFieldLayout,
     CodegenHelperMapping, CodegenIndirectParameterKind, CodegenInstanceTypeMapping,
     CodegenIntegerExtension, CodegenMappings, CodegenNativeEntryMapping,

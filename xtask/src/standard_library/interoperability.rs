@@ -328,10 +328,23 @@ fn emit_fixture(
     let source_path = root.join("xtask/fixtures/foreign-interoperability.bray");
     let target_handle_audit = target_handle_audit(target);
 
+    let sysv_aggregates = matches!(
+        target,
+        NativeTarget::X86_64LinuxGnu | NativeTarget::X86_64MacOs
+    );
+
     let source = fs::read_to_string(&source_path)
         .map_err(|error| BuildError::read(&source_path, error))?
         .replace("__SHARED_LIBRARY_PATH__", &bray_path(&fixture.shared))
-        .replace("__TARGET_HANDLE_AUDIT__", &target_handle_audit);
+        .replace("__TARGET_HANDLE_AUDIT__", &target_handle_audit)
+        .replace(
+            "__TARGET_AGGREGATE_ABI_AUDIT__",
+            if sysv_aggregates {
+                "trusted audit_aggregate_abi();"
+            } else {
+                ""
+            },
+        );
 
     let package =
         PackageIdentity::try_new("bray.interoperability").ok_or(BuildError::InvalidIdentity)?;
@@ -363,7 +376,21 @@ fn emit_fixture(
         source,
     );
 
-    let request = CompilationRequest::with_options(package, vec![source], options)
+    let mut sources = vec![source];
+
+    if sysv_aggregates {
+        let path = root.join("xtask/fixtures/foreign-aggregate-interoperability.bray");
+        let text = fs::read_to_string(&path).map_err(|error| BuildError::read(&path, error))?;
+
+        sources.push(SourceInput::virtual_text(
+            SourceIdentity::new(2),
+            "foreign-aggregate-interoperability.bray",
+            1,
+            text,
+        ));
+    }
+
+    let request = CompilationRequest::with_options(package, sources, options)
         .with_standard_library_root(standard_library)
         .with_profile(CompilationProfileConfiguration::new(
             CompilationProfileMode::Summary,

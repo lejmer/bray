@@ -1,0 +1,415 @@
+@link(name = "bray_foreign_fixture")
+module interoperability;
+
+using std.ffi;
+
+@copy
+@layout(c)
+struct NativeByteTriple
+{
+    first: u8;
+    second: u8;
+    third: u8;
+}
+
+@copy
+@layout(c)
+struct NativeSmallRecord
+{
+    narrow: i8;
+    unsigned_narrow: u8;
+    signed_value: i32;
+}
+
+@copy
+@layout(c)
+struct NativeFloatPair
+{
+    first: r32;
+    second: r32;
+}
+
+@copy
+@layout(c)
+struct NativeMixedRecord
+{
+    integer: i32;
+    real: r64;
+}
+
+@copy
+@layout(c)
+struct NativeReversedRecord
+{
+    real: r64;
+    integer: i32;
+}
+
+@copy
+@layout(c)
+struct NativeDoublePair
+{
+    first: r64;
+    second: r64;
+}
+
+@copy
+@layout(c)
+struct NativeLargeRecord
+{
+    first: u64;
+    second: u64;
+    third: u64;
+}
+
+@copy
+@layout(c)
+struct NativeNestedRecord
+{
+    inner: NativeSmallRecord;
+    wide: u64;
+}
+
+@symbol(name = "bray_foreign_byte_triple")
+@abi(c)
+extern trusted func native_byte_triple(pos value: NativeByteTriple) -> NativeByteTriple
+    uses(foreign_call);
+
+@symbol(name = "bray_foreign_nested_record")
+@abi(c)
+extern trusted func native_nested_record(pos value: NativeNestedRecord) -> NativeNestedRecord
+    uses(foreign_call);
+
+@symbol(name = "bray_foreign_small_record")
+@abi(c)
+extern trusted func native_small_record(pos value: NativeSmallRecord) -> NativeSmallRecord
+    uses(foreign_call);
+
+@symbol(name = "bray_foreign_float_pair")
+@abi(c)
+extern trusted func native_float_pair(pos value: NativeFloatPair) -> NativeFloatPair
+    uses(foreign_call);
+
+@symbol(name = "bray_foreign_mixed_record")
+@abi(c)
+extern trusted func native_mixed_record(pos value: NativeMixedRecord) -> NativeMixedRecord
+    uses(foreign_call);
+
+@symbol(name = "bray_foreign_reversed_record")
+@abi(c)
+extern trusted func native_reversed_record(pos value: NativeReversedRecord) -> NativeReversedRecord
+    uses(foreign_call);
+
+@symbol(name = "bray_foreign_large_record")
+@abi(c)
+extern trusted func native_large_record(pos value: NativeLargeRecord) -> NativeLargeRecord
+    uses(foreign_call);
+
+@symbol(name = "bray_foreign_combined_record")
+@abi(c)
+extern trusted func native_combined_record(
+    pos first: NativeRecord,
+    pos second: NativeLargeRecord,
+    pos tail: u64,
+) -> NativeRecord
+    uses(foreign_call);
+
+@symbol(name = "bray_foreign_integer_pressure")
+@abi(c)
+extern trusted func native_integer_pressure(
+    pos a: u64,
+    pos b: u64,
+    pos c: u64,
+    pos d: u64,
+    pos e: u64,
+    pos value: NativeRecord,
+    pos tail: u64,
+) -> i32
+    uses(foreign_call);
+
+@symbol(name = "bray_foreign_mixed_pressure")
+@abi(c)
+extern trusted func native_mixed_pressure(
+    pos a: u64,
+    pos b: u64,
+    pos c: u64,
+    pos d: u64,
+    pos e: u64,
+    pos f: u64,
+    pos value: NativeMixedRecord,
+    pos tail: r64,
+) -> i32
+    uses(foreign_call);
+
+@symbol(name = "bray_foreign_vector_pressure")
+@abi(c)
+extern trusted func native_vector_pressure(
+    pos a: r64,
+    pos b: r64,
+    pos c: r64,
+    pos d: r64,
+    pos e: r64,
+    pos f: r64,
+    pos g: r64,
+    pos value: NativeDoublePair,
+    pos tail: r64,
+) -> i32
+    uses(foreign_call);
+
+@symbol(name = "bray_foreign_result_pressure")
+@abi(c)
+extern trusted func native_result_pressure(
+    pos a: u64,
+    pos b: u64,
+    pos c: u64,
+    pos d: u64,
+    pos value: NativeRecord,
+    pos tail: u64,
+) -> NativeLargeRecord
+    uses(foreign_call);
+
+@symbol(name = "bray_aggregate_record_callback")
+@abi(c)
+trusted func record_callback(pos value: NativeRecord) -> NativeRecord
+{
+    return
+    {
+        narrow = value.narrow + 1,
+        unsigned_narrow = value.unsigned_narrow + 1,
+        signed_value = value.signed_value + 1,
+        wide = value.wide + 1
+    };
+}
+
+@symbol(name = "bray_aggregate_float_pair_callback")
+@abi(c)
+trusted func float_pair_callback(pos value: NativeFloatPair) -> NativeFloatPair
+{
+    return
+    {
+        first = value.first + 1.0,
+        second = value.second + 1.0
+    };
+}
+
+@symbol(name = "bray_aggregate_mixed_record_callback")
+@abi(c)
+trusted func mixed_record_callback(pos value: NativeMixedRecord) -> NativeMixedRecord
+{
+    return
+    {
+        integer = value.integer + 1,
+        real = value.real + 1.0
+    };
+}
+
+@symbol(name = "bray_aggregate_large_record_callback")
+@abi(c)
+trusted func large_record_callback(pos value: NativeLargeRecord) -> NativeLargeRecord
+{
+    return
+    {
+        first = value.first + 1,
+        second = value.second + 1,
+        third = value.third + 1
+    };
+}
+
+@symbol(name = "bray_aggregate_result_pressure_callback")
+@abi(c)
+trusted func result_pressure_callback(
+    pos a: u64,
+    pos b: u64,
+    pos c: u64,
+    pos d: u64,
+    pos value: NativeRecord,
+    pos tail: u64,
+) -> NativeLargeRecord
+{
+    assert(a == 1 && b == 2 && c == 3 && d == 4);
+
+    return
+    {
+        first = value.wide,
+        second = tail,
+        third = a + b + c + d
+    };
+}
+
+@symbol(name = "bray_foreign_record_callback")
+@abi(c)
+extern trusted func native_record_callback(
+    pos callback: @abi(c) trusted func(pos value: NativeRecord) -> NativeRecord,
+) -> i32
+    uses(foreign_call);
+
+@symbol(name = "bray_foreign_float_pair_callback")
+@abi(c)
+extern trusted func native_float_pair_callback(
+    pos callback: @abi(c) trusted func(pos value: NativeFloatPair) -> NativeFloatPair,
+) -> i32
+    uses(foreign_call);
+
+@symbol(name = "bray_foreign_mixed_record_callback")
+@abi(c)
+extern trusted func native_mixed_record_callback(
+    pos callback: @abi(c) trusted func(pos value: NativeMixedRecord) -> NativeMixedRecord,
+) -> i32
+    uses(foreign_call);
+
+@symbol(name = "bray_foreign_large_record_callback")
+@abi(c)
+extern trusted func native_large_record_callback(
+    pos callback: @abi(c) trusted func(pos value: NativeLargeRecord) -> NativeLargeRecord,
+) -> i32
+    uses(foreign_call);
+
+@symbol(name = "bray_foreign_result_pressure_callback")
+@abi(c)
+extern trusted func native_result_pressure_callback(
+    pos callback: @abi(c) trusted func(
+        pos a: u64,
+        pos b: u64,
+        pos c: u64,
+        pos d: u64,
+        pos value: NativeRecord,
+        pos tail: u64,
+    ) -> NativeLargeRecord,
+) -> i32
+    uses(foreign_call);
+
+trusted func audit_aggregate_abi()
+    uses(foreign_call)
+{
+    let bytes: NativeByteTriple = trusted native_byte_triple(
+        {
+            first = 5,
+            second = 7,
+            third = 9
+        }
+    );
+
+    assert(bytes.first == 6 && bytes.second == 9 && bytes.third == 12);
+
+    let small: NativeSmallRecord = trusted native_small_record(
+        {
+            narrow = 5,
+            unsigned_narrow = 7,
+            signed_value = 41
+        }
+    );
+
+    assert(small.narrow == 4 && small.unsigned_narrow == 8 && small.signed_value == 43);
+
+    let nested: NativeNestedRecord = trusted native_nested_record(
+        {
+            inner =
+            {
+                narrow = 5,
+                unsigned_narrow = 7,
+                signed_value = 41
+            },
+            wide = 100,
+        }
+    );
+
+    assert(
+        nested.inner.narrow == 4 && nested.inner.unsigned_narrow == 8 && nested.inner.signed_value == 43 &&
+            nested.wide == 103
+    );
+
+    let floats: NativeFloatPair = trusted native_float_pair(
+        {
+            first = 1.25,
+            second = 2.5
+        }
+    );
+
+    assert(floats.first == 2.5 && floats.second == 5.0);
+
+    let mixed: NativeMixedRecord = trusted native_mixed_record(
+        {
+            integer = 41,
+            real = 2.5
+        }
+    );
+
+    assert(mixed.integer == 43 && mixed.real == 3.0);
+
+    let reversed: NativeReversedRecord = trusted native_reversed_record(
+        {
+            real = 2.5,
+            integer = 41
+        }
+    );
+
+    assert(reversed.integer == 43 && reversed.real == 3.0);
+
+    let large: NativeLargeRecord = trusted native_large_record(
+        {
+            first = 1,
+            second = 2,
+            third = 3
+        }
+    );
+
+    assert(large.first == 4 && large.second == 5 && large.third == 6);
+
+    let record: NativeRecord =
+    {
+        narrow = 5,
+        unsigned_narrow = 7,
+        signed_value = 41,
+        wide = 100
+    };
+
+    let combined: NativeRecord = trusted native_combined_record(record, large, 7);
+
+    assert(
+        combined.narrow == 5 && combined.unsigned_narrow == 7 && combined.signed_value == 41 && combined.wide == 122
+    );
+
+    assert(trusted native_integer_pressure(1, 2, 3, 4, 5, record, 6) == 1);
+
+    assert(
+        trusted native_mixed_pressure(
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            {
+                integer = 41,
+                real = 2.5
+            },
+            8.0
+        ) == 1
+    );
+
+    assert(
+        trusted native_vector_pressure(
+            1.0,
+            2.0,
+            3.0,
+            4.0,
+            5.0,
+            6.0,
+            7.0,
+            {
+                first = 10.0,
+                second = 20.0
+            },
+            8.0
+        ) == 1
+    );
+
+    let pressured: NativeLargeRecord = trusted native_result_pressure(1, 2, 3, 4, record, 5);
+
+    assert(pressured.first == 100 && pressured.second == 5 && pressured.third == 10);
+    assert(trusted native_record_callback(record_callback) == 1);
+    assert(trusted native_float_pair_callback(float_pair_callback) == 1);
+    assert(trusted native_mixed_record_callback(mixed_record_callback) == 1);
+    assert(trusted native_large_record_callback(large_record_callback) == 1);
+    assert(trusted native_result_pressure_callback(result_pressure_callback) == 1);
+}

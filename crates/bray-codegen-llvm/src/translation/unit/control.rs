@@ -715,12 +715,17 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 self.clear_moved_places()?;
                 llvm(self.builder.build_return(None))?;
             }
-            CodegenResultMapping::Direct { .. } => {
+            CodegenResultMapping::Direct { coercion, .. } => {
                 let value = value.expect(
                     "checked MIR control translation requires an established mapping or value",
                 );
 
                 let value = self.operand(value)?;
+
+                let value = match coercion {
+                    Some(coercion) => self.encode_abi_result(value, coercion)?,
+                    None => value,
+                };
 
                 self.clear_moved_places()?;
 
@@ -757,7 +762,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         value: BasicValueEnum<'context>,
     ) -> Result<(), CodegenFailure> {
         match self.signature.result() {
-            CodegenResultMapping::Direct { .. } => {
+            CodegenResultMapping::Direct { coercion, .. } => {
+                let value = match coercion {
+                    Some(coercion) => self.encode_abi_result(value, coercion)?,
+                    None => value,
+                };
+
                 llvm(self.builder.build_return(Some(&value)))?;
             }
             CodegenResultMapping::Indirect { .. } => {
