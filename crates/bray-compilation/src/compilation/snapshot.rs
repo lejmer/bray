@@ -238,6 +238,11 @@ fn reuse_fixed_cells(
     );
 
     reuse!(
+        imported_standard_library_implementations,
+        CompilationFactKey::ImportedStandardLibraryImplementations
+    );
+
+    reuse!(
         execution_guarantee_diagnostics,
         CompilationFactKey::ExecutionGuaranteeDiagnostics
     );

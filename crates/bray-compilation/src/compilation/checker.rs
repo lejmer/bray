@@ -48,7 +48,7 @@ type CheckerQueryResult<T> = bray_checker::CheckerQueryResult<T, FactQueryError>
 pub(super) struct CompilationCheckerContext<'compilation> {
     binding_context: CompilationBindingContext<'compilation>,
     implementation_witnesses: Arc<[ImplementationInstanceId]>,
-    recognized_standard_library_implementations:
+    source_standard_library_implementations:
         OnceLock<Result<BTreeMap<AnySymbolId, ImplementationHookResolution>, CheckerQueryError>>,
 }
 
@@ -57,7 +57,7 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
         Self {
             binding_context,
             implementation_witnesses: Arc::from([]),
-            recognized_standard_library_implementations: OnceLock::new(),
+            source_standard_library_implementations: OnceLock::new(),
         }
     }
 
@@ -209,66 +209,6 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
                 error,
             ))
         })
-    }
-
-    fn recognized_standard_library_implementations(
-        &self,
-    ) -> CheckerQueryResult<&BTreeMap<AnySymbolId, ImplementationHookResolution>> {
-        self.recognized_standard_library_implementations
-            .get_or_init(|| self.build_recognized_standard_library_implementations())
-            .as_ref()
-            .map_err(Clone::clone)
-    }
-
-    fn build_recognized_standard_library_implementations(
-        &self,
-    ) -> CheckerQueryResult<BTreeMap<AnySymbolId, ImplementationHookResolution>> {
-        let mut implementations = self.source_standard_library_implementations()?;
-
-        let imported = self
-            .binding_context
-            .compilation()
-            .imported_symbol_skeleton_result_with_cancellation(self.binding_context.cancellation())
-            .map_err(checker_query_error)?;
-
-        let Some(imported) = imported.value() else {
-            return Ok(implementations);
-        };
-
-        let standard_library = standard_library_package_identity()?;
-
-        let all = Arc::clone(imported).recognize_standard_library(&standard_library, |_| true);
-
-        let target = self
-            .binding_context
-            .compilation()
-            .selected_target()
-            .target();
-
-        let available = Arc::clone(imported)
-            .recognize_standard_library(&standard_library, |rule| target.supports(rule));
-
-        for declaration in all.declarations() {
-            let Some(descriptor) = COMPILER_KNOWN_CATALOG
-                .recognized_standard_library_declaration(declaration.descriptor())
-            else {
-                continue;
-            };
-
-            let Some(hook) = descriptor.implementation_hook() else {
-                continue;
-            };
-
-            implementations.insert(
-                declaration.symbol(),
-                ImplementationHookResolution::new(
-                    hook,
-                    available.descriptor(declaration.symbol()).is_some(),
-                ),
-            );
-        }
-
-        Ok(implementations)
     }
 
     fn source_standard_library_implementations(
@@ -532,10 +472,28 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
         &self,
         symbol: AnySymbolId,
     ) -> CheckerQueryResult<Option<ImplementationHookResolution>> {
-        Ok(self
-            .recognized_standard_library_implementations()?
+        let compilation = self.binding_context.compilation();
+
+        let source = if is_public_standard_library_source(compilation) {
+            // Source identities belong to this context's discovery or product graph.
+            Some(
+                self.source_standard_library_implementations
+                    .get_or_init(|| self.source_standard_library_implementations())
+                    .as_ref()
+                    .map_err(Clone::clone)?,
+            )
+        } else {
+            None
+        };
+
+        let imported = compilation
+            .imported_standard_library_implementations(self.binding_context.cancellation())
+            .map_err(checker_query_error)?;
+
+        Ok(imported
             .get(&symbol)
-            .copied())
+            .copied()
+            .or_else(|| source.and_then(|source| source.get(&symbol).copied())))
     }
 
     fn selected_target(&self) -> &TargetProfile {
@@ -972,6 +930,62 @@ where
 }
 
 impl Compilation {
+    fn imported_standard_library_implementations(
+        &self,
+        cancellation: &CancellationToken,
+    ) -> Result<&BTreeMap<AnySymbolId, ImplementationHookResolution>, FactQueryError> {
+        self.query_with_cancellation(
+            crate::fact::CompilationFactKey::ImportedStandardLibraryImplementations,
+            &self.state.imported_standard_library_implementations,
+            cancellation,
+            |cancellation| {
+                let mut implementations = BTreeMap::new();
+
+                let imported =
+                    self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
+
+                let Some(imported) = imported.value() else {
+                    return Ok(implementations);
+                };
+
+                let standard_library =
+                    standard_library_package_identity().map_err(FactQueryError::from)?;
+
+                let all =
+                    Arc::clone(imported).recognize_standard_library(&standard_library, |_| true);
+
+                let target = self.selected_target().target();
+
+                let available = Arc::clone(imported)
+                    .recognize_standard_library(&standard_library, |rule| target.supports(rule));
+
+                for declaration in all.declarations() {
+                    cancellation.check()?;
+
+                    let Some(descriptor) = COMPILER_KNOWN_CATALOG
+                        .recognized_standard_library_declaration(declaration.descriptor())
+                    else {
+                        continue;
+                    };
+
+                    let Some(hook) = descriptor.implementation_hook() else {
+                        continue;
+                    };
+
+                    implementations.insert(
+                        declaration.symbol(),
+                        ImplementationHookResolution::new(
+                            hook,
+                            available.descriptor(declaration.symbol()).is_some(),
+                        ),
+                    );
+                }
+
+                Ok(implementations)
+            },
+        )
+    }
+
     /// Returns post-selection validity and diagnostics for one exact target requirement.
     pub fn target_validity(
         &self,
@@ -1491,6 +1505,274 @@ func exercise(pos value: Missing) -> Result<u8, ConversionError>
         assert!(hook.is_some_and(|hook| {
             hook.hook() == ImplementationHook::NumericTruncate && hook.is_available()
         }));
+    }
+
+    #[test]
+    fn imported_hook_inventory_is_lazy_and_shared_across_checker_contexts() {
+        let dependency = standard_library_hook_dependency();
+
+        let request = CompilationRequest::new(
+            crate::test_support::package_identity(),
+            vec![source_input("module app; func main() {}", 0)],
+        )
+        .with_dependency_interfaces([dependency])
+        .with_profile(crate::CompilationProfileConfiguration::new(
+            bray_profile::CompilationProfileMode::Summary,
+        ));
+
+        let compilation = Compilation::load(request).expect("hook fixture must load");
+
+        assert!(
+            compilation
+                .state
+                .imported_standard_library_implementations
+                .get()
+                .is_none()
+        );
+
+        let context = compilation
+            .checker_context(&compilation.state.cancellation)
+            .expect("checker context must load");
+
+        let function = context
+            .symbols()
+            .functions()
+            .iter()
+            .find(|function| {
+                context
+                    .symbols()
+                    .member_name(function.id().into())
+                    .is_some_and(|name| name.as_ref() == "main")
+            })
+            .expect("ordinary source function must exist")
+            .id();
+
+        assert!(
+            compilation
+                .state
+                .imported_standard_library_implementations
+                .get()
+                .is_none()
+        );
+
+        std::thread::scope(|scope| {
+            for _ in 0..8 {
+                let compilation = &compilation;
+
+                scope.spawn(move || {
+                    let context = compilation
+                        .checker_context(&compilation.state.cancellation)
+                        .expect("parallel checker context must load");
+
+                    assert_eq!(
+                        context.recognized_standard_library_implementation_hook(function.into()),
+                        Ok(None)
+                    );
+
+                    assert!(
+                        context
+                            .source_standard_library_implementations
+                            .get()
+                            .is_none()
+                    );
+                });
+            }
+        });
+
+        let inventory = compilation
+            .state
+            .imported_standard_library_implementations
+            .get()
+            .expect("imported hooks must publish");
+
+        assert!(!inventory.is_empty());
+
+        let report = compilation
+            .profile_report()
+            .expect("fixture profile must exist");
+
+        let query = report
+            .queries
+            .iter()
+            .find(|query| query.id == 1_080)
+            .expect("imported hooks must be profiled");
+
+        assert_eq!(query.evaluations, 1);
+        assert_eq!(query.requests, 8);
+    }
+
+    #[test]
+    fn imported_hook_inventory_reuse_tracks_imports_and_target() {
+        let target = crate::SelectedTarget::baseline();
+        let dependency = standard_library_hook_dependency();
+
+        let request = || {
+            CompilationRequest::new(
+                crate::test_support::package_identity(),
+                vec![source_input("module app;", 0)],
+            )
+            .with_dependency_interfaces([dependency.clone()])
+        };
+
+        let previous = Compilation::load(request()).expect("hook fixture must load");
+
+        assert!(
+            !previous
+                .imported_standard_library_implementations(&previous.state.cancellation)
+                .expect("imported hooks must resolve")
+                .is_empty()
+        );
+
+        let stable = previous
+            .updated(request())
+            .expect("stable snapshot must load");
+
+        assert!(
+            previous
+                .state
+                .imported_standard_library_implementations
+                .shares_storage_with(&stable.state.imported_standard_library_implementations)
+        );
+
+        let source_changed = previous
+            .updated(
+                CompilationRequest::new(
+                    crate::test_support::package_identity(),
+                    vec![source_input("module app; func added() {}", 1)],
+                )
+                .with_dependency_interfaces([dependency.clone()]),
+            )
+            .expect("changed source snapshot must load");
+
+        assert!(
+            source_changed
+                .state
+                .imported_standard_library_implementations
+                .get()
+                .is_none()
+        );
+
+        assert_ne!(
+            previous
+                .state
+                .imported_standard_library_implementations
+                .get()
+                .expect("previous hooks must remain published"),
+            source_changed
+                .imported_standard_library_implementations(&source_changed.state.cancellation)
+                .expect("changed source hooks must resolve"),
+        );
+
+        let changed_target = crate::SelectedTarget::new(
+            target.profile().clone(),
+            bray_runtime_interface::RuntimeAbiVersion::new(1, 1),
+        );
+
+        let changed = previous
+            .updated(
+                CompilationRequest::with_options(
+                    crate::test_support::package_identity(),
+                    vec![source_input("module app;", 0)],
+                    crate::CompilationOptions::new(
+                        crate::WorkerBudget::serial(),
+                        bray_symbols::ProductKind::Library,
+                        changed_target,
+                    ),
+                )
+                .with_dependency_interfaces([dependency.clone()]),
+            )
+            .expect("target snapshot must load");
+
+        assert!(
+            changed
+                .state
+                .imported_standard_library_implementations
+                .get()
+                .is_none()
+        );
+
+        assert!(
+            !previous
+                .state
+                .imported_standard_library_implementations
+                .shares_storage_with(&changed.state.imported_standard_library_implementations)
+        );
+
+        let no_imports = previous
+            .updated(CompilationRequest::new(
+                crate::test_support::package_identity(),
+                vec![source_input("module app;", 0)],
+            ))
+            .expect("snapshot without imports must load");
+
+        assert!(
+            no_imports
+                .state
+                .imported_standard_library_implementations
+                .get()
+                .is_none()
+        );
+
+        assert!(
+            no_imports
+                .imported_standard_library_implementations(&no_imports.state.cancellation)
+                .expect("empty imported hooks must resolve")
+                .is_empty()
+        );
+    }
+
+    fn standard_library_hook_dependency() -> crate::DependencyInterfaceInput {
+        let package = PackageIdentity::try_new(
+            bray_standard_library::PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY,
+        )
+        .expect("standard-library package must be valid");
+
+        let product = bray_package_interface::InterfaceProductIdentity::try_new(
+            bray_standard_library::PUBLIC_STANDARD_LIBRARY_PRODUCT_IDENTITY,
+        )
+        .expect("standard-library product must be valid");
+
+        let identity = bray_package_interface::PackageInterfaceIdentity::try_new(
+            package.clone(),
+            crate::test_support::package_version(),
+            product.clone(),
+            bray_package_interface::InterfaceProductKind::Library,
+            bray_standard_library::PUBLIC_STANDARD_LIBRARY_SURFACE_IDENTITY,
+        )
+        .expect("standard-library interface must be valid");
+
+        let revision = bray_package_interface::InterfaceLanguageRevision::new(0);
+
+        let request = CompilationRequest::new(
+            package.clone(),
+            vec![source_input(
+                "module std; extern func truncate_to<Target, Source>(pos source: Source) -> Target;",
+                0,
+            )],
+        ).with_standard_library_source_authority()
+        .with_package_interface_export(crate::request::PackageInterfaceExportRequest::new(identity, revision));
+
+        let compilation =
+            Compilation::load(request).expect("standard-library hook fixture must load");
+
+        assert!(compilation.check_diagnostics().is_empty());
+
+        let bundle = compilation
+            .package_interface_export_bundle()
+            .expect("standard-library interface must resolve")
+            .as_ref()
+            .expect("standard-library interface must export");
+
+        let interface = bray_package_interface::encode_package_interface(bundle)
+            .expect("standard-library interface must encode");
+
+        crate::DependencyInterfaceInput::new(
+            package,
+            product,
+            "std.brayi",
+            interface.shared_bytes(),
+            bray_package_interface::InterfaceValidationPolicy::new(revision),
+        )
     }
 
     fn callable_compilation() -> Compilation {

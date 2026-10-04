@@ -559,6 +559,7 @@ define_profile_query_kinds! {
     OptimizedMir = 1077 => "optimized_mir",
     SourceOutputUnit = 1078 => "source_output_unit",
     ExecutionGuaranteeDiagnostics = 1079 => "execution_guarantee_diagnostics",
+    ImportedStandardLibraryImplementations = 1080 => "imported_standard_library_implementations",
 }
 
 impl ProfileQueryKind {
@@ -642,6 +643,9 @@ impl ProfileQueryKind {
             CompilationFactKey::ExecutionGuaranteeDiagnostics => {
                 Self::ExecutionGuaranteeDiagnostics
             }
+            CompilationFactKey::ImportedStandardLibraryImplementations => {
+                Self::ImportedStandardLibraryImplementations
+            }
             CompilationFactKey::SourceUnitSyntax(_) => Self::SourceUnitSyntax,
             CompilationFactKey::SourceReferenceIndex(_) => Self::SourceReferenceIndex,
             CompilationFactKey::SymbolGraph => Self::SymbolGraph,
@@ -693,7 +697,7 @@ mod tests {
                 1_039, 1_040, 1_041, 1_042, 1_043, 1_044, 1_045, 1_046, 1_047, 1_048, 1_049, 1_051,
                 1_052, 1_053, 1_054, 1_055, 1_056, 1_057, 1_058, 1_059, 1_060, 1_061, 1_062, 1_063,
                 1_064, 1_066, 1_067, 1_068, 1_069, 1_070, 1_071, 1_072, 1_073, 1_074, 1_075, 1_076,
-                1_077, 1_078, 1_079,
+                1_077, 1_078, 1_079, 1_080,
             ]
         );
     }

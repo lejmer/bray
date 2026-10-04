@@ -246,6 +246,7 @@ fn push_fact_context(
             "source_output_unit"
         }
         Fact::ExecutionGuaranteeDiagnostics => "execution_guarantee_diagnostics",
+        Fact::ImportedStandardLibraryImplementations => "imported_standard_library_implementations",
         Fact::LoweredUnit(unit) => {
             push_bound_unit_key(fields, unit);
 

@@ -237,6 +237,7 @@ impl Compilation {
                 loaded_dependency_interfaces: empty_query_caches(dependency_count),
                 loaded_dependency_implementations: empty_query_caches(dependency_count),
                 imported_symbol_skeleton: FactCell::new(),
+                imported_standard_library_implementations: FactCell::new(),
                 imported_semantic_graphs: empty_query_caches(dependency_count),
                 imported_semantics: FactCellMap::new(),
                 imported_constant_callable_bodies: FactCellMap::new(),
