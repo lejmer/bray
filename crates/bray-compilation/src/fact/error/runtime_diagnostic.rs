@@ -393,6 +393,7 @@ fn scheduler_local_operation_key(value: crate::fact::SchedulerLocalOperation) ->
 
 fn scheduler_counter_key(value: crate::fact::SchedulerCounter) -> &'static str {
     match value {
+        crate::fact::SchedulerCounter::ActiveSlots => "active_slots",
         crate::fact::SchedulerCounter::InteractiveWaiters => "interactive_waiters",
         crate::fact::SchedulerCounter::OrdinaryWaiters => "ordinary_waiters",
     }
@@ -433,6 +434,11 @@ pub(super) fn compilation_fact_kind(value: &CompilationFactKey) -> &'static str 
         Value::CertifiedExecution(_) => "certified_execution",
         Value::BodySemantics(_) => "body_semantics",
         Value::CheckedBodyBehavior(_) => "checked_body_behavior",
+        Value::SourceOutputUnit(_) => "source_output_unit",
+        Value::ExecutionGuaranteeDiagnostics => "execution_guarantee_diagnostics",
+        Value::ImportedStandardLibraryImplementations => {
+            "imported_standard_library_implementations"
+        }
         Value::LoweredUnit(_) => "lowered_unit",
         Value::CodegenArtifact(_) => "codegen_artifact",
         Value::OptimizedMir(_) => "optimized_mir",

@@ -34,6 +34,10 @@ impl Compilation {
         &self,
         key: BoundUnitKey,
     ) -> Result<Arc<DiagnosticResult<Option<LoweredUnit>>>, FactQueryError> {
+        if let Some(result) = self.published_output_lowering(&key, &self.state.cancellation)? {
+            return Ok(result);
+        }
+
         let published = self.lowered_unit_with_cancellation(key, &self.state.cancellation)?;
 
         Ok(Arc::clone(published.result()))
@@ -46,10 +50,36 @@ impl Compilation {
         cancellation: &CancellationToken,
         priority: QueryPriority,
     ) -> Result<Arc<DiagnosticResult<Option<LoweredUnit>>>, FactQueryError> {
+        if let Some(result) = self.published_output_lowering(&key, cancellation)? {
+            return Ok(result);
+        }
+
         let published =
             self.lowered_unit_with_cancellation_and_priority(key, cancellation, priority)?;
 
         Ok(Arc::clone(published.result()))
+    }
+
+    fn published_output_lowering(
+        &self,
+        key: &BoundUnitKey,
+        cancellation: &CancellationToken,
+    ) -> Result<Option<Arc<DiagnosticResult<Option<LoweredUnit>>>>, FactQueryError> {
+        let Some(output) = self.state.source_outputs.published(key)? else {
+            return Ok(None);
+        };
+
+        let Some(lowered) = &output.lowered else {
+            return Ok(None);
+        };
+
+        let fact = CompilationFactKey::LoweredUnit(key.clone());
+
+        self.state.fact_runtime.check_request_cycle(&fact)?;
+        cancellation.check()?;
+        self.state.fact_runtime.record_completed_request(&fact)?;
+
+        Ok(Some(Arc::clone(lowered)))
     }
 
     fn lowered_unit_with_cancellation(

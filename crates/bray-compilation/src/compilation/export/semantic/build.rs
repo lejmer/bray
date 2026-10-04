@@ -1,15 +1,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_binder::SymbolQueryProvider;
-use bray_bound_tree::{BoundUnitKey, CheckedTemplateKind};
+use bray_bound_tree::CheckedTemplateKind;
 use bray_package_interface::{
     InterfaceConstantCallableBody, InterfaceExecutableTemplate, InterfaceNativeBoundary,
-    InterfaceRuntimeRequirement, InterfaceSemantics, InterfaceSymbolReference,
+    InterfaceSemantics, InterfaceSymbolReference,
     PackageInterfaceSurface, commit_interface_semantic_fragments,
 };
 use bray_symbols::{
     AnySymbolId, CallableConstness, CallableDefinitionId, CallableInstanceData,
-    CallableSignatureQuery, ExternalSymbolKey, GenericOwnerId, InterfaceSymbolId,
+    CallableSignatureQuery, ExternalSymbolKey, GenericOwnerId,
     SymbolQueryRequest, diagnostic_external_symbol_identity,
 };
 
@@ -21,7 +21,7 @@ use super::context::{CheckedConstantExpression, SemanticExporter};
 use super::defaults::target_dependencies;
 use super::fragment::SemanticFragment;
 use super::implementation::implementation_semantics;
-use super::templates::ExecutableTemplateExporter;
+use super::executable::{executable_templates, prepare_executable_outputs};
 
 pub(in crate::compilation::export) fn build_semantics(
     compilation: &Compilation,
@@ -46,10 +46,17 @@ pub(in crate::compilation::export) fn build_semantics(
         .binding_context(&compilation.state.cancellation)
         .map_err(super::super::invalid_compilation_fact_error)?;
 
-    let fragments =
+    let mut export = SemanticExporter::new(compilation, graph, surface, keys, values);
+
+    prepare_executable_outputs(compilation, graph, selected, &export)?;
+
+    let mut fragments =
         resolve_fragments(compilation, graph, &binder, surface, selected, keys, values)?;
 
-    let mut export = SemanticExporter::new(compilation, graph, surface, keys, values);
+    let resolved_contracts = fragments
+        .iter_mut()
+        .filter_map(SemanticFragment::take_callable_contract)
+        .collect::<BTreeMap<_, _>>();
 
     let committed_fragments = crate::profile::profile_operation(
         compilation.state.fact_runtime.profile(),
@@ -75,8 +82,12 @@ pub(in crate::compilation::export) fn build_semantics(
 
     let native_boundaries = native_boundaries(compilation, selected, &export)?;
 
-    let callable_contracts =
-        super::execution::callable_contracts(compilation, &binder, selected, &mut export)?;
+    let callable_contracts = super::execution::callable_contracts(
+        compilation,
+        &resolved_contracts,
+        selected,
+        &mut export,
+    )?;
 
     let semantics = InterfaceSemantics::new()
         .with_contracts([], callable_contracts)
@@ -260,7 +271,7 @@ fn callable_argument_ordinals(
         .collect()
 }
 
-fn exported_declaration_identity(
+pub(super) fn exported_declaration_identity(
     export: &SemanticExporter<'_>,
     symbol: AnySymbolId,
 ) -> Result<bray_diagnostics::DiagnosticInterfaceSymbolIdentity, PackageInterfaceExportError> {
@@ -310,7 +321,7 @@ fn resolve_fragments(
                 )
             },
         )
-        .map_err(fragment_batch_error)?;
+        .map_err(semantic_batch_error)?;
 
     let mut fragments = fragments
         .into_iter()
@@ -341,8 +352,8 @@ fn resolve_fragments(
     Ok(fragments)
 }
 
-fn fragment_batch_error(
-    error: BatchCompletionError<AnySymbolId, PackageInterfaceExportError>,
+pub(super) fn semantic_batch_error<K>(
+    error: BatchCompletionError<K, PackageInterfaceExportError>,
 ) -> PackageInterfaceExportError {
     match error {
         BatchCompletionError::Cancelled => PackageInterfaceExportError::Cancelled,
@@ -432,293 +443,11 @@ fn native_boundaries(
     Ok(boundaries)
 }
 
-fn executable_templates(
-    compilation: &Compilation,
-    graph: &bray_symbols::SymbolGraph,
-    selected: &BTreeSet<AnySymbolId>,
-    export: &mut SemanticExporter<'_>,
-) -> Result<
-    (
-        Vec<InterfaceExecutableTemplate>,
-        Vec<InterfaceRuntimeRequirement>,
-    ),
-    PackageInterfaceExportError,
-> {
-    let mut templates = Vec::new();
-    let mut runtime_requirements = Vec::new();
-
-    for symbol in selected.iter().copied() {
-        let declaration = exported_declaration_identity(export, symbol)?;
-
-        let Some(root) = executable_template_unit(compilation, graph, symbol, &declaration)? else {
-            continue;
-        };
-
-        let InterfaceSymbolReference::Local(owner) = export.symbol_reference(symbol)? else {
-            return Err(super::super::export_contract_error(
-                super::super::PackageInterfaceExportContract::NonLocalExecutableTemplate,
-            ));
-        };
-
-        let (family_templates, family_requirement) = export_executable_template_family(
-            compilation,
-            graph,
-            owner,
-            &declaration,
-            root,
-            export,
-        )?;
-
-        templates.extend(family_templates);
-
-        if let Some(requirement) = family_requirement {
-            runtime_requirements.push(requirement);
-        }
-    }
-
-    runtime_requirements.sort_unstable();
-
-    Ok((templates, runtime_requirements))
-}
-
-fn export_executable_template_family(
-    compilation: &Compilation,
-    graph: &bray_symbols::SymbolGraph,
-    owner: InterfaceSymbolId,
-    declaration: &bray_diagnostics::DiagnosticInterfaceSymbolIdentity,
-    root: BoundUnitKey,
-    export: &mut SemanticExporter<'_>,
-) -> Result<
-    (
-        Vec<InterfaceExecutableTemplate>,
-        Option<InterfaceRuntimeRequirement>,
-    ),
-    PackageInterfaceExportError,
-> {
-    let family = executable_template_family(compilation, root, declaration)?;
-
-    let family_size = u32::try_from(family.len()).map_err(|_| {
-        PackageInterfaceExportError::InvalidCompilationCause(
-            super::super::PackageInterfaceInvalidCompilationCause::Capacity {
-                field: "executable_template_family_size",
-                actual: family.len().to_string(),
-            },
-        )
-    })?;
-
-    let identities = family
-        .iter()
-        .enumerate()
-        .map(|(index, key)| {
-            u32::try_from(index)
-                .map(bray_ir::MirExecutableTemplateId::new)
-                // The address map owns stable source keys independently of the traversal list.
-                .map(|identity| (key.clone(), identity))
-                .map_err(|_| {
-                    PackageInterfaceExportError::InvalidCompilationCause(
-                        super::super::PackageInterfaceInvalidCompilationCause::Capacity {
-                            field: "executable_template_identity",
-                            actual: index.to_string(),
-                        },
-                    )
-                })
-        })
-        .collect::<Result<BTreeMap<_, _>, _>>()?;
-
-    let selected_target = compilation.selected_target().target();
-
-    let codegen_target = selected_target.codegen_target().map_err(|cause| {
-        PackageInterfaceExportError::InvalidCompilationCause(
-            super::super::PackageInterfaceInvalidCompilationCause::CodegenTarget(cause),
-        )
-    })?;
-
-    let mut templates = Vec::with_capacity(family.len());
-    let mut family_requirements = Vec::new();
-    let mut frames = BTreeSet::new();
-    let interface = export.surface.identity();
-
-    let source_namespace = bray_symbols::ProductIdentity::try_new(
-        interface.package().clone(),
-        interface.product().as_str(),
-    )
-    .expect("validated interface product identity must be nonempty")
-    .source_namespace();
-
-    for key in family {
-        let identity = identities
-            .get(&key)
-            .copied()
-            .ok_or_else(|| invalid_executable_template("missing_family_identity"))?;
-
-        let platform_service = if identity == bray_ir::MirExecutableTemplateId::ROOT {
-            graph
-                .symbol_for_key(key.declared_owner())
-                .and_then(|symbol| match symbol {
-                    AnySymbolId::Function(function) => Some(function),
-                    _ => None,
-                })
-                .map(|function| {
-                    crate::compilation::foreign::platform::platform_service_role(
-                        compilation,
-                        function,
-                    )
-                })
-                .transpose()
-                .map_err(|cause| {
-                    super::super::executable_template_evaluation_export_error(
-                        declaration.clone(),
-                        cause,
-                    )
-                })?
-                .flatten()
-        } else {
-            None
-        };
-
-        let lowered = compilation.lowered_unit(key).map_err(|cause| {
-            super::super::executable_template_evaluation_export_error(declaration.clone(), cause)
-        })?;
-
-        if lowered.diagnostics().has_errors() {
-            // rust-style: allow(context-erasing-failure-conversion, reason = "source and semantic diagnostics retain the exact causes")
-            return Err(PackageInterfaceExportError::InvalidCompilation);
-        }
-
-        let mir = lowered
-            .value()
-            .as_ref()
-            .and_then(bray_lowering::LoweredUnit::mir)
-            .ok_or_else(|| invalid_executable_template("missing_lowered_mir"))?;
-
-        if let Some(frame) = mir.frame_descriptor() {
-            let requirements = bray_runtime_interface::RuntimeRequirements::new(
-                None,
-                frame.abi_version(),
-                Some(frame.frame_abi()),
-                codegen_target.identity().clone(),
-                codegen_target.panic_abi().clone(),
-                [],
-                [],
-                [],
-            );
-
-            family_requirements.push(requirements);
-            frames.insert(frame.frame());
-        }
-
-        let mut context = ExecutableTemplateExporter::new(export, &identities);
-
-        let payload =
-            bray_package_interface::encode_executable_template(mir, source_namespace, &mut context)
-                .map_err(|error| match error {
-                    bray_package_interface::ExecutableTemplateEncodeError::Semantic(error) => error,
-                    bray_package_interface::ExecutableTemplateEncodeError::InvalidUnitKind => {
-                        invalid_executable_template("invalid_mir_unit_kind")
-                    }
-                })?;
-
-        let template = InterfaceExecutableTemplate::new(owner, identity, family_size, payload)
-            .map(|template| template.with_platform_service(platform_service))
-            .ok_or_else(|| invalid_executable_template("invalid_template_identity"))?;
-
-        templates.push(template);
-    }
-
-    let runtime_requirement =
-        bray_runtime_interface::RuntimeRequirements::try_merge(family_requirements)
-            .map_err(|cause| {
-                PackageInterfaceExportError::InvalidCompilationCause(
-                    super::super::PackageInterfaceInvalidCompilationCause::RuntimeRequirements(
-                        cause,
-                    ),
-                )
-            })?
-            .map(|requirements| {
-                InterfaceRuntimeRequirement::new(
-                    InterfaceSymbolReference::Local(owner),
-                    frames,
-                    requirements,
-                )
-            });
-
-    Ok((templates, runtime_requirement))
-}
-
-fn invalid_executable_template(reason: &'static str) -> PackageInterfaceExportError {
-    PackageInterfaceExportError::InvalidCompilationCause(
-        super::super::PackageInterfaceInvalidCompilationCause::ExecutableTemplate { reason },
-    )
-}
-
-fn executable_template_family(
-    compilation: &Compilation,
-    root: BoundUnitKey,
-    declaration: &bray_diagnostics::DiagnosticInterfaceSymbolIdentity,
-) -> Result<Vec<BoundUnitKey>, PackageInterfaceExportError> {
-    compilation
-        .bound_unit_family_with_cancellation(root, &compilation.state.cancellation)
-        .map_err(|cause| {
-            super::super::executable_template_evaluation_export_error(declaration.clone(), cause)
-        })?
-        .into_iter()
-        .map(|bound| {
-            if bound.diagnostics().has_errors() {
-                // rust-style: allow(context-erasing-failure-conversion, reason = "source and semantic diagnostics retain the exact causes")
-                return Err(PackageInterfaceExportError::InvalidCompilation);
-            }
-
-            // Export traversal retains each stable key beyond the immutable bound-semantics borrow.
-            Ok(bound.value().key().clone())
-        })
-        .collect()
-}
-
-fn executable_template_unit(
-    compilation: &Compilation,
-    graph: &bray_symbols::SymbolGraph,
-    owner: AnySymbolId,
-    declaration: &bray_diagnostics::DiagnosticInterfaceSymbolIdentity,
-) -> Result<Option<BoundUnitKey>, PackageInterfaceExportError> {
-    if let AnySymbolId::Static(static_declaration) = owner {
-        return compilation
-            .static_initializer_key(static_declaration)
-            .map_err(|cause| {
-                super::super::executable_template_evaluation_export_error(
-                    declaration.clone(),
-                    cause,
-                )
-            });
-    }
-
-    if let Some(definition) = CallableDefinitionId::try_new(owner) {
-        return compilation.callable_body_key(definition).map_err(|cause| {
-            super::super::executable_template_evaluation_export_error(declaration.clone(), cause)
-        });
-    }
-
-    if graph.runtime_default_subject(owner).is_none() {
-        return Ok(None);
-    }
-
-    graph.symbol_key(owner).ok_or_else(|| {
-        super::super::export_contract_error(
-            super::super::PackageInterfaceExportContract::MissingRuntimeDefaultOwnerKey,
-        )
-    })?;
-
-    compilation
-        .declared_unit_key(owner, bray_bound_tree::BoundUnitKind::RuntimeDefault)
-        .map_err(|cause| {
-            super::super::executable_template_evaluation_export_error(declaration.clone(), cause)
-        })
-}
-
 #[cfg(test)]
 mod tests {
     use bray_symbols::AnySymbolId;
 
-    use super::fragment_batch_error;
+    use super::semantic_batch_error;
     use crate::compilation::PackageInterfaceExportError;
     use crate::fact::{BatchCompletionError, CompilationFactKey, FactCycle, FactQueryError};
 
@@ -730,7 +459,7 @@ mod tests {
             CompilationFactKey::SyntaxTree,
         ]);
 
-        let error = fragment_batch_error(BatchCompletionError::<
+        let error = semantic_batch_error(BatchCompletionError::<
             AnySymbolId,
             PackageInterfaceExportError,
         >::Scheduler(FactQueryError::Cycle(

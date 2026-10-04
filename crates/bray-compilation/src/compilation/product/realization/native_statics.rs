@@ -1,4 +1,8 @@
-use bray_codegen::{CodegenNativeStaticMapping, CodegenUnit};
+use std::collections::BTreeSet;
+use std::hash::{Hash, Hasher};
+
+use bray_base::StableDigestHasher;
+use bray_codegen::{CodegenInstance, CodegenNativeStaticMapping, CodegenUnit};
 use bray_ir::MirStorageKind;
 use bray_runtime_interface::BinarySymbolName;
 use bray_symbols::{
@@ -6,7 +10,7 @@ use bray_symbols::{
 };
 
 use super::super::super::{CodegenPreparationError, Compilation};
-use super::super::specialization::ConcreteCodegenReachability;
+use super::super::specialization::{ConcreteCodegenInstance, ConcreteCodegenReachability};
 use crate::compilation::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
 use crate::fact::CancellationToken;
 
@@ -17,6 +21,67 @@ pub(in crate::compilation::product) struct NativeStaticContract {
 }
 
 impl Compilation {
+    pub(super) fn codegen_native_publication_metadata(
+        &self,
+        instance: &CodegenInstance,
+        realization: &ConcreteCodegenInstance,
+        cancellation: &CancellationToken,
+    ) -> Result<(bool, [u8; 32]), CodegenPreparationError> {
+        // Owned static accessors and string constants use weak ODR helpers.
+        // MachO cannot give those helpers exact COMDAT selection.
+        let helpers_without_comdat = instance.key().target().machine().object_format()
+            == bray_target::ObjectFormat::MachO;
+
+        let mut independent = helpers_without_comdat
+            && self.codegen_has_string_constants(instance, realization)?;
+
+        let mut dependencies = BTreeSet::new();
+
+        for storage in instance.mir().storages() {
+            let owned_reference = match storage.kind() {
+                MirStorageKind::NativeStatic(reference) => {
+                    let contract = self.native_static_contract(reference, cancellation)?;
+                    let mut hasher = StableDigestHasher::new();
+
+                    hasher.write(b"bray.codegen-native-storage-reference");
+                    contract.symbol.identity().hash(&mut hasher);
+                    dependencies.insert(hasher.finalize());
+
+                    independent |= contract.symbol.presence() == bray_symbols::NativeSymbolPresence::Optional
+                        || contract.symbol.binding() == bray_symbols::NativeSymbolBinding::Weak;
+
+                    (contract.direction == ForeignCallableDirection::Export).then_some(reference)
+                }
+                MirStorageKind::Static(reference) => Some(reference),
+                _ => None,
+            };
+
+            if let Some(reference) = owned_reference {
+                let (selected, _, _) = self.concrete_codegen_static_selection(realization, reference, cancellation)?;
+
+                let mut hasher = StableDigestHasher::new();
+
+                hasher.write(b"bray.codegen-owned-storage-reference");
+                hasher.write(&self.static_cleanup_order_key(&selected, cancellation)?);
+                dependencies.insert(hasher.finalize());
+                independent |= helpers_without_comdat;
+            }
+        }
+
+        let identity = if dependencies.is_empty() {
+            [0; 32]
+        } else {
+            let mut hasher = StableDigestHasher::new();
+
+            hasher.write(b"bray.codegen-storage-dependencies");
+            dependencies.hash(&mut hasher);
+
+            hasher.finalize()
+        };
+
+        Ok((independent, identity))
+    }
+
     pub(super) fn codegen_static_reference<'a>(
         &self,
         kind: &'a MirStorageKind,

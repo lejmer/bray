@@ -246,13 +246,13 @@ where
     fn check_storage_flow(
         &self,
         request: CheckerUnitView<'_, C>,
-        selections: &CheckedSemanticSelections,
+        expressions: &CheckedExpressionSemantics,
+        patterns: &CheckedPatterns,
         storage: &StoragePlan,
-        liveness: &Liveness,
         refinements: &CheckedRefinements,
         memory: &CheckedMemoryOperations,
     ) -> CheckerOutcome<StorageFlow, C::UpstreamError> {
-        check_storage_flow(request, selections, storage, liveness, refinements, memory)
+        check_storage_flow(request, expressions, patterns, storage, refinements, memory)
     }
 }
 

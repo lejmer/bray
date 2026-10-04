@@ -687,7 +687,9 @@ pub enum MirOperationKind {
     /// Invoke an exact callable target.
     Call(MirCall),
     /// Perform one checked compiler-provided memory operation.
-    Memory(MirMemoryOperation),
+    ///
+    /// The separate payload keeps assembly descriptors out of ordinary operation slots.
+    Memory(Box<MirMemoryOperation>),
     /// Perform one compiler-provided UTF-8 text operation.
     Text(MirTextOperation),
     /// Create an owned panic report from one checked failure cause.

@@ -90,8 +90,9 @@ impl InterfaceSemantics {
 
         let signature = self
             .callable_signatures
-            .iter()
-            .find(|signature| signature.owner == contract.owner)
+            .binary_search_by(|signature| signature.owner.cmp(&contract.owner))
+            .ok()
+            .map(|index| &self.callable_signatures[index])
             .ok_or_else(invalid)?;
 
         let input_count = signature.parameters.len() + usize::from(signature.receiver.is_some());
@@ -288,8 +289,9 @@ impl InterfaceSemantics {
 
         let Some(contract) = self
             .callable_contracts
-            .iter()
-            .find(|contract| contract.owner == signature.owner)
+            .binary_search_by(|contract| contract.owner.cmp(&signature.owner))
+            .ok()
+            .map(|index| &self.callable_contracts[index])
         else {
             return if invocation_behavior.execution_properties.is_empty()
                 && deferred_execution_behavior

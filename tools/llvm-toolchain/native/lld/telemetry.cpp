@@ -1,6 +1,7 @@
 #include "telemetry.h"
 
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/Module.h"
@@ -54,7 +55,7 @@ struct DefinitionState
 
 struct ModuleState
 {
-    llvm::DenseMap<llvm::GlobalValue::GUID, DefinitionState> internalized;
+    llvm::DenseSet<llvm::GlobalValue::GUID> internalized;
     llvm::DenseMap<llvm::GlobalValue::GUID, DefinitionState> imported;
     std::uint64_t imported_functions = 0;
     std::uint64_t imported_data = 0;
@@ -201,26 +202,32 @@ llvm::DenseMap<llvm::GlobalValue::GUID, DefinitionState> definitions(
 {
     llvm::DenseMap<llvm::GlobalValue::GUID, DefinitionState> result;
 
-    for (const llvm::GlobalValue& value : module.global_values())
-    {
-        if (value.isDeclaration())
-            continue;
-
+    bray::lld::definition_sizes(module, [&result](
+        const llvm::GlobalValue& value,
+        std::uint64_t bytes
+    ) {
         const DefinitionKind kind =
             value.getValueType()->isFunctionTy()
             ? DefinitionKind::Function
             : DefinitionKind::Data;
 
-        std::string representation;
-        llvm::raw_string_ostream output(representation);
-
-        value.print(output);
-        output.flush();
-
         result.try_emplace(
             value.getGUID(),
-            DefinitionState{kind, static_cast<std::uint64_t>(representation.size())}
+            DefinitionState{kind, bytes}
         );
+    });
+
+    return result;
+}
+
+llvm::DenseSet<llvm::GlobalValue::GUID> definition_ids(const llvm::Module& module)
+{
+    llvm::DenseSet<llvm::GlobalValue::GUID> result;
+
+    for (const llvm::GlobalValue& value : module.global_values())
+    {
+        if (!value.isDeclaration())
+            result.insert(value.getGUID());
     }
 
     return result;
@@ -318,14 +325,15 @@ public:
     void record_internalized(unsigned task, const llvm::Module& module)
     {
         acquire_worker();
+        auto found = definition_ids(module);
         std::lock_guard lock(mutex);
 
-        modules[task].internalized = definitions(module);
+        modules[task].internalized = std::move(found);
     }
 
     void record_imported(unsigned task, const llvm::Module& module)
     {
-        const auto found = definitions(module);
+        auto found = definitions(module);
         std::lock_guard lock(mutex);
         ModuleState& state = modules[task];
 
@@ -340,12 +348,13 @@ public:
                 ++state.imported_data;
         }
 
-        state.imported = found;
+        state.imported = std::move(found);
+        state.internalized = decltype(state.internalized){};
     }
 
     void record_optimized(unsigned task, const llvm::Module& module)
     {
-        const auto found = definitions(module);
+        const auto found = definition_ids(module);
         std::lock_guard lock(mutex);
         ModuleState& state = modules[task];
 
@@ -363,6 +372,7 @@ public:
         }
 
         add_to_totals(state);
+        state.imported = decltype(state.imported){};
         release_worker();
     }
 
@@ -603,8 +613,12 @@ llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> read_cache_entry(
         return llvm::errorToErrorCode(opened.takeError());
 
     llvm::sys::fs::file_t descriptor = *opened;
-    llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> buffer =
-        llvm::MemoryBuffer::getOpenFile(descriptor, path, -1, false);
+    llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> buffer = llvm::MemoryBuffer::getOpenFile(
+        descriptor,
+        path,
+        -1,
+        false
+    );
 
     const std::error_code close_error = llvm::sys::fs::closeFile(descriptor);
 

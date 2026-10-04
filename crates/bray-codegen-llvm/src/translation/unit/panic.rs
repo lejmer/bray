@@ -177,6 +177,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .take()
             .expect("checked MIR translation requires an established mapping or value");
 
+        if let Some(incoming) = self.panic_report_context {
+            assert_eq!(context, incoming, "checked calls must reuse the incoming outcome context");
+        }
+
         let ty = crate::native::run_outcome_type(self.types.context(), self.request.target());
 
         let state_pointer =
@@ -222,12 +226,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         ))?;
 
         self.builder.position_at_end(propagate_cancellation);
-        llvm(self.builder.build_store(context, ty.const_zero()))?;
 
         let (_, pending_moves) = self.take_control_source()?;
 
         let cancellation_route =
-            self.route_edge(cancelled_edge, "call.cancelled", &pending_moves)?;
+            self.route_call_cancellation(cancelled_edge, context, &pending_moves)?;
 
         self.builder.position_at_end(propagate_cancellation);
         llvm(self.builder.build_unconditional_branch(cancellation_route))?;
@@ -258,15 +261,33 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         Ok(())
     }
 
-    fn return_propagated_outcome(&mut self) -> Result<(), CodegenFailure> {
+    pub(super) fn return_propagated_outcome(&mut self) -> Result<(), CodegenFailure> {
+        let source = self.builder.get_insert_block()
+            .expect("checked MIR translation requires an established mapping or value");
+
+        assert_eq!(source.get_parent(), Some(self.function), "propagation returns must belong to their function");
+
+        if let Some(destination) = self.propagated_outcome_return {
+            llvm(self.builder.build_unconditional_branch(destination))?;
+
+            return Ok(());
+        }
+
+        let destination = self.types.context().append_basic_block(self.function, "outcome.propagated");
+
+        // The shared epilogue has no call-site location. Keep path-specific moves and outcome stores in their routes.
+        let builder = self.types.context().create_builder();
+
+        builder.position_at_end(destination);
+
         match self.signature.result() {
             CodegenResultMapping::Void => {
-                llvm(self.builder.build_return(None))?;
+                llvm(builder.build_return(None))?;
             }
             CodegenResultMapping::Direct { ty, .. } => {
                 let value = self.types.map(*ty)?.const_zero();
 
-                llvm(self.builder.build_return(Some(&value)))?;
+                llvm(builder.build_return(Some(&value)))?;
             }
             CodegenResultMapping::Indirect { pointee, .. } => {
                 let destination = self
@@ -276,13 +297,17 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .expect("checked MIR translation requires an established mapping or value");
 
                 llvm(
-                    self.builder
+                    builder
                         .build_store(destination, self.types.map(*pointee)?.const_zero()),
                 )?;
 
-                llvm(self.builder.build_return(None))?;
+                llvm(builder.build_return(None))?;
             }
         }
+
+        self.propagated_outcome_return = Some(destination);
+
+        llvm(self.builder.build_unconditional_branch(destination))?;
 
         Ok(())
     }

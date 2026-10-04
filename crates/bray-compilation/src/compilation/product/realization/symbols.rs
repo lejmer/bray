@@ -393,6 +393,7 @@ impl Compilation {
     pub(in crate::compilation::product) fn codegen_partition_compatibility(
         &self,
         instance: &CodegenInstance,
+        realization: &ConcreteCodegenInstance,
         product: &ProductIdentity,
         roots: &BTreeSet<bray_codegen::CodegenInstanceKey>,
         cancellation: &CancellationToken,
@@ -439,12 +440,17 @@ impl Compilation {
             _ => product.source_namespace(),
         };
 
-        Ok(CodegenPartitionCompatibility::new(
-            package,
-            source_namespace,
-            linkage,
-            visibility,
-        ))
+        let (independent, storage_dependencies) = self
+            .codegen_native_publication_metadata(instance, realization, cancellation)?;
+
+        let mut compatibility = CodegenPartitionCompatibility::new(package, source_namespace, linkage, visibility)
+            .with_native_storage_dependencies_identity(storage_dependencies);
+
+        if independent {
+            compatibility = compatibility.with_native_selection_boundary();
+        }
+
+        Ok(compatibility)
     }
 
     pub(super) fn codegen_instance_package(

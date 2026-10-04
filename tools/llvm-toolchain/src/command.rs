@@ -48,10 +48,16 @@ fn fetch() -> Result<(), ToolchainError> {
     let root = workspace_root.join("target").join(TOOLCHAIN_DIRECTORY);
     let active = root.join(ACTIVE_DIRECTORY);
 
-    if validate_root(&active, &manifest.version)
-        .and_then(|()| validate_marker(&active, &manifest.version, package, &manifest.source))
-        .is_ok()
-    {
+    let installed = validate_root(&active, &manifest.version)
+        .and_then(|()| read_marker(&active))
+        .ok()
+        .filter(|marker| marker.matches_package(&manifest.version, package, &manifest.source));
+
+    if installed.as_ref().is_some_and(|marker| {
+        marker.identity
+            == crate::instrumentation::identity(&manifest.version, &manifest.source.sha256)
+            && marker.instrumentation_digest == crate::instrumentation::digest()
+    }) {
         println!("{}", active.display());
 
         return Ok(());
@@ -60,11 +66,7 @@ fn fetch() -> Result<(), ToolchainError> {
     fs::create_dir_all(root.join(DOWNLOAD_DIRECTORY))
         .map_err(|error| ToolchainError::io("create", &root, error))?;
 
-    let archive = root.join(DOWNLOAD_DIRECTORY).join(&package.archive);
-
     let source_archive = root.join(DOWNLOAD_DIRECTORY).join(&manifest.source.archive);
-
-    acquire_archive(&package.url, package.size, &package.sha256, &archive)?;
 
     acquire_archive(
         &manifest.source.url,
@@ -73,14 +75,27 @@ fn fetch() -> Result<(), ToolchainError> {
         &source_archive,
     )?;
 
-    install_archive(
-        &root,
-        &archive,
-        &source_archive,
-        &manifest.version,
-        package,
-        &manifest.source,
-    )?;
+    if installed.is_some() {
+        let identity = crate::instrumentation::identity(&manifest.version, &manifest.source.sha256);
+
+        crate::instrumentation::install(&active, &source_archive, &manifest.version, &identity)
+            .map_err(ToolchainError::Instrumentation)?;
+
+        write_marker(&active, &manifest.version, package, &manifest.source)?;
+    } else {
+        let archive = root.join(DOWNLOAD_DIRECTORY).join(&package.archive);
+
+        acquire_archive(&package.url, package.size, &package.sha256, &archive)?;
+
+        install_archive(
+            &root,
+            &archive,
+            &source_archive,
+            &manifest.version,
+            package,
+            &manifest.source,
+        )?;
+    }
 
     println!("{}", active.display());
 
@@ -442,29 +457,11 @@ fn write_marker(
     fs::write(&path, bytes).map_err(|error| ToolchainError::io("write", &path, error))
 }
 
-fn validate_marker(
-    root: &Path,
-    version: &str,
-    package: &ToolchainPackage,
-    source: &ToolchainSource,
-) -> Result<(), ToolchainError> {
+fn read_marker(root: &Path) -> Result<ToolchainMarker, ToolchainError> {
     let path = root.join(MARKER_FILE);
     let bytes = fs::read(&path).map_err(|error| ToolchainError::io("read", &path, error))?;
 
-    let marker: ToolchainMarker = serde_json::from_slice(&bytes).map_err(ToolchainError::Marker)?;
-
-    if marker.version != version
-        || marker.identity != crate::instrumentation::identity(version, &source.sha256)
-        || marker.host != package.host
-        || marker.archive != package.archive
-        || marker.sha256 != package.sha256
-        || marker.source_sha256 != source.sha256
-        || marker.instrumentation_digest != crate::instrumentation::digest()
-    {
-        return Err(ToolchainError::MarkerMismatch);
-    }
-
-    Ok(())
+    serde_json::from_slice(&bytes).map_err(ToolchainError::Marker)
 }
 
 fn remove_owned_directory(root: &Path, path: &Path) -> Result<(), ToolchainError> {
@@ -594,6 +591,21 @@ struct ToolchainMarker {
     instrumentation_digest: String,
 }
 
+impl ToolchainMarker {
+    fn matches_package(
+        &self,
+        version: &str,
+        package: &ToolchainPackage,
+        source: &ToolchainSource,
+    ) -> bool {
+        self.version == version
+            && self.host == package.host
+            && self.archive == package.archive
+            && self.sha256 == package.sha256
+            && self.source_sha256 == source.sha256
+    }
+}
+
 #[derive(Debug)]
 enum ToolchainError {
     Usage,
@@ -601,7 +613,6 @@ enum ToolchainError {
     Workspace(String),
     Manifest(serde_json::Error),
     Marker(serde_json::Error),
-    MarkerMismatch,
     InvalidManifest,
     UnsupportedHost(String),
     MissingRustcHost,
@@ -677,11 +688,6 @@ impl fmt::Display for ToolchainError {
             Self::Workspace(error) => write!(formatter, "failed to locate workspace: {error}"),
             Self::Manifest(error) => write!(formatter, "invalid LLVM manifest JSON: {error}"),
             Self::Marker(error) => write!(formatter, "invalid LLVM marker JSON: {error}"),
-            Self::MarkerMismatch => {
-                formatter.write_str(
-                    "active LLVM toolchain does not match the pinned package and linker instrumentation contract",
-                )
-            }
             Self::InvalidManifest => formatter.write_str("LLVM manifest is incomplete or invalid"),
             Self::UnsupportedHost(host) => {
                 write!(formatter, "LLVM {host} package is not provisioned by Bray")
@@ -769,8 +775,8 @@ mod tests {
     use std::path::Path;
 
     use super::{
-        ToolchainError, cleanup_after_failure, manifest, parse_rustc_host, tool_path_with_prefix,
-        validate_marker, write_marker,
+        ToolchainError, cleanup_after_failure, manifest, parse_rustc_host, read_marker,
+        tool_path_with_prefix, write_marker,
     };
 
     #[test]
@@ -876,15 +882,50 @@ mod tests {
             panic!("test marker must be written: {error}");
         }
 
-        assert!(matches!(
-            validate_marker(
-                directory.path(),
-                &manifest.version,
-                package,
-                &manifest.source,
-            ),
-            Err(ToolchainError::MarkerMismatch)
-        ));
+        let marker = read_marker(directory.path()).expect("test marker must be readable");
+
+        assert!(!marker.matches_package(&manifest.version, package, &manifest.source));
+    }
+
+    #[test]
+    fn changed_instrumentation_reuses_only_the_exact_installed_package() {
+        let manifest = manifest().expect("checked-in LLVM manifest must validate");
+
+        let package = manifest
+            .hosts
+            .first()
+            .expect("manifest must contain a test package");
+
+        let directory = tempfile::tempdir().expect("temporary directory must be available");
+
+        write_marker(
+            directory.path(),
+            &manifest.version,
+            package,
+            &manifest.source,
+        )
+        .expect("test marker must be written");
+
+        let mut marker = read_marker(directory.path()).expect("test marker must be readable");
+
+        marker.identity = "old toolchain identity".to_owned();
+        marker.instrumentation_digest = "old instrumentation digest".to_owned();
+        assert!(marker.matches_package(&manifest.version, package, &manifest.source));
+
+        for field in ["version", "host", "archive", "sha256", "source_sha256"] {
+            let mut changed = read_marker(directory.path()).expect("test marker must be readable");
+
+            match field {
+                "version" => changed.version.push('0'),
+                "host" => changed.host.push('0'),
+                "archive" => changed.archive.push('0'),
+                "sha256" => changed.sha256.push('0'),
+                "source_sha256" => changed.source_sha256.push('0'),
+                _ => unreachable!("test fields must identify package markers"),
+            }
+
+            assert!(!changed.matches_package(&manifest.version, package, &manifest.source));
+        }
     }
 
     #[test]

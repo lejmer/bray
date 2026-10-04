@@ -1,8 +1,10 @@
 /// Configurable resource category bounded by package artifact validation.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum InterfaceLimit {
-    /// Complete artifact byte length.
+    /// Complete eagerly loaded package-interface byte length.
     FileSize,
+    /// Optional complete packed implementation storage byte length.
+    ImplementationFileSize,
     /// Number of entries in the section directory.
     SectionCount,
     /// Number of entries in one package implementation artifact directory.
@@ -29,6 +31,7 @@ pub enum InterfaceLimit {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct InterfaceValidationLimits {
     file_size: u64,
+    implementation_file_size: u64,
     section_count: u64,
     implementation_entry_count: u64,
     records_per_section: u64,
@@ -44,6 +47,7 @@ impl InterfaceValidationLimits {
     /// Default ceilings for compiler package artifact loading.
     pub const DEFAULT: Self = Self {
         file_size: 256 * 1024 * 1024,
+        implementation_file_size: u64::MAX,
         section_count: 64,
         implementation_entry_count: 1_000_000,
         records_per_section: 10_000_000,
@@ -55,9 +59,17 @@ impl InterfaceValidationLimits {
         external_reference_count: 10_000_000,
     };
 
-    /// Returns a copy with the maximum artifact byte length replaced.
+    /// Returns a copy with the maximum package-interface byte length replaced.
     pub const fn with_file_size(mut self, maximum: u64) -> Self {
         self.file_size = maximum;
+
+        self
+    }
+
+    /// Sets an optional storage ceiling for packed implementations.
+    /// The default bounds metadata and demanded allocations rather than total stored payload bytes.
+    pub const fn with_implementation_file_size(mut self, maximum: u64) -> Self {
+        self.implementation_file_size = maximum;
 
         self
     }
@@ -129,6 +141,7 @@ impl InterfaceValidationLimits {
     pub const fn maximum(self, limit: InterfaceLimit) -> u64 {
         match limit {
             InterfaceLimit::FileSize => self.file_size,
+            InterfaceLimit::ImplementationFileSize => self.implementation_file_size,
             InterfaceLimit::SectionCount => self.section_count,
             InterfaceLimit::ImplementationEntryCount => self.implementation_entry_count,
             InterfaceLimit::RecordCount => self.records_per_section,
@@ -210,6 +223,7 @@ mod tests {
     fn limits_are_independently_configurable() {
         let limits = InterfaceValidationLimits::default()
             .with_file_size(1)
+            .with_implementation_file_size(11)
             .with_section_count(2)
             .with_implementation_entry_count(3)
             .with_records_per_section(4)
@@ -221,6 +235,7 @@ mod tests {
             .with_external_reference_count(10);
 
         assert_eq!(limits.maximum(InterfaceLimit::FileSize), 1);
+        assert_eq!(limits.maximum(InterfaceLimit::ImplementationFileSize), 11);
         assert_eq!(limits.maximum(InterfaceLimit::SectionCount), 2);
         assert_eq!(limits.maximum(InterfaceLimit::ImplementationEntryCount), 3);
         assert_eq!(limits.maximum(InterfaceLimit::RecordCount), 4);
@@ -236,6 +251,7 @@ mod tests {
     fn every_limit_category_uses_the_same_inclusive_boundary_contract() {
         let limits = InterfaceValidationLimits::default()
             .with_file_size(1)
+            .with_implementation_file_size(1)
             .with_section_count(1)
             .with_implementation_entry_count(1)
             .with_records_per_section(1)
@@ -248,6 +264,7 @@ mod tests {
 
         let categories = [
             InterfaceLimit::FileSize,
+            InterfaceLimit::ImplementationFileSize,
             InterfaceLimit::SectionCount,
             InterfaceLimit::ImplementationEntryCount,
             InterfaceLimit::RecordCount,

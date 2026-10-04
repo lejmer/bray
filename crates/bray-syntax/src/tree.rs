@@ -3,11 +3,11 @@ use std::fmt::{self, Write};
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, OnceLock};
 
-use bray_source::{SourceId, SourceSnapshot, TextRange, TextSize};
+use bray_source::{SourceId, TextRange, TextSize};
 
 use crate::green::GreenNode;
 use crate::{
-    CompilationUnitSyntax, SourceUnitSyntax, SyntaxKind, SyntaxNodeView, SyntaxText,
+    CompilationUnitSyntax, SourceSyntaxNode, SourceUnitSyntax, SyntaxKind, SyntaxNodeView, SyntaxText,
     SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_node,
 };
 
@@ -62,7 +62,7 @@ impl SyntaxTree {
                 full_range,
                 is_recovered,
             })
-            .map(IndexedSyntaxNode::view)
+            .map(|node| node.view(self.root.source_units()))
     }
 }
 
@@ -106,21 +106,21 @@ struct SyntaxNodeKey {
 
 #[derive(Clone)]
 struct IndexedSyntaxNode {
-    source: SourceSnapshot,
+    source_unit: usize,
     node: GreenNode,
     start: TextSize,
 }
 
 impl IndexedSyntaxNode {
-    fn view(&self) -> SyntaxNodeView<'_> {
-        SyntaxNodeView::new(&self.source, &self.node, self.start)
+    fn view<'a>(&'a self, source_units: &'a [SourceUnitSyntax]) -> SyntaxNodeView<'a> {
+        SyntaxNodeView::new(source_units[self.source_unit].source(), &self.node, self.start)
     }
 }
 
 fn indexed_nodes(root: &CompilationUnitSyntax) -> HashMap<SyntaxNodeKey, IndexedSyntaxNode> {
     let mut nodes = HashMap::new();
 
-    for source_unit in root.source_units() {
+    for (source_index, source_unit) in root.source_units().iter().enumerate() {
         walk_syntax_node(source_unit, |event| {
             let SyntaxWalkEvent::EnterNode(node) = event else {
                 return SyntaxWalkControl::Continue;
@@ -133,9 +133,9 @@ fn indexed_nodes(root: &CompilationUnitSyntax) -> HashMap<SyntaxNodeKey, Indexed
                 is_recovered: node.is_recovered(),
             };
 
-            // Indexed handles share immutable source and green storage with the typed tree.
+            // The root already owns each immutable source snapshot and its provenance.
             nodes.entry(key).or_insert_with(|| IndexedSyntaxNode {
-                source: node.source().clone(),
+                source_unit: source_index,
                 node: node.green_node().clone(),
                 start: node.start(),
             });
@@ -188,6 +188,47 @@ mod tests {
 
         assert_eq!(first, second);
         assert_eq!(first.map(|node| node.kind()), Some(SyntaxKind::SourceUnit));
+    }
+
+    #[test]
+    fn indexed_nodes_borrow_provenance_for_unsorted_sparse_source_ids() {
+        let source_units = [91, 7].map(|id| {
+            let snapshot = SourceSnapshot::new(
+                SourceId::new(id),
+                SourceIdentity::new(id),
+                SourceOrigin::file(format!("source-{id}.bray")),
+                SourceVersion::new(3),
+                "",
+            ).expect("empty source must fit in TextSize");
+
+            SourceUnitSyntax::builder(snapshot)
+                .tokens([SyntaxToken::end_of_file(bray_source::TextSize::ZERO)])
+                .build()
+        });
+
+        let tree = SyntaxTree::compilation_unit(source_units);
+
+        for source_unit in tree.source_units() {
+            let source = source_unit.source();
+
+            let node = tree.find_node(
+                source.source_id(),
+                SyntaxKind::SourceUnit,
+                source_unit.full_range(),
+                source_unit.is_recovered(),
+            ).expect("indexed source unit must resolve exactly");
+
+            assert!(std::ptr::eq(node.source(), source));
+            assert_eq!(node.source().origin(), source.origin());
+            assert_eq!(node.source().version(), source.version());
+        }
+    }
+
+    #[test]
+    fn indexed_node_storage_excludes_source_snapshot_payloads() {
+        assert!(
+            std::mem::size_of::<super::IndexedSyntaxNode>() <= 4 * std::mem::size_of::<usize>()
+        );
     }
 
     fn assert_send_sync<T: Send + Sync>() {}

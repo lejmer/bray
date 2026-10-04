@@ -455,6 +455,7 @@ impl Compilation {
                             let compatibility = self
                                 .codegen_partition_compatibility(
                                     instance,
+                                    reachability.instance(instance.key()).expect("retained instance must be concrete"),
                                     product,
                                     roots,
                                     cancellation,

@@ -101,6 +101,25 @@ pub fn run_build_request(
         }
     };
 
+    if compilation.source_diagnostics().has_errors()
+        || compilation.syntax_tree_result().diagnostics().has_errors()
+        || compilation.imported_diagnostics().has_errors()
+    {
+        let diagnostics = compilation.check_diagnostics();
+
+        if diagnostics.has_errors() {
+            // The driver result owns diagnostics after consuming the profiled compilation.
+            let diagnostics = diagnostics.clone();
+
+            return driver_result_from_compilation(
+                compilation,
+                diagnostics,
+                output_format,
+                ExitCode::FAILURE,
+            );
+        }
+    }
+
     let linker = if linked || artifacts.contains(&TargetOutputKind::PackageNativeImplementation) {
         // The driver retains its selections while the linker owns its independent output path.
         match native_linker(
@@ -129,36 +148,59 @@ pub fn run_build_request(
     };
 
     let native = if requires_generation {
-        match compilation.native_product_plan(
-            product.clone(),
-            build,
-            runtime,
-            configuration.required_capabilities().iter().copied(),
-            linker.as_ref().map(|linker| {
-                let kind = if artifacts.contains(&TargetOutputKind::SharedLibrary) {
-                    bray_linker::LinkedProductKind::SharedLibrary
-                } else if product_kind == ProductKind::Library {
-                    bray_linker::LinkedProductKind::StaticLibrary
-                } else {
-                    bray_linker::LinkedProductKind::Executable
-                };
+        compilation
+            .native_product_plan(
+                product.clone(),
+                build,
+                runtime,
+                configuration.required_capabilities().iter().copied(),
+                linker.as_ref().map(|linker| {
+                    let kind = if artifacts.contains(&TargetOutputKind::SharedLibrary) {
+                        bray_linker::LinkedProductKind::SharedLibrary
+                    } else if product_kind == ProductKind::Library {
+                        bray_linker::LinkedProductKind::StaticLibrary
+                    } else {
+                        bray_linker::LinkedProductKind::Executable
+                    };
 
-                (linker.linker(), kind)
-            }),
-        ) {
-            Ok(native) => Some(native),
-            Err(error) => {
-                return native_product_failure_result(
-                    compilation,
-                    output_format,
-                    &product,
-                    selected_target.profile().identity().as_str(),
-                    &error,
-                );
-            }
-        }
+                    (linker.linker(), kind)
+                }),
+            )
+            .map(Some)
     } else {
-        None
+        Ok(None)
+    };
+
+    if export_interface {
+        // This build requests the interface before checking releases its source prerequisites.
+        let _ = compilation.package_interface_export_bundle();
+    }
+
+    let diagnostics = compilation.check_diagnostics();
+
+    if diagnostics.has_errors() {
+        // The driver result owns diagnostics after consuming the profiled compilation.
+        let diagnostics = diagnostics.clone();
+
+        return driver_result_from_compilation(
+            compilation,
+            diagnostics,
+            output_format,
+            ExitCode::FAILURE,
+        );
+    }
+
+    let native = match native {
+        Ok(native) => native,
+        Err(error) => {
+            return native_product_failure_result(
+                compilation,
+                output_format,
+                &product,
+                selected_target.profile().identity().as_str(),
+                &error,
+            );
+        }
     };
 
     let test_catalog = if configuration.publishes_test_catalog() {

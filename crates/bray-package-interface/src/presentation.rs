@@ -577,6 +577,7 @@ const fn diagnostic_compression_failure(
 const fn diagnostic_limit(limit: InterfaceLimit) -> DiagnosticInterfaceLimit {
     match limit {
         InterfaceLimit::FileSize => DiagnosticInterfaceLimit::FileSize,
+        InterfaceLimit::ImplementationFileSize => DiagnosticInterfaceLimit::ImplementationFileSize,
         InterfaceLimit::SectionCount => DiagnosticInterfaceLimit::SectionCount,
         InterfaceLimit::ImplementationEntryCount => {
             DiagnosticInterfaceLimit::ImplementationEntryCount

@@ -17,7 +17,7 @@ use bray_package_interface::{
     InterfaceNativeBinding, InterfaceValidationLimits, PackageImplementationArtifact,
     PackageImplementationSpecializationKey, PackageInterfaceExportBundle,
 };
-use bray_symbols::SymbolKeyData;
+use bray_symbols::{NativeSymbolIdentity, SymbolKeyData};
 use bray_target::NativeTarget;
 
 use super::diagnostics::ProductEmissionErrorKind;
@@ -120,6 +120,12 @@ pub(super) fn package_native_implementation(
         .map(|contribution| (contribution.id(), contribution))
         .collect();
 
+    let mut mappings_by_unit = BTreeMap::new();
+
+    for mapping in native.mappings() {
+        mappings_by_unit.entry(mapping.unit()).or_insert(mapping);
+    }
+
     for staged in staging.inputs() {
         let result = native_contribution_unit(
             plan,
@@ -132,10 +138,8 @@ pub(super) fn package_native_implementation(
             continue;
         };
 
-        let mapping = native
-            .mappings()
-            .iter()
-            .find(|mapping| mapping.unit() == &key)
+        let mapping = mappings_by_unit
+            .get(&key)
             .expect("staged native unit must have mappings");
 
         let unit = unit.with_statics(
@@ -375,6 +379,28 @@ fn package_opaque_archive(
     ))
 }
 
+fn exact_native_binding_symbol(
+    definitions: &[bray_native_artifact::NativeDefinition],
+    object_name: &str,
+) -> Option<NonEmptySharedStr> {
+    // NativeUnit canonicalization orders names lexically before ordinal identities.
+    let position = definitions.partition_point(|definition| {
+        definition
+            .symbol()
+            .identity()
+            .name()
+            .is_some_and(|name| name < object_name)
+    });
+
+    let definition = definitions.get(position)?;
+
+    let NativeSymbolIdentity::Name(name) = definition.symbol().identity() else {
+        return None;
+    };
+
+    (name.as_str() == object_name).then(|| name.clone())
+}
+
 fn native_bindings(
     compilation: &Compilation,
     native: &NativeProductPlan,
@@ -394,11 +420,12 @@ fn native_bindings(
             continue;
         };
 
-        let unit = index
+        let unit_position = index
             .units()
-            .iter()
-            .find(|unit| unit.digest() == digest)
+            .binary_search_by_key(&digest, NativeUnit::digest)
             .expect("indexed unit must be present for every native mapping");
+
+        let unit = &index.units()[unit_position];
 
         for mapping in mappings.symbols() {
             if !mapping.defines_in(mappings.unit()) {
@@ -448,13 +475,7 @@ fn native_bindings(
 
             let symbol = match unit.summary() {
                 NativeUnitSummary::Exact { definitions, .. } => {
-                    definitions.iter().find_map(|definition| {
-                        let name = definition.symbol().identity().name()?;
-
-                        (name == object_name)
-                            .then(|| NonEmptySharedStr::try_new(name))
-                            .flatten()
-                    })
+                    exact_native_binding_symbol(definitions, object_name.as_ref())
                 }
                 NativeUnitSummary::Opaque { .. } => {
                     NonEmptySharedStr::try_new(object_name.as_ref())
@@ -528,4 +549,122 @@ fn native_contribution_unit(
     );
 
     Ok(Some((artifact.unit().clone(), unit, bytes)))
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_base::NonEmptySharedStr;
+    use bray_native_artifact::{
+        NativeContentDigest, NativeDefinition, NativeDefinitionSelection, NativeUnit,
+        NativeUnitKind, NativeUnitSummary,
+    };
+    use bray_symbols::{
+        NativeSymbolBinding, NativeSymbolContract, NativeSymbolIdentity, NativeSymbolPresence,
+    };
+
+    use super::exact_native_binding_symbol;
+
+    #[test]
+    fn exact_binding_names_ignore_versions_and_selection_and_skip_ordinals() {
+        let unit = exact_unit([
+            NativeDefinition::new(
+                NativeSymbolContract::new(
+                    NativeSymbolIdentity::Ordinal(17),
+                    None,
+                    NativeSymbolBinding::Strong,
+                    NativeSymbolPresence::Required,
+                ),
+                NativeDefinitionSelection::Ordinary,
+            ),
+            definition("zeta", None, NativeDefinitionSelection::Ordinary),
+            definition("beta", Some("V2"), NativeDefinitionSelection::Ordinary),
+            definition("alpha", None, NativeDefinitionSelection::Ordinary),
+            definition("beta", Some("V1"), NativeDefinitionSelection::Fallback),
+        ]);
+
+        let NativeUnitSummary::Exact { definitions, .. } = unit.summary() else {
+            panic!("test unit must have exact definitions");
+        };
+
+        for candidate in ["", "17", "aardvark", "alpha", "beta", "delta", "zeta", "zz"] {
+            let expected = definitions.iter().find_map(|definition| {
+                let name = definition.symbol().identity().name()?;
+
+                (name == candidate).then(|| name.to_owned())
+            });
+
+            assert_eq!(
+                exact_native_binding_symbol(definitions, candidate)
+                    .map(|name| name.as_str().to_owned()),
+                expected,
+                "binding lookup must preserve name-only semantics for {candidate:?}",
+            );
+        }
+
+        assert!(exact_native_binding_symbol(&[], "alpha").is_none());
+    }
+
+    #[test]
+    fn exact_binding_names_cover_large_mandatory_units_without_copying_names() {
+        let unit = exact_unit((0..10_000).rev().map(|index| {
+            definition(
+                &format!("entry_{index:05}"),
+                None,
+                NativeDefinitionSelection::Ordinary,
+            )
+        }));
+
+        let NativeUnitSummary::Exact { definitions, .. } = unit.summary() else {
+            panic!("test unit must have exact definitions");
+        };
+
+        for definition in definitions.iter() {
+            let expected = definition
+                .symbol()
+                .identity()
+                .name()
+                .expect("test definition must have a name");
+
+            let actual = exact_native_binding_symbol(definitions, expected)
+                .expect("every named definition in the mandatory unit must resolve");
+
+            assert_eq!(actual.as_str(), expected);
+            assert_eq!(actual.as_str().as_ptr(), expected.as_ptr());
+        }
+
+        assert!(exact_native_binding_symbol(definitions, "entry_10000").is_none());
+    }
+
+    fn definition(
+        name: &str,
+        version: Option<&str>,
+        selection: NativeDefinitionSelection,
+    ) -> NativeDefinition {
+        NativeDefinition::new(
+            NativeSymbolContract::new(
+                NativeSymbolIdentity::Name(shared_name(name)),
+                version.map(shared_name),
+                NativeSymbolBinding::Weak,
+                NativeSymbolPresence::Required,
+            ),
+            selection,
+        )
+    }
+
+    fn shared_name(name: &str) -> NonEmptySharedStr {
+        NonEmptySharedStr::try_new(name).expect("test native name must be nonempty")
+    }
+
+    fn exact_unit(definitions: impl IntoIterator<Item = NativeDefinition>) -> NativeUnit {
+        NativeUnit::new(
+            NativeContentDigest::new([0; 32]),
+            NativeUnitKind::Object,
+            NativeUnitSummary::Exact {
+                definitions: definitions.into_iter().collect(),
+                references: [].into(),
+                roots: [].into(),
+            },
+            [],
+        )
+    }
 }

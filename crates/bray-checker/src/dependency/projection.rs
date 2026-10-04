@@ -256,10 +256,8 @@ impl ValueInputs {
             } else if let Some(initializer) = self.initializers.get(&expression) {
                 if self
                     .writes
-                    .get(&expression)
-                    .into_iter()
-                    .flatten()
-                    .any(|written| written.project(path).is_some())
+                    .values(expression)
+                    .any(|written| written.matches(path))
                 {
                     break;
                 }

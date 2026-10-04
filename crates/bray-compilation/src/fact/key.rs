@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use bray_bound_tree::{BoundExpressionId, BoundUnitKey};
 use bray_checker::TargetValidityRequest;
 use bray_codegen::{
@@ -466,11 +468,11 @@ impl ConstantCallDependencyKey {
 /// A compilation-fact identity used only for private dependency coordination.
 ///
 /// The key preserves enough semantic identity to detect dependency cycles and coordinate
-/// concurrent requests.
+/// concurrent requests. Large payloads are shared so dependency records keep compact keys.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) enum CompilationFactKey {
     /// Post-selection validity of one exact target requirement.
-    TargetValidity(TargetValidityRequest),
+    TargetValidity(Arc<TargetValidityRequest>),
     /// The selected product and target result for one source module contribution.
     ModuleContributionGate(ModulePartId),
     /// Source-backed directives attached to one callable type occurrence.
@@ -482,11 +484,11 @@ pub(crate) enum CompilationFactKey {
     /// The ordered source units and their primary declaration lookup index.
     DeclaredUnits,
     /// One concrete constant value for an exact semantic instance and target profile.
-    ConstantInstance(ConstantInstanceQueryKey),
+    ConstantInstance(Arc<ConstantInstanceQueryKey>),
     /// One selected constant-call evaluation for exact arguments, target, and limits.
-    ConstantCall(ConstantCallQueryKey),
+    ConstantCall(Arc<ConstantCallQueryKey>),
     /// The semantic identity shared by nested evaluations of one selected constant call.
-    ConstantCallCycle(ConstantCallDependencyKey),
+    ConstantCallCycle(Arc<ConstantCallDependencyKey>),
     /// Durable control-flow analysis for one bound unit.
     CheckedControlFlow(BoundUnitKey),
     /// Checked pattern compatibility, binding types, and match coverage for one bound unit.
@@ -505,12 +507,14 @@ pub(crate) enum CompilationFactKey {
     CheckedBodyBehavior(BoundUnitKey),
     /// The lowering result for one exact checked semantic unit.
     LoweredUnit(BoundUnitKey),
+    /// Completed source checks and raw MIR required by an output consumer.
+    SourceOutputUnit(BoundUnitKey),
     /// One exact backend artifact contribution requested from a code generation unit.
-    CodegenArtifact(CodegenArtifactQueryKey),
+    CodegenArtifact(Arc<CodegenArtifactQueryKey>),
     /// One optimized concrete MIR body for exact instance and generation policy.
-    OptimizedMir(OptimizedMirQueryKey),
+    OptimizedMir(Arc<OptimizedMirQueryKey>),
     /// The complete native product for exact product and host selections.
-    NativeProduct(NativeProductQueryKey),
+    NativeProduct(Arc<NativeProductQueryKey>),
     /// Source-declared value type templates and equality constraints for one bound unit.
     DeclaredValueTypeTemplates(BoundUnitKey),
     /// The private fixed-point computation shared by expression types and semantic selections.
@@ -577,10 +581,14 @@ pub(crate) enum CompilationFactKey {
     TypeAssociatedImplementationIndex,
     /// The deterministic compilation-local imported symbol identity skeleton.
     ImportedSymbolSkeleton,
+    /// Imported standard-library implementation hooks for the selected target.
+    ImportedStandardLibraryImplementations,
     /// The current library product's complete immutable interface export bundle.
     PackageInterfaceExportBundle,
     /// Binding and semantic-analysis diagnostics for the source package.
     SemanticDiagnostics,
+    /// Whole-package execution-guarantee diagnostics for this immutable compilation.
+    ExecutionGuaranteeDiagnostics,
     /// Parsed syntax for one source unit.
     SourceUnitSyntax(SourceId),
     /// Semantic source references grouped by target for one source unit.
@@ -648,6 +656,7 @@ impl CompilationFactKey {
             | Self::BodySemantics(key)
             | Self::CheckedBodyBehavior(key)
             | Self::LoweredUnit(key)
+            | Self::SourceOutputUnit(key)
             | Self::DeclaredValueTypeTemplates(key)
             | Self::ExpressionSemantics(key)
             | Self::ProvisionalExpressionSemantics(key)
@@ -692,8 +701,10 @@ impl CompilationFactKey {
             | Self::DeclaredTypeRepresentation(_)
             | Self::TypeAssociatedImplementationIndex
             | Self::ImportedSymbolSkeleton
+            | Self::ImportedStandardLibraryImplementations
             | Self::PackageInterfaceExportBundle
             | Self::SemanticDiagnostics
+            | Self::ExecutionGuaranteeDiagnostics
             | Self::SourceUnitSyntax(_)
             | Self::SourceReferenceIndex(_)
             | Self::SymbolGraph
@@ -729,6 +740,14 @@ mod tests {
         assert_eq!(
             CompilationFactKey::from(key),
             CompilationFactKey::Symbol(key)
+        );
+    }
+
+    #[test]
+    fn compilation_dependency_keys_remain_compact() {
+        assert!(
+            std::mem::size_of::<CompilationFactKey>() <= 64,
+            "large query payloads must not enlarge every dependency key"
         );
     }
 

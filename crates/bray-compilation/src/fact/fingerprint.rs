@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::hash::Hash;
+use std::sync::Arc;
 
 use bray_base::StableDigestHasher;
 use bray_source::SourceId;
@@ -41,8 +42,8 @@ pub(crate) struct CompilationInputs(BTreeMap<CompilationInputKey, FactFingerprin
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct FactDependencyRecord {
     fingerprint: FactFingerprint,
-    facts: BTreeMap<CompilationFactKey, FactFingerprint>,
-    inputs: BTreeMap<CompilationInputKey, FactFingerprint>,
+    facts: Arc<[(CompilationFactKey, FactFingerprint)]>,
+    inputs: Arc<[(CompilationInputKey, FactFingerprint)]>,
 }
 
 impl CompilationInputs {
@@ -136,8 +137,9 @@ impl FactDependencyRecord {
     ) -> Self {
         Self {
             fingerprint,
-            facts,
-            inputs,
+            // Published dependencies are immutable and shared across snapshots.
+            facts: facts.into_iter().collect(),
+            inputs: inputs.into_iter().collect(),
         }
     }
 
@@ -145,11 +147,11 @@ impl FactDependencyRecord {
         self.fingerprint
     }
 
-    pub(crate) fn facts(&self) -> &BTreeMap<CompilationFactKey, FactFingerprint> {
+    pub(crate) fn facts(&self) -> &[(CompilationFactKey, FactFingerprint)] {
         &self.facts
     }
 
-    pub(crate) fn inputs(&self) -> &BTreeMap<CompilationInputKey, FactFingerprint> {
+    pub(crate) fn inputs(&self) -> &[(CompilationInputKey, FactFingerprint)] {
         &self.inputs
     }
 }
@@ -182,8 +184,37 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{CompilationInputKey, CompilationInputs, fact_fingerprint};
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+
+    use super::{CompilationInputKey, CompilationInputs, FactDependencyRecord, fact_fingerprint};
     use crate::fact::CompilationFactKey;
+
+    #[test]
+    fn published_dependencies_keep_order_and_share_snapshot_storage() {
+        let fingerprint = fact_fingerprint(&CompilationFactKey::SyntaxTree, &());
+
+        let facts = BTreeMap::from([
+            (CompilationFactKey::SyntaxTree, fingerprint),
+            (CompilationFactKey::DeclaredUnits, fingerprint),
+        ]);
+
+        let inputs = BTreeMap::from([
+            (CompilationInputKey::SelectedTarget, fingerprint),
+            (CompilationInputKey::PackageIdentity, fingerprint),
+        ]);
+
+        let expected_facts = facts.iter().map(|(key, value)| (key.clone(), *value)).collect::<Vec<_>>();
+        let expected_inputs = inputs.iter().map(|(key, value)| (key.clone(), *value)).collect::<Vec<_>>();
+        let record = FactDependencyRecord::new(fingerprint, facts, inputs);
+        let snapshot = record.clone();
+
+        assert_eq!(record.facts(), expected_facts);
+        assert_eq!(record.inputs(), expected_inputs);
+        assert_eq!(snapshot, record);
+        assert!(Arc::ptr_eq(&record.facts, &snapshot.facts));
+        assert!(Arc::ptr_eq(&record.inputs, &snapshot.inputs));
+    }
 
     #[test]
     fn fact_fingerprints_include_result_content() {

@@ -1,4 +1,7 @@
 use std::collections::BTreeMap;
+use std::sync::Arc;
+
+use bray_diagnostics::DiagnosticResult;
 
 use bray_package_interface::{
     InterfaceCallableInstanceId, InterfaceConstantTermId, InterfaceConstantValueId,
@@ -7,8 +10,8 @@ use bray_package_interface::{
     InterfaceTraitApplicationId, InterfaceTypeId,
 };
 use bray_symbols::{
-    AnySymbolId, CallableInstanceId, ConstantTermId, ConstantValueId, ExternalSymbolKey,
-    GenericSubstitutionId, ImplementationInstanceId, TraitApplicationId, TypeId,
+    AnySymbolId, CallableContractSet, CallableInstanceId, ConstantTermId, ConstantValueId,
+    ExternalSymbolKey, GenericSubstitutionId, ImplementationInstanceId, TraitApplicationId, TypeId,
 };
 
 use super::super::PackageInterfaceExportError;
@@ -27,6 +30,7 @@ pub(super) struct SemanticFragment {
     identity: ExternalSymbolKey,
     semantics: InterfaceSemantics,
     origins: SemanticValueOrigins,
+    callable_contract: Option<Arc<DiagnosticResult<CallableContractSet>>>,
 }
 
 impl SemanticFragment {
@@ -74,6 +78,8 @@ impl SemanticFragment {
 
         export_type_semantics(compilation, symbol, &mut export, &mut declarations)?;
 
+        let callable_contract = declarations.callable_contract.take();
+
         let (semantics, origins) = SemanticValueOrigins::from_export(export, declarations);
 
         Ok(Self {
@@ -81,11 +87,20 @@ impl SemanticFragment {
             identity,
             semantics,
             origins,
+            callable_contract,
         })
     }
 
     pub(super) const fn identity(&self) -> &ExternalSymbolKey {
         &self.identity
+    }
+
+    pub(super) fn take_callable_contract(
+        &mut self,
+    ) -> Option<(AnySymbolId, Arc<DiagnosticResult<CallableContractSet>>)> {
+        self.callable_contract
+            .take()
+            .map(|contract| (self.symbol, contract))
     }
 
     pub(super) fn diagnostic_identity(

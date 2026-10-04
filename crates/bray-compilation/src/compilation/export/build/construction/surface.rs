@@ -101,10 +101,15 @@ pub(in crate::compilation::export::build) fn build_identity_surface(
         .map(|symbol| export_symbol(graph, symbol, &keys))
         .collect::<Result<Vec<_>, _>>()?;
 
+    let relationship_ordinals = exported_relationship_ordinals(graph, &selected);
+
     let mut relationships = selected
         .iter()
         .copied()
-        .filter_map(|symbol| export_relationship(graph, symbol, &selected, &keys).transpose())
+        .filter_map(|symbol| {
+            export_relationship(graph, symbol, &selected, &keys, &relationship_ordinals)
+                .transpose()
+        })
         .collect::<Result<Vec<_>, _>>()?;
 
     relationships.extend(source_overload_relationships(
@@ -460,6 +465,7 @@ fn export_relationship(
     member: AnySymbolId,
     selected: &BTreeSet<AnySymbolId>,
     keys: &BTreeMap<AnySymbolId, ExternalSymbolKey>,
+    ordinals: &BTreeMap<(AnySymbolId, AnySymbolId), SymbolOrdinal>,
 ) -> Result<Option<ExportRelationshipInput>, PackageInterfaceExportError> {
     let Some(owner) = graph
         .runtime_default_subject(member)
@@ -476,7 +482,7 @@ fn export_relationship(
         return Ok(None);
     };
 
-    let ordinal = exported_relationship_ordinal(graph, owner, member, selected)
+    let ordinal = ordinals.get(&(owner, member)).copied()
         .map(SymbolOrdinal::raw)
         .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationSemantics(member.kind()))?;
 
@@ -495,23 +501,37 @@ fn export_relationship(
     Ok(Some(with_field_properties(graph, member, relationship)))
 }
 
-fn exported_relationship_ordinal(
+fn exported_relationship_ordinals(
     graph: &bray_symbols::SymbolGraph,
-    owner: AnySymbolId,
-    member: AnySymbolId,
     selected: &BTreeSet<AnySymbolId>,
-) -> Option<SymbolOrdinal> {
-    let kind = SymbolRelationshipKind::between(owner.kind(), member.kind())?;
+) -> BTreeMap<(AnySymbolId, AnySymbolId), SymbolOrdinal> {
+    let mut ordinals = BTreeMap::new();
 
-    graph
-        .declaration_children(owner)
-        .iter()
-        .copied()
-        .filter(|child| selected.contains(child))
-        .filter(|child| SymbolRelationshipKind::between(owner.kind(), child.kind()) == Some(kind))
-        .position(|child| child == member)
-        .and_then(|ordinal| u32::try_from(ordinal).ok())
-        .map(SymbolOrdinal::new)
+    for owner in selected.iter().copied() {
+        let mut next_ordinals = BTreeMap::<SymbolRelationshipKind, usize>::new();
+
+        for child in graph.declaration_children(owner).iter().copied() {
+            if !selected.contains(&child) {
+                continue;
+            }
+
+            let Some(kind) = SymbolRelationshipKind::between(owner.kind(), child.kind()) else {
+                continue;
+            };
+
+            let ordinal = next_ordinals.entry(kind).or_default();
+
+            if let Ok(value) = u32::try_from(*ordinal) {
+                ordinals
+                    .entry((owner, child))
+                    .or_insert(SymbolOrdinal::new(value));
+            }
+
+            *ordinal += 1;
+        }
+    }
+
+    ordinals
 }
 
 fn with_field_properties(
@@ -664,5 +684,84 @@ impl Compilation {
         }
 
         Ok(exports)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use bray_package_interface::SymbolRelationshipKind;
+    use bray_symbols::{AnySymbolId, SymbolOrdinal};
+
+    use super::exported_relationship_ordinals;
+    use crate::test_support::{compilation, source_function};
+
+    #[test]
+    fn exported_ordinals_remain_dense_after_filtering_relationship_groups() {
+        let compilation = compilation(
+            r#"
+            module api;
+
+            func first<T, U>(pos value: T, pos other: U) -> T
+            {
+                return value;
+            }
+
+            func omitted() {}
+
+            struct Record {}
+
+            func last(pos first: bool, pos omitted: bool, pos last: bool) {}
+            "#,
+        );
+
+        let graph = compilation
+            .symbol_graph()
+            .unwrap_or_else(|error| panic!("test symbol graph must build: {error:?}"));
+
+        let first = AnySymbolId::from(source_function(&compilation, "first"));
+        let omitted = AnySymbolId::from(source_function(&compilation, "omitted"));
+        let last = AnySymbolId::from(source_function(&compilation, "last"));
+        let mut selected = graph.symbols().collect::<BTreeSet<_>>();
+        let parameters = graph.declaration_children(last);
+
+        assert_eq!(parameters.len(), 3);
+        selected.remove(&omitted);
+        selected.remove(&parameters[1]);
+
+        let ordinals = exported_relationship_ordinals(graph, &selected);
+
+        for owner in selected.iter().copied() {
+            for member in graph.declaration_children(owner).iter().copied() {
+                let expected = SymbolRelationshipKind::between(owner.kind(), member.kind())
+                    .filter(|_| selected.contains(&member))
+                    .and_then(|kind| {
+                        graph
+                            .declaration_children(owner)
+                            .iter()
+                            .copied()
+                            .filter(|child| selected.contains(child))
+                            .filter(|child| {
+                                SymbolRelationshipKind::between(owner.kind(), child.kind())
+                                    == Some(kind)
+                            })
+                            .position(|child| child == member)
+                    })
+                    .and_then(|ordinal| u32::try_from(ordinal).ok())
+                    .map(SymbolOrdinal::new);
+
+                assert_eq!(ordinals.get(&(owner, member)).copied(), expected);
+            }
+        }
+
+        let module = graph
+            .containing_symbol(first)
+            .unwrap_or_else(|| panic!("test function must retain its module"));
+
+        assert_eq!(ordinals.get(&(module, first)), Some(&SymbolOrdinal::new(0)));
+        assert_eq!(ordinals.get(&(module, last)), Some(&SymbolOrdinal::new(2)));
+        assert_eq!(ordinals.get(&(last, parameters[2])), Some(&SymbolOrdinal::new(1)));
+        assert!(!ordinals.contains_key(&(module, omitted)));
     }
 }

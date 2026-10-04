@@ -651,7 +651,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             }),
             10 => Ok(MirOperationKind::Generator(self.generator_operation()?)),
             11 => Ok(MirOperationKind::Call(self.call()?)),
-            12 => Ok(MirOperationKind::Memory(self.memory_operation()?)),
+            12 => Ok(MirOperationKind::Memory(Box::new(self.memory_operation()?))),
             13 => Ok(MirOperationKind::Text(self.text_operation()?)),
             14 => Ok(MirOperationKind::PanicReport(self.panic_cause()?)),
             15 => Ok(MirOperationKind::Finalize(self.place()?)),
@@ -1993,7 +1993,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                     alternates.push(self.block_id()?);
                 }
 
-                Ok(MirTerminatorKind::InlineAssembly(
+                Ok(MirTerminatorKind::InlineAssembly(Box::new(
                     bray_ir::MirInlineAssemblyTerminator::new(
                         contract,
                         inputs,
@@ -2002,7 +2002,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                         normal,
                         alternates,
                         self.callable_references()?,
-                    ),
+                    )),
                 ))
             }
             16 => Ok(MirTerminatorKind::RangeIterate {

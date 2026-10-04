@@ -240,6 +240,13 @@ fn push_fact_context(
 
             "checked_body_behavior"
         }
+        Fact::SourceOutputUnit(unit) => {
+            push_bound_unit_key(fields, unit);
+
+            "source_output_unit"
+        }
+        Fact::ExecutionGuaranteeDiagnostics => "execution_guarantee_diagnostics",
+        Fact::ImportedStandardLibraryImplementations => "imported_standard_library_implementations",
         Fact::LoweredUnit(unit) => {
             push_bound_unit_key(fields, unit);
 
@@ -660,6 +667,8 @@ fn push_local_symbol(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use bray_diagnostics::DiagnosticFailureValue;
 
     #[test]
@@ -719,7 +728,7 @@ mod tests {
 
         let fields =
             super::semantic_query_context(&crate::compilation::SemanticQueryContext::Fact(
-                crate::fact::CompilationFactKey::NativeProduct(key),
+                crate::fact::CompilationFactKey::NativeProduct(Arc::new(key)),
             ));
 
         let names: Vec<_> = fields.iter().map(|field| field.name()).collect();

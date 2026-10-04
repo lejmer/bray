@@ -6,8 +6,9 @@ use bray_binder::SymbolQueryProvider;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     CallableAbi, CallableContractsQuery, CallableSignatureQuery, CallableSymbolId, DirectiveKind,
-    ForeignCallableContract, ForeignCallableDirection, FunctionSymbolId, NativeSymbolBinding,
-    NativeSymbolContract, NativeSymbolPresence, SymbolOrigin, SymbolQueryRequest,
+    ForeignCallableContract, ForeignCallableDirection, ForeignStaticContract, FunctionSymbolId,
+    NativeSymbolBinding, NativeSymbolContract, NativeSymbolPresence, StaticSymbolId, SymbolOrigin,
+    SymbolQueryRequest,
 };
 use bray_syntax::{FunctionDeclarationSyntax, SyntaxKind};
 
@@ -26,6 +27,15 @@ use crate::compilation::directive::first_directive;
 use crate::compilation::{ForeignDataKind, ForeignQueryContext, ForeignQueryFailure};
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
 
+#[derive(Hash)]
+pub(in crate::compilation) struct ForeignBoundaryValidation {
+    diagnostics: DiagnosticBag,
+    pub(super) functions:
+        BTreeMap<FunctionSymbolId, Arc<DiagnosticResult<Option<ForeignCallableContract>>>>,
+    pub(super) statics:
+        BTreeMap<StaticSymbolId, Arc<DiagnosticResult<Option<ForeignStaticContract>>>>,
+}
+
 impl Compilation {
     /// Returns the validated foreign-boundary contract of one source function.
     pub fn foreign_callable_contract(
@@ -40,16 +50,37 @@ impl Compilation {
         function: FunctionSymbolId,
         cancellation: &CancellationToken,
     ) -> Result<Arc<DiagnosticResult<Option<ForeignCallableContract>>>, FactQueryError> {
+        let key = CompilationFactKey::ForeignCallableContract(function);
+
+        if let Some(validation) = self
+            .state
+            .foreign_callable_validation
+            .get_if_published(&CompilationFactKey::ForeignCallableValidation)
+            && let Some(result) = validation.functions.get(&function)
+        {
+            return self.reuse_validated_foreign_contract(key, result, cancellation);
+        }
+
         let cell = self.state.foreign_callable_contracts.cell(function)?;
 
-        let result = self.query_with_cancellation(
-            CompilationFactKey::ForeignCallableContract(function),
-            &cell,
-            cancellation,
-            |cancellation| self.compute_foreign_callable_contract(function, cancellation),
-        )?;
+        let result = self.query_with_cancellation(key, &cell, cancellation, |cancellation| {
+            self.compute_foreign_callable_contract(function, cancellation)
+        })?;
 
         // The caller owns the immutable publication independently of the map cell guard.
+        Ok(Arc::clone(result))
+    }
+
+    pub(super) fn reuse_validated_foreign_contract<T>(
+        &self,
+        key: CompilationFactKey,
+        result: &Arc<DiagnosticResult<Option<T>>>,
+        cancellation: &CancellationToken,
+    ) -> Result<Arc<DiagnosticResult<Option<T>>>, FactQueryError> {
+        self.state.fact_runtime.check_request_cycle(&key)?;
+        cancellation.check()?;
+        self.state.fact_runtime.record_completed_request(&key)?;
+
         Ok(Arc::clone(result))
     }
 
@@ -63,6 +94,7 @@ impl Compilation {
             cancellation,
             |cancellation| self.compute_foreign_callable_diagnostics(cancellation),
         )
+        .map(|validation| &validation.diagnostics)
     }
 
     fn compute_foreign_callable_contract(
@@ -257,10 +289,14 @@ impl Compilation {
     fn compute_foreign_callable_diagnostics(
         &self,
         cancellation: &CancellationToken,
-    ) -> Result<DiagnosticBag, FactQueryError> {
+    ) -> Result<ForeignBoundaryValidation, FactQueryError> {
         let symbols = self.symbol_graph()?;
         let mut diagnostics = DiagnosticBag::new();
         let mut native_symbols = BTreeMap::new();
+        let mut functions = BTreeMap::new();
+        let mut statics = BTreeMap::new();
+        let ordinary_function = Arc::new(DiagnosticResult::without_diagnostics(None));
+        let ordinary_static = Arc::new(DiagnosticResult::without_diagnostics(None));
 
         for function in symbols
             .functions()
@@ -273,6 +309,15 @@ impl Compilation {
                 self.foreign_callable_contract_with_cancellation(function.id(), cancellation)?;
 
             diagnostics.add_range(result.diagnostics().iter().cloned());
+
+            functions.insert(
+                function.id(),
+                if result.value().is_none() && result.diagnostics().is_empty() {
+                    Arc::clone(&ordinary_function)
+                } else {
+                    Arc::clone(&result)
+                },
+            );
 
             let Some(contract) = result.value() else {
                 continue;
@@ -311,6 +356,15 @@ impl Compilation {
 
             diagnostics.add_range(result.diagnostics().iter().cloned());
 
+            statics.insert(
+                static_symbol.id(),
+                if result.value().is_none() && result.diagnostics().is_empty() {
+                    Arc::clone(&ordinary_static)
+                } else {
+                    Arc::clone(&result)
+                },
+            );
+
             let Some(contract) = result.value() else {
                 continue;
             };
@@ -335,7 +389,11 @@ impl Compilation {
             }
         }
 
-        Ok(diagnostics)
+        Ok(ForeignBoundaryValidation {
+            diagnostics,
+            functions,
+            statics,
+        })
     }
 }
 
@@ -373,6 +431,194 @@ mod tests {
         compilation, compilation_with_options, package_identity, source_function, source_input,
     };
     use crate::{CompilationOptions, CompilationRequest, WorkerBudget};
+
+    #[test]
+    fn validated_boundaries_survive_the_query_cache_working_set() {
+        use std::fmt::Write;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        use crate::fact::{
+            CancellationToken, CompilationFactKey, FactEvaluationTestObserver, FactQueryError,
+        };
+
+        let mut source = String::from(concat!(
+            "module app;\n",
+            "@symbol(name = \"native_export\")\n@abi(c)\nfunc exported() -> i32 { return 1; }\n",
+            "@symbol(name = 1)\n@abi(c)\nfunc invalid() {}\n",
+            "static ORDINARY: i32 = 0;\n",
+            "@symbol(name = \"native_static\")\nstatic EXPORTED: i32 = 0;\n",
+            "@symbol(name = 1)\nstatic INVALID: i32 = 0;\n",
+        ));
+
+        for index in 0..4_100 {
+            writeln!(source, "func item{index}() {{}}").unwrap();
+        }
+
+        let compilation = compilation(&source);
+        let symbols = compilation.symbol_graph().unwrap();
+
+        let functions = symbols
+            .functions()
+            .iter()
+            .filter(|symbol| symbol.origin() == bray_symbols::SymbolOrigin::Source)
+            .map(|symbol| {
+                (
+                    symbol.id(),
+                    compilation.foreign_callable_contract(symbol.id()).unwrap(),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let statics = symbols
+            .statics()
+            .iter()
+            .filter(|symbol| symbol.origin() == bray_symbols::SymbolOrigin::Source)
+            .map(|symbol| {
+                (
+                    symbol.id(),
+                    compilation.foreign_static_contract(symbol.id()).unwrap(),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        assert!(functions.iter().any(|(_, result)| result.value().is_some()));
+
+        assert!(
+            functions
+                .iter()
+                .any(|(_, result)| result.value().is_none() && result.diagnostics().has_errors())
+        );
+
+        assert!(statics.iter().any(|(_, result)| result.value().is_some()));
+
+        assert!(
+            statics
+                .iter()
+                .any(|(_, result)| result.value().is_none() && result.diagnostics().has_errors())
+        );
+
+        let cancellation = CancellationToken::new();
+
+        assert!(
+            compilation
+                .foreign_callable_diagnostics(&cancellation)
+                .unwrap()
+                .has_errors()
+        );
+
+        let evaluations = Arc::new(AtomicUsize::new(0));
+        let observed = Arc::clone(&evaluations);
+
+        compilation
+            .state
+            .fact_runtime
+            .set_test_observer(FactEvaluationTestObserver::new(move |key| {
+                if matches!(
+                    key,
+                    CompilationFactKey::ForeignCallableContract(_)
+                        | CompilationFactKey::ForeignStaticContract(_)
+                ) {
+                    observed.fetch_add(1, Ordering::SeqCst);
+                }
+            }))
+            .unwrap();
+
+        for (function, expected) in &functions {
+            assert_eq!(
+                &compilation.foreign_callable_contract(*function).unwrap(),
+                expected
+            );
+        }
+
+        for (declaration, expected) in &statics {
+            assert_eq!(
+                &compilation.foreign_static_contract(*declaration).unwrap(),
+                expected
+            );
+        }
+
+        assert_eq!(evaluations.load(Ordering::SeqCst), 0);
+
+        cancellation.cancel();
+
+        assert!(matches!(
+            compilation.foreign_callable_contract_with_cancellation(functions[0].0, &cancellation),
+            Err(FactQueryError::Cancelled)
+        ));
+
+        assert!(matches!(
+            compilation.foreign_static_contract_with_cancellation(statics[0].0, &cancellation),
+            Err(FactQueryError::Cancelled)
+        ));
+    }
+
+    #[test]
+    fn validated_boundaries_are_invalidated_with_source_and_publish_atomically() {
+        use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
+
+        let original = compilation("module app; func value() -> i32 { return 1; }");
+        let cancelled = CancellationToken::new();
+
+        cancelled.cancel();
+
+        assert!(matches!(
+            original.foreign_callable_diagnostics(&cancelled),
+            Err(FactQueryError::Cancelled)
+        ));
+
+        assert!(
+            original
+                .state
+                .foreign_callable_validation
+                .get_if_published(&CompilationFactKey::ForeignCallableValidation)
+                .is_none()
+        );
+
+        assert!(original.check_diagnostics().is_empty());
+
+        assert!(
+            original
+                .foreign_callable_contract(source_function(&original, "value"))
+                .unwrap()
+                .value()
+                .is_none()
+        );
+
+        let updated = original
+            .updated_sources(vec![source_input(
+                concat!(
+                    "module app;\n@symbol(name = \"value_native\")\n@abi(c)\n",
+                    "func value() -> i32 { return 1; }\n",
+                ),
+                1,
+            )])
+            .unwrap();
+
+        assert!(updated.check_diagnostics().is_empty());
+
+        let contract = updated
+            .foreign_callable_contract(source_function(&updated, "value"))
+            .unwrap();
+
+        assert_eq!(
+            contract
+                .value()
+                .as_ref()
+                .unwrap()
+                .symbol()
+                .identity()
+                .name(),
+            Some("value_native")
+        );
+
+        assert!(
+            original
+                .foreign_callable_contract(source_function(&original, "value"))
+                .unwrap()
+                .value()
+                .is_none()
+        );
+    }
 
     #[test]
     fn valid_foreign_imports_publish_typed_boundary_contracts() {

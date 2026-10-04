@@ -418,7 +418,7 @@ impl Compilation {
 
         let published = cell.get_or_compute(
             &self.state.fact_runtime,
-            CompilationFactKey::ConstantInstance(key),
+            CompilationFactKey::ConstantInstance(Arc::new(key)),
             cancellation,
             || {
                 self.compute_constant_instance(instance, limits, cancellation)

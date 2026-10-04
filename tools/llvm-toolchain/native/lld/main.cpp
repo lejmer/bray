@@ -20,8 +20,10 @@ int main(int argc, char** argv)
 #else
     const lld::DriverDef driver{lld::Gnu, &lld::elf::link};
 #endif
+
     const llvm::ArrayRef<const char*> arguments(argv, argv + argc);
     const llvm::ArrayRef drivers(&driver, 1);
+
     const lld::Result result = lld::lldMain(
         arguments, llvm::outs(), llvm::errs(), drivers
     );

@@ -30,6 +30,13 @@ impl RefinementSet {
         self.words.iter().all(|word| *word == 0)
     }
 
+    pub(super) fn len(&self) -> usize {
+        self.words
+            .iter()
+            .map(|word| word.count_ones() as usize)
+            .sum()
+    }
+
     pub(super) fn clear(&mut self) {
         self.words.fill(0);
     }

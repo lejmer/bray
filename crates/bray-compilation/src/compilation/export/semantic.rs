@@ -5,6 +5,7 @@ mod declarations;
 mod defaults;
 mod dependencies;
 mod execution;
+mod executable;
 mod fragment;
 mod implementation;
 mod predicate;

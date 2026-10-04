@@ -6,7 +6,7 @@ use bray_bound_tree::{
     CheckedExpressionSemantics, CheckedMemoryOperations, CheckedPatterns,
     DeclaredValueTypeTemplates, SelectedIterationSource, StoragePlan,
 };
-use bray_checker::{TargetValidity, TargetValidityRequest};
+use bray_checker::{ImplementationHookResolution, TargetValidity, TargetValidityRequest};
 use bray_codegen::{CodegenConfiguration, CodegenOutcome};
 use bray_declarations::{DeclarationChunkResult, DeclarationTableResult, ModulePartId};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
@@ -16,13 +16,14 @@ use bray_package_interface::{
 use bray_parser::{SourceUnitSyntaxResult, SyntaxTreeResult};
 use bray_source::SourceStore;
 use bray_symbols::{
-    CallableTypeDirectiveKey, CompilerKnownSymbolProvider, ConstantExpressionExpectedType,
-    ConstantExpressionOccurrenceKey, ConstantTermId, DeclaredTypeRepresentation, DirectiveSurface,
-    ForeignCallableContract, ForeignStaticContract, FunctionSymbolId,
-    GenericConstraintObligationKey, ImplementationCandidateSet, ImplementationCoherenceDomainKey,
-    ImplementationParticipationQuery, ImplementationRequirementKey, ImplementationSelection,
-    ImplementationSymbolId, ImportedSemanticAddress, ImportedSymbolSkeleton, NamedTypeSymbolId,
-    PackageIdentity, ProductIdentity, ProductSemantics, ProofOutcome, SemanticValueStore,
+    AnySymbolId, CallableTypeDirectiveKey, CompilerKnownSymbolProvider,
+    ConstantExpressionExpectedType, ConstantExpressionOccurrenceKey, ConstantTermId,
+    DeclaredTypeRepresentation, DirectiveSurface, ForeignCallableContract, ForeignStaticContract,
+    FunctionSymbolId, GenericConstraintObligationKey, ImplementationCandidateSet,
+    ImplementationCoherenceDomainKey, ImplementationParticipationQuery,
+    ImplementationRequirementKey, ImplementationSelection, ImplementationSymbolId,
+    ImportedSemanticAddress, ImportedSymbolSkeleton, NamedTypeSymbolId, PackageIdentity,
+    ProductIdentity, ProductSemantics, ProofOutcome, SemanticValueStore,
     SemanticValueStoreCreateError, StaticSymbolId, SymbolGraph,
     TraitImplementationConformanceQuery, TypeAssociatedSurface, TypeId,
 };
@@ -100,6 +101,8 @@ pub(in crate::compilation) struct CompilationState {
         Vec<FactCell<DiagnosticResult<Option<crate::compilation::imported::LoadedImplementation>>>>,
     pub(in crate::compilation) imported_symbol_skeleton:
         FactCell<DiagnosticResult<Option<Arc<ImportedSymbolSkeleton>>>>,
+    pub(in crate::compilation) imported_standard_library_implementations:
+        FactCell<BTreeMap<AnySymbolId, ImplementationHookResolution>>,
     pub(in crate::compilation) imported_semantic_graphs:
         Vec<FactCell<DiagnosticResult<Option<Arc<ImportedSemantics>>>>>,
     pub(in crate::compilation) imported_semantics: FactCellMap<
@@ -129,7 +132,8 @@ pub(in crate::compilation) struct CompilationState {
         FactCellMap<FunctionSymbolId, Arc<DiagnosticResult<Option<ForeignCallableContract>>>>,
     pub(in crate::compilation) foreign_static_contracts:
         FactCellMap<StaticSymbolId, Arc<DiagnosticResult<Option<ForeignStaticContract>>>>,
-    pub(in crate::compilation) foreign_callable_validation: FactCell<DiagnosticBag>,
+    pub(in crate::compilation) foreign_callable_validation:
+        FactCell<crate::compilation::foreign::ForeignBoundaryValidation>,
     pub(in crate::compilation) type_associated_surfaces:
         FactCellMap<NamedTypeSymbolId, Arc<DiagnosticResult<TypeAssociatedSurface>>>,
     pub(in crate::compilation) declared_type_representations:
@@ -161,7 +165,9 @@ pub(in crate::compilation) struct CompilationState {
         crate::fact::IterationSourceQueryKey,
         Arc<DiagnosticResult<Option<SelectedIterationSource>>>,
     >,
-    pub(in crate::compilation) semantic_diagnostics: FactCell<DiagnosticBag>,
+    pub(in crate::compilation) semantic_diagnostics:
+        FactCell<crate::compilation::diagnostics::SemanticDiagnosticPublication>,
+    pub(in crate::compilation) execution_guarantee_diagnostics: FactCell<DiagnosticBag>,
     pub(in crate::compilation) symbol_semantics: CompilationSymbolSemantics,
     pub(in crate::compilation) discovery_symbol_semantics: CompilationSymbolSemantics,
     pub(in crate::compilation) bound_units: UnitQueryCache<BoundUnit>,
@@ -181,6 +187,7 @@ pub(in crate::compilation) struct CompilationState {
     pub(in crate::compilation) body_semantics: UnitQueryCache<CheckedBodySemantics>,
     pub(in crate::compilation) checked_body_behaviors: UnitQueryCache<CheckedBodyBehavior>,
     pub(in crate::compilation) lowered_units: UnitQueryCache<Option<bray_lowering::LoweredUnit>>,
+    pub(in crate::compilation) source_outputs: crate::compilation::source_output::SourceOutputs,
     pub(in crate::compilation) codegen: Option<CodegenConfiguration>,
     pub(in crate::compilation) codegen_artifacts:
         FactCellMap<crate::fact::CodegenArtifactQueryKey, Arc<CodegenOutcome>>,

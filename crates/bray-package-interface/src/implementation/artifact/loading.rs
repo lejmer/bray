@@ -45,7 +45,7 @@ impl PackageImplementationArtifact {
         storage: super::storage::ImplementationStorage,
         limits: InterfaceValidationLimits,
     ) -> Result<Self, InterfaceValidationError> {
-        limits.check(InterfaceLimit::FileSize, storage.len() as u64)?;
+        limits.check(InterfaceLimit::ImplementationFileSize, storage.len() as u64)?;
 
         let header = storage.read(0..HEADER_LENGTH.min(storage.len()))?;
 

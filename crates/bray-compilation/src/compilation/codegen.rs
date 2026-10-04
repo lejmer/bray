@@ -116,11 +116,16 @@ impl Compilation {
     ) -> Result<MirUnit, CodegenPreparationError> {
         match instance.template() {
             MirUnitKey::Bound(key) => {
-                let lowered = self.lowered_unit_with_priority(
-                    key.clone(),
-                    cancellation,
-                    crate::QueryPriority::Normal,
-                )?;
+                let output = self.source_output_unit(key.clone(), cancellation)?;
+
+                if output.has_errors() {
+                    return Err(CodegenPreparationError::Diagnostics(output.diagnostic_bag()));
+                }
+
+                let lowered = output
+                    .lowered
+                    .as_ref()
+                    .expect("valid source output must have a lowering result");
 
                 let Some(mir) = lowered
                     .value()
@@ -265,7 +270,7 @@ impl Compilation {
 
         let outcome = cell.get_or_compute_requested(
             &self.state.fact_runtime,
-            CompilationFactKey::CodegenArtifact(key),
+            CompilationFactKey::CodegenArtifact(Arc::new(key)),
             cancellation,
             |shared_cancellation| {
                 self.record_codegen_configuration();

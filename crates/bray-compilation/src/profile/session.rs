@@ -323,11 +323,11 @@ impl ProfileSession {
         }
     }
 
-    pub(crate) fn start_worker_activity(&self) -> ProfileWorkerActivity<'_> {
+    pub(crate) fn start_worker_activity(self: &Arc<Self>) -> ProfileWorkerActivity {
         self.concurrency.begin_worker();
 
         ProfileWorkerActivity {
-            session: self,
+            session: Arc::clone(self),
             worker: self.worker_index(),
             started_at: self.clock.now_nanoseconds(),
         }
@@ -699,13 +699,14 @@ impl Drop for ProfileSchedulingWaveWorker<'_> {
     }
 }
 
-pub(crate) struct ProfileWorkerActivity<'session> {
-    session: &'session ProfileSession,
+#[derive(Debug)]
+pub(crate) struct ProfileWorkerActivity {
+    session: Arc<ProfileSession>,
     worker: usize,
     started_at: u64,
 }
 
-impl Drop for ProfileWorkerActivity<'_> {
+impl Drop for ProfileWorkerActivity {
     fn drop(&mut self) {
         let duration = self
             .session
@@ -1228,7 +1229,7 @@ mod tests {
         }
 
         #[test]
-        fn broad_diagnostics_expose_multiple_semantic_work_waves() {
+        fn broad_diagnostics_report_fused_callable_body_work() {
             let source = concat!(
                 "module test.package;\n",
                 "func first()\n",
@@ -1273,9 +1274,21 @@ mod tests {
                 })
                 .unwrap_or_else(|| panic!("semantic diagnostics must publish scheduling waves"));
 
-            assert!(semantic_waves.waves >= 2);
-            assert!(semantic_waves.planned_items >= 8);
+            assert!(semantic_waves.waves >= 1);
+            assert_eq!(semantic_waves.planned_items, 4);
             assert!(semantic_waves.ready_width.maximum >= 4);
+
+            let bodies = report
+                .queries
+                .iter()
+                .find(|query| {
+                    report
+                        .query_descriptor(query.id)
+                        .is_some_and(|descriptor| descriptor.name == "body_semantics")
+                })
+                .unwrap();
+
+            assert_eq!(bodies.evaluations, 4);
         }
 
         #[test]

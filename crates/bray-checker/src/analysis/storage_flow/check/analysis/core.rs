@@ -4,10 +4,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
     AnyBoundNodeId, BorrowCapabilityId, BoundDependencySubject, BoundExpressionId,
-    CheckedMemoryOperations, CheckedRefinements, CheckedSemanticSelections, Liveness,
-    MemoryOperationStatus, Refinement, StorageAccessId, StorageAccessPlan, StorageAccessPurpose,
-    StorageAccessRoot, StorageBinding, StorageExitDecision, StorageExitPoint, StorageFlow,
-    StorageIdentity, StorageOperationDecision, StorageOperationStatus, StoragePlan,
+    CheckedExpressionSemantics, CheckedMemoryOperations, CheckedPatterns, CheckedRefinements,
+    Liveness, MemoryOperationStatus, Refinement, StorageAccessId, StorageAccessPlan,
+    StorageAccessPurpose, StorageAccessRoot, StorageBinding, StorageExitDecision, StorageExitPoint,
+    StorageFlow, StorageIdentity, StorageOperationDecision, StorageOperationStatus, StoragePlan,
     StorageProjection, StorageRelationship, StorageSuspensionState,
 };
 use bray_diagnostics::{
@@ -29,6 +29,8 @@ use crate::{
 use super::super::availability::storage_is_recovered;
 use crate::analysis::build::{ControlFlowGraphBuildOutcome, build_storage_control_flow_graph};
 use crate::analysis::fixed_point::{FixedPointOutcome, solve_fixed_point};
+use crate::analysis::id::AnalysisEdgeId;
+use crate::analysis::liveness::analyze_storage_liveness_with_graph;
 use crate::analysis::model::{
     AnalysisCallPhase, AnalysisOperation, AnalysisOperationKind, AnalysisScopeExitPhase,
 };
@@ -39,12 +41,13 @@ use crate::analysis::storage_flow::decision::{diagnostic_kind, more_conservative
 use crate::analysis::storage_flow::model::{StorageFlowDomain, StorageFlowInput, StorageFlowState};
 
 use super::access::BorrowConflict;
+use super::snapshot::{ExitState, ReplacementState};
 
 pub(crate) fn check_storage_flow<C>(
     request: CheckerUnitView<'_, C>,
-    selections: &CheckedSemanticSelections,
+    expressions: &CheckedExpressionSemantics,
+    patterns: &CheckedPatterns,
     storage: &StoragePlan,
-    liveness: &Liveness,
     refinements: &CheckedRefinements,
     memory: &CheckedMemoryOperations,
 ) -> CheckerOutcome<StorageFlow, C::UpstreamError>
@@ -55,28 +58,69 @@ where
         request,
         [
             (
-                "semantic selections",
-                (selections.unit(), selections.kind()),
+                "expression semantics",
+                (expressions.unit(), expressions.kind()),
             ),
             ("storage plan", (storage.unit(), storage.kind())),
-            ("liveness", (liveness.unit(), liveness.kind())),
+            ("patterns", (patterns.unit(), patterns.kind())),
             ("refinements", (refinements.unit(), refinements.kind())),
             ("memory operations", (memory.unit(), memory.kind())),
         ],
     );
 
-    let graph = match build_storage_control_flow_graph(request, storage, selections, None) {
-        ControlFlowGraphBuildOutcome::Complete(graph) => graph,
-        ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
-        ControlFlowGraphBuildOutcome::InfrastructureFailure(error) => {
+    let graph =
+        match build_storage_control_flow_graph(request, storage, expressions.selections(), None) {
+            ControlFlowGraphBuildOutcome::Complete(graph) => graph,
+            ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
+            ControlFlowGraphBuildOutcome::InfrastructureFailure(error) => {
+                return CheckerOutcome::InfrastructureFailure(error);
+            }
+            ControlFlowGraphBuildOutcome::UpstreamFailure(error) => {
+                return CheckerOutcome::UpstreamFailure(error);
+            }
+        };
+
+    let ((liveness, edge_lifetime_ends), diagnostics) = match analyze_storage_liveness_with_graph(
+        request,
+        expressions.selections(),
+        expressions.types(),
+        patterns,
+        storage,
+        memory,
+        &graph,
+    ) {
+        CheckerOutcome::Complete(result) => result.into_parts(),
+        CheckerOutcome::Cancelled => return CheckerOutcome::Cancelled,
+        CheckerOutcome::InfrastructureFailure(error) => {
             return CheckerOutcome::InfrastructureFailure(error);
         }
-        ControlFlowGraphBuildOutcome::UpstreamFailure(error) => {
-            return CheckerOutcome::UpstreamFailure(error);
-        }
+        CheckerOutcome::UpstreamFailure(error) => return CheckerOutcome::UpstreamFailure(error),
     };
 
-    check_storage_flow_with_graph(request, storage, liveness, refinements, memory, &graph)
+    match check_storage_flow_with_graph(
+        request,
+        storage,
+        &liveness,
+        refinements,
+        memory,
+        &graph,
+        &edge_lifetime_ends,
+    ) {
+        CheckerOutcome::Complete(result) => {
+            let (flow, owned) = result.into_parts();
+
+            let mut diagnostics = diagnostics;
+
+            diagnostics.add_range(owned);
+
+            CheckerOutcome::complete(flow, diagnostics)
+        }
+        CheckerOutcome::Cancelled => CheckerOutcome::Cancelled,
+        CheckerOutcome::InfrastructureFailure(error) => {
+            CheckerOutcome::InfrastructureFailure(error)
+        }
+        CheckerOutcome::UpstreamFailure(error) => CheckerOutcome::UpstreamFailure(error),
+    }
 }
 
 #[expect(
@@ -90,6 +134,7 @@ pub(crate) fn check_storage_flow_with_graph<C>(
     refinements: &CheckedRefinements,
     memory: &CheckedMemoryOperations,
     graph: &crate::analysis::model::ControlFlowGraph,
+    edge_lifetime_ends: &BTreeMap<AnalysisEdgeId, Vec<BoundDependencySubject>>,
 ) -> CheckerOutcome<StorageFlow, C::UpstreamError>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
@@ -124,9 +169,9 @@ where
 
     let (copyable_types, copyability_diagnostics) = copyability.into_parts();
 
-    let (input, authority_diagnostics) =
+    let ((input, cleanup_diagnostics), authority_diagnostics) =
         match mutable_storage(request, storage).and_then(|(mutable, diagnostics)| {
-            StorageFlowInput::new(request, storage, copyable_types, mutable)
+            StorageFlowInput::new(request, storage, copyable_types, mutable, liveness)
                 .map(|input| (input, diagnostics))
         }) {
             Ok(result) => result,
@@ -152,6 +197,7 @@ where
 
     let domain = StorageFlowDomain::new(
         &graph,
+        edge_lifetime_ends,
         &reachability,
         storage,
         liveness,
@@ -182,6 +228,7 @@ where
 
     collector.diagnostics.add_range(copyability_diagnostics);
     collector.diagnostics.add_range(authority_diagnostics);
+    collector.diagnostics.add_range(cleanup_diagnostics);
 
     let mut reachable_exits = BTreeSet::new();
 
@@ -305,13 +352,9 @@ where
     pub(super) owners: &'analysis StorageScopeOwners,
     pub(super) statuses: BTreeMap<StorageAccessPlan, StorageOperationStatus>,
     pub(super) suspensions: Vec<StorageSuspensionState>,
-    exits: Vec<(
-        bray_bound_tree::BoundBlockId,
-        AnyBoundNodeId,
-        StorageFlowState,
-    )>,
+    exits: Vec<(bray_bound_tree::BoundBlockId, AnyBoundNodeId, ExitState)>,
     exit_indices: BTreeMap<(bray_bound_tree::BoundBlockId, AnyBoundNodeId), usize>,
-    replacements: BTreeMap<StorageAccessPlan, StorageFlowState>,
+    replacements: BTreeMap<StorageAccessPlan, ReplacementState>,
     pub(super) memory_decisions: BTreeMap<BoundExpressionId, MemoryOperationStatus>,
     pub(super) diagnostics: DiagnosticBag,
     pub(super) reported_diagnostics: BTreeSet<(DiagnosticKind, StorageAccessId)>,
@@ -448,6 +491,7 @@ where
         }
 
         self.end_last_use_borrows(state, operation.kind().node());
+        self.end_last_use_storage(state, operation.kind().node());
 
         if let AnalysisOperationKind::ScopeExit {
             block,
@@ -498,13 +542,16 @@ where
 
         if matches!(status, StorageOperationStatus::Valid) {
             if self.publish && purpose == StorageAccessPurpose::Assignment {
-                self.replacements
-                    .entry(plan)
-                    .and_modify(|previous| {
-                        previous.merge(state);
-                    })
-                    // Publication owns the pre-installation state independently of later writes.
-                    .or_insert_with(|| state.clone());
+                let incoming = ReplacementState::new(state, plan, self.storage);
+
+                match self.replacements.entry(plan) {
+                    std::collections::btree_map::Entry::Occupied(mut entry) => {
+                        entry.get_mut().merge(incoming);
+                    }
+                    std::collections::btree_map::Entry::Vacant(entry) => {
+                        entry.insert(incoming);
+                    }
+                }
             }
 
             if let Err(error) = self.apply_valid_operation(state, plan, purpose, borrow) {
@@ -790,6 +837,16 @@ where
         }
     }
 
+    fn end_last_use_storage(&self, state: &mut StorageFlowState, operation: AnyBoundNodeId) {
+        if state.recovered {
+            return;
+        }
+
+        for identity in self.input.storage_last_uses(operation) {
+            state.end_storage_lifetime(*identity, self.storage);
+        }
+    }
+
     fn end_last_use_borrows(&self, state: &mut StorageFlowState, operation: AnyBoundNodeId) {
         let moved_borrows = state
             .moved
@@ -839,24 +896,7 @@ where
             })
             .collect::<BTreeSet<_>>();
 
-        state
-            .active_borrows
-            .retain(|borrow| !ended.contains(borrow));
-
-        state
-            .definitely_active_borrows
-            .retain(|borrow| !ended.contains(borrow));
-
-        state.moved.retain(|access, _| {
-            self.storage.access(*access).is_none_or(|access| {
-                access
-                    .root()
-                    .borrow_capability()
-                    .is_none_or(|borrow| !ended.contains(&borrow))
-            })
-        });
-
-        state.retain_definite_moves(self.storage);
+        state.end_borrows(&ended, self.storage);
     }
 
     fn end_scope(
@@ -869,21 +909,7 @@ where
             .live
             .retain(|storage| self.owners.identity_scope(self.storage, *storage) != Some(block));
 
-        state
-            .initialized
-            .retain(|storage| state.live.contains(storage));
-
-        state.moved.retain(|access, _| {
-            self.storage
-                .root_identity(*access)
-                .is_some_and(|storage| state.live.contains(&storage))
-        });
-
-        state.retain_definite_moves(self.storage);
-
-        state
-            .fully_moved
-            .retain(|storage| state.live.contains(storage));
+        state.retain_live_storage(self.storage);
 
         state.active_borrows.retain(|borrow| {
             self.borrow_is_entry(*borrow)
@@ -929,8 +955,7 @@ where
 
         self.exit_indices.insert(key, self.exits.len());
 
-        // Publication owns this snapshot so later operations can mutate their task-local state.
-        self.exits.push((block, exit, state.clone()));
+        self.exits.push((block, exit, ExitState::new(state)));
     }
 
     pub(super) fn exit_decisions(&self) -> impl Iterator<Item = StorageExitDecision> + '_ {
@@ -940,7 +965,7 @@ where
                 *exit,
                 state.live.iter().copied(),
                 state.initialized.iter().copied(),
-                state.moved.keys().copied(),
+                state.moved.iter().copied(),
                 state.definitely_moved.iter().copied(),
                 state.fully_moved.iter().copied(),
                 state.active_borrows.iter().copied(),
@@ -953,36 +978,22 @@ where
         &self,
     ) -> impl Iterator<Item = bray_bound_tree::StorageReplacementDecision> + '_ {
         self.replacements.iter().map(|(plan, state)| {
-            let root = self.storage.root_identity(plan.access());
-
-            let moved = state
-                .moved
-                .keys()
-                .copied()
-                .filter(|access| self.storage.root_identity(*access) == root);
-
-            let initialization = match root {
-                Some(root) if !state.live.contains(&root) || state.fully_moved.contains(&root) => {
-                    bray_bound_tree::StorageReplacementState::Absent
-                }
-                Some(root)
-                    if state.initialized.contains(&root)
-                        && !state.moved.keys().any(|access| {
-                            self.storage.access_contains(plan.access(), *access)
-                                || self.storage.access_contains(*access, plan.access())
-                        }) =>
-                {
-                    bray_bound_tree::StorageReplacementState::Present
-                }
-                _ => bray_bound_tree::StorageReplacementState::Conditional,
+            let initialization = if self.storage.root_identity(plan.access()).is_none() {
+                bray_bound_tree::StorageReplacementState::Conditional
+            } else if !state.live || state.fully_moved {
+                bray_bound_tree::StorageReplacementState::Absent
+            } else if state.initialized && !state.overlapping_move {
+                bray_bound_tree::StorageReplacementState::Present
+            } else {
+                bray_bound_tree::StorageReplacementState::Conditional
             };
 
             bray_bound_tree::StorageReplacementDecision::new(
                 plan.expression(),
                 plan.access(),
                 initialization,
-                moved,
-                state.recovered || root.is_none(),
+                state.moved.iter().copied(),
+                state.recovered,
             )
         })
     }

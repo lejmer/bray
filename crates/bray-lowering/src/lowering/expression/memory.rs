@@ -221,9 +221,9 @@ impl Lowerer<'_> {
         let commit = self.push_operation(
             current,
             Self::retained_source(&source),
-            MirOperationKind::Memory(
+            MirOperationKind::Memory(Box::new(
                 MirMemoryOperation::new(kind, operands, operand_types, result)
-                    .with_inline_assembly_symbols(inline_assembly_symbols),
+                    .with_inline_assembly_symbols(inline_assembly_symbols)),
             ),
             result,
         )?;
@@ -318,7 +318,7 @@ impl Lowerer<'_> {
         self.set_terminator(
             current,
             Self::retained_source(source),
-            MirTerminatorKind::InlineAssembly(MirInlineAssemblyTerminator::new(
+            MirTerminatorKind::InlineAssembly(Box::new(MirInlineAssemblyTerminator::new(
                 contract,
                 // The terminator owns the sole compact MIR operand while the shared ordinary
                 // lowering path retains the operand vector through this branch.
@@ -328,7 +328,7 @@ impl Lowerer<'_> {
                 normal,
                 alternates,
                 symbols.iter().copied(),
-            )),
+            ))),
         )?;
 
         Ok(Some(LoweredExpression::continuing(

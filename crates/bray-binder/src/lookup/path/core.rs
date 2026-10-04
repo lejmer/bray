@@ -1,5 +1,4 @@
 use bray_bound_tree::BoundPatternTarget;
-use bray_declarations::DeclarationKind;
 use bray_diagnostics::{DiagnosticBag, DiagnosticNameKind, DiagnosticResult};
 use bray_source::SourceSnapshot;
 use bray_symbols::{
@@ -179,23 +178,20 @@ where
             ))?;
 
     for part in module.module_parts() {
-        let part = binding_context.declarations().module_part(*part).ok_or(
-            crate::BindingQueryError::Binding(crate::BindingError::ModulePartRecordUnavailable(
-                *part,
-            )),
-        )?;
+        let declarations = binding_context
+            .declarations()
+            .using_declarations(*part)
+            .ok_or(crate::BindingQueryError::Binding(
+                crate::BindingError::ModulePartRecordUnavailable(*part),
+            ))?;
 
-        for declaration in part.declarations() {
+        for declaration in declarations {
             let declaration = binding_context
                 .declarations()
                 .declaration(*declaration)
                 .ok_or(crate::BindingQueryError::Binding(
                     crate::BindingError::DeclarationRecordUnavailable(*declaration),
                 ))?;
-
-            if declaration.kind() != DeclarationKind::Using {
-                continue;
-            }
 
             let Some(using) = declaration
                 .syntax_anchor()

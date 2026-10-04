@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use bray_bound_tree::{
     AnyBoundNodeId, AsyncScopeExitPlan, AsyncStorageExitDisposition, AsyncSuspensionPoint,
@@ -12,6 +13,8 @@ use bray_ir::{MirOperand, MirTargetContract, MirUnitBuilder, MirUnitKind};
 use bray_symbols::{AvailableCompilerKnownSymbols, SemanticValueStore};
 
 use crate::result::requires_mir;
+
+use super::storage::{storage_operation_indices, storage_plan_indices, temporary_storage_indices};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum ScopeExitCleanupStatus {
@@ -35,9 +38,12 @@ pub struct LoweringInput<'unit> {
     patterns: &'unit CheckedPatterns,
     literal_values: &'unit CheckedLiteralValues,
     refinements: &'unit CheckedRefinements,
-    storage: &'unit StoragePlan,
+    pub(super) storage: &'unit StoragePlan,
     liveness: &'unit Liveness,
-    storage_flow: &'unit StorageFlow,
+    pub(super) storage_flow: &'unit StorageFlow,
+    pub(super) storage_plans: Arc<[usize]>,
+    pub(super) storage_operations: Arc<[usize]>,
+    pub(super) temporary_storage: Arc<[(BoundExpressionId, StorageIdentityId)]>,
     dependencies: &'unit CheckedDependencyContracts,
     selections: &'unit CheckedSemanticSelections,
     symbols: &'unit AvailableCompilerKnownSymbols,
@@ -233,6 +239,9 @@ impl<'unit> LoweringInput<'unit> {
             storage,
             liveness,
             storage_flow,
+            storage_plans: storage_plan_indices(storage),
+            storage_operations: storage_operation_indices(storage_flow),
+            temporary_storage: temporary_storage_indices(storage),
             dependencies,
             selections,
             symbols,
@@ -600,11 +609,13 @@ mod tests {
         BoundStructuredExpressionKind, BoundTreeBuilder, BoundUnit, BoundUnitRoot, CheckedAsync,
         CheckedBodyBehavior, CheckedControlFlow, CheckedDependencyContracts,
         CheckedExpressionTypes, CheckedLiteralValues, CheckedPatterns, CheckedRefinements,
-        CheckedSemanticSelections, ControlCompletion, Liveness, StorageExitDecision,
-        StorageExitPoint, StorageFlow, StoragePlanBuilder,
+        CheckedSemanticSelections, ControlCompletion, Liveness, StorageAccess,
+        StorageAccessPurpose, StorageAccessRoot, StorageExitDecision, StorageExitPoint,
+        StorageFlow, StorageIdentity, StorageOperationDecision, StorageOperationStatus,
+        StoragePlanBuilder,
     };
     use bray_symbols::testing::available_compiler_known_symbols;
-    use bray_symbols::{CurrentRunCancellation, SemanticValueStore};
+    use bray_symbols::{CurrentRunCancellation, SemanticValueStore, TypeData};
     use bray_testing::{test_bound_unit, test_mir_target, test_runtime_default_unit};
 
     use super::{LoweringInput, ScopeExitCleanupStatus};
@@ -647,6 +658,189 @@ mod tests {
         assert!(std::ptr::eq(
             input.available_compiler_known_symbols(),
             available_compiler_known_symbols()
+        ));
+    }
+
+    #[test]
+    fn temporary_lookup_preserves_first_matching_type_and_shared_indices() {
+        let mut expression = None;
+
+        let unit = test_runtime_default_unit(41, |tree, origin| {
+            let root = push_unit_expression(tree, origin);
+
+            expression = Some(root);
+
+            root
+        });
+
+        let expression = expression.unwrap();
+        let mut analysis = empty_expression_inputs(&unit);
+        let first_type = analysis.values.intern_type(TypeData::tuple([])).unwrap();
+
+        let second_type = analysis
+            .values
+            .intern_type(TypeData::Nullable(first_type))
+            .unwrap();
+
+        let mut storage = StoragePlanBuilder::new(unit.unit(), unit.key().kind());
+        let mut identities = Vec::new();
+
+        for ty in [first_type, second_type, second_type] {
+            let identity = storage
+                .push_identity(StorageIdentity::Temporary(expression))
+                .unwrap();
+
+            storage.set_identity_type(identity, ty).unwrap();
+            identities.push(identity);
+        }
+
+        analysis.storage = storage.finish();
+
+        let control_flow =
+            CheckedControlFlow::new(unit.unit(), unit.key().kind(), ControlCompletion::default());
+
+        let input = lowering_input(&unit, &control_flow, (&analysis).into());
+
+        assert_eq!(
+            input.temporary_storage(expression, first_type),
+            Some(identities[0])
+        );
+
+        assert_eq!(
+            input.temporary_storage(expression, second_type),
+            Some(identities[1])
+        );
+
+        assert!(std::sync::Arc::ptr_eq(
+            &input.temporary_storage,
+            &input.clone().temporary_storage
+        ));
+    }
+
+    #[test]
+    fn storage_lookup_preserves_evaluation_order_and_compatible_first_decision() {
+        let mut expressions = Vec::new();
+
+        let unit = test_runtime_default_unit(42, |tree, origin| {
+            let first = push_unit_expression(tree, origin);
+            let second = push_unit_expression(tree, origin);
+
+            expressions.extend([first, second]);
+
+            second
+        });
+
+        let first = expressions[0];
+        let second = expressions[1];
+        let kind = unit.key().kind();
+        let mut analysis = empty_expression_inputs(&unit);
+        let ty = analysis.values.intern_type(TypeData::tuple([])).unwrap();
+        let mut storage = StoragePlanBuilder::new(unit.unit(), kind);
+
+        let identity = storage
+            .push_identity(StorageIdentity::Temporary(first))
+            .unwrap();
+
+        let mut accesses = Vec::new();
+
+        for _ in 0..2 {
+            accesses.push(
+                storage
+                    .push_access(StorageAccess::new(
+                        StorageAccessRoot::Storage(identity),
+                        [],
+                        ty,
+                        unit.key().source(),
+                        false,
+                    ))
+                    .unwrap(),
+            );
+        }
+
+        let plans = [
+            (second, StorageAccessPurpose::Read, accesses[0]),
+            (first, StorageAccessPurpose::Write, accesses[0]),
+            (first, StorageAccessPurpose::ValueTransfer, accesses[1]),
+        ];
+
+        for (expression, purpose, access) in plans {
+            storage
+                .plan_access(expression.into(), expression, purpose, access)
+                .unwrap();
+        }
+
+        let operations = [
+            StorageOperationDecision::new(
+                second.into(),
+                second,
+                StorageAccessPurpose::Read,
+                accesses[0],
+                None,
+                StorageOperationStatus::Valid,
+            ),
+            StorageOperationDecision::new(
+                first.into(),
+                first,
+                StorageAccessPurpose::Copy,
+                accesses[0],
+                None,
+                StorageOperationStatus::Valid,
+            ),
+            StorageOperationDecision::new(
+                first.into(),
+                first,
+                StorageAccessPurpose::Write,
+                accesses[1],
+                None,
+                StorageOperationStatus::Valid,
+            ),
+            StorageOperationDecision::new(
+                first.into(),
+                first,
+                StorageAccessPurpose::Copy,
+                accesses[1],
+                None,
+                StorageOperationStatus::Valid,
+            ),
+            StorageOperationDecision::new(
+                first.into(),
+                first,
+                StorageAccessPurpose::Move,
+                accesses[1],
+                None,
+                StorageOperationStatus::Moved,
+            ),
+        ];
+
+        analysis.storage = storage.finish();
+
+        analysis.storage_flow =
+            StorageFlow::try_new(unit.unit(), kind, operations, [], [], [], false).unwrap();
+
+        let control_flow = CheckedControlFlow::new(unit.unit(), kind, ControlCompletion::default());
+        let input = lowering_input(&unit, &control_flow, (&analysis).into());
+        let plans = analysis.storage.access_plans();
+
+        assert_eq!(
+            input.expression_storage_plans(first).collect::<Vec<_>>(),
+            plans[1..]
+        );
+
+        assert_eq!(
+            input.expression_storage_plans(second).collect::<Vec<_>>(),
+            plans[..1]
+        );
+
+        assert_eq!(input.storage_operation(plans[2]), Some(operations[3]));
+
+        assert!(std::sync::Arc::ptr_eq(
+            &input.storage_operations,
+            &input.clone().storage_operations
+        ));
+
+        assert!(std::sync::Arc::ptr_eq(
+            &input.storage_plans,
+            &input.clone().storage_plans
         ));
     }
 
@@ -906,7 +1100,7 @@ mod tests {
             StorageFlow::try_new(unit.unit(), unit.key().kind(), [], [], [], [], false)
                 .unwrap_or_else(|error| panic!("empty storage flow must validate: {error:?}"));
 
-        let liveness = Liveness::try_new(unit.unit(), unit.key().kind(), [], [], [], [], false)
+        let liveness = Liveness::try_new(unit.unit(), unit.key().kind(), [], [], [], [], [], false)
             .unwrap_or_else(|error| panic!("empty liveness must validate: {error:?}"));
 
         let refinements = CheckedRefinements::try_new(unit.unit(), unit.key().kind(), [], false)

@@ -651,8 +651,6 @@ const fn product_data_kind(kind: ProductDataKind) -> &'static str {
         ProductDataKind::StaticSubstitution => "static_substitution",
         ProductDataKind::ImportedSemanticAddress => "imported_semantic_address",
         ProductDataKind::ResolvedType => "resolved_type",
-        ProductDataKind::CompilationDiagnostics => "compilation_diagnostics",
-        ProductDataKind::PackageInterfaceContribution => "package_interface_contribution",
         ProductDataKind::PackageImplementationArtifact => "package_implementation_artifact",
     }
 }

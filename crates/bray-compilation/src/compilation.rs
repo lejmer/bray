@@ -39,6 +39,7 @@ mod semantic_error;
 mod snapshot;
 mod source_graph;
 mod source_module;
+mod source_output;
 mod standard_library;
 mod state;
 mod substitution;

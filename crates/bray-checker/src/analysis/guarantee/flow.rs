@@ -13,6 +13,7 @@ use super::super::fixed_point::{
 };
 use super::super::id::{AnalysisBlockId, AnalysisEdgeId};
 use super::super::model::{AnalysisBlock, AnalysisEdge, AnalysisRefinement, ControlFlowGraph};
+use super::super::storage_invalidation::StorageInvalidation;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct ExecutionState {
@@ -125,7 +126,7 @@ pub(super) struct ExecutionFlowDomain<'a, 'view, C: CheckerRequestContext + ?Siz
     pub(super) storage: &'a bray_bound_tree::StoragePlan,
     contracts: &'a BTreeMap<BoundExpressionId, Vec<crate::ExecutionCompletionContract>>,
     cleanup: &'a bray_bound_tree::CheckedAsync,
-    invalidating: BTreeMap<AnyBoundNodeId, Box<[bray_bound_tree::StorageAccessId]>>,
+    invalidating: BTreeMap<AnyBoundNodeId, StorageInvalidation>,
 }
 
 impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
@@ -421,9 +422,13 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
     }
 
     fn invalidate(&self, state: &mut ExecutionState, node: AnyBoundNodeId) {
-        let Some(accesses) = self.invalidating.get(&node) else {
+        let Some(invalidation) = self.invalidating.get(&node) else {
             return;
         };
+
+        if matches!(invalidation, StorageInvalidation::All) {
+            state.invalidate_cleanup();
+        }
 
         for (target, binding) in self.storage.bindings() {
             let access = match binding {
@@ -437,15 +442,20 @@ impl<C: CheckerRequestContext + ?Sized> ExecutionFlowDomain<'_, '_, C> {
                 }
             };
 
-            if !accesses.iter().any(|invalidated| {
-                self.storage.relationship(*invalidated, access)
-                    != bray_bound_tree::StorageRelationship::Disjoint
-            }) {
+            if !invalidation.invalidates(access, self.storage) {
                 continue;
             }
 
             let Some(reference) = crate::execution_guarantees::storage_binding_reference(*target)
             else {
+                continue;
+            };
+
+            let StorageInvalidation::Accesses(accesses) = invalidation else {
+                state
+                    .current
+                    .insert(reference.into(), ExecutionCondition::Unknown);
+
                 continue;
             };
 

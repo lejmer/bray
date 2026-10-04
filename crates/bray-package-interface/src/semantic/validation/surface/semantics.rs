@@ -207,12 +207,10 @@ impl InterfaceSemantics {
                     let variant = local_symbol(&tag.variant)?;
 
                     if validate_symbol_kind(&tag.variant, surface)? != SymbolKind::UnionVariant
-                        || !surface.relationships().iter().any(|relationship| {
-                            relationship.kind()
-                                == bray_symbols::SymbolRelationshipKind::UnionVariant
-                                && relationship.owner() == owner
-                                && relationship.member() == variant
-                        })
+                        || !surface
+                            .relationships_for(owner, bray_symbols::SymbolRelationshipKind::UnionVariant)
+                            .iter()
+                            .any(|relationship| relationship.member() == variant)
                     {
                         return Err(crate::semantic::codec::invalid_value(
                             crate::InterfaceValidationField::Reference,
@@ -247,12 +245,10 @@ impl InterfaceSemantics {
 
                     if validate_symbol_kind(dependency, surface)?
                         != SymbolKind::GenericTypeParameter
-                        || !surface.relationships().iter().any(|relationship| {
-                            relationship.kind()
-                                == bray_symbols::SymbolRelationshipKind::GenericParameter
-                                && relationship.owner() == owner
-                                && relationship.member() == parameter
-                        })
+                        || !surface
+                            .relationships_for(owner, bray_symbols::SymbolRelationshipKind::GenericParameter)
+                            .iter()
+                            .any(|relationship| relationship.member() == parameter)
                     {
                         return Err(crate::semantic::codec::invalid_value(
                             crate::InterfaceValidationField::Reference,
@@ -494,11 +490,10 @@ fn validate_storage_member(
     let member_id = local_symbol(member)?;
 
     if validate_symbol_kind(member, surface)? != expected_kind
-        || !surface.relationships().iter().any(|relationship| {
-            relationship.kind() == relationship_kind
-                && relationship.owner() == owner
-                && relationship.member() == member_id
-        })
+        || !surface
+            .relationships_for(owner, relationship_kind)
+            .iter()
+            .any(|relationship| relationship.member() == member_id)
     {
         return Err(crate::semantic::codec::invalid_value(
             crate::InterfaceValidationField::Reference,
