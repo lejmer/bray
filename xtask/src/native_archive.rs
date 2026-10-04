@@ -447,7 +447,7 @@ fn native_tools(target: NativeTarget) -> NativeTools {
     }
 }
 
-fn target_environment(prefix: &str, target: NativeTarget) -> String {
+pub(crate) fn target_environment(prefix: &str, target: NativeTarget) -> String {
     format!("{prefix}_{}", target.as_str().replace('-', "_"))
 }
 

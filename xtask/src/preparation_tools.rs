@@ -8,7 +8,7 @@ use bray_diagnostics::DiagnosticLlvmToolRole;
 use bray_target::NativeTarget;
 use sha2::{Digest as _, Sha256};
 
-use crate::native_archive::{NativeCompilation, configure_c_toolchain};
+use crate::native_archive::{NativeCompilation, configure_c_toolchain, target_environment};
 
 pub(crate) const PROVIDER_IDENTITY_ENVIRONMENT: &str = "BRAY_NATIVE_TOOLCHAIN_IDENTITY";
 
@@ -98,6 +98,24 @@ fn provider_paths(
     for (key, value) in command.get_envs() {
         if let Some(value) = value {
             build.env(key, value);
+        }
+    }
+
+    // cc's env setter affects child processes, not its CXX/AR selection. A raw-target
+    // environment variable has precedence over the normalized override in Cargo too.
+    for prefix in ["CXX", "AR"] {
+        if env::var_os(format!("{prefix}_{}", target.as_str())).is_some() {
+            continue;
+        }
+
+        let name = target_environment(prefix, target);
+
+        if let Some((_, Some(value))) = command.get_envs().find(|(key, _)| *key == OsStr::new(&name)) {
+            if prefix == "CXX" {
+                build.compiler(value);
+            } else {
+                build.archiver(value);
+            }
         }
     }
 
@@ -209,6 +227,96 @@ mod tests {
     use std::fs;
 
     use super::{digest_paths, resolve_in_path};
+
+    #[cfg(unix)]
+    #[test]
+    fn configured_provider_tools_override_ambient_selection() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let directory = tempfile::tempdir().expect("provider tools");
+        let bin = directory.path().join("bin");
+
+        fs::create_dir(&bin).expect("tool directory");
+
+        for name in ["clang++", "clang-cl", "alternative-clang++", "llvm-ar", "llvm-lib"] {
+            let path = bin.join(name);
+
+            fs::write(&path, b"#!/bin/sh\necho __clang__\n# version-a\n").expect("selected tool");
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).expect("executable");
+        }
+
+        for raw_overrides in [false, true] {
+            let mut command = std::process::Command::new(std::env::current_exe().expect("test executable"));
+
+            command.args(["--exact", "preparation_tools::tests::configured_provider_tools_child", "--ignored"])
+                .env("BRAY_LLVM_PREFIX", directory.path())
+                .env("CXX", directory.path().join("unrelated-compiler"))
+                .env("AR", directory.path().join("unrelated-archiver"));
+
+            for target in [bray_target::NativeTarget::current().expect("host"), bray_target::NativeTarget::X86_64WindowsMsvc] {
+                for prefix in ["CXX", "AR"] {
+                    let raw = format!("{prefix}_{}", target.as_str());
+
+                    command.env_remove(crate::native_archive::target_environment(prefix, target));
+
+                    if raw_overrides {
+                        let name = if prefix == "CXX" { "alternative-clang++" } else { "llvm-ar" };
+
+                        command.env(raw, bin.join(name));
+                    } else {
+                        command.env_remove(raw);
+                    }
+                }
+            }
+
+            let output = command.output().expect("resolver process");
+
+            assert!(output.status.success(), "{}\n{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[ignore = "invoked in a subprocess with isolated tool-selection environment"]
+    fn configured_provider_tools_child() {
+        use crate::native_archive::NativeCompilation;
+
+        let root = std::path::PathBuf::from(std::env::var_os("BRAY_LLVM_PREFIX").expect("selected tools"));
+        let bin = root.join("bin");
+
+        for (target, compilation, compiler, archiver) in [
+            (bray_target::NativeTarget::current().expect("host"), NativeCompilation::ThinLto, "clang++", "llvm-ar"),
+            (bray_target::NativeTarget::X86_64WindowsMsvc, NativeCompilation::Object, "clang-cl", "llvm-lib"),
+        ] {
+            let compiler = std::env::var_os(format!("CXX_{}", target.as_str()))
+                .map(std::path::PathBuf::from).unwrap_or_else(|| bin.join(compiler));
+
+            let archiver = std::env::var_os(format!("AR_{}", target.as_str()))
+                .map(std::path::PathBuf::from).unwrap_or_else(|| bin.join(archiver));
+
+            let paths = super::provider_paths(&root, target, compilation).expect("configured resolver");
+
+            assert!(paths.contains(&compiler), "selected compiler: {paths:?}");
+            assert!(paths.contains(&archiver), "selected archiver: {paths:?}");
+
+            let modified = compiler.metadata().expect("compiler metadata").modified().expect("mtime");
+            let before = super::provider_digest(&root, target, compilation).expect("provider identity");
+            let content = fs::read_to_string(&compiler).expect("compiler");
+
+            let replacement = if content.contains("version-a") {
+                content.replace("version-a", "version-b")
+            } else {
+                content.replace("version-b", "version-a")
+            };
+
+            fs::write(&compiler, replacement).expect("replacement");
+
+            fs::File::options().write(true).open(&compiler).expect("compiler file")
+                .set_modified(modified).expect("restore mtime");
+
+            assert_ne!(before, super::provider_digest(&root, target, compilation).expect("replacement identity"));
+        }
+    }
 
     #[test]
     fn replacement_at_same_path_invalidates_even_with_identical_size_and_mtime() {
