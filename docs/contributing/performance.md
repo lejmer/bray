@@ -85,7 +85,7 @@ failures and observed dynamic dependencies, disable candidate winner highlightin
 as observations rather than accepted conformance. The command exits unsuccessfully if either compared report fails
 conformance. Malformed or incomplete measurements, invalid provenance, and incompatible comparison identities remain
 hard errors and never produce a comparison. Structurally invalid candidates are preserved only as
-`candidate-unvalidated.json`. Report schema revision 2 carries the conformance failures with the measurements.
+`candidate-unvalidated.json`. Reports carry the conformance failures with the measurements.
 
 Linux application runtime dependencies are static for Bray, Rust, and C++. Provider metadata selects the C++ runtime
 archive and static GCC unwinder, and native product planning preserves those static requirements through linking.

@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-pub(super) const SCHEMA_REVISION: u32 = 2;
+pub(super) const SCHEMA_REVISION: u32 = 1;
 pub(super) const MAX_SAMPLE_COUNT: u32 = 10_000;
 pub(super) const MAX_SECTION_COUNT: usize = 512;
 pub(super) const MAX_RETAINED_INPUT_COUNT: usize = 4_096;
