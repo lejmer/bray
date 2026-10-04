@@ -1,3 +1,4 @@
+mod abi;
 mod constant;
 mod debug;
 mod demand;
@@ -9,6 +10,7 @@ mod static_storage;
 mod symbol;
 mod ty;
 
+pub use abi::{CodegenAbiPiece, CodegenAbiScalar, CodegenAggregateCoercion};
 pub use constant::{CodegenConstantMapping, CodegenConstantTermMapping};
 pub use debug::{CodegenDebugLocation, CodegenSourceFile};
 pub use demand::{ConstantDemands, child_constants, demanded_constant_terms, demanded_constants};

@@ -205,7 +205,17 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         for (parameter, argument) in signature.parameters().iter().zip(semantic_arguments) {
             match parameter {
                 CodegenParameterMapping::Ignore => {}
-                CodegenParameterMapping::Direct { .. } => arguments.push((*argument).into()),
+                CodegenParameterMapping::Direct { coercion, .. } => {
+                    if let Some(coercion) = coercion {
+                        arguments.extend(
+                            self.encode_abi_pieces(*argument, coercion)?
+                                .into_iter()
+                                .map(BasicMetadataValueEnum::from),
+                        );
+                    } else {
+                        arguments.push((*argument).into());
+                    }
+                }
                 CodegenParameterMapping::Indirect {
                     pointee, alignment, ..
                 } => {
@@ -246,11 +256,17 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
         match signature.result() {
             CodegenResultMapping::Void => Ok(None),
-            CodegenResultMapping::Direct { .. } => Ok(call
-                .try_as_basic_value()
-                .basic()
-                .map(Some)
-                .expect("direct calls must produce a basic value")),
+            CodegenResultMapping::Direct { ty, coercion, .. } => {
+                let value = call
+                    .try_as_basic_value()
+                    .basic()
+                    .expect("direct calls must produce a basic value");
+
+                match coercion {
+                    Some(coercion) => self.decode_abi_result(value, *ty, coercion).map(Some),
+                    None => Ok(Some(value)),
+                }
+            }
             CodegenResultMapping::Indirect { .. } => {
                 let Some((storage, pointee)) = result_storage else {
                     panic!(

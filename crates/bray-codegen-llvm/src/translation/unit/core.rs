@@ -727,7 +727,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
             match mapping {
                 CodegenParameterMapping::Ignore => {}
-                CodegenParameterMapping::Direct { .. } => {
+                CodegenParameterMapping::Direct { ty, coercion, .. } => {
                     let value = self
                         .function
                         .get_nth_param(crate::conversion::resource_limit(
@@ -737,6 +737,24 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         .expect("checked MIR translation requires an established mapping or value");
 
                     if let Some(storage) = storage {
+                        let value = if let Some(coercion) = coercion {
+                            let values = (0..coercion.pieces().len())
+                                .map(|index| {
+                                    Ok(self
+                                        .function
+                                        .get_nth_param(crate::conversion::resource_limit(
+                                            llvm_index + index,
+                                            "ABI parameter index",
+                                        )?)
+                                        .expect("ABI parameters match their classified signature"))
+                                })
+                                .collect::<Result<Vec<_>, _>>()?;
+
+                            self.decode_abi_pieces(*ty, coercion, &values)?
+                        } else {
+                            value
+                        };
+
                         if matches!(
                             self.unit.storage(storage).map(bray_ir::MirStorage::kind),
                             Some(MirStorageKind::BorrowedParameter(_))
@@ -753,7 +771,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         }
                     }
 
-                    llvm_index += 1;
+                    llvm_index += mapping.machine_value_count();
                 }
                 CodegenParameterMapping::Indirect { pointee, .. } => {
                     let source = self

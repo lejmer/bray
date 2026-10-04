@@ -492,6 +492,7 @@ trusted func main() -> i32
 {
     trusted audit_target_handle();
     trusted audit_record_calls();
+    __TARGET_AGGREGATE_ABI_AUDIT__
     trusted audit_strings();
     trusted audit_resources();
     trusted audit_callbacks();

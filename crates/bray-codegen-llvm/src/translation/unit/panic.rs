@@ -284,8 +284,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             CodegenResultMapping::Void => {
                 llvm(builder.build_return(None))?;
             }
-            CodegenResultMapping::Direct { ty, .. } => {
-                let value = self.types.map(*ty)?.const_zero();
+            CodegenResultMapping::Direct { ty, coercion, .. } => {
+                let result = match coercion {
+                    Some(coercion) => self.types.coercion_result_type(coercion)?,
+                    None => self.types.map(*ty)?,
+                };
+
+                let value = result.const_zero();
 
                 llvm(builder.build_return(Some(&value)))?;
             }

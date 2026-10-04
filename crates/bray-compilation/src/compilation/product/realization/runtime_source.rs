@@ -88,6 +88,7 @@ pub(super) fn runtime_source_signature_matches(
     for (parameter, expected) in signature.parameters().iter().zip(parameters) {
         let CodegenParameterMapping::Direct {
             ty,
+            coercion: None,
             extension: None,
             attributes,
         } = parameter
@@ -109,6 +110,7 @@ pub(super) fn runtime_source_signature_matches(
 
     let CodegenResultMapping::Direct {
         ty,
+        coercion: None,
         extension: None,
         attributes,
     } = signature.result()

@@ -1,3 +1,4 @@
+mod abi;
 mod aggregate;
 mod contextual_self;
 mod debug;

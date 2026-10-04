@@ -317,7 +317,10 @@ fn apply_signature_attributes(
         }
 
         parameter_index = parameter_index
-            .checked_add(1)
+            .checked_add(crate::conversion::resource_limit(
+                parameter.machine_value_count(),
+                "ABI parameter count",
+            )?)
             .ok_or(CodegenFailure::UnsupportedTarget)?;
     }
 
@@ -396,7 +399,10 @@ pub(crate) fn apply_signature_call_attributes(
         }
 
         parameter_index = parameter_index
-            .checked_add(1)
+            .checked_add(crate::conversion::resource_limit(
+                parameter.machine_value_count(),
+                "ABI parameter count",
+            )?)
             .ok_or(CodegenFailure::UnsupportedTarget)?;
     }
 
