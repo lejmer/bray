@@ -131,6 +131,12 @@ fn provider_paths(
         PathBuf::from(archiver.get_program()),
     ];
 
+    // Cargo invokes this wrapper for the Rust provider, and cc also uses compatible
+    // wrappers for C++. Explicit compiler selection bypasses cc's wrapper fallback.
+    if let Some(wrapper) = env::var_os("RUSTC_WRAPPER").filter(|wrapper| !wrapper.is_empty()) {
+        paths.push(PathBuf::from(wrapper));
+    }
+
     if compiler.is_like_gnu() {
         for name in ["cc1plus", "as"] {
             let output = compiler.to_command().arg(format!("-print-prog-name={name}"))
@@ -238,7 +244,7 @@ mod tests {
 
         fs::create_dir(&bin).expect("tool directory");
 
-        for name in ["clang++", "clang-cl", "alternative-clang++", "llvm-ar", "llvm-lib"] {
+        for name in ["clang++", "clang-cl", "alternative-clang++", "llvm-ar", "llvm-lib", "sccache"] {
             let path = bin.join(name);
 
             fs::write(&path, b"#!/bin/sh\necho __clang__\n# version-a\n").expect("selected tool");
@@ -250,6 +256,7 @@ mod tests {
 
             command.args(["--exact", "preparation_tools::tests::configured_provider_tools_child", "--ignored"])
                 .env("BRAY_LLVM_PREFIX", directory.path())
+                .env("RUSTC_WRAPPER", bin.join("sccache"))
                 .env("CXX", directory.path().join("unrelated-compiler"))
                 .env("AR", directory.path().join("unrelated-archiver"));
 
@@ -298,23 +305,26 @@ mod tests {
 
             assert!(paths.contains(&compiler), "selected compiler: {paths:?}");
             assert!(paths.contains(&archiver), "selected archiver: {paths:?}");
+            assert!(paths.contains(&bin.join("sccache")), "selected wrapper: {paths:?}");
 
-            let modified = compiler.metadata().expect("compiler metadata").modified().expect("mtime");
-            let before = super::provider_digest(&root, target, compilation).expect("provider identity");
-            let content = fs::read_to_string(&compiler).expect("compiler");
+            for tool in [&compiler, &bin.join("sccache")] {
+                let modified = tool.metadata().expect("tool metadata").modified().expect("mtime");
+                let before = super::provider_digest(&root, target, compilation).expect("provider identity");
+                let content = fs::read_to_string(tool).expect("tool");
 
-            let replacement = if content.contains("version-a") {
-                content.replace("version-a", "version-b")
-            } else {
-                content.replace("version-b", "version-a")
-            };
+                let replacement = if content.contains("version-a") {
+                    content.replace("version-a", "version-b")
+                } else {
+                    content.replace("version-b", "version-a")
+                };
 
-            fs::write(&compiler, replacement).expect("replacement");
+                fs::write(tool, replacement).expect("replacement");
 
-            fs::File::options().write(true).open(&compiler).expect("compiler file")
-                .set_modified(modified).expect("restore mtime");
+                fs::File::options().write(true).open(tool).expect("tool file")
+                    .set_modified(modified).expect("restore mtime");
 
-            assert_ne!(before, super::provider_digest(&root, target, compilation).expect("replacement identity"));
+                assert_ne!(before, super::provider_digest(&root, target, compilation).expect("replacement identity"));
+            }
         }
     }
 
